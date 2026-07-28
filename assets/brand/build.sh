@@ -54,6 +54,10 @@ for s in 1024 512 256 128 64 48 32 16; do
   shot moxxy-mark-dark.svg "$s" "$s" "png/moxxy-mark-dark-$s.png"
 done
 shot moxxy-mark-mono.svg 1024 1024 png/moxxy-mark-mono-1024.png
+# Menu-bar sizes. macOS tints a template image itself, so the tray ships the
+# one-colour mark at 22px plus its @2x pair (apps/desktop/public/trayTemplate*).
+shot moxxy-mark-mono.svg 22 22 png/moxxy-mark-mono-22.png
+shot moxxy-mark-mono.svg 44 44 png/moxxy-mark-mono-44.png
 shot moxxy-mark-signal.svg 512 512 png/moxxy-mark-signal-512.png
 shot moxxy-mark-gradient.svg 1024 1024 png/moxxy-mark-gradient-1024.png
 shot moxxy-mark-gradient.svg 256 256 png/moxxy-mark-gradient-256.png

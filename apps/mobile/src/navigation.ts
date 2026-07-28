@@ -157,7 +157,7 @@ export function buildWorkspaceMenuSections(
       id: stringOf(workspace.id, `workspace-${index}`),
       title: stringOf(workspace.name, stringOf(workspace.title, `Workspace ${index + 1}`)),
       subtitle: stringOf(workspace.cwd, ''),
-      color: stringOf(workspace.color, '#ec4899'),
+      color: stringOf(workspace.color, '#ff4a1e'),
       sessions: [] as WorkspaceMenuSession[],
     }));
   const byWorkspace = new Map<string, {

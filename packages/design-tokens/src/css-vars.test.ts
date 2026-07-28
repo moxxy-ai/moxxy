@@ -54,20 +54,27 @@ describe('generateRootCss', () => {
   it('keeps the brand tokens parity with styles.css values', () => {
     const css = generateRootCss();
     // Spot-check the load-bearing brand declarations against the desktop CSS.
-    expect(css).toContain('--color-primary: #2f5d8f;');
-    expect(css).toContain('--color-app-bg: #f1f2f9;');
-    expect(css).toContain('--color-main-bg: rgb(252, 252, 255);');
+    // Ink (#0B0D12) comes from assets/brand/README.md, and the primary is
+    // Signal's deep stop (flat Signal cannot carry a white label). If one of
+    // these changes here without styles.css following, the desktop and the
+    // mobile tailwind config have silently diverged from the brand.
+    expect(css).toContain('--color-primary: #c4310f;');
+    expect(css).toContain('--color-text: #0b0d12;');
+    expect(css).toContain('--color-app-bg: #f4f4f7;');
+    expect(css).toContain('--color-main-bg: #ffffff;');
     expect(css).toContain('--color-surface: #ffffff;');
     expect(css).toContain(
-      '--color-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);',
+      '--color-card-shadow: 0 1px 2px rgba(11, 13, 18, 0.04), 0 10px 24px -18px rgba(11, 13, 18, 0.10);',
     );
-    expect(css).toContain('--grad-cta: linear-gradient(135deg, #2f5d8f 0%, #24486e 100%);');
-    expect(css).toContain('--radius-card: 14px;');
+    expect(css).toContain(
+      '--grad-cta: linear-gradient(135deg, #d13d14 0%, #c4310f 55%, #9c2409 100%);',
+    );
+    expect(css).toContain('--radius-card: 10px;');
   });
 
   it('renders radii as numbers with a px unit (RN keeps the bare number)', () => {
-    expect(tokens.radius.card).toBe(14);
-    expect(generateRootCss()).toContain('--radius-card: 14px;');
+    expect(tokens.radius.card).toBe(10);
+    expect(generateRootCss()).toContain('--radius-card: 10px;');
   });
 });
 

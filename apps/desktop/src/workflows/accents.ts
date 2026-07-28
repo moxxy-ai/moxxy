@@ -3,7 +3,11 @@ import type { StepKindMeta } from '@moxxy/workflows-builder';
 /**
  * Map the shared model's semantic accent names to concrete desktop colors.
  * The shared package stays platform-neutral (it only names a color); each UI
- * resolves the name to its own palette. Falls back to the brand pink.
+ * resolves the name to its own palette.
+ *
+ * These stay a CATEGORICAL set: a workflow step kind is identified by its hue,
+ * so they must remain mutually distinguishable rather than collapse into the
+ * brand's single accent. Only the fallback is Signal.
  */
 const ACCENT_HEX: Record<StepKindMeta['accent'], string> = {
   blue: '#3b82f6',
@@ -17,5 +21,5 @@ const ACCENT_HEX: Record<StepKindMeta['accent'], string> = {
 };
 
 export function accentHex(accent: StepKindMeta['accent']): string {
-  return ACCENT_HEX[accent] ?? '#ec4899';
+  return ACCENT_HEX[accent] ?? '#c4310f';
 }

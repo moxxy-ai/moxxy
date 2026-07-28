@@ -1,5 +1,59 @@
 # @moxxy/desktop
 
+## 0.33.0
+
+### Minor Changes
+
+- 5164d4b: Retune the desktop and mobile palette to the woven brand.
+
+  The muted blue the palette landed on carries nothing of the mark: the brand is
+  Ink (`#0B0D12`) plus Signal (`#FF4A1E`) on paper, so every accent in the app
+  read cool around a warm mark.
+
+  `@moxxy/design-tokens` is the source of truth for the desktop CSS variables and
+  the mobile Tailwind config, so the change lands in one place and reaches every
+  component that reads a variable. Signal becomes the primary, send and focus
+  colour; the secondary moves into Signal's family; the canvas goes neutral so
+  nothing fights Signal's warmth; and the text ramp becomes Ink.
+
+  Interactive fills take Signal's DEEP stop (`#C4310F`), not the flat mark
+  colour: white on flat Signal is 3.36:1, and a CTA label is the one place that
+  cannot be borderline. Flat Signal lives on as the mark, the focus ring and the
+  soft washes. On dark it lifts again, to `#FF6A44`, for the same reason the mark
+  ships a `-dark` variant rather than being recoloured by CSS. The contrast suite
+  covers both themes.
+
+  Categorical and semantic hues are deliberately left alone. A workflow step kind
+  is identified by its hue and green/amber/red mean success/attention/error, so
+  collapsing them into the brand's single accent would destroy information. Only
+  the fallback moves to Signal.
+
+  Headings now take Space Grotesk, echoing the wordmark's geometric
+  construction. It joins the Google Fonts request Inter already makes, and the
+  stack falls back to Inter, so an offline launch looks exactly as it does today.
+
+  Also swept: the standalone focus window carried a second copy of the palette,
+  and a handful of components had the old hexes inline, including the pink glows
+  and plan badges the previous retone left behind. The voice spectrogram keeps
+  its blue-violet-pink ramp: that is a data gradient, not a brand accent.
+
+- 34cca59: Chat: a user turn now reads left-to-right like every other block, with an
+  avatar, a "You" label and an accent left rule instead of right-aligned text.
+  Right alignment only said whose turn it was while the turn was short: a pasted
+  prompt wrapped into a ragged-left column the eye had to re-find on every line.
+
+  Tray: the macOS menu bar gets the one-colour mark as a template image at 22px
+  and @2x, so AppKit tints it for the light and dark bar and for the menu-open
+  state. Windows and Linux keep the colour icon, since their tray chrome is not
+  ours to tint against.
+
+### Patch Changes
+
+- Updated dependencies [5164d4b]
+- Updated dependencies [34cca59]
+  - @moxxy/design-tokens@0.3.0
+  - @moxxy/desktop-ui@0.2.0
+
 ## 0.32.1
 
 ### Patch Changes

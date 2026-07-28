@@ -388,14 +388,22 @@ async function createWindow(): Promise<void> {
   // Tray menu — toggle the widget, restore the main window, quit.
   if (!trayInstance) {
     try {
+      // The macOS menu bar wants a monochrome template image: AppKit tints it
+      // for the light / dark bar and for the highlighted (menu-open) state, so
+      // the mark stays legible on every wallpaper. The one-colour mark carries
+      // the weave as gaps, so it survives being flattened to a single ink; the
+      // colour icon does not (see below). Windows / Linux trays sit on chrome
+      // we don't control, where a single-ink glyph can vanish, so they keep
+      // the colour icon.
+      const trayIconFile = process.platform === 'darwin' ? 'trayTemplate.png' : 'logo.png';
       // Try several candidate paths because the prod / dev build
       // layouts differ — log which one wins (or report all-empty)
       // so future icon regressions are noisy instead of silent.
       const trayIconCandidates = [
-        path.join(__dirname, '..', '..', '..', 'public', 'logo.png'),
-        path.join(__dirname, '..', '..', 'dist', 'logo.png'),
-        path.join(process.resourcesPath ?? '', 'public', 'logo.png'),
-        path.join(process.resourcesPath ?? '', 'logo.png'),
+        path.join(__dirname, '..', '..', 'public', trayIconFile),
+        path.join(__dirname, '..', '..', 'dist', trayIconFile),
+        path.join(process.resourcesPath ?? '', 'public', trayIconFile),
+        path.join(process.resourcesPath ?? '', trayIconFile),
       ];
       let raw = nativeImage.createEmpty();
       let resolvedPath = '';
@@ -413,14 +421,17 @@ async function createWindow(): Promise<void> {
           ? `[moxxy] tray: NO icon found, fell back to text label. Tried: ${trayIconCandidates.join(', ')}`
           : `[moxxy] tray: icon loaded from ${resolvedPath}`,
       );
-      const icon = raw.isEmpty()
-        ? nativeImage.createEmpty()
-        : raw.resize({ width: 22, height: 22, quality: 'best' });
-      // Do NOT setTemplateImage on a colored avatar — the alpha is
-      // a near-solid rectangle, which AppKit tints to a featureless
-      // blob (or, on some versions, drops to invisible). Render the
-      // image as-is; a 18×18 coloured avatar is recognisable on the
-      // menu bar.
+      // The template PNG already ships at menu-bar size (22px, plus the @2x
+      // representation createFromPath picks up alongside it); resizing it
+      // would flatten that pair back to a single blurry raster.
+      const icon =
+        raw.isEmpty() || process.platform === 'darwin'
+          ? raw
+          : raw.resize({ width: 22, height: 22, quality: 'best' });
+      // Only the one-colour mark may be a template image. Do NOT set it on the
+      // colour icon: its alpha is a near-solid rectangle, which AppKit tints
+      // to a featureless blob (or, on some versions, drops to invisible).
+      if (process.platform === 'darwin' && !icon.isEmpty()) icon.setTemplateImage(true);
       trayInstance = new Tray(icon);
       // Fallback title — if the icon couldn't be loaded, at least
       // something is visible in the menu bar (template-image

@@ -977,10 +977,18 @@ or recorded-on-purpose decision.
 
 ## Brand & design tokens
 
-- [med, logged 2026-07-27] The mark and the product palette disagree. The logo
-  ships Signal `#FF4A1E` (`assets/brand/`), while `packages/design-tokens` still
-  exports the previous pink `#ec4899` as `primary`, so every accent in desktop
-  and mobile reads pink around an orange mark — most visibly the primary-tinted
+- [low, logged 2026-07-28] `gradient.user` / `--grad-user` is now a dead token:
+  the user turn dropped the gradient bubble (#492) and then moved to an accent
+  rule, so nothing reads it. It is still declared in `packages/design-tokens/src/index.ts`
+  (plus the override tables in `css-vars.ts` and its test) and mirrored in
+  `apps/desktop/src/styles.css` (x2) and `apps/desktop/src/focus/focus-styles.ts`
+  (x3, still carrying the pre-#478 pink hexes). Retiring it means deleting the
+  leaf and all six mirrors together, since the parity test holds them in lockstep.
+- [med, logged 2026-07-27, refreshed 2026-07-28] The mark and the product palette
+  disagree. The logo ships Signal `#FF4A1E` (`assets/brand/`), while
+  `packages/design-tokens` exports a muted blue `#2f5d8f` as `primary` (it was
+  pink `#ec4899` when this was logged; #478 retoned it, but not toward the mark),
+  so every accent in desktop and mobile reads blue around an orange mark — most visibly the primary-tinted
   disc the mark sits inside on mobile onboarding and the empty chat state.
   Retiring this means repalletting the token set (`packages/design-tokens/src/index.ts`
   plus the mirrored literals in `apps/desktop/src/styles.css`, which the parity

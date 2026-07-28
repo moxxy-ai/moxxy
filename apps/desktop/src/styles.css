@@ -6,49 +6,56 @@
  */
 
 :root {
-  /* App canvas — cool lavender to match the landing site's hero. */
-  --color-app-bg:        #f1f2f9;
-  /* Main chat column — near-white with a faint cool tint, a hair off
-   * pure white so the column reads as separate from any adjacent white
-   * surface without being grey. */
-  --color-main-bg:       rgb(252, 252, 255);
+  /* App canvas — neutral paper. The brand ground is white, and a tinted
+   * canvas fights Signal's warmth. */
+  --color-app-bg:        #f4f4f7;
+  /* Main chat column — pure paper, so the column reads as the sheet and the
+   * canvas around it as the desk. */
+  --color-main-bg:       #ffffff;
   /* Resting surface for buttons / chips / inputs that sit ON a card or
    * column (the things that used to be hard-coded `#fff`). */
   --color-surface:       #ffffff;
-  /* Recessed "soft" input fill — a cool near-white a step below the
-   * surface, used by TextInput/TextArea tone='soft' and modal fields. */
-  --color-input-soft:    #f7f8fc;
+  /* Recessed "soft" input fill — a step below the surface, used by
+   * TextInput/TextArea tone='soft' and modal fields. */
+  --color-input-soft:    #f4f4f7;
   --color-card-bg:       #ffffff;
-  --color-card-border:   #e3e5f0;
-  --color-card-border-strong: #cdd1e3;
-  --color-card-shadow:   0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);
+  --color-card-border:   #e4e4ea;
+  --color-card-border-strong: #d3d4dc;
+  --color-card-shadow:   0 1px 2px rgba(11, 13, 18, 0.04), 0 10px 24px -18px rgba(11, 13, 18, 0.10);
 
-  /* Text — same high-contrast navy as the landing headlines. */
-  --color-text:          #0f172a;
-  --color-text-muted:    #475569;
-  --color-text-dim:      #7f8da4;
+  /* Ink, straight from assets/brand/README.md. */
+  --color-text:          #0b0d12;
+  --color-text-muted:    #55596b;
+  --color-text-dim:      #8a8f9f;
 
-  /* Sidebar — pure white. The chat column sits a hair off-white
-   * (rgb(252,252,255)) so the columns still register as separate
-   * against each other and against the lavender canvas. */
+  /* Sidebar — paper, with the canvas a step down so the columns still
+   * register as separate surfaces against each other. */
   --color-sidebar-bg:        #ffffff;
-  --color-sidebar-bg-hover:  #f4f5fb;
-  --color-sidebar-bg-active: #eef2f7;   /* cool wash for the active row */
-  --color-sidebar-text:      #0f172a;
-  --color-sidebar-text-dim:  #6b7194;
-  --color-sidebar-border:    #e3e5f0;
+  --color-sidebar-bg-hover:  #f4f4f7;
+  --color-sidebar-bg-active: #fff1ec;   /* Signal wash for the active row */
+  --color-sidebar-text:      #0b0d12;
+  --color-sidebar-text-dim:  #6e7383;
+  --color-sidebar-border:    #e4e4ea;
 
-  /* Accents — pink primary (CTA), cyan secondary, emerald success. */
-  --color-primary:        #2f5d8f;   /* deep muted blue: CTAs, send, focus ring */
-  --color-primary-strong: #24486e;
-  --color-primary-soft:   #eef2f7;
-  --color-send:           #2f5d8f;   /* CTA and send share the primary */
-  --color-accent:         #3f7f92;   /* desaturated teal: the secondary gradient stop */
-  --color-accent-strong:  #2f6577;
+  /* Signal — one accent, used only where the eye is meant to go. Interactive
+   * fills take the deep stop: flat Signal carries a white label at 3.36:1, and
+   * a CTA is the one place that cannot be borderline. The flat mark colour
+   * lives on as the mark itself and as the focus ring. */
+  --color-primary:        #c4310f;   /* CTAs, send button, focus */
+  --color-primary-strong: #9c2409;
+  --color-primary-soft:   #fff1ec;
+  --color-send:           #c4310f;
+  /* The secondary stays in Signal's family rather than introducing the cyan
+   * the old palette paired with pink. */
+  --color-accent:         #e2551f;
+  --color-accent-strong:  #c4310f;
+  /* Categorical and semantic hues are information, not brand: a workflow step
+   * kind is identified by its hue, green/amber/red mean success/attention/
+   * error. They keep their toned values; only the pink alias follows Signal. */
   --color-purple:         #6b6f9c;
   --color-green:          #2f855a;
   --color-amber:          #b7791f;
-  --color-pink:           #2f5d8f;
+  --color-pink:           #c4310f;
   --color-red:            #c53030;
   --color-purple-strong:  #4f5480;   /* readable violet for text on the purple tints */
 
@@ -66,7 +73,7 @@
   --color-diff-add-text: #15803d;
   --color-diff-del-bg:   #fdecee;
   --color-diff-del-text: #b91c1c;
-  --color-diff-gutter:   #94a3b8;
+  --color-diff-gutter:   #8a8f9f;
   /* Onboarding SuccessRow chip — a stronger green-100/200/800 set. */
   --color-success-soft:        #dcfce7;
   --color-success-soft-border: #bbf7d0;
@@ -76,18 +83,21 @@
   --color-amber-border: #fde68a;
   --color-amber-text:   #b45309;
   /* Inline-code background in rendered Markdown. */
-  --color-code-bg:      #f1f3fb;
+  --color-code-bg:      #f2f2f5;
 
-  /* Brand gradients */
-  --grad-user:    linear-gradient(135deg, #2f5d8f 0%, #4a7bb0 100%);
-  --grad-cta:     linear-gradient(135deg, #2f5d8f 0%, #24486e 100%);
-  --grad-accent:  linear-gradient(135deg, #4a7bb0 0%, #3f7f92 100%);
+  /* Brand gradients — all in Signal's family, and a CTA gradient carries a
+   * white label too, so it stays inside the deep stops. */
+  --grad-user:    linear-gradient(135deg, #c4310f 0%, #e2551f 100%);
+  --grad-cta:     linear-gradient(135deg, #d13d14 0%, #c4310f 55%, #9c2409 100%);
+  --grad-accent:  linear-gradient(135deg, #e2551f 0%, #c4310f 100%);
 
-  /* Typography */
+  /* Typography — Space Grotesk carries headings, echoing the wordmark's
+   * geometric construction. */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --radius-block: 8px;
-  --radius-card:  14px;
+  --radius-block: 6px;
+  --radius-card:  10px;
   --radius-pill:  9999px;
 
   color-scheme: light;
@@ -102,9 +112,9 @@
 :root {
   --color-bg:              var(--color-app-bg);
   --color-bg-card:         var(--color-card-bg);
-  --color-bg-card-hover:   #f4f5fa;
+  --color-bg-card-hover:   #f7f7f9;
   --color-border:          var(--color-card-border);
-  --color-border-light:    #d8dbeb;
+  --color-border-light:    #d3d4dc;
 }
 
 /* --- Dark theme -------------------------------------------------
@@ -118,43 +128,45 @@
  * column < cards < surfaces in lightness, brand accents unchanged.
  */
 [data-theme="dark"] {
-  --color-app-bg:        #0b0c13;
-  --color-main-bg:       #101117;
-  --color-surface:       #1b1e2b;
+  /* Ink is the ground. */
+  --color-app-bg:        #08090d;
+  --color-main-bg:       #0b0d12;
+  --color-surface:       #1a1e28;
   /* Soft inputs recess BELOW the card they sit on (mirror of light's
    * near-white-on-white): between main column and card lightness. */
-  --color-input-soft:    #121420;
-  --color-card-bg:       #161823;
-  --color-card-border:   #262a3c;
-  --color-card-border-strong: #363c54;
+  --color-input-soft:    #0f1219;
+  --color-card-bg:       #12151d;
+  --color-card-border:   #232833;
+  --color-card-border-strong: #333947;
   --color-card-shadow:   0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -18px rgba(0, 0, 0, 0.7);
 
-  --color-text:          #e8eaf6;
-  --color-text-muted:    #a4abc8;
-  --color-text-dim:      #697091;
+  --color-text:          #edeef2;
+  --color-text-muted:    #9096a6;
+  --color-text-dim:      #6b7284;
 
-  /* Left rail deepens slightly below the canvas so the columns still
-   * register as separate surfaces in the dark. */
-  --color-sidebar-bg:        #0d0e16;
-  --color-sidebar-bg-hover:  #171927;
-  --color-sidebar-bg-active: #1b2430;   /* cool slate wash on dark */
-  --color-sidebar-text:      #e8eaf6;
-  --color-sidebar-text-dim:  #8b91b0;
-  --color-sidebar-border:    #1f2233;
+  /* Left rail deepens below the canvas so the columns still register as
+   * separate surfaces in the dark. */
+  --color-sidebar-bg:        #08090d;
+  --color-sidebar-bg-hover:  #14171f;
+  --color-sidebar-bg-active: #2e1409;   /* the Signal wash, at ink lightness */
+  --color-sidebar-text:      #edeef2;
+  --color-sidebar-text-dim:  #868da0;
+  --color-sidebar-border:    #1c202a;
 
-  /* Brand accents survive dark unchanged (re-declared so the parity
-   * test can assert full coverage), EXCEPT the near-white pink-50
-   * "soft" wash which flips to the dark plum. */
-  --color-primary:        #6f9ecf;
-  --color-primary-strong: #8fb6df;
-  --color-primary-soft:   #1b2430;
-  --color-send:           #6f9ecf;
-  --color-accent:         #78a9b8;
-  --color-accent-strong:  #8fbecb;
+  /* Signal LIFTS on ink: light's interactive stop is deep enough to carry
+   * white on paper, which is close to invisible here. The same reason the
+   * mark ships a -dark variant rather than being recoloured by CSS. */
+  --color-primary:        #ff6a44;
+  --color-primary-strong: #ff4a1e;
+  --color-primary-soft:   #2e1409;
+  --color-send:           #ff6a44;
+  --color-accent:         #ff9a5e;
+  --color-accent-strong:  #ff6a44;
+  /* Semantic and categorical hues keep their explicit dark counterparts. */
   --color-purple:         #9298c4;
   --color-green:          #5aa87c;
   --color-amber:          #c99a45;
-  --color-pink:           #6f9ecf;
+  --color-pink:           #ff6a44;
   --color-red:            #d97070;
   --color-purple-strong:  #aab0d6;   /* violet text lightens for contrast on dark tints */
 
@@ -169,7 +181,7 @@
   --color-diff-add-text: #86efac;
   --color-diff-del-bg:   #3a1620;
   --color-diff-del-text: #fca5a5;
-  --color-diff-gutter:   #697091;
+  --color-diff-gutter:   #6b7284;
   --color-success-soft:        #0e2a1c;
   --color-success-soft-border: #1c4532;
   --color-success-soft-text:   #7ce0a8;
@@ -178,15 +190,15 @@
   --color-amber-border: #5b430f;
   --color-amber-text:   #fbbf24;
   /* Inline code pops a step LIGHTER than the card it sits on. */
-  --color-code-bg:      #262b40;
+  --color-code-bg:      #232833;
 
-  --grad-user:    linear-gradient(135deg, #2f5d8f 0%, #4a7bb0 100%);
-  --grad-cta:     linear-gradient(135deg, #2f5d8f 0%, #24486e 100%);
-  --grad-accent:  linear-gradient(135deg, #4a7bb0 0%, #3f7f92 100%);
+  --grad-user:    linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%);
+  --grad-cta:     linear-gradient(135deg, #ff9a5e 0%, #ff6a44 55%, #ff4a1e 100%);
+  --grad-accent:  linear-gradient(135deg, #ff9a5e 0%, #ff6a44 100%);
 
   /* Legacy literal aliases — see the note above the alias block. */
-  --color-bg-card-hover:   #1d2030;
-  --color-border-light:    #2c3147;
+  --color-bg-card-hover:   #191d26;
+  --color-border-light:    #2b3140;
 
   color-scheme: dark;
 }
@@ -249,6 +261,15 @@ button:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
   border-radius: inherit;
+}
+
+/* Headings take the display face, which echoes the wordmark's geometric
+ * construction. The stack falls back to Inter, so an offline launch (the font
+ * is fetched, like Inter already is) looks like the app always has. */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
 }
 
 code, kbd, pre, .mono { font-family: var(--font-mono); }

@@ -110,58 +110,69 @@ export function UserBlock({
   return (
     <div
       data-testid="block-user"
+      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
+    >
+      <Avatar />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>You</span>
+        {hasAttachments && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+            {items.map((att, i) =>
+              att.kind === 'image' ? (
+                <ImageThumb
+                  key={`${att.name ?? 'img'}-${i}`}
+                  att={att}
+                  onPreviewImage={onPreviewImage}
+                />
+              ) : (
+                <FileChip key={`${att.name ?? att.kind}-${i}`} att={att} />
+              ),
+            )}
+          </div>
+        )}
+        {(text.length > 0 || !hasAttachments) && (
+          <div
+            style={{
+              // Right alignment says whose turn it is only while the turn is
+              // short. A pasted prompt wraps to a ragged-left column the eye
+              // has to re-find on every line, so the turn reads left-to-right
+              // like every other block and the accent rule carries the "who".
+              marginTop: 6,
+              padding: '10px 14px',
+              borderLeft: '2px solid var(--color-primary)',
+              borderRadius: '3px 12px 12px 3px',
+              background: 'color-mix(in srgb, var(--color-primary-soft) 55%, transparent)',
+              color: 'var(--color-text)',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.55,
+              fontSize: 14.5,
+            }}
+          >
+            {text}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Avatar(): JSX.Element {
+  return (
+    <span
+      aria-hidden
       style={{
-        alignSelf: 'flex-end',
-        maxWidth: '78%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-end',
-        gap: 6,
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        background: 'var(--color-primary)',
+        color: '#fff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
       }}
     >
-      {hasAttachments && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 6,
-            justifyContent: 'flex-end',
-            alignItems: 'flex-end',
-          }}
-        >
-          {items.map((att, i) =>
-            att.kind === 'image' ? (
-              <ImageThumb
-                key={`${att.name ?? 'img'}-${i}`}
-                att={att}
-                onPreviewImage={onPreviewImage}
-              />
-            ) : (
-              <FileChip key={`${att.name ?? att.kind}-${i}`} att={att} />
-            ),
-          )}
-        </div>
-      )}
-      {(text.length > 0 || !hasAttachments) && (
-        <div
-          style={{
-            // Just the text. The gradient bubble it replaces carried a solid
-            // base, a gradient, white ink, a text-shadow and a drop shadow, all
-            // to keep one short line readable against itself. Right alignment
-            // already says whose turn this is, so none of that chrome was
-            // paying for the noise it added.
-            padding: '2px 0',
-            color: 'var(--color-text)',
-            fontWeight: 500,
-            textAlign: 'right',
-            whiteSpace: 'pre-wrap',
-            lineHeight: 1.55,
-            fontSize: 14.5,
-          }}
-        >
-          {text}
-        </div>
-      )}
-    </div>
+      <Icon name="user" size={18} />
+    </span>
   );
 }

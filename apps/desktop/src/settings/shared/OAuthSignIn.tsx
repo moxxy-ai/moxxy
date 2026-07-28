@@ -214,7 +214,7 @@ export function OAuthSignIn({
           style={{
             margin: 0,
             padding: 10,
-            background: '#0f172a',
+            background: '#0b0d12',
             color: '#e2e8f0',
             borderRadius: 10,
             fontSize: 11,
