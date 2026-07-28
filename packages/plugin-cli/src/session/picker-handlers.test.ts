@@ -101,10 +101,10 @@ describe('makePickerHandler — model branch, unconnected provider', () => {
         setSystemNotice,
       }),
     );
-    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    handle(modelPicker, 'anthropic::claude-opus-5');
     expect(openProviderConnect).toHaveBeenCalledWith({
       providerId: 'anthropic',
-      modelId: 'claude-opus-4-8',
+      modelId: 'claude-opus-5',
     });
     expect(setSystemNotice).not.toHaveBeenCalled();
   });
@@ -119,7 +119,7 @@ describe('makePickerHandler — model branch, unconnected provider', () => {
         setSystemNotice,
       }),
     );
-    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    handle(modelPicker, 'anthropic::claude-opus-5');
     expect(openProviderConnect).not.toHaveBeenCalled();
     expect(setSystemNotice).toHaveBeenCalledWith(
       expect.stringContaining("anthropic isn't connected"),

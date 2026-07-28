@@ -85,17 +85,17 @@ describe('stored-provider tree store (plugins.provider.items)', () => {
     // NOT a stored vendor; provider_remove must never delete those prefs.
     await fs.writeFile(
       cfgPath,
-      'plugins:\n  provider:\n    items:\n      anthropic:\n        model: claude-opus-4-8\n',
+      'plugins:\n  provider:\n    items:\n      anthropic:\n        model: claude-opus-5\n',
     );
     expect(await removeStoredProvider('anthropic', cfgPath)).toBe(false);
     const text = await fs.readFile(cfgPath, 'utf8');
-    expect(text).toContain('claude-opus-4-8');
+    expect(text).toContain('claude-opus-5');
   });
 
   it('coexists with picker-written model/enabled prefs on OTHER items', async () => {
     await fs.writeFile(
       cfgPath,
-      'plugins:\n  provider:\n    default: anthropic\n    items:\n      anthropic:\n        model: claude-opus-4-8\n',
+      'plugins:\n  provider:\n    default: anthropic\n    items:\n      anthropic:\n        model: claude-opus-5\n',
     );
     await upsertStoredProvider(sampleEntry, cfgPath);
     const cfg = await readProvidersConfig(cfgPath);
@@ -103,7 +103,7 @@ describe('stored-provider tree store (plugins.provider.items)', () => {
     expect(cfg.providers.map((p) => p.name)).toEqual(['zai']);
     // …and the built-in's prefs survive untouched.
     const text = await fs.readFile(cfgPath, 'utf8');
-    expect(text).toContain('claude-opus-4-8');
+    expect(text).toContain('claude-opus-5');
     expect(text).toContain('default: anthropic');
   });
 

@@ -64,7 +64,7 @@ describe('useTurnRunner force-send drain (u79-1)', () => {
 
     const handle = mountFreshHook({
       session,
-      resolveModel: () => 'claude-opus-4-8',
+      resolveModel: () => 'claude-opus-5',
       stream: makeStream(),
     });
     const turnPromise = handle.runTurnWith('research this', []);
