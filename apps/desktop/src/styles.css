@@ -311,6 +311,12 @@ h1, h2, h3, h4, .display {
   line-height: 1.3;
   text-wrap: balance;
 }
+/* Avenir Next maps `bold` to a very heavy cut, so the browser default (700) made
+ * every emphasised phrase and every bold list item read as shouting. 600 is its
+ * Demi Bold, which is what emphasis inside running text actually wants. */
+.prose strong,
+.prose b { font-weight: 600; }
+
 .prose h1 { font-size: 1.15em; }
 .prose h2 { font-size: 1.06em; }
 .prose h3,
@@ -925,7 +931,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   padding: 0;
   font-size: var(--type-meta);
 }
-.activity-detail-row__label { color: var(--color-text-dim); }
+.activity-detail-row__label { flex: 1; min-width: 0; color: var(--color-text-dim); }
 .activity-detail-row:hover .activity-detail-row__label { color: var(--color-text-muted); }
 .activity-detail-row__error {
   flex: 0 0 auto;
@@ -1523,16 +1529,19 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   padding: var(--space-16);
 }
 
-/* Prose face, because what you type here is what you MEAN, and it is read back
- * to you in the trace in the same voice. */
+/* The CHROME face, not prose — and this is a correction. The argument for prose
+ * was that you are writing something a person reads, but the trace renders your
+ * turn as a COMMAND in the chrome face (see UserBlock), so typing it in a
+ * proportional face meant the text changed shape the moment you pressed send.
+ * What you type and what you see it become are now the same lettering. */
 .cmdbar__ta {
   flex: 1;
   min-width: 0;
   resize: none;
   overflow-y: auto;
   padding: var(--space-4) 0;
-  font-family: var(--font-prose);
-  font-size: var(--type-prose);
+  font-family: var(--font-chrome);
+  font-size: var(--type-ui);
   line-height: 1.55;
   color: var(--color-text);
   background: transparent;
@@ -1600,4 +1609,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .cmdbar__acts > button {
   height: var(--frame-control);
   flex-shrink: 0;
+}
+
+/* The step row's two columns. `name` is a fixed-width cell so the arguments line
+ * up down the whole group and the eye reads one ragged-left column of paths
+ * instead of hunting for where each detail starts. */
+.activity-detail-row__name {
+  flex: 0 0 auto;
+  min-width: 74px;
+  color: var(--color-text);
+  font-weight: 600;
 }

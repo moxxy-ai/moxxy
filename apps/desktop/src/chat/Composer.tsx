@@ -20,7 +20,6 @@ import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
 import { VoiceModeButton } from './composer/VoiceModeButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
-import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { sendBtn } from './composer/composer-styles';
@@ -92,7 +91,11 @@ export function Composer({
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [goalOpen, setGoalOpen] = useState(false);
+  // Goal is a STATE of the command bar, not a modal. A dialog to type one line
+  // that then goes through the same send path was a second composer stacked on
+  // top of the first — same textarea, same Enter-to-submit, same draft, plus a
+  // backdrop and a focus trap. Arming it here reuses the draft you already typed.
+  const [goalArmed, setGoalArmed] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // The "no transcriber" toast auto-clears after a delay; track the timer so
   // repeated voice clicks don't stack timers and so it can't fire setState
@@ -115,7 +118,7 @@ export function Composer({
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
   const setDraftEmpty = useCallback(() => setDraft(''), []);
-  const closeGoal = useCallback(() => setGoalOpen(false), []);
+  const closeGoal = useCallback(() => setGoalArmed(false), []);
 
   const inFlight = activeTurnId !== null || sending;
   const info = agent.info;
@@ -219,13 +222,30 @@ export function Composer({
     // users aren't surprised.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      submit();
+      send();
       return;
     }
     if (e.key === 'Escape') {
       e.preventDefault();
-      setDraft('');
+      // Escape stands down the goal first; only a second press clears the draft,
+      // so arming by mistake never costs you what you had written.
+      if (goalArmed) setGoalArmed(false);
+      else setDraft('');
     }
+  };
+
+  /** The one send path. Armed for a goal it starts a goal run; otherwise it ships
+   *  the draft. Both consume the same draft, which is the point of arming rather
+   *  than opening a dialog. */
+  const send = (): void => {
+    if (goalArmed) {
+      const objective = draft.trim();
+      if (objective.length === 0) return;
+      setGoalArmed(false);
+      startGoal(objective);
+      return;
+    }
+    submit();
   };
 
   const onVoiceClick = useCallback(() => {
@@ -258,8 +278,19 @@ export function Composer({
   // ready (collaboration modes filtered out by the hook); it's locked while a
   // turn is in flight, matching the old chip.
   const overflowItems: OverflowMenuItem[] = [
+    // Attach leads: it is the thing reached for most often, and it used to sit
+    // outside as its own button in a row that already had too many.
+    { icon: 'attach', label: 'Attach file', onClick: () => void onAttach() },
     { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
-    { icon: 'agent', label: 'Goal', onClick: () => setGoalOpen(true) },
+    {
+      icon: 'agent',
+      label: goalArmed ? 'Goal armed' : 'Set a goal',
+      active: goalArmed,
+      onClick: () => {
+        setGoalArmed(true);
+        taRef.current?.focus();
+      },
+    },
     {
       icon: 'check',
       label: autoApprove ? 'Auto-approve ON' : 'Auto-approve',
@@ -286,7 +317,7 @@ export function Composer({
       data-testid="composer"
       onSubmit={(e) => {
         e.preventDefault();
-        submit();
+        send();
       }}
       // A docked panel with a top seam, not a floating rounded card with a
       // shadow. It is permanent chrome at the foot of the field, and in this
@@ -306,6 +337,17 @@ export function Composer({
           <span className="tag tag--warn" data-testid="composer-auto-approve">
             auto-approve on
           </span>
+        )}
+        {goalArmed && (
+          <button
+            type="button"
+            className="tag tag--cmd"
+            data-testid="composer-goal-armed"
+            title="Stand down (Esc)"
+            onClick={() => setGoalArmed(false)}
+          >
+            goal <Icon name="x" size={10} />
+          </button>
         )}
         <span className="cmdbar__hint">
           {queued.length > 0 && `${queued.length} queued · `}
@@ -375,9 +417,6 @@ export function Composer({
           highlighted={autoApprove || modeBadge != null}
           items={overflowItems}
         />
-        <ToolChip label="Attach file" onClick={() => void onAttach()}>
-          <Icon name="attach" size={15} />
-        </ToolChip>
         <textarea
           ref={taRef}
           data-testid="composer-input"
@@ -449,7 +488,9 @@ export function Composer({
               {/* Says what it will actually DO: mid-turn a submit queues behind the
                   running turn rather than sending, and the button is the only place
                   someone would look before pressing it. */}
-              <span>{queued.length > 0 || inFlight ? 'Queue' : 'Send'}</span>
+              <span>
+                {goalArmed ? 'Start goal' : queued.length > 0 || inFlight ? 'Queue' : 'Send'}
+              </span>
               <Icon name="send" size={14} />
             </button>
           )}
@@ -470,13 +511,7 @@ export function Composer({
           onClose={() => setActionsOpen(false)}
         />
       )}
-      {goalOpen && (
-        <GoalModal
-          defaultObjective={draft}
-          onCancel={() => setGoalOpen(false)}
-          onStart={startGoal}
-        />
-      )}
+
     </form>
   );
 }

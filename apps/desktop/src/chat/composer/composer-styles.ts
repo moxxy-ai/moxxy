@@ -13,6 +13,11 @@ export function sendBtn(bg: string, enabled: boolean): React.CSSProperties {
   return {
     height: 'var(--frame-control)',
     padding: '0 var(--space-8)',
+    // A border, even though it is the same colour as the fill. Every other
+    // control in the row is border-box with a 1px border, so a borderless one at
+    // the same height renders 2px more fill and reads as a different species of
+    // object sitting in the input rather than as the row's last control.
+    border: `1px solid ${bg}`,
     borderRadius: 'var(--radius-block)',
     background: bg,
     color: 'var(--color-on-primary)',

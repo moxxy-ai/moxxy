@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  describeToolCall,
   isFileDiffResult,
   formatToolActivity,
   type Block as FoldedBlock,
@@ -194,7 +195,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
 
 export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const declared = useToolIcon(tool.name);
+  const call = describeToolCall(tool.name, tool.input);
   if (isFileDiffResult(tool.outcome)) {
     const display = (tool.outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
@@ -211,9 +212,16 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
       : tool.outcome.error?.message;
   return (
     <li className="activity-list__item" data-status={status}>
+      {/* Two columns: the tool's own name, then what it was called on. The row
+          used to be an icon plus one sentence with the verb baked in ("Ran
+          workflow_create · intent=…"), so every row in a group of sixteen opened
+          with the same word and the name it was introducing sat mid-string where
+          nothing could align or weight it. */}
       <button type="button" className="activity-detail-row" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <span className="activity-detail-row__icon" aria-hidden><Icon name={iconForTool(tool.name, declared)} size={16} /></span>
-        <span className={`activity-detail-row__label${status === 'running' ? ' activity-shimmer' : ''}`}>{toolActivityLabel(tool)}</span>
+        <span className={`activity-detail-row__name${status === 'running' ? ' activity-shimmer' : ''}`}>
+          {call.name}
+        </span>
+        <span className="activity-detail-row__label">{call.detail}</span>
         {status === 'error' ? <span className="activity-detail-row__error">failed</span> : null}
       </button>
       {open ? (
