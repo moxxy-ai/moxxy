@@ -370,84 +370,90 @@ export function Composer({
           Compacting context — summarizing older turns to free up the window…
         </div>
       )}
-      <textarea
-        ref={taRef}
-        data-testid="composer-input"
-        aria-label="prompt"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        placeholder={
-          compacting
-            ? 'Compacting context…'
-            : attachments.length > 0
-              ? 'Ask about the attached file…'
-              : ready
-                ? 'Send a message to the agent…'
-                : 'Waiting for runner…'
-        }
-        disabled={!ready || compacting}
-        rows={1}
-        className="cmdbar__ta"
-        style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
-      />
-      <div className="cmdbar__acts">
+      <div className="cmdbar__in">
         <OverflowMenu
           highlighted={autoApprove || modeBadge != null}
           items={overflowItems}
         />
         <ToolChip label="Attach file" onClick={() => void onAttach()}>
-          <Icon name="attach" size={16} />
-          <span>Attach</span>
+          <Icon name="attach" size={15} />
         </ToolChip>
-        <ToolChip
-          label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
-          onClick={onVoiceClick}
-          tone={
-            voice.phase === 'recording'
-              ? 'recording'
-              : voice.phase === 'transcribing'
-                ? 'busy'
-                : 'idle'
+        <textarea
+          ref={taRef}
+          data-testid="composer-input"
+          aria-label="prompt"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          placeholder={
+            compacting
+              ? 'Compacting context…'
+              : attachments.length > 0
+                ? 'Ask about the attached file…'
+                : ready
+                  ? 'Send a message to the agent…'
+                  : 'Waiting for runner…'
           }
-        >
-          <Icon name="mic" size={16} />
-          <span>
-            {voice.phase === 'recording'
-              ? 'Listening…'
-              : voice.phase === 'transcribing'
-                ? 'Transcribing…'
-                : 'Voice'}
-          </span>
-        </ToolChip>
-        <VoiceModeButton
-          disabled={!ready || compacting || inFlight}
-          onOpen={onOpenVoiceCall}
+          disabled={!ready || compacting}
+          rows={1}
+          className="cmdbar__ta"
+          style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
         />
-        {inFlight ? (
-          <button
-            type="button"
-            className="btn-cta"
-            data-testid="composer-abort"
-            onClick={onAbort}
-            style={sendBtn('var(--color-red)', true)}
-            aria-label="Abort"
+        <div className="cmdbar__acts">
+          <ToolChip
+            label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
+            showLabel={voice.phase !== 'idle'}
+            onClick={onVoiceClick}
+            tone={
+              voice.phase === 'recording'
+                ? 'recording'
+                : voice.phase === 'transcribing'
+                  ? 'busy'
+                  : 'idle'
+            }
           >
-            <Icon name="stop" size={16} />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className="btn-cta"
-            data-testid="composer-send"
-            disabled={!canSubmit}
-            style={sendBtn('var(--color-send)', canSubmit)}
-            aria-label="Send"
-          >
-            <Icon name="send" size={16} />
-          </button>
-        )}
+            <Icon name="mic" size={15} />
+            {/* The word appears only while recording or transcribing: those are
+                states you must be able to read WITHOUT hovering. Idle voice is
+                just an icon. */}
+            {voice.phase !== 'idle' && (
+              <span>{voice.phase === 'recording' ? 'Listening…' : 'Transcribing…'}</span>
+            )}
+          </ToolChip>
+          <VoiceModeButton
+            disabled={!ready || compacting || inFlight}
+            onOpen={onOpenVoiceCall}
+          />
+          {inFlight ? (
+            <button
+              type="button"
+              className="btn-cta"
+              data-testid="composer-abort"
+              onClick={onAbort}
+              style={sendBtn('var(--color-red)', true)}
+              aria-label="Abort"
+            >
+              <Icon name="stop" size={14} />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="btn-cta"
+              data-testid="composer-send"
+              disabled={!canSubmit}
+              style={sendBtn('var(--color-send)', canSubmit)}
+              aria-label={inFlight ? 'Queue' : 'Send'}
+            >
+              {/* Says what it will actually DO: mid-turn a submit queues behind the
+                  running turn rather than sending, and the button is the only place
+                  someone would look before pressing it. */}
+              <span>{queued.length > 0 || inFlight ? 'Queue' : 'Send'}</span>
+              <Icon name="send" size={14} />
+            </button>
+          )}
+        </div>
       </div>
       {(voice.errorReason ?? noTranscriberMsg ?? attachError) && (
         <p className="cmdbar__error" role="status">

@@ -1494,9 +1494,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .cmdbar__strip {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-6);
-  min-height: 27px;
-  padding: 0 var(--space-12);
+  /* Room ABOVE and BELOW the tags. At 27px with no vertical padding the outlined
+   * tags nearly touched both seams, which read as clipping rather than as a row. */
+  padding: var(--space-8) var(--space-16);
   border-bottom: 1px solid var(--color-card-border);
   background: var(--color-input-soft);
 }
@@ -1504,19 +1506,31 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .cmdbar__hint {
   margin-left: auto;
   flex-shrink: 0;
+  padding-left: var(--space-12);
   font-size: var(--type-label);
   letter-spacing: 0.06em;
   color: var(--color-text-dim);
   white-space: nowrap;
 }
 
+/* One row: leading controls, the growing input, trailing actions. Aligned to
+ * flex-END rather than flex-start so Send stays beside the last line you typed
+ * as the input grows, instead of being pinned to the top of a tall box. */
+.cmdbar__in {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-8);
+  padding: var(--space-16);
+}
+
 /* Prose face, because what you type here is what you MEAN, and it is read back
  * to you in the trace in the same voice. */
 .cmdbar__ta {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   resize: none;
   overflow-y: auto;
-  padding: var(--space-12) var(--space-12) var(--space-8);
+  padding: var(--space-4) 0;
   font-family: var(--font-prose);
   font-size: var(--type-prose);
   line-height: 1.55;
@@ -1533,12 +1547,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: 0 var(--space-12) var(--space-8);
+  flex-shrink: 0;
 }
 
 .cmdbar__error {
   margin: 0;
-  padding: 0 var(--space-12) var(--space-6);
+  padding: 0 var(--space-16) var(--space-8);
   font-size: var(--type-meta);
   color: var(--color-red-text);
 }
@@ -1548,7 +1562,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * than letting someone discover it by surprise. */
 .cmdbar__keys {
   margin: 0;
-  padding: 0 var(--space-12) var(--space-8);
+  padding: 0 var(--space-16) var(--space-12);
+  /* The row above already carries the bar's bottom inset when this line is
+   * absent, so it only tightens the gap it sits in. */
+  margin-top: calc(-1 * var(--space-4));
   font-size: var(--type-label);
   letter-spacing: 0.04em;
   color: var(--color-text-dim);
@@ -1575,3 +1592,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* Auto-approve means tool calls run unreviewed, which is a caution state, not a
  * neutral setting — it is the one tag that gets a hue for what it IS. */
 .tag--warn { color: var(--color-amber-text); border-color: var(--color-amber); }
+
+/* Every control in the action row is the same size and shape, whatever component
+ * renders it — the row previously mixed a 38px circle, four 10px-radius pills and
+ * an icon tile. */
+.cmdbar__in > button,
+.cmdbar__acts > button {
+  height: var(--frame-control);
+  flex-shrink: 0;
+}
