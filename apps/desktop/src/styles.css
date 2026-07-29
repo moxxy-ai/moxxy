@@ -665,7 +665,28 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   height: var(--frame-bar);
   flex-shrink: 0;
+  min-width: 0;
   border-bottom: 1px solid var(--color-card-border);
+}
+
+/* The tabs get the leftover room and scroll inside it. */
+.bench__tablist {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bench__tablist::-webkit-scrollbar { height: 0; }
+
+/* The way out. Fixed width, never shrinks, always the last cell — so a narrow
+ * workbench can never push it out of reach. */
+.bench__tabs-end {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-6);
+  border-left: 1px solid var(--color-card-border);
 }
 
 .bench__tab {
@@ -694,13 +715,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 600;
   font-size: var(--type-label);
   color: var(--color-text-dim);
-}
-.bench__tabs-fill {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 var(--space-6);
 }
 
 .bench__body {

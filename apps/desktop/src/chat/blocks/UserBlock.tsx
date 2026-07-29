@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { Icon } from '@moxxy/desktop-ui';
 import { imagePreviewSrc, type ImagePreviewItem } from '../image-preview/types';
@@ -107,6 +108,12 @@ export function UserBlock({
 }): JSX.Element {
   const items = attachments ?? [];
   const hasAttachments = items.length > 0;
+  const [full, setFull] = useState(false);
+  // A pasted prompt can be a 40-line system preamble. Rendered whole it becomes
+  // a wall of the commanded wash that buries the agent's actual work below it —
+  // and the accent is supposed to be the thing your eye goes TO, not the largest
+  // object on screen. Long turns clamp to a readable opening and expand on ask.
+  const clamped = !full && countLines(text) > CLAMP_LINES;
   return (
     <div
       data-testid="block-user"
@@ -140,20 +147,57 @@ export function UserBlock({
               marginTop: 6,
               padding: '10px 14px',
               borderLeft: '2px solid var(--color-primary)',
-              borderRadius: '3px 12px 12px 3px',
+              borderRadius: '0 var(--radius-block) var(--radius-block) 0',
               background: 'color-mix(in srgb, var(--color-primary-soft) 55%, transparent)',
               color: 'var(--color-text)',
               whiteSpace: 'pre-wrap',
               lineHeight: 1.55,
-              fontSize: 14.5,
+              fontSize: 'var(--type-row)',
+              // A command is machine input, so it keeps the chrome face — and a
+              // measure, so a long one reads as a column rather than the page.
+              maxWidth: '78ch',
+              overflow: 'hidden',
+              display: clamped ? '-webkit-box' : undefined,
+              WebkitBoxOrient: clamped ? 'vertical' : undefined,
+              WebkitLineClamp: clamped ? CLAMP_LINES : undefined,
             }}
           >
             {text}
           </div>
         )}
+        {(clamped || full) && countLines(text) > CLAMP_LINES && (
+          <button
+            type="button"
+            data-testid="user-prompt-expand"
+            onClick={() => setFull((f) => !f)}
+            className="btn-ghost"
+            style={{
+              marginTop: 4,
+              padding: '2px 6px',
+              borderRadius: 'var(--radius-chip)',
+              fontSize: 'var(--type-label)',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            {full ? 'Show less' : `Show all ${countLines(text)} lines`}
+          </button>
+        )}
       </div>
     </div>
   );
+}
+
+/** Lines a command shows before it clamps. Twelve is about the point where a
+ *  prompt stops being something you read and starts being something you scroll
+ *  past. */
+const CLAMP_LINES = 12;
+
+function countLines(text: string): number {
+  let n = 1;
+  for (const ch of text) if (ch === '\n') n++;
+  return n;
 }
 
 function Avatar(): JSX.Element {
@@ -163,9 +207,9 @@ function Avatar(): JSX.Element {
       style={{
         width: 34,
         height: 34,
-        borderRadius: 10,
+        borderRadius: 'var(--radius-block)',
         background: 'var(--color-primary)',
-        color: '#fff',
+        color: 'var(--color-on-primary)',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',

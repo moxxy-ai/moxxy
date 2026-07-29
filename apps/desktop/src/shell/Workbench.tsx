@@ -172,32 +172,41 @@ export function Workbench({
         className="bench__grip"
       />
 
-      <div className="bench__tabs" role="tablist" aria-label="Workbench panes">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            className="bench__tab"
-            data-testid={`bench-tab-${t.id}`}
-            data-active={t.id === tab}
-            aria-selected={t.id === tab}
-            onClick={() => onPick(t.id)}
-          >
-            <Icon name={t.icon} size={13} />
-            <span>{t.label}</span>
-            {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
-              <b>{changedCount}</b>
-            )}
-          </button>
-        ))}
-        <span className="bench__tabs-fill">
+      <div className="bench__tabs">
+        {/* The tab row scrolls; the collapse cell after it never shrinks. Four
+            labelled tabs are wider than a narrow workbench, and when they lived
+            in the same flex row as the collapse button they pushed it past the
+            right edge — so an opened workbench could not be closed at all. */}
+        <div className="bench__tablist" role="tablist" aria-label="Workbench panes">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              className="bench__tab"
+              data-testid={`bench-tab-${t.id}`}
+              data-active={t.id === tab}
+              aria-selected={t.id === tab}
+              // Clicking the ACTIVE tab collapses the workbench: a second, more
+              // discoverable way out than hunting for the chevron, and the same
+              // toggle-back gesture the Apps sub-nav already uses.
+              onClick={() => (t.id === tab ? onClose() : onPick(t.id))}
+            >
+              <Icon name={t.icon} size={13} />
+              <span>{t.label}</span>
+              {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
+                <b>{changedCount}</b>
+              )}
+            </button>
+          ))}
+        </div>
+        <span className="bench__tabs-end">
           <button
             type="button"
             className="btn-quiet tip"
             aria-label="Collapse workbench"
             data-testid="bench-collapse"
-            data-tip="Collapse workbench"
+            data-tip="Collapse"
             data-tip-side="left"
             onClick={onClose}
           >
