@@ -307,8 +307,8 @@ function cliPrefixFromPath(cliPath: string | null): string | null {
 function primaryButtonStyle(disabled: boolean): React.CSSProperties {
   return {
     padding: '9px 20px',
-    background: disabled ? 'var(--color-card-border-strong)' : 'var(--grad-cta)',
-    color: '#fff',
+    background: disabled ? 'var(--color-card-border-strong)' : 'var(--color-primary)',
+    color: 'var(--color-on-primary)',
     border: 'none',
     borderRadius: 10,
     fontWeight: 600,

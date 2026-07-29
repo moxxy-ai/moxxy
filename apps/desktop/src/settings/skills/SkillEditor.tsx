@@ -100,8 +100,8 @@ export function SkillEditor({
           style={{
             padding: '6px 14px',
             borderRadius: 9,
-            background: dirty ? 'var(--grad-cta)' : 'var(--color-card-border)',
-            color: dirty ? '#fff' : 'var(--color-text-dim)',
+            background: dirty ? 'var(--color-primary)' : 'var(--color-card-border)',
+            color: dirty ? 'var(--color-on-primary)' : 'var(--color-text-dim)',
           }}
         >
           <Icon name="check" size={14} />

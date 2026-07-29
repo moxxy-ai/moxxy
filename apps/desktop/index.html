@@ -4,24 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MoxxyAI Workspaces</title>
-    <link
-      rel="preconnect"
-      href="https://fonts.googleapis.com"
-    />
-    <link
-      rel="preconnect"
-      href="https://fonts.gstatic.com"
-      crossorigin
-    />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <!-- No webfont link, deliberately. Moxxy runs a local agent runtime and has
+         to boot with no network at all; fetching Inter and Space Grotesk from a
+         CDN meant a cold offline start rendered in a silent fallback face. The
+         Harness type stacks (see packages/design-tokens) are ordered so the
+         first available system face is already the intended one: SF Mono on
+         macOS, Consolas on Windows, Charter or Georgia for prose. -->
   </head>
   <body>
     <style>
-      html, body { margin: 0; background: #ffffff; color: #0b0d12;
-        font-family: 'Inter', -apple-system, system-ui, sans-serif; }
+      html, body { margin: 0; background: #ffffff; color: #0b0f12;
+        font-family: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace; }
       #splash-fallback { position: fixed; inset: 0; display: flex;
         flex-direction: column; align-items: center; justify-content: center;
         gap: 1.25rem; }
@@ -29,19 +22,24 @@
          no bundle. A quarter turn is a full loop: the mark is symmetric under
          90deg, so the animation closes on itself. Mirrors .moxxy-avatar-loader
          in styles.css so the pre-React and post-React splashes look identical. */
-      #splash-fallback .mark { width: 64px; height: 64px; color: #0b0d12;
+      #splash-fallback .mark { width: 64px; height: 64px; color: #0b0f12;
         animation: splash-turn 3.4s linear infinite; }
-      #splash-fallback .label { font-size: 0.85rem; color: #55596b;
-        letter-spacing: 0.04em; font-family: 'JetBrains Mono', monospace; }
+      #splash-fallback .label { font-size: 0.7rem; color: #4a5a64;
+        letter-spacing: 0.12em; text-transform: uppercase; }
+      /* The mark's second strand takes the commanded accent, which is a
+         different stop per theme (deep mulberry on paper, luminous magenta on
+         ink) for the same reason the brand ships a -dark mark. */
+      #splash-fallback .strand { stroke: #c21e6b; }
       @keyframes splash-turn { to { transform: rotate(90deg); } }
       /* Dark splash — main sets nativeTheme.themeSource from the persisted
          pref BEFORE the window is created, so this media query reflects the
          user's choice (not just the OS) by the time this CSS evaluates. The
          colors mirror styles.css's dark --color-main-bg / text tokens. */
       @media (prefers-color-scheme: dark) {
-        html, body { background: #0b0d12; color: #edeef2; }
-        #splash-fallback .label { color: #9096a6; }
-        #splash-fallback .mark { color: #edeef2; }
+        html, body { background: #101519; color: #e4ebef; }
+        #splash-fallback .label { color: #93a2ab; }
+        #splash-fallback .mark { color: #e4ebef; }
+        #splash-fallback .strand { stroke: #f4408f; }
       }
       @media (prefers-reduced-motion: reduce) {
         #splash-fallback .mark { animation: none; }
@@ -60,7 +58,7 @@
           </mask>
           <g fill="none" stroke-width="22" stroke-linejoin="round">
             <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />
-            <rect x="68" y="68" width="120" height="120" rx="12" stroke="#FF4A1E"
+            <rect class="strand" x="68" y="68" width="120" height="120" rx="12"
                   transform="rotate(45 128 128)" />
             <g mask="url(#splash-weave)">
               <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />

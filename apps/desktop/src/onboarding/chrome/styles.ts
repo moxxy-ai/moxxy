@@ -20,14 +20,13 @@ export const primaryBtnStyle: React.CSSProperties = {
   padding: '10px 18px',
   fontSize: 14,
   fontWeight: 600,
-  color: '#fff',
-  background: 'var(--grad-cta)',
+  color: 'var(--color-on-primary)',
+  background: 'var(--color-primary)',
   border: 'none',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-card)',
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  boxShadow: '0 10px 20px -12px color-mix(in srgb, var(--color-primary) 55%, transparent)',
 };
 
 export const secondaryBtnStyle: React.CSSProperties = {

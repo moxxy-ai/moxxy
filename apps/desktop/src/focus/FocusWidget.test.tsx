@@ -825,8 +825,31 @@ describe('FocusWidget theme', () => {
     render(<FocusWidget />);
 
     expect(focusCss()).toContain('[data-theme="dark"]');
-    expect(focusCss()).toContain('--focus-panel-bg: #12151d');
-    expect(focusCss()).toContain('--focus-preview-bg: rgba(18, 21, 29, 0.96)');
+    expect(focusCss()).toContain('--focus-panel-bg: #151b20');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(21, 27, 32, 0.96)');
+  });
+
+  it('resolves system-dark to exactly the same palette as an explicit dark theme', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const css = focusCss();
+
+    // The two dark paths used to be hand-maintained copies, and the
+    // `prefers-color-scheme` one had drifted: it omitted --color-primary,
+    // --color-primary-strong and --color-red, so a system-dark user with no
+    // stored theme pref got the LIGHT accent on a dark panel. Both paths now
+    // interpolate one shared constant; assert the accent reaches both, and
+    // that the light accent appears exactly once (in the :root block).
+    const systemDark = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'));
+    expect(systemDark).toContain(':root:not([data-theme])');
+    for (const decl of [
+      '--color-primary: #f4408f',
+      '--color-primary-strong: #ff63a8',
+      '--color-red: #f2545b',
+    ]) {
+      expect(systemDark, `system-dark is missing ${decl}`).toContain(decl);
+    }
+    expect(css.match(/--color-primary: #c21e6b/g)).toHaveLength(1);
   });
 });
 

@@ -67,10 +67,23 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties }> = {
-  primary: { style: { background: 'var(--color-primary-strong)', color: '#fff', border: 'none' } },
+  // `--color-on-primary`, never a literal `#fff`: the dark theme's accent is
+  // luminous magenta and carries an INK label, so a hard-coded white here is
+  // readable in light and near-invisible in dark.
+  primary: {
+    style: {
+      background: 'var(--color-primary-strong)',
+      color: 'var(--color-on-primary)',
+      border: 'none',
+    },
+  },
   cta: {
     className: 'btn-cta',
-    style: { background: 'var(--grad-cta)', color: '#fff', border: 'none' },
+    style: {
+      background: 'var(--color-primary)',
+      color: 'var(--color-on-primary)',
+      border: 'none',
+    },
   },
   secondary: {
     className: 'btn-outline',
