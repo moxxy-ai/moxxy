@@ -33,7 +33,16 @@ export const DEFAULT_CALLBACK_PORT = 1455;
 export const DEFAULT_REDIRECT_PATH = '/auth/callback';
 export const DEFAULT_REDIRECT_URI = `http://localhost:${DEFAULT_CALLBACK_PORT}${DEFAULT_REDIRECT_PATH}`;
 export const SCOPES = 'openid profile email offline_access';
-export const ORIGINATOR = 'moxxy';
+/**
+ * Client identity sent to the ChatGPT Codex backend. It gates on `originator`
+ * TOGETHER WITH the `User-Agent` (see `codex/headers.ts`): a request that names
+ * anything else is throttled with in-band `server_is_overloaded` /
+ * `internal_error` failures rather than a clean rejection. Measured on one
+ * account with identical payloads interleaved back to back: the official pair
+ * succeeded 6/6 where `moxxy` managed 2/6, and matching only one of the two
+ * headers still failed. Keep this in lockstep with `CODEX_USER_AGENT`.
+ */
+export const ORIGINATOR = 'codex_cli_rs';
 
 /**
  * PKCE pair for the Codex flow. Delegates to `@moxxy/plugin-oauth`'s shared

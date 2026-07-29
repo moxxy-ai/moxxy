@@ -26,6 +26,34 @@ const MAX_TOOL_ARGS_CHARS = 16 * 1024 * 1024;
  */
 const MAX_PENDING_TOOL_CALLS = 1024;
 
+/**
+ * Transient in-band failures. The Codex backend reports capacity and internal
+ * faults INSIDE a 200 SSE stream, so they never reach the HTTP-status
+ * classifier in `provider.ts` — without this the turn dies on a blip that a
+ * single retry would clear. Deliberately an allowlist: quota exhaustion and
+ * validation rejects must stay fatal, since retrying those only hammers the
+ * backend and delays the real error reaching the user.
+ */
+const RETRYABLE_FAILURE_CODES = new Set([
+  'server_is_overloaded',
+  'server_error',
+  'internal_error',
+  'rate_limit_exceeded',
+]);
+const RETRYABLE_FAILURE_TYPES = new Set([
+  'service_unavailable_error',
+  'server_error',
+  'rate_limit_error',
+]);
+
+function isRetryableFailure(err: { type?: string; code?: string } | undefined): boolean {
+  if (!err) return false;
+  return (
+    (err.code !== undefined && RETRYABLE_FAILURE_CODES.has(err.code)) ||
+    (err.type !== undefined && RETRYABLE_FAILURE_TYPES.has(err.type))
+  );
+}
+
 const TOOL_STREAM_LIMIT_ERROR = (what: string): SseStepResult => ({
   events: [{ type: 'error', message: `Codex tool-call stream exceeded ${what} limit`, retryable: false }],
   terminal: true,
@@ -167,8 +195,12 @@ export function handleSseEvent(
   }
 
   if (type === 'response.failed' || type === 'response.error' || type === 'error') {
-    const msg = ev.error?.message ?? `Codex stream failed: ${type}`;
-    return { events: [{ type: 'error', message: msg, retryable: false }], terminal: true };
+    const err = ev.error ?? ev.response?.error;
+    const msg = err?.message ?? `Codex stream failed: ${type}`;
+    return {
+      events: [{ type: 'error', message: msg, retryable: isRetryableFailure(err) }],
+      terminal: true,
+    };
   }
 
   return {};
