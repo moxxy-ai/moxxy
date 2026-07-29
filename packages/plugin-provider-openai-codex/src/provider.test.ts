@@ -116,9 +116,11 @@ describe('CodexProvider.stream', () => {
     const h = captured.init?.headers as Record<string, string>;
     expect(h['Authorization']).toBe('Bearer AT');
     expect(h['ChatGPT-Account-Id']).toBe('acct_test');
-    expect(h['originator']).toBe('moxxy');
+    // Both headers must name the official CLI together — the backend throttles
+    // requests that identify as anything else. See ORIGINATOR in oauth.ts.
+    expect(h['originator']).toBe('codex_cli_rs');
     expect(h['session_id']).toBe('sess_fixed');
-    expect(h['User-Agent']).toMatch(/^moxxy\//);
+    expect(h['User-Agent']).toMatch(/^codex_cli_rs\//);
     expect(h['Accept']).toBe('text/event-stream');
 
     // Event sequence: message_start, text_delta('hello'), message_end (with usage)
