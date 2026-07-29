@@ -68,24 +68,8 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
   return (
     <div
       data-testid="block-file-diff"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
+      style={{ minWidth: 0 }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 34,
-          height: 34,
-          flexShrink: 0,
-          borderRadius: 10,
-          background: display.mode === 'create' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)',
-          color: display.mode === 'create' ? 'var(--color-green)' : 'var(--color-primary)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="edit" size={17} />
-      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <button
           type="button"
@@ -126,7 +110,7 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
               fontSize: 11.5,
               lineHeight: 1.5,
               border: '1px solid var(--color-card-border)',
-              borderRadius: 6,
+              borderRadius: 'var(--radius-block)',
               overflow: 'auto',
               maxHeight: open ? 520 : 'none',
             }}

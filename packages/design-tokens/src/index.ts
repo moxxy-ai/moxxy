@@ -96,10 +96,21 @@ export const tokens = {
      * of data actually line up. This is the app's DEFAULT face. */
     chrome:
       "'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
-    /* The one proportional voice: prose written or read by a human. A run's
-     * transcript is long-form text, and a serif at reading size carries it
-     * better than chrome-sized sans. Nothing else may use this face. */
-    prose: "Charter, 'Iowan Old Style', 'Source Serif 4', Georgia, serif",
+    /* The one proportional voice: prose written or read by a human.
+     *
+     * This started as a screen serif, on the argument that a long transcript is
+     * long-form reading. In the app it was wrong — a serif reads as a document
+     * about the work rather than as someone talking to you, and this is a
+     * conversation with an agent. A warm humanist sans is friendlier at the same
+     * size and keeps the contrast that matters: the machine speaks in engineered
+     * mono, the human-readable half speaks in a face built for people.
+     *
+     * Avenir Next leads because it is geometric-humanist and genuinely warm; the
+     * fallbacks are each platform's own text face (never Inter, which is both the
+     * face this redesign moved off and a neo-grotesque, not a friendly one).
+     * Nothing outside prose may use this. */
+    prose:
+      "'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
     /* Code blocks. Same family as the chrome by design — the chrome IS the code
      * face in this language — but kept as its own token so a later divergence
      * (a wider face for code, say) does not have to touch the chrome. */
@@ -129,7 +140,7 @@ export const tokens = {
     56: 56,
   },
   /* Type scale. `label` is the uppercase tracked-out label size; `prose` is the
-   * only size the serif is ever set at; everything else is chrome. */
+   * only size the prose face is ever set at; everything else is chrome. */
   type: {
     label: 10.5,
     meta: 11.5,

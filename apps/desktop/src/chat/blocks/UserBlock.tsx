@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { UserPromptAttachment } from '@moxxy/sdk';
 import { Icon } from '@moxxy/desktop-ui';
+import type { UserPromptAttachment } from '@moxxy/sdk';
 import { imagePreviewSrc, type ImagePreviewItem } from '../image-preview/types';
 
 /** Rough byte size of an attachment's payload, for the chip label. Base64
@@ -114,14 +114,12 @@ export function UserBlock({
   // and the accent is supposed to be the thing your eye goes TO, not the largest
   // object on screen. Long turns clamp to a readable opening and expand on ask.
   const clamped = !full && countLines(text) > CLAMP_LINES;
+  // No avatar and no name row: the trace's gutter glyph already says this entry
+  // is a command, and a repeated 34px portrait was the widest thing on the left
+  // edge while carrying no information the glyph does not.
   return (
-    <div
-      data-testid="block-user"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
-    >
-      <Avatar />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontWeight: 600, fontSize: 13.5 }}>You</span>
+    <div data-testid="block-user">
+      <div style={{ minWidth: 0 }}>
         {hasAttachments && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
             {items.map((att, i) =>
@@ -200,23 +198,3 @@ function countLines(text: string): number {
   return n;
 }
 
-function Avatar(): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: 'var(--radius-block)',
-        background: 'var(--color-primary)',
-        color: 'var(--color-on-primary)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <Icon name="user" size={18} />
-    </span>
-  );
-}

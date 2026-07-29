@@ -20,13 +20,13 @@ const components: Components = {
   ),
   li: (p) => <li style={{ margin: '0.1em 0' }} {...p} />,
   h1: (p) => (
-    <h1 style={{ margin: '0.4em 0 0.4em', fontSize: 18, fontWeight: 700 }} {...p} />
+    <h1 style={{ margin: '0.6em 0 0.35em', fontSize: '1.3em', fontWeight: 600 }} {...p} />
   ),
   h2: (p) => (
-    <h2 style={{ margin: '0.4em 0 0.4em', fontSize: 16, fontWeight: 700 }} {...p} />
+    <h2 style={{ margin: '0.6em 0 0.35em', fontSize: '1.15em', fontWeight: 600 }} {...p} />
   ),
   h3: (p) => (
-    <h3 style={{ margin: '0.4em 0 0.4em', fontSize: 14.5, fontWeight: 700 }} {...p} />
+    <h3 style={{ margin: '0.6em 0 0.35em', fontSize: '1em', fontWeight: 600 }} {...p} />
   ),
   a: (p) => (
     <a
@@ -83,7 +83,10 @@ const components: Components = {
       style={{
         margin: '0 0 0.55em',
         padding: '4px 12px',
-        borderLeft: '3px solid var(--color-primary)',
+        // A seam, not the accent. The accent means "the human commanded this",
+        // and a quotation inside the agent's own prose is not that — spending it
+        // here put a second magenta left edge beside the command's.
+        borderLeft: '2px solid var(--color-card-border-strong)',
         color: 'var(--color-text-muted)',
       }}
     />
@@ -140,13 +143,19 @@ export function MarkdownBody({
   readonly streaming?: boolean;
 }): JSX.Element {
   return (
+    // `prose` is the app's ONE proportional voice: the chrome face is the
+    // default everywhere else, and rendered Markdown is the only long-form text
+    // a person actually reads in paragraphs. Code inside it stays in the chrome
+    // face (see the `code`/`pre` components above), so the contrast between what
+    // a human wrote and what the machine emitted is carried by the typeface.
     <div
-      className={streaming ? 'markdown-body streaming' : 'markdown-body'}
+      className={streaming ? 'markdown-body prose streaming' : 'markdown-body prose'}
       style={{
-        fontSize: 14.5,
-        lineHeight: 1.7,
         color: 'var(--color-text)',
         wordBreak: 'break-word',
+        // A measure, not the full column width. Long-form text past roughly 70
+        // characters per line costs the eye the return sweep.
+        maxWidth: '70ch',
       }}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

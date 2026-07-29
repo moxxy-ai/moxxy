@@ -63,7 +63,9 @@ const MemoBlock = memo(
  *  (user → right, tool → left, assistant → stretch) is honoured; in the
  *  old flat flex container it worked for free, but each virtualised row is
  *  its own element now. */
-const ROW: React.CSSProperties = { padding: '8px 24px', display: 'flex', flexDirection: 'column' };
+// The trace gutter supplies the left inset (and the timeline that runs through
+// it), so a row must not add its own or the spine detaches from the glyphs.
+const ROW: React.CSSProperties = { display: 'flex', flexDirection: 'column' };
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;

@@ -835,7 +835,7 @@ const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
       --color-code-bg: #f1f3f4;
       --color-bg-card-hover: #f7f8f9;
       --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-      --font-prose: Charter, 'Iowan Old Style', 'Source Serif 4', Georgia, serif;
+      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 
       --focus-panel-bg: #ffffff;
       --focus-panel-border: rgba(11, 15, 18, 0.14);
@@ -884,7 +884,7 @@ const FOCUS_DARK_VARS = `      --color-text: #e4ebef;
       --color-code-bg: #1c242a;
       --color-bg-card-hover: #1a2127;
       --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-      --font-prose: Charter, 'Iowan Old Style', 'Source Serif 4', Georgia, serif;
+      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 
       --focus-panel-bg: #151b20;
       --focus-panel-border: rgba(147, 162, 171, 0.22);

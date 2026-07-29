@@ -50,7 +50,7 @@
   --color-reference: #0e7490;
   --color-card-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 12px 28px -20px rgba(11, 15, 18, 0.14);
   --font-chrome: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-  --font-prose: Charter, 'Iowan Old Style', 'Source Serif 4', Georgia, serif;
+  --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
   --radius-chip: 3px;
   --radius-block: 5px;
@@ -801,11 +801,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   100% { background-position: -200% 0; }
 }
 
-/* Tool/skill activity is intentionally transcript-like rather than card-like:
- * one quiet icon + one sentence, with details indented beneath it. */
+/* Tool and skill activity is transcript-like rather than card-like: one quiet
+ * icon plus one sentence, details indented beneath it. The old `92%` width and
+ * `27px` left margins lined these up under a 34px avatar that no longer exists —
+ * the trace gutter owns that alignment now, so they would be a second indent. */
 .activity-block {
   align-self: stretch;
-  width: min(92%, 920px);
+  min-width: 0;
   color: var(--color-text-muted);
 }
 
@@ -820,10 +822,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .activity-row {
-  gap: 9px;
-  min-height: 28px;
-  padding: 2px 0;
-  font-size: 13.5px;
+  gap: var(--space-8);
+  min-height: var(--frame-tool);
+  padding: 0;
+  font-size: var(--type-row);
 }
 
 .activity-row__icon,
@@ -843,12 +845,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   white-space: nowrap;
 }
 
-.activity-row__label { font-weight: 520; }
+.activity-row__label { font-weight: 500; color: var(--color-text); }
 .activity-row__meta {
   flex: 0 0 auto;
   color: var(--color-text-dim);
-  font: 11px var(--font-mono);
+  font-size: var(--type-label);
 }
+/* A failed call is the one activity row that gets a hue. */
+.activity-block[data-status='error'] .activity-row__label,
+.activity-block[data-status='error'] .activity-row__meta { color: var(--color-red-text); }
 .activity-row__chevron {
   display: inline-flex;
   flex: 0 0 auto;
@@ -862,24 +867,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: 4px 0 0 27px;
+  margin: var(--space-4) 0 0 var(--space-20);
   padding: 0;
   list-style: none;
 }
 .activity-list__item,
 .activity-list__diff { min-width: 0; list-style: none; }
 .activity-detail-row {
-  gap: 8px;
-  min-height: 26px;
-  padding: 2px 0;
-  font-size: 12.5px;
+  gap: var(--space-8);
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--type-meta);
 }
 .activity-detail-row__label { color: var(--color-text-dim); }
 .activity-detail-row:hover .activity-detail-row__label { color: var(--color-text-muted); }
 .activity-detail-row__error {
   flex: 0 0 auto;
-  color: var(--color-red);
-  font: 11px var(--font-mono);
+  color: var(--color-red-text);
+  font-size: var(--type-label);
 }
 .activity-detail-row__body {
   display: flex;
@@ -887,12 +892,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   gap: 6px;
   margin: 5px 0 8px 24px;
 }
-.activity-detail-row__body--root { margin-left: 27px; }
+.activity-detail-row__body--root { margin-left: var(--space-20); }
 .activity-preview {
   overflow: hidden;
-  margin: 1px 0 0 27px;
+  margin: 1px 0 0 var(--space-20);
   color: var(--color-text-dim);
-  font: 11.5px var(--font-mono);
+  font-size: var(--type-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1326,3 +1331,90 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
      is the one thing that must survive at any width. */
   .crumbs__ctx { display: none; }
 }
+
+/* --- The trace ---------------------------------------------------
+ * Every entry hangs off ONE continuous hairline in a fixed gutter.
+ *
+ * What this replaces: three competing left edges at three different x positions
+ * (a 34px avatar, the commanded block's own accent border, a blockquote's border)
+ * plus activity rows that started at a fourth. Nothing established a line, so a
+ * long run read as rubble. The gutter is the spine; the glyph at each crossing
+ * says what kind of entry it is, which is the job the repeated avatars were
+ * failing to do while being the widest thing on the left.
+ */
+
+.tr {
+  display: grid;
+  grid-template-columns: var(--frame-rail) minmax(0, 1fr);
+  align-self: stretch;
+}
+
+.tr__gutter {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 3px;
+}
+
+/* The line itself. It runs past the entry in both directions and is clipped by
+ * the scroller, so consecutive entries join into one unbroken spine without any
+ * one of them having to know its neighbours. */
+.tr__gutter::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -40px;
+  bottom: -40px;
+  width: 1px;
+  background: var(--color-card-border);
+}
+
+.tr__glyph {
+  position: relative;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--color-card-border);
+  background: var(--color-main-bg);
+  color: var(--color-text-dim);
+}
+
+/* The one entry the accent belongs to: what the human ordered. */
+.tr[data-kind='commanded'] .tr__glyph {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.tr[data-kind='agent'] .tr__glyph { color: var(--color-text); }
+.tr[data-kind='error'] .tr__glyph {
+  border-color: var(--color-red);
+  color: var(--color-red-text);
+}
+
+.tr__body {
+  min-width: 0;
+  padding: 0 var(--space-24) var(--space-20) 0;
+}
+
+/* The kicker: who this entry is, and when. Uppercase and dim, because it is
+ * metadata — the entry's content is what should draw the eye. */
+.tr__hd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 18px;
+  font-size: var(--type-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+.tr__hd b { font-weight: 600; color: var(--color-text-muted); letter-spacing: 0.12em; }
+.tr__meta { margin-left: auto; flex-shrink: 0; }
+
+/* A system note keeps the spine but drops the kicker and the measure. */
+.tr[data-kind='system'] .tr__body,
+.tr[data-kind='error'] .tr__body { padding-bottom: var(--space-12); }

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
-import { SectionHeader } from './SectionHeader';
 import { useMenuKeyboard } from '../useMenuKeyboard';
 
 /**
@@ -69,8 +68,9 @@ export function WorkspaceTree({
 }): JSX.Element {
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <SectionHeader title="Workspaces" style={{ flex: 1, padding: '8px 10px 6px 10px' }} />
+      {/* No "WORKSPACES" header: the index column's own title already says what
+          this column is, and a second heading directly under it was pure repeat. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           data-testid="workspace-new"
@@ -213,9 +213,9 @@ function FolderRow({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        minHeight: 32,
-        padding: '4px 4px 4px 4px',
-        borderRadius: 8,
+        minHeight: 'var(--frame-row)',
+        padding: '2px var(--space-4)',
+        borderRadius: 'var(--radius-block)',
         cursor: 'pointer',
         color: 'var(--color-sidebar-text)',
       }}
@@ -270,8 +270,8 @@ function FolderRow({
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: 13,
-          fontWeight: active ? 700 : 600,
+          fontSize: 'var(--type-row)',
+          fontWeight: active ? 600 : 500,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -371,20 +371,23 @@ function SessionRow({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          minHeight: 32,
-          padding: '4px 4px 4px 32px',
-          borderRadius: 8,
+          minHeight: 'var(--frame-row)',
+          padding: '2px var(--space-4) 2px var(--space-32)',
+          borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
           background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 400,
+          // The same commanded strap the active rail item wears, so "active"
+          // looks like one idea across the whole frame rather than two.
+          boxShadow: active ? 'inset 2px 0 0 var(--color-primary)' : undefined,
         }}
       >
         <span
           style={{
             flex: 1,
             minWidth: 0,
-            fontSize: 13,
+            fontSize: 'var(--type-row)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -453,7 +456,7 @@ function ActionsOverlay({
         pointerEvents: show ? 'auto' : 'none',
         transition: 'opacity 120ms ease',
         background: `linear-gradient(to right, transparent, ${background} 16px)`,
-        borderRadius: 7,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       {children}
@@ -472,7 +475,7 @@ function UnreadDot({ label }: { readonly label: string }): JSX.Element {
         borderRadius: '50%',
         background: 'var(--color-primary)',
         flexShrink: 0,
-        boxShadow: '0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent)',
+        boxShadow: '0 0 0 3px var(--color-primary-soft)',
       }}
     />
   );
@@ -557,7 +560,7 @@ function RowMenu({
     fontSize: 12.5,
     fontWeight: 500,
     textAlign: 'left',
-    borderRadius: 7,
+    borderRadius: 'var(--radius-block)',
     cursor: 'pointer',
   };
 
@@ -583,8 +586,8 @@ function RowMenu({
               padding: 4,
               background: 'var(--color-sidebar-bg)',
               border: '1px solid var(--color-sidebar-border)',
-              borderRadius: 10,
-              boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow: 'var(--color-card-shadow)',
             }}
           >
             <button
@@ -639,7 +642,7 @@ function RowMenu({
             justifyContent: 'center',
             width: 24,
             height: 24,
-            borderRadius: 7,
+            borderRadius: 'var(--radius-block)',
             color: 'var(--color-sidebar-text-dim)',
             opacity: visible ? 0.9 : 0,
             background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
@@ -680,7 +683,7 @@ const iconButtonStyle: React.CSSProperties = {
   justifyContent: 'center',
   width: 24,
   height: 24,
-  borderRadius: 7,
+  borderRadius: 'var(--radius-block)',
   color: 'var(--color-sidebar-text-dim)',
   flexShrink: 0,
 };
