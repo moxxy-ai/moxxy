@@ -430,11 +430,13 @@ export function Composer({
           placeholder={
             compacting
               ? 'Compacting context…'
-              : attachments.length > 0
-                ? 'Ask about the attached file…'
-                : ready
-                  ? 'Send a message to the agent…'
-                  : 'Waiting for runner…'
+              : goalArmed
+                ? 'Set your goal — moxxy works until it is reached…'
+                : attachments.length > 0
+                  ? 'Ask about the attached file…'
+                  : ready
+                    ? 'Send a message to the agent…'
+                    : 'Waiting for runner…'
           }
           disabled={!ready || compacting}
           rows={1}

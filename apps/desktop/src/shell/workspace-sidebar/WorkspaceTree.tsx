@@ -270,7 +270,10 @@ function FolderRow({
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: 'var(--type-row)',
+          fontSize: 'var(--type-label)',
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: 'var(--color-text-dim)',
           fontWeight: active ? 600 : 500,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -281,6 +284,20 @@ function FolderRow({
         {desk.name}
       </span>
       {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
+      {/* How many conversations are in here. The row is a GROUP header, and a
+          group header that does not say how much it contains makes you expand it
+          to find out. */}
+      <span
+        aria-hidden
+        style={{
+          flexShrink: 0,
+          paddingRight: 'var(--space-4)',
+          fontSize: 'var(--type-label)',
+          color: 'var(--color-text-dim)',
+        }}
+      >
+        {desk.sessions.length}
+      </span>
       <ActionsOverlay show={showActions || busy} background={HOVER_ROW_BG}>
         <button
           type="button"
@@ -336,6 +353,7 @@ function SessionRow({
   // now, so pinning them open on the active row would permanently cover
   // the end of its title.
   const showActions = hot || menuOpen;
+  const meta = sessionMeta(s);
 
   return (
     <li>
@@ -372,7 +390,7 @@ function SessionRow({
           alignItems: 'center',
           gap: 8,
           minHeight: 'var(--frame-row)',
-          padding: '2px var(--space-4) 2px var(--space-32)',
+          padding: '2px var(--space-6) 2px var(--space-24)',
           borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
           background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
@@ -383,6 +401,15 @@ function SessionRow({
           boxShadow: active ? 'inset 2px 0 0 var(--color-primary)' : undefined,
         }}
       >
+        {/* An LED, like everywhere else in the frame: unread activity is the one
+            state this surface actually knows about, so it is the one it reports.
+            It also replaces the trailing dot, which said the same thing at the
+            far end of the row where the eye had to go looking. */}
+        {unread ? (
+          <span className="led" data-state="running" role="img" aria-label="unread activity" />
+        ) : (
+          <span className="led" aria-hidden />
+        )}
         <span
           style={{
             flex: 1,
@@ -396,7 +423,17 @@ function SessionRow({
         >
           {s.name}
         </span>
-        {unread && <UnreadDot label="unread activity" />}
+        {meta !== null && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 'var(--type-label)',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            {meta}
+          </span>
+        )}
         <ActionsOverlay
           show={showActions}
           background={active ? 'var(--color-sidebar-bg-active)' : HOVER_ROW_BG}
@@ -415,6 +452,28 @@ function SessionRow({
       </div>
     </li>
   );
+}
+
+/**
+ * The right-hand reading on a session row.
+ *
+ * `DeskSession` carries `lastActivity` and `eventCount` and nothing else about
+ * state, so this reports elapsed time since the session was last touched — and
+ * returns null rather than inventing a value when the field is absent. A run
+ * state (running / awaiting / failed) would be better and is not in the payload;
+ * it belongs to a protocol change, not to a formatter that guesses.
+ */
+function sessionMeta(session: DeskSession): string | null {
+  const raw = session.lastActivity;
+  if (!raw) return null;
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return null;
+  const mins = Math.floor((Date.now() - at) / 60_000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 /**
@@ -464,21 +523,11 @@ function ActionsOverlay({
   );
 }
 
+/** The rolled-up unread marker on a COLLAPSED folder row. Uses the frame's LED so
+ *  "there is activity in here" looks the same whether it is on a session row or
+ *  summarised onto the group above it. */
 function UnreadDot({ label }: { readonly label: string }): JSX.Element {
-  return (
-    <span
-      aria-label={label}
-      title="New activity"
-      style={{
-        width: 6,
-        height: 6,
-        borderRadius: '50%',
-        background: 'var(--color-primary)',
-        flexShrink: 0,
-        boxShadow: '0 0 0 3px var(--color-primary-soft)',
-      }}
-    />
-  );
+  return <span className="led" data-state="running" role="img" aria-label={label} />;
 }
 
 /** The hover-only ⋯ trigger + its tiny Rename/Delete popover, shared by
