@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.35.1",
+  "version": "0.35.2",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",

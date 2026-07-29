@@ -46,12 +46,30 @@ const RETRYABLE_FAILURE_TYPES = new Set([
   'rate_limit_error',
 ]);
 
-function isRetryableFailure(err: { type?: string; code?: string } | undefined): boolean {
+/**
+ * Transient-failure phrasing, consulted ONLY when the frame carries no `code`
+ * and no `type`. The Codex gateway reports its own internal faults with an
+ * error object that is just `{ code: null, message }`, so the allowlists above
+ * see nothing to match and the turn died on a fault whose own message says the
+ * request can be retried. Requiring the classification to be entirely absent
+ * keeps every typed failure (quota, validation) fatal however it is worded.
+ */
+const RETRYABLE_FAILURE_MESSAGE =
+  /an error occurred while processing your request|you can retry your request|please try again|temporarily unavailable|internal server error/i;
+
+function isRetryableFailure(
+  err: { type?: string; code?: string; message?: string } | undefined,
+): boolean {
   if (!err) return false;
-  return (
-    (err.code !== undefined && RETRYABLE_FAILURE_CODES.has(err.code)) ||
-    (err.type !== undefined && RETRYABLE_FAILURE_TYPES.has(err.type))
-  );
+  // `!= null` rather than `!== undefined`: the gateway sends an explicit JSON
+  // `null` for an unclassified fault, which must fall through to the message.
+  if (err.code != null || err.type != null) {
+    return (
+      (err.code != null && RETRYABLE_FAILURE_CODES.has(err.code)) ||
+      (err.type != null && RETRYABLE_FAILURE_TYPES.has(err.type))
+    );
+  }
+  return err.message !== undefined && RETRYABLE_FAILURE_MESSAGE.test(err.message);
 }
 
 const TOOL_STREAM_LIMIT_ERROR = (what: string): SseStepResult => ({
