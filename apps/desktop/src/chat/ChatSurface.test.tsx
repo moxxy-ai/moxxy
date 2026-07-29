@@ -111,6 +111,24 @@ vi.mock('@moxxy/client-core', () => ({
   useActiveAsk: () => null,
   useVoiceCall: () => voiceCallState,
   deskForWorkspace: () => undefined,
+  // ChatSurface owns the session-info fetch now (one fetch shared by the
+  // instrument bar's telemetry and the composer's mode menu), so its hook's
+  // dependencies have to exist on the mock too.
+  useConnection: () => ({ snapshot: undefined, hasEverConnected: false, retry: vi.fn() }),
+  chatStore: {
+    subscribe: () => () => undefined,
+    getModel: () => null,
+    getAutoApprove: () => false,
+    setActive: vi.fn(),
+  },
+  useContextUsage: () => ({
+    contextTokens: null,
+    contextWindow: null,
+    fraction: null,
+    summary: { calls: 0, totalPrompt: 0, totalOutput: 0 },
+    perCall: [],
+    hasData: false,
+  }),
 }));
 
 const loadingPhase = {

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { InstrumentBar, StatePill, type RunState } from '../../shell/InstrumentBar';
+import { Telemetry } from '../../shell/instrument/Telemetry';
+import type { AgentSession } from '../agent-picker/useAgentSession';
 import { useFocusModeToggle } from './useFocusModeToggle';
 
 /**
@@ -11,13 +13,18 @@ import { useFocusModeToggle } from './useFocusModeToggle';
  * what you were looking at — the workspace path had been pushed out to a
  * right-hand drawer. Navigation is the app rail's job now, so the bar does the
  * job a header should: identify the run (workspace / session), state what it is
- * doing, and carry its controls. Telemetry lands in the trailing slot next.
+ * doing, and carry its telemetry — the context window and token count that are
+ * the whole reason you would intervene in an unattended run, and which used to
+ * be chips inside the composer behind a click.
  */
 export function Header({
   phase: _phase,
   deskName,
   sessionName,
   runState,
+  agent,
+  agentDisabled,
+  workspaceId,
   searchQuery,
   onSearchChange,
   canRename,
@@ -29,6 +36,10 @@ export function Header({
   /** Foreground session name — the subject half. */
   readonly sessionName: string | null;
   readonly runState: RunState;
+  readonly agent: AgentSession;
+  /** Model picking is blocked while the session is not ready. */
+  readonly agentDisabled: boolean;
+  readonly workspaceId: string;
   readonly searchQuery: string | null;
   readonly onSearchChange: (q: string | null) => void;
   readonly canRename: boolean;
@@ -42,6 +53,15 @@ export function Header({
       crumbs={crumbs.length > 0 ? crumbs : ['No workspace']}
       state={<StatePill state={runState} />}
     >
+      {agent.info && (
+        <Telemetry
+          workspaceId={workspaceId}
+          info={agent.info}
+          selectedModel={agent.selectedModel}
+          disabled={agentDisabled}
+          onPick={agent.onPickProviderModel}
+        />
+      )}
       {searchOpen ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
           <input

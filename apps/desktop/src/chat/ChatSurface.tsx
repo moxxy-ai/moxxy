@@ -7,6 +7,7 @@ import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
+import { useAgentSession } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
@@ -105,6 +106,10 @@ export function ChatSurface({
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
+  // ONE session-info fetch for the whole surface. The instrument bar's telemetry
+  // and the composer's mode menu both read it; two independent hooks meant two
+  // round-trips per refresh and two chances to disagree about the active model.
+  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending);
   const activeSessionName =
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`
@@ -190,6 +195,9 @@ export function ChatSurface({
           deskName={activeDesk?.name ?? null}
           sessionName={activeSessionName}
           runState={runState}
+          agent={agent}
+          agentDisabled={!ready}
+          workspaceId={workspaceId}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
@@ -215,6 +223,9 @@ export function ChatSurface({
         deskName={activeDesk?.name ?? null}
         sessionName={activeSessionName}
         runState={runState}
+        agent={agent}
+        agentDisabled={!ready}
+        workspaceId={workspaceId}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
@@ -249,6 +260,7 @@ export function ChatSurface({
       )}
       {activeAsk && <AskSheet ask={activeAsk} />}
       <Composer
+        agent={agent}
         ready={ready}
         sending={chat.sending}
         compacting={chat.compacting}

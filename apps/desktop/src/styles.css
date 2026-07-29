@@ -522,11 +522,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   z-index: 1;
 }
 
+/* The telemetry group and the pane actions are two different kinds of thing, so
+ * they get a wider gap between them than the readouts get between each other. */
 .instrument__trailing {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: var(--space-12);
   min-width: 0;
 }
 
@@ -1210,4 +1212,117 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 @media (prefers-reduced-motion: reduce) {
   .tip::after { transition: none; }
+}
+
+/* --- Telemetry ---------------------------------------------------
+ * The trailing cluster in the instrument bar. Cells are separated by space, not
+ * by seams: at 44px a row of hairline dividers reads as a crowded table, and the
+ * readouts are already distinct enough not to need ruling. Every number is
+ * tabular so a digit changing does not shift the ones beside it. */
+
+.tele {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  min-width: 0;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
+}
+.tele:hover:not(:disabled) { filter: none; background: var(--color-input-soft); }
+.tele:disabled { opacity: 0.55; }
+
+/* One line, like the crumbs beside them. Stacking a label over a value inside a
+ * 44px bar reads as two crowded rows rather than as one instrument. */
+.tele__cell {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-6);
+  min-width: 0;
+  text-align: left;
+}
+
+.tele__k {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  line-height: 1;
+}
+
+.tele__v {
+  font-size: var(--type-row);
+  color: var(--color-text);
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.tele__v small { color: var(--color-text-dim); font-size: 9.5px; }
+/* The agent cell is a name, not a measurement, so it may ellipsize. */
+.tele__v--text {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The context cell takes the gauge's hue once it is past nominal, so the number
+ * and the ticks always agree. */
+.tele__cell[data-level='caution'] .tele__v { color: var(--color-amber-text); }
+.tele__cell[data-level='critical'] .tele__v { color: var(--color-red-text); }
+
+/* The segmented gauge. */
+.meter { display: flex; align-items: center; gap: 1.5px; flex-shrink: 0; }
+.meter i {
+  display: block;
+  width: 5px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--color-card-border-strong);
+  transition: background-color var(--motion-shift) ease;
+}
+.meter i[data-on] { background: var(--color-green); }
+.meter[data-level='caution'] i[data-on] { background: var(--color-amber); }
+.meter[data-level='critical'] i[data-on] { background: var(--color-red); }
+
+/* --- The instrument bar, as the window narrows -------------------
+ * The bar does NOT scroll. Chrome that scrolls can put a control out of reach,
+ * which is a worse failure than showing less of it. Instead the cluster drops by
+ * PRIORITY, lowest first, and the crumbs absorb whatever room that frees:
+ *
+ *   agent (name)  <  tokens  <  the state word  <  context gauge  <  actions
+ *
+ * `container-type: inline-size` makes the bar its own query container, so the
+ * thresholds are about the BAR's width, not the window's — which is what actually
+ * matters once the index column and the workbench are both open.
+ */
+.instrument {
+  container-type: inline-size;
+  container-name: instrument;
+}
+
+/* The trailing cluster never squashes; the crumbs are the flexible half. */
+.instrument__trailing { flex-shrink: 0; }
+
+@container instrument (max-width: 620px) {
+  /* The model name is the first thing to go: it is also in the model picker,
+     one click away, and it is the widest cell. */
+  .tele__cell[data-cell='agent'] { display: none; }
+}
+
+@container instrument (max-width: 500px) {
+  .tele__cell[data-cell='tokens'] { display: none; }
+}
+
+@container instrument (max-width: 420px) {
+  /* The LED still carries the state; the word is what goes. */
+  .state-pill { padding: 2px; border-color: transparent; background: none; }
+  .state-pill__label { display: none; }
+}
+
+@container instrument (max-width: 340px) {
+  /* Last: the workspace half of the crumbs. The session name is the subject and
+     is the one thing that must survive at any width. */
+  .crumbs__ctx { display: none; }
 }

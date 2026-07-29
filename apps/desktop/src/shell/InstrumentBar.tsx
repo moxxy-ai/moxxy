@@ -79,14 +79,24 @@ const STATE_LABEL: Record<RunState, string> = {
 /**
  * The run-state pill. State is encoded twice on purpose — in the hue AND in the
  * word — so it survives both a colour-blind reader and a greyscale screenshot.
+ * On a narrow bar the word drops and the LED stays (see the container queries).
  * The LED is the one place a full pill radius is allowed, because there the
  * shape itself is the information.
  */
 export function StatePill({ state }: { readonly state: RunState }): JSX.Element {
   return (
-    <span className="state-pill" data-state={state}>
+    // `role="img"` + aria-label rather than an extra screen-reader-only copy of
+    // the word: the label has to survive the container query that hides the
+    // visible text on a narrow bar, and a duplicated string would be announced
+    // twice at every other width.
+    <span
+      className="state-pill"
+      data-state={state}
+      role="img"
+      aria-label={`Run ${STATE_LABEL[state]}`}
+    >
       <span className="led" data-state={state} aria-hidden />
-      {STATE_LABEL[state]}
+      <span className="state-pill__label">{STATE_LABEL[state]}</span>
     </span>
   );
 }

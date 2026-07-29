@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { Header } from './Header';
+import type { AgentSession } from '../agent-picker/useAgentSession';
 
 const connectedPhase = {
   phase: 'connected',
@@ -16,6 +17,17 @@ afterEach(() => {
   cleanup();
   __setApiOverride(null);
 });
+
+/** A connected session with no info yet: the bar renders without telemetry,
+ *  which is the state every existing case here was written against. */
+const AGENT_FIXTURE = {
+  info: null,
+  selectedModel: null,
+  modes: [],
+  onMode: () => undefined,
+  onPickProviderModel: () => undefined,
+  refresh: () => undefined,
+} as unknown as AgentSession;
 
 describe('chat Header focus mode action', () => {
   it('toggles focus mode through the desktop IPC when clicked', async () => {
@@ -31,6 +43,9 @@ describe('chat Header focus mode action', () => {
         deskName="blocky"
         sessionName="retry untyped gateway fault"
         runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
+        workspaceId="ws-test"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
@@ -57,6 +72,9 @@ describe('chat Header focus mode action', () => {
         deskName="blocky"
         sessionName="retry untyped gateway fault"
         runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
+        workspaceId="ws-test"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
@@ -90,6 +108,9 @@ describe('chat Header focus mode action', () => {
         deskName="blocky"
         sessionName="retry untyped gateway fault"
         runState="awaiting"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
+        workspaceId="ws-test"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
@@ -116,6 +137,9 @@ describe('chat Header focus mode action', () => {
         deskName="blocky"
         sessionName="retry untyped gateway fault"
         runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
+        workspaceId="ws-test"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename

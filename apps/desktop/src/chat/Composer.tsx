@@ -14,9 +14,8 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
-import { useAgentSession } from './agent-picker/useAgentSession';
+import type { AgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
-import { ModelContextControl } from './composer/ModelContextControl';
 import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
 import { VoiceModeButton } from './composer/VoiceModeButton';
@@ -38,6 +37,9 @@ import type { ImagePreviewItem } from './image-preview/types';
 const MAX_TEXTAREA_HEIGHT = 190;
 
 interface ComposerProps {
+  /** Session info + provider/model/mode mutations, owned by ChatSurface so the
+   *  instrument bar's telemetry and this composer share one fetch. */
+  readonly agent: AgentSession;
   readonly ready: boolean;
   readonly sending: boolean;
   /** Runner is compacting the context — lock the composer entirely. */
@@ -71,6 +73,7 @@ interface ComposerProps {
  * attachment chip. The textarea also auto-grows to fit the draft.
  */
 export function Composer({
+  agent,
   ready,
   sending,
   compacting,
@@ -132,9 +135,6 @@ export function Composer({
   // knows an autonomous mode is driving the session.
   const modeBadge = useActiveModeBadge(workspaceId);
 
-  // Session info + provider/model/mode mutations. One fetch feeds both the Mode
-  // submenu in the "+" overflow and the model/context control on the right.
-  const agent = useAgentSession(workspaceId, !ready || inFlight);
 
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
@@ -424,15 +424,6 @@ export function Composer({
           onOpen={onOpenVoiceCall}
         />
         <span style={{ flex: 1 }} />
-        {agent.info && (
-          <ModelContextControl
-            workspaceId={workspaceId}
-            info={agent.info}
-            selectedModel={agent.selectedModel}
-            disabled={!ready}
-            onPick={agent.onPickProviderModel}
-          />
-        )}
         {inFlight ? (
           <button
             type="button"
