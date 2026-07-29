@@ -1471,3 +1471,107 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* A system note keeps the spine but drops the kicker and the measure. */
 .tr[data-kind='system'] .tr__body,
 .tr[data-kind='error'] .tr__body { padding-bottom: var(--space-12); }
+
+/* --- The command bar --------------------------------------------
+ * The composer, docked at the foot of the field. Not a floating rounded card
+ * with a shadow: it is permanent chrome, and in this language a flat surface
+ * does not cast a shadow — that is reserved for things genuinely above the panel.
+ *
+ * The division of labour with the instrument bar is deliberate. The bar at the
+ * top reports what the run HAS done (context, tokens, state). The strip here
+ * reports what the NEXT turn WILL do (mode, model, auto-approve, queue). Those
+ * are two different questions and they were both crammed into the composer.
+ */
+
+.cmdbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-main-bg);
+  border-top: 1px solid var(--color-card-border);
+}
+
+.cmdbar__strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-height: 27px;
+  padding: 0 var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-input-soft);
+}
+
+.cmdbar__hint {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--type-label);
+  letter-spacing: 0.06em;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+/* Prose face, because what you type here is what you MEAN, and it is read back
+ * to you in the trace in the same voice. */
+.cmdbar__ta {
+  width: 100%;
+  resize: none;
+  overflow-y: auto;
+  padding: var(--space-12) var(--space-12) var(--space-8);
+  font-family: var(--font-prose);
+  font-size: var(--type-prose);
+  line-height: 1.55;
+  color: var(--color-text);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+.cmdbar__ta::placeholder { color: var(--color-text-dim); }
+/* The focus ring belongs to the bar, not to a borderless textarea inside it. */
+.cmdbar:focus-within { box-shadow: inset 0 2px 0 var(--color-primary); }
+
+.cmdbar__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-12) var(--space-8);
+}
+
+.cmdbar__error {
+  margin: 0;
+  padding: 0 var(--space-12) var(--space-6);
+  font-size: var(--type-meta);
+  color: var(--color-red-text);
+}
+
+/* The shortcut line. Quiet, permanent, and it changes with the state: while a
+ * turn is in flight Enter QUEUES rather than sends, and saying so is cheaper
+ * than letting someone discover it by surprise. */
+.cmdbar__keys {
+  margin: 0;
+  padding: 0 var(--space-12) var(--space-8);
+  font-size: var(--type-label);
+  letter-spacing: 0.04em;
+  color: var(--color-text-dim);
+}
+
+/* --- Tags ------------------------------------------------------
+ * The small state markers shared by the command strip. Sharp, outlined, and
+ * uppercase — they are readouts, not buttons. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-shrink: 0;
+  padding: 1px var(--space-6);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-chip);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.tag--cmd { color: var(--color-primary); border-color: var(--color-primary); }
+/* Auto-approve means tool calls run unreviewed, which is a caution state, not a
+ * neutral setting — it is the one tag that gets a hue for what it IS. */
+.tag--warn { color: var(--color-amber-text); border-color: var(--color-amber); }

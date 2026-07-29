@@ -22,6 +22,19 @@ implementation paths. Full pre-PR gate green.
 Severity tags: `[critical]`/`[high]`/`[med]`/`[low]`, `[note]` = standing practice
 or recorded-on-purpose decision.
 
+## Open
+
+- [low, tests/determinism, LOGGED 2026-07-30] `FocusWidget.test.tsx` >
+  "keeps the inactive preview window size stable while assistant chunks stream"
+  is order-dependent. It asserts an exact `focus.resize` invoke COUNT (`expected 3
+  to be 2`), which only holds if no earlier test in the file leaves a pending
+  resize in the shared fake-api spy. Seen failing once in a full
+  `turbo run test` and passing both in isolation (59/59) and on an immediate
+  re-run of the whole suite, so it is a flake rather than a regression. The fix is
+  to assert the resize DIMENSIONS stayed equal across the two chunks instead of
+  counting calls — the count is a proxy for "did not resize", and a brittle one.
+  Found while landing the desktop redesign; not caused by it.
+
 ## Resolved ledger
 
 - [med, tests/determinism, RESOLVED 2026-07-28] The workflows

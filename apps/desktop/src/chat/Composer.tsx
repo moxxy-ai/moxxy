@@ -118,6 +118,9 @@ export function Composer({
   const closeGoal = useCallback(() => setGoalOpen(false), []);
 
   const inFlight = activeTurnId !== null || sending;
+  const info = agent.info;
+  // Model name only, matching the instrument bar's agent cell.
+  const modelLabel = agent.selectedModel ?? info?.activeProvider ?? null;
   // The user can type / submit even while a turn is running — the
   // send() call queues it; the drainer ships it the moment the
   // current turn completes. A compaction is the one exception: the
@@ -285,19 +288,30 @@ export function Composer({
         e.preventDefault();
         submit();
       }}
-      style={{
-        margin: '12px 18px 4px',
-        padding: '12px 14px',
-        background: 'var(--color-card-bg)',
-        border: '1px solid var(--color-card-border)',
-        borderRadius: 16,
-        boxShadow: 'var(--color-card-shadow)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
+      // A docked panel with a top seam, not a floating rounded card with a
+      // shadow. It is permanent chrome at the foot of the field, and in this
+      // language a flat surface does not cast a shadow — that is reserved for
+      // things that genuinely float above the panel (menus, modals).
+      className="cmdbar"
     >
       {modeBadge && <ModeBanner badge={modeBadge} />}
+      {/* The status strip: what the NEXT turn will do. The instrument bar above
+          reports what the run HAS done; these are the settings in force when you
+          press send, which is why they belong to the composer and the telemetry
+          does not. */}
+      <div className="cmdbar__strip">
+        {info?.activeMode && <span className="tag tag--cmd">{info.activeMode}</span>}
+        {modelLabel && <span className="tag">{modelLabel}</span>}
+        {autoApprove && (
+          <span className="tag tag--warn" data-testid="composer-auto-approve">
+            auto-approve on
+          </span>
+        )}
+        <span className="cmdbar__hint">
+          {queued.length > 0 && `${queued.length} queued · `}
+          {inFlight ? 'turn in flight' : 'ready'} · ⌘K commands
+        </span>
+      </div>
       {(attachments.length > 0 || queued.length > 0) && (
         <div
           style={{
@@ -375,22 +389,10 @@ export function Composer({
         }
         disabled={!ready || compacting}
         rows={1}
-        style={{
-          width: '100%',
-          resize: 'none',
-          maxHeight: MAX_TEXTAREA_HEIGHT,
-          overflowY: 'auto',
-          padding: '4px 6px 6px',
-          fontSize: 14.5,
-          lineHeight: 1.55,
-          color: 'var(--color-text)',
-          background: 'transparent',
-          border: 'none',
-          fontFamily: 'inherit',
-          outline: 'none',
-        }}
+        className="cmdbar__ta"
+        style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
       />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div className="cmdbar__acts">
         <OverflowMenu
           highlighted={autoApprove || modeBadge != null}
           items={overflowItems}
@@ -423,7 +425,6 @@ export function Composer({
           disabled={!ready || compacting || inFlight}
           onOpen={onOpenVoiceCall}
         />
-        <span style={{ flex: 1 }} />
         {inFlight ? (
           <button
             type="button"
@@ -449,18 +450,14 @@ export function Composer({
         )}
       </div>
       {(voice.errorReason ?? noTranscriberMsg ?? attachError) && (
-        <p
-          role="status"
-          style={{
-            margin: 0,
-            textAlign: 'center',
-            fontSize: 11,
-            color: 'var(--color-red)',
-          }}
-        >
+        <p className="cmdbar__error" role="status">
           {voice.errorReason ?? noTranscriberMsg ?? attachError}
         </p>
       )}
+      <p className="cmdbar__keys">
+        {inFlight ? 'Enter queues behind the running turn' : 'Enter sends'} · Shift+Enter
+        newline · Esc clears
+      </p>
       {actionsOpen && (
         <CommandPalette
           workspaceId={workspaceId}

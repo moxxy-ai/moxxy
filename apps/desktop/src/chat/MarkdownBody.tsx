@@ -86,17 +86,24 @@ const components: Components = {
       }}
     />
   ),
+  // A quotation is reference material, so it reads as a recessed well rather than
+  // as faded prose. It used to be muted text on a hairline, and because quoted
+  // matter is usually emphasised at the source, the result was BOLD text in a
+  // dim grey — which looks like something failed to load rather than like a pull
+  // quote. Full-strength ink in a sunk well says "not my words" without dimming
+  // the words themselves.
   blockquote: (p) => (
     <blockquote
       {...p}
       style={{
         margin: '0 0 0.7em',
-        padding: '0.1em 0 0.1em 0.85em',
+        padding: '0.5em 0.85em',
         // A seam, not the accent. The accent means "the human commanded this",
-        // and a quotation inside the agent's own prose is not that — spending it
-        // here put a second magenta left edge beside the command's.
+        // and a quotation inside the agent's own prose is not that.
         borderLeft: '2px solid var(--color-card-border-strong)',
-        color: 'var(--color-text-muted)',
+        borderRadius: '0 var(--radius-block) var(--radius-block) 0',
+        background: 'var(--color-input-soft)',
+        color: 'var(--color-text)',
       }}
     />
   ),
