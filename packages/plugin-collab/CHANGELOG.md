@@ -1,5 +1,12 @@
 # @moxxy/plugin-collab
 
+## 0.35.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/runner@0.2.41
+
 ## 0.35.0
 
 ### Patch Changes

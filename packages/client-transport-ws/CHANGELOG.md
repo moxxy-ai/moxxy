@@ -1,5 +1,12 @@
 # @moxxy/client-transport-ws
 
+## 0.2.25
+
+### Patch Changes
+
+- @moxxy/e2e@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+
 ## 0.2.24
 
 ### Patch Changes

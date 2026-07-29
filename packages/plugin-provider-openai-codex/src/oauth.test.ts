@@ -59,7 +59,7 @@ describe('buildAuthorizeUrl', () => {
     expect(params.get('id_token_add_organizations')).toBe('true');
     expect(params.get('codex_cli_simplified_flow')).toBe('true');
     expect(params.get('state')).toBe('STATE');
-    expect(params.get('originator')).toBe('moxxy');
+    expect(params.get('originator')).toBe('codex_cli_rs');
   });
 });
 
