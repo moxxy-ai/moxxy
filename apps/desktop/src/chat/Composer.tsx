@@ -284,10 +284,12 @@ export function Composer({
     { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
     {
       icon: 'agent',
-      label: goalArmed ? 'Goal armed' : 'Set a goal',
+      label: goalArmed ? 'Stand down goal' : 'Set a goal',
       active: goalArmed,
+      // A TOGGLE. Arming from a menu that cannot also disarm leaves the only way
+      // out as Escape in the textarea, which nothing on screen says.
       onClick: () => {
-        setGoalArmed(true);
+        setGoalArmed((armed) => !armed);
         taRef.current?.focus();
       },
     },

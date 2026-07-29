@@ -1620,3 +1620,61 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text);
   font-weight: 600;
 }
+
+/* --- Menus -------------------------------------------------------
+ * A menu is one of the few things in this language that genuinely floats above
+ * the panel, so it is the one place a shadow is allowed — the token one, with its
+ * lit top seam. Rows are dense and sectioned; the geometry matches the rest of
+ * the frame rather than being a softer, rounder island.
+ */
+
+.menu {
+  position: absolute;
+  z-index: 30;
+  min-width: 208px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  animation: moxxy-fade-in var(--motion-overlay) ease-out both;
+}
+.menu--up { bottom: calc(100% + var(--space-6)); left: 0; }
+.menu--side { left: calc(100% + var(--space-6)); bottom: 0; z-index: 31; min-width: 176px; }
+
+/* A section kicker, in the same idiom as the trace's and the index column's. */
+.menu__label {
+  padding: var(--space-4) var(--space-8) var(--space-6);
+  font-size: var(--type-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.menu__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--frame-tool);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+  text-align: left;
+}
+.menu__row:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-text);
+  background: var(--color-input-soft);
+}
+.menu__row[data-active='true'] { color: var(--color-primary); }
+.menu__row:disabled { opacity: 0.42; cursor: not-allowed; }
+
+.menu__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The row's right-hand reading, same shape as a telemetry cell. */
+.menu__value { flex-shrink: 0; color: var(--color-text); }
+.menu__mark { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
+.menu__row[data-active='true'] .menu__mark { color: var(--color-primary); }
