@@ -854,12 +854,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* A failed call is the one activity row that gets a hue. */
 .activity-block[data-status='error'] .activity-row__label,
 .activity-block[data-status='error'] .activity-row__meta { color: var(--color-red-text); }
+/* Leading, so the disclosure state reads down the left edge in one pass. */
 .activity-row__chevron {
   display: inline-flex;
   flex: 0 0 auto;
   color: var(--color-text-dim);
-  transition: transform 120ms ease;
+  transition: transform var(--motion-shift) ease;
 }
+/* The meta pushes to the right edge instead. */
+.activity-row__meta { margin-left: auto; }
 .activity-row:hover,
 .activity-detail-row:hover { color: var(--color-text); }
 

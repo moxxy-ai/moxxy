@@ -144,7 +144,6 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
   return (
     <div className="activity-block" data-testid="block-skill">
       <ActivityRow
-        icon="spark"
         label={label}
         meta={meta}
         active={running}

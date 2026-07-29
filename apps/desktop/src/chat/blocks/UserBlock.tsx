@@ -66,25 +66,27 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
   return (
     <span
       title={`${label} · ${humanSize(payloadBytes(att))}`}
+      // A sharp chip on a seam, not a full pill outlined in the accent. The
+      // accent means "the human commanded this"; an attachment is a detail OF
+      // the command, and a 999px radius is the one geometry this language does
+      // not use outside a state LED.
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '4px 10px',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-primary)',
-        borderRadius: 999,
-        fontSize: 12,
-        color: 'var(--color-primary-strong)',
-        fontWeight: 600,
-        maxWidth: 280,
+        gap: 'var(--space-6)',
+        padding: '2px var(--space-6)',
+        background: 'var(--color-input-soft)',
+        border: '1px solid var(--color-card-border)',
+        borderRadius: 'var(--radius-chip)',
+        fontSize: 'var(--type-meta)',
+        color: 'var(--color-text-muted)',
+        maxWidth: 320,
       }}
     >
-      <Icon name="attach" size={12} />
+      <Icon name="attach" size={12} style={{ flexShrink: 0 }} />
       <span
-        className="mono"
         style={{
-          maxWidth: 200,
+          minWidth: 0,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -92,7 +94,11 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
       >
         {label}
       </span>
-      <span style={{ opacity: 0.6, fontWeight: 500 }}>{humanSize(payloadBytes(att))}</span>
+      {/* Never wraps: the size wrapping onto a second line was what made the
+          chip twice as tall as the text inside it. */}
+      <span style={{ flexShrink: 0, whiteSpace: 'nowrap', color: 'var(--color-text-dim)' }}>
+        {humanSize(payloadBytes(att))}
+      </span>
     </span>
   );
 }
