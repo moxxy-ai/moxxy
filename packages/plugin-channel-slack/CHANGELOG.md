@@ -1,5 +1,16 @@
 # @moxxy/plugin-channel-slack
 
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/core@0.35.2
+- @moxxy/config@0.35.2
+- @moxxy/channel-kit@0.35.2
+- @moxxy/plugin-tunnel-proxy@0.35.2
+- @moxxy/plugin-vault@0.35.2
+
 ## 0.35.1
 
 ### Patch Changes

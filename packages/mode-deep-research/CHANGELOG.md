@@ -1,5 +1,12 @@
 # @moxxy/mode-deep-research
 
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/plugin-subagents@0.35.2
+
 ## 0.35.1
 
 ### Patch Changes
