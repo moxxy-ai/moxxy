@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Icon, TextArea } from '@moxxy/desktop-ui';
-import { Segmented } from '../../shell/ViewHeader';
+import { Segmented } from '../../shell/Segmented';
 
 export type ImportTab = 'upload' | 'paste';
 

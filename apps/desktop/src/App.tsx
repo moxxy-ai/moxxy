@@ -20,12 +20,14 @@ import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionS
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
-import type { View } from './shell/ViewHeader';
-import { ContextRail, type RailPane } from './shell/ContextRail';
+import { AppRail } from './shell/AppRail';
+import type { View } from './shell/views';
+import { Workbench, type WorkbenchTab } from './shell/Workbench';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { MobilePanel } from './mobile/MobilePanel';
+import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
@@ -37,7 +39,7 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
-const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps'];
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps', 'automations'];
 const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
@@ -47,8 +49,8 @@ const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
  *      condition is unmet.
  *   2. While the runner is connecting (any phase that isn't
  *      `connected`), the ConnectionScreen owns the pane.
- *   3. Once connected, the workspace shell renders:
- *      WorkspaceSidebar | ContextRail | <active view>.
+ *   3. Once connected, the Harness frame renders:
+ *      AppRail | index column | field | workbench.
  */
 export function App(): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
@@ -65,10 +67,10 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  // Context rail starts collapsed. The context button opens a dropdown
-  // (terminal / files changed / browser); picking one sets the active pane
-  // and opens the rail. Null = collapsed.
-  const [railPane, setRailPane] = useState<RailPane | null>(null);
+  // The workbench starts collapsed — but collapsed now leaves a vertical tab
+  // strip, so it is still discoverable and one click opens the pane you want.
+  // Null = collapsed.
+  const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
@@ -108,9 +110,9 @@ export function App(): JSX.Element {
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
 
-  // When the agent drives the browser / terminal, open the matching rail
-  // pane so its work is shown to the user (once per session per pane).
-  useAgentSurfaceReveal(activeWorkspaceId, setRailPane);
+  // When the agent drives the browser / terminal, open the matching workbench
+  // tab so its work is shown to the user (once per session per tab).
+  useAgentSurfaceReveal(activeWorkspaceId, setBenchTab);
 
   // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
   // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
@@ -283,64 +285,55 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={onView} />
+      {/* One navigation organ. The index column beside it changes CONTENTS per
+          destination rather than being a different component per view. */}
+      <AppRail
+        view={view}
+        onView={onView}
+        disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+        disabledReason={RUNNER_LOCKED_REASON}
+      />
+      {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
       {view === 'chat' && (
         <>
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
-            railPane={railPane}
-            onPickPane={setRailPane}
             sessionLoading={shell.sessionLoading}
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
           />
-          <ContextRail
-            pane={railPane}
-            onClose={() => setRailPane(null)}
+          <Workbench
+            tab={benchTab}
+            onPick={setBenchTab}
+            onClose={() => setBenchTab(null)}
             workspaceId={activeWorkspaceId}
           />
         </>
       )}
       {view === 'collaborate' && (
-        <main className="col-main col-main--flat">
-          <CollaboratePanel
-            onView={onView}
-            workspaceId={activeWorkspaceId}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <CollaboratePanel workspaceId={activeWorkspaceId} />
         </main>
       )}
       {view === 'settings' && (
-        <main className="col-main col-main--flat">
-          <SettingsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <SettingsPanel />
         </main>
       )}
       {view === 'apps' && (
-        <main className="col-main col-main--flat">
-          <AppsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <AppsPanel />
         </main>
       )}
-      {/* Mobile is independent of the runner session (the gateway lives in the
-          main process), so it is never runner-locked — but the switcher still
-          needs the locked set so the OTHER segments disable in lockstep. */}
-      {view === 'mobile' && (
-        <main className="col-main col-main--flat">
-          <MobilePanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+      {view === 'automations' && (
+        <main className="field">
+          <WorkflowsPanel />
+        </main>
+      )}
+      {/* Channels is independent of the runner session (the gateway lives in the
+          main process), so it is never runner-locked. */}
+      {view === 'channels' && (
+        <main className="field">
+          <MobilePanel />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
@@ -363,7 +356,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function isRunnerLockedView(view: View): boolean {
-  return view === 'collaborate' || view === 'apps';
+  return RUNNER_LOCKED_VIEWS.includes(view);
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {

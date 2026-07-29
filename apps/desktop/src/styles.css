@@ -243,16 +243,17 @@ button {
   border: none;
   cursor: pointer;
   padding: 0;
-  /* Everything that animates on hover/active feels consistent if
-   * the transitions match. 120ms is just under perception threshold. */
+  /* Everything that animates on hover/active feels consistent if the durations
+   * match, so they come from the motion tokens rather than being re-picked per
+   * rule: --motion-press for the tactile press, --motion-shift for state. */
   transition:
-    background-color 140ms ease,
-    color 140ms ease,
-    border-color 140ms ease,
-    box-shadow 160ms ease,
-    transform 90ms ease,
-    filter 140ms ease,
-    opacity 140ms ease;
+    background-color var(--motion-shift) ease,
+    color var(--motion-shift) ease,
+    border-color var(--motion-shift) ease,
+    box-shadow var(--motion-shift) ease,
+    transform var(--motion-press) ease,
+    filter var(--motion-shift) ease,
+    opacity var(--motion-shift) ease;
   -webkit-tap-highlight-color: transparent;
 }
 button:hover:not(:disabled) {
@@ -301,63 +302,446 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
-.col-sidebar {
-  /* Wide enough for ~30 chars of 13px row text before ellipsis — workspace
-   * and first-prompt session titles were unreadable at the old 232px. */
-  width: 272px;
+/* --- The Harness frame ------------------------------------------
+ * app-rail | index-col | field (instrument + content) | bench
+ *
+ * The rail is the vertical strap; `.index-col__head` and `.instrument` are both
+ * --frame-bar tall and share one bottom seam, forming the horizontal strap. The
+ * rail paints OVER that band (z-index), and the head paints over the rail's
+ * commanded strap, so the crossing is a true over/under weave rather than two
+ * stacked rectangles.
+ */
+
+.app-rail {
+  width: var(--frame-rail);
   flex-shrink: 0;
   background: var(--color-sidebar-bg);
-  color: var(--color-sidebar-text);
+  border-right: 1px solid var(--color-sidebar-border);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--color-sidebar-border);
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) 0 var(--space-12);
+  /* Above the horizontal strap: the rail passes over it. */
+  position: relative;
+  z-index: 2;
 }
 
-.col-rail {
-  /* position: relative anchors the absolutely-positioned resize handle
-   * (ContextRail) to the rail's own left edge. Without it the handle resolves
-   * against a far ancestor and lands off-screen, so the divider looks draggable
-   * but nothing grabs it. */
+.app-rail__mark {
+  display: inline-flex;
+  /* The INK strand. Not the accent: the mark's second strand is already the
+   * commanded accent, and matching them collapses the weave into a rosette. */
+  color: var(--color-sidebar-text);
+  margin: var(--space-4) 0 var(--space-12);
+}
+
+.app-rail__spacer { flex: 1; }
+
+/* ONE layout model for both states: a flex row that centres its glyph when
+ * there is no label and left-aligns when there is. The earlier version switched
+ * `display: grid` to `display: flex` between states and then reset the result
+ * with `place-items: unset` — a shorthand that also owns `align-items`, so it
+ * silently undid the `align-items: center` two lines above it and the toggle's
+ * glyph and label ended up on separate rows. */
+.rail-item {
+  width: 34px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-block);
+  color: var(--color-sidebar-text-dim);
   position: relative;
-  width: 296px;
   flex-shrink: 0;
-  padding: 0;
+}
+
+.rail-item__glyph { display: inline-flex; flex-shrink: 0; }
+.rail-item__label { display: none; }
+
+/* The toggle's chevron points the way the rail will move. */
+.rail-item--toggle .rail-item__glyph {
+  transition: transform var(--motion-shift) ease;
+}
+.rail-item--toggle .rail-item__glyph[data-flip='true'] { transform: rotate(180deg); }
+
+/* --- Expanded rail: the same items, with their names -------------
+ * The width IS animated here, unlike the workbench's. Only the field reflows off
+ * it (the workbench keeps its own explicit width), so xterm never re-measures
+ * mid-animation — which is the one thing that made the workbench snap instead. */
+.app-rail {
+  transition: width var(--motion-shift) ease;
+}
+.app-rail[data-expanded='true'] {
+  width: 186px;
+  align-items: stretch;
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
+}
+.app-rail[data-expanded='true'] .app-rail__mark {
+  padding-left: 7px;
+}
+.app-rail[data-expanded='true'] .rail-item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-8);
+  padding: 0 var(--space-8);
+}
+.app-rail[data-expanded='true'] .rail-item__label {
+  display: block;
+  font-size: var(--type-row);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The names arrive just behind the width so they are not briefly clipped by a
+   * rail that has not finished opening. */
+  animation: moxxy-fade-in var(--motion-shift) ease-out both;
+  animation-delay: 60ms;
+}
+.app-rail[data-expanded='true'] .rail-item[data-active='true'] { font-weight: 600; }
+/* The commanded strap keeps sitting in the rail-to-index seam, so it has to
+ * follow the rail's padding out to its real right edge. */
+.app-rail[data-expanded='true'] .rail-item[data-active='true']::before {
+  right: calc(-1 * var(--space-8) - 1px);
+}
+.app-rail[data-expanded='true'] .rail-avatar { margin-left: 7px; }
+.rail-item:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-sidebar-text);
+  background: var(--color-sidebar-bg-hover);
+}
+.rail-item[data-active='true'] {
+  color: var(--color-sidebar-text);
+  background: var(--color-main-bg);
+}
+/* The commanded strap. Full row height, sitting in the seam between the rail and
+ * the index column, and painted UNDER the horizontal strap's head.
+ *
+ * ::before, NOT ::after. Rail items also carry `.tip`, whose bubble is an
+ * ::after — two rule sets on one pseudo-element merge, and they did: the strap
+ * inherited the bubble's `opacity: 0` (so it vanished) while the bubble
+ * inherited the strap's magenta fill (so hovering produced a pink box with
+ * unreadable text). One pseudo-element per job. */
+.rail-item[data-active='true']::before {
+  content: '';
+  position: absolute;
+  right: -9px;
+  top: calc(-1 * var(--space-8));
+  bottom: calc(-1 * var(--space-8));
+  width: 2px;
+  background: var(--color-primary);
+}
+.rail-item:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.index-col {
+  width: var(--frame-index);
+  flex-shrink: 0;
+  background: var(--color-main-bg);
+  color: var(--color-sidebar-text);
+  border-right: 1px solid var(--color-sidebar-border);
   display: flex;
   flex-direction: column;
-  gap: 0;
+  min-width: 0;
+}
+
+.index-col__head {
+  height: var(--frame-bar);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-8) 0 var(--space-12);
+  border-bottom: 1px solid var(--color-sidebar-border);
+  background: var(--color-main-bg);
+  /* Over the rail's strap: the strap passes under this seam. */
+  position: relative;
+  z-index: 3;
+}
+
+.index-col__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.index-col__body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: var(--space-8) var(--space-8) var(--space-12);
+}
+
+.index-col__foot {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-sidebar-border);
+  padding: var(--space-8) var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.index-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  margin-top: var(--space-6);
+  font-size: var(--type-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+.index-group:first-child { margin-top: 0; }
+.index-group__label { flex: 1; min-width: 0; }
+.index-group__count { flex-shrink: 0; }
+
+/* --- The field: instrument bar + content ----------------------- */
+
+.field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-main-bg);
+}
+
+.instrument {
+  height: var(--frame-bar);
+  min-height: var(--frame-bar);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-main-bg);
+  position: relative;
+  z-index: 1;
+}
+
+.instrument__trailing {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-width: 0;
+  font-size: var(--type-row);
+}
+.crumbs__ctx { display: inline-flex; align-items: center; gap: var(--space-6); flex-shrink: 0; }
+.crumbs__seg { color: var(--color-text-muted); }
+.crumbs__sep { color: var(--color-text-dim); }
+.crumbs__subject {
+  color: var(--color-text);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* State is encoded in the hue AND the word, so it survives a greyscale
+ * screenshot and a colour-blind reader. */
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-shrink: 0;
+  padding: 2px var(--space-8) 2px var(--space-6);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.state-pill[data-state='running'] {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+.state-pill[data-state='awaiting'] { color: var(--color-amber-text); border-color: var(--color-amber); }
+.state-pill[data-state='failed']   { color: var(--color-red-text); border-color: var(--color-red); }
+
+/* The one place a full pill radius is allowed: here the shape IS the data. */
+.led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-card-border-strong);
+}
+.led[data-state='running'] {
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+  animation: moxxy-led-breathe 1.8s ease-in-out infinite;
+}
+
+/* Only the halo moves. Pulsing the dot's own size would make a 6px element
+ * jitter against the text baseline beside it. */
+@keyframes moxxy-led-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-primary-soft); }
+  50%      { box-shadow: 0 0 0 4px var(--color-primary-soft); }
+}
+.led[data-state='awaiting'] { background: var(--color-amber); }
+.led[data-state='done']     { background: var(--color-green); }
+.led[data-state='failed']   { background: var(--color-red); }
+
+/* --- Workbench -------------------------------------------------
+ * Width is NEVER transitioned: xterm's fit() measures at mount, and an animated
+ * width let it lock the PTY to a couple of columns. Open/close snaps. */
+
+.bench {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--color-card-bg);
+  border-left: 1px solid var(--color-card-border);
+}
+
+/* Collapsed: a vertical tab strip, so the workbench never disappears without a
+ * trace the way the old drawer did. */
+.bench--closed {
+  width: 38px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) 0;
+  background: var(--color-app-bg);
+}
+
+.bench__stub {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-block);
+  color: var(--color-text-dim);
+}
+.bench__stub:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-text);
   background: var(--color-card-bg);
 }
-
-/* Right-hand context rail variant: border lives on the left edge so
- * the column reads as separate from the chat instead of bleeding into
- * the workspace sidebar.
- *
- * NOTE: width is intentionally NOT transitioned. Animating it meant the pane
- * spent ~260ms at a sub-full width while opening, and xterm's fit() (in
- * TerminalPane) measured that sliver and locked the terminal — and its PTY — to
- * a couple of columns. A snap-open keeps the pane at its real width from the
- * first frame so fit() is always correct; only opacity/border fade. Drag-resize
- * is instant for the same reason. */
-.col-rail--right {
-  border-left: 1px solid var(--color-card-border);
-  width: 296px;
-  transition:
-    opacity 200ms ease,
-    border-color 200ms ease;
-}
-.col-rail--right[data-open='false'] {
-  width: 0;
-  opacity: 0;
-  pointer-events: none;
-  overflow: hidden;
-  border-left-color: transparent;
+.bench__count {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 600;
 }
 
-/* Left-hand rails keep the right border. (Kept around in case any
- * future view re-introduces a left-side rail without `--right`.) */
-.col-rail:not(.col-rail--right) {
+.bench__grip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.bench__tabs {
+  display: flex;
+  height: var(--frame-bar);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-card-border);
+}
+
+.bench__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 0 var(--space-8);
   border-right: 1px solid var(--color-card-border);
+  color: var(--color-text-dim);
+  font-size: var(--type-meta);
+  position: relative;
+  white-space: nowrap;
+}
+.bench__tab:hover:not(:disabled) { filter: none; color: var(--color-text); }
+.bench__tab[data-active='true'] { color: var(--color-text); background: var(--color-main-bg); }
+.bench__tab[data-active='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-primary);
+}
+.bench__tab b {
+  font-weight: 600;
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+.bench__tabs-fill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 var(--space-6);
+}
+
+.bench__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* --- Small shared controls ------------------------------------- */
+
+/* The quiet icon button used across the chrome (collapse, expand, close). */
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--frame-control);
+  height: var(--frame-control);
+  flex-shrink: 0;
+  border-radius: var(--radius-block);
+  color: var(--color-text-dim);
+}
+.btn-quiet:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-text);
+  background: var(--color-input-soft);
+}
+
+/* Visible to assistive tech only — the rail is icon-only, so every item still
+ * carries its name in the accessibility tree. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .col-main {
@@ -679,6 +1063,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
     background: none;
     -webkit-text-fill-color: currentColor;
   }
+  .led[data-state='running'] {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--color-primary-soft);
+  }
 }
 
 /* --- Streaming cursor (assistant tail) ------------------------- */
@@ -717,4 +1105,95 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .markdown-body.streaming > ul:last-child::after,
 .markdown-body.streaming > ol:last-child::after {
   content: none;
+}
+
+/* The rail's account tile — the icon-only form of the profile row. */
+.rail-avatar {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  margin-top: var(--space-6);
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-block);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: var(--type-label);
+  font-weight: 600;
+}
+.rail-avatar:hover:not(:disabled) {
+  filter: none;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* --- Tooltips ---------------------------------------------------
+ * The native `title` tooltip is unusable for icon-only chrome: the OS delay is
+ * around 1.2s, and nothing about it can be styled, so an icon rail with `title`
+ * is effectively unlabelled. This is the replacement — same information, 140ms
+ * instead of 1200ms, and in the panel's own palette.
+ *
+ * Usage: `class="tip" data-tip="Runs"` plus `data-tip-side="left"` for chrome on
+ * the right edge (the workbench strip) so the bubble points inward.
+ *
+ * It is CSS-only (a pseudo-element on the control) rather than a portal: no
+ * timers, no state, nothing to leak, and it cannot survive the control being
+ * unmounted mid-hover. `aria-label` carries the accessible name, so the bubble
+ * is decoration for pointer users and is hidden from assistive tech.
+ */
+
+.tip { position: relative; }
+
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  padding: 4px var(--space-8);
+  /* No max-width. With `white-space: nowrap` a max-width cannot clip, it only
+   * lets the text spill outside the bubble's own border — which is exactly what
+   * a long label did. Bubbles hold labels, and labels are short. */
+  width: max-content;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--type-meta);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  box-shadow: var(--color-card-shadow);
+  opacity: 0;
+  pointer-events: none;
+  /* Hidden by default with NO delay, so leaving a control clears the bubble at
+   * once; the delay below applies only on the way in. */
+  transition: opacity 90ms ease 0ms;
+}
+
+.tip[data-tip-side='left']::after {
+  left: auto;
+  right: calc(100% + 8px);
+}
+
+.tip[data-tip-side='bottom']::after {
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+}
+
+/* Fast, but not so fast that dragging the pointer across the rail strobes. */
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1;
+  transition-delay: 140ms;
+}
+
+/* An expanded rail already shows its labels; a bubble repeating them is noise. */
+.app-rail[data-expanded='true'] .tip::after { content: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tip::after { transition: none; }
 }

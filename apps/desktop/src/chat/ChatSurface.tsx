@@ -7,6 +7,7 @@ import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
+import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
 import { SuggestedActions } from './chat-surface/SuggestedActions';
@@ -23,12 +24,7 @@ import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
-  readonly railPane: import('../shell/ContextRail').RailPane | null;
-  readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
   readonly sessionLoading: boolean;
-  readonly onView: (v: import('../shell/ViewHeader').View) => void;
-  readonly disabledViews?: ReadonlyArray<import('../shell/ViewHeader').View>;
-  readonly disabledViewReason?: string;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -88,12 +84,7 @@ export function filterEventsBySearch(
 export function ChatSurface({
   phase,
   workspaceId,
-  railPane,
-  onPickPane,
   sessionLoading,
-  onView,
-  disabledViews,
-  disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -114,6 +105,17 @@ export function ChatSurface({
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
+  const activeSessionName =
+    activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
+  // The run's state, as the bar reports it. `awaiting` outranks `running`
+  // because a blocked run is the one thing the supervisor has to act on.
+  const runState: RunState = activeAsk
+    ? 'awaiting'
+    : chat.activeTurnId !== null || chat.sending
+      ? 'running'
+      : chat.isEmpty
+        ? 'idle'
+        : 'done';
 
   // Precompute the searchable index ONCE per events change; the per-keystroke
   // filter then just scans it (no JSON.stringify on the keystroke path).
@@ -185,16 +187,13 @@ export function ChatSurface({
       <main className="col-main col-main--flat">
         <Header
           phase={phase}
-          workspaceId={workspaceId}
-          railPane={railPane}
-          onPickPane={onPickPane}
+          deskName={activeDesk?.name ?? null}
+          sessionName={activeSessionName}
+          runState={runState}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledViewReason={disabledViewReason}
         />
         <div
           key={workspaceId}
@@ -213,16 +212,13 @@ export function ChatSurface({
     <main className="col-main col-main--flat">
       <Header
         phase={phase}
-        workspaceId={workspaceId}
-        railPane={railPane}
-        onPickPane={onPickPane}
+        deskName={activeDesk?.name ?? null}
+        sessionName={activeSessionName}
+        runState={runState}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
-        onView={onView}
-        disabledViews={disabledViews}
-        disabledViewReason={disabledViewReason}
       />
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}

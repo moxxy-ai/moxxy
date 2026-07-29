@@ -14,33 +14,12 @@
  */
 
 import { MobileTab } from '../settings/MobileTab';
-import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
-export function MobilePanel({
-  // Optional so the panel can render standalone (tests); the app shell always
-  // wires it so the header switcher navigates back to Chat/Workflows/etc.
-  onView = () => undefined,
-  disabledViews,
-  disabledViewReason,
-}: {
-  readonly onView?: (v: View) => void;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
-}): JSX.Element {
+export function MobilePanel(): JSX.Element {
   return (
     <>
-      <ViewHeader>
-        <ViewSwitcher
-          view="mobile"
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledReason={disabledViewReason}
-        />
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-          Mobile
-        </span>
-      </ViewHeader>
+      <InstrumentBar crumbs={['Channels', 'Mobile']} />
       <div
         style={{
           flex: 1,

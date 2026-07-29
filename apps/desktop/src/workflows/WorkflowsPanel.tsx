@@ -5,7 +5,7 @@ import { AgentTaskModal } from '../settings/shared/AgentTaskModal';
 import { TargetSessionPicker } from '../apps/TargetSessionPicker';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
-import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 /**
  * Workflows surface — two modes:
@@ -20,19 +20,11 @@ import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
  * wires the list's `refresh` so a save (or a generated workflow) re-lists.
  */
 export function WorkflowsPanel({
-  // Optional so the panel can render standalone (tests); the app shell
-  // always wires it so the header switcher navigates.
-  onView = () => undefined,
-  disabledViews,
-  disabledViewReason,
-  // When embedded inside the Apps surface, the parent owns the chrome
-  // header (top switcher + sub-tabs), so this panel renders its actions as a
-  // plain toolbar row instead of its own ViewHeader/ViewSwitcher.
+  // When embedded inside the Apps surface the parent owns the chrome, so this
+  // panel renders its actions as a plain toolbar row instead of its own
+  // instrument bar.
   embedded = false,
 }: {
-  readonly onView?: (v: View) => void;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
   readonly embedded?: boolean;
 }): JSX.Element {
   const wf = useWorkflows();
@@ -98,16 +90,7 @@ export function WorkflowsPanel({
           {actions}
         </div>
       ) : (
-        <ViewHeader>
-          <ViewSwitcher
-            view="apps"
-            onView={onView}
-            disabledViews={disabledViews}
-            disabledReason={disabledViewReason}
-          />
-          <span style={{ flex: 1 }} />
-          {actions}
-        </ViewHeader>
+        <InstrumentBar crumbs={['Automations', 'Workflows']}>{actions}</InstrumentBar>
       )}
       <div
         style={{

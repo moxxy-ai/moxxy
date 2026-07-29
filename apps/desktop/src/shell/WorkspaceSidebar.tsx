@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
-import { Skeleton, Icon, ConfirmModal, type IconName } from '@moxxy/desktop-ui';
+import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
-import { Logo } from './workspace-sidebar/Logo';
-import { PanelLeftIcon } from './PanelLeftIcon';
-import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
+import { IndexColumn } from './IndexColumn';
 import {
   toggleWorkspaceCollapsed,
   useWorkspaceCollapsed,
@@ -13,29 +11,28 @@ import {
 import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
-import { ProfilePill } from './workspace-sidebar/ProfilePill';
-import type { View } from './ViewHeader';
 
 interface Props {
-  readonly view: View;
-  readonly onView: (v: View) => void;
+  /** Lands on a session's run after picking it in the tree. */
+  readonly onOpenRun: () => void;
 }
 
 /**
- * Dark left rail. One scrolling tree of every workspace (a collapsible
- * folder row, [+] new-session on its right) with that workspace's
- * sessions nested beneath — see {@link WorkspaceTree}. Picking a session
- * anywhere foregrounds it (and its workspace); folder rows only fold.
- * Bottom: a lone Settings entry above the user-profile pill —
- * Chat/Collaborate/Apps navigation lives in the main-pane header
- * (`ViewSwitcher`), not here.
+ * The Runs index: the contextual column beside the app rail, listing every
+ * workspace as a collapsible folder row with its sessions nested beneath (see
+ * {@link WorkspaceTree}). Picking a session anywhere foregrounds it and its
+ * workspace; folder rows only fold.
  *
- * The whole rail collapses to nothing (Cmd/Ctrl+B, or the panel button
- * beside the logo); `ViewHeader` then shows the matching expand button
- * in the main pane, so the affordance never disappears with the rail.
+ * It no longer navigates. It used to end with Mobile and Settings entries while
+ * Chat / Collaborate / Apps lived in a pill in the main-pane header, so the same
+ * kind of decision was split across two organs. Every destination is in the app
+ * rail now, and this column only ever answers "what is in here".
+ *
+ * Collapsing is unchanged (⌘B / Ctrl+B, or the button in the head): the column
+ * contributes no width at all, and the instrument bar grows the expand button so
+ * the affordance never disappears with it. {@link IndexColumn} owns that.
  */
-export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
-  const collapsed = useSidebarCollapsed();
+export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
   const desks = useDesks();
   const foldedDesks = useWorkspaceCollapsed();
   // useUnreadWorkspaces returns a reference-stable array (the store caches it
@@ -58,10 +55,6 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   /** Session queued for rename; null when no rename modal is open. */
   const [pendingSessionRename, setPendingSessionRename] = useState<DeskSession | null>(null);
 
-  // Collapsed = the rail contributes no width at all (it's text-first
-  // now, so a mini icon rail would have nothing useful to show). All
-  // hooks above ran, so the early return is hook-safe.
-  if (collapsed) return null;
 
   const activeDesk = desks.desks.find((d) => d.id === desks.activeId) ?? null;
 
@@ -96,32 +89,8 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   };
 
   return (
-    <aside className="col-sidebar">
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Logo />
-        </div>
-        <button
-          type="button"
-          aria-label="Collapse sidebar"
-          data-testid="sidebar-collapse"
-          title="Collapse sidebar (⌘B / Ctrl+B)"
-          onClick={() => setSidebarCollapsed(true)}
-          className="row-button"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 5,
-            marginRight: 10,
-            borderRadius: 8,
-            color: 'var(--color-sidebar-text-dim)',
-          }}
-        >
-          <PanelLeftIcon size={16} />
-        </button>
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 12px 12px' }}>
+    <IndexColumn title="runs">
+      <>
         {desks.loading && desks.desks.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
             <Skeleton.Row />
@@ -174,11 +143,11 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
               // back out of Settings/Apps now that the sidebar carries
               // no Chat entry. Cross-desk picks activate that desk too.
               void desks.setActiveSession(id);
-              onView('chat');
+              onOpenRun();
             }}
             onCreateSession={(deskId) => {
               void onNewSession(deskId);
-              onView('chat');
+              onOpenRun();
             }}
             onRenameSession={(s) => setPendingSessionRename(s)}
             onRemoveSession={(s) => setPendingSessionRemove(s)}
@@ -187,27 +156,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
             onNewWorkspace={() => void onStartNewWorkspace()}
           />
         )}
-      </div>
-      {/* Mobile + Settings are the sidebar destinations — anchored just above
-       *  the profile's top border, Mobile sitting above Settings.
-       *  Chat/Workflows switch in the main-pane header instead. */}
-      <nav style={{ padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <NavItem
-          icon="smartphone"
-          label="Mobile"
-          testId="nav-mobile"
-          active={view === 'mobile'}
-          onClick={() => onView('mobile')}
-        />
-        <NavItem
-          icon="settings"
-          label="Settings"
-          testId="nav-settings"
-          active={view === 'settings'}
-          onClick={() => onView('settings')}
-        />
-      </nav>
-      <ProfilePill />
+      </>
       {pendingFolder && (
         <NameWorkspaceModal
           defaultName={pendingFolder.split('/').filter(Boolean).pop() ?? 'New workspace'}
@@ -266,56 +215,6 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           }}
         />
       )}
-    </aside>
-  );
-}
-
-/** A bottom-rail destination button (Mobile, Settings) — one shared row so the
- *  two entries stay pixel-identical (active fill, icon tile, label weight). */
-function NavItem({
-  icon,
-  label,
-  testId,
-  active,
-  onClick,
-}: {
-  readonly icon: IconName;
-  readonly label: string;
-  readonly testId: string;
-  readonly active: boolean;
-  readonly onClick: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      data-active={active}
-      onClick={onClick}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        width: '100%',
-        padding: '10px 12px',
-        fontSize: 13.5,
-        color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
-        background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
-        borderRadius: 10,
-        fontWeight: active ? 600 : 500,
-      }}
-    >
-      <span
-        style={{
-          width: 20,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          opacity: 0.85,
-        }}
-      >
-        <Icon name={icon} size={17} />
-      </span>
-      <span>{label}</span>
-    </button>
+    </IndexColumn>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Sidebar collapse/expand:
  *   1. The rail's collapse button hides the whole sidebar and surfaces
- *      the expand affordance in the main-pane header (`ViewHeader`).
+ *      the expand affordance in the instrument bar (`InstrumentBar`).
  *   2. The expand button restores the rail and disappears again.
  *   3. State persists via localStorage (`moxxy.sidebarCollapsed`) — a
  *      "restart" (store re-read) comes back collapsed.
@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
-import { ViewHeader } from './ViewHeader';
+import { InstrumentBar } from './InstrumentBar';
 import {
   reloadSidebarCollapsedFromStorage,
   setSidebarCollapsed,
@@ -53,10 +53,10 @@ const STORAGE_KEY = 'moxxy.sidebarCollapsed';
 function renderShell(): void {
   render(
     <>
-      <WorkspaceSidebar view="chat" onView={vi.fn()} />
-      <ViewHeader>
+      <WorkspaceSidebar onOpenRun={vi.fn()} />
+      <InstrumentBar crumbs={['blocky', 'a run']}>
         <span>header content</span>
-      </ViewHeader>
+      </InstrumentBar>
     </>,
   );
 }
@@ -72,7 +72,7 @@ describe('sidebar collapse', () => {
   it('starts expanded: sidebar visible, no expand button in the header', () => {
     renderShell();
     expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
-    expect(screen.getByTestId('nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
     expect(screen.queryByTestId('sidebar-expand')).toBeNull();
   });
 
@@ -80,7 +80,7 @@ describe('sidebar collapse', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('sidebar-collapse'));
     // The whole rail is gone (width 0 — it renders nothing)…
-    expect(screen.queryByTestId('nav-settings')).toBeNull();
+    expect(screen.queryByTestId('sidebar-collapse')).toBeNull();
     expect(screen.queryByTestId('sidebar-collapse')).toBeNull();
     // …and the main-pane header now carries the way back.
     expect(screen.getByTestId('sidebar-expand')).toBeTruthy();
@@ -91,7 +91,7 @@ describe('sidebar collapse', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('sidebar-collapse'));
     fireEvent.click(screen.getByTestId('sidebar-expand'));
-    expect(screen.getByTestId('nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
     expect(screen.queryByTestId('sidebar-expand')).toBeNull();
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
@@ -100,7 +100,7 @@ describe('sidebar collapse', () => {
     window.localStorage.setItem(STORAGE_KEY, '1');
     reloadSidebarCollapsedFromStorage();
     renderShell();
-    expect(screen.queryByTestId('nav-settings')).toBeNull();
+    expect(screen.queryByTestId('sidebar-collapse')).toBeNull();
     expect(screen.getByTestId('sidebar-expand')).toBeTruthy();
   });
 
@@ -114,6 +114,6 @@ describe('sidebar collapse', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
     // Direct set to the current value is a no-op.
     act(() => setSidebarCollapsed(false));
-    expect(screen.getByTestId('nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
   });
 });

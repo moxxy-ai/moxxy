@@ -15,13 +15,59 @@ const HAS_CLERK_KEY = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim()
  * row is always either Sign in or the profile. A top border separates it
  * from the scrolling workspace list above.
  */
-export function ProfilePill(): JSX.Element {
-  return HAS_CLERK_KEY ? <ClerkProfilePill /> : <KeylessProfilePill />;
+export function ProfilePill({ compact = false }: { readonly compact?: boolean } = {}): JSX.Element {
+  return HAS_CLERK_KEY ? <ClerkProfilePill compact={compact} /> : <KeylessProfilePill compact={compact} />;
 }
 
-function KeylessProfilePill(): JSX.Element {
+/** Initials from a display name, for the rail's avatar tile. Falls back to the
+ *  first character so a single-word name still renders something. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** The rail form of the profile row: a 26px tile, since the rail is icon-only.
+ *  Every state the full row has (sign in / signed in) still has a tile. */
+function AvatarTile({
+  label,
+  title,
+  onClick,
+  disabled,
+}: {
+  readonly label: string | null;
+  readonly title: string;
+  readonly onClick?: () => void;
+  readonly disabled?: boolean;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="rail-avatar"
+      data-testid="profile-avatar"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {label ?? <Icon name="agent" size={13} />}
+    </button>
+  );
+}
+
+function KeylessProfilePill({ compact }: { readonly compact: boolean }): JSX.Element {
   const { prefs } = usePrefs();
   const displayName = prefs?.clerkDisplayName ?? null;
+  if (compact) {
+    return (
+      <AvatarTile
+        label={displayName ? initialsOf(displayName) : null}
+        title={displayName ?? 'Not signed in'}
+        disabled
+      />
+    );
+  }
   const row = displayName ? (
     <button
       type="button"
@@ -53,7 +99,7 @@ function KeylessProfilePill(): JSX.Element {
   );
 }
 
-function ClerkProfilePill(): JSX.Element {
+function ClerkProfilePill({ compact }: { readonly compact: boolean }): JSX.Element {
   const { user, isLoaded } = useUser();
   const { sessionClaims } = useAuth();
   const clerk = useClerk();
@@ -110,6 +156,31 @@ function ClerkProfilePill(): JSX.Element {
   // Single-line profile row, no background — a top border separates it
   // from the workspace list above. Signed-out reads as a sign-in prompt;
   // there is no "Guest" middle state.
+  if (compact) {
+    return (
+      <>
+        {!showProfile ? (
+          <AvatarTile
+            label={null}
+            title="Sign in"
+            onClick={() =>
+              void clerk.openSignIn({ fallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/' })
+            }
+          />
+        ) : (
+          <AvatarTile
+            label={initialsOf(displayName)}
+            title={`${displayName} · ${tier} · click for account`}
+            onClick={() => setProfileOpen(true)}
+          />
+        )}
+        {profileOpen && signedIn && (
+          <ProfileView tier={tier} onClose={() => setProfileOpen(false)} />
+        )}
+      </>
+    );
+  }
+
   const row =
     !showProfile ? (
       <button

@@ -135,9 +135,6 @@ describe('ChatSurface session readiness', () => {
         phase={loadingPhase}
         workspaceId="fresh-session"
         sessionLoading
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -161,9 +158,6 @@ describe('ChatSurface session readiness', () => {
         }}
         workspaceId="fresh-session"
         sessionLoading={false}
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -184,9 +178,6 @@ describe('ChatSurface session readiness', () => {
         phase={loadingPhase}
         workspaceId="huge-session"
         sessionLoading
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 

@@ -8,7 +8,8 @@ import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { PreferencesTab } from './PreferencesTab';
 import { SearchBox } from './settings-primitives';
-import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
+import { Segmented } from '../shell/Segmented';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 type SettingsSlice = ReturnType<typeof useSettings>;
 
@@ -106,17 +107,7 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = TAB_DESCRIPTORS.map(({ i
  * This is the tab shell: it owns the segmented nav, the per-tab search filter,
  * and the loading / error chrome, then renders the active tab component.
  */
-export function SettingsPanel({
-  // Optional so the panel can render standalone (tests); the app shell
-  // always wires it so the header switcher navigates.
-  onView = () => undefined,
-  disabledViews,
-  disabledViewReason,
-}: {
-  readonly onView?: (v: View) => void;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
-}): JSX.Element {
+export function SettingsPanel(): JSX.Element {
   const s = useSettings();
   const [tab, setTab] = useState<Tab>('providers');
   const [query, setQuery] = useState('');
@@ -128,14 +119,7 @@ export function SettingsPanel({
 
   return (
     <>
-      <ViewHeader>
-        <ViewSwitcher
-          view="settings"
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledReason={disabledViewReason}
-        />
-        <span style={{ flex: 1 }} />
+      <InstrumentBar crumbs={['Settings']}>
         <Segmented
           items={TABS}
           value={tab}
@@ -146,7 +130,7 @@ export function SettingsPanel({
           testIdPrefix="settings-tab-"
           collapsible
         />
-      </ViewHeader>
+      </InstrumentBar>
       <div
         style={{
           flex: 1,

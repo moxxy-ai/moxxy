@@ -28,14 +28,13 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
-        workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -55,14 +54,13 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
-        workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -78,10 +76,32 @@ describe('chat Header focus mode action', () => {
       'title',
       'Rename workspace',
     );
-    expect(screen.getByRole('button', { name: /^open context menu$/i })).toHaveAttribute(
-      'title',
-      'Open context menu',
+  });
+
+  it('identifies the run in the bar: workspace, session, and its state', () => {
+    __setApiOverride({
+      invoke: vi.fn(async () => undefined),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+
+    render(
+      <Header
+        phase={connectedPhase}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="awaiting"
+        searchQuery={null}
+        onSearchChange={vi.fn()}
+        canRename
+        onRename={vi.fn()}
+      />,
     );
+
+    // The old header led with an anonymous Chat/Collaborate/Apps pill and said
+    // nothing about the subject; these three facts are the reason it changed.
+    expect(screen.getByText('blocky')).toBeInTheDocument();
+    expect(screen.getByText('retry untyped gateway fault')).toBeInTheDocument();
+    expect(screen.getByText('awaiting you')).toBeInTheDocument();
   });
 
   it('uses an eye-in-focus-frame glyph for the focus mode button', () => {
@@ -93,14 +113,13 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
-        workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 

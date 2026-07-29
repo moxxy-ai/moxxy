@@ -5,10 +5,10 @@ import type { ApprovalDecision } from '@moxxy/sdk';
 import { pairToolEvents } from '@moxxy/chat-model';
 import type { CollabMsgView, CollabTaskView } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
-import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 import { useFocusTrap } from '../chat/useFocusTrap';
 import { useCollab, type CollabApproval } from './useCollab';
 import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 function taskChip(status: string): React.CSSProperties {
   return {
@@ -27,15 +27,10 @@ function taskChip(status: string): React.CSSProperties {
  *  composer (message a teammate or the whole team, push a directive,
  *  pause/resume). Reads the active session's folded `collab_*` stream. */
 export function CollaboratePanel({
-  onView,
   workspaceId,
-  disabledViews,
-  disabledViewReason,
+
 }: {
-  readonly onView: (v: View) => void;
   readonly workspaceId: string;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
 }): JSX.Element {
   // The coordinator runs on its OWN dedicated runner (never this workspace's chat
   // session); useCollab reads its live stream + roster-approval checkpoint.
@@ -177,27 +172,7 @@ export function CollaboratePanel({
   );
 
   const header = (
-    <ViewHeader>
-      <ViewSwitcher
-        view="collaborate"
-        onView={onView}
-        disabledViews={disabledViews}
-        disabledReason={disabledViewReason}
-      />
-      <span
-        style={{
-          fontWeight: 600,
-          fontSize: 13,
-          color: 'var(--color-text-muted)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          maxWidth: 360,
-        }}
-      >
-        {collab?.task || 'No collaboration yet'}
-      </span>
-      <span style={{ flex: 1 }} />
+    <InstrumentBar crumbs={['Collaborate', collab?.task || 'No collaboration yet']}>
       {collab && (
         <span className="mono" style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
           {collab.completedAtMs === null
@@ -242,7 +217,7 @@ export function CollaboratePanel({
           <span aria-hidden>＋</span> New
         </button>
       )}
-    </ViewHeader>
+    </InstrumentBar>
   );
 
   if (showHistory) {

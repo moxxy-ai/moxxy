@@ -75,7 +75,7 @@ afterEach(() => __setApiOverride(null));
 describe('AppsPanel', () => {
   it('lands on the gallery with the Workflows/Schedules/Webhooks sub-nav', () => {
     installApi();
-    render(<AppsPanel onView={vi.fn()} />);
+    render(<AppsPanel />);
     expect(screen.getByText('No apps available.')).toBeInTheDocument();
     expect(screen.getByTestId('apps-tab-workflows')).toBeTruthy();
     expect(screen.getByTestId('apps-tab-schedules')).toBeTruthy();
@@ -84,7 +84,7 @@ describe('AppsPanel', () => {
 
   it('switches to Schedules + Webhooks and toggles back to the gallery', async () => {
     installApi();
-    render(<AppsPanel onView={vi.fn()} />);
+    render(<AppsPanel />);
 
     fireEvent.click(screen.getByTestId('apps-tab-schedules'));
     await waitFor(() => expect(screen.getByTestId('schedule-row-sched-1')).toBeTruthy());

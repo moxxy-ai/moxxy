@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { sendToSession } from '@moxxy/client-core';
-import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
+import { Segmented } from '../shell/Segmented';
 import { getDesktopApp, listDesktopApps } from './registry';
 import { AppCard } from './AppCard';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
@@ -8,6 +8,7 @@ import { SchedulesPanel } from './SchedulesPanel';
 import { WebhooksPanel } from './WebhooksPanel';
 import { ChannelsPanel } from './ChannelsPanel';
 import './builtins';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 /** Apps sub-surfaces. `gallery` is the installable-app grid (the landing); the
  *  others are the channel + ambient-automation surfaces reached from the
@@ -32,15 +33,7 @@ const SUB_TABS = [
  *     lifecycle when it needs assets); opening one takes the full pane.
  *   - workflows / schedules / webhooks: the trigger-driven surfaces.
  */
-export function AppsPanel({
-  onView = () => undefined,
-  disabledViews,
-  disabledViewReason,
-}: {
-  readonly onView?: (v: View) => void;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
-}): JSX.Element {
+export function AppsPanel(): JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
   const [tab, setTab] = useState<AppsTab>('gallery');
 
@@ -61,14 +54,7 @@ export function AppsPanel({
 
   return (
     <>
-      <ViewHeader>
-        <ViewSwitcher
-          view="apps"
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledReason={disabledViewReason}
-        />
-        <span style={{ flex: 1 }} />
+      <InstrumentBar crumbs={['Apps']}>
         <Segmented
           items={SUB_TABS}
           // `value: null` (gallery) renders with no active chip; re-clicking the
@@ -77,10 +63,10 @@ export function AppsPanel({
           onChange={(id) => setTab((cur) => (cur === id ? 'gallery' : id))}
           testIdPrefix="apps-tab-"
         />
-      </ViewHeader>
+      </InstrumentBar>
       {tab === 'gallery' && <Gallery onOpen={setOpenId} />}
       {tab === 'channels' && <ChannelsPanel />}
-      {tab === 'workflows' && <WorkflowsPanel embedded onView={onView} />}
+      {tab === 'workflows' && <WorkflowsPanel embedded />}
       {tab === 'schedules' && <SchedulesPanel />}
       {tab === 'webhooks' && <WebhooksPanel />}
     </>

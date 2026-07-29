@@ -9,7 +9,7 @@ import {
 } from '@moxxy/anonymizer';
 import { useAnonymizer } from '@moxxy/client-core';
 import { Button, Icon, TextArea } from '@moxxy/desktop-ui';
-import { Segmented, ViewHeader } from '../../shell/ViewHeader';
+import { Segmented } from '../../shell/Segmented';
 import type { DesktopAppProps } from '../registry';
 import { OfflineBadge } from '../OfflineBadge';
 import { Counts } from './Counts';
@@ -18,6 +18,7 @@ import { CATEGORY_LABELS, TOGGLE_CATEGORIES, REGION_LABELS, SELECTABLE_REGIONS }
 import { FilterSelect, type FilterOption } from './FilterSelect';
 import { ImportStep, type ImportTab } from './ImportStep';
 import { useNer } from './ner/useNer';
+import { InstrumentBar } from '../../shell/InstrumentBar';
 
 const REDACT_MODES: ReadonlyArray<{ id: RedactionMode; label: string }> = [
   { id: 'label', label: 'Label' },
@@ -235,15 +236,13 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
 
   return (
     <>
-      <ViewHeader>
-        <Button variant="chip" onClick={onExit} style={{ borderRadius: 9 }}>
+      <InstrumentBar crumbs={['Apps', 'Document anonymizer']}>
+        <OfflineBadge />
+        <Button variant="chip" onClick={onExit} style={{ marginLeft: 'var(--space-8)' }}>
           <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
           Apps
         </Button>
-        <strong style={{ fontSize: 15 }}>Document anonymizer</strong>
-        <OfflineBadge />
-        <span style={{ flex: 1 }} />
-      </ViewHeader>
+      </InstrumentBar>
 
       <div
         style={{

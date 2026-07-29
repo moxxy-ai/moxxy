@@ -12,7 +12,7 @@
 import { useThemePreference, setThemePreference } from '@/lib/useTheme';
 import type { ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { Section } from './settings-primitives';
-import { Segmented } from '../shell/ViewHeader';
+import { Segmented } from '../shell/Segmented';
 
 const THEME_OPTIONS: ReadonlyArray<{ id: ThemePreference; label: string }> = [
   { id: 'light', label: 'Light' },

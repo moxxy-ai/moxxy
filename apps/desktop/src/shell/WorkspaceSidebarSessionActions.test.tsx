@@ -39,7 +39,7 @@ function makeDesk(): Desk {
 }
 
 function renderSidebar(): void {
-  render(<WorkspaceSidebar view="chat" onView={vi.fn()} />);
+  render(<WorkspaceSidebar onOpenRun={vi.fn()} />);
 }
 
 beforeEach(() => {
