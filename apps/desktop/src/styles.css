@@ -845,32 +845,45 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   white-space: nowrap;
 }
 
-.activity-row__label { font-weight: 500; color: var(--color-text); }
+/* Quieter than prose. Activity is what the agent DID; the prose is what it says
+ * about it, and the two were competing at the same weight and the same ink. */
+.activity-row__label { font-weight: 500; color: var(--color-text-muted); }
 .activity-row__meta {
   flex: 0 0 auto;
   color: var(--color-text-dim);
   font-size: var(--type-label);
 }
-/* A failed call is the one activity row that gets a hue. */
-.activity-block[data-status='error'] .activity-row__label,
-.activity-block[data-status='error'] .activity-row__meta { color: var(--color-red-text); }
-/* Leading, so the disclosure state reads down the left edge in one pass. */
-.activity-row__chevron {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: var(--color-text-dim);
-  transition: transform var(--motion-shift) ease;
+/* Failure is the one thing in an activity row that gets a hue, and it is now
+ * marked on the GROUP as well as the individual call — a scope whose children
+ * failed used to look exactly like one that succeeded until you expanded it. */
+.activity-block[data-status='error'] > .activity-row .activity-row__label {
+  color: var(--color-red-text);
 }
+.activity-row__fail {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-red-border);
+  border-radius: var(--radius-chip);
+  color: var(--color-red-text);
+  font-size: var(--type-label);
+  background: var(--color-red-wash);
+}
+/* With a failure chip present the count follows it rather than claiming the
+ * right edge for itself. */
+.activity-row__fail + span { flex: 0 0 auto; margin-left: var(--space-6); }
 /* The meta pushes to the right edge instead. */
 .activity-row__meta { margin-left: auto; }
 .activity-row:hover,
 .activity-detail-row:hover { color: var(--color-text); }
 
+/* The nesting indent. One value, shared by the list, the detail bodies and the
+ * preview line, so a group's children all hang off the same edge. */
 .activity-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: var(--space-4) 0 0 var(--space-20);
+  margin: var(--space-4) 0 0 var(--space-16);
   padding: 0;
   list-style: none;
 }
@@ -892,13 +905,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .activity-detail-row__body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 5px 0 8px 24px;
+  gap: var(--space-6);
+  margin: var(--space-4) 0 var(--space-8) var(--space-16);
 }
-.activity-detail-row__body--root { margin-left: var(--space-20); }
+.activity-detail-row__body--root { margin-left: var(--space-16); }
 .activity-preview {
   overflow: hidden;
-  margin: 1px 0 0 var(--space-20);
+  margin: 1px 0 0 var(--space-16);
   color: var(--color-text-dim);
   font-size: var(--type-meta);
   text-overflow: ellipsis;
@@ -907,7 +920,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 /* A moving luminance band reads as active work while keeping the row's muted
  * palette. `prefers-reduced-motion` below collapses it to a static color. */
-.activity-shimmer {
+/* Two class names, so this wins on SPECIFICITY rather than on being declared
+ * after `.activity-row__label`'s colour. At equal specificity the shimmer was
+ * one rule reorder away from silently becoming plain text. (The error rule above
+ * is deliberately higher still: a failed row must read red, not shimmer.) */
+.activity-shimmer,
+.activity-row__label.activity-shimmer,
+.activity-detail-row__label.activity-shimmer,
+.tr__hd b.activity-shimmer {
   color: transparent;
   background: linear-gradient(
     100deg,

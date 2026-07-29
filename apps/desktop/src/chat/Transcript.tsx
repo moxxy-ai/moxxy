@@ -14,6 +14,7 @@ import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { StreamingReasoning } from './blocks/StreamingReasoning';
+import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 
@@ -259,13 +260,19 @@ export function Transcript({
         )}
         components={{
           Footer: () => (
-            <div style={{ padding: '0 24px 12px' }}>
+            <div>
               {streamingText ? (
-                <StreamingAssistant text={streamingText} />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <StreamingAssistant text={streamingText} />
+                </TraceEntry>
               ) : streamingReasoning ? (
-                <StreamingReasoning text={streamingReasoning} />
+                <TraceEntry kind="reasoning" label="reasoning" live>
+                  <StreamingReasoning text={streamingReasoning} />
+                </TraceEntry>
               ) : sending ? (
-                <ThinkingIndicator />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <ThinkingIndicator />
+                </TraceEntry>
               ) : null}
             </div>
           ),

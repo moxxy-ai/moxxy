@@ -50,6 +50,7 @@ export function TraceEntry({
   kind,
   label,
   meta,
+  live = false,
   children,
   testId,
 }: {
@@ -59,6 +60,10 @@ export function TraceEntry({
   readonly label?: string;
   /** Right-aligned trailing detail — a timestamp, a duration, a count. */
   readonly meta?: ReactNode;
+  /** Work is in flight. The kicker takes the same moving luminance band the
+   *  activity rows use, so "this is running" is ONE idiom across the trace
+   *  rather than a shimmer here and a spinner there. */
+  readonly live?: boolean;
   readonly children: ReactNode;
   readonly testId?: string;
 }): JSX.Element {
@@ -72,7 +77,9 @@ export function TraceEntry({
       <div className="tr__body">
         {(label !== undefined || meta !== undefined) && (
           <div className="tr__hd">
-            {label !== undefined && <b>{label}</b>}
+            {label !== undefined && (
+              <b className={live ? 'activity-shimmer' : undefined}>{label}</b>
+            )}
             {meta !== undefined && <span className="tr__meta">{meta}</span>}
           </div>
         )}

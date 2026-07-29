@@ -126,13 +126,46 @@ export function useActivityDisclosure(running: boolean): readonly [boolean, () =
   ];
 }
 
+/**
+ * The right-hand reading on a group header: how many calls it made, and how many
+ * of them failed. A bare number said nothing about what was being counted, and
+ * the failure count used to take its place rather than sit beside it.
+ */
+export function ActivityCount({
+  total,
+  failed,
+}: {
+  readonly total: number;
+  readonly failed: number;
+}): JSX.Element | null {
+  if (total === 0 && failed === 0) return null;
+  return (
+    <>
+      {failed > 0 && (
+        <span className="activity-row__fail" data-testid="activity-failed">
+          {failed} failed
+        </span>
+      )}
+      {total > 0 && <span>{total === 1 ? '1 call' : `${total} calls`}</span>}
+    </>
+  );
+}
+
 export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const tools = collectTools(scope.children);
   const runningTools = tools.some((tool) => statusOf(tool.outcome) === 'running');
   const running = scope.loading || runningTools;
   const [open, toggle] = useActivityDisclosure(running);
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
-  const meta = errors > 0 ? `${errors} failed` : tools.length > 0 ? `${tools.length}` : undefined;
+  // The scope's own status, so a failed skill is MARKED rather than looking
+  // exactly like one that succeeded. Nothing set this before, which is why a
+  // failure was invisible until you expanded the group.
+  const status = errors > 0 ? 'error' : running ? 'running' : 'ok';
+  // The failure count never REPLACES the total. It used to: a scope with two
+  // failures out of sixteen calls read as "2 failed" and lost all sense of how
+  // much work had happened. Both facts, failures first, because that is the one
+  // you would act on.
+  const meta = <ActivityCount total={tools.length} failed={errors} />;
   const label = scope.loading
     ? `Loading skill ${scope.skillEvent.name}…`
     : scope.closed
@@ -142,7 +175,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
         : `Loaded skill ${scope.skillEvent.name}`;
 
   return (
-    <div className="activity-block" data-testid="block-skill">
+    <div className="activity-block" data-testid="block-skill" data-status={status}>
       <ActivityRow
         label={label}
         meta={meta}

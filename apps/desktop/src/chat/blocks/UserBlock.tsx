@@ -149,7 +149,7 @@ export function UserBlock({
               // has to re-find on every line, so the turn reads left-to-right
               // like every other block and the accent rule carries the "who".
               marginTop: 6,
-              padding: '10px 14px',
+              padding: 'var(--space-8) var(--space-12)',
               borderLeft: '2px solid var(--color-primary)',
               borderRadius: '0 var(--radius-block) var(--radius-block) 0',
               background: 'color-mix(in srgb, var(--color-primary-soft) 55%, transparent)',

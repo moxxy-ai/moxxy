@@ -11,10 +11,8 @@ import { useAgentSession } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
-import { SuggestedActions } from './chat-surface/SuggestedActions';
 import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
-import { deriveSuggestions } from './chat-surface/suggestions';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
@@ -31,9 +29,6 @@ interface ChatSurfaceProps {
 /** Stable empty reference for the searching code path (no extensions
  *  while a search filter is active). */
 const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = Object.freeze([]);
-
-/** Stable empty reference for suggestions while they're not shown. */
-const EMPTY_SUGGESTIONS: ReadonlyArray<string> = Object.freeze([]);
 
 type ChatEvent = import('@moxxy/sdk').MoxxyEvent;
 
@@ -144,11 +139,6 @@ export function ChatSurface({
   // transcript is non-empty. Compute them only then, and memoize on the event
   // log so they aren't re-derived (regex scans) on every streaming tick.
   // Computed before any early return so the hook order stays stable.
-  const showSuggestions = ready && !chat.sending && !chat.isEmpty;
-  const suggestions = useMemo(
-    () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
-    [showSuggestions, chat.events],
-  );
   const voiceLines = useMemo(
     () => deriveVoiceTranscriptLines(
       chat.events,
@@ -255,9 +245,6 @@ export function ChatSurface({
           />
         )}
       </div>
-      {showSuggestions && (
-        <SuggestedActions suggestions={suggestions} onPick={(p) => void chat.send(p)} />
-      )}
       {activeAsk && <AskSheet ask={activeAsk} />}
       <Composer
         agent={agent}

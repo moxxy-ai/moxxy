@@ -4,14 +4,15 @@ import { Icon, type IconName } from '@moxxy/desktop-ui';
 /**
  * Shared, deliberately quiet activity header used by tools and skills.
  *
- * The chevron LEADS. A trailing chevron makes a row look openable only after the
- * eye has crossed the whole label, and this row is often one of thirty — the
- * disclosure state should be readable down the left edge in one pass.
+ * There is NO chevron, and no reserved space for one. These rows arrive thirty at
+ * a time, and a disclosure caret on each was thirty pieces of punctuation the eye
+ * had to skip past to reach the content. The whole row is the control, and the
+ * nested list appearing underneath is the feedback; `aria-expanded` carries the
+ * state for anyone who needs it stated.
  *
  * `icon` is optional and deliberately absent on group headers. A skill scope used
- * the `spark` glyph, which reads as a spinner sitting in front of the label, and
- * the trace gutter already carries the type marker for the whole entry — a second
- * glyph inside it was both redundant and misleading.
+ * the `spark` glyph, which reads as a spinner sitting permanently in front of the
+ * label, and the trace gutter already carries the type marker for the whole entry.
  */
 export function ActivityRow({
   icon,
@@ -39,13 +40,6 @@ export function ActivityRow({
       data-testid={testId}
       data-active={active ? 'true' : 'false'}
     >
-      <span
-        className="activity-row__chevron"
-        aria-hidden
-        style={{ transform: open ? 'rotate(90deg)' : 'none' }}
-      >
-        <Icon name="chevron-right" size={12} />
-      </span>
       {icon !== undefined && (
         <span className="activity-row__icon" aria-hidden>
           <Icon name={icon} size={14} />

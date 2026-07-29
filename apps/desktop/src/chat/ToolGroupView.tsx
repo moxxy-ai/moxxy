@@ -5,7 +5,7 @@ import {
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 import { ActivityRow } from './ActivityRow';
-import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData } from './SkillGroupView';
+import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData, ActivityCount } from './SkillGroupView';
 import { useToolIcon } from './ToolIconContext';
 
 function errorCount(rows: ReadonlyArray<ToolRowData>): number {
@@ -27,11 +27,15 @@ export function ToolGroupView({ tools }: { readonly tools: ReadonlyArray<ToolCal
   const [open, toggle] = useActivityDisclosure(running);
   const errors = errorCount(rows);
   return (
-    <div className="activity-block" data-testid="block-tool-group">
+    <div
+      className="activity-block"
+      data-testid="block-tool-group"
+      data-status={errors > 0 ? 'error' : running ? 'running' : 'ok'}
+    >
       <ActivityRow
         icon="wrench"
         label={`${running ? 'Running' : 'Ran'} ${rows.length} tools${running ? '…' : ''}`}
-        meta={errors > 0 ? `${errors} failed` : undefined}
+        meta={<ActivityCount total={rows.length} failed={errors} />}
         active={running}
         open={open}
         onToggle={toggle}
@@ -54,11 +58,15 @@ export function LiveToolGroupView({ block }: { readonly block: LiveToolBlockData
   const latest = block.calls.at(-1);
   const latestIcon = useToolIcon(latest?.request.name ?? '');
   return (
-    <div className="activity-block" data-testid="block-live-tools">
+    <div
+      className="activity-block"
+      data-testid="block-live-tools"
+      data-status={errors > 0 ? 'error' : running ? 'running' : 'ok'}
+    >
       <ActivityRow
         icon={latest ? iconForTool(latest.request.name, latestIcon) : 'wrench'}
         label={buildCompactSummary(block.calls, running)}
-        meta={errors > 0 ? `${errors} failed` : undefined}
+        meta={<ActivityCount total={rows.length} failed={errors} />}
         active={running}
         open={open}
         onToggle={toggle}
