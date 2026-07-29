@@ -1,5 +1,20 @@
 # @moxxy/desktop-host
 
+## 0.14.7
+
+### Patch Changes
+
+- @moxxy/plugin-stt-whisper-codex@0.35.1
+- @moxxy/sdk@0.35.1
+- @moxxy/core@0.35.1
+- @moxxy/plugin-scheduler@0.35.1
+- @moxxy/plugin-vault@0.35.1
+- @moxxy/plugin-webhooks@0.35.1
+- @moxxy/mode-collaborative@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+- @moxxy/runner@0.2.41
+- @moxxy/workspace-registry@0.2.24
+
 ## 0.14.6
 
 ### Patch Changes
