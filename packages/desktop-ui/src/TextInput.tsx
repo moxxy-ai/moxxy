@@ -9,13 +9,17 @@ import type { CSSProperties, InputHTMLAttributes, TextareaHTMLAttributes } from 
 
 export type FieldTone = 'plain' | 'soft';
 
+/* The field is the input half of the same control the buttons draw: one height,
+ * one radius, one size. It used to be 9px/14px/radius-10 — a consumer form field
+ * that towered over every button beside it and rounded off the instrument. */
 const fieldStyle = (tone: FieldTone, mono: boolean): CSSProperties => ({
-  padding: '9px 12px',
-  fontSize: 14,
+  height: 'var(--frame-row)',
+  padding: '0 var(--space-8)',
+  fontSize: 'var(--type-row)',
   color: 'var(--color-text)',
   background: tone === 'soft' ? 'var(--color-input-soft)' : 'var(--color-surface)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-chip)',
   outline: 'none',
   ...(mono ? { fontFamily: 'var(--font-mono)' } : {}),
 });
@@ -45,6 +49,9 @@ export function TextArea({ tone = 'plain', mono = false, style, ...rest }: TextA
     <textarea
       style={{
         ...fieldStyle(tone, mono),
+        height: 'auto',
+        padding: 'var(--space-6) var(--space-8)',
+        lineHeight: 1.5,
         resize: 'vertical',
         // Plain textareas inherit the UI font; mono keeps the field's mono token.
         ...(mono ? {} : { fontFamily: 'inherit' }),

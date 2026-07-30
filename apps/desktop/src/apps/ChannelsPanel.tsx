@@ -16,18 +16,21 @@ import { Button, Icon, Skeleton, TextInput } from '@moxxy/desktop-ui';
 import type { ChannelDescriptor, ChannelEntry } from '@moxxy/desktop-ipc-contract';
 import { QrCode } from '../components/QrCode';
 
-function statusColor(entry: ChannelEntry): string {
-  if (entry.status.running) return 'var(--color-green)';
-  if (entry.status.error) return 'var(--color-pink)';
-  if (entry.status.configured) return 'var(--color-text-dim)';
-  return 'var(--color-card-border)';
+/** The one state a channel reports, in the order that matters to a reader:
+ *  broken first, then live, then ready, then untouched. Shared with the index
+ *  column so a channel's LED means the same thing in the list and on its page. */
+export function ledState(entry: ChannelEntry): 'failed' | 'running' | 'done' | undefined {
+  if (entry.status.error) return 'failed';
+  if (entry.status.running) return entry.status.connected === false ? undefined : 'running';
+  if (entry.status.configured) return 'done';
+  return undefined;
 }
 
-function statusLabel(entry: ChannelEntry): string {
-  if (entry.status.running) return 'Running';
-  if (entry.status.error) return 'Stopped (error)';
-  if (entry.status.configured) return 'Configured';
-  return 'Not configured';
+export function statusLabel(entry: ChannelEntry): string {
+  if (entry.status.error) return 'stopped · error';
+  if (entry.status.running) return entry.status.connected === false ? 'pairing' : 'running';
+  if (entry.status.configured) return 'configured';
+  return 'not configured';
 }
 
 export function ChannelPage({
@@ -77,103 +80,82 @@ export function ChannelPage({
   return (
     <div
       data-testid={`channel-row-${descriptor.id}`}
-      style={{
-        padding: '0.85rem 1rem',
-        background: 'var(--color-card-bg)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-block)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.6rem',
-      }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-20)' }}
     >
-      {/* Header: icon · name + status · run/configure controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-        <Icon name="chat" size={18} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>{descriptor.name}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span
-                aria-hidden
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: statusColor(entry),
-                }}
-              />
-              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
-                {statusLabel(entry)}
-              </span>
+      {/* The page IS the channel, so its name is the page's head, not a card's.
+          This was a bordered panel wrapping a bordered panel wrapping the fields
+          — three nested boxes for one form. */}
+      <header style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-12)' }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+            <span style={{ fontSize: 'var(--type-section)', fontWeight: 600, letterSpacing: '-0.01em' }}>
+              {descriptor.name}
+            </span>
+            <span className="led" data-state={ledState(entry)} aria-hidden />
+            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
+              {statusLabel(entry)}
             </span>
           </div>
-          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)', marginTop: 2 }}>
+          <p
+            className="prose"
+            style={{ margin: 0, maxWidth: '62ch', fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}
+          >
             {descriptor.description}
-          </div>
+          </p>
         </div>
-        <Button
-          variant="chip"
-          onClick={() => setConfiguring((v) => !v)}
-          style={{ borderRadius: 'var(--radius-block)' }}
-          data-testid={`channel-configure-${descriptor.id}`}
-        >
-          {configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
-        </Button>
-        <Button
-          variant={status.running ? 'secondary' : 'cta'}
-          onClick={() => void toggleRun()}
-          disabled={busy || (!status.running && !status.configured)}
-          style={{ borderRadius: 'var(--radius-block)' }}
-          data-testid={`channel-toggle-${descriptor.id}`}
-        >
-          <Icon name={status.running ? 'stop' : 'spark'} size={14} />
-          {status.running ? 'Stop' : 'Start'}
-        </Button>
-      </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)', flexShrink: 0 }}>
+          <Button
+            variant="secondary"
+            onClick={() => setConfiguring((v) => !v)}
+            data-testid={`channel-configure-${descriptor.id}`}
+          >
+            {configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
+          </Button>
+          <Button
+            variant={status.running ? 'secondary' : 'cta'}
+            onClick={() => void toggleRun()}
+            disabled={busy || (!status.running && !status.configured)}
+            data-testid={`channel-toggle-${descriptor.id}`}
+          >
+            <Icon name={status.running ? 'stop' : 'spark'} size={12} />
+            {status.running ? 'Stop' : 'Start'}
+          </Button>
+        </div>
+      </header>
 
-      {/* Config form */}
       {configuring && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            padding: '10px 12px',
-            background: 'var(--color-card-bg)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-card)',
-          }}
-        >
-          {descriptor.configFields.map((f) => (
-            <label key={f.name} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)' }}>
-                {f.label}
-                {f.required ? '' : ' (optional)'}
-              </span>
-              <TextInput
-                type={f.type === 'password' ? 'password' : 'text'}
-                value={values[f.name] ?? ''}
-                onChange={(e) => setField(f.name, e.target.value)}
-                placeholder={
-                  f.placeholder ?? (status.configured ? 'Stored — leave blank to keep' : '')
-                }
-                style={{ width: '100%', fontSize: 'var(--type-ui)', borderRadius: 'var(--radius-block)' }}
-              />
-              {f.help && (
-                <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{f.help}</span>
-              )}
-            </label>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button
-              variant="cta"
-              onClick={() => void save()}
-              disabled={busy || Object.values(values).every((v) => !v.trim())}
-              style={{ borderRadius: 'var(--radius-block)', padding: '7px 14px', fontSize: 'var(--type-row)' }}
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </Button>
+        <div>
+          <div className="section-head">setup</div>
+          <div className="form">
+            {descriptor.configFields.map((f) => (
+              <label key={f.name} className="form__field">
+                <span className="form__label">
+                  {f.label}
+                  {f.required ? '' : <small>optional</small>}
+                </span>
+                <TextInput
+                  tone="soft"
+                  mono={f.type === 'password'}
+                  type={f.type === 'password' ? 'password' : 'text'}
+                  value={values[f.name] ?? ''}
+                  onChange={(e) => setField(f.name, e.target.value)}
+                  placeholder={
+                    f.placeholder ?? (status.configured ? 'Stored — leave blank to keep' : '')
+                  }
+                  style={{ width: '100%' }}
+                />
+                {f.help && <span className="form__hint">{f.help}</span>}
+              </label>
+            ))}
+            <div className="form__acts">
+              <Button
+                variant="cta"
+                onClick={() => void save()}
+                disabled={busy || Object.values(values).every((v) => !v.trim())}
+              >
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
           </div>
         </div>
       )}

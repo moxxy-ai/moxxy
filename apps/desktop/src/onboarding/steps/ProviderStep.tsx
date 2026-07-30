@@ -1,3 +1,4 @@
+import { Select } from '@moxxy/desktop-ui';
 /**
  * The provider-connect step — pick a provider from the catalog, then
  * either paste an API key (api-key providers) or run the real OAuth login
@@ -157,7 +158,7 @@ export function ProviderStep({
           <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Provider
           </span>
-          <select
+          <Select
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
             style={inputStyle}
@@ -176,7 +177,7 @@ export function ProviderStep({
                 </option>
               );
             })}
-          </select>
+          </Select>
         </label>
         {authKind === 'api-key' && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

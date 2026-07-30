@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { api, type useSettings } from '@moxxy/client-core';
-import { Button, Icon, IconButton, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
 import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
 import { OAuthSignIn } from './shared/OAuthSignIn';
@@ -234,7 +234,7 @@ function ConfigureProviderModal({
   const [saved, setSaved] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<void>, doneNote: string): Promise<void> => {
-    // Guard against overlapping runs: a native <select> fires onChange for each
+    // Guard against overlapping runs: a native <Select> fires onChange for each
     // intermediate option during an arrow-key sweep, which would otherwise queue
     // racing setReasoning IPC mutations. Drop calls while one is in flight.
     if (busy) return;
@@ -324,10 +324,10 @@ function ConfigureProviderModal({
             />
             <label style={fieldLabelStyle}>Default model</label>
             {provider.modelIds && provider.modelIds.length > 0 ? (
-              <select
+              <Select
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
-                style={selectStyle}
+          tone="soft"
                 data-testid="provider-defaultmodel-select"
               >
                 {provider.modelIds.map((id) => (
@@ -335,7 +335,7 @@ function ConfigureProviderModal({
                     {id}
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
               <TextInput
                 value={defaultModel}
@@ -374,7 +374,7 @@ function ConfigureProviderModal({
         {providerSupportsReasoning(provider) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={fieldLabelStyle}>Reasoning effort</label>
-            <select
+            <Select
               value={reasoning}
               disabled={busy}
               aria-busy={busy}
@@ -388,7 +388,7 @@ function ConfigureProviderModal({
                   next === 'off' ? 'Reasoning effort cleared.' : `Reasoning effort set to ${next}.`,
                 );
               }}
-              style={selectStyle}
+          tone="soft"
               data-testid="provider-reasoning-select"
             >
               {REASONING_LEVELS.map((level) => (
@@ -396,7 +396,7 @@ function ConfigureProviderModal({
                   {level === 'off' ? 'Off' : (level[0] ?? '').toUpperCase() + level.slice(1)}
                 </option>
               ))}
-            </select>
+            </Select>
             <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
               How much the model thinks before answering. Higher effort is slower but deeper.
             </p>
@@ -420,16 +420,6 @@ const fieldLabelStyle: React.CSSProperties = {
   fontSize: 'var(--type-row)',
   fontWeight: 600,
   color: 'var(--color-text-muted)',
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  borderRadius: 'var(--radius-block)',
-  border: '1px solid var(--color-card-border)',
-  background: 'var(--color-card-bg)',
-  fontSize: 'var(--type-ui)',
-  fontFamily: 'inherit',
-  color: 'inherit',
 };
 
 /** Deterministic soft tint per provider name, so each tile is distinct

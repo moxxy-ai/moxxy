@@ -9,4 +9,5 @@ export {
   type IconButtonProps,
 } from './Button.js';
 export { TextInput, TextArea, type TextInputProps, type TextAreaProps, type FieldTone } from './TextInput.js';
+export { Select, type SelectProps } from './Select.js';
 export { Skeleton } from './Skeleton.js';

@@ -1635,6 +1635,69 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
 }
 
+/* --- Forms -----------------------------------------------------
+ * A form is a list of labelled fields on the page's own ground, not a card
+ * inside a card. Every config surface used to build its own: a rounded panel
+ * wrapping a rounded panel wrapping fields, each with a hand-picked label size,
+ * so two channels' setup screens never looked like the same product.
+ *
+ * The label is a readout of what the field IS, so it takes the same tracked-out
+ * uppercase micro-label the index groups and column heads use. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  max-width: 620px;
+}
+.form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.form__label {
+  font-size: var(--type-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+/* The optional marker must not read as loudly as the name it qualifies. */
+.form__label small {
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: var(--color-card-border-strong);
+  margin-left: var(--space-4);
+}
+.form__hint {
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+  line-height: 1.5;
+}
+/* The action row closes the form on the same hairline the section opened on. */
+.form__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--color-card-border);
+}
+
+/* A titled run of fields. The rule is the structure — no box. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--frame-row);
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-card-border);
+  font-size: var(--type-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+.section-head__acts { margin-left: auto; display: flex; align-items: center; gap: var(--space-6); }
+
 /* --- Tags ------------------------------------------------------
  * The small state markers shared by the command strip. Sharp, outlined, and
  * uppercase — they are readouts, not buttons. */
@@ -1960,6 +2023,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-size: var(--type-label);
   color: var(--color-text-dim);
   margin-top: 1px;
+}
+/* One line, always. A long description used to wrap to three and make its row
+ * three times the height of its neighbours, which is what a table exists to
+ * prevent — the full text is in the row's own view. */
+.data-row__name small,
+.data-row__name em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .data-row__name em { color: var(--color-text-muted); font-size: var(--type-meta); }
 

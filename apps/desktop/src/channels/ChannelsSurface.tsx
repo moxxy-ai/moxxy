@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { useChannels } from '@moxxy/client-core';
 import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
-import { ChannelPage } from '../apps/ChannelsPanel';
+import { ChannelPage, ledState } from '../apps/ChannelsPanel';
 import { IndexColumn } from '../shell/IndexColumn';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
@@ -20,15 +20,6 @@ import { InstrumentBar } from '../shell/InstrumentBar';
  * install rather than another chat surface to configure: no catalog entry, no
  * dedicated runner, no secrets. It sits at the foot of the rail beside Settings.
  */
-
-/** The one state a channel row reports, in the order that matters to a reader:
- *  broken first, then live, then ready, then untouched. */
-function channelState(entry: ChannelEntry): 'failed' | 'running' | 'done' | undefined {
-  if (entry.status.error) return 'failed';
-  if (entry.status.running) return 'running';
-  if (entry.status.configured) return 'done';
-  return undefined;
-}
 
 function channelNote(entry: ChannelEntry): string | null {
   if (entry.status.error) return 'error';
@@ -111,7 +102,7 @@ export function ChannelsIndex({
                 textAlign: 'left',
               }}
             >
-              <span className="led" data-state={channelState(entry)} aria-hidden />
+              <span className="led" data-state={ledState(entry)} aria-hidden />
               <span
                 style={{
                   flex: 1,

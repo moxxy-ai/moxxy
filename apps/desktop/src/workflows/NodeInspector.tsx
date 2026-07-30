@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TextArea, TextInput } from '@moxxy/desktop-ui';
+import { Select, TextArea, TextInput } from '@moxxy/desktop-ui';
 import {
   stepKindMeta,
   type BuilderAction,
@@ -112,18 +112,18 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
       )}
 
       <Field label="On error">
-        <select
+        <Select
           value={node.onError}
           data-testid="field-onerror"
           onChange={(e) => patch({ onError: e.target.value as WorkflowStepErrorMode })}
-          style={selectStyle}
+          tone="soft"
         >
           {ERROR_MODES.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       {node.onError === 'retry' && (
         <Field label="Retries (0-3)">
@@ -398,11 +398,11 @@ function ActionNamePicker({
   const description = items.find((i) => i.name === value)?.description;
   return (
     <Field label={label}>
-      <select
+      <Select
         value={value}
         data-testid="field-action"
         onChange={(e) => onChange(e.target.value)}
-        style={selectStyle}
+          tone="soft"
       >
         {value === '' && <option value="">Select a {kind}…</option>}
         {!known && value !== '' && <option value={value}>{value} (not installed)</option>}
@@ -411,7 +411,7 @@ function ActionNamePicker({
             {i.name}
           </option>
         ))}
-      </select>
+      </Select>
       {description && (
         <span data-testid="action-description" style={emptyHint}>
           {description}
@@ -475,11 +475,11 @@ function LoopEditor({
         </div>
       </Field>
       <Field label="Exit → next step (on done / on body error)">
-        <select
+        <Select
           value={exit}
           data-testid="loop-exit"
           onChange={(e) => dispatch({ type: 'set-loop-exit', loopId: node.id, targetId: e.target.value || null })}
-          style={selectStyle}
+          tone="soft"
         >
           <option value="">(loop ends the workflow)</option>
           {candidates
@@ -489,7 +489,7 @@ function LoopEditor({
                 {c.label || c.id}
               </option>
             ))}
-        </select>
+        </Select>
       </Field>
     </>
   );
@@ -694,14 +694,6 @@ const fieldLabel: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
   color: 'var(--color-text-dim)',
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: '0.4rem 0.5rem',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-block)',
-  background: 'var(--color-card-bg)',
-  fontSize: 'var(--type-row)',
 };
 
 const pickList: React.CSSProperties = {

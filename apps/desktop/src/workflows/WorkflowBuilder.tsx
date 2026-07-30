@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useActionCatalog, useWorkflowBuilder } from '@moxxy/client-core';
-import { TextInput } from '@moxxy/desktop-ui';
+import { Button, Icon, TextInput } from '@moxxy/desktop-ui';
 import { WORKFLOW_ERROR_KEY } from '@moxxy/workflows-builder';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { NodeInspector } from './NodeInspector';
@@ -44,39 +44,42 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Bottom-aligned: the labelled fields carry a label row the bare controls
+          don't, so centring floated Back/valid/Save above the input line. */}
       <header
         style={{
           display: 'flex',
-          // Bottom-align: the two labelled fields are taller than the buttons
-          // (label row on top), so centring left Back/valid/Save floating
-          // above the input line — anchor everything to the input row instead.
           alignItems: 'flex-end',
-          gap: '0.75rem',
-          padding: '0.75rem 1rem',
-          borderBottom: '1px solid var(--color-border)',
+          gap: 'var(--space-8)',
+          padding: 'var(--space-8) var(--space-16)',
+          borderBottom: '1px solid var(--color-card-border)',
         }}
       >
-        <button type="button" data-testid="builder-back" onClick={onClose} style={ghostBtn}>
-          ← Back
-        </button>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 220 }}>
-          <span style={metaLabel}>workflow name (slug)</span>
+        <Button variant="secondary" data-testid="builder-back" onClick={onClose} size="lg">
+          <Icon name="chevron-right" size={12} style={{ transform: 'rotate(180deg)' }} />
+          Back
+        </Button>
+        <label className="form__field" style={{ minWidth: 200 }}>
+          <span className="form__label">name</span>
           <TextInput
+            tone="soft"
+            mono
             value={state.meta.name}
             data-testid="builder-name"
             onChange={(e) => dispatch({ type: 'update-meta', patch: { name: e.target.value } })}
           />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-          <span style={metaLabel}>description</span>
+        </label>
+        <label className="form__field" style={{ flex: 1, minWidth: 0 }}>
+          <span className="form__label">description</span>
           <TextInput
+            tone="soft"
             value={state.meta.description}
             data-testid="builder-description"
             onChange={(e) => dispatch({ type: 'update-meta', patch: { description: e.target.value } })}
           />
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={metaLabel}>triggered runs in</span>
+        </label>
+        <div className="form__field">
+          <span className="form__label">runs in</span>
           <TargetSessionPicker
             label=""
             value={state.meta.targetSessionId ?? null}
@@ -87,18 +90,15 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
           />
         </div>
         <ValidityBadge valid={builder.valid} validating={builder.validating} />
-        <button
-          type="button"
+        <Button
+          variant="cta"
+          size="lg"
           data-testid="builder-save"
           disabled={builder.saving || builder.valid === false}
           onClick={() => void onSave()}
-          style={{
-            ...primaryBtn,
-            opacity: builder.saving || builder.valid === false ? 0.5 : 1,
-          }}
         >
           {builder.saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </header>
 
       <div style={{ padding: '0.6rem 1rem' }}>
@@ -128,71 +128,26 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
   );
 }
 
+/** The draft's validation state, as the same outlined readout every other state
+ *  in the app uses. It is a `.tag`, not a button: you cannot press it. */
 function ValidityBadge({ valid, validating }: { valid: boolean | null; validating: boolean }): JSX.Element {
   const { label, color } = validating
-    ? { label: 'checking…', color: 'var(--color-text-dim)' }
+    ? { label: 'checking', color: 'var(--color-text-dim)' }
     : valid === true
       ? { label: 'valid', color: 'var(--color-green)' }
       : valid === false
-        ? { label: 'invalid', color: 'var(--color-red)' }
+        ? { label: 'invalid', color: 'var(--color-red-text)' }
         : { label: 'unsaved', color: 'var(--color-text-dim)' };
   return (
     <span
+      className="tag"
       data-testid="validity-badge"
-      style={{
-        fontSize: 'var(--type-meta)',
-        fontWeight: 700,
-        color,
-        border: `1px solid ${color}`,
-        borderRadius: 'var(--radius-block)',
-        padding: '0 0.5rem',
-        height: CONTROL_H,
-        display: 'inline-flex',
-        alignItems: 'center',
-        boxSizing: 'border-box',
-      }}
+      style={{ height: 'var(--frame-row)', color, borderColor: color }}
     >
       {label}
     </span>
   );
 }
-
-const metaLabel: React.CSSProperties = {
-  fontSize: 'var(--type-label)',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  color: 'var(--color-text-dim)',
-  marginBottom: 2,
-};
-
-/** TextInput renders ~37px tall (9px padding + 14px text + border); every
- *  header control matches it so the flex-end row reads as one line. */
-const CONTROL_H = 37;
-
-const primaryBtn: React.CSSProperties = {
-  fontSize: 'var(--type-meta)',
-  fontWeight: 600,
-  padding: '0 1rem',
-  height: CONTROL_H,
-  display: 'inline-flex',
-  alignItems: 'center',
-  boxSizing: 'border-box',
-  color: 'var(--color-bg)',
-  background: 'var(--color-primary)',
-  borderRadius: 'var(--radius-block)',
-};
-
-const ghostBtn: React.CSSProperties = {
-  fontSize: 'var(--type-meta)',
-  color: 'var(--color-text-muted)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-block)',
-  padding: '0 0.7rem',
-  height: CONTROL_H,
-  display: 'inline-flex',
-  alignItems: 'center',
-  boxSizing: 'border-box',
-};
 
 const alertBox: React.CSSProperties = {
   margin: '0 1rem 0.5rem',
