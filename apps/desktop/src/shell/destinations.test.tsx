@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
-import { AutomationsIndex } from '../automations/AutomationsPanel';
+import { AutomationsIndex } from '../automations/AutomationsIndex';
 import { ChannelsIndex } from '../channels/ChannelsSurface';
 import { SettingsIndex } from '../settings/SettingsPanel';
 import { reloadSidebarCollapsedFromStorage } from '@/lib/useSidebarCollapsed';
@@ -17,31 +17,45 @@ import { reloadSidebarCollapsedFromStorage } from '@/lib/useSidebarCollapsed';
 beforeEach(() => {
   window.localStorage.clear();
   reloadSidebarCollapsedFromStorage();
+  // Shape-correct payloads: a bare `{}` leaves each hook's `list` undefined once
+  // its fetch settles, so the first render passes and every later one throws.
   __setApiOverride({
-    invoke: vi.fn(async () => ({})),
+    invoke: vi.fn(async (channel: string) =>
+      channel.endsWith('.list') ? [] : ({} as unknown),
+    ),
     subscribe: () => () => undefined,
   } as unknown as MoxxyApi);
 });
 afterEach(() => __setApiOverride(null));
 
 describe('AutomationsIndex', () => {
-  it('lists the three kinds that fire themselves', () => {
+  it('lists the three kinds as collapsible groups', () => {
     render(<AutomationsIndex kind="workflows" onPick={vi.fn()} />);
     for (const id of ['workflows', 'schedules', 'webhooks']) {
-      expect(screen.getByTestId(`automations-kind-${id}`)).toBeTruthy();
+      const group = screen.getByTestId(`automations-group-${id}`);
+      expect(group).toBeTruthy();
+      // Open by default: a fresh column that hides everything behind three
+      // chevrons answers no question at all.
+      expect(group).toHaveAttribute('aria-expanded', 'true');
     }
   });
 
-  it('marks exactly the open kind, and picks another on click', () => {
+  it('folds a group and picks its kind', () => {
     const onPick = vi.fn();
-    render(<AutomationsIndex kind="schedules" onPick={onPick} />);
-    expect(screen.getByTestId('automations-kind-schedules')).toHaveAttribute(
-      'aria-current',
-      'true',
-    );
-    expect(screen.getByTestId('automations-kind-workflows')).not.toHaveAttribute('aria-current');
-    fireEvent.click(screen.getByTestId('automations-kind-webhooks'));
+    render(<AutomationsIndex kind="workflows" onPick={onPick} />);
+    const group = screen.getByTestId('automations-group-webhooks');
+    fireEvent.click(group);
     expect(onPick).toHaveBeenCalledWith('webhooks');
+    expect(screen.getByTestId('automations-group-webhooks')).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('says a group is empty rather than rendering nothing under it', () => {
+    // An open group with no rows and no message reads as a rendering failure.
+    render(<AutomationsIndex kind="workflows" onPick={vi.fn()} />);
+    expect(screen.getAllByText('none yet').length).toBeGreaterThan(0);
   });
 });
 

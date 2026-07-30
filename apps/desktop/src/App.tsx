@@ -26,11 +26,8 @@ import { Workbench, type WorkbenchTab } from './shell/Workbench';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
-import {
-  AutomationsIndex,
-  AutomationsPanel,
-  useAutomationsKind,
-} from './automations/AutomationsPanel';
+import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
+import { AutomationsIndex } from './automations/AutomationsIndex';
 import {
   ChannelsIndex,
   ChannelsSurface,
