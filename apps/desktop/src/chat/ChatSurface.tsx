@@ -16,6 +16,7 @@ import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
+import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
@@ -147,6 +148,8 @@ export function ChatSurface({
     ),
     [chat.events, chat.streamingText, voiceCall.lastTranscript],
   );
+
+  useVoiceCallRequest(voiceCall.open);
 
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
 

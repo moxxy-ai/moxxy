@@ -8,6 +8,7 @@
  */
 
 import { Icon } from '@moxxy/desktop-ui';
+import { BarActions } from '../shell/InstrumentBar';
 import { TabHeader } from './TabHeader';
 
 export function SearchBox({
@@ -67,12 +68,15 @@ export function Section({
   readonly children: React.ReactNode;
 }): JSX.Element {
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
+      {/* A tab's action belongs in the bar that names the tab. It used to sit
+       *  inside the pane, level with the description, so "Add provider" floated
+       *  over the prose explaining what a provider is. */}
+      {actions && <BarActions>{actions}</BarActions>}
       <TabHeader
         title={title}
         {...(count !== undefined ? { count } : {})}
         {...(description ? { description } : {})}
-        {...(actions ? { actions } : {})}
       />
       {search}
       {children}

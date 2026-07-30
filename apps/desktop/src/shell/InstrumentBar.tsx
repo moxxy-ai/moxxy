@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 
@@ -30,6 +31,10 @@ export function InstrumentBar({
   readonly children?: ReactNode;
 }): JSX.Element {
   const sidebarCollapsed = useSidebarCollapsed();
+  // Callback ref, not useRef: a portal target has to trigger a render when it
+  // attaches, or the first paint has nowhere to put the actions.
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const attach = useCallback((el: HTMLDivElement | null) => setSlot(el), []);
   const subject = crumbs.at(-1) ?? '';
   const context = crumbs.slice(0, -1);
   return (
@@ -60,9 +65,53 @@ export function InstrumentBar({
         </span>
       </div>
       {state}
-      {children !== undefined && <div className="instrument__trailing">{children}</div>}
+      <div className="instrument__trailing">
+        {/* Panes that own their action state render into here through
+         *  {@link BarActions} rather than lifting it up to the shell. */}
+        <div ref={attach} className="instrument__slot" />
+        {children}
+      </div>
+      <BarSlotProvider slot={slot} />
     </header>
   );
+}
+
+/* The bar's action slot, as a module store. A pane deep inside the tree (a
+ * settings tab that owns its own "adding" flag) has to put a button in the bar
+ * without every one of those flags moving up to the shell. */
+
+let barSlot: HTMLElement | null = null;
+const slotListeners = new Set<() => void>();
+
+function BarSlotProvider({ slot }: { readonly slot: HTMLElement | null }): null {
+  if (barSlot !== slot) {
+    barSlot = slot;
+    // Deferred: notifying subscribers during this render would set state on
+    // them mid-commit.
+    queueMicrotask(() => {
+      for (const fn of slotListeners) fn();
+    });
+  }
+  return null;
+}
+
+/**
+ * Render `children` into the current pane's instrument bar.
+ *
+ * Falls back to rendering IN PLACE when no bar is mounted. A pane's only action
+ * silently vanishing because its host forgot a bar is the worse failure of the
+ * two, and it is the one a test harness hits first.
+ */
+export function BarActions({ children }: { readonly children: ReactNode }): JSX.Element {
+  const slot = useSyncExternalStore(subscribeSlot, () => barSlot, () => barSlot);
+  return slot ? createPortal(children, slot) : <>{children}</>;
+}
+
+function subscribeSlot(fn: () => void): () => void {
+  slotListeners.add(fn);
+  return () => {
+    slotListeners.delete(fn);
+  };
 }
 
 /** The states a run can be in, in the order a supervisor cares about them. */

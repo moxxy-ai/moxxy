@@ -33,17 +33,30 @@ export function statusLabel(entry: ChannelEntry): string {
   return 'not configured';
 }
 
-export function ChannelPage({
-  entry,
-  onSaveConfig,
-  onStart,
-  onStop,
-}: {
-  readonly entry: ChannelEntry;
-  readonly onSaveConfig: (id: string, values: Record<string, string>) => Promise<void>;
-  readonly onStart: (id: string) => Promise<void>;
-  readonly onStop: (id: string) => Promise<void>;
-}): JSX.Element {
+/** The subset of `useChannels()` a page acts through. Named as the hook names
+ *  them so the surface can pass the hook itself. */
+export interface ChannelHandlers {
+  readonly saveConfig: (id: string, values: Record<string, string>) => Promise<void>;
+  readonly start: (id: string) => Promise<void>;
+  readonly stop: (id: string) => Promise<void>;
+}
+
+export interface ChannelPageState {
+  readonly configuring: boolean;
+  readonly toggleConfiguring: () => void;
+  readonly values: Record<string, string>;
+  readonly setField: (name: string, v: string) => void;
+  readonly busy: boolean;
+  readonly save: () => Promise<void>;
+  readonly toggleRun: () => Promise<void>;
+}
+
+/**
+ * One channel's editing state, owned ABOVE the page so the surface can put the
+ * page's actions in the instrument bar while the form stays in the pane. Both
+ * halves need `configuring`, and the two must never disagree about it.
+ */
+export function useChannelPage(entry: ChannelEntry, handlers: ChannelHandlers): ChannelPageState {
   const { descriptor, status } = entry;
   // Open the config form by default when nothing is stored yet.
   const [configuring, setConfiguring] = useState(!status.configured);
@@ -55,7 +68,7 @@ export function ChannelPage({
   const save = async (): Promise<void> => {
     setBusy(true);
     try {
-      await onSaveConfig(descriptor.id, values);
+      await handlers.saveConfig(descriptor.id, values);
       setValues({}); // don't retain secrets in renderer memory
       setConfiguring(false);
     } catch {
@@ -68,14 +81,66 @@ export function ChannelPage({
   const toggleRun = async (): Promise<void> => {
     setBusy(true);
     try {
-      if (status.running) await onStop(descriptor.id);
-      else await onStart(descriptor.id);
+      if (status.running) await handlers.stop(descriptor.id);
+      else await handlers.start(descriptor.id);
     } catch {
       /* error surfaced via the hook's error state */
     } finally {
       setBusy(false);
     }
   };
+
+  return {
+    configuring,
+    toggleConfiguring: () => setConfiguring((v) => !v),
+    values,
+    setField,
+    busy,
+    save,
+    toggleRun,
+  };
+}
+
+/** The channel's controls, rendered into the instrument bar by the surface. */
+export function ChannelActions({
+  entry,
+  state,
+}: {
+  readonly entry: ChannelEntry;
+  readonly state: ChannelPageState;
+}): JSX.Element {
+  const { descriptor, status } = entry;
+  return (
+    <>
+      <Button
+        variant="secondary"
+        onClick={state.toggleConfiguring}
+        data-testid={`channel-configure-${descriptor.id}`}
+      >
+        {state.configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
+      </Button>
+      <Button
+        variant={status.running ? 'secondary' : 'cta'}
+        onClick={() => void state.toggleRun()}
+        disabled={state.busy || (!status.running && !status.configured)}
+        data-testid={`channel-toggle-${descriptor.id}`}
+      >
+        <Icon name={status.running ? 'stop' : 'spark'} size={12} />
+        {status.running ? 'Stop' : 'Start'}
+      </Button>
+    </>
+  );
+}
+
+export function ChannelPage({
+  entry,
+  state,
+}: {
+  readonly entry: ChannelEntry;
+  readonly state: ChannelPageState;
+}): JSX.Element {
+  const { descriptor, status } = entry;
+  const { configuring, values, setField, busy, save } = state;
 
   return (
     <div
@@ -85,42 +150,22 @@ export function ChannelPage({
       {/* The page IS the channel, so its name is the page's head, not a card's.
           This was a bordered panel wrapping a bordered panel wrapping the fields
           — three nested boxes for one form. */}
-      <header style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-12)' }}>
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
-            <span style={{ fontSize: 'var(--type-section)', fontWeight: 600, letterSpacing: '-0.01em' }}>
-              {descriptor.name}
-            </span>
-            <span className="led" data-state={ledState(entry)} aria-hidden />
-            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
-              {statusLabel(entry)}
-            </span>
-          </div>
-          <p
-            className="prose"
-            style={{ margin: 0, maxWidth: '62ch', fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}
-          >
-            {descriptor.description}
-          </p>
+      <header style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+          <span style={{ fontSize: 'var(--type-section)', fontWeight: 600, letterSpacing: '-0.01em' }}>
+            {descriptor.name}
+          </span>
+          <span className="led" data-state={ledState(entry)} aria-hidden />
+          <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
+            {statusLabel(entry)}
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)', flexShrink: 0 }}>
-          <Button
-            variant="secondary"
-            onClick={() => setConfiguring((v) => !v)}
-            data-testid={`channel-configure-${descriptor.id}`}
-          >
-            {configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
-          </Button>
-          <Button
-            variant={status.running ? 'secondary' : 'cta'}
-            onClick={() => void toggleRun()}
-            disabled={busy || (!status.running && !status.configured)}
-            data-testid={`channel-toggle-${descriptor.id}`}
-          >
-            <Icon name={status.running ? 'stop' : 'spark'} size={12} />
-            {status.running ? 'Stop' : 'Start'}
-          </Button>
-        </div>
+        <p
+          className="prose"
+          style={{ margin: 0, maxWidth: '62ch', fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}
+        >
+          {descriptor.description}
+        </p>
       </header>
 
       {configuring && (

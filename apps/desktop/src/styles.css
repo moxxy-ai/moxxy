@@ -368,11 +368,57 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .app-rail__mark {
-  display: inline-flex;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  align-self: stretch;
   /* The INK strand. Not the accent: the mark's second strand is already the
    * commanded accent, and matching them collapses the weave into a rosette. */
   color: var(--color-sidebar-text);
   margin: var(--space-4) 0 var(--space-12);
+}
+.app-rail__mark-glyph { display: inline-flex; flex-shrink: 0; }
+
+/* The wordmark. Chrome face, because it names the instrument. */
+.app-rail__word {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  overflow: hidden;
+}
+.app-rail__word b {
+  font-size: var(--type-row);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-sidebar-text);
+  white-space: nowrap;
+}
+.app-rail__word small {
+  font-size: var(--type-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-sidebar-text-dim);
+  white-space: nowrap;
+}
+
+/* Collapsed the rail is 52px wide and the toggle would not fit beside the mark,
+ * so it sits UNDER it — one column, both centred. */
+.rail-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--frame-control);
+  height: var(--frame-control);
+  border-radius: var(--radius-chip);
+  color: var(--color-sidebar-text-dim);
+}
+.rail-toggle:hover { filter: none; color: var(--color-sidebar-text); background: var(--color-sidebar-bg-hover); }
+.app-rail:not([data-expanded='true']) .app-rail__mark {
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .app-rail__spacer { flex: 1; }
@@ -399,10 +445,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .rail-item__label { display: none; }
 
 /* The toggle's chevron points the way the rail will move. */
-.rail-item--toggle .rail-item__glyph {
+.rail-toggle .rail-item__glyph {
   transition: transform var(--motion-shift) ease;
 }
-.rail-item--toggle .rail-item__glyph[data-flip='true'] { transform: rotate(180deg); }
+.rail-toggle .rail-item__glyph[data-flip='true'] { transform: rotate(180deg); }
 
 /* --- Expanded rail: the same items, with their names -------------
  * The width IS animated here, unlike the workbench's. Only the field reflows off

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { useChannels } from '@moxxy/client-core';
 import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
-import { ChannelPage, ledState } from '../apps/ChannelsPanel';
+import { ChannelActions, ChannelPage, ledState, useChannelPage } from '../apps/ChannelsPanel';
 import { IndexColumn } from '../shell/IndexColumn';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
@@ -149,56 +149,85 @@ export function ChannelsSurface({ selected }: { readonly selected: string | null
   const channels = useChannels();
   const entry = channels.list.find((e) => e.descriptor.id === selected) ?? null;
 
-  return (
-    <>
-      <InstrumentBar crumbs={['Channels', entry?.descriptor.name ?? 'Catalog']}>
-        <button
-          type="button"
-          className="btn-box tip"
-          data-tip="Refresh"
-          data-tip-side="bottom"
-          aria-label="Refresh channels"
-          onClick={() => void channels.refresh()}
-        >
-          <Icon name="rotate" size={14} />
-        </button>
-      </InstrumentBar>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          padding: 'var(--space-20) var(--space-32) var(--space-40)',
-        }}
-      >
-        {channels.error && (
-          <p
-            role="alert"
-            style={{
-              margin: '0 0 var(--space-12)',
-              padding: 'var(--space-6) var(--space-8)',
-              border: '1px solid var(--color-red-border)',
-              background: 'var(--color-red-wash)',
-              color: 'var(--color-red-text)',
-              borderRadius: 'var(--radius-block)',
-              fontSize: 'var(--type-row)',
-            }}
-          >
-            {channels.error}
-          </p>
-        )}
-        {entry ? (
-          <ChannelPage
-            entry={entry}
-            onSaveConfig={channels.saveConfig}
-            onStart={channels.start}
-            onStop={channels.stop}
-          />
-        ) : (
+  const refresh = (
+    <button
+      type="button"
+      className="btn-box tip"
+      data-tip="Refresh"
+      data-tip-side="bottom"
+      aria-label="Refresh channels"
+      onClick={() => void channels.refresh()}
+    >
+      <Icon name="rotate" size={14} />
+    </button>
+  );
+  const error = channels.error && (
+    <p
+      role="alert"
+      style={{
+        margin: '0 0 var(--space-12)',
+        padding: 'var(--space-6) var(--space-8)',
+        border: '1px solid var(--color-red-border)',
+        background: 'var(--color-red-wash)',
+        color: 'var(--color-red-text)',
+        borderRadius: 'var(--radius-block)',
+        fontSize: 'var(--type-row)',
+      }}
+    >
+      {channels.error}
+    </p>
+  );
+
+  if (!entry) {
+    return (
+      <>
+        <InstrumentBar crumbs={['Channels', 'Catalog']}>{refresh}</InstrumentBar>
+        <div style={PANE}>
+          {error}
           <p style={{ margin: 0, color: 'var(--color-text-dim)', fontSize: 'var(--type-row)' }}>
             Pick a channel from the list to set it up.
           </p>
-        )}
+        </div>
+      </>
+    );
+  }
+  // Keyed on the channel so switching pages resets the form rather than
+  // carrying one channel's half-typed secrets into the next one's fields.
+  return <ChannelView key={entry.descriptor.id} entry={entry} error={error} refresh={refresh} />;
+}
+
+const PANE: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  padding: 'var(--space-20) var(--space-32) var(--space-40)',
+};
+
+/** One channel: the bar that names it (carrying its actions) and the pane that
+ *  configures it. Both halves read ONE editing state, which is why they live in
+ *  the same component rather than the surface holding the state for them. */
+function ChannelView({
+  entry,
+  error,
+  refresh,
+}: {
+  readonly entry: ChannelEntry;
+  readonly error: React.ReactNode;
+  readonly refresh: React.ReactNode;
+}): JSX.Element {
+  const channels = useChannels();
+  const state = useChannelPage(entry, channels);
+  return (
+    <>
+      <InstrumentBar crumbs={['Channels', entry.descriptor.name]}>
+        {/* A page's actions belong in the bar that names the page, not floating
+         *  over its first paragraph. */}
+        <ChannelActions entry={entry} state={state} />
+        {refresh}
+      </InstrumentBar>
+      <div style={PANE}>
+        {error}
+        <ChannelPage entry={entry} state={state} />
       </div>
     </>
   );

@@ -1,6 +1,7 @@
 import { Icon, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
+import { requestVoiceCall } from '@/lib/voiceCallRequest';
 import { toggleRailExpanded, useRailExpanded } from '@/lib/useRailExpanded';
 import type { View } from './views';
 
@@ -32,12 +33,17 @@ import type { View } from './views';
  */
 
 interface Destination {
-  readonly id: View;
+  /* A `View` for a destination, or a bare id for an ACTION that lives in the
+   * rail without owning the pane (Voice). Both are places you go from here, and
+   * splitting them into two controls would put the same kind of decision in two
+   * organs again. */
+  readonly id: string;
   readonly icon: IconName;
   readonly label: string;
 }
 
-const DESTINATIONS: ReadonlyArray<Destination> = [
+/** The destinations that DO own the pane; `id` narrows to a View for these. */
+const DESTINATIONS: ReadonlyArray<Destination & { readonly id: View }> = [
   // The id stays `chat`: the whole surface behind it is still `src/chat` and the
   // chat store, and renaming the id but not the module would be less coherent,
   // not more. "Runs" is the user-facing name for what it shows.
@@ -63,8 +69,34 @@ export function AppRail({
   const isDisabled = (id: View): boolean => disabledViews?.includes(id) ?? false;
   return (
     <nav className="app-rail" data-expanded={expanded} aria-label="Main">
-      <span className="app-rail__mark" aria-hidden>
-        <MoxxyMark size={24} />
+      <span className="app-rail__mark">
+        <span className="app-rail__mark-glyph" aria-hidden>
+          <MoxxyMark size={24} />
+        </span>
+        {/* The wordmark only exists at a width that can hold it; compact, the
+         *  mark IS the wordmark. */}
+        {expanded && (
+          <span className="app-rail__word">
+            <b>MoxxyAI</b>
+            <small>Workspaces</small>
+          </span>
+        )}
+        {/* Beside the mark, because widening the rail is a property of the rail
+         *  itself — under Settings it read as a seventh destination. */}
+        <button
+          type="button"
+          className="rail-toggle tip"
+          data-testid="rail-expand"
+          data-tip={expanded ? 'Hide labels' : 'Show labels'}
+          data-tip-side="right"
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Hide navigation labels' : 'Show navigation labels'}
+          onClick={toggleRailExpanded}
+        >
+          <span className="rail-item__glyph" data-flip={expanded}>
+            <Icon name="chevron-right" size={14} />
+          </span>
+        </button>
       </span>
       {DESTINATIONS.map((d) => (
         <RailItem
@@ -78,6 +110,21 @@ export function AppRail({
         />
       ))}
       <span className="app-rail__spacer" />
+      {/* Voice is a MODE of the current run, not a pane of its own, so it opens
+       *  the call on whatever session is live and never renders as `active`. It
+       *  used to be reachable only from a speaker icon in the composer's action
+       *  row, where it read as a text-to-speech toggle. */}
+      <RailItem
+        destination={{ id: 'voice', icon: 'speaker', label: 'Voice' }}
+        active={false}
+        expanded={expanded}
+        disabled={isDisabled('chat')}
+        disabledReason={disabledReason}
+        onClick={() => {
+          onView('chat');
+          requestVoiceCall();
+        }}
+      />
       <RailItem
         destination={{ id: 'mobile', icon: 'smartphone', label: 'Mobile' }}
         active={view === 'mobile'}
@@ -98,23 +145,9 @@ export function AppRail({
         disabledReason={disabledReason}
         onClick={() => onView('settings')}
       />
-      <button
-        type="button"
-        className="rail-item rail-item--toggle tip"
-        data-testid="rail-expand"
-        data-tip={expanded ? 'Hide labels' : 'Show labels'}
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Hide navigation labels' : 'Show navigation labels'}
-        onClick={toggleRailExpanded}
-      >
-        <span className="rail-item__glyph" data-flip={expanded}>
-          <Icon name="chevron-right" size={16} />
-        </span>
-        {expanded && <span className="rail-item__label">Hide labels</span>}
-      </button>
-      {/* The account row keeps its own Clerk-aware states (sign in / profile);
-       *  in the rail it renders as the avatar tile only. */}
-      <ProfilePill compact />
+      {/* The account row keeps its own Clerk-aware states (sign in / profile).
+       *  Expanded it shows who you are; compact it is the avatar tile alone. */}
+      <ProfilePill compact={!expanded} />
     </nav>
   );
 }

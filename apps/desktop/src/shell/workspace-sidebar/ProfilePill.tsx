@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
-import { Icon } from '@moxxy/desktop-ui';
+import { Icon, Modal } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 import { ProfileView } from '../ProfileView';
 
@@ -56,46 +56,88 @@ function AvatarTile({
   );
 }
 
+/**
+ * The account row when the build carries no Clerk key (a source checkout).
+ *
+ * It used to render a DISABLED tile: a control you can see, cannot press, and
+ * which never says why — the account entry read as simply missing. It opens the
+ * local account panel now, which shows the stored identity and states plainly
+ * that sign-in needs a key rather than pretending the button is broken.
+ */
 function KeylessProfilePill({ compact }: { readonly compact: boolean }): JSX.Element {
   const { prefs } = usePrefs();
+  const [open, setOpen] = useState(false);
   const displayName = prefs?.clerkDisplayName ?? null;
+  const panel = open && <LocalAccountView name={displayName} onClose={() => setOpen(false)} />;
+
   if (compact) {
     return (
-      <AvatarTile
-        label={displayName ? initialsOf(displayName) : null}
-        title={displayName ?? 'Not signed in'}
-        disabled
-      />
+      <>
+        <AvatarTile
+          label={displayName ? initialsOf(displayName) : null}
+          title={displayName ?? 'Account'}
+          onClick={() => setOpen(true)}
+        />
+        {panel}
+      </>
     );
   }
-  const row = displayName ? (
-    <button
-      type="button"
-      className="row-button"
-      disabled
-      title={displayName}
-      style={profileRowStyle('var(--color-sidebar-text)')}
-    >
-      <span style={profileLabelStyle('var(--color-sidebar-text)')}>{displayName}</span>
-      <span style={tierBadgeStyle('Free')}>Free</span>
-    </button>
-  ) : (
-    <button
-      type="button"
-      className="row-button"
-      disabled
-      style={profileRowStyle('var(--color-primary-strong)')}
-    >
-      <Icon name="agent" size={14} style={{ flexShrink: 0 }} />
-      <span style={profileLabelStyle('var(--color-primary-strong)')}>Sign in</span>
-      <Icon name="chevron-right" size={14} style={{ flexShrink: 0 }} />
-    </button>
-  );
 
   return (
-    <div style={{ borderTop: '1px solid var(--color-sidebar-border)', padding: '6px 6px 8px' }}>
-      {row}
+    <div style={{ borderTop: '1px solid var(--color-sidebar-border)', padding: 'var(--space-6) var(--space-6) var(--space-8)' }}>
+      <button
+        type="button"
+        className="row-button"
+        onClick={() => setOpen(true)}
+        style={profileRowStyle(
+          displayName ? 'var(--color-sidebar-text)' : 'var(--color-primary-strong)',
+        )}
+      >
+        {!displayName && <Icon name="agent" size={14} style={{ flexShrink: 0 }} />}
+        <span
+          style={profileLabelStyle(
+            displayName ? 'var(--color-sidebar-text)' : 'var(--color-primary-strong)',
+          )}
+        >
+          {displayName ?? 'Sign in'}
+        </span>
+        {displayName ? (
+          <span style={tierBadgeStyle('Free')}>Free</span>
+        ) : (
+          <Icon name="chevron-right" size={14} style={{ flexShrink: 0 }} />
+        )}
+      </button>
+      {panel}
     </div>
+  );
+}
+
+/** The keyless account panel. Deliberately NOT {@link ProfileView}: that one
+ *  reads `useUser()`/`useClerk()`, which throw outside a ClerkProvider. */
+function LocalAccountView({
+  name,
+  onClose,
+}: {
+  readonly name: string | null;
+  readonly onClose: () => void;
+}): JSX.Element {
+  return (
+    <Modal title="Account" onClose={onClose} width={420}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
+        <div className="form__field">
+          <span className="form__label">signed in as</span>
+          <span style={{ fontSize: 'var(--type-ui)' }}>{name ?? 'Not signed in'}</span>
+        </div>
+        <div className="form__field">
+          <span className="form__label">tier</span>
+          <span style={{ fontSize: 'var(--type-ui)' }}>Free</span>
+        </div>
+        <p className="form__hint" style={{ margin: 0 }}>
+          This build has no Clerk publishable key, so sign-in is unavailable. Set
+          VITE_CLERK_PUBLISHABLE_KEY to enable accounts.
+        </p>
+      </div>
+    </Modal>
   );
 }
 
