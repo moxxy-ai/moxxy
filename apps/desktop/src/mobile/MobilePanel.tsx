@@ -16,10 +16,13 @@
 import { MobileTab } from '../settings/MobileTab';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
-export function MobilePanel(): JSX.Element {
+/** Mobile pairing. `embedded` when the Channels surface owns the chrome above it,
+ *  which is the only way it is reached now — it kept a standalone header for the
+ *  brief window where it was still its own destination. */
+export function MobilePanel({ embedded = false }: { readonly embedded?: boolean }): JSX.Element {
   return (
     <>
-      <InstrumentBar crumbs={['Channels', 'Mobile']} />
+      {!embedded && <InstrumentBar crumbs={['Channels', 'Mobile']} />}
       <div
         style={{
           flex: 1,

@@ -26,8 +26,17 @@ import { Workbench, type WorkbenchTab } from './shell/Workbench';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
-import { MobilePanel } from './mobile/MobilePanel';
-import { WorkflowsPanel } from './workflows/WorkflowsPanel';
+import {
+  AutomationsIndex,
+  AutomationsPanel,
+  useAutomationsKind,
+} from './automations/AutomationsPanel';
+import {
+  ChannelsIndex,
+  ChannelsSurface,
+  useChannelsSection,
+} from './channels/ChannelsSurface';
+import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
@@ -71,6 +80,11 @@ export function App(): JSX.Element {
   // strip, so it is still discoverable and one click opens the pane you want.
   // Null = collapsed.
   const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
+  // Each destination remembers what it was showing, so switching away and back
+  // does not silently reset the list to its first entry.
+  const [automationsKind, setAutomationsKind] = useAutomationsKind();
+  const [channelsSection, setChannelsSection] = useChannelsSection();
+  const [settingsTab, setSettingsTab] = useSettingsTab();
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
@@ -293,7 +307,16 @@ export function App(): JSX.Element {
         disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
         disabledReason={RUNNER_LOCKED_REASON}
       />
+      {/* One index column per destination: the rail says where you are, the
+          column says what is in here. */}
       {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
+      {view === 'automations' && (
+        <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
+      )}
+      {view === 'channels' && (
+        <ChannelsIndex section={channelsSection} onPick={setChannelsSection} />
+      )}
+      {view === 'settings' && <SettingsIndex tab={settingsTab} onPick={setSettingsTab} />}
       {view === 'chat' && (
         <>
           <ChatSurface
@@ -316,7 +339,7 @@ export function App(): JSX.Element {
       )}
       {view === 'settings' && (
         <main className="field">
-          <SettingsPanel />
+          <SettingsPanel tab={settingsTab} />
         </main>
       )}
       {view === 'apps' && (
@@ -326,14 +349,14 @@ export function App(): JSX.Element {
       )}
       {view === 'automations' && (
         <main className="field">
-          <WorkflowsPanel />
+          <AutomationsPanel kind={automationsKind} />
         </main>
       )}
       {/* Channels is independent of the runner session (the gateway lives in the
           main process), so it is never runner-locked. */}
       {view === 'channels' && (
         <main className="field">
-          <MobilePanel />
+          <ChannelsSurface section={channelsSection} />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
