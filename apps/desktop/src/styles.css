@@ -434,10 +434,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   animation-delay: 60ms;
 }
 .app-rail[data-expanded='true'] .rail-item[data-active='true'] { font-weight: 600; }
-/* The commanded strap keeps sitting in the rail-to-index seam, so it has to
- * follow the rail's padding out to its real right edge. */
+/* The strap follows the rail's padding out to its real LEFT edge. */
 .app-rail[data-expanded='true'] .rail-item[data-active='true']::before {
-  right: calc(-1 * var(--space-8) - 1px);
+  left: calc(-1 * var(--space-8));
 }
 .app-rail[data-expanded='true'] .rail-avatar { margin-left: 7px; }
 .rail-item:hover:not(:disabled) {
@@ -449,8 +448,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-sidebar-text);
   background: var(--color-main-bg);
 }
-/* The commanded strap. Full row height, sitting in the seam between the rail and
- * the index column, and painted UNDER the horizontal strap's head.
+/* The commanded strap, on the rail's LEFT edge. It sat in the seam on the right,
+ * where it competed with the index column's own border for the same hairline of
+ * space; on the left it is unambiguous and matches the convention every other
+ * icon rail uses for its active item.
  *
  * ::before, NOT ::after. Rail items also carry `.tip`, whose bubble is an
  * ::after — two rule sets on one pseudo-element merge, and they did: the strap
@@ -460,9 +461,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .rail-item[data-active='true']::before {
   content: '';
   position: absolute;
-  right: -9px;
-  top: calc(-1 * var(--space-8));
-  bottom: calc(-1 * var(--space-8));
+  left: -9px;
+  top: calc(-1 * var(--space-4));
+  bottom: calc(-1 * var(--space-4));
   width: 2px;
   background: var(--color-primary);
 }
@@ -1769,3 +1770,22 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   outline: none;
 }
 .index-col__search::placeholder { color: var(--color-text-dim); }
+
+/* --- The active session row --------------------------------------
+ * Its commanded strap is a pseudo-element, not an inset box-shadow. An inset
+ * shadow is clipped by the row's border radius, so the strap curved around the
+ * corners and read as an outline — which is exactly what dropping the hairline
+ * was meant to stop. Insetting it from top and bottom keeps it clear of the
+ * corners entirely, so it stays a straight bar at any radius.
+ */
+.session-row { position: relative; }
+.session-row[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: var(--space-6);
+  bottom: var(--space-6);
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-primary);
+}

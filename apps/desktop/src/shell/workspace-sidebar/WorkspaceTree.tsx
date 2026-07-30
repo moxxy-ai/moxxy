@@ -343,7 +343,7 @@ function SessionRow({
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
         onBlurCapture={() => setHot(false)}
-        className={active ? undefined : 'row-button'}
+        className={active ? 'session-row' : 'session-row row-button'}
         style={{
           position: 'relative',
           // While its ⋯ menu is open, lift this row above the rows below
@@ -361,11 +361,11 @@ function SessionRow({
           background: active ? 'var(--color-card-bg)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 400,
-          // A raised card plus the commanded strap the active rail item wears —
-          // and NO outline. The hairline drew a box around the row, which made it
-          // read as a card floating in a list rather than as the list's own
-          // highlighted row; the lift in background is enough to say "this one".
-          boxShadow: active ? 'inset 2px 0 0 var(--color-primary)' : undefined,
+          // The strap is a ::before (see `.session-row` in styles.css), NOT an
+          // inset box-shadow: an inset shadow is clipped by the row's border
+          // radius, so it curved around the corners and read as an outline — the
+          // exact thing removing the hairline was meant to stop.
+
         }}
       >
         {/* An LED, like everywhere else in the frame: unread activity is the one
