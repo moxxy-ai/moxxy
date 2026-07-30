@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { callDuration, stepDuration, stepLabel, ToolRows, STEP_PREVIEW_ROWS, type ToolRowData } from './SkillGroupView';
+import { callDuration, stepDuration, ToolRows, STEP_PREVIEW_ROWS, type ToolRowData } from './SkillGroupView';
 
 /**
  * A step is the unit a run is actually read in. Two things make it readable and
@@ -27,16 +27,6 @@ function done(id: string, requestedAt: number, ts: number, name = 'Read'): ToolR
     outcome: { type: 'tool_result', ok: true, ts } as unknown as ToolRowData['outcome'],
   });
 }
-
-describe('stepLabel', () => {
-  it('numbers the step when it has an ordinal', () => {
-    expect(stepLabel(3, 'Ran 6 tools')).toBe('step 3 · Ran 6 tools');
-  });
-
-  it('degrades to the plain summary rather than faking a number', () => {
-    expect(stepLabel(undefined, 'Ran 6 tools')).toBe('Ran 6 tools');
-  });
-});
 
 describe('durations', () => {
   it('measures one call from its request to its result', () => {

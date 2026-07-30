@@ -86,7 +86,7 @@ describe('generateRootCss', () => {
   it('projects the non-colour scales (spacing, type, frame, motion)', () => {
     const css = generateRootCss();
     expect(css).toContain('--space-12: 12px;');
-    expect(css).toContain('--type-prose: 15.5px;');
+    expect(css).toContain('--type-prose: 14.5px;');
     // The instrument bar and the index head share this height so they read as
     // one horizontal strap crossing under the rail.
     expect(css).toContain('--frame-bar: 44px;');

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   describeToolCall,
   isFileDiffResult,
@@ -112,36 +112,9 @@ export function toolActivityLabel(tool: Pick<ToolRowData, 'name' | 'input' | 'ou
 
 /** Starts expanded while work is live, then quietly collapses when it settles
  * unless the user has explicitly chosen a state. */
-export function useActivityDisclosure(running: boolean): readonly [boolean, () => void] {
-  const [open, setOpen] = useState(running);
-  const touched = useRef(false);
-  const wasRunning = useRef(running);
-  useEffect(() => {
-    if (!touched.current) {
-      if (wasRunning.current && !running) setOpen(false);
-      if (!wasRunning.current && running) setOpen(true);
-    }
-    wasRunning.current = running;
-  }, [running]);
-  return [
-    open,
-    () => {
-      touched.current = true;
-      setOpen((value) => !value);
-    },
-  ];
-}
-
-/**
- * The step's header text: its ordinal within the turn, then what it did.
- *
- * "step 3 · Ran 6 tools" is the difference between reading a wall of rows and
- * reading a procedure — the trace never said which step you were looking at. The
- * ordinal is dropped rather than faked when the caller has none (a lone tool
- * outside any turn), so the label degrades to exactly what it used to be.
- */
-export function stepLabel(step: number | undefined, summary: string): string {
-  return step === undefined ? summary : `step ${step} · ${summary}`;
+export function useActivityDisclosure(): readonly [boolean, () => void] {
+  const [open, setOpen] = useState(false);
+  return [open, () => setOpen((value) => !value)];
 }
 
 /** Elapsed time for one call, from the request's timestamp to its result's. Both
@@ -192,17 +165,11 @@ export function ActivityCount({
   );
 }
 
-export function SkillGroupView({
-  scope,
-  step,
-}: {
-  readonly scope: SkillScope;
-  readonly step?: number;
-}): JSX.Element {
+export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const tools = collectTools(scope.children);
   const runningTools = tools.some((tool) => statusOf(tool.outcome) === 'running');
   const running = scope.loading || runningTools;
-  const [open, toggle] = useActivityDisclosure(running);
+  const [open, toggle] = useActivityDisclosure();
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
   // The scope's own status, so a failed skill is MARKED rather than looking
   // exactly like one that succeeded. Nothing set this before, which is why a
@@ -231,15 +198,13 @@ export function SkillGroupView({
   return (
     <div className="activity-block" data-testid="block-skill" data-status={status}>
       <ActivityRow
-        label={stepLabel(step, label)}
+        label={label}
         meta={meta}
         active={running}
         open={open}
         onToggle={toggle}
       />
-      {tools.length > 0 && (
-        <ToolRows rows={tools} open={open} onExpand={toggle} />
-      )}
+      {open && tools.length > 0 && <ToolRows rows={tools} open onExpand={toggle} />}
     </div>
   );
 }
@@ -277,7 +242,6 @@ export function ToolRows({
       </ul>
       {hidden > 0 && (
         <button type="button" className="activity-fold" onClick={onExpand}>
-          <Icon name="chevron-right" size={12} />
           <b>
             {hidden} more {hidden === 1 ? 'call' : 'calls'}
           </b>

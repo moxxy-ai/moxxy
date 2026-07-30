@@ -5,7 +5,7 @@ import {
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 import { ActivityRow } from './ActivityRow';
-import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData, ActivityCount, stepLabel, stepDuration, ToolRows } from './SkillGroupView';
+import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData, ActivityCount, stepDuration, ToolRows } from './SkillGroupView';
 import { useToolIcon } from './ToolIconContext';
 
 function errorCount(rows: ReadonlyArray<ToolRowData>): number {
@@ -14,10 +14,8 @@ function errorCount(rows: ReadonlyArray<ToolRowData>): number {
 
 export function ToolGroupView({
   tools,
-  step,
 }: {
   readonly tools: ReadonlyArray<ToolCallBlockData>;
-  readonly step?: number;
 }): JSX.Element {
   const rows: ToolRowData[] = tools.map((tool) => ({
     id: tool.id,
@@ -27,7 +25,7 @@ export function ToolGroupView({
     requestedAt: tool.request.ts,
   }));
   const running = rows.some((row) => statusOf(row.outcome) === 'running');
-  const [open, toggle] = useActivityDisclosure(running);
+  const [open, toggle] = useActivityDisclosure();
   const errors = errorCount(rows);
   return (
     <div
@@ -37,7 +35,7 @@ export function ToolGroupView({
     >
       <ActivityRow
         icon="wrench"
-        label={stepLabel(step, `${running ? 'Running' : 'Ran'} ${rows.length} tools${running ? '…' : ''}`)}
+        label={`${running ? 'Running' : 'Ran'} ${rows.length} tools${running ? '…' : ''}`}
         meta={
           <>
             <ActivityCount total={rows.length} failed={errors} />
@@ -50,17 +48,15 @@ export function ToolGroupView({
         open={open}
         onToggle={toggle}
       />
-      {rows.length > 0 && <ToolRows rows={rows} open={open} onExpand={toggle} />}
+      {open && rows.length > 0 && <ToolRows rows={rows} open onExpand={toggle} />}
     </div>
   );
 }
 
 export function LiveToolGroupView({
   block,
-  step,
 }: {
   readonly block: LiveToolBlockData;
-  readonly step?: number;
 }): JSX.Element {
   const rows: ToolRowData[] = block.calls.map((call) => ({
     id: call.id,
@@ -70,7 +66,7 @@ export function LiveToolGroupView({
           requestedAt: call.request.ts,
   }));
   const running = !block.closed || rows.some((row) => statusOf(row.outcome) === 'running');
-  const [open, toggle] = useActivityDisclosure(running);
+  const [open, toggle] = useActivityDisclosure();
   const errors = errorCount(rows);
   const latest = block.calls.at(-1);
   const latestIcon = useToolIcon(latest?.request.name ?? '');
@@ -82,7 +78,7 @@ export function LiveToolGroupView({
     >
       <ActivityRow
         icon={latest ? iconForTool(latest.request.name, latestIcon) : 'wrench'}
-        label={stepLabel(step, buildCompactSummary(block.calls, running))}
+        label={buildCompactSummary(block.calls, running)}
         meta={
           <>
             <ActivityCount total={rows.length} failed={errors} />
@@ -95,8 +91,8 @@ export function LiveToolGroupView({
         open={open}
         onToggle={toggle}
       />
-      {rows.length > 0 ? (
-        <ToolRows rows={rows} open={open} onExpand={toggle} />
+      {open && rows.length > 0 ? (
+        <ToolRows rows={rows} open onExpand={toggle} />
       ) : latest ? (
         <div className="activity-preview">{compactPreviewLine(latest)}</div>
       ) : null}

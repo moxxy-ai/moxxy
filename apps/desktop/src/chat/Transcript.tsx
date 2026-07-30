@@ -42,7 +42,6 @@ interface TranscriptProps {
 const MemoBlock = memo(
   function MemoBlock({
     block,
-    step,
     onPreviewImage,
     foldVersion: _foldVersion,
   }: {
@@ -51,46 +50,14 @@ const MemoBlock = memo(
     /** Mutable incremental-fold blocks need a scalar revision so memo sees
      *  outcome/scope changes even when the object reference is stable. */
     readonly foldVersion: number;
-    /** 1-based ordinal of this step WITHIN its turn; undefined for entries that
-     *  are not steps (prose, a command, an error). */
-    readonly step?: number;
   }): JSX.Element | null {
-    return <BlockView block={block} step={step} onPreviewImage={onPreviewImage} />;
+    return <BlockView block={block} onPreviewImage={onPreviewImage} />;
   },
   (a, b) =>
     a.foldVersion === b.foldVersion &&
-    a.step === b.step &&
     blocksEquivalent(a.block, b.block) &&
     a.onPreviewImage === b.onPreviewImage,
 );
-
-/**
- * Number the steps within each turn.
- *
- * A run is a sequence of steps and the trace never said which one you were
- * looking at; "step 3" is the difference between reading a wall of tool rows and
- * reading a procedure. The counter RESETS at every command, because a step number
- * is only meaningful relative to what was asked — "step 14" carried across three
- * turns tells you nothing.
- */
-export function numberSteps(nodes: ReadonlyArray<RenderNode>): ReadonlyMap<string, number> {
-  const out = new Map<string, number>();
-  let n = 0;
-  for (const node of nodes) {
-    if (node.kind === 'block' && node.block.kind === 'event') {
-      if (node.block.event.type === 'user_prompt') n = 0;
-      continue;
-    }
-    const isStep =
-      node.kind === 'tool-group' ||
-      (node.kind === 'block' &&
-        (node.block.kind === 'skill-scope' ||
-          node.block.kind === 'live-tools' ||
-          node.block.kind === 'tool-call'));
-    if (isStep) out.set(keyOf(node), ++n);
-  }
-  return out;
-}
 
 /** Row gutter — Virtuoso measures each item, so spacing rides on the row
  *  rather than a flex `gap`. Flex column so each block's `alignSelf`
@@ -130,13 +97,11 @@ function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: Rende
 
 function Row({
   node,
-  step,
   workspaceId,
   onPreviewImage,
   foldVersion,
 }: {
   readonly node: RenderNode;
-  readonly step?: number;
   readonly workspaceId?: string;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
   readonly foldVersion: number;
@@ -146,11 +111,10 @@ function Row({
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
       ) : node.kind === 'tool-group' ? (
-        <ToolGroupView tools={node.tools} step={step} />
+        <ToolGroupView tools={node.tools} />
       ) : (
         <MemoBlock
           block={node.block}
-          step={step}
           onPreviewImage={onPreviewImage}
           foldVersion={foldVersion}
         />
@@ -217,7 +181,6 @@ export function Transcript({
   // Changes on APPENDS only (new last row or streaming chunk) — stable
   // across upward-pagination prepends, so paging in history never fakes an
   // unread hint or flickers the jump button.
-  const steps = useMemo(() => numberSteps(nodes), [nodes]);
   const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : undefined;
   const lastKey = lastNode ? keyOf(lastNode) : '';
   const newBelow = useNewContentBelow(atBottom, `${lastKey}:${streamingText.length}`);
@@ -290,7 +253,6 @@ export function Transcript({
         itemContent={(_i, node) => (
           <Row
             node={node}
-            step={steps.get(keyOf(node))}
             workspaceId={workspaceId}
             onPreviewImage={onPreviewImage}
             foldVersion={foldVersion}

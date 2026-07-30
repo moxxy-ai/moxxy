@@ -71,7 +71,7 @@
   --type-meta: 11.5px;
   --type-row: 12.5px;
   --type-ui: 13px;
-  --type-prose: 15.5px;
+  --type-prose: 14.5px;
   --type-section: 19px;
   --type-display: 26px;
   --frame-titlebar: 30px;
@@ -938,6 +938,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .activity-row__label { font-weight: 500; color: var(--color-text-muted); }
 .activity-row__meta {
   flex: 0 0 auto;
+  /* The readings are separate facts and need to READ as separate: "4 calls" and
+   * "36s" sat against each other as "4 calls36s". */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
   color: var(--color-text-dim);
   font-size: var(--type-label);
 }
@@ -959,7 +964,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 /* With a failure chip present the count follows it rather than claiming the
  * right edge for itself. */
-.activity-row__fail + span { flex: 0 0 auto; margin-left: var(--space-6); }
+.activity-row__fail + span { flex: 0 0 auto; }
 /* The meta pushes to the right edge instead. */
 .activity-row__meta { margin-left: auto; }
 .activity-row:hover,

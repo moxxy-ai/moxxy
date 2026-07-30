@@ -146,7 +146,7 @@ export const tokens = {
     meta: 11.5,
     row: 12.5,
     ui: 13,
-    prose: 15.5,
+    prose: 14.5,
     section: 19,
     display: 26,
   },
