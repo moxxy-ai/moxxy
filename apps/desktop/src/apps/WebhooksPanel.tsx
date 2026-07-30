@@ -12,6 +12,7 @@ import { useWebhooks } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { WebhookSummary } from '@moxxy/desktop-ipc-contract';
 import { TargetSessionPicker } from './TargetSessionPicker';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 /** One-line activity summary: fires + last fire time + model override. */
 function activityLabel(w: WebhookSummary): string {
@@ -27,12 +28,18 @@ export function WebhooksPanel(): JSX.Element {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 24px 0' }}>
-        <Button variant="chip" onClick={() => void hooks.refresh()} style={{ borderRadius: 9 }}>
+      <InstrumentBar crumbs={['Automations', 'Webhooks']}>
+        <button
+          type="button"
+          className="btn-box tip"
+          data-tip="Refresh"
+          data-tip-side="bottom"
+          aria-label="Refresh webhooks"
+          onClick={() => void hooks.refresh()}
+        >
           <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </div>
+        </button>
+      </InstrumentBar>
       <div
         style={{
           flex: 1,

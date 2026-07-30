@@ -1,93 +1,221 @@
 import { useState } from 'react';
-import { ChannelsPanel } from '../apps/ChannelsPanel';
-import { MobilePanel } from '../mobile/MobilePanel';
+import { Icon } from '@moxxy/desktop-ui';
+import { useChannels } from '@moxxy/client-core';
+import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
+import { ChannelPage } from '../apps/ChannelsPanel';
 import { IndexColumn } from '../shell/IndexColumn';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
 /**
- * Channels: every way a conversation reaches moxxy.
+ * Channels: one page per channel, picked from a collapsible group in the index
+ * column.
  *
- * Mobile used to be its own top-level destination, sitting at the bottom of the
- * workspace sidebar beside Settings. Pairing a phone is one channel among Slack,
- * Telegram, Signal and the rest — it was top-level because of how it was built (a
- * gateway in the main process), not because of what it is to a user.
+ * Every channel used to be a card in one long scroll, each with its own config
+ * form open at all times — so setting up Slack meant scrolling past WhatsApp's
+ * ban-risk consent gate, and the page was as tall as the catalog. A channel is a
+ * thing you configure once and then leave alone; it deserves a page, and the
+ * column deserves to show which ones are actually running.
+ *
+ * Mobile is NOT here. Pairing this machine with a phone is a property of the
+ * install rather than another chat surface to configure: no catalog entry, no
+ * dedicated runner, no secrets. It sits at the foot of the rail beside Settings.
  */
 
-type Section = 'connected' | 'mobile';
+/** The one state a channel row reports, in the order that matters to a reader:
+ *  broken first, then live, then ready, then untouched. */
+function channelState(entry: ChannelEntry): 'failed' | 'running' | 'done' | undefined {
+  if (entry.status.error) return 'failed';
+  if (entry.status.running) return 'running';
+  if (entry.status.configured) return 'done';
+  return undefined;
+}
 
-const SECTIONS: ReadonlyArray<{
-  readonly id: Section;
-  readonly label: string;
-  readonly hint: string;
-}> = [
-  { id: 'connected', label: 'Channels', hint: 'Slack, Telegram, …' },
-  { id: 'mobile', label: 'Mobile', hint: 'Pair a phone' },
-];
-
-const TITLE: Record<Section, string> = { connected: 'Channels', mobile: 'Mobile' };
+function channelNote(entry: ChannelEntry): string | null {
+  if (entry.status.error) return 'error';
+  if (entry.status.running) return entry.status.connected === false ? 'pairing' : 'live';
+  if (entry.status.configured) return 'ready';
+  return null;
+}
 
 export function ChannelsIndex({
-  section,
-  onPick,
+  selected,
+  onSelect,
 }: {
-  readonly section: Section;
-  readonly onPick: (section: Section) => void;
+  readonly selected: string | null;
+  readonly onSelect: (id: string) => void;
 }): JSX.Element | null {
+  const channels = useChannels();
+  const [folded, setFolded] = useState(false);
+  const running = channels.list.filter((e) => e.status.running).length;
+
   return (
     <IndexColumn title="channels">
-      {SECTIONS.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          className={s.id === section ? 'session-row' : 'session-row row-button'}
-          data-testid={`channels-section-${s.id}`}
-          data-active={s.id === section}
-          aria-current={s.id === section ? 'true' : undefined}
-          onClick={() => onPick(s.id)}
+      <div
+        role="button"
+        tabIndex={0}
+        data-testid="channels-group"
+        aria-expanded={!folded}
+        aria-label={`${folded ? 'expand' : 'collapse'} channels`}
+        className="row-button index-group"
+        style={{ cursor: 'pointer', borderRadius: 'var(--radius-block)' }}
+        onClick={() => setFolded((f) => !f)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setFolded((f) => !f);
+          }
+        }}
+      >
+        <span
+          aria-hidden
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-8)',
-            width: '100%',
-            minHeight: 'var(--frame-row)',
-            padding: '2px var(--space-6) 2px var(--space-8)',
-            borderRadius: 'var(--radius-block)',
-            background: s.id === section ? 'var(--color-card-bg)' : 'transparent',
-            color:
-              s.id === section ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
-            fontWeight: s.id === section ? 600 : 400,
-            fontSize: 'var(--type-row)',
-            textAlign: 'left',
+            display: 'inline-flex',
+            flexShrink: 0,
+            transform: folded ? 'none' : 'rotate(90deg)',
+            transition: 'transform var(--motion-shift) ease',
           }}
         >
-          <span className="led" aria-hidden />
-          <span style={{ flex: 1, minWidth: 0 }}>{s.label}</span>
-          <span
-            style={{
-              flexShrink: 0,
-              fontSize: 'var(--type-label)',
-              color: 'var(--color-text-dim)',
-            }}
-          >
-            {s.hint}
-          </span>
-        </button>
-      ))}
+          <Icon name="chevron-right" size={12} />
+        </span>
+        <span className="index-group__label">catalog</span>
+        {/* Folded, the group still reports how many are live — that is the one
+         *  fact you would open it to check. */}
+        {folded && running > 0 && <span className="led" data-state="running" aria-hidden />}
+        <span className="index-group__count">{channels.list.length}</span>
+      </div>
+      {!folded &&
+        channels.list.map((entry) => {
+          const id = entry.descriptor.id;
+          const active = id === selected;
+          const note = channelNote(entry);
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`channel-row-${id}`}
+              data-active={active}
+              className={active ? 'session-row' : 'session-row row-button'}
+              onClick={() => onSelect(id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-8)',
+                width: '100%',
+                minHeight: 'var(--frame-row)',
+                padding: '2px var(--space-6) 2px var(--space-24)',
+                borderRadius: 'var(--radius-block)',
+                background: active ? 'var(--color-card-bg)' : 'transparent',
+                color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
+                fontWeight: active ? 600 : 400,
+                fontSize: 'var(--type-row)',
+                textAlign: 'left',
+              }}
+            >
+              <span className="led" data-state={channelState(entry)} aria-hidden />
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {entry.descriptor.name}
+              </span>
+              {note && (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontSize: 'var(--type-label)',
+                    color:
+                      note === 'error' ? 'var(--color-red-text)' : 'var(--color-text-dim)',
+                  }}
+                >
+                  {note}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      {!folded && channels.list.length === 0 && !channels.loading && (
+        <p
+          style={{
+            margin: 0,
+            padding: '2px var(--space-6) var(--space-6) var(--space-24)',
+            fontSize: 'var(--type-label)',
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          none available
+        </p>
+      )}
     </IndexColumn>
   );
 }
 
-export function ChannelsSurface({ section }: { readonly section: Section }): JSX.Element {
+export function ChannelsSurface({ selected }: { readonly selected: string | null }): JSX.Element {
+  const channels = useChannels();
+  const entry = channels.list.find((e) => e.descriptor.id === selected) ?? null;
+
   return (
     <>
-      <InstrumentBar crumbs={['Channels', TITLE[section]]} />
-      {section === 'connected' ? <ChannelsPanel /> : <MobilePanel embedded />}
+      <InstrumentBar crumbs={['Channels', entry?.descriptor.name ?? 'Catalog']}>
+        <button
+          type="button"
+          className="btn-box tip"
+          data-tip="Refresh"
+          data-tip-side="bottom"
+          aria-label="Refresh channels"
+          onClick={() => void channels.refresh()}
+        >
+          <Icon name="rotate" size={14} />
+        </button>
+      </InstrumentBar>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          padding: 'var(--space-20) var(--space-32) var(--space-40)',
+        }}
+      >
+        {channels.error && (
+          <p
+            role="alert"
+            style={{
+              margin: '0 0 var(--space-12)',
+              padding: 'var(--space-6) var(--space-8)',
+              border: '1px solid var(--color-red-border)',
+              background: 'var(--color-red-wash)',
+              color: 'var(--color-red-text)',
+              borderRadius: 'var(--radius-block)',
+              fontSize: 'var(--type-row)',
+            }}
+          >
+            {channels.error}
+          </p>
+        )}
+        {entry ? (
+          <ChannelPage
+            entry={entry}
+            onSaveConfig={channels.saveConfig}
+            onStart={channels.start}
+            onStop={channels.stop}
+          />
+        ) : (
+          <p style={{ margin: 0, color: 'var(--color-text-dim)', fontSize: 'var(--type-row)' }}>
+            Pick a channel from the list to set it up.
+          </p>
+        )}
+      </div>
     </>
   );
 }
 
-/** The section the Channels destination lands on. */
-export function useChannelsSection(): readonly [Section, (s: Section) => void] {
-  const [section, setSection] = useState<Section>('connected');
-  return [section, setSection];
+/** Which channel page is open. Owned by the shell so the column and the pane
+ *  agree, and so it survives leaving the destination and coming back. */
+export function useChannelSelection(): readonly [string | null, (id: string) => void] {
+  const [id, setId] = useState<string | null>(null);
+  return [id, setId];
 }

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
 import { SchedulesPanel } from '../apps/SchedulesPanel';
 import { WebhooksPanel } from '../apps/WebhooksPanel';
-import { InstrumentBar } from '../shell/InstrumentBar';
 
 /**
  * Automations: the things that fire themselves.
@@ -20,21 +19,13 @@ import { InstrumentBar } from '../shell/InstrumentBar';
 
 import type { Kind } from './AutomationsIndex';
 
-const TITLE: Record<Kind, string> = {
-  workflows: 'Workflows',
-  schedules: 'Schedules',
-  webhooks: 'Webhooks',
-};
-
+/** A pure switch. Each kind's pane owns its own instrument bar, because each has
+ *  its own summary and its own actions, and a shared bar here could carry
+ *  neither without the panes reaching up through props to fill it. */
 export function AutomationsPanel({ kind }: { readonly kind: Kind }): JSX.Element {
-  return (
-    <>
-      <InstrumentBar crumbs={['Automations', TITLE[kind]]} />
-      {kind === 'workflows' && <WorkflowsPanel embedded />}
-      {kind === 'schedules' && <SchedulesPanel />}
-      {kind === 'webhooks' && <WebhooksPanel />}
-    </>
-  );
+  if (kind === 'schedules') return <SchedulesPanel />;
+  if (kind === 'webhooks') return <WebhooksPanel />;
+  return <WorkflowsPanel />;
 }
 
 /** The kind the Automations destination lands on. */

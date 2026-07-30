@@ -31,10 +31,11 @@ import { AutomationsIndex } from './automations/AutomationsIndex';
 import {
   ChannelsIndex,
   ChannelsSurface,
-  useChannelsSection,
+  useChannelSelection,
 } from './channels/ChannelsSurface';
 import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
+import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
@@ -80,7 +81,7 @@ export function App(): JSX.Element {
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
   const [automationsKind, setAutomationsKind] = useAutomationsKind();
-  const [channelsSection, setChannelsSection] = useChannelsSection();
+  const [channelId, setChannelId] = useChannelSelection();
   const [settingsTab, setSettingsTab] = useSettingsTab();
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
@@ -310,9 +311,7 @@ export function App(): JSX.Element {
       {view === 'automations' && (
         <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
       )}
-      {view === 'channels' && (
-        <ChannelsIndex section={channelsSection} onPick={setChannelsSection} />
-      )}
+      {view === 'channels' && <ChannelsIndex selected={channelId} onSelect={setChannelId} />}
       {view === 'settings' && <SettingsIndex tab={settingsTab} onPick={setSettingsTab} />}
       {view === 'chat' && (
         <>
@@ -353,7 +352,15 @@ export function App(): JSX.Element {
           main process), so it is never runner-locked. */}
       {view === 'channels' && (
         <main className="field">
-          <ChannelsSurface section={channelsSection} />
+          <ChannelsSurface selected={channelId} />
+        </main>
+      )}
+      {/* Mobile pairing is a property of the INSTALL, not another chat surface to
+          configure, so it sits at the foot of the rail rather than in the channel
+          catalog. Like Channels it never depends on the runner session. */}
+      {view === 'mobile' && (
+        <main className="field">
+          <MobilePanel />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}

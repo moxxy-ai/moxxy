@@ -16,66 +16,6 @@ import { Button, Icon, Skeleton, TextInput } from '@moxxy/desktop-ui';
 import type { ChannelDescriptor, ChannelEntry } from '@moxxy/desktop-ipc-contract';
 import { QrCode } from '../components/QrCode';
 
-export function ChannelsPanel(): JSX.Element {
-  const channels = useChannels();
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 24px 0' }}>
-        <Button variant="chip" onClick={() => void channels.refresh()} style={{ borderRadius: 9 }}>
-          <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          padding: '1.5rem 2rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
-        {channels.error && (
-          <p
-            role="alert"
-            style={{
-              margin: 0,
-              padding: '0.45rem 0.65rem',
-              border: '1px solid var(--color-pink)',
-              background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
-              borderRadius: 'var(--radius-block)',
-              fontSize: 'var(--type-row)',
-            }}
-          >
-            {channels.error}
-          </p>
-        )}
-        {channels.loading && channels.list.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <Skeleton.Card />
-            <Skeleton.Card />
-          </div>
-        ) : (
-          channels.list.map((entry) => (
-            <ChannelCard
-              key={entry.descriptor.id}
-              entry={entry}
-              onSaveConfig={channels.saveConfig}
-              onStart={channels.start}
-              onStop={channels.stop}
-            />
-          ))
-        )}
-      </div>
-    </>
-  );
-}
-
-/** Status dot color: green running · red errored · grey configured-idle · faint
- *  when not yet configured. */
 function statusColor(entry: ChannelEntry): string {
   if (entry.status.running) return 'var(--color-green)';
   if (entry.status.error) return 'var(--color-pink)';
@@ -90,7 +30,7 @@ function statusLabel(entry: ChannelEntry): string {
   return 'Not configured';
 }
 
-function ChannelCard({
+export function ChannelPage({
   entry,
   onSaveConfig,
   onStart,

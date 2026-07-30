@@ -79,6 +79,14 @@ export function AppRail({
       ))}
       <span className="app-rail__spacer" />
       <RailItem
+        destination={{ id: 'mobile', icon: 'smartphone', label: 'Mobile' }}
+        active={view === 'mobile'}
+        expanded={expanded}
+        disabled={isDisabled('mobile')}
+        disabledReason={disabledReason}
+        onClick={() => onView('mobile')}
+      />
+      <RailItem
         destination={{
           id: 'settings',
           icon: 'settings',

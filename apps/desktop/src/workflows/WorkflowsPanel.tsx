@@ -35,14 +35,7 @@ function triggerSummary(list: ReadonlyArray<{ triggers: string }>): string {
  * model via `useWorkflowBuilder`; this panel only owns the mode toggle and
  * wires the list's `refresh` so a save (or a generated workflow) re-lists.
  */
-export function WorkflowsPanel({
-  // When embedded inside the Apps surface the parent owns the chrome, so this
-  // panel renders its actions as a plain toolbar row instead of its own
-  // instrument bar.
-  embedded = false,
-}: {
-  readonly embedded?: boolean;
-}): JSX.Element {
+export function WorkflowsPanel(): JSX.Element {
   const wf = useWorkflows();
   const paused = wf.list.filter((w) => !w.enabled).length;
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
@@ -66,17 +59,26 @@ export function WorkflowsPanel({
     );
   }
 
+  // The pane's actions live in the instrument bar, like every other pane's. A
+  // refresh is the weakest action here (the list re-fetches on save and on
+  // mount), so it keeps the icon and gives up the word.
   const actions = (
     <>
-      <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
+      <button
+        type="button"
+        className="btn-box tip"
+        data-tip="Refresh"
+        data-tip-side="bottom"
+        aria-label="Refresh workflows"
+        onClick={() => void wf.refresh()}
+      >
         <Icon name="rotate" size={14} />
-        Refresh
-      </Button>
+      </button>
       <Button
         variant="chip"
         data-testid="generate-workflow"
         onClick={() => setGenerating(true)}
-        style={{ borderRadius: 'var(--radius-block)', gap: 7 }}
+        style={{ height: 'var(--frame-control)', gap: 'var(--space-6)' }}
       >
         <Icon name="spark" size={14} />
         Generate with AI
@@ -85,37 +87,23 @@ export function WorkflowsPanel({
         variant="primary"
         data-testid="new-workflow"
         onClick={() => setEditing(null)}
-        style={{ borderRadius: 'var(--radius-block)', padding: '6px 14px', fontSize: 13 }}
+        style={{ height: 'var(--frame-control)', padding: '0 var(--space-12)' }}
       >
-        + New
+        New workflow
       </Button>
     </>
   );
 
   return (
     <>
-      {embedded ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 8,
-            padding: '12px 24px 0',
-          }}
-        >
-          {actions}
-        </div>
-      ) : (
-        <InstrumentBar
-          crumbs={[
-            'Automations',
-            `Workflows · ${wf.list.length} defined${paused > 0 ? `, ${paused} paused` : ''}`,
-          ]}
-        >
-          {actions}
-        </InstrumentBar>
-      )}
+      <InstrumentBar
+        crumbs={[
+          'Automations',
+          `Workflows · ${wf.list.length} defined${paused > 0 ? `, ${paused} paused` : ''}`,
+        ]}
+      >
+        {actions}
+      </InstrumentBar>
       <div
         style={{
           flex: 1,

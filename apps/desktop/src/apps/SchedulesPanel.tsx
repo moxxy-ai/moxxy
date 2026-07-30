@@ -9,6 +9,7 @@ import { useScheduler } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
 import { TargetSessionPicker } from './TargetSessionPicker';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 function whenLabel(s: ScheduleSummary): string {
   if (s.cron) return `cron ${s.cron}${s.timeZone ? ` (${s.timeZone})` : ''}`;
@@ -27,12 +28,18 @@ export function SchedulesPanel(): JSX.Element {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 24px 0' }}>
-        <Button variant="chip" onClick={() => void sched.refresh()} style={{ borderRadius: 9 }}>
+      <InstrumentBar crumbs={['Automations', 'Schedules']}>
+        <button
+          type="button"
+          className="btn-box tip"
+          data-tip="Refresh"
+          data-tip-side="bottom"
+          aria-label="Refresh schedules"
+          onClick={() => void sched.refresh()}
+        >
           <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </div>
+        </button>
+      </InstrumentBar>
       <div
         style={{
           flex: 1,

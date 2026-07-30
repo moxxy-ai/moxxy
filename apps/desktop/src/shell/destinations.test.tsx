@@ -60,13 +60,19 @@ describe('AutomationsIndex', () => {
 });
 
 describe('ChannelsIndex', () => {
-  it('holds Mobile as one channel among the rest, not a destination of its own', () => {
-    const onPick = vi.fn();
-    render(<ChannelsIndex section="connected" onPick={onPick} />);
-    expect(screen.getByTestId('channels-section-connected')).toBeTruthy();
-    expect(screen.getByTestId('channels-section-mobile')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('channels-section-mobile'));
-    expect(onPick).toHaveBeenCalledWith('mobile');
+  it('renders the catalog as one collapsible group, open by default', () => {
+    render(<ChannelsIndex selected={null} onSelect={vi.fn()} />);
+    const group = screen.getByTestId('channels-group');
+    expect(group).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(group);
+    expect(screen.getByTestId('channels-group')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('says the catalog is empty rather than rendering nothing', async () => {
+    // Only AFTER the fetch settles: while it is in flight the column is loading,
+    // not empty, and claiming "none available" then would be a lie with a race.
+    render(<ChannelsIndex selected={null} onSelect={vi.fn()} />);
+    expect(await screen.findByText('none available')).toBeTruthy();
   });
 });
 
