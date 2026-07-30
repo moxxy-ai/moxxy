@@ -1,5 +1,15 @@
 # @moxxy/plugin-telegram
 
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/core@0.35.3
+- @moxxy/config@0.35.3
+- @moxxy/channel-kit@0.35.3
+- @moxxy/plugin-vault@0.35.3
+
 ## 0.35.2
 
 ### Patch Changes
