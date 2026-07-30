@@ -73,7 +73,7 @@ export function JumpToLatest({ visible, unread, onJump }: JumpToLatestProps): JS
             right: 1,
             width: 8,
             height: 8,
-            borderRadius: 999,
+            borderRadius: 'var(--radius-pill)',
             background: 'var(--color-primary)',
           }}
         />

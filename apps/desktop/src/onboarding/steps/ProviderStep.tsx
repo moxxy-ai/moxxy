@@ -1,3 +1,4 @@
+import { Select } from '@moxxy/desktop-ui';
 /**
  * The provider-connect step — pick a provider from the catalog, then
  * either paste an API key (api-key providers) or run the real OAuth login
@@ -147,17 +148,17 @@ export function ProviderStep({
           padding: '16px 18px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
         }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Provider
           </span>
-          <select
+          <Select
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
             style={inputStyle}
@@ -176,11 +177,11 @@ export function ProviderStep({
                 </option>
               );
             })}
-          </select>
+          </Select>
         </label>
         {authKind === 'api-key' && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               API key
             </span>
             <input
@@ -195,7 +196,7 @@ export function ProviderStep({
           </label>
         )}
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
         )}

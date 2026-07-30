@@ -17,8 +17,7 @@ export function VoiceModeButton({
       onClick={onOpen}
       disabled={disabled}
     >
-      <Icon name="speaker" size={16} />
-      <span>Voice mode</span>
+      <Icon name="speaker" size={15} />
     </ToolChip>
   );
 }

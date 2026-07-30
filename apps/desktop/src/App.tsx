@@ -20,13 +20,22 @@ import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionS
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
-import type { View } from './shell/ViewHeader';
-import { ContextRail, type RailPane } from './shell/ContextRail';
+import { AppRail } from './shell/AppRail';
+import type { View } from './shell/views';
+import { Workbench, type WorkbenchTab } from './shell/Workbench';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
-import { MobilePanel } from './mobile/MobilePanel';
+import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
+import { AutomationsIndex } from './automations/AutomationsIndex';
+import {
+  ChannelsIndex,
+  ChannelsSurface,
+  useChannelSelection,
+} from './channels/ChannelsSurface';
+import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
+import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
@@ -37,7 +46,7 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
-const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps'];
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps', 'automations'];
 const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
@@ -47,8 +56,8 @@ const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
  *      condition is unmet.
  *   2. While the runner is connecting (any phase that isn't
  *      `connected`), the ConnectionScreen owns the pane.
- *   3. Once connected, the workspace shell renders:
- *      WorkspaceSidebar | ContextRail | <active view>.
+ *   3. Once connected, the Harness frame renders:
+ *      AppRail | index column | field | workbench.
  */
 export function App(): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
@@ -65,10 +74,15 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  // Context rail starts collapsed. The context button opens a dropdown
-  // (terminal / files changed / browser); picking one sets the active pane
-  // and opens the rail. Null = collapsed.
-  const [railPane, setRailPane] = useState<RailPane | null>(null);
+  // The workbench starts collapsed — but collapsed now leaves a vertical tab
+  // strip, so it is still discoverable and one click opens the pane you want.
+  // Null = collapsed.
+  const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
+  // Each destination remembers what it was showing, so switching away and back
+  // does not silently reset the list to its first entry.
+  const [automationsKind, setAutomationsKind] = useAutomationsKind();
+  const [channelId, setChannelId] = useChannelSelection();
+  const [settingsTab, setSettingsTab] = useSettingsTab();
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
@@ -108,9 +122,9 @@ export function App(): JSX.Element {
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
 
-  // When the agent drives the browser / terminal, open the matching rail
-  // pane so its work is shown to the user (once per session per pane).
-  useAgentSurfaceReveal(activeWorkspaceId, setRailPane);
+  // When the agent drives the browser / terminal, open the matching workbench
+  // tab so its work is shown to the user (once per session per tab).
+  useAgentSurfaceReveal(activeWorkspaceId, setBenchTab);
 
   // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
   // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
@@ -283,64 +297,70 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={onView} />
+      {/* One navigation organ. The index column beside it changes CONTENTS per
+          destination rather than being a different component per view. */}
+      <AppRail
+        view={view}
+        onView={onView}
+        disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+        disabledReason={RUNNER_LOCKED_REASON}
+      />
+      {/* One index column per destination: the rail says where you are, the
+          column says what is in here. */}
+      {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
+      {view === 'automations' && (
+        <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
+      )}
+      {view === 'channels' && <ChannelsIndex selected={channelId} onSelect={setChannelId} />}
+      {view === 'settings' && <SettingsIndex tab={settingsTab} onPick={setSettingsTab} />}
       {view === 'chat' && (
         <>
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
-            railPane={railPane}
-            onPickPane={setRailPane}
             sessionLoading={shell.sessionLoading}
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
           />
-          <ContextRail
-            pane={railPane}
-            onClose={() => setRailPane(null)}
+          <Workbench
+            tab={benchTab}
+            onPick={setBenchTab}
+            onClose={() => setBenchTab(null)}
             workspaceId={activeWorkspaceId}
           />
         </>
       )}
       {view === 'collaborate' && (
-        <main className="col-main col-main--flat">
-          <CollaboratePanel
-            onView={onView}
-            workspaceId={activeWorkspaceId}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <CollaboratePanel workspaceId={activeWorkspaceId} />
         </main>
       )}
       {view === 'settings' && (
-        <main className="col-main col-main--flat">
-          <SettingsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <SettingsPanel tab={settingsTab} />
         </main>
       )}
       {view === 'apps' && (
-        <main className="col-main col-main--flat">
-          <AppsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <AppsPanel />
         </main>
       )}
-      {/* Mobile is independent of the runner session (the gateway lives in the
-          main process), so it is never runner-locked — but the switcher still
-          needs the locked set so the OTHER segments disable in lockstep. */}
+      {view === 'automations' && (
+        <main className="field">
+          <AutomationsPanel kind={automationsKind} />
+        </main>
+      )}
+      {/* Channels is independent of the runner session (the gateway lives in the
+          main process), so it is never runner-locked. */}
+      {view === 'channels' && (
+        <main className="field">
+          <ChannelsSurface selected={channelId} />
+        </main>
+      )}
+      {/* Mobile pairing is a property of the INSTALL, not another chat surface to
+          configure, so it sits at the foot of the rail rather than in the channel
+          catalog. Like Channels it never depends on the runner session. */}
       {view === 'mobile' && (
-        <main className="col-main col-main--flat">
-          <MobilePanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <MobilePanel />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
@@ -363,7 +383,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function isRunnerLockedView(view: View): boolean {
-  return view === 'collaborate' || view === 'apps';
+  return RUNNER_LOCKED_VIEWS.includes(view);
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {
@@ -432,12 +452,12 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         padding: '6px 14px 6px 6px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 999,
-        boxShadow: '0 18px 36px -18px rgba(15, 23, 42, 0.25)',
+        borderRadius: 'var(--radius-pill)',
+        boxShadow: 'var(--color-card-shadow)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 10,
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         color: 'var(--color-text-muted)',
         zIndex: 50,
       }}

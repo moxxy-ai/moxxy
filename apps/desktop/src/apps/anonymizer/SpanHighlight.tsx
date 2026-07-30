@@ -22,7 +22,7 @@ export function SpanHighlight({
         style={{
           background: 'color-mix(in oklab, var(--color-primary) 22%, transparent)',
           color: 'inherit',
-          borderRadius: 3,
+          borderRadius: 'var(--radius-chip)',
           padding: '0 1px',
         }}
       >
@@ -40,7 +40,7 @@ export function SpanHighlight({
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
         fontFamily: 'inherit',
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         lineHeight: 1.5,
       }}
     >

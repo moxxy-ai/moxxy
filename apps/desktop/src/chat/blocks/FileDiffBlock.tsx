@@ -13,15 +13,28 @@ import { Icon } from '@moxxy/desktop-ui';
 const COLLAPSED_ROWS = 14;
 
 function rowStyle(kind: DiffRow['kind']): React.CSSProperties {
-  if (kind === 'add') return { background: 'var(--color-diff-add-bg)', color: 'var(--color-diff-add-text)' };
-  if (kind === 'del') return { background: 'var(--color-diff-del-bg)', color: 'var(--color-diff-del-text)' };
+  // A wash, not a flood. The solid fills painted every changed row edge to edge
+  // in saturated green, so a 260-line create became the loudest object in the
+  // trace and the code inside it the least legible.
+  if (kind === 'add') {
+    return {
+      background: 'color-mix(in srgb, var(--color-green) 12%, transparent)',
+      color: 'var(--color-diff-add-text)',
+    };
+  }
+  if (kind === 'del') {
+    return {
+      background: 'color-mix(in srgb, var(--color-red) 12%, transparent)',
+      color: 'var(--color-diff-del-text)',
+    };
+  }
   return { color: 'var(--color-text-muted)' };
 }
 
 function DiffRowLine({ row, gutterWidth }: { row: DiffRow; gutterWidth: number }): JSX.Element {
   if (row.kind === 'gap') {
     return (
-      <div style={{ display: 'flex', color: 'var(--color-diff-gutter)' }}>
+      <div style={{ display: 'flex', minWidth: 'max-content', color: 'var(--color-diff-gutter)' }}>
         <span style={{ width: gutterWidth, flexShrink: 0 }} />
         <span style={{ padding: '0 8px' }}>⋯</span>
       </div>
@@ -30,7 +43,7 @@ function DiffRowLine({ row, gutterWidth }: { row: DiffRow; gutterWidth: number }
   const no = diffGutterNo(row);
   const marker = row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' ';
   return (
-    <div style={{ display: 'flex', ...rowStyle(row.kind) }}>
+    <div style={{ display: 'flex', minWidth: 'max-content', ...rowStyle(row.kind) }}>
       <span
         style={{
           width: gutterWidth,
@@ -43,8 +56,8 @@ function DiffRowLine({ row, gutterWidth }: { row: DiffRow; gutterWidth: number }
       >
         {no ?? ''}
       </span>
-      <span style={{ width: 12, flexShrink: 0, textAlign: 'center', userSelect: 'none', opacity: 0.8 }}>{marker}</span>
-      <span style={{ whiteSpace: 'pre', flex: 1 }}>{row.text || ' '}</span>
+      <span style={{ width: 12, flexShrink: 0, textAlign: 'center', userSelect: 'none', opacity: 0.55 }}>{marker}</span>
+      <span style={{ whiteSpace: 'pre', paddingRight: 12 }}>{row.text || ' '}</span>
     </div>
   );
 }
@@ -68,24 +81,8 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
   return (
     <div
       data-testid="block-file-diff"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
+      style={{ minWidth: 0 }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 34,
-          height: 34,
-          flexShrink: 0,
-          borderRadius: 10,
-          background: display.mode === 'create' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)',
-          color: display.mode === 'create' ? 'var(--color-green)' : 'var(--color-primary)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="edit" size={17} />
-      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <button
           type="button"
@@ -93,15 +90,15 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
           aria-expanded={open}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', width: '100%', textAlign: 'left' }}
         >
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>
             {verb}
             <span className="mono" style={{ color: 'var(--color-text-dim)', fontWeight: 500, marginLeft: 6 }}>
               · {display.path}
             </span>
           </span>
-          <span className="mono" style={{ fontSize: 11, fontWeight: 600 }}>
-            <span style={{ color: 'var(--color-green)' }}>+{display.added}</span>{' '}
-            <span style={{ color: 'var(--color-red)' }}>−{display.removed}</span>
+          <span style={{ fontSize: 'var(--type-label)', fontWeight: 600 }}>
+            <span style={{ color: 'var(--color-diff-add-text)' }}>+{display.added}</span>{' '}
+            <span style={{ color: 'var(--color-diff-del-text)' }}>−{display.removed}</span>
           </span>
           <span style={{ flex: 1 }} />
           {allRows.length > COLLAPSED_ROWS && (
@@ -122,12 +119,19 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
           <div
             className="mono"
             style={{
-              marginTop: 6,
-              fontSize: 11.5,
-              lineHeight: 1.5,
+              marginTop: 'var(--space-6)',
+              fontSize: 'var(--type-meta)',
+              lineHeight: 1.55,
               border: '1px solid var(--color-card-border)',
-              borderRadius: 6,
-              overflow: 'auto',
+              borderRadius: 'var(--radius-block)',
+              background: 'var(--color-input-soft)',
+              // A measure. Without one a long line stretched the diff to the
+              // window edge, so the trace had no right margin and the code ran
+              // under the workbench.
+              maxWidth: '92ch',
+              // The DIFF scrolls sideways, never the page.
+              overflowX: 'auto',
+              overflowY: 'auto',
               maxHeight: open ? 520 : 'none',
             }}
           >
@@ -142,10 +146,15 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
                   display: 'block',
                   width: '100%',
                   textAlign: 'left',
-                  padding: '4px 10px',
-                  fontSize: 11,
+                  padding: '3px var(--space-8)',
+                  fontSize: 'var(--type-label)',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
                   color: 'var(--color-text-dim)',
-                  background: 'var(--color-input-soft)',
+                  background: 'var(--color-card-bg)',
+                  borderTop: '1px solid var(--color-card-border)',
+                  position: 'sticky',
+                  left: 0,
                 }}
               >
                 … +{hidden} more lines
@@ -153,7 +162,7 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
             )}
           </div>
         ) : (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-dim)' }}>{fileDiffSummary(display)}</div>
+          <div style={{ marginTop: 4, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{fileDiffSummary(display)}</div>
         )}
       </div>
     </div>

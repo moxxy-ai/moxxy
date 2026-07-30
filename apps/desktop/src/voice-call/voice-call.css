@@ -22,21 +22,10 @@
     );
 }
 
-.voice-call-surface::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  opacity: 0.7;
-  background:
-    linear-gradient(
-      115deg,
-      transparent 20%,
-      color-mix(in srgb, var(--color-primary) 2.5%, transparent) 50%,
-      transparent 80%
-    );
-}
+/* No ambient wash. A 2.5% diagonal sweep of the accent across the whole surface
+ * is decoration, and this palette spends its colour on meaning — the accent is
+ * reserved for what the human commanded. The voice surface reads as the bay,
+ * like every other pane. */
 
 .voice-call-header {
   height: 64px;
@@ -78,7 +67,7 @@
   grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 12px var(--space-16);
   border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-card-border));
   border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--color-surface) 92%, transparent);
@@ -90,7 +79,7 @@
 .voice-call-install-icon {
   width: 38px;
   height: 38px;
-  border-radius: 12px;
+  border-radius: var(--radius-block);
   display: grid;
   place-items: center;
   color: var(--color-primary);
@@ -103,8 +92,8 @@
 
 .voice-call-install-copy strong {
   color: var(--color-text);
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: var(--type-row);
+  font-weight: 600;
 }
 
 .voice-call-install-copy p,
@@ -112,7 +101,7 @@
   display: block;
   margin: 3px 0 0;
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--type-label);
   line-height: 1.4;
 }
 
@@ -122,17 +111,17 @@
 
 .voice-call-install button {
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 var(--space-16);
   border: 1px solid color-mix(in srgb, var(--color-primary) 44%, var(--color-card-border));
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-chip);
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--color-text);
   background: var(--color-primary-soft);
   font: inherit;
-  font-size: 11.5px;
-  font-weight: 620;
+  font-size: var(--type-meta);
+  font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -191,12 +180,12 @@
   min-width: 0;
   width: max-content;
   height: 36px;
-  padding: 0 13px;
-  border-radius: var(--radius-pill);
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-chip);
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 12.5px;
+  font-size: var(--type-row);
   white-space: nowrap;
 }
 
@@ -243,14 +232,14 @@
 
 .voice-call-title span {
   color: var(--color-text);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: var(--type-ui);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .voice-call-title small {
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .voice-call-stage {
@@ -273,14 +262,14 @@
   margin: 0;
   color: var(--color-text);
   font-size: clamp(21px, 2.4vw, 30px);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.035em;
 }
 
 .voice-call-status p {
   margin: 7px 0 0;
   color: var(--color-text-muted);
-  font-size: 12.5px;
+  font-size: var(--type-row);
   line-height: 1.45;
 }
 
@@ -369,7 +358,7 @@
   column-gap: 11px;
   row-gap: 8px;
   align-items: center;
-  padding: 12px 14px 11px 12px;
+  padding: 12px var(--space-16) var(--space-12) 12px;
   border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-card-border));
   border-radius: var(--radius-card);
   color: var(--color-text);
@@ -384,7 +373,7 @@
 .voice-call-activity-icon {
   width: 34px;
   height: 34px;
-  border-radius: 11px;
+  border-radius: var(--radius-block);
   display: grid;
   place-items: center;
   color: var(--color-primary);
@@ -401,8 +390,8 @@
 .voice-call-activity-copy strong {
   overflow: hidden;
   color: var(--color-text);
-  font-size: 11.5px;
-  font-weight: 620;
+  font-size: var(--type-meta);
+  font-weight: 600;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -410,7 +399,7 @@
 
 .voice-call-activity-copy small {
   color: var(--color-text-dim);
-  font-size: 9.5px;
+  font-size: var(--type-micro);
   line-height: 1.2;
 }
 
@@ -447,13 +436,13 @@
 .voice-call-primary-control button,
 .voice-call-error button {
   min-height: 42px;
-  padding: 0 16px 0 10px;
-  border-radius: var(--radius-pill);
+  padding: 0 16px 0 var(--space-8);
+  border-radius: var(--radius-chip);
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  font-size: 12px;
-  font-weight: 560;
+  font-size: var(--type-row);
+  font-weight: 500;
   white-space: nowrap;
   box-shadow: var(--color-card-shadow);
 }
@@ -493,7 +482,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px 10px 16px;
+  padding: var(--space-8) 12px var(--space-8) 16px;
   border: 1px solid var(--color-red-border);
   border-radius: var(--radius-card);
   background: var(--color-red-wash);
@@ -503,7 +492,7 @@
   margin: 0;
   max-width: 420px;
   color: var(--color-red-text);
-  font-size: 12px;
+  font-size: var(--type-row);
   line-height: 1.4;
 }
 
@@ -535,8 +524,8 @@
 .voice-call-line-role {
   padding-top: 2px;
   color: color-mix(in srgb, var(--color-primary) 58%, var(--color-text));
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--type-label);
+  font-weight: 600;
   text-align: right;
 }
 
@@ -551,7 +540,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--type-row);
   line-height: 1.42;
 }
 
@@ -563,7 +552,7 @@
   align-self: center;
   margin: 0;
   color: var(--color-text-dim);
-  font-size: 11.5px;
+  font-size: var(--type-meta);
 }
 
 @media (max-width: 760px) {

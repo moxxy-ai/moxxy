@@ -2,9 +2,14 @@ import { useId } from 'react';
 
 /**
  * The moxxy mark, inline rather than a raster, so it inherits the surrounding
- * text colour and stays sharp at any size. The ink strand is `currentColor`;
- * the signal strand is fixed, because the weave only reads when the two
- * strands differ.
+ * text colour and stays sharp at any size. The ink strand is `currentColor`; the
+ * second strand takes the commanded accent.
+ *
+ * The two strands MUST differ. The interlace is carried entirely by the colour
+ * change at each crossing, so painting both in one hue collapses the mark into a
+ * solid eight-pointed rosette — which is exactly what happened when a caller set
+ * `color` to the accent. Callers set the INK strand via `color`; they never get
+ * to pick the second one.
  *
  * `useId` namespaces the mask: two marks on the same screen would otherwise
  * emit duplicate ids and the second would resolve against the first.
@@ -37,7 +42,7 @@ export function MoxxyMark({
       </mask>
       <g fill="none" strokeWidth="22" strokeLinejoin="round">
         <g stroke="currentColor">{square}</g>
-        <g stroke="#FF4A1E" transform="rotate(45 128 128)">
+        <g stroke="var(--color-primary)" transform="rotate(45 128 128)">
           {square}
         </g>
         <g mask={`url(#${maskId})`} stroke="currentColor">

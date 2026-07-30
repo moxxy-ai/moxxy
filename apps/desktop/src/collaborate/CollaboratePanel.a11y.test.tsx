@@ -85,7 +85,7 @@ function openTaskModal(): HTMLElement {
 
 describe('CollaboratePanel TaskModal accessibility', () => {
   it('opens a labelled dialog (role=dialog, aria-modal, aria-labelledby title)', () => {
-    render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
+    render(<CollaboratePanel workspaceId={WS} />);
     openTaskModal();
 
     const dialog = screen.getByRole('dialog');
@@ -98,7 +98,7 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('moves focus into the dialog on open (not left on the obscured trigger)', () => {
-    render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
+    render(<CollaboratePanel workspaceId={WS} />);
     const trigger = openTaskModal();
     const dialog = screen.getByRole('dialog');
     expect(dialog.contains(document.activeElement)).toBe(true);
@@ -106,7 +106,7 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('closes on Escape and restores focus to the trigger', () => {
-    render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
+    render(<CollaboratePanel workspaceId={WS} />);
     const trigger = openTaskModal();
 
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
@@ -116,7 +116,7 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('has an accessible close button', () => {
-    render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
+    render(<CollaboratePanel workspaceId={WS} />);
     openTaskModal();
     const close = screen.getByRole('button', { name: /close/i });
     fireEvent.click(close);

@@ -1,73 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { PanelLeftIcon } from './PanelLeftIcon';
-import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import { useMenuKeyboard } from './useMenuKeyboard';
 
-/** Top-level main-content views. Chat ↔ Collaborate ↔ Apps switch via the
- *  header's `ViewSwitcher`; Settings and Mobile are reached from the sidebar
- *  (they own the pane with no active switcher segment). The Apps view groups
- *  the gallery + Workflows / Schedules / Webhooks under its own sub-nav. */
-export type View = 'chat' | 'collaborate' | 'settings' | 'apps' | 'mobile';
-
 /**
- * Shared section header — one 64px chrome bar so Chat / Workflows /
- * Settings all top out with the same height, border and padding.
- * Children lay out in a flex row; use `<span style={{ flex: 1 }} />`
- * to push trailing controls to the right edge.
- *
- * When the workspace sidebar is collapsed the rail (and its collapse
- * button) is gone entirely, so every header leads with the expand
- * affordance — it reads the shared collapsed store directly rather
- * than threading a prop through each view.
- */
-export function ViewHeader({ children }: { readonly children: ReactNode }): JSX.Element {
-  const sidebarCollapsed = useSidebarCollapsed();
-  return (
-    <header
-      style={{
-        height: 64,
-        minHeight: 64,
-        flexShrink: 0,
-        boxSizing: 'border-box',
-        padding: '0 24px',
-        borderBottom: '1px solid var(--color-card-border)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-      }}
-    >
-      {sidebarCollapsed && (
-        <button
-          type="button"
-          aria-label="Expand sidebar"
-          data-testid="sidebar-expand"
-          title="Expand sidebar (⌘B / Ctrl+B)"
-          onClick={() => setSidebarCollapsed(false)}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 5,
-            marginLeft: -6,
-            borderRadius: 8,
-            color: 'var(--color-text-muted)',
-            flexShrink: 0,
-          }}
-        >
-          <PanelLeftIcon size={16} />
-        </button>
-      )}
-      {children}
-    </header>
-  );
-}
-
-/**
- * Segmented pill nav — the settings-tabs look (grey track, white active
- * pill), shared so the view switcher and the settings tabs read as one
- * control family. `value: null` renders with no active segment (used by
- * the switcher while Settings owns the pane).
+ * Segmented pill nav — a recessed track with a raised active segment, used for
+ * SUB-navigation inside a pane (settings tabs, automations kinds, the appearance
+ * theme toggle). Top-level navigation is the app rail's job, not this control's:
+ * the view switcher that used to lead every header is gone. `value: null`
+ * renders with no active segment.
  *
  * Pass `collapsible` to make it responsive: when the inline pill row would
  * overflow its allotted width (a narrow window), the whole group folds into
@@ -152,7 +92,7 @@ function PillRow<T extends string>({
         gap: 2,
         padding: 3,
         background: 'var(--color-app-bg)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
       }}
     >
       {items.map((t) => {
@@ -184,9 +124,9 @@ function PillRow<T extends string>({
 function pillStyle(active: boolean, disabled = false): React.CSSProperties {
   return {
     padding: '6px 15px',
-    fontSize: 13,
+    fontSize: 'var(--type-ui)',
     fontWeight: 600,
-    borderRadius: 9,
+    borderRadius: 'var(--radius-block)',
     whiteSpace: 'nowrap',
     color: disabled
       ? 'color-mix(in oklab, var(--color-text-muted) 62%, transparent)'
@@ -194,7 +134,8 @@ function pillStyle(active: boolean, disabled = false): React.CSSProperties {
         ? 'var(--color-text)'
         : 'var(--color-text-muted)',
     background: active ? 'var(--color-surface)' : 'transparent',
-    boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.12)' : 'none',
+    // A seam, not a drop shadow: nothing flat in this language casts one.
+    boxShadow: active ? 'inset 0 0 0 1px var(--color-card-border)' : 'none',
     cursor: disabled ? 'not-allowed' : undefined,
     opacity: disabled ? 0.62 : undefined,
     transition: 'background 140ms, color 140ms',
@@ -361,9 +302,9 @@ function CollapsibleSegmented<T extends string>({
               alignItems: 'center',
               gap: 6,
               padding: '6px 12px',
-              fontSize: 13,
+              fontSize: 'var(--type-ui)',
               fontWeight: 600,
-              borderRadius: 11,
+              borderRadius: 'var(--radius-block)',
               whiteSpace: 'nowrap',
               color: 'var(--color-text)',
               background: 'var(--color-app-bg)',
@@ -400,8 +341,8 @@ function CollapsibleSegmented<T extends string>({
                 padding: 4,
                 background: 'var(--color-card-bg)',
                 border: '1px solid var(--color-card-border)',
-                borderRadius: 12,
-                boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.45)',
+                borderRadius: 'var(--radius-card)',
+                boxShadow: 'var(--color-card-shadow)',
               }}
             >
               {items.map((t) => {
@@ -429,8 +370,8 @@ function CollapsibleSegmented<T extends string>({
                       gap: 8,
                       width: '100%',
                       padding: '8px 10px',
-                      borderRadius: 8,
-                      fontSize: 13,
+                      borderRadius: 'var(--radius-block)',
+                      fontSize: 'var(--type-ui)',
                       fontWeight: active ? 600 : 500,
                       textAlign: 'left',
                       color: disabled
@@ -455,70 +396,12 @@ function CollapsibleSegmented<T extends string>({
   );
 }
 
-const SWITCH_ITEMS: ReadonlyArray<{
-  readonly id: 'chat' | 'collaborate' | 'apps';
-  readonly label: string;
-}> = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'collaborate', label: 'Collaborate' },
-  { id: 'apps', label: 'Apps' },
-];
-
-/** Chat ↔ Collaborate ↔ Apps segmented switcher — the leading element of every
- *  unified header, standing in for a per-view title. */
-export function ViewSwitcher({
-  view,
-  onView,
-  disabledViews,
-  disabledReason,
-}: {
-  readonly view: View;
-  readonly onView: (v: View) => void;
-  readonly disabledViews?: ReadonlySet<View> | ReadonlyArray<View>;
-  readonly disabledReason?: string;
-}): JSX.Element {
-  const disabledIds = toSwitchDisabledIds(disabledViews);
-  return (
-    <Segmented
-      items={SWITCH_ITEMS}
-      // Settings and Mobile are sidebar destinations, not switcher segments — so
-      // neither maps to a pill. The inline comparison also narrows `view` to the
-      // switcher's own ids in the else branch (keeps the value type exact).
-      value={view === 'settings' || view === 'mobile' ? null : view}
-      onChange={onView}
-      testIdPrefix="nav-"
-      collapsible
-      disabledIds={disabledIds}
-      disabledReason={disabledReason}
-      // On a sidebar-owned view this switcher has no active segment; label the
-      // folded button with the view family rather than a blank.
-      collapsedLabel="Views"
-    />
-  );
-}
-
 function isDisabledId<T extends string>(
   disabledIds: ReadonlySet<T> | ReadonlyArray<T> | undefined,
   id: T,
 ): boolean {
   if (!disabledIds) return false;
   return isReadonlyArray(disabledIds) ? disabledIds.includes(id) : disabledIds.has(id);
-}
-
-type SwitchView = (typeof SWITCH_ITEMS)[number]['id'];
-
-function toSwitchDisabledIds(
-  disabledViews: ReadonlySet<View> | ReadonlyArray<View> | undefined,
-): ReadonlySet<SwitchView> | undefined {
-  if (!disabledViews) return undefined;
-  const disabled = new Set<SwitchView>();
-  for (const item of SWITCH_ITEMS) {
-    const locked = isReadonlyArray(disabledViews)
-      ? disabledViews.includes(item.id)
-      : disabledViews.has(item.id);
-    if (locked) disabled.add(item.id);
-  }
-  return disabled;
 }
 
 function isReadonlyArray<T>(

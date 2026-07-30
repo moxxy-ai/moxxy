@@ -377,9 +377,13 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'wasm-unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    // No font CDN in either directive: the renderer bundles no webfont and the
+    // type stacks resolve to installed system faces, so `fonts.googleapis.com`
+    // (style-src) and `fonts.gstatic.com` (font-src) are gone. Two fewer remote
+    // origins that could serve the renderer a stylesheet or a font.
+    "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com${extra}`,
-    "font-src 'self' data: https://fonts.gstatic.com",
+    "font-src 'self' data:",
     "media-src 'self' blob:",
     // challenges.cloudflare.com: Clerk's bot-protection (Turnstile) runs on
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just

@@ -346,10 +346,10 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
               flex: 1,
               minWidth: 0,
               padding: '6px 11px',
-              fontSize: 12,
+              fontSize: 'var(--type-row)',
               color: 'var(--color-text)',
               border: '1px solid var(--color-card-border)',
-              borderRadius: 999,
+              borderRadius: 'var(--radius-pill)',
               background: 'var(--color-surface)',
               outline: 'none',
             }}
@@ -362,24 +362,24 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             alignItems: 'center',
             gap: 2,
             border: '1px solid var(--color-card-border)',
-            borderRadius: 999,
+            borderRadius: 'var(--radius-pill)',
             padding: '0 2px',
           }}
         >
           <IconButton size={22} onClick={() => setZoomTo(zoom - 0.1)} title="Zoom out (⌘−)" aria-label="Zoom out">
-            <span style={{ fontSize: 14, lineHeight: 1 }}>−</span>
+            <span style={{ fontSize: 'var(--type-ui)', lineHeight: 1 }}>−</span>
           </IconButton>
           <button
             type="button"
             onClick={() => setZoomTo(1)}
             title="Reset zoom (⌘0)"
             className="btn-ghost"
-            style={{ fontSize: 11, minWidth: 38, padding: '2px 2px', color: 'var(--color-text-dim)' }}
+            style={{ fontSize: 'var(--type-meta)', minWidth: 38, padding: '2px 2px', color: 'var(--color-text-dim)' }}
           >
             {Math.round(zoom * 100)}%
           </button>
           <IconButton size={22} onClick={() => setZoomTo(zoom + 0.1)} title="Zoom in (⌘+)" aria-label="Zoom in">
-            <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+            <span style={{ fontSize: 'var(--type-ui)', lineHeight: 1 }}>+</span>
           </IconButton>
         </div>
         {/* "Capture region" — drag a box; the screenshot is attached to the chat
@@ -411,7 +411,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             alignItems: 'center',
             gap: 6,
             padding: '6px 12px',
-            fontSize: 12,
+            fontSize: 'var(--type-row)',
             color: notice ? 'var(--color-green)' : 'var(--color-text-muted)',
             borderBottom: '1px solid var(--color-card-border)',
             background: 'var(--color-input-soft)',
@@ -423,7 +423,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
       )}
 
       {surface.error && (
-        <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--color-danger, #f87171)' }}>
+        <div style={{ padding: '8px 12px', fontSize: 'var(--type-meta)', color: 'var(--color-danger, #f87171)' }}>
           Browser unavailable: {surface.error}
         </div>
       )}
@@ -549,7 +549,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                   style={{
                     width: 46,
                     height: 46,
-                    borderRadius: 12,
+                    borderRadius: 'var(--radius-card)',
                     display: 'grid',
                     placeItems: 'center',
                     background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
@@ -559,10 +559,10 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                   <Icon name="globe" size={22} />
                 </div>
                 <div style={{ maxWidth: 280 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>
+                  <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text)' }}>
                     Browser engine required
                   </div>
-                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+                  <div style={{ marginTop: 4, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
                     The in-window browser needs Playwright + Chromium — a one-time ~200&nbsp;MB download.
                   </div>
                 </div>
@@ -573,7 +573,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             ) : (
               <>
                 <Spinner reduced={reducedMotion} />
-                <div style={{ fontSize: 13, color: 'var(--color-text)' }}>
+                <div style={{ fontSize: 'var(--type-ui)', color: 'var(--color-text)' }}>
                   {installing ? 'Installing browser engine…' : surface.ready ? 'Loading…' : 'Starting browser…'}
                 </div>
                 {installing && (
@@ -582,7 +582,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                     <div
                       style={{
                         height: 6,
-                        borderRadius: 999,
+                        borderRadius: 'var(--radius-pill)',
                         background: 'var(--color-card-border)',
                         overflow: 'hidden',
                       }}
@@ -593,7 +593,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                           // Under reduced motion the shimmer becomes a static
                           // filled bar (no continuous travelling animation).
                           width: reducedMotion ? '100%' : '40%',
-                          borderRadius: 999,
+                          borderRadius: 'var(--radius-pill)',
                           background: 'var(--color-primary)',
                           animation: reducedMotion ? undefined : 'moxxy-shimmer 1.1s linear infinite',
                         }}
@@ -603,7 +603,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                       <div
                         style={{
                           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                          fontSize: 10.5,
+                          fontSize: 'var(--type-label)',
                           color: 'var(--color-text-dim)',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
@@ -617,7 +617,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                   </div>
                 )}
                 {!installing && status && !surface.error && (
-                  <div style={{ fontSize: 12, color: 'var(--color-text-dim)', maxWidth: 320 }}>{status}</div>
+                  <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', maxWidth: 320 }}>{status}</div>
                 )}
               </>
             )}

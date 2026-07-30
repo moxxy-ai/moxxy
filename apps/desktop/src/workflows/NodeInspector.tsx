@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TextArea, TextInput } from '@moxxy/desktop-ui';
+import { Select, TextArea, TextInput } from '@moxxy/desktop-ui';
 import {
   stepKindMeta,
   type BuilderAction,
@@ -51,7 +51,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
         flexShrink: 0,
         overflowY: 'auto',
         borderLeft: '1px solid var(--color-border)',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         padding: '1rem',
         display: 'flex',
         flexDirection: 'column',
@@ -59,7 +59,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
       }}
     >
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: accent }}>
+        <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, textTransform: 'uppercase', color: accent }}>
           {meta.label}
         </span>
         <button
@@ -112,18 +112,18 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
       )}
 
       <Field label="On error">
-        <select
+        <Select
           value={node.onError}
           data-testid="field-onerror"
           onChange={(e) => patch({ onError: e.target.value as WorkflowStepErrorMode })}
-          style={selectStyle}
+          tone="soft"
         >
           {ERROR_MODES.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       {node.onError === 'retry' && (
         <Field label="Retries (0-3)">
@@ -398,11 +398,11 @@ function ActionNamePicker({
   const description = items.find((i) => i.name === value)?.description;
   return (
     <Field label={label}>
-      <select
+      <Select
         value={value}
         data-testid="field-action"
         onChange={(e) => onChange(e.target.value)}
-        style={selectStyle}
+          tone="soft"
       >
         {value === '' && <option value="">Select a {kind}…</option>}
         {!known && value !== '' && <option value={value}>{value} (not installed)</option>}
@@ -411,7 +411,7 @@ function ActionNamePicker({
             {i.name}
           </option>
         ))}
-      </select>
+      </Select>
       {description && (
         <span data-testid="action-description" style={emptyHint}>
           {description}
@@ -475,11 +475,11 @@ function LoopEditor({
         </div>
       </Field>
       <Field label="Exit → next step (on done / on body error)">
-        <select
+        <Select
           value={exit}
           data-testid="loop-exit"
           onChange={(e) => dispatch({ type: 'set-loop-exit', loopId: node.id, targetId: e.target.value || null })}
-          style={selectStyle}
+          tone="soft"
         >
           <option value="">(loop ends the workflow)</option>
           {candidates
@@ -489,7 +489,7 @@ function LoopEditor({
                 {c.label || c.id}
               </option>
             ))}
-        </select>
+        </Select>
       </Field>
     </>
   );
@@ -689,19 +689,11 @@ function dispatchUpdate(
 }
 
 const fieldLabel: React.CSSProperties = {
-  fontSize: '0.65rem',
+  fontSize: 'var(--type-label)',
   fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
   color: 'var(--color-text-dim)',
-};
-
-const selectStyle: React.CSSProperties = {
-  padding: '0.4rem 0.5rem',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-block)',
-  background: 'var(--color-bg-card)',
-  fontSize: '0.82rem',
 };
 
 const pickList: React.CSSProperties = {
@@ -719,16 +711,16 @@ const pickRow: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 6,
-  fontSize: '0.78rem',
+  fontSize: 'var(--type-meta)',
   color: 'var(--color-text)',
 };
 
 const checkboxRow: React.CSSProperties = { ...pickRow, fontWeight: 500 };
 
-const emptyHint: React.CSSProperties = { fontSize: '0.75rem', color: 'var(--color-text-dim)' };
+const emptyHint: React.CSSProperties = { fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' };
 
 const errorBox: React.CSSProperties = {
-  fontSize: '0.72rem',
+  fontSize: 'var(--type-meta)',
   color: 'var(--color-red)',
   background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
   border: '1px solid var(--color-red)',
@@ -741,7 +733,7 @@ const errorBox: React.CSSProperties = {
 
 function pillBtn(color: string): React.CSSProperties {
   return {
-    fontSize: '0.68rem',
+    fontSize: 'var(--type-label)',
     fontWeight: 600,
     padding: '0.2rem 0.55rem',
     color: 'var(--color-bg)',

@@ -35,7 +35,7 @@ export function Splash({
         className="mono"
         style={{
           margin: 0,
-          fontSize: '0.85rem',
+          fontSize: 'var(--type-row)',
           color: 'var(--color-text-muted)',
           letterSpacing: '0.04em',
         }}

@@ -63,7 +63,10 @@ describe('AskSheet — permission gate operability', () => {
     render(<AskSheet ask={permissionAsk} />);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(dialog).toHaveAttribute('aria-label', 'Permission required');
+    // The label now NAMES the tool being asked about rather than restating that a
+    // permission is required — the dock's kicker is the label, and "which tool"
+    // is the fact a screen-reader user needs first.
+    expect(dialog).toHaveAttribute('aria-label', 'approval required · Bash');
   });
 
   it('restores focus to the opener when the sheet unmounts', () => {
@@ -78,11 +81,16 @@ describe('AskSheet — permission gate operability', () => {
 
   it('traps Tab inside the sheet (Tab off the last button cycles to the first)', () => {
     render(<AskSheet ask={permissionAsk} />);
+    // Deny is LAST in the docked row (the affirmative leads, as the design has
+    // it) but still the initially-focused control, so Tab off the last button
+    // must cycle back to it.
     const deny = screen.getByRole('button', { name: 'Deny' });
-    const always = screen.getByRole('button', { name: 'Always allow' });
-    always.focus();
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
     expect(document.activeElement).toBe(deny);
+    deny.focus();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Tab' });
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Allow once' }),
+    );
   });
 });
 

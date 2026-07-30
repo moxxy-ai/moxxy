@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button, Icon, TextArea } from '@moxxy/desktop-ui';
-import { Segmented } from '../../shell/ViewHeader';
+import { Segmented } from '../../shell/Segmented';
 
 export type ImportTab = 'upload' | 'paste';
 
@@ -81,11 +81,11 @@ export function ImportStep({
             alignItems: 'center',
             gap: 8,
             padding: '8px 12px',
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             color: 'var(--color-red-text)',
             background: 'var(--color-red-wash)',
             border: '1px solid var(--color-red-border)',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           <Icon name="x" size={14} />
@@ -140,7 +140,7 @@ function Dropzone({
           justifyContent: 'center',
           width: 44,
           height: 44,
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           color: 'var(--color-accent-strong)',
           background: 'color-mix(in oklab, var(--color-accent) 12%, transparent)',
         }}
@@ -148,18 +148,18 @@ function Dropzone({
         <Icon name="attach" size={20} />
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <strong style={{ fontSize: 14 }}>
+        <strong style={{ fontSize: 'var(--type-ui)' }}>
           {dragActive ? 'Drop to load your document' : 'Drag & drop a document here'}
         </strong>
-        <span style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>or</span>
+        <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>or</span>
       </div>
       <Button variant="primary" data-testid="anon-pick" onClick={onPick} disabled={busy}>
         <Icon name="attach" size={14} /> Choose a file…
       </Button>
       {busy ? (
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Reading document…</span>
+        <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>Reading document…</span>
       ) : (
-        <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)', maxWidth: 420 }}>
+        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', maxWidth: 420 }}>
           Supports {SUPPORTED}
         </span>
       )}
@@ -202,7 +202,7 @@ function LoadedFile({
           width: 36,
           height: 36,
           flexShrink: 0,
-          borderRadius: 9,
+          borderRadius: 'var(--radius-block)',
           color: 'var(--color-green)',
           background: 'var(--color-green-soft)',
         }}
@@ -213,7 +213,7 @@ function LoadedFile({
         <strong
           data-testid="anon-file-name"
           style={{
-            fontSize: 13.5,
+            fontSize: 'var(--type-ui)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -221,7 +221,7 @@ function LoadedFile({
         >
           {fileName}
         </strong>
-        <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
           {busy ? 'Reading document…' : `${chars.toLocaleString()} characters loaded`}
         </span>
       </div>
@@ -256,7 +256,7 @@ function PasteArea({
       tone="soft"
       style={{
         width: '100%',
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         lineHeight: 1.55,
         minHeight: 200,
         borderColor: touched && !text ? 'var(--color-card-border)' : undefined,

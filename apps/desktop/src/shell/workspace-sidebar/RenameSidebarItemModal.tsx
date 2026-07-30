@@ -27,7 +27,7 @@ export function RenameSidebarItemModal({
         <p
           style={{
             margin: 0,
-            fontSize: 13.5,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-text-muted)',
             lineHeight: 1.55,
           }}
@@ -39,7 +39,7 @@ export function RenameSidebarItemModal({
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-text-muted)',
           }}

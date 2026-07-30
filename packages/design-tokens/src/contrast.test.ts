@@ -81,13 +81,23 @@ describe.each([
   });
 });
 
-describe('white text on filled controls', () => {
-  // Every CTA in the app puts white on the primary; if that fails the button
-  // label is unreadable in the one place the user is meant to click.
+/**
+ * The label on a commanded fill. This is the palette's one asymmetric decision:
+ * light's accent is a deep mulberry that carries WHITE, dark's is luminous
+ * magenta that carries INK, and `onPrimary` is what encodes the difference. A
+ * call site that hard-codes `#fff` passes in light and silently fails in dark,
+ * so the pairing is asserted per theme rather than assuming white.
+ */
+describe.each([
+  ['light', tokens as ThemeTokens],
+  ['dark', darkTokens],
+])('%s: the label on a commanded fill', (_name, theme) => {
   it.each([
-    ['light', tokens.color.primary],
-    ['light strong', tokens.color.primaryStrong],
-  ])('%s primary carries white body text', (_label, fill) => {
-    expect(contrast('#ffffff', fill)).toBeGreaterThanOrEqual(4.5);
+    ['primary', 'primary'],
+    ['primaryStrong', 'primaryStrong'],
+    ['send', 'send'],
+    ['accent', 'accent'],
+  ] as const)('onPrimary is readable on %s', (_label, key) => {
+    expect(contrast(theme.color.onPrimary, theme.color[key])).toBeGreaterThanOrEqual(4.5);
   });
 });

@@ -15,6 +15,8 @@ export type IconName =
   | 'pencil'
   | 'send'
   | 'stop'
+  | 'play'
+  | 'pause'
   | 'plus'
   | 'attach'
   | 'context'
@@ -45,7 +47,9 @@ export type IconName =
   | 'globe'
   | 'smartphone'
   | 'file'
-  | 'diff';
+  | 'diff'
+  | 'grid'
+  | 'broadcast';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -73,6 +77,23 @@ export function Icon({ name, size = 18, ...rest }: IconProps): JSX.Element {
 }
 
 const paths: Record<IconName, JSX.Element> = {
+  grid: (
+    <>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.4" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.4" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.4" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.4" />
+    </>
+  ),
+  broadcast: (
+    <>
+      <circle cx="12" cy="12" r="2.4" />
+      <path d="M7.8 7.8a5.9 5.9 0 0 0 0 8.4" />
+      <path d="M16.2 16.2a5.9 5.9 0 0 0 0-8.4" />
+      <path d="M4.9 4.9a10 10 0 0 0 0 14.2" />
+      <path d="M19.1 19.1a10 10 0 0 0 0-14.2" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="7" />
@@ -103,6 +124,13 @@ const paths: Record<IconName, JSX.Element> = {
   ),
   send: <path d="m4 12 16-8-6 18-3-7z" />,
   stop: <rect x="5" y="5" width="14" height="14" rx="2" />,
+  play: <path d="M7 4.5 19 12 7 19.5Z" />,
+  pause: (
+    <>
+      <rect x="6.5" y="5" width="4" height="14" rx="1" />
+      <rect x="13.5" y="5" width="4" height="14" rx="1" />
+    </>
+  ),
   plus: (
     <>
       <path d="M12 5v14" />

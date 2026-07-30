@@ -46,11 +46,11 @@ export function CliStep({
             padding: '14px 16px',
             background: 'var(--color-primary-soft)',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
+            borderRadius: 'var(--radius-card)',
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
           }}
         >
           <div style={{ fontWeight: 600 }}>
@@ -73,8 +73,8 @@ export function CliStep({
                 padding: 10,
                 background: '#0b0d12',
                 color: '#e2e8f0',
-                borderRadius: 10,
-                fontSize: 11,
+                borderRadius: 'var(--radius-block)',
+                fontSize: 'var(--type-meta)',
                 maxHeight: 180,
                 overflow: 'auto',
                 whiteSpace: 'pre-wrap',
