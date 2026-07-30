@@ -17,7 +17,7 @@ export function StreamingReasoning({ text }: { readonly text: string }): JSX.Ele
         style={{
           width: 34,
           height: 34,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: 'var(--color-input-soft)',
           color: 'var(--color-text-dim)',
           display: 'inline-flex',

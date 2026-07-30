@@ -16,7 +16,7 @@ export function OfflineBadge(): JSX.Element {
         color: 'var(--color-green)',
         background: 'color-mix(in oklab, var(--color-green) 14%, transparent)',
         border: '1px solid color-mix(in oklab, var(--color-green) 35%, transparent)',
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         whiteSpace: 'nowrap',
       }}
     >

@@ -9,7 +9,7 @@ export const preStyle: React.CSSProperties = {
   padding: '8px 10px',
   background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-chip)',
   fontSize: 11,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',

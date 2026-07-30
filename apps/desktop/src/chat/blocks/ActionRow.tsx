@@ -99,7 +99,7 @@ function ActBtn({
       style={{
         width: 28,
         height: 28,
-        borderRadius: 8,
+        borderRadius: 'var(--radius-block)',
         color: active ? activeColor : 'var(--color-text-dim)',
         display: 'inline-flex',
         alignItems: 'center',

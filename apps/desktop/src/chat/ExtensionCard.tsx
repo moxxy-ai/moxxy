@@ -65,7 +65,7 @@ export function ExtensionCard({
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderLeft: `3px solid ${accent}`,
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         boxShadow: 'var(--color-card-shadow)',
         overflow: 'hidden',
       }}

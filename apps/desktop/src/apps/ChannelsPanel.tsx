@@ -202,7 +202,7 @@ function ChannelCard({
             padding: '10px 12px',
             background: 'var(--color-card-bg)',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
+            borderRadius: 'var(--radius-card)',
           }}
         >
           {descriptor.configFields.map((f) => (
@@ -230,7 +230,7 @@ function ChannelCard({
               variant="cta"
               onClick={() => void save()}
               disabled={busy || Object.values(values).every((v) => !v.trim())}
-              style={{ borderRadius: 9, padding: '7px 14px', fontSize: 12.5 }}
+              style={{ borderRadius: 'var(--radius-block)', padding: '7px 14px', fontSize: 12.5 }}
             >
               {busy ? 'Saving…' : 'Save'}
             </Button>
@@ -370,7 +370,7 @@ function ConnectUrlRow({
         padding: '6px 8px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 9,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       <span

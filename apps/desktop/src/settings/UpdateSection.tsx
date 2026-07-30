@@ -171,7 +171,7 @@ export function UpdateSection(): JSX.Element {
         )}
 
         {updating && (
-          <div style={{ height: 6, borderRadius: 999, background: 'var(--color-card-border)', overflow: 'hidden' }}>
+          <div style={{ height: 6, borderRadius: 'var(--radius-pill)', background: 'var(--color-card-border)', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
@@ -374,7 +374,7 @@ const logBox: React.CSSProperties = {
   whiteSpace: 'pre',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   color: 'var(--color-text-muted)',
 };
 
@@ -385,7 +385,7 @@ const card: React.CSSProperties = {
   padding: '16px 18px',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 14,
+  borderRadius: 'var(--radius-card)',
 };
 
 const primaryBtn = (disabled: boolean): React.CSSProperties => ({
@@ -393,7 +393,7 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
   padding: '9px 16px',
   fontSize: 13,
   fontWeight: 600,
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   color: '#fff',
   border: 'none',
   background: disabled ? 'var(--color-card-border-strong)' : 'var(--color-primary)',
@@ -407,7 +407,7 @@ const badge = (updated: boolean): React.CSSProperties => ({
   textTransform: 'uppercase',
   letterSpacing: 0.4,
   padding: '2px 7px',
-  borderRadius: 999,
+  borderRadius: 'var(--radius-pill)',
   color: updated ? 'var(--color-green)' : 'var(--color-text-dim)',
   background: updated ? 'color-mix(in srgb, var(--color-green) 12%, transparent)' : 'var(--color-card-border)',
 });

@@ -12,7 +12,7 @@ import { useDesks } from '@moxxy/client-core';
 const selectStyle: React.CSSProperties = {
   fontSize: '0.72rem',
   padding: '2px 6px',
-  borderRadius: 7,
+  borderRadius: 'var(--radius-block)',
   border: '1px solid var(--color-border)',
   background: 'var(--color-bg-card)',
   color: 'var(--color-text)',

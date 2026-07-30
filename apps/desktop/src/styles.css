@@ -1873,3 +1873,41 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .activity-fold:hover:not(:disabled) { filter: none; color: var(--color-text-muted); }
 .activity-fold b { color: var(--color-text-muted); font-weight: 600; }
 .activity-fold span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- The command palette ----------------------------------------
+ * The single path to every command. It is a true overlay, so it keeps the token
+ * shadow; everything inside it follows the frame's geometry.
+ */
+
+.palette__input {
+  padding: var(--space-8) var(--space-12);
+  font-family: inherit;
+  font-size: var(--type-ui);
+  color: var(--color-text);
+  background: var(--color-input-soft);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  outline: none;
+}
+.palette__input:focus { border-color: var(--color-primary); }
+.palette__input::placeholder { color: var(--color-text-dim); }
+
+.palette__row {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  align-items: baseline;
+  gap: var(--space-12);
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-block);
+  color: var(--color-text-muted);
+}
+/* The selected row wears the commanded strap, the same marker the rail and the
+ * index column use for "this is the one" — so the idea looks identical wherever
+ * it appears rather than being a different highlight per surface. */
+.palette__row[data-active='true'] {
+  background: var(--color-primary-soft);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+.palette__row:hover:not(:disabled) { filter: none; background: var(--color-input-soft); }
+.palette__row:disabled { opacity: 0.5; cursor: not-allowed; }

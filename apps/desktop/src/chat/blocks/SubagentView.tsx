@@ -35,7 +35,7 @@ export function SubagentView({
           width: 34,
           height: 34,
           flexShrink: 0,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: tileBg,
           color: tileFg,
           display: 'inline-flex',
@@ -151,7 +151,7 @@ export function SubagentDetail({ block }: { readonly block: SubagentBlock }): JS
                   alignItems: 'baseline',
                   padding: '4px 8px',
                   background: 'color-mix(in srgb, var(--color-purple) 7%, transparent)',
-                  borderRadius: 7,
+                  borderRadius: 'var(--radius-block)',
                   fontSize: 11,
                 }}
               >

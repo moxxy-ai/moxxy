@@ -278,7 +278,7 @@ function Bar({ frac, color }: { readonly frac: number; readonly color: string })
     <div
       style={{
         height: 8,
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         background: 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)',
         overflow: 'hidden',
       }}
@@ -287,7 +287,7 @@ function Bar({ frac, color }: { readonly frac: number; readonly color: string })
         style={{
           width: `${Math.max(0, Math.min(1, frac)) * 100}%`,
           height: '100%',
-          borderRadius: 999,
+          borderRadius: 'var(--radius-pill)',
           background: color,
           transition: 'width 240ms ease',
         }}

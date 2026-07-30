@@ -59,7 +59,7 @@ export function WorkflowsPanel({
         variant="chip"
         data-testid="generate-workflow"
         onClick={() => setGenerating(true)}
-        style={{ borderRadius: 9, gap: 7 }}
+        style={{ borderRadius: 'var(--radius-block)', gap: 7 }}
       >
         <Icon name="spark" size={14} />
         Generate with AI
@@ -68,7 +68,7 @@ export function WorkflowsPanel({
         variant="primary"
         data-testid="new-workflow"
         onClick={() => setEditing(null)}
-        style={{ borderRadius: 9, padding: '6px 14px', fontSize: 13 }}
+        style={{ borderRadius: 'var(--radius-block)', padding: '6px 14px', fontSize: 13 }}
       >
         + New
       </Button>
@@ -226,7 +226,7 @@ export function WorkflowsPanel({
               padding: '0.45rem 0.6rem',
               background: 'var(--color-bg)',
               border: '1px solid var(--color-border)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-chip)',
               fontSize: '0.7rem',
               maxHeight: 240,
               overflow: 'auto',

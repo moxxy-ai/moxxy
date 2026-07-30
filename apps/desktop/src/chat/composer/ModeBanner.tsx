@@ -39,7 +39,7 @@ export function ModeBanner({ badge }: { readonly badge: ModeBadge }): JSX.Elemen
         color: 'var(--color-text)',
         background: soft,
         border: `1px solid ${accent}`,
-        borderRadius: 9,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       <span

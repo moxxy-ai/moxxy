@@ -12,7 +12,7 @@ export const inputStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   background: 'var(--color-surface)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   outline: 'none',
 };
 
@@ -36,7 +36,7 @@ export const secondaryBtnStyle: React.CSSProperties = {
   color: 'var(--color-text-muted)',
   background: 'transparent',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
 };
 
 export const pickerBtnStyle: React.CSSProperties = {
@@ -48,7 +48,7 @@ export const pickerBtnStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   background: 'var(--color-input-soft)',
   border: '1px dashed var(--color-card-border-strong)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   textAlign: 'left',
   width: '100%',
 };

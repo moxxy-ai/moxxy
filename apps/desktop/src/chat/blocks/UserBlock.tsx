@@ -40,7 +40,7 @@ function ImageThumb({
         padding: 0,
         background: 'transparent',
         border: 'none',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         lineHeight: 0,
         cursor: onPreviewImage ? 'zoom-in' : 'default',
       }}
@@ -51,7 +51,7 @@ function ImageThumb({
         style={{
           maxWidth: 180,
           maxHeight: 180,
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           border: '1px solid var(--color-card-border)',
           objectFit: 'cover',
           boxShadow: '0 6px 18px -12px rgba(0,0,0,0.5)',

@@ -424,7 +424,7 @@ const fieldLabelStyle: React.CSSProperties = {
 
 const selectStyle: React.CSSProperties = {
   padding: '8px 10px',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   border: '1px solid var(--color-card-border)',
   background: 'var(--color-card-bg)',
   fontSize: 13,

@@ -46,7 +46,7 @@ export function SkillEditor({
         // the same "writing surface" as a conversation.
         background: 'var(--color-main-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
         minHeight: 460,
         display: 'flex',
@@ -77,7 +77,7 @@ export function SkillEditor({
             style={{
               fontSize: 10.5,
               padding: '2px 6px',
-              borderRadius: 999,
+              borderRadius: 'var(--radius-pill)',
               background: 'var(--color-primary-soft)',
               color: 'var(--color-primary-strong)',
               fontWeight: 700,
@@ -99,7 +99,7 @@ export function SkillEditor({
           disabled={!dirty || saving}
           style={{
             padding: '6px 14px',
-            borderRadius: 9,
+            borderRadius: 'var(--radius-block)',
             background: dirty ? 'var(--color-primary)' : 'var(--color-card-border)',
             color: dirty ? 'var(--color-on-primary)' : 'var(--color-text-dim)',
           }}
@@ -154,7 +154,7 @@ function SegmentedToggle({
         display: 'inline-flex',
         background: 'var(--color-sidebar-bg-hover)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 9,
+        borderRadius: 'var(--radius-block)',
         padding: 2,
       }}
     >
@@ -169,7 +169,7 @@ function SegmentedToggle({
             padding: '4px 10px',
             fontSize: 11.5,
             fontWeight: 700,
-            borderRadius: 7,
+            borderRadius: 'var(--radius-block)',
             color: value === m ? 'var(--color-text)' : 'var(--color-text-dim)',
             background: value === m ? 'var(--color-surface)' : 'transparent',
             boxShadow: value === m ? '0 1px 2px rgba(15,23,42,0.06)' : 'none',

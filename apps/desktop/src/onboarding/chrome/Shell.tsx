@@ -95,7 +95,7 @@ export function Shell({
                   alignItems: 'center',
                   gap: 12,
                   padding: '8px 10px',
-                  borderRadius: 10,
+                  borderRadius: 'var(--radius-block)',
                   background: current ? 'var(--color-primary-soft)' : 'transparent',
                   color: current
                     ? 'var(--color-primary-strong)'
@@ -113,7 +113,7 @@ export function Shell({
                     width: 22,
                     height: 22,
                     flexShrink: 0,
-                    borderRadius: 999,
+                    borderRadius: 'var(--radius-pill)',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',

@@ -195,15 +195,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             }
           }}
           placeholder="Filter actions…"
-          style={{
-            padding: '9px 12px',
-            fontSize: 13.5,
-            color: 'var(--color-text)',
-            background: 'var(--color-input-soft)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
-            outline: 'none',
-          }}
+          className="palette__input"
         />
         <ul
           id="command-palette-list"
@@ -216,7 +208,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             maxHeight: 380,
             overflowY: 'auto',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           {filtered.length === 0 && (
@@ -236,17 +228,8 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                   onClick={() => onSelect(cmd)}
                   onMouseEnter={() => setActive(i)}
                   disabled={running}
-                  className="row-button"
-                  style={{
-                    display: 'flex',
-                    width: '100%',
-                    textAlign: 'left',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    background: i === active ? 'var(--color-primary-soft)' : 'transparent',
-                  }}
+                  className="palette__row"
+                  data-active={i === active}
                 >
                   <span
                     style={{
@@ -268,7 +251,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                       style={{
                         fontSize: 10,
                         padding: '1px 6px',
-                        borderRadius: 999,
+                        borderRadius: 'var(--radius-pill)',
                         background: 'var(--color-primary-soft)',
                         color: 'var(--color-primary-strong)',
                         letterSpacing: '0.04em',

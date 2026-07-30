@@ -61,7 +61,7 @@ export function TabHeader({
               minWidth: 22,
               textAlign: 'center',
               padding: '1px 7px',
-              borderRadius: 999,
+              borderRadius: 'var(--radius-pill)',
               fontSize: 11,
               fontWeight: 700,
               color: 'var(--color-text-muted)',

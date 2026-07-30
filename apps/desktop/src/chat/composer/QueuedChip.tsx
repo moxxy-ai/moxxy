@@ -22,7 +22,7 @@ export function QueuedChip({
         padding: '4px 4px 4px 10px',
         background: 'var(--color-primary-soft)',
         border: '1px dashed var(--color-primary)',
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         fontSize: 12,
         color: 'var(--color-primary-strong)',
         fontWeight: 600,

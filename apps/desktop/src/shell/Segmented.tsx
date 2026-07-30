@@ -342,7 +342,7 @@ function CollapsibleSegmented<T extends string>({
                 background: 'var(--color-card-bg)',
                 border: '1px solid var(--color-card-border)',
                 borderRadius: 12,
-                boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.45)',
+                boxShadow: 'var(--color-card-shadow)',
               }}
             >
               {items.map((t) => {

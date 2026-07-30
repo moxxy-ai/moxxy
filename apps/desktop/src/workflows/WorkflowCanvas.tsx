@@ -670,7 +670,7 @@ function InsertNodeMenu({
             padding: '0.28rem 0.5rem',
             textAlign: 'left',
             color: 'var(--color-text)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-chip)',
           }}
         >
           <span
@@ -698,7 +698,7 @@ const zoomBtn: React.CSSProperties = {
   fontSize: '0.95rem',
   fontWeight: 600,
   color: 'var(--color-text-dim)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-chip)',
 };
 
 function TempLine({

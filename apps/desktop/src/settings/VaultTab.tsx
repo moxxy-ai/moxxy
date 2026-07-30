@@ -128,7 +128,7 @@ function AddKeyForm({
         padding: 14,
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 14,
+        borderRadius: 'var(--radius-card)',
       }}
     >
       <TextInput
@@ -175,7 +175,7 @@ function AddKeyForm({
           style={{
             padding: '7px 14px',
             fontSize: 12.5,
-            borderRadius: 9,
+            borderRadius: 'var(--radius-block)',
             opacity: validName && value.length > 0 && !busy ? 1 : 0.5,
           }}
         >
@@ -209,7 +209,7 @@ function VaultKeyCard({
         padding: '14px 15px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 14,
+        borderRadius: 'var(--radius-card)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>

@@ -79,7 +79,7 @@ export function MobileTab(): JSX.Element {
           padding: '16px 18px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 14,
+          borderRadius: 'var(--radius-card)',
         }}
       >
         {/* Enable toggle */}
@@ -154,7 +154,7 @@ export function MobileTab(): JSX.Element {
               padding: '10px 14px',
               border: '1px solid color-mix(in oklab, var(--color-amber, #d97706) 30%, transparent)',
               background: 'color-mix(in oklab, var(--color-amber, #d97706) 8%, transparent)',
-              borderRadius: 12,
+              borderRadius: 'var(--radius-card)',
               fontSize: 12.5,
               lineHeight: 1.5,
               color: 'var(--color-text)',
@@ -183,7 +183,7 @@ export function MobileTab(): JSX.Element {
               padding: '10px 14px',
               border: '1px solid color-mix(in oklab, var(--color-red) 30%, transparent)',
               background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
-              borderRadius: 12,
+              borderRadius: 'var(--radius-card)',
               fontSize: 12.5,
               lineHeight: 1.5,
               color: 'var(--color-red)',
@@ -223,7 +223,7 @@ export function MobileTab(): JSX.Element {
                     // themes (same as the AboutTab update log).
                     background: '#0b0d12',
                     color: '#e2e8f0',
-                    borderRadius: 8,
+                    borderRadius: 'var(--radius-block)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',

@@ -85,7 +85,7 @@ export function ImportStep({
             color: 'var(--color-red-text)',
             background: 'var(--color-red-wash)',
             border: '1px solid var(--color-red-border)',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           <Icon name="x" size={14} />
@@ -140,7 +140,7 @@ function Dropzone({
           justifyContent: 'center',
           width: 44,
           height: 44,
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           color: 'var(--color-accent-strong)',
           background: 'color-mix(in oklab, var(--color-accent) 12%, transparent)',
         }}
@@ -202,7 +202,7 @@ function LoadedFile({
           width: 36,
           height: 36,
           flexShrink: 0,
-          borderRadius: 9,
+          borderRadius: 'var(--radius-block)',
           color: 'var(--color-green)',
           background: 'var(--color-green-soft)',
         }}

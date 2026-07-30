@@ -147,7 +147,7 @@ export function ProviderStep({
           padding: '16px 18px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,

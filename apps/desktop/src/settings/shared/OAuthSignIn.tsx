@@ -216,7 +216,7 @@ export function OAuthSignIn({
             padding: 10,
             background: '#0b0d12',
             color: '#e2e8f0',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
             fontSize: 11,
             maxHeight: 140,
             overflow: 'auto',

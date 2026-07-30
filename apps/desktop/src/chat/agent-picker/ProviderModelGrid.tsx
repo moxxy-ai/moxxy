@@ -106,7 +106,7 @@ export function ProviderModelGrid({
         gridTemplateColumns: '220px 1fr',
         gap: 0,
         border: '1px solid var(--color-card-border)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
         minHeight: 280,
       }}
@@ -150,7 +150,7 @@ export function ProviderModelGrid({
                   textAlign: 'left',
                   padding: '8px 10px',
                   fontSize: 13,
-                  borderRadius: 8,
+                  borderRadius: 'var(--radius-block)',
                   color: isHovered ? 'var(--color-text)' : 'var(--color-text-muted)',
                   background: isHovered ? 'var(--color-surface)' : 'transparent',
                   fontWeight: isHovered ? 600 : 500,
@@ -214,7 +214,7 @@ export function ProviderModelGrid({
               style={{
                 fontSize: 11.5,
                 padding: '4px 10px',
-                borderRadius: 8,
+                borderRadius: 'var(--radius-block)',
                 color: 'var(--color-primary-strong)',
                 border: '1px solid var(--color-primary-soft)',
                 background: 'var(--color-primary-soft)',
@@ -322,7 +322,7 @@ export function ProviderModelGrid({
                   color: 'var(--color-red)',
                   background: 'var(--color-red-wash)',
                   border: '1px solid var(--color-red-border)',
-                  borderRadius: 8,
+                  borderRadius: 'var(--radius-block)',
                 }}
               >
                 {fetchState.error}
@@ -342,7 +342,7 @@ function modelRowStyle(active: boolean): React.CSSProperties {
     textAlign: 'left',
     padding: '8px 10px',
     fontSize: 13,
-    borderRadius: 8,
+    borderRadius: 'var(--radius-block)',
     background: active ? 'var(--color-primary-soft)' : 'transparent',
     color: active ? 'var(--color-primary-strong)' : 'var(--color-text)',
     fontWeight: active ? 600 : 500,

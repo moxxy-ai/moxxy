@@ -89,7 +89,7 @@ export function SkillGallery({
                 minHeight: 104,
                 background: 'var(--color-card-bg)',
                 border: '1px solid var(--color-card-border)',
-                borderRadius: 14,
+                borderRadius: 'var(--radius-card)',
               }}
             >
               <div
@@ -108,7 +108,7 @@ export function SkillGallery({
                     width: 32,
                     height: 32,
                     flexShrink: 0,
-                    borderRadius: 9,
+                    borderRadius: 'var(--radius-block)',
                     background: 'var(--color-primary-soft)',
                     color: 'var(--color-primary-strong)',
                     display: 'inline-flex',

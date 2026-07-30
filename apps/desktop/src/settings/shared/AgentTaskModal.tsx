@@ -110,7 +110,7 @@ export function AgentTaskModal({
           <section
             style={{
               border: '1px solid var(--color-card-border)',
-              borderRadius: 12,
+              borderRadius: 'var(--radius-card)',
               overflow: 'hidden',
               background: 'var(--color-surface)',
             }}

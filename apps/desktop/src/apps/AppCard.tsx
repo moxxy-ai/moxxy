@@ -102,7 +102,7 @@ export function AppCard({
             width: 40,
             height: 40,
             flexShrink: 0,
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
             color: 'var(--color-primary)',
             background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)',
           }}
@@ -173,7 +173,7 @@ export function AppCard({
                 aria-valuetext={label}
                 style={{
                   height: 6,
-                  borderRadius: 999,
+                  borderRadius: 'var(--radius-pill)',
                   background: 'var(--color-border)',
                   overflow: 'hidden',
                 }}

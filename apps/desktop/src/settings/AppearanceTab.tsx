@@ -36,7 +36,7 @@ export function AppearanceTab(): JSX.Element {
           padding: '13px 16px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 14,
+          borderRadius: 'var(--radius-card)',
         }}
       >
         <div style={{ fontSize: 13.5, fontWeight: 600 }}>Theme</div>

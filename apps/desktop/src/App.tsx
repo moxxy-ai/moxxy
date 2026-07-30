@@ -449,7 +449,7 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 999,
-        boxShadow: '0 18px 36px -18px rgba(15, 23, 42, 0.25)',
+        boxShadow: 'var(--color-card-shadow)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 10,

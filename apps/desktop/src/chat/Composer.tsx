@@ -55,21 +55,26 @@ interface ComposerProps {
 }
 
 /**
- * Composer rendered as a rounded white card flush against the chat
- * pane bottom.
+ * The command bar: a panel docked at the foot of the field, not a floating card.
  *
- *   Enter         submit
+ *   Enter         send — or QUEUE, while a turn is in flight
  *   Shift+Enter   newline
- *   ⌘↵ / Ctrl+↵   submit (kept for terminal muscle memory)
- *   Esc           clear draft
+ *   ⌘↵ / Ctrl+↵   send (kept for terminal muscle memory)
+ *   Esc           stand down an armed goal, else clear the draft
  *
- * Tooling chips: Attach (file picker → appends a file: reference to
- * the draft) and Voice (push-to-record with MediaRecorder, transcribed
- * via the runner's active transcriber — disabled if none is set).
+ * Its status strip reports what the NEXT turn will do (mode, model,
+ * auto-approve, queue depth); what the run HAS done is the instrument bar's job
+ * at the top of the field. Both used to be crammed in here, which is why neither
+ * was legible.
  *
- * Pasting an image (e.g. a screenshot) attaches it: the bytes are
- * persisted to a temp file by the main process and added as a regular
- * attachment chip. The textarea also auto-grows to fit the draft.
+ * The action row is icon-only apart from the states that must be readable
+ * without hovering ("Listening…", and the Send label, which says "Queue"
+ * mid-turn because that is what pressing it does). Attach and the mode/goal
+ * controls live in the "+" menu.
+ *
+ * Pasting an image (e.g. a screenshot) attaches it: the bytes are persisted to a
+ * temp file by the main process and added as a regular attachment chip. The
+ * textarea auto-grows to fit the draft.
  */
 export function Composer({
   agent,
@@ -397,7 +402,7 @@ export function Composer({
             fontWeight: 600,
             color: 'var(--color-primary-strong)',
             background: 'var(--color-primary-soft)',
-            borderRadius: 9,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           <span

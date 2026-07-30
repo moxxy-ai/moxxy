@@ -38,7 +38,7 @@ export function SubagentGroupView({
           width: 34,
           height: 34,
           flexShrink: 0,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: 'color-mix(in srgb, var(--color-purple) 14%, transparent)',
           color: SUBAGENT_TILE_FG,
           display: 'inline-flex',

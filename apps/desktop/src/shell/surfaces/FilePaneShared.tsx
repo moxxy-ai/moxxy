@@ -58,7 +58,7 @@ export function FileMenu({
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderRadius: 12,
-        boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.45)',
+        boxShadow: 'var(--color-card-shadow)',
       }}
     >
       <MenuItem icon="attach" label="Add to agent" onClick={onAdd} />

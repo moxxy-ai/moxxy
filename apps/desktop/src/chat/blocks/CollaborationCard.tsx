@@ -35,7 +35,7 @@ export function CollaborationCard({ block }: { readonly block: CollaborationBloc
           width: 34,
           height: 34,
           flexShrink: 0,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
           color: 'var(--color-primary-strong)',
           display: 'inline-flex',
