@@ -361,13 +361,11 @@ function SessionRow({
           background: active ? 'var(--color-card-bg)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 400,
-          // A raised card with a hairline, plus the same commanded strap the
-          // active rail item wears. It used to be a magenta WASH, which made the
-          // most common state in the column its loudest object — the accent is
-          // meant to be where the eye goes, not where it lives.
-          boxShadow: active
-            ? 'inset 0 0 0 1px var(--color-card-border), inset 2px 0 0 var(--color-primary)'
-            : undefined,
+          // A raised card plus the commanded strap the active rail item wears —
+          // and NO outline. The hairline drew a box around the row, which made it
+          // read as a card floating in a list rather than as the list's own
+          // highlighted row; the lift in background is enough to say "this one".
+          boxShadow: active ? 'inset 2px 0 0 var(--color-primary)' : undefined,
         }}
       >
         {/* An LED, like everywhere else in the frame: unread activity is the one

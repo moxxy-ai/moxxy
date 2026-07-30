@@ -469,6 +469,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .rail-item:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .index-col {
+  /* The default; the drag store overrides it inline once the user has a
+   * preference. `position: relative` anchors the resize grip to this column's own
+   * right edge — without it the handle resolves against a far ancestor and lands
+   * off-screen, looking draggable and grabbing nothing. */
+  position: relative;
   width: var(--frame-index);
   flex-shrink: 0;
   background: var(--color-main-bg);
@@ -477,6 +482,52 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Clip while the width animates, or the content spills over the field. */
+  overflow: hidden;
+  transition:
+    width var(--motion-shift) ease,
+    border-right-color var(--motion-shift) ease,
+    visibility 0s linear 0s;
+}
+
+/* Collapsed. `visibility` is what actually takes it out of the accessibility tree
+ * and the tab order — zero width alone leaves its buttons focusable — and it flips
+ * only AFTER the width has finished (hence the delay), while on the way back it
+ * flips at once so the content is present as the column opens. */
+.index-col[data-collapsed='true'] {
+  width: 0;
+  visibility: hidden;
+  border-right-color: transparent;
+  /* Nothing inside needs laying out while it is closed. */
+  content-visibility: hidden;
+  transition:
+    width var(--motion-shift) ease,
+    border-right-color var(--motion-shift) ease,
+    visibility 0s linear var(--motion-shift);
+}
+
+/* No easing WHILE dragging: a width animating toward the pointer lags behind it,
+ * which feels like the handle has come loose from the edge. */
+.index-col[data-dragging] { transition: none; }
+
+.index-col__grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 4;
+}
+.index-col__grip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Reduced motion collapses the durations globally, and a visibility delay tied to
+ * one would then outlast the width change; pin it to zero here. */
+@media (prefers-reduced-motion: reduce) {
+  .index-col[data-collapsed='true'] { transition-delay: 0s; }
 }
 
 .index-col__head {
