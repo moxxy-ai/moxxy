@@ -36,7 +36,6 @@ export function WorkspaceTree({
   unread,
   collapsed,
   busyDeskId,
-  newWorkspaceBusy,
   onToggleCollapse,
   onSelectSession,
   onCreateSession,
@@ -44,7 +43,6 @@ export function WorkspaceTree({
   onRemoveSession,
   onRenameWorkspace,
   onRemoveWorkspace,
-  onNewWorkspace,
 }: {
   readonly desks: ReadonlyArray<Desk>;
   readonly activeDeskId: string | null;
@@ -56,7 +54,6 @@ export function WorkspaceTree({
   readonly collapsed: ReadonlySet<string>;
   /** Desk with a session-create in flight (its [+] disables). */
   readonly busyDeskId: string | null;
-  readonly newWorkspaceBusy?: boolean;
   readonly onToggleCollapse: (deskId: string) => void;
   readonly onSelectSession: (id: string) => void;
   readonly onCreateSession: (deskId: string) => void;
@@ -64,29 +61,9 @@ export function WorkspaceTree({
   readonly onRemoveSession: (session: DeskSession) => void;
   readonly onRenameWorkspace: (desk: Desk) => void;
   readonly onRemoveWorkspace: (desk: Desk) => void;
-  readonly onNewWorkspace: () => void;
 }): JSX.Element {
   return (
     <div>
-      {/* No "WORKSPACES" header: the index column's own title already says what
-          this column is, and a second heading directly under it was pure repeat. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          data-testid="workspace-new"
-          aria-label="new workspace"
-          title="New workspace"
-          onClick={onNewWorkspace}
-          disabled={newWorkspaceBusy}
-          className="row-button"
-          style={{
-            ...iconButtonStyle,
-            opacity: newWorkspaceBusy ? 0.5 : 1,
-          }}
-        >
-          <Icon name="plus" size={14} />
-        </button>
-      </div>
       <ul
         role="tree"
         aria-label="Workspaces"
@@ -255,18 +232,6 @@ function FolderRow({
         </span>
       </button>
       <span
-        aria-hidden
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          color: desk.color,
-        }}
-      >
-        <Icon name="folder" size={14} />
-      </span>
-      <span
         style={{
           flex: 1,
           minWidth: 0,
@@ -393,12 +358,16 @@ function SessionRow({
           padding: '2px var(--space-6) 2px var(--space-24)',
           borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
-          background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+          background: active ? 'var(--color-card-bg)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 400,
-          // The same commanded strap the active rail item wears, so "active"
-          // looks like one idea across the whole frame rather than two.
-          boxShadow: active ? 'inset 2px 0 0 var(--color-primary)' : undefined,
+          // A raised card with a hairline, plus the same commanded strap the
+          // active rail item wears. It used to be a magenta WASH, which made the
+          // most common state in the column its loudest object — the accent is
+          // meant to be where the eye goes, not where it lives.
+          boxShadow: active
+            ? 'inset 0 0 0 1px var(--color-card-border), inset 2px 0 0 var(--color-primary)'
+            : undefined,
         }}
       >
         {/* An LED, like everywhere else in the frame: unread activity is the one

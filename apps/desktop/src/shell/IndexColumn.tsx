@@ -25,8 +25,10 @@ export function IndexColumn({
   children,
   footer,
 }: {
-  /** Uppercase label for the column, e.g. "runs". */
-  readonly title: string;
+  /** Uppercase label for the column, e.g. "runs" — or a control that replaces it
+   *  (the search field takes the title's place while it is open, the way the
+   *  instrument bar's search does). */
+  readonly title: ReactNode;
   /** Trailing controls in the head (search, new, …). */
   readonly actions?: ReactNode;
   readonly children: ReactNode;
@@ -38,7 +40,11 @@ export function IndexColumn({
   return (
     <aside className="index-col">
       <div className="index-col__head">
-        <span className="index-col__title">{title}</span>
+        {typeof title === 'string' ? (
+          <span className="index-col__title">{title}</span>
+        ) : (
+          title
+        )}
         {actions}
         <button
           type="button"
@@ -46,9 +52,11 @@ export function IndexColumn({
           data-testid="sidebar-collapse"
           title="Collapse sidebar (⌘B / Ctrl+B)"
           onClick={() => setSidebarCollapsed(true)}
-          className="btn-quiet"
+          className="btn-box tip"
+          data-tip="Collapse"
+          data-tip-side="bottom"
         >
-          <PanelLeftIcon size={15} />
+          <PanelLeftIcon size={14} />
         </button>
       </div>
       <div className="index-col__body">{children}</div>

@@ -9,8 +9,13 @@ import {
   useWorkspaceCollapsed,
 } from '@/lib/useWorkspaceCollapsed';
 import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
+import { filterDesks } from './workspace-sidebar/filter-desks';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
+
+/** Stable empty set: while filtering every folder is force-expanded, and a fresh
+ *  Set per render would hand WorkspaceTree a new prop identity every time. */
+const NO_COLLAPSED: ReadonlySet<string> = new Set();
 
 interface Props {
   /** Lands on a session's run after picking it in the tree. */
@@ -54,9 +59,13 @@ export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
   /** Session queued for rename; null when no rename modal is open. */
   const [pendingSessionRename, setPendingSessionRename] = useState<DeskSession | null>(null);
+  /** Free-text filter over the tree; null when the field is closed. */
+  const [query, setQuery] = useState<string | null>(null);
 
 
   const activeDesk = desks.desks.find((d) => d.id === desks.activeId) ?? null;
+  const filtering = query !== null && query.trim().length > 0;
+  const visibleDesks = filtering ? filterDesks(desks.desks, query) : desks.desks;
 
   const onStartNewWorkspace = async (): Promise<void> => {
     setBusy(true);
@@ -89,7 +98,56 @@ export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
   };
 
   return (
-    <IndexColumn title="runs">
+    <IndexColumn
+      title={
+        query === null ? (
+          'runs'
+        ) : (
+          <input
+            autoFocus
+            type="search"
+            data-testid="workspace-search"
+            aria-label="Filter workspaces and sessions"
+            placeholder="Filter workspaces, paths, sessions…"
+            className="index-col__search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery(null);
+            }}
+          />
+        )
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            data-testid="workspace-search-toggle"
+            aria-label={query === null ? 'Filter workspaces' : 'Close filter'}
+            aria-expanded={query !== null}
+            className="btn-box tip"
+            data-active={query !== null ? 'true' : undefined}
+            data-tip={query === null ? 'Filter' : 'Close filter'}
+            data-tip-side="bottom"
+            onClick={() => setQuery((q) => (q === null ? '' : null))}
+          >
+            <Icon name={query === null ? 'search' : 'x'} size={14} />
+          </button>
+          <button
+            type="button"
+            data-testid="workspace-new"
+            aria-label="new workspace"
+            className="btn-box tip"
+            data-tip="New workspace"
+            data-tip-side="bottom"
+            disabled={busy}
+            onClick={() => void onStartNewWorkspace()}
+          >
+            <Icon name="plus" size={14} />
+          </button>
+        </>
+      }
+    >
       <>
         {desks.loading && desks.desks.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
@@ -128,15 +186,25 @@ export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
             </span>
             {busy ? 'Picking folder…' : 'New workspace'}
           </button>
+        ) : filtering && visibleDesks.length === 0 ? (
+          <p
+            style={{
+              margin: 0,
+              padding: 'var(--space-12) var(--space-6)',
+              fontSize: 'var(--type-meta)',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            Nothing matches “{query}”.
+          </p>
         ) : (
           <WorkspaceTree
-            desks={desks.desks}
+            desks={visibleDesks}
             activeDeskId={desks.activeId}
             activeSessionId={activeDesk?.activeSessionId ?? null}
             unread={unread}
-            collapsed={foldedDesks}
+            collapsed={filtering ? NO_COLLAPSED : foldedDesks}
             busyDeskId={sessionBusyDeskId}
-            newWorkspaceBusy={busy}
             onToggleCollapse={toggleWorkspaceCollapsed}
             onSelectSession={(id) => {
               // Picking a session always lands on its chat — also the way
@@ -153,7 +221,6 @@ export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
             onRemoveSession={(s) => setPendingSessionRemove(s)}
             onRenameWorkspace={(d) => setPendingRename(d)}
             onRemoveWorkspace={(d) => setPendingRemove(d)}
-            onNewWorkspace={() => void onStartNewWorkspace()}
           />
         )}
       </>

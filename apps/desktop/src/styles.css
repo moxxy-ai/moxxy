@@ -1678,3 +1678,43 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .menu__value { flex-shrink: 0; color: var(--color-text); }
 .menu__mark { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
 .menu__row[data-active='true'] .menu__mark { color: var(--color-primary); }
+
+/* An outlined square icon button — the design's head control. `.btn-quiet` is
+ * borderless and reads as a hint; these are the column's real actions, so they
+ * get a box, exactly like every other control in the frame. */
+.btn-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--frame-control);
+  height: var(--frame-control);
+  flex-shrink: 0;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-block);
+  background: var(--color-card-bg);
+  color: var(--color-text-muted);
+}
+.btn-box:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-text);
+  background: var(--color-input-soft);
+}
+.btn-box:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-box[data-active='true'] { color: var(--color-primary); border-color: var(--color-primary); }
+
+/* The head's inline filter field. Takes the title's place rather than pushing it
+ * aside, so the head keeps one row and one height. */
+.index-col__search {
+  flex: 1;
+  min-width: 0;
+  height: var(--frame-control);
+  padding: 0 var(--space-6);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--type-meta);
+  outline: none;
+}
+.index-col__search::placeholder { color: var(--color-text-dim); }
