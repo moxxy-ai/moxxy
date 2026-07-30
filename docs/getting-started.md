@@ -67,7 +67,7 @@ For a custom installation that is not on `PATH`, set the executable explicitly:
 CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude moxxy doctor
 ```
 
-The default model is `claude-sonnet-4-6`. Select another model advertised by Moxxy with `--model` or the `plugins.provider.items.claude-code.model` setting.
+The default model is `claude-sonnet-5`. Select another model advertised by Moxxy with `--model` or the `plugins.provider.items.claude-code.model` setting.
 
 The provider uses a text transport and enables only Claude Code's native `WebSearch` by default. Set `config.webSearch: false` to disable it. Other native Claude tools are a separate opt-in setting, `config.mode: native-tools`, and should be paired with explicit `allowedTools` (include `WebSearch` there if desired) and, when needed, `permissionMode`. The Claude CLI owns and enforces native-tool permissions. Moxxy's `--allow-tools`, permission resolver, and isolators govern only Moxxy tools and do not override the Claude CLI.
 

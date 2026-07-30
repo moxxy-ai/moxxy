@@ -68,7 +68,7 @@ describe('provision', () => {
   });
 
   it('pins the exported Claude Code default and persists it in the provider item write', async () => {
-    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-4-6');
+    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-5');
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     const res = await provision({ provider: 'claude-code', key: 'should-ignore' }, eff);
 
@@ -76,7 +76,7 @@ describe('provision', () => {
     expect(res.keyStored).toBe(false);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
       providerSlug: 'claude-code',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
     }));
   });
 

@@ -4,7 +4,7 @@ import { CLAUDE_CODE_PROVIDER_ID } from './constants.js';
 import { ClaudeProcessError, runClaudeProcess, type ClaudeSpawn } from './process.js';
 import { createProtocolState, parseClaudeRecord, serializeClaudePrompt } from './protocol.js';
 
-export const CLAUDE_CODE_DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const CLAUDE_CODE_DEFAULT_MODEL = 'claude-sonnet-5';
 const NON_TEXT_BLOCK_TOKENS = 256;
 
 /**
@@ -26,13 +26,10 @@ const textOnlyCapabilities = {
 } as const;
 
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
-  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
   { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
   { id: 'claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
-  { id: 'claude-sonnet-5', contextWindow: 1_000_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
-  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
-  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
+  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-haiku-4-5', contextWindow: 200_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
 ];
 
 export interface ClaudeCodeProviderConfig {
