@@ -174,8 +174,7 @@ export function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        // Ink-tinted scrim, matching the panel's own ink rather than a slate.
-        background: 'color-mix(in srgb, var(--color-text) 45%, transparent)',
+        background: 'var(--color-overlay)',
         display: 'grid',
         placeItems: 'center',
         zIndex: 1000,
@@ -197,7 +196,7 @@ export function Modal({
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
           borderRadius: 'var(--radius-card)',
-          boxShadow: '0 30px 60px -20px rgba(15, 23, 42, 0.35)',
+          boxShadow: 'var(--color-card-shadow)',
           padding: 'var(--space-16)',
           display: 'flex',
           flexDirection: 'column',

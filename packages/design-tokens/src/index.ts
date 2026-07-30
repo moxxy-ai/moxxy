@@ -83,12 +83,15 @@ export const tokens = {
     /* Reference data: links, cited paths, telemetry that is neither a state nor
      * a command. The fifth and last hue in the system. */
     reference: '#0e7490',
+    /* The scrim under a true overlay. Ink-tinted, never a neutral black:
+     * a grey veil over an anodised panel reads as a screenshot of the app. */
+    overlay: 'rgba(28, 34, 38, 0.34)',
   },
   shadow: {
     /* Structure comes from hairlines, so a shadow only exists to lift a true
      * overlay off the panel: one hard near-contact line plus a wide, very
      * negatively-spread pool. Nothing in the flat UI casts a shadow. */
-    card: '0 1px 0 rgba(11, 15, 18, 0.03), 0 12px 28px -20px rgba(11, 15, 18, 0.14)',
+    card: '0 1px 0 rgba(255, 255, 255, 0.9), 0 24px 48px -22px rgba(11, 15, 18, 0.28)',
   },
   font: {
     /* Chrome, labels, paths, tool names, and every number are set in the
@@ -117,11 +120,17 @@ export const tokens = {
     mono: "'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
   },
   radius: {
-    /* Sharp geometry. The full pill survives only where the SHAPE carries
-     * information (a state LED, a run-state pill), never as a default. */
-    chip: 3,
+    /* Sharp geometry, one step per level of nesting: a readout you cannot press
+     * (`tag`), a control or a row (`chip`), a panel one of those sits in
+     * (`block`), a container that holds panels (`card`). The structural surfaces
+     * — the bar, the columns, the composer, the bench — are SQUARE; rounding
+     * them would make the frame read as a stack of cards. The full pill survives
+     * only where the SHAPE carries information (a state LED, a run-state pill),
+     * never as a default. */
+    tag: 3,
+    chip: 4,
     block: 5,
-    card: 7,
+    card: 6,
     pill: 9999,
   },
   /* Spacing scale, 4px grid. Keyed by its own pixel value so a reader never has
@@ -139,9 +148,13 @@ export const tokens = {
     40: 40,
     56: 56,
   },
-  /* Type scale. `label` is the uppercase tracked-out label size; `prose` is the
-   * only size the prose face is ever set at; everything else is chrome. */
+  /* Type scale. Two uppercase tracked-out sizes, because the design uses two:
+   * `micro` names a GROUP inside a list (an index group, a palette section, a
+   * KPI key), `label` names the SECTION that list belongs to. Collapsing them
+   * made every group header read one step too loud. `prose` is the only size the
+   * prose face is ever set at; everything else is chrome. */
   type: {
+    micro: 9.5,
     label: 10.5,
     meta: 11.5,
     row: 12.5,
@@ -231,12 +244,13 @@ export const darkTokens: ThemeTokens = {
     pink: '#f4408f',
     red: '#f2545b',
     reference: '#4fc3d9',
+    overlay: 'rgba(4, 6, 8, 0.68)',
   },
   shadow: {
     /* An ink-tinted shadow reads as nothing on a dark ground, so the overlay
      * pool goes near-black at high alpha and the contact line inverts to a
      * faint lit seam along the overlay's top edge. */
-    card: '0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -24px rgba(0, 0, 0, 0.8)',
+    card: '0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -20px rgba(0, 0, 0, 0.8)',
   },
   font: { ...tokens.font },
   radius: { ...tokens.radius },

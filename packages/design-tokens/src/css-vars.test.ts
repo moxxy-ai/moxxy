@@ -70,9 +70,9 @@ describe('generateRootCss', () => {
     expect(css).toContain('--color-card-border: #dfe4e6;');
     expect(css).toContain('--color-reference: #0e7490;');
     expect(css).toContain(
-      '--color-card-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 12px 28px -20px rgba(11, 15, 18, 0.14);',
+      '--color-card-shadow: 0 1px 0 rgba(255, 255, 255, 0.9), 0 24px 48px -22px rgba(11, 15, 18, 0.28);',
     );
-    expect(css).toContain('--radius-card: 7px;');
+    expect(css).toContain('--radius-card: 6px;');
   });
 
   it('emits no gradient variables (the language has no gradients)', () => {
@@ -96,9 +96,9 @@ describe('generateRootCss', () => {
   });
 
   it('renders numeric scales with a px unit (RN keeps the bare number)', () => {
-    expect(tokens.radius.card).toBe(7);
+    expect(tokens.radius.card).toBe(6);
     expect(tokens.space[12]).toBe(12);
-    expect(generateRootCss()).toContain('--radius-card: 7px;');
+    expect(generateRootCss()).toContain('--radius-card: 6px;');
     expect(generateRootCss()).toContain('--space-12: 12px;');
   });
 });
