@@ -467,7 +467,7 @@ export const style = {
     color: 'var(--focus-ask-text)',
   },
   focusAskButtonPrimary: {
-    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
+    background: 'var(--color-primary)',
     borderColor: 'rgba(255, 255, 255, 0.18)',
     color: '#ffffff',
     boxShadow: '0 10px 22px rgba(196, 49, 15, 0.25)',
@@ -794,7 +794,7 @@ export const style = {
     height: 34,
     border: 'none',
     borderRadius: 10,
-    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
+    background: 'var(--color-primary)',
     color: '#fff',
     cursor: 'pointer',
     display: 'inline-flex',

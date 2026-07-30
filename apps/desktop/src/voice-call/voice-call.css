@@ -22,21 +22,10 @@
     );
 }
 
-.voice-call-surface::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  opacity: 0.7;
-  background:
-    linear-gradient(
-      115deg,
-      transparent 20%,
-      color-mix(in srgb, var(--color-primary) 2.5%, transparent) 50%,
-      transparent 80%
-    );
-}
+/* No ambient wash. A 2.5% diagonal sweep of the accent across the whole surface
+ * is decoration, and this palette spends its colour on meaning — the accent is
+ * reserved for what the human commanded. The voice surface reads as the bay,
+ * like every other pane. */
 
 .voice-call-header {
   height: 64px;

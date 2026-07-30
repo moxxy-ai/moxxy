@@ -256,7 +256,7 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
     fontSize: 9.5,
     background: isFree
       ? 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)'
-      : 'linear-gradient(135deg, rgba(196, 49, 15, 0.85), rgba(156, 36, 9, 0.85))',
+      : 'var(--color-primary)',
     color: isFree ? 'var(--color-sidebar-text)' : '#fff',
     border: isFree
       ? '1px solid color-mix(in srgb, var(--color-text-dim) 28%, transparent)'

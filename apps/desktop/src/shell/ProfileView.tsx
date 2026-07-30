@@ -74,7 +74,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
                 width: 52,
                 height: 52,
                 borderRadius: 14,
-                background: 'linear-gradient(135deg, #e2551f, #c4310f)',
+                background: 'var(--color-primary)',
                 color: '#fff',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -223,7 +223,7 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
     fontSize: 10.5,
     background: isFree
       ? 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)'
-      : 'linear-gradient(135deg, rgba(196, 49, 15, 0.95), rgba(156, 36, 9, 0.95))',
+      : 'var(--color-primary)',
     color: isFree ? 'var(--color-text-muted)' : '#fff',
     border: isFree
       ? '1px solid color-mix(in srgb, var(--color-text-dim) 32%, transparent)'
