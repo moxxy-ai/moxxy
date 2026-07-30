@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
-import { Icon, Modal } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 import { ProfileView } from '../ProfileView';
 
@@ -121,6 +121,21 @@ function LocalAccountView({
   readonly name: string | null;
   readonly onClose: () => void;
 }): JSX.Element {
+  const { update } = usePrefs();
+  const [busy, setBusy] = useState(false);
+
+  // No Clerk session to end, so signing out means clearing the identity this
+  // machine stored — the same three prefs ProfileView clears after signOut().
+  const doSignOut = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await update({ clerkUserId: null, clerkDisplayName: null, signedInAt: null });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal title="Account" onClose={onClose} width={420}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
@@ -136,6 +151,19 @@ function LocalAccountView({
           This build has no Clerk publishable key, so sign-in is unavailable. Set
           VITE_CLERK_PUBLISHABLE_KEY to enable accounts.
         </p>
+        {name && (
+          <div className="form__acts">
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void doSignOut()}
+              data-testid="local-sign-out"
+              style={{ color: 'var(--color-red-text)', borderColor: 'var(--color-red-border)' }}
+            >
+              {busy ? 'Signing out…' : 'Sign out'}
+            </Button>
+          </div>
+        )}
       </div>
     </Modal>
   );
