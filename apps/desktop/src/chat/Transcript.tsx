@@ -14,6 +14,7 @@ import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { StreamingReasoning } from './blocks/StreamingReasoning';
+import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 
@@ -63,7 +64,9 @@ const MemoBlock = memo(
  *  (user → right, tool → left, assistant → stretch) is honoured; in the
  *  old flat flex container it worked for free, but each virtualised row is
  *  its own element now. */
-const ROW: React.CSSProperties = { padding: '8px 24px', display: 'flex', flexDirection: 'column' };
+// The trace gutter supplies the left inset (and the timeline that runs through
+// it), so a row must not add its own or the spine detaches from the glyphs.
+const ROW: React.CSSProperties = { display: 'flex', flexDirection: 'column' };
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;
@@ -257,13 +260,19 @@ export function Transcript({
         )}
         components={{
           Footer: () => (
-            <div style={{ padding: '0 24px 12px' }}>
+            <div>
               {streamingText ? (
-                <StreamingAssistant text={streamingText} />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <StreamingAssistant text={streamingText} />
+                </TraceEntry>
               ) : streamingReasoning ? (
-                <StreamingReasoning text={streamingReasoning} />
+                <TraceEntry kind="reasoning" label="reasoning" live>
+                  <StreamingReasoning text={streamingReasoning} />
+                </TraceEntry>
               ) : sending ? (
-                <ThinkingIndicator />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <ThinkingIndicator />
+                </TraceEntry>
               ) : null}
             </div>
           ),

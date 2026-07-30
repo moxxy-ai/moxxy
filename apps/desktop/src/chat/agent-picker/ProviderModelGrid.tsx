@@ -106,7 +106,7 @@ export function ProviderModelGrid({
         gridTemplateColumns: '220px 1fr',
         gap: 0,
         border: '1px solid var(--color-card-border)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
         minHeight: 280,
       }}
@@ -128,7 +128,7 @@ export function ProviderModelGrid({
           <li
             style={{
               padding: '8px 10px',
-              fontSize: 12,
+              fontSize: 'var(--type-row)',
               color: 'var(--color-text-dim)',
             }}
           >
@@ -149,8 +149,8 @@ export function ProviderModelGrid({
                   width: '100%',
                   textAlign: 'left',
                   padding: '8px 10px',
-                  fontSize: 13,
-                  borderRadius: 8,
+                  fontSize: 'var(--type-ui)',
+                  borderRadius: 'var(--radius-block)',
                   color: isHovered ? 'var(--color-text)' : 'var(--color-text-muted)',
                   background: isHovered ? 'var(--color-surface)' : 'transparent',
                   fontWeight: isHovered ? 600 : 500,
@@ -196,7 +196,7 @@ export function ProviderModelGrid({
           <span
             style={{
               flex: 1,
-              fontSize: 11.5,
+              fontSize: 'var(--type-meta)',
               fontWeight: 700,
               color: 'var(--color-text-dim)',
               textTransform: 'uppercase',
@@ -212,9 +212,9 @@ export function ProviderModelGrid({
               disabled={!hoveredProvider || fetchState.status === 'loading'}
               title="Fetch the live model list from the provider's API"
               style={{
-                fontSize: 11.5,
+                fontSize: 'var(--type-meta)',
                 padding: '4px 10px',
-                borderRadius: 8,
+                borderRadius: 'var(--radius-block)',
                 color: 'var(--color-primary-strong)',
                 border: '1px solid var(--color-primary-soft)',
                 background: 'var(--color-primary-soft)',
@@ -233,7 +233,7 @@ export function ProviderModelGrid({
               className="mono"
               title="Built-in provider — models ship with the moxxy CLI"
               style={{
-                fontSize: 10.5,
+                fontSize: 'var(--type-label)',
                 color: 'var(--color-text-dim)',
                 letterSpacing: '0.04em',
               }}
@@ -266,7 +266,7 @@ export function ProviderModelGrid({
               )}
             >
               <span style={{ flex: 1, fontStyle: 'italic' }}>Default</span>
-              <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
                 runner's config
               </span>
             </button>
@@ -275,7 +275,7 @@ export function ProviderModelGrid({
             <li
               style={{
                 padding: '12px 10px',
-                fontSize: 12,
+                fontSize: 'var(--type-row)',
                 color: 'var(--color-text-dim)',
               }}
             >
@@ -318,11 +318,11 @@ export function ProviderModelGrid({
                 style={{
                   padding: '10px',
                   margin: '6px 4px 0',
-                  fontSize: 11.5,
+                  fontSize: 'var(--type-meta)',
                   color: 'var(--color-red)',
                   background: 'var(--color-red-wash)',
                   border: '1px solid var(--color-red-border)',
-                  borderRadius: 8,
+                  borderRadius: 'var(--radius-block)',
                 }}
               >
                 {fetchState.error}
@@ -341,8 +341,8 @@ function modelRowStyle(active: boolean): React.CSSProperties {
     width: '100%',
     textAlign: 'left',
     padding: '8px 10px',
-    fontSize: 13,
-    borderRadius: 8,
+    fontSize: 'var(--type-ui)',
+    borderRadius: 'var(--radius-block)',
     background: active ? 'var(--color-primary-soft)' : 'transparent',
     color: active ? 'var(--color-primary-strong)' : 'var(--color-text)',
     fontWeight: active ? 600 : 500,

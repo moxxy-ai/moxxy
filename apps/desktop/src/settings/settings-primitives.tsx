@@ -8,6 +8,7 @@
  */
 
 import { Icon } from '@moxxy/desktop-ui';
+import { BarActions } from '../shell/InstrumentBar';
 import { TabHeader } from './TabHeader';
 
 export function SearchBox({
@@ -28,7 +29,7 @@ export function SearchBox({
         padding: '9px 12px',
         background: 'var(--color-surface)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 10,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       <Icon name="search" size={15} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
@@ -43,7 +44,7 @@ export function SearchBox({
           border: 'none',
           outline: 'none',
           background: 'transparent',
-          fontSize: 13,
+          fontSize: 'var(--type-ui)',
           color: 'var(--color-text)',
         }}
       />
@@ -67,12 +68,15 @@ export function Section({
   readonly children: React.ReactNode;
 }): JSX.Element {
   return (
-    <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
+      {/* A tab's action belongs in the bar that names the tab. It used to sit
+       *  inside the pane, level with the description, so "Add provider" floated
+       *  over the prose explaining what a provider is. */}
+      {actions && <BarActions>{actions}</BarActions>}
       <TabHeader
         title={title}
         {...(count !== undefined ? { count } : {})}
         {...(description ? { description } : {})}
-        {...(actions ? { actions } : {})}
       />
       {search}
       {children}
@@ -114,14 +118,14 @@ export function Row({
         padding: '13px 16px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 14,
+        borderRadius: 'var(--radius-card)',
       }}
     >
       {tile}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 14,
+            fontSize: 'var(--type-ui)',
             fontWeight: 600,
             color: 'var(--color-text)',
             whiteSpace: 'nowrap',
@@ -132,7 +136,7 @@ export function Row({
           {title}
         </div>
         {subtitle && (
-          <div style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}>{subtitle}</div>
+          <div style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{subtitle}</div>
         )}
       </div>
       {trailing}
@@ -156,13 +160,13 @@ export function Tile({
         width: 38,
         height: 38,
         flexShrink: 0,
-        borderRadius: 11,
+        borderRadius: 'var(--radius-block)',
         background: bg,
         color: fg,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 15,
+        fontSize: 'var(--type-prose)',
         fontWeight: 700,
       }}
     >
@@ -187,7 +191,7 @@ export function StatusDot({
         display: 'inline-flex',
         alignItems: 'center',
         gap: 8,
-        fontSize: 12.5,
+        fontSize: 'var(--type-row)',
         fontWeight: 600,
         color: ok ? 'var(--color-text-muted)' : 'var(--color-text-dim)',
       }}
@@ -238,7 +242,7 @@ export function Switch({
         width: 42,
         height: 24,
         padding: 2,
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         background: on ? 'var(--color-primary)' : 'var(--color-card-border-strong)',
         display: 'inline-flex',
         alignItems: 'center',
@@ -256,7 +260,7 @@ export function Switch({
           // Deliberate literal: the knob rides a colored/track fill in both
           // themes (iOS-style) — it must stay white even in dark mode.
           background: '#fff',
-          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.35)',
+          boxShadow: 'var(--color-card-shadow)',
           transform: on ? 'translateX(18px)' : 'translateX(0)',
           transition: 'transform 160ms ease',
         }}
@@ -273,12 +277,12 @@ export function Badge({ children }: { readonly children: React.ReactNode }): JSX
         display: 'inline-flex',
         alignItems: 'center',
         gap: 5,
-        fontSize: 10.5,
+        fontSize: 'var(--type-label)',
         fontWeight: 700,
         textTransform: 'uppercase',
         letterSpacing: '0.04em',
         padding: '3px 9px',
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         background: 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)',
         color: 'var(--color-text-muted)',
       }}
@@ -304,12 +308,12 @@ export function EmptyState({
         gap: 12,
         padding: '44px 20px',
         border: '1px dashed var(--color-card-border)',
-        borderRadius: 14,
+        borderRadius: 'var(--radius-card)',
         color: 'var(--color-text-dim)',
       }}
     >
       <Icon name={icon} size={22} />
-      <p style={{ margin: 0, fontSize: 13 }}>{text}</p>
+      <p style={{ margin: 0, fontSize: 'var(--type-ui)' }}>{text}</p>
     </div>
   );
 }

@@ -186,7 +186,7 @@ export function ImagePreviewModal({
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
             transformOrigin: 'center',
             transition: dragging ? 'none' : 'transform 140ms ease',
-            borderRadius: 8,
+            borderRadius: 'var(--radius-block)',
             boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
             cursor: dragging ? 'grabbing' : canPan ? 'grab' : 'default',
             userSelect: 'none',
@@ -230,7 +230,7 @@ export function ImagePreviewModal({
           alignItems: 'center',
           gap: 10,
           padding: '8px 10px',
-          borderRadius: 999,
+          borderRadius: 'var(--radius-pill)',
           background: 'rgba(30, 30, 34, 0.92)',
           border: '1px solid rgba(255,255,255,0.12)',
           color: '#f8fafc',
@@ -247,7 +247,7 @@ export function ImagePreviewModal({
         </button>
         <span
           className="mono"
-          style={{ minWidth: 44, textAlign: 'center', fontSize: 13, fontWeight: 700 }}
+          style={{ minWidth: 44, textAlign: 'center', fontSize: 'var(--type-ui)', fontWeight: 700 }}
         >
           {percent}
         </span>
@@ -275,7 +275,7 @@ const zoomButtonStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 20,
+  fontSize: 'var(--type-section)',
   lineHeight: 1,
   fontWeight: 700,
 };

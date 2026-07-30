@@ -174,9 +174,9 @@ export function FilterSelect<Id extends string>({
           alignItems: 'center',
           gap: 8,
           padding: '8px 12px',
-          fontSize: 13,
+          fontSize: 'var(--type-ui)',
           fontWeight: 600,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           color: 'var(--color-text)',
           background: 'var(--color-surface)',
           border: `1px solid ${open ? 'var(--color-accent)' : 'var(--color-card-border)'}`,
@@ -194,8 +194,8 @@ export function FilterSelect<Id extends string>({
             minWidth: 20,
             height: 20,
             padding: '0 6px',
-            borderRadius: 999,
-            fontSize: 11.5,
+            borderRadius: 'var(--radius-pill)',
+            fontSize: 'var(--type-meta)',
             fontWeight: 700,
             color: activeCount > 0 ? '#fff' : 'var(--color-text-muted)',
             background:
@@ -236,8 +236,8 @@ export function FilterSelect<Id extends string>({
             flexDirection: 'column',
             background: 'var(--color-card-bg)',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
-            boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.45)',
+            borderRadius: 'var(--radius-card)',
+            boxShadow: 'var(--color-card-shadow)',
             overflow: 'hidden',
           }}
         >
@@ -251,7 +251,7 @@ export function FilterSelect<Id extends string>({
               borderBottom: '1px solid var(--color-card-border)',
             }}
           >
-            <span id={labelId} style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+            <span id={labelId} style={{ fontSize: 'var(--type-row)', fontWeight: 700, color: 'var(--color-text)' }}>
               What to redact
             </span>
             <div style={{ display: 'flex', gap: 4 }}>
@@ -264,7 +264,7 @@ export function FilterSelect<Id extends string>({
               >
                 All
               </button>
-              <span style={{ color: 'var(--color-text-dim)', fontSize: 11 }}>·</span>
+              <span style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>·</span>
               <button
                 type="button"
                 data-testid={`${testId}-none`}
@@ -312,8 +312,8 @@ export function FilterSelect<Id extends string>({
                     gap: 10,
                     width: '100%',
                     padding: '8px 10px',
-                    borderRadius: 8,
-                    fontSize: 13,
+                    borderRadius: 'var(--radius-block)',
+                    fontSize: 'var(--type-ui)',
                     cursor: o.disabled ? 'not-allowed' : 'pointer',
                     opacity: o.disabled ? 0.55 : 1,
                     // Drop the default focus outline-offset push; the row already
@@ -327,7 +327,7 @@ export function FilterSelect<Id extends string>({
                       flexShrink: 0,
                       width: 18,
                       height: 18,
-                      borderRadius: 5,
+                      borderRadius: 'var(--radius-chip)',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -343,7 +343,7 @@ export function FilterSelect<Id extends string>({
                   </span>
                   <span style={{ flex: 1, minWidth: 0, color: 'var(--color-text)' }}>{o.label}</span>
                   {o.hint && (
-                    <span style={{ fontSize: 11, color: 'var(--color-text-dim)', flexShrink: 0 }}>
+                    <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', flexShrink: 0 }}>
                       {o.hint}
                     </span>
                   )}
@@ -374,9 +374,9 @@ export function FilterSelect<Id extends string>({
 function miniBtn(disabled: boolean): React.CSSProperties {
   return {
     padding: '2px 6px',
-    fontSize: 11.5,
+    fontSize: 'var(--type-meta)',
     fontWeight: 600,
-    borderRadius: 6,
+    borderRadius: 'var(--radius-chip)',
     color: disabled ? 'var(--color-text-dim)' : 'var(--color-accent-strong)',
     background: 'transparent',
     cursor: disabled ? 'default' : 'pointer',

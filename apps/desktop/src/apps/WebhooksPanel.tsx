@@ -12,6 +12,7 @@ import { useWebhooks } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { WebhookSummary } from '@moxxy/desktop-ipc-contract';
 import { TargetSessionPicker } from './TargetSessionPicker';
+import { InstrumentBar } from '../shell/InstrumentBar';
 
 /** One-line activity summary: fires + last fire time + model override. */
 function activityLabel(w: WebhookSummary): string {
@@ -27,21 +28,27 @@ export function WebhooksPanel(): JSX.Element {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 24px 0' }}>
-        <Button variant="chip" onClick={() => void hooks.refresh()} style={{ borderRadius: 9 }}>
+      <InstrumentBar crumbs={['Automations', 'Webhooks']}>
+        <button
+          type="button"
+          className="btn-box tip"
+          data-tip="Refresh"
+          data-tip-side="bottom"
+          aria-label="Refresh webhooks"
+          onClick={() => void hooks.refresh()}
+        >
           <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </div>
+        </button>
+      </InstrumentBar>
       <div
         style={{
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
-          padding: '1.5rem 2rem',
+          padding: 'var(--space-20) var(--space-32)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
+          gap: 'var(--space-16)',
         }}
       >
         {hooks.error && (
@@ -49,18 +56,18 @@ export function WebhooksPanel(): JSX.Element {
             role="alert"
             style={{
               margin: 0,
-              padding: '0.45rem 0.65rem',
-              border: '1px solid var(--color-pink)',
-              background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
+              padding: 'var(--space-6) var(--space-8)',
+              border: '1px solid var(--color-red-border)',
+              background: 'var(--color-red-wash)',
               borderRadius: 'var(--radius-block)',
-              fontSize: '0.85rem',
+              fontSize: 'var(--type-row)',
             }}
           >
             {hooks.error}
           </p>
         )}
         {hooks.loading && hooks.list.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
             <Skeleton.Card />
             <Skeleton.Card />
           </div>
@@ -70,72 +77,58 @@ export function WebhooksPanel(): JSX.Element {
             chat (the <strong>webhook</strong> tools).
           </p>
         ) : (
-          <ul
-            role="list"
-            style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
-          >
+          <div className="data-table data-table--hooks" role="table" aria-label="Webhooks">
+            <div className="data-row data-row--head" role="row">
+              <span />
+              <span role="columnheader">webhook</span>
+              <span role="columnheader">endpoint</span>
+              <span role="columnheader">runs in</span>
+              <span role="columnheader">state</span>
+            </div>
             {hooks.list.map((w) => (
-              <li
+              <div
                 key={w.id}
+                className="data-row"
+                role="row"
                 data-testid={`webhook-row-${w.id}`}
-                style={{
-                  padding: '0.65rem 0.85rem',
-                  background: 'var(--color-bg-card)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-block)',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto auto',
-                  gap: '0.5rem',
-                  alignItems: 'center',
-                }}
               >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{w.name}</div>
-                  <div
-                    className="mono"
-                    style={{
-                      fontSize: '0.72rem',
-                      color: 'var(--color-text-dim)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={w.url ?? w.localPath}
+                <span className="led" data-state={w.enabled ? 'done' : undefined} aria-hidden />
+                <span className="data-row__name" role="cell">
+                  {w.name}
+                  {w.description && <small>{w.description}</small>}
+                </span>
+                {/* The public URL when a tunnel is up, else the always-present local
+                    path — the row must never imply an endpoint that is not reachable. */}
+                <span className="data-row__meta" role="cell" title={w.url ?? w.localPath}>
+                  {w.url ?? w.localPath}
+                  {!w.url && <small> · local only</small>}
+                </span>
+                <span role="cell">
+                  <TargetSessionPicker
+                    value={w.targetSessionId ?? null}
+                    valueName={w.targetSessionName ?? null}
+                    onChange={(sid) => void hooks.setTargetSession(w.id, sid)}
+                  />
+                </span>
+                <span role="cell">
+                  <button
+                    type="button"
+                    className="tag"
+                    aria-pressed={w.enabled}
+                    aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
+                    onClick={() => void hooks.setEnabled(w.id, !w.enabled)}
+                    style={
+                      w.enabled
+                        ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
+                        : undefined
+                    }
                   >
-                    {w.url ?? w.localPath} · {activityLabel(w)}
-                  </div>
-                  {w.description && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
-                      {w.description}
-                    </div>
-                  )}
-                  <div style={{ marginTop: 6 }}>
-                    <TargetSessionPicker
-                      label="Delivers to"
-                      value={w.targetSessionId ?? null}
-                      valueName={w.targetSessionName ?? null}
-                      onChange={(sid) => void hooks.setTargetSession(w.id, sid)}
-                    />
-                  </div>
-                </div>
-                <Button
-                  variant="chip"
-                  onClick={() => void hooks.setEnabled(w.id, !w.enabled)}
-                  style={{ borderRadius: 9 }}
-                >
-                  {w.enabled ? 'Disable' : 'Enable'}
-                </Button>
-                <Button
-                  variant="chip"
-                  data-testid={`webhook-delete-${w.id}`}
-                  onClick={() => void hooks.deleteWebhook(w.id)}
-                  style={{ borderRadius: 9 }}
-                >
-                  <Icon name="x" size={14} />
-                </Button>
-              </li>
+                    {w.enabled ? 'on' : 'paused'}
+                  </button>
+                </span>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </>

@@ -37,9 +37,6 @@ interface TokenLeaf {
  *  and lets the parity test prove the override table stays exhaustive. */
 const VAR_NAME_OVERRIDES: Readonly<Record<string, string>> = {
   'shadow.card': '--color-card-shadow',
-  'gradient.user': '--grad-user',
-  'gradient.cta': '--grad-cta',
-  'gradient.accent': '--grad-accent',
 };
 
 /** `camelCase` → `kebab-case` for a single path segment. */
@@ -113,12 +110,22 @@ function varPairs(t: ThemeTokens): ReadonlyArray<readonly [string, string]> {
 /** `[cssVarName, value]` pairs for the LIGHT (default) palette. */
 export const CSS_VAR_MAP: ReadonlyArray<readonly [string, string]> = varPairs(tokens);
 
+/** True for a variable the dark theme has to re-declare. Stated as an INCLUSION
+ *  (`--color-*`) rather than a list of things to exclude: every theme-varying
+ *  token section projects to a `--color-` name (`color.*` directly, `shadow.card`
+ *  via the override table), so a newly-added theme-INVARIANT section (spacing,
+ *  type, frame heights, motion) is excluded automatically instead of leaking
+ *  into the dark block until someone remembers to extend a deny-list. */
+export function isThemedVar(name: string): boolean {
+  return name.startsWith('--color-');
+}
+
 /** `[cssVarName, value]` pairs for the DARK palette ({@link darkTokens}).
- *  Fonts and radii are theme-invariant, so the dark override block only
- *  carries the color-bearing variables. */
+ *  Fonts, radii, spacing, type sizes, frame heights and motion are
+ *  theme-invariant, so the dark override block only carries colour. */
 export const DARK_CSS_VAR_MAP: ReadonlyArray<readonly [string, string]> = varPairs(
   darkTokens,
-).filter(([name]) => !name.startsWith('--font-') && !name.startsWith('--radius-'));
+).filter(([name]) => isThemedVar(name));
 
 /** Render the light tokens as a `:root { … }` CSS block. */
 export function generateRootCss(): string {

@@ -64,7 +64,7 @@ export function Dot({ delay }: { readonly delay: number }): JSX.Element {
         display: 'inline-block',
         width: 5,
         height: 5,
-        borderRadius: 5,
+        borderRadius: 'var(--radius-chip)',
         background: 'var(--color-primary)',
         margin: '0 1px',
         animation: 'focus-thinking 1.2s ease-in-out infinite',

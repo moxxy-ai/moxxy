@@ -15,10 +15,13 @@ import {
  *  than a tautology. Mirrors the documented convention + override table. */
 const NAME_OVERRIDES: Record<string, string> = {
   'shadow.card': '--color-card-shadow',
-  'gradient.user': '--grad-user',
-  'gradient.cta': '--grad-cta',
-  'gradient.accent': '--grad-accent',
 };
+/** Independent restatement of {@link isThemedVar} — a var the dark block must
+ *  re-declare. Kept as its own predicate so the parity assertions below stay a
+ *  real cross-check of the generator rather than importing its answer. */
+function isThemed(name: string): boolean {
+  return name.startsWith('--color-');
+}
 function expectedVarName(path: string): string {
   const override = NAME_OVERRIDES[path];
   if (override) return override;
@@ -53,28 +56,50 @@ describe('generateRootCss', () => {
 
   it('keeps the brand tokens parity with styles.css values', () => {
     const css = generateRootCss();
-    // Spot-check the load-bearing brand declarations against the desktop CSS.
-    // Ink (#0B0D12) comes from assets/brand/README.md, and the primary is
-    // Signal's deep stop (flat Signal cannot carry a white label). If one of
-    // these changes here without styles.css following, the desktop and the
-    // mobile tailwind config have silently diverged from the brand.
-    expect(css).toContain('--color-primary: #c4310f;');
-    expect(css).toContain('--color-text: #0b0d12;');
-    expect(css).toContain('--color-app-bg: #f4f4f7;');
+    // Spot-check the load-bearing declarations of the Harness palette against
+    // the desktop CSS. The accent is the commanded MULBERRY stop, deep enough to
+    // carry a white label on paper (flat magenta cannot); ink and the panel greys
+    // carry the palette's blue-green bias. If one of these changes here without
+    // styles.css following, the desktop and the mobile theme map have silently
+    // diverged from the design language.
+    expect(css).toContain('--color-primary: #c21e6b;');
+    expect(css).toContain('--color-on-primary: #ffffff;');
+    expect(css).toContain('--color-text: #0b0f12;');
+    expect(css).toContain('--color-app-bg: #e7eaeb;');
     expect(css).toContain('--color-main-bg: #ffffff;');
-    expect(css).toContain('--color-surface: #ffffff;');
+    expect(css).toContain('--color-card-border: #dfe4e6;');
+    expect(css).toContain('--color-reference: #0e7490;');
     expect(css).toContain(
-      '--color-card-shadow: 0 1px 2px rgba(11, 13, 18, 0.04), 0 10px 24px -18px rgba(11, 13, 18, 0.10);',
+      '--color-card-shadow: 0 1px 0 rgba(255, 255, 255, 0.9), 0 24px 48px -22px rgba(11, 15, 18, 0.28);',
     );
-    expect(css).toContain(
-      '--grad-cta: linear-gradient(135deg, #d13d14 0%, #c4310f 55%, #9c2409 100%);',
-    );
-    expect(css).toContain('--radius-card: 10px;');
+    expect(css).toContain('--radius-card: 6px;');
   });
 
-  it('renders radii as numbers with a px unit (RN keeps the bare number)', () => {
-    expect(tokens.radius.card).toBe(10);
-    expect(generateRootCss()).toContain('--radius-card: 10px;');
+  it('emits no gradient variables (the language has no gradients)', () => {
+    // The palette spends its colour budget on meaning, so a gradient would be
+    // pure decoration. This is an assertion about the DESIGN, not the mapping:
+    // re-adding a gradient token has to be a deliberate decision that trips here.
+    expect(generateThemeCss()).not.toContain('gradient(');
+    expect(CSS_VAR_MAP.some(([name]) => name.startsWith('--grad-'))).toBe(false);
+  });
+
+  it('projects the non-colour scales (spacing, type, frame, motion)', () => {
+    const css = generateRootCss();
+    expect(css).toContain('--space-12: 12px;');
+    expect(css).toContain('--type-prose: 14.5px;');
+    // The instrument bar and the index head share this height so they read as
+    // one horizontal strap crossing under the rail.
+    expect(css).toContain('--frame-bar: 44px;');
+    expect(css).toContain('--frame-rail: 52px;');
+    expect(css).toContain('--motion-shift: 140ms;');
+    expect(css).toContain('--motion-mark-turn: 3400ms;');
+  });
+
+  it('renders numeric scales with a px unit (RN keeps the bare number)', () => {
+    expect(tokens.radius.card).toBe(6);
+    expect(tokens.space[12]).toBe(12);
+    expect(generateRootCss()).toContain('--radius-card: 6px;');
+    expect(generateRootCss()).toContain('--space-12: 12px;');
   });
 });
 
@@ -94,10 +119,8 @@ describe('generateThemeCss', () => {
     }
   });
 
-  it('gives every light color/gradient var a dark counterpart (fonts/radii are theme-invariant)', () => {
-    const lightNames = CSS_VAR_MAP.map(([n]) => n).filter(
-      (n) => !n.startsWith('--font-') && !n.startsWith('--radius-'),
-    );
+  it('gives every light colour var a dark counterpart (the scales are theme-invariant)', () => {
+    const lightNames = CSS_VAR_MAP.map(([n]) => n).filter(isThemed);
     const darkNames = new Set(DARK_CSS_VAR_MAP.map(([n]) => n));
     for (const name of lightNames) {
       expect(darkNames.has(name), `${name} has no dark counterpart`).toBe(true);
@@ -134,11 +157,11 @@ describe('forward token→CSS-var coverage', () => {
     }
   });
 
-  it('every dark color/gradient leaf is projected (fonts/radii excluded by design)', () => {
+  it('every dark colour leaf is projected (the theme-invariant scales are excluded)', () => {
     const map = new Map<string, string>(DARK_CSS_VAR_MAP);
     for (const path of leafPaths(darkTokens)) {
       const name = expectedVarName(path);
-      if (name.startsWith('--font-') || name.startsWith('--radius-')) {
+      if (!isThemed(name)) {
         expect(map.has(name), `${name} should NOT be in the dark map`).toBe(false);
         continue;
       }
@@ -295,7 +318,9 @@ describe.skipIf(!stylesExists)('apps/desktop styles.css parity', () => {
   it('every literal-color :root var (incl. legacy aliases) is overridden in the dark block', () => {
     const hasLiteralColor = (v: string): boolean => /#[0-9a-f]{3,8}\b|rgba?\(/i.test(v);
     for (const [name, value] of rootDecls) {
-      if (!/^--(?:color|grad)-/.test(name)) continue;
+      // Only `--color-*` can be theme-varying; the scales are invariant, and the
+      // gradients this once also covered no longer exist.
+      if (!isThemed(name)) continue;
       if (!hasLiteralColor(value)) continue; // pure var() aliases follow their target
       expect(darkDecls.has(name), `${name} (${value}) is missing from [data-theme="dark"]`).toBe(
         true,

@@ -1,5 +1,6 @@
-import type { UserPromptAttachment } from '@moxxy/sdk';
+import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
+import type { UserPromptAttachment } from '@moxxy/sdk';
 import { imagePreviewSrc, type ImagePreviewItem } from '../image-preview/types';
 
 /** Rough byte size of an attachment's payload, for the chip label. Base64
@@ -39,7 +40,7 @@ function ImageThumb({
         padding: 0,
         background: 'transparent',
         border: 'none',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         lineHeight: 0,
         cursor: onPreviewImage ? 'zoom-in' : 'default',
       }}
@@ -50,7 +51,7 @@ function ImageThumb({
         style={{
           maxWidth: 180,
           maxHeight: 180,
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           border: '1px solid var(--color-card-border)',
           objectFit: 'cover',
           boxShadow: '0 6px 18px -12px rgba(0,0,0,0.5)',
@@ -65,25 +66,27 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
   return (
     <span
       title={`${label} · ${humanSize(payloadBytes(att))}`}
+      // A sharp chip on a seam, not a full pill outlined in the accent. The
+      // accent means "the human commanded this"; an attachment is a detail OF
+      // the command, and a 999px radius is the one geometry this language does
+      // not use outside a state LED.
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '4px 10px',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-primary)',
-        borderRadius: 999,
-        fontSize: 12,
-        color: 'var(--color-primary-strong)',
-        fontWeight: 600,
-        maxWidth: 280,
+        gap: 'var(--space-6)',
+        padding: '2px var(--space-6)',
+        background: 'var(--color-input-soft)',
+        border: '1px solid var(--color-card-border)',
+        borderRadius: 'var(--radius-chip)',
+        fontSize: 'var(--type-meta)',
+        color: 'var(--color-text-muted)',
+        maxWidth: 320,
       }}
     >
-      <Icon name="attach" size={12} />
+      <Icon name="attach" size={12} style={{ flexShrink: 0 }} />
       <span
-        className="mono"
         style={{
-          maxWidth: 200,
+          minWidth: 0,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -91,7 +94,11 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
       >
         {label}
       </span>
-      <span style={{ opacity: 0.6, fontWeight: 500 }}>{humanSize(payloadBytes(att))}</span>
+      {/* Never wraps: the size wrapping onto a second line was what made the
+          chip twice as tall as the text inside it. */}
+      <span style={{ flexShrink: 0, whiteSpace: 'nowrap', color: 'var(--color-text-dim)' }}>
+        {humanSize(payloadBytes(att))}
+      </span>
     </span>
   );
 }
@@ -107,14 +114,18 @@ export function UserBlock({
 }): JSX.Element {
   const items = attachments ?? [];
   const hasAttachments = items.length > 0;
+  const [full, setFull] = useState(false);
+  // A pasted prompt can be a 40-line system preamble. Rendered whole it becomes
+  // a wall of the commanded wash that buries the agent's actual work below it —
+  // and the accent is supposed to be the thing your eye goes TO, not the largest
+  // object on screen. Long turns clamp to a readable opening and expand on ask.
+  const clamped = !full && countLines(text) > CLAMP_LINES;
+  // No avatar and no name row: the trace's gutter glyph already says this entry
+  // is a command, and a repeated 34px portrait was the widest thing on the left
+  // edge while carrying no information the glyph does not.
   return (
-    <div
-      data-testid="block-user"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
-    >
-      <Avatar />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontWeight: 600, fontSize: 13.5 }}>You</span>
+    <div data-testid="block-user">
+      <div style={{ minWidth: 0 }}>
         {hasAttachments && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
             {items.map((att, i) =>
@@ -138,41 +149,58 @@ export function UserBlock({
               // has to re-find on every line, so the turn reads left-to-right
               // like every other block and the accent rule carries the "who".
               marginTop: 6,
-              padding: '10px 14px',
+              padding: 'var(--space-8) var(--space-12)',
               borderLeft: '2px solid var(--color-primary)',
-              borderRadius: '3px 12px 12px 3px',
+              borderRadius: '0 var(--radius-block) var(--radius-block) 0',
               background: 'color-mix(in srgb, var(--color-primary-soft) 55%, transparent)',
               color: 'var(--color-text)',
               whiteSpace: 'pre-wrap',
               lineHeight: 1.55,
-              fontSize: 14.5,
+              fontSize: 'var(--type-row)',
+              // A command is machine input, so it keeps the chrome face — and a
+              // measure, so a long one reads as a column rather than the page.
+              maxWidth: '78ch',
+              overflow: 'hidden',
+              display: clamped ? '-webkit-box' : undefined,
+              WebkitBoxOrient: clamped ? 'vertical' : undefined,
+              WebkitLineClamp: clamped ? CLAMP_LINES : undefined,
             }}
           >
             {text}
           </div>
+        )}
+        {(clamped || full) && countLines(text) > CLAMP_LINES && (
+          <button
+            type="button"
+            data-testid="user-prompt-expand"
+            onClick={() => setFull((f) => !f)}
+            className="btn-ghost"
+            style={{
+              marginTop: 4,
+              padding: '2px 6px',
+              borderRadius: 'var(--radius-chip)',
+              fontSize: 'var(--type-label)',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            {full ? 'Show less' : `Show all ${countLines(text)} lines`}
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-function Avatar(): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: 10,
-        background: 'var(--color-primary)',
-        color: '#fff',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <Icon name="user" size={18} />
-    </span>
-  );
+/** Lines a command shows before it clamps. Twelve is about the point where a
+ *  prompt stops being something you read and starts being something you scroll
+ *  past. */
+const CLAMP_LINES = 12;
+
+function countLines(text: string): number {
+  let n = 1;
+  for (const ch of text) if (ch === '\n') n++;
+  return n;
 }
+

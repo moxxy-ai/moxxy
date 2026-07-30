@@ -27,7 +27,7 @@ export function ExtensionCard({
         className="mono"
         style={{
           alignSelf: 'center',
-          fontSize: 11,
+          fontSize: 'var(--type-meta)',
           padding: '4px 10px',
           color: accent,
           letterSpacing: '0.04em',
@@ -65,7 +65,7 @@ export function ExtensionCard({
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
         borderLeft: `3px solid ${accent}`,
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         boxShadow: 'var(--color-card-shadow)',
         overflow: 'hidden',
       }}
@@ -85,7 +85,7 @@ export function ExtensionCard({
         </span>
         <span
           style={{
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 700,
             color: accent,
             textTransform: 'uppercase',
@@ -99,7 +99,7 @@ export function ExtensionCard({
             className="mono"
             title={ext.argsLine}
             style={{
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text-dim)',
               maxWidth: 240,
               whiteSpace: 'nowrap',
@@ -116,7 +116,7 @@ export function ExtensionCard({
         </IconButton>
       </header>
       {ext.text.trim() && (
-        <div style={{ padding: '12px 14px', fontSize: 13.5 }}>
+        <div style={{ padding: '12px 14px', fontSize: 'var(--type-ui)' }}>
           {ext.tone === 'error' ? (
             <pre
               className="mono"
@@ -125,7 +125,7 @@ export function ExtensionCard({
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
                 color: 'var(--color-red)',
-                fontSize: 12,
+                fontSize: 'var(--type-row)',
               }}
             >
               {ext.text}

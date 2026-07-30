@@ -62,15 +62,29 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * - `danger` — solid red destructive fill
    */
   readonly variant?: ButtonVariant;
-  /** `sm` (default) = `8px 14px`/13px; `lg` = the larger onboarding size. */
+  /** `sm` (default) = the 26px control; `lg` = the 30px row height, for a
+   *  button that anchors a whole step or an empty state rather than a bar. */
   readonly size?: ButtonSize;
 }
 
 const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties }> = {
-  primary: { style: { background: 'var(--color-primary-strong)', color: '#fff', border: 'none' } },
+  // `--color-on-primary`, never a literal `#fff`: the dark theme's accent is
+  // luminous magenta and carries an INK label, so a hard-coded white here is
+  // readable in light and near-invisible in dark.
+  primary: {
+    style: {
+      background: 'var(--color-primary-strong)',
+      color: 'var(--color-on-primary)',
+      border: 'none',
+    },
+  },
   cta: {
     className: 'btn-cta',
-    style: { background: 'var(--grad-cta)', color: '#fff', border: 'none' },
+    style: {
+      background: 'var(--color-primary)',
+      color: 'var(--color-on-primary)',
+      border: 'none',
+    },
   },
   secondary: {
     className: 'btn-outline',
@@ -86,26 +100,34 @@ const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties 
       background: 'var(--color-surface)',
       color: 'var(--color-text-muted)',
       border: '1px solid var(--color-card-border)',
-      fontSize: 12.5,
-      padding: '6px 12px',
+      fontSize: 'var(--type-label)',
+      padding: '0 var(--space-6)',
     },
   },
   ghost: {
     className: 'btn-ghost',
     style: { background: 'transparent', color: 'var(--color-text-muted)', border: 'none' },
   },
-  danger: { style: { background: 'var(--color-red)', color: '#fff', border: 'none' } },
+  danger: {
+    style: { background: 'var(--color-red)', color: 'var(--color-on-primary)', border: 'none' },
+  },
 };
 
+/* The control geometry, shared by every button in the app: one height, one
+ * radius, one size. A panel that hand-rolled a 38px pill next to a 28px tile is
+ * what made the old app read as assembled rather than machined — this is the
+ * instrument's control, and there is only one of it. */
 const BASE: CSSProperties = {
-  padding: '8px 14px',
-  fontSize: 13,
-  fontWeight: 600,
-  borderRadius: 10,
+  height: 'var(--frame-control)',
+  padding: '0 var(--space-8)',
+  fontSize: 'var(--type-meta)',
+  fontWeight: 500,
+  borderRadius: 'var(--radius-chip)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 6,
+  gap: 'var(--space-6)',
+  whiteSpace: 'nowrap',
 };
 
 export function Button({
@@ -119,7 +141,9 @@ export function Button({
   const v = VARIANT[variant];
   const merged: CSSProperties = {
     ...BASE,
-    ...(size === 'lg' ? { padding: '10px 18px', fontSize: 14 } : {}),
+    ...(size === 'lg'
+      ? { height: 'var(--frame-row)', padding: '0 var(--space-12)', fontSize: 'var(--type-row)' }
+      : {}),
     ...v.style,
     ...style,
   };
@@ -128,17 +152,17 @@ export function Button({
 }
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Square edge length in px (width = height). Default 28. */
+  /** Square edge length in px (width = height). Default: the 26px control. */
   readonly size?: number;
-  /** Corner radius in px. Default 8. */
+  /** Corner radius in px. Default: the 5px block. */
   readonly radius?: number;
   /** Draw a card border + surface fill (the rail's collapse affordance). */
   readonly bordered?: boolean;
 }
 
 export function IconButton({
-  size = 28,
-  radius = 8,
+  size = 26,
+  radius = 5,
   bordered = false,
   className,
   style,

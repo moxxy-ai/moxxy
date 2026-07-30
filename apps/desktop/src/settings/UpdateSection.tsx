@@ -96,12 +96,12 @@ export function UpdateSection(): JSX.Element {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               App version
             </span>
             <span
               className="mono"
-              style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
+              style={{ fontSize: 'var(--type-ui)', fontWeight: 700, color: 'var(--color-text)' }}
             >
               {info ? info.version : '…'}
             </span>
@@ -148,30 +148,30 @@ export function UpdateSection(): JSX.Element {
         </div>
 
         {!configured && info && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
             Automatic app updates aren’t configured for this build. New versions are installed by
             downloading the app.
           </p>
         )}
 
         {state === 'staged' && (
-          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-green)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-green)' }}>
             Installed. Relaunch to apply.
           </p>
         )}
         {state === 'uptodate' && (
-          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             You’re on the latest version.
           </p>
         )}
         {updating && progress?.message && (
-          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             {progress.message}
           </p>
         )}
 
         {updating && (
-          <div style={{ height: 6, borderRadius: 999, background: 'var(--color-card-border)', overflow: 'hidden' }}>
+          <div style={{ height: 6, borderRadius: 'var(--radius-pill)', background: 'var(--color-card-border)', overflow: 'hidden' }}>
             <div
               style={{
                 height: '100%',
@@ -184,7 +184,7 @@ export function UpdateSection(): JSX.Element {
         )}
 
         {shownError && (
-          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)', lineHeight: 1.5 }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)', lineHeight: 1.5 }}>
             {shownError}
           </p>
         )}
@@ -192,7 +192,7 @@ export function UpdateSection(): JSX.Element {
         {/* The runner update is non-fatal: if it was skipped, the bundled CLI
             keeps working. Surface it as a secondary note. */}
         {cliError && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)', lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)', lineHeight: 1.5 }}>
             {cliError} The bundled runner keeps working.
             {/npm not found/i.test(cliError) && (
               <> Install Node.js to update the runner from within the app.</>
@@ -201,7 +201,7 @@ export function UpdateSection(): JSX.Element {
         )}
 
         {stagedVersion && state === 'staged' && (
-          <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
             v{stagedVersion} will load on the next start.
           </p>
         )}
@@ -217,19 +217,19 @@ export function UpdateSection(): JSX.Element {
             if ((e.currentTarget as HTMLDetailsElement).open) void loadDiagnostics();
           }}
         >
-          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--color-text-dim)' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
             Get more details
           </summary>
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* Runner (CLI) version + on-disk path */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                <span style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
                   Runner version
                 </span>
                 <span
                   className="mono"
-                  style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
+                  style={{ fontSize: 'var(--type-ui)', fontWeight: 700, color: 'var(--color-text)' }}
                 >
                   {cliInfo ? (cliInfo.version ?? 'unknown') : '…'}
                 </span>
@@ -239,7 +239,7 @@ export function UpdateSection(): JSX.Element {
                   className="mono"
                   title={cliInfo.path}
                   style={{
-                    fontSize: 11.5,
+                    fontSize: 'var(--type-meta)',
                     color: 'var(--color-text-dim)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -266,13 +266,13 @@ export function UpdateSection(): JSX.Element {
                       ? lastBoot.reason
                       : null;
                   return reason ? (
-                    <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)', lineHeight: 1.5 }}>
+                    <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)', lineHeight: 1.5 }}>
                       Last launch declined the staged update ({reason}
                       {REASON_HINTS[reason] ? `: ${REASON_HINTS[reason]}` : ''}).
                     </p>
                   ) : null;
                 })()}
-                <div style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
+                <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', lineHeight: 1.6 }}>
                   running <b className="mono">{diagnostics.running}</b> · active{' '}
                   <span className="mono">{diagnostics.active ?? '—'}</span> · confirmed{' '}
                   <span className="mono">{diagnostics.confirmed ?? '—'}</span>
@@ -296,7 +296,7 @@ export function UpdateSection(): JSX.Element {
                 <CopyDiagnostics diagnostics={diagnostics} />
               </div>
             ) : (
-              <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)' }}>Loading…</p>
+              <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>Loading…</p>
             )}
           </div>
         </details>
@@ -356,7 +356,7 @@ function CopyDiagnostics({ diagnostics }: { readonly diagnostics: unknown }): JS
         {status === 'copied' ? 'Diagnostics copied to clipboard.' : ''}
       </span>
       {status === 'failed' && (
-        <span data-testid="copy-diagnostics-failed" style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+        <span data-testid="copy-diagnostics-failed" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
           Copy failed — select the log text above and copy it manually.
         </span>
       )}
@@ -369,12 +369,12 @@ const logBox: React.CSSProperties = {
   padding: '10px 12px',
   maxHeight: 220,
   overflow: 'auto',
-  fontSize: 11,
+  fontSize: 'var(--type-meta)',
   lineHeight: 1.5,
   whiteSpace: 'pre',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   color: 'var(--color-text-muted)',
 };
 
@@ -385,15 +385,15 @@ const card: React.CSSProperties = {
   padding: '16px 18px',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 14,
+  borderRadius: 'var(--radius-card)',
 };
 
 const primaryBtn = (disabled: boolean): React.CSSProperties => ({
   alignSelf: 'flex-start',
   padding: '9px 16px',
-  fontSize: 13,
+  fontSize: 'var(--type-ui)',
   fontWeight: 600,
-  borderRadius: 10,
+  borderRadius: 'var(--radius-block)',
   color: '#fff',
   border: 'none',
   background: disabled ? 'var(--color-card-border-strong)' : 'var(--color-primary)',
@@ -402,12 +402,12 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
 });
 
 const badge = (updated: boolean): React.CSSProperties => ({
-  fontSize: 10.5,
+  fontSize: 'var(--type-label)',
   fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: 0.4,
   padding: '2px 7px',
-  borderRadius: 999,
+  borderRadius: 'var(--radius-pill)',
   color: updated ? 'var(--color-green)' : 'var(--color-text-dim)',
   background: updated ? 'color-mix(in srgb, var(--color-green) 12%, transparent)' : 'var(--color-card-border)',
 });

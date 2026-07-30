@@ -14,7 +14,7 @@ export function LoadingHero(): JSX.Element {
         display: 'grid',
         placeItems: 'center',
         color: 'var(--color-text-dim)',
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         gap: 10,
       }}
     >

@@ -195,15 +195,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             }
           }}
           placeholder="Filter actions…"
-          style={{
-            padding: '9px 12px',
-            fontSize: 13.5,
-            color: 'var(--color-text)',
-            background: 'var(--color-input-soft)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
-            outline: 'none',
-          }}
+          className="palette__input"
         />
         <ul
           id="command-palette-list"
@@ -216,11 +208,11 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             maxHeight: 380,
             overflowY: 'auto',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           {filtered.length === 0 && (
-            <li style={{ padding: '10px 12px', fontSize: 12, color: 'var(--color-text-dim)' }}>
+            <li style={{ padding: '10px 12px', fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
               No actions match.
             </li>
           )}
@@ -236,22 +228,13 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                   onClick={() => onSelect(cmd)}
                   onMouseEnter={() => setActive(i)}
                   disabled={running}
-                  className="row-button"
-                  style={{
-                    display: 'flex',
-                    width: '100%',
-                    textAlign: 'left',
-                    alignItems: 'flex-start',
-                    gap: 12,
-                    padding: '8px 10px',
-                    borderRadius: 8,
-                    background: i === active ? 'var(--color-primary-soft)' : 'transparent',
-                  }}
+                  className="palette__row"
+                  data-active={i === active}
                 >
                   <span
                     style={{
                       fontWeight: 600,
-                      fontSize: 13,
+                      fontSize: 'var(--type-ui)',
                       color: 'var(--color-text)',
                       minWidth: 110,
                       flexShrink: 0,
@@ -259,16 +242,16 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                   >
                     {humanize(cmd.name)}
                   </span>
-                  <span style={{ flex: 1, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+                  <span style={{ flex: 1, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
                     {cmd.description || 'No description'}
                   </span>
                   {hasArgs && (
                     <span
                       title="Will prompt for arguments before running"
                       style={{
-                        fontSize: 10,
+                        fontSize: 'var(--type-label)',
                         padding: '1px 6px',
-                        borderRadius: 999,
+                        borderRadius: 'var(--radius-pill)',
                         background: 'var(--color-primary-soft)',
                         color: 'var(--color-primary-strong)',
                         letterSpacing: '0.04em',
@@ -284,7 +267,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             );
           })}
         </ul>
-        <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-dim)' }}>
+        <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
           ↑↓ to navigate · ↵ to run · Esc to close
         </p>
       </div>

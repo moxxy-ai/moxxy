@@ -1,5 +1,12 @@
 # @moxxy/isolator-worker
 
+## 0.0.52
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/plugin-security@0.35.3
+
 ## 0.0.51
 
 ### Patch Changes

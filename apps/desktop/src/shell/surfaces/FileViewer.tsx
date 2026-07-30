@@ -119,7 +119,7 @@ export function FileViewer({
 
   if (!path) {
     return (
-      <div style={{ padding: 16, fontSize: 12, color: 'var(--color-text-dim)' }}>
+      <div style={{ padding: 16, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
         Select a file to view it.
       </div>
     );
@@ -141,7 +141,7 @@ export function FileViewer({
           justifyContent: 'center',
           padding: 12,
           background: 'var(--color-input-soft)',
-          borderRadius: 8,
+          borderRadius: 'var(--radius-block)',
         }}
       >
         <img
@@ -158,7 +158,7 @@ export function FileViewer({
       <iframe
         src={pdfUrl}
         title={path}
-        style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8, background: '#fff' }}
+        style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-block)', background: '#fff' }}
       />
     ) : (
       <div style={pad}>Loading…</div>
@@ -187,7 +187,7 @@ export function FileViewer({
           style={{
             width: 44,
             height: 44,
-            borderRadius: 12,
+            borderRadius: 'var(--radius-card)',
             display: 'grid',
             placeItems: 'center',
             background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
@@ -197,8 +197,8 @@ export function FileViewer({
           <Icon name="file" size={20} />
         </div>
         <div style={{ maxWidth: 300 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>{what}</div>
-          <div style={{ marginTop: 4, fontSize: 12, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text)' }}>{what}</div>
+          <div style={{ marginTop: 4, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
             Opening it as text may be slow or show garbled content.
           </div>
         </div>
@@ -215,12 +215,12 @@ export function FileViewer({
       style={{
         margin: 0,
         padding: 10,
-        fontSize: 11.5,
+        fontSize: 'var(--type-meta)',
         lineHeight: 1.5,
         overflow: 'auto',
         height: '100%',
         background: 'var(--color-input-soft)',
-        borderRadius: 8,
+        borderRadius: 'var(--radius-block)',
         whiteSpace: 'pre',
         color: 'var(--color-text-muted)',
       }}
@@ -231,4 +231,4 @@ export function FileViewer({
   );
 }
 
-const pad: React.CSSProperties = { padding: 16, fontSize: 12, color: 'var(--color-text-dim)' };
+const pad: React.CSSProperties = { padding: 16, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' };

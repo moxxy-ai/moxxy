@@ -16,7 +16,7 @@ export function PausedWorkflows(): JSX.Element | null {
     <section
       data-testid="paused-workflows"
       aria-label="Workflows awaiting your reply"
-      style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}
     >
       {paused.map((run) => (
         <PausedCard
@@ -54,21 +54,21 @@ function PausedCard(props: {
         borderRadius: 'var(--radius-block)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.5rem',
+        gap: 'var(--space-8)',
       }}
     >
-      <div className="mono" style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)', textTransform: 'uppercase' }}>
+      <div className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)', textTransform: 'uppercase' }}>
         Workflow <strong>{run.workflow}</strong> is waiting · {run.label}
       </div>
       {run.prompt && (
-        <div style={{ fontSize: '0.85rem', whiteSpace: 'pre-wrap' }}>{run.prompt}</div>
+        <div style={{ fontSize: 'var(--type-row)', whiteSpace: 'pre-wrap' }}>{run.prompt}</div>
       )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
-        style={{ display: 'flex', gap: '0.5rem' }}
+        style={{ display: 'flex', gap: 'var(--space-8)' }}
       >
         <input
           type="text"
@@ -80,7 +80,7 @@ function PausedCard(props: {
           onChange={(e) => setReply(e.target.value)}
           style={{
             flex: 1,
-            fontSize: '0.85rem',
+            fontSize: 'var(--type-row)',
             padding: '0.35rem 0.55rem',
             background: 'var(--color-bg)',
             border: '1px solid var(--color-border)',
@@ -93,7 +93,7 @@ function PausedCard(props: {
           data-testid={`paused-send-${run.runId}`}
           disabled={!trimmed || busy}
           style={{
-            fontSize: '0.75rem',
+            fontSize: 'var(--type-meta)',
             fontWeight: 600,
             color: 'var(--color-bg)',
             background: 'var(--color-primary)',
@@ -106,7 +106,7 @@ function PausedCard(props: {
         </button>
       </form>
       {error && (
-        <p role="alert" style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-pink)' }}>
+        <p role="alert" style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-pink)' }}>
           {error}
         </p>
       )}

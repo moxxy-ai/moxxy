@@ -38,7 +38,6 @@ function renderTree(over: Partial<Handlers> = {}): {
   onRemoveSession: ReturnType<typeof vi.fn>;
   onRenameWorkspace: ReturnType<typeof vi.fn>;
   onRemoveWorkspace: ReturnType<typeof vi.fn>;
-  onNewWorkspace: ReturnType<typeof vi.fn>;
 } {
   const handlers = {
     onToggleCollapse: vi.fn(),
@@ -48,7 +47,6 @@ function renderTree(over: Partial<Handlers> = {}): {
     onRemoveSession: vi.fn(),
     onRenameWorkspace: vi.fn(),
     onRemoveWorkspace: vi.fn(),
-    onNewWorkspace: vi.fn(),
   };
   render(
     <WorkspaceTree
@@ -112,12 +110,6 @@ describe('WorkspaceTree', () => {
     fireEvent.click(screen.getByTestId('session-new-b'));
     expect(h.onCreateSession).toHaveBeenCalledWith('b');
     expect(h.onToggleCollapse).not.toHaveBeenCalled();
-  });
-
-  it('header [+] starts a new workspace', () => {
-    const h = renderTree();
-    fireEvent.click(screen.getByTestId('workspace-new'));
-    expect(h.onNewWorkspace).toHaveBeenCalled();
   });
 
   it('clicking a session selects it (cross-desk too)', () => {

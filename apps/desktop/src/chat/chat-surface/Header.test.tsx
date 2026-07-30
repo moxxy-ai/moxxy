@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { Header } from './Header';
+import type { AgentSession } from '../agent-picker/useAgentSession';
 
 const connectedPhase = {
   phase: 'connected',
@@ -17,6 +18,17 @@ afterEach(() => {
   __setApiOverride(null);
 });
 
+/** A connected session with no info yet: the bar renders without telemetry,
+ *  which is the state every existing case here was written against. */
+const AGENT_FIXTURE = {
+  info: null,
+  selectedModel: null,
+  modes: [],
+  onMode: () => undefined,
+  onPickProviderModel: () => undefined,
+  refresh: () => undefined,
+} as unknown as AgentSession;
+
 describe('chat Header focus mode action', () => {
   it('toggles focus mode through the desktop IPC when clicked', async () => {
     const invoke = vi.fn(async () => undefined);
@@ -28,14 +40,16 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
         workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -55,14 +69,16 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
         workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -78,10 +94,35 @@ describe('chat Header focus mode action', () => {
       'title',
       'Rename workspace',
     );
-    expect(screen.getByRole('button', { name: /^open context menu$/i })).toHaveAttribute(
-      'title',
-      'Open context menu',
+  });
+
+  it('identifies the run in the bar: workspace, session, and its state', () => {
+    __setApiOverride({
+      invoke: vi.fn(async () => undefined),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+
+    render(
+      <Header
+        phase={connectedPhase}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="awaiting"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
+        workspaceId="ws-test"
+        searchQuery={null}
+        onSearchChange={vi.fn()}
+        canRename
+        onRename={vi.fn()}
+      />,
     );
+
+    // The old header led with an anonymous Chat/Collaborate/Apps pill and said
+    // nothing about the subject; these three facts are the reason it changed.
+    expect(screen.getByText('blocky')).toBeInTheDocument();
+    expect(screen.getByText('retry untyped gateway fault')).toBeInTheDocument();
+    expect(screen.getByText('awaiting you')).toBeInTheDocument();
   });
 
   it('uses an eye-in-focus-frame glyph for the focus mode button', () => {
@@ -93,14 +134,16 @@ describe('chat Header focus mode action', () => {
     render(
       <Header
         phase={connectedPhase}
+        deskName="blocky"
+        sessionName="retry untyped gateway fault"
+        runState="running"
+        agent={AGENT_FIXTURE}
+        agentDisabled={false}
         workspaceId="ws-test"
-        railPane={null}
-        onPickPane={vi.fn()}
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
         onRename={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 

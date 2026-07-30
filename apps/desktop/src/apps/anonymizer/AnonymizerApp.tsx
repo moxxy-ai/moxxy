@@ -9,7 +9,7 @@ import {
 } from '@moxxy/anonymizer';
 import { useAnonymizer } from '@moxxy/client-core';
 import { Button, Icon, TextArea } from '@moxxy/desktop-ui';
-import { Segmented, ViewHeader } from '../../shell/ViewHeader';
+import { Segmented } from '../../shell/Segmented';
 import type { DesktopAppProps } from '../registry';
 import { OfflineBadge } from '../OfflineBadge';
 import { Counts } from './Counts';
@@ -18,6 +18,7 @@ import { CATEGORY_LABELS, TOGGLE_CATEGORIES, REGION_LABELS, SELECTABLE_REGIONS }
 import { FilterSelect, type FilterOption } from './FilterSelect';
 import { ImportStep, type ImportTab } from './ImportStep';
 import { useNer } from './ner/useNer';
+import { InstrumentBar } from '../../shell/InstrumentBar';
 
 const REDACT_MODES: ReadonlyArray<{ id: RedactionMode; label: string }> = [
   { id: 'label', label: 'Label' },
@@ -235,15 +236,13 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
 
   return (
     <>
-      <ViewHeader>
-        <Button variant="chip" onClick={onExit} style={{ borderRadius: 9 }}>
+      <InstrumentBar crumbs={['Apps', 'Document anonymizer']}>
+        <OfflineBadge />
+        <Button variant="chip" onClick={onExit} style={{ marginLeft: 'var(--space-8)' }}>
           <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
           Apps
         </Button>
-        <strong style={{ fontSize: 15 }}>Document anonymizer</strong>
-        <OfflineBadge />
-        <span style={{ flex: 1 }} />
-      </ViewHeader>
+      </InstrumentBar>
 
       <div
         style={{
@@ -326,7 +325,7 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                     placeholder={'Jane Doe\n123 Main St\nAcme Corp'}
                     rows={3}
                     tone="soft"
-                    style={{ width: '100%', fontSize: 13 }}
+                    style={{ width: '100%', fontSize: 'var(--type-ui)' }}
                   />
                 </Field>
               </div>
@@ -421,8 +420,8 @@ function Stage({
             width: 28,
             height: 28,
             flexShrink: 0,
-            borderRadius: 999,
-            fontSize: 13,
+            borderRadius: 'var(--radius-pill)',
+            fontSize: 'var(--type-ui)',
             fontWeight: 700,
             color: '#fff',
             background: 'var(--color-primary-strong)',
@@ -431,8 +430,8 @@ function Stage({
           {n}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <strong style={{ fontSize: 15 }}>{title}</strong>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{subtitle}</span>
+          <strong style={{ fontSize: 'var(--type-prose)' }}>{title}</strong>
+          <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>{subtitle}</span>
         </div>
       </header>
       {children}
@@ -454,7 +453,7 @@ function Field({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
+        <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
         {help && <span style={dim}>{help}</span>}
       </div>
       {children}
@@ -494,7 +493,7 @@ function EmptyOutput(): JSX.Element {
           justifyContent: 'center',
           width: 48,
           height: 48,
-          borderRadius: 14,
+          borderRadius: 'var(--radius-card)',
           color: 'var(--color-text-muted)',
           background: 'var(--color-input-soft)',
           border: '1px solid var(--color-card-border)',
@@ -503,16 +502,16 @@ function EmptyOutput(): JSX.Element {
         <Icon name="file" size={22} />
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <strong style={{ fontSize: 13.5, color: 'var(--color-text-muted)' }}>
+        <strong style={{ fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
           Nothing to redact yet
         </strong>
-        <span style={{ fontSize: 12.5 }}>Import a document or paste text to see the result here.</span>
+        <span style={{ fontSize: 'var(--type-row)' }}>Import a document or paste text to see the result here.</span>
       </div>
     </div>
   );
 }
 
-const dim: React.CSSProperties = { fontSize: 12, color: 'var(--color-text-dim)' };
+const dim: React.CSSProperties = { fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' };
 const panelBox: React.CSSProperties = {
   border: '1px solid var(--color-card-border)',
   background: 'var(--color-surface)',
@@ -524,7 +523,7 @@ const preBox: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   fontFamily: 'inherit',
-  fontSize: 13,
+  fontSize: 'var(--type-ui)',
   lineHeight: 1.55,
   maxHeight: 360,
   overflowY: 'auto',

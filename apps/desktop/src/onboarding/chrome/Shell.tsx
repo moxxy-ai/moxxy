@@ -1,22 +1,20 @@
 /**
- * The onboarding wizard Shell — the fixed two-column frame (a calm, near-white
- * step rail on the left + a scrolling content pane on the right) that wraps
- * whichever step is current. Stateless: it renders the passed step list,
- * highlights `currentIndex`, and slots `children` into the pane.
+ * The onboarding wizard Shell — the fixed two-column frame (the step rail on the
+ * left + a scrolling content pane on the right) that wraps whichever step is
+ * current. Stateless: it renders the passed step list, highlights
+ * `currentIndex`, and slots `children` into the pane.
  *
- * The palette matches the splash / loading / chat surfaces (the
- * `--color-main-bg` column tone) so first-run feels continuous with the
- * rest of the app — and follows the light/dark theme the same way.
+ * It is the app's index column, one screen early: the same sidebar ground, the
+ * same `index-group` micro-label, the same rows, and the same commanded strap
+ * marking where you are. First run is the first thing a person sees, so it has to
+ * teach the frame they are about to work in rather than be its own soft-cornered
+ * wizard.
  */
 
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { Icon } from '@moxxy/desktop-ui';
 
 const SURFACE = 'var(--color-main-bg)';
-// A whisper darker than the main pane so the step rail registers as its
-// own surface in both themes (light: ≈rgb(248,248,253); dark: a hair
-// below the main column, like the workspace sidebar).
-const RAIL_BG = 'color-mix(in srgb, var(--color-main-bg) 60%, var(--color-app-bg))';
 
 export function Shell({
   steps,
@@ -35,109 +33,118 @@ export function Shell({
         inset: 0,
         background: SURFACE,
         display: 'grid',
-        gridTemplateColumns: '300px 1fr',
+        gridTemplateColumns: 'var(--frame-index) 1fr',
         overflow: 'hidden',
       }}
     >
       <aside
         style={{
-          background: RAIL_BG,
+          background: 'var(--color-sidebar-bg)',
           borderRight: '1px solid var(--color-card-border)',
-          padding: '28px 24px',
+          padding: 'var(--space-12) var(--space-8) var(--space-16)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 28,
+          gap: 'var(--space-12)',
         }}
       >
-        <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <MoxxyMark size={40} />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ fontSize: 14, fontWeight: 700 }}>MoxxyAI</span>
-            <span
-              style={{
-                fontSize: 10.5,
-                color: 'var(--color-text-dim)',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-              }}
-            >
-              Workspaces
-            </span>
-          </div>
-        </header>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' }}>
-            Let&rsquo;s get you set up
-          </h1>
-          <p style={{ margin: '6px 0 0', color: 'var(--color-text-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            A few quick steps and your own AI workspace is running locally.
-          </p>
-        </div>
-        <ol
+        <header
           style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 0,
             display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
+            alignItems: 'center',
+            gap: 'var(--space-8)',
+            padding: '0 var(--space-6)',
+            height: 'var(--frame-bar)',
           }}
         >
+          <MoxxyMark size={22} />
+          <span
+            style={{
+              fontFamily: 'var(--font-chrome)',
+              fontSize: 'var(--type-row)',
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+            }}
+          >
+            moxxy
+          </span>
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontFamily: 'var(--font-chrome)',
+              fontSize: 'var(--type-label)',
+              color: 'var(--color-text-dim)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {idx + 1}/{steps.length}
+          </span>
+        </header>
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
+          <li className="index-group">
+            <span className="index-group__label">setup</span>
+          </li>
           {steps.map((s, i) => {
             const done = i < idx;
             const current = i === idx;
             return (
               <li
                 key={s.id}
+                className="session-row"
                 aria-current={current ? 'step' : undefined}
+                data-active={current}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 12,
-                  padding: '8px 10px',
-                  borderRadius: 10,
-                  background: current ? 'var(--color-primary-soft)' : 'transparent',
+                  gap: 'var(--space-8)',
+                  minHeight: 'var(--frame-row)',
+                  padding: '2px var(--space-6) 2px var(--space-12)',
+                  borderRadius: 'var(--radius-block)',
+                  background: current ? 'var(--color-card-bg)' : 'transparent',
                   color: current
-                    ? 'var(--color-primary-strong)'
+                    ? 'var(--color-sidebar-text)'
                     : done
                       ? 'var(--color-text-muted)'
                       : 'var(--color-text-dim)',
-                  fontWeight: current ? 600 : 500,
-                  fontSize: 13,
-                  transition: 'background 120ms ease, color 120ms ease',
+                  fontWeight: current ? 600 : 400,
+                  fontSize: 'var(--type-row)',
+                  transition: 'background var(--motion-shift) ease, color var(--motion-shift) ease',
                 }}
               >
-                <span
-                  aria-hidden
-                  style={{
-                    width: 22,
-                    height: 22,
-                    flexShrink: 0,
-                    borderRadius: 999,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: done
-                      ? 'var(--color-green)'
-                      : current
-                        ? 'var(--color-primary)'
-                        : 'transparent',
-                    border: done || current ? 'none' : '1.5px solid var(--color-card-border-strong)',
-                    color: done || current ? '#fff' : 'var(--color-text-dim)',
-                    fontSize: 11,
-                    fontWeight: 700,
-                  }}
-                >
-                  {done ? <Icon name="check" size={12} /> : i + 1}
-                </span>
+                {/* Done is state, so it reads as an LED like every other state in
+                 *  the app; a step still ahead is just its number. */}
+                {done ? (
+                  <span className="led" data-state="done" aria-hidden />
+                ) : (
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 6,
+                      textAlign: 'center',
+                      flexShrink: 0,
+                      fontFamily: 'var(--font-chrome)',
+                      fontSize: 'var(--type-label)',
+                      color: current ? 'var(--color-primary)' : 'var(--color-text-dim)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                )}
                 {s.label}
               </li>
             );
           })}
         </ol>
         <span style={{ flex: 1 }} />
-        <footer style={{ fontSize: 11, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
-          You can revisit this anytime from Settings → About.
+        <footer
+          style={{
+            padding: '0 var(--space-6)',
+            fontSize: 'var(--type-label)',
+            color: 'var(--color-text-dim)',
+            lineHeight: 1.5,
+          }}
+        >
+          Revisit anytime from Settings <Icon name="chevron-right" size={9} /> About.
         </footer>
       </aside>
       <main
@@ -145,7 +152,7 @@ export function Shell({
           background: SURFACE,
           display: 'grid',
           placeItems: 'center',
-          padding: '32px 40px',
+          padding: 'var(--space-32) var(--space-40)',
           overflowY: 'auto',
         }}
       >

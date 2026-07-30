@@ -1,86 +1,189 @@
 /**
- * The moxxy design tokens — one framework-neutral source of truth for colors,
- * typography, radii, gradients, and shadows. The desktop renderer projects these
- * to CSS custom properties (see `./css-vars`); a React Native app consumes the
- * same object directly in `StyleSheet.create`. Values mirror the desktop's
- * `styles.css` `:root` block.
+ * The moxxy design tokens — one framework-neutral source of truth for colour,
+ * typography, geometry, spacing, frame heights, and motion. The desktop
+ * renderer projects these to CSS custom properties (see `./css-vars`); the
+ * React Native app consumes the same object directly in `StyleSheet.create`.
+ * Values mirror the desktop's `styles.css` `:root` block, and the parity test
+ * in `./css-vars.test.ts` keeps the two declarations locked together.
  *
- * Radii are plain numbers (CSS appends `px`; RN wants the bare number).
- * Gradients are CSS gradient strings (web-only; RN would map these to a gradient
- * component) and are intentionally kept here so the brand definitions live in
- * one place.
+ * ## The design language: Harness
+ *
+ * An agent that works unattended for an hour is not holding a conversation, it
+ * is executing a run, and the person watching it is supervising an autopilot.
+ * So the app is drawn as an instrument panel built from two interlaced straps —
+ * the mark's own construction — and the palette follows glass-cockpit
+ * discipline rather than brand decoration:
+ *
+ *   - The chrome is ACHROMATIC. Panel greys carry a blue-green bias (anodised
+ *     aluminium under bench light), never a neutral grey and never a warm cream.
+ *   - Colour appears on DATA, and each hue means exactly one thing:
+ *     `primary` (magenta) = commanded by the human, `green` = nominal,
+ *     `amber` = needs attention, `red` = failed, `reference` (cyan) = reference
+ *     data. A hue is information here, so nothing else may borrow it.
+ *   - Structure comes from hairlines (`cardBorder`), not from elevation. There
+ *     are no gradients: a gradient reads as decoration, and this palette spends
+ *     its whole colour budget on meaning.
+ *
+ * Numbers (radii, spacing, type sizes, frame heights) are plain numbers — CSS
+ * appends `px`, RN wants the bare number. Durations are CSS time strings.
  */
 
 export const tokens = {
   color: {
-    /* Neutral paper, not tinted: the brand ground is white, and a lavender
-     * canvas fights Signal's warmth. */
-    appBg: '#f4f4f7',
-    /* Main chat column — pure paper, so the column reads as the sheet and the
-     * canvas around it as the desk. */
+    /* Panel: the ground the whole instrument sits on. */
+    appBg: '#e7eaeb',
+    /* Bay: the working surface a run is drawn on. */
     mainBg: '#ffffff',
-    /* Resting surface for buttons / chips / inputs that sit ON a card
-     * or column (the things that were hard-coded `#fff`). */
+    /* Resting surface for controls that sit ON a card or column. */
     surface: '#ffffff',
-    /* Recessed "soft" input fill — a step below the surface
-     * (TextInput/TextArea tone='soft', modal fields). */
-    inputSoft: '#f4f4f7',
+    /* Sunk: recessed fill for inputs and wells, a step BELOW the surface. */
+    inputSoft: '#f1f3f4',
     cardBg: '#ffffff',
-    cardBorder: '#e4e4ea',
-    cardBorderStrong: '#d3d4dc',
-    /* Ink, straight from assets/brand/README.md. */
-    text: '#0b0d12',
-    textMuted: '#55596b',
-    textDim: '#8a8f9f',
-    sidebarBg: '#ffffff',
-    sidebarBgHover: '#f4f4f7',
-    /* The active row carries a Signal wash. */
-    sidebarBgActive: '#fff1ec',
-    sidebarText: '#0b0d12',
-    sidebarTextDim: '#6e7383',
-    sidebarBorder: '#e4e4ea',
-    /* Signal, one accent, used only where the eye is meant to go. Interactive
-     * fills take the deeper stop: flat Signal carries white body text at only
-     * 3.36:1, and a CTA label is the one place that cannot be borderline. */
-    primary: '#c4310f',
-    primaryStrong: '#9c2409',
-    primarySoft: '#fff1ec',
-    send: '#c4310f',
-    /* The secondary accent stays in Signal's family instead of introducing the
-     * cyan the old palette paired with pink. */
-    accent: '#e2551f',
-    accentStrong: '#c4310f',
-    /* Categorical and semantic hues are not brand: a workflow step kind is
-     * identified by its hue, and green/amber/red mean success/attention/error.
-     * They keep the toned values #478 gave them; only the pink alias, which was
-     * never categorical, follows the accent. */
-    purple: '#6b6f9c',
-    green: '#2f855a',
-    amber: '#b7791f',
-    pink: '#c4310f',
-    red: '#c53030',
+    /* Seam: the hairline that carries all structure in this language. */
+    cardBorder: '#dfe4e6',
+    cardBorderStrong: '#c7cfd2',
+    /* Ink, in the panel's own blue-green family rather than a neutral black. */
+    text: '#0b0f12',
+    textMuted: '#4a5a64',
+    textDim: '#66757e',
+    /* The icon rail is the panel ground; the index column beside it is the bay,
+     * so the two columns register against each other without a heavy border. */
+    sidebarBg: '#e7eaeb',
+    sidebarBgHover: '#dde2e3',
+    /* The active row carries the commanded wash. */
+    sidebarBgActive: '#fbeaf2',
+    sidebarText: '#0b0f12',
+    sidebarTextDim: '#66757e',
+    sidebarBorder: '#dfe4e6',
+    /* Commanded — the ONE accent, and it is not decoration: it marks what the
+     * human ordered (their turn in the trace, the send action, the active rail
+     * item, focus). On paper the accent must be DEEP enough to carry a white
+     * label, which is why this is the mulberry stop and not flat magenta. */
+    primary: '#c21e6b',
+    primaryStrong: '#9d1355',
+    primarySoft: '#fbeaf2',
+    /* Text/icon colour that sits ON a commanded fill. Not `#fff` at the call
+     * site: the dark theme's accent is light and needs an ink label instead,
+     * and a hard-coded white would silently fail there. */
+    onPrimary: '#ffffff',
+    send: '#c21e6b',
+    /* One accent means the secondary stays inside it rather than introducing a
+     * second brand hue that would compete with the semantic set. */
+    accent: '#c21e6b',
+    accentStrong: '#9d1355',
+    /* Semantic and categorical hues. These are information, not brand: a
+     * workflow step kind is identified by its hue, and green/amber/red mean
+     * nominal/attention/failure exactly as they do on an instrument panel. */
+    purple: '#575e8c',
+    green: '#0e7a5a',
+    amber: '#9a6208',
+    /* `pink` was never categorical; it stays an alias of the accent. */
+    pink: '#c21e6b',
+    red: '#c0303a',
+    /* Reference data: links, cited paths, telemetry that is neither a state nor
+     * a command. The fifth and last hue in the system. */
+    reference: '#0e7490',
+    /* The scrim under a true overlay. Ink-tinted, never a neutral black:
+     * a grey veil over an anodised panel reads as a screenshot of the app. */
+    overlay: 'rgba(28, 34, 38, 0.34)',
   },
   shadow: {
-    /* Ink-tinted and shallow. Structure comes from hairlines, not elevation. */
-    card: '0 1px 2px rgba(11, 13, 18, 0.04), 0 10px 24px -18px rgba(11, 13, 18, 0.10)',
-  },
-  gradient: {
-    user: 'linear-gradient(135deg, #c4310f 0%, #e2551f 100%)',
-    /* A CTA gradient carries white too, so it stays inside the deep stops. */
-    cta: 'linear-gradient(135deg, #d13d14 0%, #c4310f 55%, #9c2409 100%)',
-    accent: 'linear-gradient(135deg, #e2551f 0%, #c4310f 100%)',
+    /* Structure comes from hairlines, so a shadow only exists to lift a true
+     * overlay off the panel: one hard near-contact line plus a wide, very
+     * negatively-spread pool. Nothing in the flat UI casts a shadow. */
+    card: '0 1px 0 rgba(255, 255, 255, 0.9), 0 24px 48px -22px rgba(11, 15, 18, 0.28)',
   },
   font: {
-    /* Space Grotesk carries headings, echoing the constructed wordmark. */
-    sans: "'Inter', system-ui, -apple-system, sans-serif",
-    display: "'Space Grotesk', 'Inter', system-ui, sans-serif",
-    mono: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace",
+    /* Chrome, labels, paths, tool names, and every number are set in the
+     * machine's own face: engineered lettering with tabular figures, so columns
+     * of data actually line up. This is the app's DEFAULT face. */
+    chrome:
+      "'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
+    /* The one proportional voice: prose written or read by a human.
+     *
+     * This started as a screen serif, on the argument that a long transcript is
+     * long-form reading. In the app it was wrong — a serif reads as a document
+     * about the work rather than as someone talking to you, and this is a
+     * conversation with an agent. A warm humanist sans is friendlier at the same
+     * size and keeps the contrast that matters: the machine speaks in engineered
+     * mono, the human-readable half speaks in a face built for people.
+     *
+     * Avenir Next leads because it is geometric-humanist and genuinely warm; the
+     * fallbacks are each platform's own text face (never Inter, which is both the
+     * face this redesign moved off and a neo-grotesque, not a friendly one).
+     * Nothing outside prose may use this. */
+    prose:
+      "'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
+    /* Code blocks. Same family as the chrome by design — the chrome IS the code
+     * face in this language — but kept as its own token so a later divergence
+     * (a wider face for code, say) does not have to touch the chrome. */
+    mono: "'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace",
   },
   radius: {
-    /* Tighter geometry, matching the site's near-square corners. */
-    block: 6,
-    card: 10,
+    /* Sharp geometry, one step per level of nesting: a readout you cannot press
+     * (`tag`), a control or a row (`chip`), a panel one of those sits in
+     * (`block`), a container that holds panels (`card`). The structural surfaces
+     * — the bar, the columns, the composer, the bench — are SQUARE; rounding
+     * them would make the frame read as a stack of cards. The full pill survives
+     * only where the SHAPE carries information (a state LED, a run-state pill),
+     * never as a default. */
+    tag: 3,
+    chip: 4,
+    block: 5,
+    card: 6,
     pill: 9999,
+  },
+  /* Spacing scale, 4px grid. Keyed by its own pixel value so a reader never has
+   * to decode a t-shirt size: `--space-12` is 12px and nothing else. */
+  space: {
+    2: 2,
+    4: 4,
+    6: 6,
+    8: 8,
+    12: 12,
+    16: 16,
+    20: 20,
+    24: 24,
+    32: 32,
+    40: 40,
+    56: 56,
+  },
+  /* Type scale. Two uppercase tracked-out sizes, because the design uses two:
+   * `micro` names a GROUP inside a list (an index group, a palette section, a
+   * KPI key), `label` names the SECTION that list belongs to. Collapsing them
+   * made every group header read one step too loud. `prose` is the only size the
+   * prose face is ever set at; everything else is chrome. */
+  type: {
+    micro: 9.5,
+    label: 10.5,
+    meta: 11.5,
+    row: 12.5,
+    ui: 13,
+    prose: 14.5,
+    section: 19,
+    display: 26,
+  },
+  /* Frame heights. Every value divides by 2 so nothing lands on a half pixel,
+   * and `bar` is shared by the instrument bar and the index head so the two
+   * read as ONE horizontal strap crossing under the rail. */
+  frame: {
+    titlebar: 30,
+    bar: 44,
+    row: 30,
+    tool: 26,
+    control: 26,
+    rail: 52,
+    index: 244,
+    bench: 372,
+  },
+  /* Three durations and one signature. No springs, no parallax. The mark's
+   * quarter turn is the only looping animation in the app: the mark is
+   * symmetric under 90 degrees, so the loop closes with no visible seam. */
+  motion: {
+    press: '90ms',
+    shift: '140ms',
+    overlay: '220ms',
+    markTurn: '3400ms',
   },
 } as const;
 
@@ -95,63 +198,64 @@ type Widen<T> = {
 export type ThemeTokens = Widen<Tokens>;
 
 /**
- * The DESIGNED dark palette — not a naive inversion. Lightness ordering
- * (darkest → lightest): sidebar rail < app canvas < main column < cards <
- * resting surfaces, mirroring the light theme's "columns register against
- * each other" intent. Every accent has an explicit dark counterpart (a fill
- * chosen to carry white on paper is close to invisible on ink); text flips to
- * light greys in the same Ink family; shadows go near-black at higher alpha
- * because rgba(11,13,18,…) ink reads as nothing on a dark canvas.
+ * The DESIGNED dark palette — not an inversion. Ink is the ground, and the
+ * lightness ordering matches light's intent (rail/panel < bay < card < raised
+ * surface), so the columns keep registering against each other.
  *
- * Shape-frozen against {@link tokens} (same flat color keys) — mobile's
- * tailwind config and the CSS-var generator consume both interchangeably.
+ * The accent does NOT survive the flip unchanged, and that is the one thing to
+ * know about this palette: light's commanded stop is deep because it must carry
+ * a white label on paper, and the same mulberry on near-black is nearly
+ * invisible. On ink the accent lifts to luminous magenta — which then cannot
+ * carry white either, so `onPrimary` flips to ink. Same reason the brand ships
+ * a `-dark` mark rather than recolouring the light one with a CSS filter.
+ *
+ * Shape-frozen against {@link tokens} (identical keys throughout) — mobile's
+ * theme map and the CSS-var generator consume both interchangeably.
  */
 export const darkTokens: ThemeTokens = {
   color: {
-    /* Ink is the ground. The rail sits below the canvas, the canvas below the
-     * column, exactly as in light. */
-    appBg: '#08090d',
-    mainBg: '#0b0d12',
-    surface: '#1a1e28',
-    inputSoft: '#0f1219' /* soft inputs recess below the card they sit on */,
-    cardBg: '#12151d',
-    cardBorder: '#232833',
-    cardBorderStrong: '#333947',
-    text: '#edeef2',
-    textMuted: '#9096a6',
-    textDim: '#6b7284',
-    sidebarBg: '#08090d',
-    sidebarBgHover: '#14171f',
-    sidebarBgActive: '#2e1409' /* the Signal wash, at ink lightness */,
-    sidebarText: '#edeef2',
-    sidebarTextDim: '#868da0',
-    sidebarBorder: '#1c202a',
-    /* Accents do not survive dark unchanged. Light's interactive Signal is the
-     * DEEP stop, chosen to carry white on a near-white surface; that same ink
-     * on a near-black canvas is close to invisible. On ink the accent lifts to
-     * flat Signal and above, which is what the mark's own strand does, so these
-     * stay literals rather than `tokens.color.*` references. */
-    primary: '#ff6a44',
-    primaryStrong: '#ff4a1e',
-    primarySoft: '#2e1409',
-    send: '#ff6a44',
-    accent: '#ff9a5e',
-    accentStrong: '#ff6a44',
-    /* Semantic and categorical hues keep their explicit dark counterparts. */
-    purple: '#9298c4',
-    green: '#5aa87c',
-    amber: '#c99a45',
-    pink: '#ff6a44',
-    red: '#d97070',
+    appBg: '#0b0f12',
+    mainBg: '#101519',
+    surface: '#1c242a',
+    inputSoft: '#0a0e11' /* sunk inputs recess below the bay they sit in */,
+    cardBg: '#151b20',
+    cardBorder: '#212a31',
+    cardBorderStrong: '#2e3941',
+    text: '#e4ebef',
+    textMuted: '#93a2ab',
+    textDim: '#77868f',
+    sidebarBg: '#0b0f12',
+    sidebarBgHover: '#161c22',
+    sidebarBgActive: '#24101b' /* the commanded wash, at ink lightness */,
+    sidebarText: '#e4ebef',
+    sidebarTextDim: '#77868f',
+    sidebarBorder: '#212a31',
+    /* Luminous on ink, and therefore ink-labelled — see the note above. */
+    primary: '#f4408f',
+    primaryStrong: '#ff63a8',
+    primarySoft: '#24101b',
+    onPrimary: '#0b0f12',
+    send: '#f4408f',
+    accent: '#f4408f',
+    accentStrong: '#ff63a8',
+    purple: '#8e9ac8',
+    green: '#3fbf8f',
+    amber: '#e8a33d',
+    pink: '#f4408f',
+    red: '#f2545b',
+    reference: '#4fc3d9',
+    overlay: 'rgba(4, 6, 8, 0.68)',
   },
   shadow: {
-    card: '0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -18px rgba(0, 0, 0, 0.7)',
-  },
-  gradient: {
-    user: 'linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%)',
-    cta: 'linear-gradient(135deg, #ff9a5e 0%, #ff6a44 55%, #ff4a1e 100%)',
-    accent: 'linear-gradient(135deg, #ff9a5e 0%, #ff6a44 100%)',
+    /* An ink-tinted shadow reads as nothing on a dark ground, so the overlay
+     * pool goes near-black at high alpha and the contact line inverts to a
+     * faint lit seam along the overlay's top edge. */
+    card: '0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -20px rgba(0, 0, 0, 0.8)',
   },
   font: { ...tokens.font },
   radius: { ...tokens.radius },
+  space: { ...tokens.space },
+  type: { ...tokens.type },
+  frame: { ...tokens.frame },
+  motion: { ...tokens.motion },
 };

@@ -84,9 +84,9 @@ export const style = {
     height: 8,
     boxSizing: 'border-box',
     border: '2px solid var(--focus-panel-bg)',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     background: 'var(--color-primary)',
-    boxShadow: '0 0 10px rgba(255, 74, 30, 0.7)',
+    boxShadow: '0 0 10px color-mix(in srgb, var(--color-primary) 70%, transparent)',
     pointerEvents: 'none',
   },
   focusPet: {
@@ -103,7 +103,8 @@ export const style = {
     inset: '23% 2% 3%',
     zIndex: -1,
     borderRadius: '50%',
-    background: 'radial-gradient(ellipse at 52% 58%, rgba(255, 74, 30, 0.3), transparent 68%)',
+    background:
+      'radial-gradient(ellipse at 52% 58%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 68%)',
     opacity: 0.48,
     transform: 'scale(0.92)',
     pointerEvents: 'none',
@@ -147,7 +148,7 @@ export const style = {
     top: 8.5,
     width: 17,
     height: 1.8,
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     background: 'currentColor',
     boxShadow: '0 0 0 1px var(--focus-panel-bg)',
     transform: 'rotate(-45deg)',
@@ -165,11 +166,11 @@ export const style = {
     paddingLeft: 14,
     background: 'var(--focus-preview-bg)',
     border: '1px solid var(--focus-preview-border)',
-    borderRadius: 22,
+    borderRadius: 'var(--radius-card)',
     boxShadow: 'var(--focus-preview-shadow)',
     color: 'var(--focus-preview-text)',
     fontFamily: 'inherit',
-    fontSize: 13.5,
+    fontSize: 'var(--type-ui)',
     fontWeight: 650,
     lineHeight: '18px',
     textAlign: 'left',
@@ -247,9 +248,9 @@ export const style = {
     width: 22,
     height: 22,
     boxSizing: 'border-box',
-    border: '3px solid rgba(255, 74, 30, 0.22)',
+    border: '3px solid color-mix(in srgb, var(--color-primary) 22%, transparent)',
     borderTopColor: 'var(--color-primary)',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     pointerEvents: 'none',
   },
   focusBubbleHideButton: {
@@ -259,7 +260,7 @@ export const style = {
     height: 24,
     padding: 0,
     border: 'none',
-    borderRadius: 10,
+    borderRadius: 'var(--radius-block)',
     background: 'transparent',
     color: 'var(--focus-muted)',
     display: 'inline-flex',
@@ -324,7 +325,7 @@ export const style = {
     flex: '0 0 32px',
     padding: 0,
     border: '1px solid var(--focus-preview-border)',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     background: 'var(--focus-preview-bg)',
     boxShadow: '0 8px 18px rgba(0, 0, 0, 0.24)',
     color: 'var(--focus-preview-text)',
@@ -342,7 +343,7 @@ export const style = {
     flexDirection: 'column',
     background: 'var(--focus-ask-bg)',
     border: '1px solid var(--focus-ask-border)',
-    borderRadius: 22,
+    borderRadius: 'var(--radius-card)',
     boxShadow: 'var(--focus-ask-shadow)',
     color: 'var(--focus-ask-text)',
     fontFamily: 'inherit',
@@ -367,7 +368,7 @@ export const style = {
     marginBottom: 4,
   },
   focusAskKicker: {
-    fontSize: 10,
+    fontSize: 'var(--type-label)',
     fontWeight: 800,
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
@@ -376,13 +377,13 @@ export const style = {
   focusAskDot: {
     width: 5,
     height: 5,
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     background: 'var(--color-primary)',
-    boxShadow: '0 0 14px rgba(255, 74, 30, 0.8)',
+    boxShadow: '0 0 14px color-mix(in srgb, var(--color-primary) 80%, transparent)',
   },
   focusAskTitle: {
     margin: 0,
-    fontSize: 14,
+    fontSize: 'var(--type-ui)',
     lineHeight: '18px',
     fontWeight: 760,
     color: 'var(--focus-ask-title)',
@@ -390,7 +391,7 @@ export const style = {
   },
   focusAskBody: {
     margin: '3px 0 0',
-    fontSize: 12,
+    fontSize: 'var(--type-row)',
     lineHeight: '16px',
     color: 'var(--focus-ask-body)',
     maxHeight: 68,
@@ -408,10 +409,10 @@ export const style = {
     wordBreak: 'break-word',
     background: 'var(--focus-ask-detail-bg)',
     border: '1px solid var(--focus-ask-detail-border)',
-    borderRadius: 10,
+    borderRadius: 'var(--radius-block)',
     color: 'var(--focus-ask-detail-text)',
     fontFamily: 'var(--font-mono)',
-    fontSize: 10.5,
+    fontSize: 'var(--type-label)',
     lineHeight: '14px',
   },
   focusAskTextArea: {
@@ -422,11 +423,11 @@ export const style = {
     resize: 'none',
     outline: 'none',
     border: '1px solid var(--focus-ask-detail-border)',
-    borderRadius: 12,
+    borderRadius: 'var(--radius-card)',
     background: 'var(--focus-ask-detail-bg)',
     color: 'var(--focus-ask-text)',
     fontFamily: 'inherit',
-    fontSize: 12,
+    fontSize: 'var(--type-row)',
     lineHeight: '16px',
     ...noDrag,
   },
@@ -445,11 +446,11 @@ export const style = {
     maxWidth: 118,
     padding: '0 10px',
     border: '1px solid transparent',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-chip)',
     cursor: 'pointer',
     fontFamily: 'inherit',
-    fontSize: 11.5,
-    fontWeight: 740,
+    fontSize: 'var(--type-meta)',
+    fontWeight: 600,
     lineHeight: '24px',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -467,7 +468,7 @@ export const style = {
     color: 'var(--focus-ask-text)',
   },
   focusAskButtonPrimary: {
-    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
+    background: 'var(--color-primary)',
     borderColor: 'rgba(255, 255, 255, 0.18)',
     color: '#ffffff',
     boxShadow: '0 10px 22px rgba(196, 49, 15, 0.25)',
@@ -519,7 +520,7 @@ export const style = {
     height: 56,
     background: PANEL_BG,
     border: PANEL_BORDER,
-    borderRadius: 28,
+    borderRadius: 'var(--radius-pill)',
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
@@ -565,9 +566,9 @@ export const style = {
     justifyContent: 'center',
   },
   actionBtnActive: {
-    background: 'rgba(255, 74, 30, 0.14)',
+    background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
     color: 'var(--color-primary)',
-    borderRadius: 11,
+    borderRadius: 'var(--radius-block)',
   },
   actionBtnDisabled: {
     opacity: 0.42,
@@ -612,7 +613,7 @@ export const style = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    fontSize: 11.5,
+    fontSize: 'var(--type-meta)',
     fontWeight: 700,
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
@@ -627,7 +628,7 @@ export const style = {
     display: 'block',
     overflowY: 'auto',
     minHeight: 0,
-    fontSize: 13,
+    fontSize: 'var(--type-ui)',
     color: 'var(--focus-text)',
     userSelect: 'text',
     WebkitUserSelect: 'text',
@@ -649,7 +650,7 @@ export const style = {
   },
   focusMessageLabel: {
     color: 'var(--color-primary-strong)',
-    fontSize: 10.5,
+    fontSize: 'var(--type-label)',
     fontWeight: 760,
     letterSpacing: '0.035em',
   },
@@ -695,7 +696,7 @@ export const style = {
     padding: 4,
     flexShrink: 0,
     border: '1px solid var(--focus-input-border)',
-    borderRadius: 8,
+    borderRadius: 'var(--radius-block)',
     background: 'var(--focus-input-bg)',
     color: 'var(--focus-text)',
     ...noDrag,
@@ -723,14 +724,14 @@ export const style = {
   focusAttachmentPendingDot: {
     width: 24,
     height: 24,
-    borderRadius: 6,
+    borderRadius: 'var(--radius-chip)',
     flexShrink: 0,
     background: 'var(--focus-subtle-border)',
   },
   focusAttachmentThumb: {
     width: 30,
     height: 30,
-    borderRadius: 6,
+    borderRadius: 'var(--radius-chip)',
     objectFit: 'cover',
     flexShrink: 0,
     background: 'var(--focus-subtle-border)',
@@ -741,7 +742,7 @@ export const style = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    fontSize: 11.5,
+    fontSize: 'var(--type-meta)',
     fontWeight: 650,
     lineHeight: '14px',
   },
@@ -750,7 +751,7 @@ export const style = {
     height: 24,
     padding: 0,
     border: 'none',
-    borderRadius: 6,
+    borderRadius: 'var(--radius-chip)',
     background: 'transparent',
     color: 'var(--focus-muted)',
     cursor: 'pointer',
@@ -761,7 +762,7 @@ export const style = {
     ...noDrag,
   },
   focusAttachError: {
-    fontSize: 11.5,
+    fontSize: 'var(--type-meta)',
     lineHeight: '15px',
     color: 'var(--color-red)',
   },
@@ -777,12 +778,12 @@ export const style = {
     maxHeight: 112,
     boxSizing: 'border-box',
     padding: '7px 10px',
-    fontSize: 13,
+    fontSize: 'var(--type-ui)',
     lineHeight: '18px',
     color: 'var(--focus-text)',
     background: 'var(--focus-input-bg)',
     border: '1px solid var(--focus-input-border)',
-    borderRadius: 10,
+    borderRadius: 'var(--radius-block)',
     outline: 'none',
     fontFamily: 'inherit',
     resize: 'none',
@@ -793,8 +794,8 @@ export const style = {
     width: 34,
     height: 34,
     border: 'none',
-    borderRadius: 10,
-    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
+    borderRadius: 'var(--radius-block)',
+    background: 'var(--color-primary)',
     color: '#fff',
     cursor: 'pointer',
     display: 'inline-flex',
@@ -813,156 +814,136 @@ export const style = {
 // focus-specific surface tokens. Values track src/styles.css' light/dark
 // palette while keeping this standalone window transparent.
 
+/**
+ * The focus window is its own transparent BrowserWindow, so it cannot inherit
+ * `styles.css`. These two constants are the whole palette it needs: the handful
+ * of shared `--color-*` properties MarkdownBody reads, plus the `--focus-*`
+ * surface tokens that only exist here. Values track the Harness palette in
+ * @moxxy/design-tokens; the `--focus-*` alphas are ink-tinted with the panel's
+ * own blue-green ink (11, 15, 18) rather than a slate borrowed from Tailwind.
+ */
+const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
+      --color-text-muted: #4a5a64;
+      --color-text-dim: #66757e;
+      --color-primary: #c21e6b;
+      --color-primary-strong: #9d1355;
+      --color-primary-soft: #fbeaf2;
+      --color-on-primary: #ffffff;
+      --color-surface: #ffffff;
+      --color-red: #c0303a;
+      --color-card-border: #dfe4e6;
+      --color-card-border-strong: #c7cfd2;
+      --color-code-bg: #f1f3f4;
+      --color-bg-card-hover: #f7f8f9;
+      --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+
+      --focus-panel-bg: #ffffff;
+      --focus-panel-border: rgba(11, 15, 18, 0.14);
+      --focus-panel-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 12px 28px -20px rgba(11, 15, 18, 0.14);
+      --focus-text: #0b0f12;
+      --focus-muted: #4a5a64;
+      --focus-dim: #66757e;
+      --focus-divider: rgba(11, 15, 18, 0.12);
+      --focus-subtle-border: rgba(11, 15, 18, 0.08);
+      --focus-action-hover-bg: rgba(11, 15, 18, 0.06);
+      --focus-action-danger-bg: rgba(192, 48, 58, 0.12);
+      --focus-preview-bg: rgba(255, 255, 255, 0.96);
+      --focus-preview-border: rgba(199, 207, 210, 0.75);
+      --focus-preview-shadow: none;
+      --focus-preview-text: #0b0f12;
+      --focus-composer-bg: #ffffff;
+      --focus-input-bg: #f1f3f4;
+      --focus-input-border: rgba(11, 15, 18, 0.12);
+      --focus-ask-bg: rgba(255, 255, 255, 0.97);
+      --focus-ask-border: rgba(11, 15, 18, 0.14);
+      --focus-ask-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 18px 40px -24px rgba(11, 15, 18, 0.22);
+      --focus-ask-text: #0b0f12;
+      --focus-ask-title: #0b0f12;
+      --focus-ask-body: #4a5a64;
+      --focus-ask-kicker: #9a6208;
+      --focus-ask-detail-bg: rgba(11, 15, 18, 0.045);
+      --focus-ask-detail-border: rgba(11, 15, 18, 0.10);
+      --focus-ask-detail-text: #1c242a;
+      --focus-ask-neutral-bg: rgba(11, 15, 18, 0.06);
+      --focus-ask-neutral-border: rgba(11, 15, 18, 0.10);
+      --focus-ask-danger-bg: rgba(192, 48, 58, 0.10);
+      --focus-ask-danger-border: rgba(192, 48, 58, 0.22);
+      --focus-ask-danger-text: #b02730;`;
+
+const FOCUS_DARK_VARS = `      --color-text: #e4ebef;
+      --color-text-muted: #93a2ab;
+      --color-text-dim: #77868f;
+      --color-primary: #f4408f;
+      --color-primary-strong: #ff63a8;
+      --color-primary-soft: #24101b;
+      --color-on-primary: #0b0f12;
+      --color-surface: #1c242a;
+      --color-red: #f2545b;
+      --color-card-border: #212a31;
+      --color-card-border-strong: #2e3941;
+      --color-code-bg: #1c242a;
+      --color-bg-card-hover: #1a2127;
+      --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+
+      --focus-panel-bg: #151b20;
+      --focus-panel-border: rgba(147, 162, 171, 0.22);
+      --focus-panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -24px rgba(0, 0, 0, 0.8);
+      --focus-text: #e4ebef;
+      --focus-muted: #93a2ab;
+      --focus-dim: #77868f;
+      --focus-divider: rgba(147, 162, 171, 0.18);
+      --focus-subtle-border: rgba(147, 162, 171, 0.14);
+      --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
+      --focus-action-danger-bg: rgba(242, 84, 91, 0.16);
+      --focus-preview-bg: rgba(21, 27, 32, 0.96);
+      --focus-preview-border: rgba(147, 162, 171, 0.24);
+      --focus-preview-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.8);
+      --focus-preview-text: #e4ebef;
+      --focus-composer-bg: #101519;
+      --focus-input-bg: #0a0e11;
+      --focus-input-border: #212a31;
+      --focus-ask-bg: rgba(21, 27, 32, 0.97);
+      --focus-ask-border: rgba(147, 162, 171, 0.22);
+      --focus-ask-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -24px rgba(0, 0, 0, 0.8);
+      --focus-ask-text: #e4ebef;
+      --focus-ask-title: #ffffff;
+      --focus-ask-body: #93a2ab;
+      --focus-ask-kicker: #e8a33d;
+      --focus-ask-detail-bg: rgba(255, 255, 255, 0.08);
+      --focus-ask-detail-border: rgba(255, 255, 255, 0.10);
+      --focus-ask-detail-text: #e4ebef;
+      --focus-ask-neutral-bg: rgba(255, 255, 255, 0.10);
+      --focus-ask-neutral-border: rgba(255, 255, 255, 0.13);
+      --focus-ask-danger-bg: rgba(242, 84, 91, 0.13);
+      --focus-ask-danger-border: rgba(242, 84, 91, 0.28);
+      --focus-ask-danger-text: #f58a90;`;
+
 if (typeof document !== 'undefined') {
   const existing = document.getElementById('focus-keyframes');
   const styleTag = existing ?? document.createElement('style');
   styleTag.id = 'focus-keyframes';
   styleTag.textContent = `
     :root {
-      --color-text: #0b0d12;
-      --color-text-muted: #55596b;
-      --color-text-dim: #8a8f9f;
-      --color-primary: #c4310f;
-      --color-primary-strong: #9c2409;
-      --color-primary-soft: #fff1ec;
-      --color-surface: #ffffff;
-      --grad-user: linear-gradient(135deg, #c4310f 0%, #e2551f 100%);
-      --color-red: #c53030;
-      --color-card-border: #e4e4ea;
-      --color-card-border-strong: #d3d4dc;
-      --color-code-bg: #f2f2f5;
-      --color-bg-card-hover: #f7f7f9;
-      --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-
-      --focus-panel-bg: #ffffff;
-      --focus-panel-border: rgba(11, 13, 18, 0.14);
-      --focus-panel-shadow: 0 14px 32px rgba(11, 13, 18, 0.18);
-      --focus-text: #0b0d12;
-      --focus-muted: #64748b;
-      --focus-dim: #8a8f9f;
-      --focus-divider: rgba(11, 13, 18, 0.12);
-      --focus-subtle-border: rgba(11, 13, 18, 0.08);
-      --focus-action-hover-bg: rgba(11, 13, 18, 0.06);
-      --focus-action-danger-bg: rgba(239, 68, 68, 0.12);
-      --focus-preview-bg: rgba(255, 255, 255, 0.96);
-      --focus-preview-border: rgba(203, 213, 225, 0.75);
-      --focus-preview-shadow: none;
-      --focus-preview-text: #0b0d12;
-      --focus-composer-bg: #ffffff;
-      --focus-input-bg: #f8fafc;
-      --focus-input-border: rgba(11, 13, 18, 0.12);
-      --focus-ask-bg: rgba(255, 255, 255, 0.97);
-      --focus-ask-border: rgba(11, 13, 18, 0.14);
-      --focus-ask-shadow: 0 18px 44px rgba(11, 13, 18, 0.18);
-      --focus-ask-text: #0b0d12;
-      --focus-ask-title: #0b0d12;
-      --focus-ask-body: #55596b;
-      --focus-ask-kicker: #c4310f;
-      --focus-ask-detail-bg: rgba(11, 13, 18, 0.045);
-      --focus-ask-detail-border: rgba(11, 13, 18, 0.10);
-      --focus-ask-detail-text: #21252f;
-      --focus-ask-neutral-bg: rgba(11, 13, 18, 0.06);
-      --focus-ask-neutral-border: rgba(11, 13, 18, 0.10);
-      --focus-ask-danger-bg: rgba(239, 68, 68, 0.10);
-      --focus-ask-danger-border: rgba(239, 68, 68, 0.22);
-      --focus-ask-danger-text: #b91c1c;
+${FOCUS_LIGHT_VARS}
       color-scheme: light;
     }
 
     [data-theme="dark"] {
-      --color-text: #edeef2;
-      --color-text-muted: #9096a6;
-      --color-text-dim: #6b7284;
-      --color-primary: #ff6a44;
-      --color-primary-strong: #ff4a1e;
-      --color-primary-soft: #2e1409;
-      --color-surface: #1a1e28;
-      --grad-user: linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%);
-      --color-red: #d97070;
-      --color-card-border: #232833;
-      --color-card-border-strong: #333947;
-      --color-code-bg: #232833;
-      --color-bg-card-hover: #191d26;
-
-      --focus-panel-bg: #12151d;
-      --focus-panel-border: rgba(148, 163, 184, 0.22);
-      --focus-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.42);
-      --focus-text: #edeef2;
-      --focus-muted: #9096a6;
-      --focus-dim: #6b7284;
-      --focus-divider: rgba(148, 163, 184, 0.18);
-      --focus-subtle-border: rgba(148, 163, 184, 0.14);
-      --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
-      --focus-action-danger-bg: rgba(239, 68, 68, 0.16);
-      --focus-preview-bg: rgba(18, 21, 29, 0.96);
-      --focus-preview-border: rgba(148, 163, 184, 0.24);
-      --focus-preview-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
-      --focus-preview-text: #f8fafc;
-      --focus-composer-bg: #0b0d12;
-      --focus-input-bg: #121420;
-      --focus-input-border: #232833;
-      --focus-ask-bg: rgba(18, 21, 29, 0.97);
-      --focus-ask-border: rgba(148, 163, 184, 0.22);
-      --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
-      --focus-ask-text: #f8fafc;
-      --focus-ask-title: #ffffff;
-      --focus-ask-body: #cbd5e1;
-      --focus-ask-kicker: #f9a8d4;
-      --focus-ask-detail-bg: rgba(255, 255, 255, 0.08);
-      --focus-ask-detail-border: rgba(255, 255, 255, 0.10);
-      --focus-ask-detail-text: #e2e8f0;
-      --focus-ask-neutral-bg: rgba(255, 255, 255, 0.10);
-      --focus-ask-neutral-border: rgba(255, 255, 255, 0.13);
-      --focus-ask-danger-bg: rgba(248, 113, 113, 0.13);
-      --focus-ask-danger-border: rgba(248, 113, 113, 0.28);
-      --focus-ask-danger-text: #fecaca;
+${FOCUS_DARK_VARS}
       color-scheme: dark;
     }
 
+    /* System dark with no explicit choice must resolve to EXACTLY the same
+       values as [data-theme="dark"]. This used to be a hand-maintained third
+       copy of the palette that had drifted: it omitted --color-primary,
+       --color-primary-strong and --color-red, so a system-dark user with no
+       stored theme pref got the light accent on a dark panel. One shared
+       constant makes the two paths identical by construction. */
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme]) {
-        --color-text: #edeef2;
-        --color-text-muted: #9096a6;
-        --color-text-dim: #6b7284;
-        --color-primary-soft: #2e1409;
-        --color-surface: #1a1e28;
-        --grad-user: linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%);
-        --color-card-border: #232833;
-        --color-card-border-strong: #333947;
-        --color-code-bg: #232833;
-        --color-bg-card-hover: #191d26;
-        --focus-panel-bg: #12151d;
-        --focus-panel-border: rgba(148, 163, 184, 0.22);
-        --focus-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.42);
-        --focus-text: #edeef2;
-        --focus-muted: #9096a6;
-        --focus-dim: #6b7284;
-        --focus-divider: rgba(148, 163, 184, 0.18);
-        --focus-subtle-border: rgba(148, 163, 184, 0.14);
-        --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
-        --focus-action-danger-bg: rgba(239, 68, 68, 0.16);
-        --focus-preview-bg: rgba(18, 21, 29, 0.96);
-        --focus-preview-border: rgba(148, 163, 184, 0.24);
-        --focus-preview-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
-        --focus-preview-text: #f8fafc;
-        --focus-composer-bg: #0b0d12;
-        --focus-input-bg: #121420;
-        --focus-input-border: #232833;
-        --focus-ask-bg: rgba(18, 21, 29, 0.97);
-        --focus-ask-border: rgba(148, 163, 184, 0.22);
-        --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
-        --focus-ask-text: #f8fafc;
-        --focus-ask-title: #ffffff;
-        --focus-ask-body: #cbd5e1;
-        --focus-ask-kicker: #f9a8d4;
-        --focus-ask-detail-bg: rgba(255, 255, 255, 0.08);
-        --focus-ask-detail-border: rgba(255, 255, 255, 0.10);
-        --focus-ask-detail-text: #e2e8f0;
-        --focus-ask-neutral-bg: rgba(255, 255, 255, 0.10);
-        --focus-ask-neutral-border: rgba(255, 255, 255, 0.13);
-        --focus-ask-danger-bg: rgba(248, 113, 113, 0.13);
-        --focus-ask-danger-border: rgba(248, 113, 113, 0.28);
-        --focus-ask-danger-text: #fecaca;
+${FOCUS_DARK_VARS}
         color-scheme: dark;
       }
     }

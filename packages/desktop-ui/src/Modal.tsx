@@ -174,7 +174,7 @@ export function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(15, 23, 42, 0.45)',
+        background: 'var(--color-overlay)',
         display: 'grid',
         placeItems: 'center',
         zIndex: 1000,
@@ -195,9 +195,9 @@ export function Modal({
           maxWidth: '92vw',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 16,
-          boxShadow: '0 30px 60px -20px rgba(15, 23, 42, 0.35)',
-          padding: '18px 18px 16px',
+          borderRadius: 'var(--radius-card)',
+          boxShadow: 'var(--color-card-shadow)',
+          padding: 'var(--space-16)',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
@@ -207,7 +207,15 @@ export function Modal({
         <header
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
         >
-          <h2 id={titleId} style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+          <h2
+            id={titleId}
+            style={{
+              margin: 0,
+              fontSize: 'var(--type-section)',
+              fontWeight: 500,
+              letterSpacing: '-0.02em',
+            }}
+          >
             {title}
           </h2>
           <IconButton aria-label="Close" onClick={onClose} size={30}>
@@ -245,7 +253,12 @@ export function ConfirmModal({
     <Modal title={title} onClose={onCancel} describedById={messageId}>
       <p
         id={messageId}
-        style={{ margin: 0, fontSize: 13.5, color: 'var(--color-text-muted)', lineHeight: 1.55 }}
+        style={{
+          margin: 0,
+          fontSize: 'var(--type-row)',
+          color: 'var(--color-text-muted)',
+          lineHeight: 1.55,
+        }}
       >
         {message}
       </p>

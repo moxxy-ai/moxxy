@@ -79,6 +79,45 @@ function stringField(input: unknown, key: string): string | null {
   return typeof value === 'string' && value.trim() ? oneLine(value) : null;
 }
 
+/**
+ * A tool call split into the two parts a TABULAR surface needs: the tool's own
+ * name, and what it was called on.
+ *
+ * {@link formatToolActivity} bakes a verb into one flat sentence ("Ran grep · …"),
+ * which is right for a terminal line and wrong for a column layout — the verb
+ * repeats down every row, and the name it is trying to introduce ends up in the
+ * middle of the string where it cannot be aligned or weighted. The desktop's
+ * trace lays these out as `name  detail`, so it needs them apart.
+ *
+ * `detail` deliberately carries NO verb and no leading separator; it is the
+ * argument, phrased the same way `formatToolActivity` phrases it so the two
+ * surfaces still describe a call identically.
+ */
+export function describeToolCall(
+  name: string,
+  input: unknown,
+): { readonly name: string; readonly detail: string } {
+  const normalized = name.toLowerCase();
+  if (normalized === 'read') {
+    return { name, detail: stringField(input, 'file_path') ?? 'file' };
+  }
+  if (normalized === 'grep') {
+    const pattern = stringField(input, 'pattern') ?? 'pattern';
+    const cwd = stringField(input, 'cwd');
+    return { name, detail: `${JSON.stringify(pattern)}${cwd ? ` in ${cwd}` : ''}` };
+  }
+  if (normalized === 'glob') {
+    return { name, detail: stringField(input, 'pattern') ?? 'files' };
+  }
+  if (normalized === 'bash') {
+    return { name, detail: stringField(input, 'command') ?? 'command' };
+  }
+  if (normalized.includes('search')) {
+    return { name, detail: stringField(input, 'query') ?? summarizeArgs(input) };
+  }
+  return { name, detail: summarizeArgs(input) };
+}
+
 /** Natural-language activity line shared by terminal and graphical channels. */
 export function formatToolActivity(name: string, input: unknown, running: boolean): string {
   const normalized = name.toLowerCase();

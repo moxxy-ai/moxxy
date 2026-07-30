@@ -46,13 +46,13 @@ export function ArgsForm({
         }}
       >
         {command.description && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
             {command.description}
           </p>
         )}
         {steps.map((step, i) => (
           <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               {step.label}
             </span>
             <TextInput
@@ -73,7 +73,7 @@ export function ArgsForm({
               style={step.secret ? { fontFamily: 'inherit' } : undefined}
             />
             {step.help && (
-              <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{step.help}</span>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{step.help}</span>
             )}
           </label>
         ))}

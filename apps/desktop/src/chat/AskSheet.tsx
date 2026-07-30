@@ -52,12 +52,12 @@ function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
           width: '100%',
           resize: 'vertical',
           padding: '10px 12px',
-          fontSize: 13.5,
+          fontSize: 'var(--type-ui)',
           lineHeight: 1.5,
           color: 'var(--color-text)',
           background: 'var(--color-surface)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           outline: 'none',
           fontFamily: 'inherit',
         }}
@@ -85,27 +85,28 @@ function PermissionSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
   return (
     <Sheet
       icon="wrench"
-      title="Permission required"
-      accent="var(--color-primary)"
+      title={`approval required · ${tool?.name ?? 'tool'}`}
+      accent="var(--color-amber)"
       initialFocusRef={denyRef}
       onEscape={onEscape}
     >
-      <p style={bodyTextStyle}>
-        The agent wants to run <strong style={{ color: 'var(--color-text)' }}>{tool?.name}</strong>
-        {tool?.description ? ` — ${tool.description}` : ''}.
-      </p>
-      {summary && <pre style={preStyle}>{summary}</pre>}
-      <Buttons>
+      {summary && <pre className="ask-dock__cmd">{summary}</pre>}
+      {tool?.description && <p style={bodyTextStyle}>{tool.description}</p>}
+      <div className="ask-dock__acts">
+        <SheetButton tone="primary" onClick={() => decide('allow_session')}>
+          Allow once
+        </SheetButton>
+        <SheetButton tone="neutral" onClick={() => decide('allow_always')}>
+          Always allow {tool?.name ?? 'this'}
+        </SheetButton>
         <SheetButton ref={denyRef} tone="danger" onClick={() => decide('deny')}>
           Deny
         </SheetButton>
-        <SheetButton tone="neutral" onClick={() => decide('allow_session')}>
-          Allow
-        </SheetButton>
-        <SheetButton tone="primary" onClick={() => decide('allow_always')}>
-          Always allow
-        </SheetButton>
-      </Buttons>
+        {/* Only what is actually wired. The design's strip also promised "⏎ allow",
+            which would mean Enter approving a tool call on a panel that focuses
+            Deny — a safety change nobody asked for, and a lie until it is made. */}
+        <span className="ask-dock__keys">esc denies</span>
+      </div>
     </Sheet>
   );
 }
@@ -175,12 +176,12 @@ function ApprovalSheet({
               width: '100%',
               resize: 'vertical',
               padding: '10px 12px',
-              fontSize: 13.5,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.5,
               color: 'var(--color-text)',
               background: 'var(--color-surface)',
               border: '1px solid var(--color-card-border)',
-              borderRadius: 10,
+              borderRadius: 'var(--radius-block)',
               outline: 'none',
               fontFamily: 'inherit',
             }}
@@ -238,49 +239,22 @@ function Sheet({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="anim-fade-up"
-      style={{
-        margin: '0 24px 8px',
-        background: 'var(--color-surface)',
-        border: `1px solid ${accent}`,
-        borderRadius: 14,
-        boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.4)',
-        padding: 16,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
+      data-testid="ask-dock"
+      className="ask-dock"
+      style={{ ['--ask-accent' as string]: accent }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-        <span
-          aria-hidden
-          style={{
-            width: 28,
-            height: 28,
-            flexShrink: 0,
-            borderRadius: 8,
-            background: 'var(--color-primary-soft)',
-            color: 'var(--color-primary-strong)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name={icon} size={15} />
-        </span>
-        <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+      <div className="ask-dock__head">
+        <Icon name={icon} size={13} />
+        <span>{title}</span>
       </div>
       {children}
     </div>
   );
 }
 
+/** The dock's action row, shared by all three ask kinds so they lay out alike. */
 function Buttons({ children }: { readonly children: React.ReactNode }): JSX.Element {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8 }}>
-      {children}
-    </div>
-  );
+  return <div className="ask-dock__acts">{children}</div>;
 }
 
 const SheetButton = forwardRef<
@@ -307,13 +281,14 @@ const SheetButton = forwardRef<
       disabled={disabled}
       {...(title ? { title } : {})}
       style={{
-        padding: '8px 15px',
-        fontSize: 13,
+        padding: '0 var(--space-12)',
+        height: 'var(--frame-control)',
+        fontSize: 'var(--type-ui)',
         fontWeight: 600,
         color: palette.color,
         background: palette.bg,
         border: `1px solid ${palette.border}`,
-        borderRadius: 10,
+        borderRadius: 'var(--radius-block)',
         opacity: disabled ? 0.5 : 1,
       }}
     >
@@ -324,18 +299,18 @@ const SheetButton = forwardRef<
 
 const bodyTextStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: 13.5,
+  fontSize: 'var(--type-ui)',
   lineHeight: 1.55,
   color: 'var(--color-text-muted)',
 };
 
 const preStyle: React.CSSProperties = {
   margin: 0,
-  padding: '10px 12px',
+  padding: 'var(--space-8) var(--space-12)',
   background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 8,
-  fontSize: 11.5,
+  borderRadius: 'var(--radius-block)',
+  fontSize: 'var(--type-meta)',
   fontFamily: 'var(--font-mono)',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',

@@ -39,7 +39,7 @@ function makeDesk(): Desk {
 }
 
 function renderSidebar(): void {
-  render(<WorkspaceSidebar view="chat" onView={vi.fn()} />);
+  render(<WorkspaceSidebar onOpenRun={vi.fn()} />);
 }
 
 beforeEach(() => {
@@ -96,5 +96,40 @@ describe('WorkspaceSidebar session actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     expect(mocks.removeSession).toHaveBeenCalledWith('session-2');
+  });
+
+  it('filters the tree from the column head, and says when nothing matches', () => {
+    renderSidebar();
+
+    fireEvent.click(screen.getByTestId('workspace-search-toggle'));
+    const field = screen.getByTestId('workspace-search');
+
+    // A session match keeps its workspace visible with only that session under it.
+    fireEvent.change(field, { target: { value: 'hejo' } });
+    expect(screen.getByTestId('session-row-session-2')).toBeTruthy();
+    expect(screen.queryByTestId('session-row-session-1')).toBeNull();
+
+    // Nothing matching is a STATE. A blank column would read as "no workspaces".
+    fireEvent.change(field, { target: { value: 'zzzz-no-match' } });
+    expect(screen.queryByTestId('session-row-session-2')).toBeNull();
+    expect(screen.getByText(/Nothing matches/)).toBeTruthy();
+
+    // Escape closes the filter and restores the full tree.
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(screen.queryByTestId('workspace-search')).toBeNull();
+    expect(screen.getByTestId('session-row-session-1')).toBeTruthy();
+  });
+
+  it('starts a new workspace from the index column HEAD', () => {
+    // The [+] moved out of the tree and into the column head, beside the title,
+    // where the design puts it — the tree used to spend a whole row on nothing
+    // but that one right-aligned button.
+    renderSidebar();
+
+    const plus = screen.getByTestId('workspace-new');
+    expect(plus).toBeTruthy();
+    fireEvent.click(plus);
+
+    expect(mocks.desksApi.pickFolder).toHaveBeenCalled();
   });
 });

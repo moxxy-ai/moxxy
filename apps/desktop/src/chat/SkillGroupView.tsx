@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
+  describeToolCall,
   isFileDiffResult,
   formatToolActivity,
   type Block as FoldedBlock,
@@ -20,6 +21,9 @@ export interface ToolRowData {
   readonly name: string;
   readonly input: unknown;
   readonly outcome: ToolCallBlockData['outcome'];
+  /** `ts` of the request event, so a row can report its own MEASURED duration
+   *  rather than a guess. */
+  readonly requestedAt: number;
 }
 
 function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
@@ -31,6 +35,7 @@ function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
         name: child.request.name,
         input: child.request.input,
         outcome: child.outcome,
+        requestedAt: child.request.ts,
       });
     } else if (child.kind === 'live-tools') {
       for (const call of child.calls) {
@@ -39,6 +44,7 @@ function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
           name: call.request.name,
           input: call.request.input,
           outcome: call.outcome,
+          requestedAt: call.request.ts,
         });
       }
     }
@@ -106,33 +112,81 @@ export function toolActivityLabel(tool: Pick<ToolRowData, 'name' | 'input' | 'ou
 
 /** Starts expanded while work is live, then quietly collapses when it settles
  * unless the user has explicitly chosen a state. */
-export function useActivityDisclosure(running: boolean): readonly [boolean, () => void] {
-  const [open, setOpen] = useState(running);
-  const touched = useRef(false);
-  const wasRunning = useRef(running);
-  useEffect(() => {
-    if (!touched.current) {
-      if (wasRunning.current && !running) setOpen(false);
-      if (!wasRunning.current && running) setOpen(true);
-    }
-    wasRunning.current = running;
-  }, [running]);
-  return [
-    open,
-    () => {
-      touched.current = true;
-      setOpen((value) => !value);
-    },
-  ];
+export function useActivityDisclosure(): readonly [boolean, () => void] {
+  const [open, setOpen] = useState(false);
+  return [open, () => setOpen((value) => !value)];
+}
+
+/** Elapsed time for one call, from the request's timestamp to its result's. Both
+ *  events carry `ts`, so this is measured, not estimated; null while a call is
+ *  still in flight or was denied without a result. */
+export function callDuration(tool: ToolRowData): string | null {
+  const outcome = tool.outcome;
+  if (outcome === null || outcome.type === 'denied') return null;
+  const ms = outcome.ts - tool.requestedAt;
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+/** Wall time for a whole step: the first request to the last result. */
+export function stepDuration(tools: ReadonlyArray<ToolRowData>): string | null {
+  const starts = tools.map((t) => t.requestedAt).filter((n) => Number.isFinite(n));
+  const ends = tools
+    .map((t) => (t.outcome !== null && t.outcome.type !== 'denied' ? t.outcome.ts : NaN))
+    .filter((n) => Number.isFinite(n));
+  if (starts.length === 0 || ends.length === 0) return null;
+  const ms = Math.max(...ends) - Math.min(...starts);
+  if (ms < 0) return null;
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+/**
+ * The right-hand reading on a group header: how many calls it made, and how many
+ * of them failed. A bare number said nothing about what was being counted, and
+ * the failure count used to take its place rather than sit beside it.
+ */
+export function ActivityCount({
+  total,
+  failed,
+}: {
+  readonly total: number;
+  readonly failed: number;
+}): JSX.Element | null {
+  if (total === 0 && failed === 0) return null;
+  return (
+    <>
+      {failed > 0 && (
+        <span className="activity-row__fail" data-testid="activity-failed">
+          {failed} failed
+        </span>
+      )}
+      {total > 0 && <span>{total === 1 ? '1 call' : `${total} calls`}</span>}
+    </>
+  );
 }
 
 export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const tools = collectTools(scope.children);
   const runningTools = tools.some((tool) => statusOf(tool.outcome) === 'running');
   const running = scope.loading || runningTools;
-  const [open, toggle] = useActivityDisclosure(running);
+  const [open, toggle] = useActivityDisclosure();
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
-  const meta = errors > 0 ? `${errors} failed` : tools.length > 0 ? `${tools.length}` : undefined;
+  // The scope's own status, so a failed skill is MARKED rather than looking
+  // exactly like one that succeeded. Nothing set this before, which is why a
+  // failure was invisible until you expanded the group.
+  const status = errors > 0 ? 'error' : running ? 'running' : 'ok';
+  // The failure count never REPLACES the total. It used to: a scope with two
+  // failures out of sixteen calls read as "2 failed" and lost all sense of how
+  // much work had happened. Both facts, failures first, because that is the one
+  // you would act on.
+  const meta = (
+    <>
+      <ActivityCount total={tools.length} failed={errors} />
+      {stepDuration(tools) !== null && (
+        <span className="activity-row__dur">{stepDuration(tools)}</span>
+      )}
+    </>
+  );
   const label = scope.loading
     ? `Loading skill ${scope.skillEvent.name}…`
     : scope.closed
@@ -142,27 +196,79 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
         : `Loaded skill ${scope.skillEvent.name}`;
 
   return (
-    <div className="activity-block" data-testid="block-skill">
+    <div className="activity-block" data-testid="block-skill" data-status={status}>
       <ActivityRow
-        icon="spark"
         label={label}
         meta={meta}
         active={running}
         open={open}
         onToggle={toggle}
       />
-      {open ? (
-        <ul className="activity-list" role="list">
-          {tools.map((tool) => <ToolRow key={tool.id} tool={tool} />)}
-        </ul>
-      ) : null}
+      {open && tools.length > 0 && <ToolRows rows={tools} open onExpand={toggle} />}
     </div>
   );
 }
 
+/** Rows a step shows before it folds. Four is about where a list stops being
+ *  readable at a glance and starts being something you scroll past. */
+export const STEP_PREVIEW_ROWS = 4;
+
+/**
+ * A step's rows: the first few ALWAYS visible, the rest behind one fold line.
+ *
+ * The group used to be all-or-nothing — collapsed to a single summary once it
+ * finished, so a step's work was invisible until you clicked, or fully expanded,
+ * so sixteen `web_fetch` rows pushed the agent's actual answer off the screen.
+ * Showing the opening of the step and naming what is hidden gives you the shape
+ * of the work without the wall of it.
+ */
+export function ToolRows({
+  rows,
+  open,
+  onExpand,
+}: {
+  readonly rows: ReadonlyArray<ToolRowData>;
+  readonly open: boolean;
+  readonly onExpand: () => void;
+}): JSX.Element {
+  const hidden = open ? 0 : Math.max(0, rows.length - STEP_PREVIEW_ROWS);
+  const shown = open ? rows : rows.slice(0, STEP_PREVIEW_ROWS);
+  return (
+    <>
+      <ul className="activity-list" role="list">
+        {shown.map((row) => (
+          <ToolRow key={row.id} tool={row} />
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <button type="button" className="activity-fold" onClick={onExpand}>
+          <b>
+            {hidden} more {hidden === 1 ? 'call' : 'calls'}
+          </b>
+          {/* Names what is behind the fold, so it is a summary rather than a
+              door: "2 more calls" alone tells you nothing about whether to open
+              it. */}
+          <span>{foldPreview(rows.slice(STEP_PREVIEW_ROWS))}</span>
+        </button>
+      )}
+    </>
+  );
+}
+
+/** The tail of what a fold hides: distinct tool names, in order, truncated. */
+function foldPreview(hidden: ReadonlyArray<ToolRowData>): string {
+  const names: string[] = [];
+  for (const row of hidden) {
+    if (!names.includes(row.name)) names.push(row.name);
+    if (names.length === 3) break;
+  }
+  return names.join(', ');
+}
+
 export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
-  const declared = useToolIcon(tool.name);
+  const call = describeToolCall(tool.name, tool.input);
+  const duration = callDuration(tool);
   if (isFileDiffResult(tool.outcome)) {
     const display = (tool.outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
@@ -179,10 +285,18 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
       : tool.outcome.error?.message;
   return (
     <li className="activity-list__item" data-status={status}>
+      {/* Two columns: the tool's own name, then what it was called on. The row
+          used to be an icon plus one sentence with the verb baked in ("Ran
+          workflow_create · intent=…"), so every row in a group of sixteen opened
+          with the same word and the name it was introducing sat mid-string where
+          nothing could align or weight it. */}
       <button type="button" className="activity-detail-row" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <span className="activity-detail-row__icon" aria-hidden><Icon name={iconForTool(tool.name, declared)} size={16} /></span>
-        <span className={`activity-detail-row__label${status === 'running' ? ' activity-shimmer' : ''}`}>{toolActivityLabel(tool)}</span>
+        <span className={`activity-detail-row__name${status === 'running' ? ' activity-shimmer' : ''}`}>
+          {call.name}
+        </span>
+        <span className="activity-detail-row__label">{call.detail}</span>
         {status === 'error' ? <span className="activity-detail-row__error">failed</span> : null}
+        {duration !== null && <span className="activity-detail-row__dur">{duration}</span>}
       </button>
       {open ? (
         <div className="activity-detail-row__body">

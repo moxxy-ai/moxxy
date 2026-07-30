@@ -1,7 +1,19 @@
 import type { ReactNode } from 'react';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
 
-/** Shared, deliberately quiet activity header used by tools and skills. */
+/**
+ * Shared, deliberately quiet activity header used by tools and skills.
+ *
+ * There is NO chevron, and no reserved space for one. These rows arrive thirty at
+ * a time, and a disclosure caret on each was thirty pieces of punctuation the eye
+ * had to skip past to reach the content. The whole row is the control, and the
+ * nested list appearing underneath is the feedback; `aria-expanded` carries the
+ * state for anyone who needs it stated.
+ *
+ * `icon` is optional and deliberately absent on group headers. A skill scope used
+ * the `spark` glyph, which reads as a spinner sitting permanently in front of the
+ * label, and the trace gutter already carries the type marker for the whole entry.
+ */
 export function ActivityRow({
   icon,
   label,
@@ -11,7 +23,7 @@ export function ActivityRow({
   onToggle,
   testId,
 }: {
-  readonly icon: IconName;
+  readonly icon?: IconName;
   readonly label: ReactNode;
   readonly meta?: ReactNode;
   readonly active?: boolean;
@@ -28,18 +40,13 @@ export function ActivityRow({
       data-testid={testId}
       data-active={active ? 'true' : 'false'}
     >
-      <span className="activity-row__icon" aria-hidden>
-        <Icon name={icon} size={18} />
-      </span>
+      {icon !== undefined && (
+        <span className="activity-row__icon" aria-hidden>
+          <Icon name={icon} size={14} />
+        </span>
+      )}
       <span className={`activity-row__label${active ? ' activity-shimmer' : ''}`}>{label}</span>
       {meta ? <span className="activity-row__meta">{meta}</span> : null}
-      <span
-        className="activity-row__chevron"
-        aria-hidden
-        style={{ transform: open ? 'rotate(90deg)' : 'none' }}
-      >
-        <Icon name="chevron-right" size={14} />
-      </span>
     </button>
   );
 }

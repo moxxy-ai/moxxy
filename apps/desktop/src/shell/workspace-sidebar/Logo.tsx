@@ -16,12 +16,12 @@ export function Logo(): JSX.Element {
     >
       <MoxxyMark size={32} />
       <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em' }}>
+        <span style={{ fontSize: 'var(--type-ui)', fontWeight: 700, letterSpacing: '-0.01em' }}>
           MoxxyAI
         </span>
         <span
           style={{
-            fontSize: 10.5,
+            fontSize: 'var(--type-label)',
             color: 'var(--color-sidebar-text-dim)',
             letterSpacing: '0.04em',
             textTransform: 'uppercase',

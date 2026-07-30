@@ -59,7 +59,7 @@ Describe the inputs, the steps to take, and any constraints here.
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Filename
           </span>
           <TextInput
@@ -71,24 +71,24 @@ Describe the inputs, the steps to take, and any constraints here.
             spellCheck={false}
           />
           {!isMd ? (
-            <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
               Filename must end in .md
             </span>
           ) : (
             !safeName && (
-              <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
                 Use letters, digits, and . _ - only (no slashes, spaces, or “..”).
               </span>
             )
           )}
           {collision && (
-            <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
               A skill with this name already exists.
             </span>
           )}
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Markdown body
           </span>
           <TextArea
@@ -99,7 +99,7 @@ Describe the inputs, the steps to take, and any constraints here.
             style={{
               minHeight: 260,
               padding: '12px 14px',
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               lineHeight: 1.55,
               background: 'var(--color-main-bg)',
             }}
