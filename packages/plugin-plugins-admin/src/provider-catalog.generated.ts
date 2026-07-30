@@ -33,7 +33,7 @@ export const PROVIDER_PLUGIN_CATALOG = [
     ],
     "provider": {
       "auth": "oauth",
-      "defaultModel": "claude-sonnet-4-6"
+      "defaultModel": "claude-sonnet-5"
     }
   },
   {
