@@ -81,7 +81,7 @@ Requirements: Node.js 20.10 or later. Use an API key for Anthropic/OpenAI, sign 
 
 1. Install the official Claude CLI so `claude` is on `PATH` (or set `CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`).
 2. Run `claude auth login` or `moxxy login claude-code`, then confirm with `claude auth status` and `moxxy doctor`.
-3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-4-6`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
+3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
 
 The default transport disables Claude's internal tools. To opt into an isolated coding task, configure the provider item explicitly:
 
@@ -91,7 +91,7 @@ plugins:
     default: claude-code
     items:
       claude-code:
-        model: claude-sonnet-4-6
+        model: claude-sonnet-5
         config:
           mode: native-tools
           permissionMode: acceptEdits
@@ -106,7 +106,7 @@ Contributors with an authenticated subscription can run the opt-in, no-API-key s
 
 ```sh
 node scripts/e2e-claude-cli-live.mjs
-# optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-4-6 node scripts/e2e-claude-cli-live.mjs
+# optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-5 node scripts/e2e-claude-cli-live.mjs
 ```
 
 It skips clearly when `claude` is missing or signed out, streams a real text prompt, and performs its native-tool assertion only inside a generated temporary git repository.

@@ -60,7 +60,7 @@
       ],
       "provider": {
         "auth": "oauth",
-        "defaultModel": "claude-sonnet-4-6"
+        "defaultModel": "claude-sonnet-5"
       }
     }
   },
