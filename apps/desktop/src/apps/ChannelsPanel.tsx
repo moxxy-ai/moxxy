@@ -47,7 +47,7 @@ export function ChannelsPanel(): JSX.Element {
               border: '1px solid var(--color-pink)',
               background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
               borderRadius: 'var(--radius-block)',
-              fontSize: '0.85rem',
+              fontSize: 'var(--type-row)',
             }}
           >
             {channels.error}
@@ -152,7 +152,7 @@ function ChannelCard({
         <Icon name="chat" size={18} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{descriptor.name}</span>
+            <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>{descriptor.name}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <span
                 aria-hidden
@@ -163,12 +163,12 @@ function ChannelCard({
                   background: statusColor(entry),
                 }}
               />
-              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
                 {statusLabel(entry)}
               </span>
             </span>
           </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)', marginTop: 2 }}>
             {descriptor.description}
           </div>
         </div>
@@ -207,7 +207,7 @@ function ChannelCard({
         >
           {descriptor.configFields.map((f) => (
             <label key={f.name} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)' }}>
                 {f.label}
                 {f.required ? '' : ' (optional)'}
               </span>
@@ -221,7 +221,7 @@ function ChannelCard({
                 style={{ width: '100%', fontSize: 13, borderRadius: 9 }}
               />
               {f.help && (
-                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)' }}>{f.help}</span>
+                <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{f.help}</span>
               )}
             </label>
           ))}
@@ -248,7 +248,7 @@ function ChannelCard({
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            fontSize: '0.78rem',
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-green)',
           }}
         >
@@ -260,7 +260,7 @@ function ChannelCard({
       ) : (
         status.running &&
         descriptor.runHint && (
-          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
             {descriptor.runHint}
           </div>
         )
@@ -269,7 +269,7 @@ function ChannelCard({
         <div
           role="alert"
           className="mono"
-          style={{ fontSize: '0.72rem', color: 'var(--color-pink)', whiteSpace: 'pre-wrap' }}
+          style={{ fontSize: 'var(--type-meta)', color: 'var(--color-pink)', whiteSpace: 'pre-wrap' }}
         >
           {status.error}
         </div>
@@ -297,7 +297,7 @@ function ConnectStep({
           style={{
             margin: 0,
             paddingLeft: '1.1rem',
-            fontSize: '0.78rem',
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-text-dim)',
           }}
         >
@@ -313,7 +313,7 @@ function ConnectStep({
   // 'qr' and 'url' both render a runtime value; until it resolves, show a hint.
   if (!url) {
     return (
-      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+      <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
         {connect.kind === 'qr'
           ? 'Connecting — the link will appear here once the bot is reachable…'
           : 'Opening the proxy tunnel — the Request URL will appear here…'}
@@ -343,7 +343,7 @@ function ConnectStep({
 
 function ConnectTitle({ children }: { readonly children: string }): JSX.Element {
   return (
-    <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text)' }}>
+    <span style={{ fontSize: 'var(--type-meta)', fontWeight: 600, color: 'var(--color-text)' }}>
       {children}
     </span>
   );
@@ -379,7 +379,7 @@ function ConnectUrlRow({
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: '0.72rem',
+          fontSize: 'var(--type-meta)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',

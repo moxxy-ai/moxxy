@@ -3,6 +3,7 @@ import { Button, Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
 import { chatStore, useChat } from '@moxxy/client-core';
 import type { ContextUsage } from '@moxxy/client-core';
+import { ContextMeter } from '@/shell/instrument/ContextMeter';
 
 /** Compact token formatter — 1.2k / 3.40M / 812. */
 function fmt(n: number): string {
@@ -99,7 +100,7 @@ export function UsagePanel({
       <Section title="Context window">
         {f != null ? (
           <>
-            <Bar frac={f} color={fillColor(f)} />
+            <ContextMeter fraction={f} />
             <Meta>
               <strong style={{ color: fillColor(f) }}>{pct(f)}</strong>
               {`  ·  ${fmt(usage.contextTokens ?? 0)} / ${fmt(usage.contextWindow ?? 0)} tokens`}
@@ -189,9 +190,20 @@ function Section({
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 'var(--type-label)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          {title}
+        </h3>
         {subtitle && (
-          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>
+          <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
             {subtitle}
           </span>
         )}
@@ -255,10 +267,21 @@ function CollapsibleSection({
           >
             ▶
           </span>
-          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+          <h3
+          style={{
+            margin: 0,
+            fontSize: 'var(--type-label)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          {title}
+        </h3>
         </span>
         {subtitle && (
-          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>
+          <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
             {subtitle}
           </span>
         )}

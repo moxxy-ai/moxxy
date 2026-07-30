@@ -7,6 +7,22 @@ import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
+/** How the defined workflows are triggered, most common first. Derived from the
+ *  definitions, which is the only thing this runner reports about them. */
+function triggerSummary(list: ReadonlyArray<{ triggers: string }>): string {
+  const counts = new Map<string, number>();
+  for (const w of list) {
+    const kind = (w.triggers.split(/[\s,]+/)[0] || 'manual').toLowerCase();
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  if (counts.size === 0) return '—';
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k, n]) => `${n} ${k}`)
+    .join(' · ');
+}
+
 /**
  * Workflows surface — two modes:
  *   - list: the existing registry view with enable/disable + run-now + last-run
@@ -28,6 +44,7 @@ export function WorkflowsPanel({
   readonly embedded?: boolean;
 }): JSX.Element {
   const wf = useWorkflows();
+  const paused = wf.list.filter((w) => !w.enabled).length;
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [generating, setGenerating] = useState(false);
@@ -90,7 +107,14 @@ export function WorkflowsPanel({
           {actions}
         </div>
       ) : (
-        <InstrumentBar crumbs={['Automations', 'Workflows']}>{actions}</InstrumentBar>
+        <InstrumentBar
+          crumbs={[
+            'Automations',
+            `Workflows · ${wf.list.length} defined${paused > 0 ? `, ${paused} paused` : ''}`,
+          ]}
+        >
+          {actions}
+        </InstrumentBar>
       )}
       <div
         style={{
@@ -112,7 +136,7 @@ export function WorkflowsPanel({
             border: '1px solid var(--color-pink)',
             background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
             borderRadius: 'var(--radius-block)',
-            fontSize: '0.85rem',
+            fontSize: 'var(--type-row)',
           }}
         >
           {wf.error}
@@ -129,76 +153,122 @@ export function WorkflowsPanel({
           No workflows registered on this runner. Use <strong>+ New</strong> to build one.
         </p>
       ) : (
-        <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <>
+        {/* The summary row the design puts above the table.
+         *
+         * Runs / success rate / spend / next fire are NOT here, and that is a data
+         * limit rather than an omission: the IPC surface has `workflows.getRun`
+         * (one run, by id) and no history API at all, so nothing persists what a
+         * run did. Rendering a plausible "94.7%" would be inventing it. These four
+         * are computed from the definitions themselves, which is what this runner
+         * actually knows. */}
+        <div className="kpi">
+          <div className="kpi__c">
+            <span className="kpi__k">defined</span>
+            <span className="kpi__v">{wf.list.length}</span>
+          </div>
+          <div className="kpi__c">
+            <span className="kpi__k">paused</span>
+            <span className="kpi__v" data-tone={paused > 0 ? 'caution' : undefined}>
+              {paused}
+            </span>
+          </div>
+          <div className="kpi__c">
+            <span className="kpi__k">steps</span>
+            <span className="kpi__v">
+              {wf.list.reduce((n, w) => n + w.steps, 0)}
+              <small> across all</small>
+            </span>
+          </div>
+          <div className="kpi__c">
+            <span className="kpi__k">triggers</span>
+            <span className="kpi__v kpi__v--text">{triggerSummary(wf.list)}</span>
+          </div>
+        </div>
+
+        <div className="wf-section">
+          <span className="wf-section__t">defined</span>
+        </div>
+        <div className="wf-table" role="table" aria-label="Workflows">
+          <div className="wf-row wf-row--head" role="row">
+            <span />
+            <span role="columnheader">workflow</span>
+            <span role="columnheader">trigger</span>
+            <span role="columnheader">runs in</span>
+            <span role="columnheader">state</span>
+            <span />
+          </div>
           {wf.list.map((w) => (
-            <li
+            <div
               key={w.name}
+              className="wf-row"
+              role="row"
               data-testid={`workflow-row-${w.name}`}
-              style={{
-                padding: '0.65rem 0.85rem',
-                background: 'var(--color-bg-card)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-block)',
-                display: 'grid',
-                gridTemplateColumns: '1fr auto auto auto',
-                gap: '0.5rem',
-                alignItems: 'center',
-              }}
             >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{w.name}</div>
-                <div
-                  className="mono"
-                  style={{
-                    fontSize: '0.7rem',
-                    color: 'var(--color-text-dim)',
-                  }}
+              {/* State reads as a colour AND a word (the toggle below), so a
+                  paused workflow is visible at a glance down the LED column. */}
+              <span className="led" data-state={w.enabled ? 'done' : undefined} aria-hidden />
+              <span className="wf-row__name" role="cell">
+                {w.name}
+                <small>
+                  {w.steps} nodes · {w.scope}
+                </small>
+                {w.description && <em>{w.description}</em>}
+              </span>
+              <span className="wf-row__meta" role="cell">
+                {w.triggers}
+              </span>
+              <span role="cell">
+                <TargetSessionPicker
+                  value={w.targetSessionId ?? null}
+                  valueName={w.targetSessionName ?? null}
+                  onChange={(sid) => void wf.setTargetSession(w.name, sid)}
+                />
+              </span>
+              <span role="cell">
+                <button
+                  type="button"
+                  className="tag"
+                  data-testid={`toggle-workflow-${w.name}`}
+                  aria-pressed={w.enabled}
+                  aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
+                  onClick={() => void wf.setEnabled(w.name, !w.enabled)}
+                  style={
+                    w.enabled
+                      ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
+                      : undefined
+                  }
                 >
-                  {w.steps} steps · {w.scope} · {w.triggers}
-                </div>
-                {w.description && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
-                    {w.description}
-                  </div>
-                )}
-                <div style={{ marginTop: 6 }}>
-                  <TargetSessionPicker
-                    label="Triggered runs in"
-                    value={w.targetSessionId ?? null}
-                    valueName={w.targetSessionName ?? null}
-                    onChange={(sid) => void wf.setTargetSession(w.name, sid)}
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                data-testid={`edit-workflow-${w.name}`}
-                aria-label={`Edit ${w.name}`}
-                onClick={() => setEditing(w.name)}
-                style={pill('var(--color-purple)')}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                aria-pressed={w.enabled}
-                aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
-                onClick={() => void wf.setEnabled(w.name, !w.enabled)}
-                style={pill(w.enabled ? 'var(--color-green)' : 'var(--color-text-dim)')}
-              >
-                {w.enabled ? 'on' : 'off'}
-              </button>
-              <button
-                type="button"
-                aria-label={`Run ${w.name}`}
-                onClick={() => void wf.run(w.name)}
-                style={pill('var(--color-primary)')}
-              >
-                Run
-              </button>
-            </li>
+                  {w.enabled ? 'on' : 'paused'}
+                </button>
+              </span>
+              <span className="wf-row__acts" role="cell">
+                <button
+                  type="button"
+                  className="btn-box tip"
+                  data-tip="Edit"
+                  data-tip-side="left"
+                  data-testid={`edit-workflow-${w.name}`}
+                  aria-label={`Edit ${w.name}`}
+                  onClick={() => setEditing(w.name)}
+                >
+                  <Icon name="pencil" size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="btn-box tip"
+                  data-tip="Run now"
+                  data-tip-side="left"
+                  aria-label={`Run ${w.name}`}
+                  onClick={() => void wf.run(w.name)}
+                >
+                  <Icon name="send" size={14} />
+                </button>
+              </span>
+            </div>
           ))}
-        </ul>
+        </div>
+        </>
       )}
       {wf.lastRun && (
         <section
@@ -212,7 +282,7 @@ export function WorkflowsPanel({
           <header
             className="mono"
             style={{
-              fontSize: '0.7rem',
+              fontSize: 'var(--type-label)',
               color: 'var(--color-text-dim)',
               textTransform: 'uppercase',
             }}
@@ -227,7 +297,7 @@ export function WorkflowsPanel({
               background: 'var(--color-bg)',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-chip)',
-              fontSize: '0.7rem',
+              fontSize: 'var(--type-label)',
               maxHeight: 240,
               overflow: 'auto',
               whiteSpace: 'pre-wrap',
@@ -258,7 +328,7 @@ export function WorkflowsPanel({
 
 function pill(bg: string): React.CSSProperties {
   return {
-    fontSize: '0.75rem',
+    fontSize: 'var(--type-meta)',
     padding: '0.25rem 0.7rem',
     color: 'var(--color-bg)',
     background: bg,

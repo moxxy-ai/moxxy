@@ -377,7 +377,7 @@ function TechnicalDetails({
       <summary
         style={{
           cursor: 'pointer',
-          fontSize: '0.7rem',
+          fontSize: 'var(--type-label)',
           color: 'var(--color-text-dim)',
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
@@ -437,7 +437,7 @@ function TechnicalDetails({
               background: 'var(--color-card-bg)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 'var(--radius-block)',
-              fontSize: '0.7rem',
+              fontSize: 'var(--type-label)',
               color: 'var(--color-text-muted)',
               maxHeight: 240,
               overflow: 'auto',
@@ -465,7 +465,7 @@ function DetailRow({
         display: 'grid',
         gridTemplateColumns: '70px 1fr',
         gap: '0.5rem',
-        fontSize: '0.75rem',
+        fontSize: 'var(--type-meta)',
         alignItems: 'baseline',
       }}
     >

@@ -53,7 +53,7 @@ export function SchedulesPanel(): JSX.Element {
               border: '1px solid var(--color-pink)',
               background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
               borderRadius: 'var(--radius-block)',
-              fontSize: '0.85rem',
+              fontSize: 'var(--type-row)',
             }}
           >
             {sched.error}
@@ -90,8 +90,8 @@ export function SchedulesPanel(): JSX.Element {
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{s.name}</div>
-                  <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>{s.name}</div>
+                  <div className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
                     {whenLabel(s)}
                     {s.source === 'workflow' && s.workflowName ? ` · workflow: ${s.workflowName}` : ''}
                     {nextLabel(s) ? ` · ${nextLabel(s)}` : ''}
@@ -109,7 +109,7 @@ export function SchedulesPanel(): JSX.Element {
                       // workflow/skill-driven rows have their owner re-stamped on every
                       // sync from their source, so reassigning here wouldn't stick —
                       // show it read-only and point at where to change it.
-                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+                      <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
                         Runs in: {s.targetSessionName ?? 'any session'}
                         {s.source === 'workflow' ? ' (set on the workflow)' : ''}
                       </span>

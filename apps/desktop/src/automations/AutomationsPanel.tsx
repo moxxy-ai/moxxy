@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
 import { SchedulesPanel } from '../apps/SchedulesPanel';
 import { WebhooksPanel } from '../apps/WebhooksPanel';
+import { useWorkflows } from '@moxxy/client-core';
 import { IndexColumn } from '../shell/IndexColumn';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
@@ -20,10 +21,10 @@ import { InstrumentBar } from '../shell/InstrumentBar';
 
 type Kind = 'workflows' | 'schedules' | 'webhooks';
 
-const KINDS: ReadonlyArray<{ readonly id: Kind; readonly label: string; readonly hint: string }> = [
-  { id: 'workflows', label: 'Workflows', hint: 'A graph of steps' },
-  { id: 'schedules', label: 'Schedules', hint: 'Fires on a clock' },
-  { id: 'webhooks', label: 'Webhooks', hint: 'Fires on an event' },
+const KINDS: ReadonlyArray<{ readonly id: Kind; readonly label: string }> = [
+  { id: 'workflows', label: 'Workflows' },
+  { id: 'schedules', label: 'Schedules' },
+  { id: 'webhooks', label: 'Webhooks' },
 ];
 
 const TITLE: Record<Kind, string> = {
@@ -39,46 +40,61 @@ export function AutomationsIndex({
   readonly kind: Kind;
   readonly onPick: (kind: Kind) => void;
 }): JSX.Element | null {
+  // Only workflows are counted here, and only because the count is already
+  // fetched for the pane. Schedules and webhooks own their own fetches; showing
+  // a count for one kind and a fabricated zero for the others would be worse than
+  // showing none, so they show none.
+  const wf = useWorkflows();
+  const counts: Partial<Record<Kind, number>> = { workflows: wf.list.length };
+
   return (
     <IndexColumn title="automations">
-      {KINDS.map((k) => (
-        <button
-          key={k.id}
-          type="button"
-          className={k.id === kind ? 'session-row' : 'session-row row-button'}
-          data-testid={`automations-kind-${k.id}`}
-          data-active={k.id === kind}
-          aria-current={k.id === kind ? 'true' : undefined}
-          onClick={() => onPick(k.id)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-8)',
-            width: '100%',
-            minHeight: 'var(--frame-row)',
-            padding: '2px var(--space-6) 2px var(--space-8)',
-            borderRadius: 'var(--radius-block)',
-            background: k.id === kind ? 'var(--color-card-bg)' : 'transparent',
-            color:
-              k.id === kind ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
-            fontWeight: k.id === kind ? 600 : 400,
-            fontSize: 'var(--type-row)',
-            textAlign: 'left',
-          }}
-        >
-          <span className="led" aria-hidden />
-          <span style={{ flex: 1, minWidth: 0 }}>{k.label}</span>
-          <span
+      <div className="index-group">
+        <span className="index-group__label">by kind</span>
+      </div>
+      {KINDS.map((k) => {
+        const active = k.id === kind;
+        const count = counts[k.id];
+        return (
+          <button
+            key={k.id}
+            type="button"
+            className={active ? 'session-row' : 'session-row row-button'}
+            data-testid={`automations-kind-${k.id}`}
+            data-active={active}
+            aria-current={active ? 'true' : undefined}
+            onClick={() => onPick(k.id)}
             style={{
-              flexShrink: 0,
-              fontSize: 'var(--type-label)',
-              color: 'var(--color-text-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-8)',
+              width: '100%',
+              minHeight: 'var(--frame-row)',
+              padding: '2px var(--space-6) 2px var(--space-8)',
+              borderRadius: 'var(--radius-block)',
+              background: active ? 'var(--color-card-bg)' : 'transparent',
+              color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
+              fontWeight: active ? 600 : 400,
+              fontSize: 'var(--type-row)',
+              textAlign: 'left',
             }}
           >
-            {k.hint}
-          </span>
-        </button>
-      ))}
+            <span className="led" data-state={active ? 'done' : undefined} aria-hidden />
+            <span style={{ flex: 1, minWidth: 0 }}>{k.label}</span>
+            {count !== undefined && (
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontSize: 'var(--type-label)',
+                  color: 'var(--color-text-dim)',
+                }}
+              >
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
     </IndexColumn>
   );
 }

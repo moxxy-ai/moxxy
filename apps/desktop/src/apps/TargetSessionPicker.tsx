@@ -10,7 +10,7 @@
 import { useDesks } from '@moxxy/client-core';
 
 const selectStyle: React.CSSProperties = {
-  fontSize: '0.72rem',
+  fontSize: 'var(--type-meta)',
   padding: '2px 6px',
   borderRadius: 'var(--radius-block)',
   border: '1px solid var(--color-border)',
@@ -35,7 +35,7 @@ export function TargetSessionPicker({
   const known = value === null || desks.some((d) => d.sessions.some((s) => s.id === value));
 
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
       {label}
       <select
         value={value ?? ''}

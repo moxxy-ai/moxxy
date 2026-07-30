@@ -110,8 +110,8 @@ export function AppCard({
           <Icon name={def.icon} size={20} />
         </span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{def.name}</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginTop: 3 }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>{def.name}</div>
+          <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', marginTop: 3 }}>
             {def.description}
           </div>
         </div>

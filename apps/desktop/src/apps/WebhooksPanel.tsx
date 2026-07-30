@@ -53,7 +53,7 @@ export function WebhooksPanel(): JSX.Element {
               border: '1px solid var(--color-pink)',
               background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
               borderRadius: 'var(--radius-block)',
-              fontSize: '0.85rem',
+              fontSize: 'var(--type-row)',
             }}
           >
             {hooks.error}
@@ -90,11 +90,11 @@ export function WebhooksPanel(): JSX.Element {
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{w.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>{w.name}</div>
                   <div
                     className="mono"
                     style={{
-                      fontSize: '0.72rem',
+                      fontSize: 'var(--type-meta)',
                       color: 'var(--color-text-dim)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -105,7 +105,7 @@ export function WebhooksPanel(): JSX.Element {
                     {w.url ?? w.localPath} · {activityLabel(w)}
                   </div>
                   {w.description && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
+                    <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-muted)', marginTop: 4 }}>
                       {w.description}
                     </div>
                   )}

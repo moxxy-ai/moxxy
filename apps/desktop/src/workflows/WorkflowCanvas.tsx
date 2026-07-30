@@ -411,7 +411,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             display: 'grid',
             placeItems: 'center',
             color: 'var(--color-text-dim)',
-            fontSize: '0.9rem',
+            fontSize: 'var(--type-row)',
             pointerEvents: 'none',
           }}
         >
@@ -433,7 +433,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             padding: '0.4rem 0.7rem',
             background: 'var(--color-red)',
             color: 'var(--color-bg)',
-            fontSize: '0.76rem',
+            fontSize: 'var(--type-meta)',
             fontWeight: 600,
             borderRadius: 'var(--radius-block)',
             boxShadow: 'var(--color-card-shadow)',
@@ -503,7 +503,7 @@ function ZoomControls({
         data-testid="canvas-zoom-reset"
         title="Reset zoom to 100%"
         onClick={onReset}
-        style={{ ...zoomBtn, width: 'auto', minWidth: 40, padding: '0 6px', fontSize: '0.68rem' }}
+        style={{ ...zoomBtn, width: 'auto', minWidth: 40, padding: '0 6px', fontSize: 'var(--type-label)' }}
       >
         {Math.round(zoom * 100)}%
       </button>
@@ -524,7 +524,7 @@ function ZoomControls({
         title="Zoom to fit all steps"
         aria-label="Zoom to fit"
         onClick={onFit}
-        style={{ ...zoomBtn, fontSize: '0.8rem' }}
+        style={{ ...zoomBtn, fontSize: 'var(--type-meta)' }}
       >
         ⛶
       </button>
@@ -636,7 +636,7 @@ function InsertNodeMenu({
     >
       <span
         style={{
-          fontSize: '0.6rem',
+          fontSize: 'var(--type-label)',
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
@@ -695,7 +695,7 @@ const zoomBtn: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: '0.95rem',
+  fontSize: 'var(--type-ui)',
   fontWeight: 600,
   color: 'var(--color-text-dim)',
   borderRadius: 'var(--radius-chip)',
@@ -931,11 +931,14 @@ function NodeCard({
         borderBottomColor: borderColor,
         borderLeftColor: accent,
         borderRadius: 'var(--radius-block)',
+        // A ring, not a coloured glow: nothing flat in this language casts one,
+        // and a halo the colour of the step kind competed with the kind's own
+        // left edge for the same signal.
         boxShadow: isHoverTarget
           ? '0 0 0 2px var(--color-primary)'
           : selected
-            ? `0 4px 16px -6px ${accent}`
-            : 'var(--color-card-shadow)',
+            ? `0 0 0 1px ${accent}`
+            : 'none',
         padding: '0.5rem 0.65rem',
         zIndex: selected ? 3 : 2,
       }}
@@ -946,14 +949,14 @@ function NodeCard({
             <span
               title={`step ${order} in execution order`}
               style={{
-                fontSize: '0.58rem',
+                fontSize: 'var(--type-label)',
                 fontWeight: 800,
                 minWidth: 16,
                 height: 16,
                 lineHeight: '16px',
                 textAlign: 'center',
                 borderRadius: '50%',
-                color: 'var(--color-bg)',
+                color: 'var(--color-on-primary)',
                 background: accent,
               }}
             >
@@ -962,7 +965,7 @@ function NodeCard({
           )}
           <span
             style={{
-              fontSize: '0.6rem',
+              fontSize: 'var(--type-label)',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
@@ -975,19 +978,19 @@ function NodeCard({
         {errors > 0 && (
           <span
             title={`${errors} validation issue(s)`}
-            style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--color-red)' }}
+            style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: 'var(--color-red)' }}
           >
             ⚠ {errors}
           </span>
         )}
       </div>
-      <div style={{ fontWeight: 600, fontSize: '0.82rem', marginTop: 2, color: 'var(--color-text)' }}>
+      <div style={{ fontWeight: 600, fontSize: 'var(--type-row)', marginTop: 2, color: 'var(--color-text)' }}>
         {node.label || node.id}
       </div>
       <div
         className="mono"
         style={{
-          fontSize: '0.66rem',
+          fontSize: 'var(--type-label)',
           color: 'var(--color-text-dim)',
           marginTop: 2,
           overflow: 'hidden',

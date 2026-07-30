@@ -59,7 +59,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
       }}
     >
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: accent }}>
+        <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, textTransform: 'uppercase', color: accent }}>
           {meta.label}
         </span>
         <button
@@ -689,7 +689,7 @@ function dispatchUpdate(
 }
 
 const fieldLabel: React.CSSProperties = {
-  fontSize: '0.65rem',
+  fontSize: 'var(--type-label)',
   fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: '0.03em',
@@ -701,7 +701,7 @@ const selectStyle: React.CSSProperties = {
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-block)',
   background: 'var(--color-bg-card)',
-  fontSize: '0.82rem',
+  fontSize: 'var(--type-row)',
 };
 
 const pickList: React.CSSProperties = {
@@ -719,16 +719,16 @@ const pickRow: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 6,
-  fontSize: '0.78rem',
+  fontSize: 'var(--type-meta)',
   color: 'var(--color-text)',
 };
 
 const checkboxRow: React.CSSProperties = { ...pickRow, fontWeight: 500 };
 
-const emptyHint: React.CSSProperties = { fontSize: '0.75rem', color: 'var(--color-text-dim)' };
+const emptyHint: React.CSSProperties = { fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' };
 
 const errorBox: React.CSSProperties = {
-  fontSize: '0.72rem',
+  fontSize: 'var(--type-meta)',
   color: 'var(--color-red)',
   background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
   border: '1px solid var(--color-red)',
@@ -741,7 +741,7 @@ const errorBox: React.CSSProperties = {
 
 function pillBtn(color: string): React.CSSProperties {
   return {
-    fontSize: '0.68rem',
+    fontSize: 'var(--type-label)',
     fontWeight: 600,
     padding: '0.2rem 0.55rem',
     color: 'var(--color-bg)',

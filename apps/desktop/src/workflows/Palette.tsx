@@ -9,7 +9,14 @@ export function Palette({ dispatch }: { dispatch: (a: BuilderAction) => void }):
       data-testid="palette"
       style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}
     >
-      <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-dim)' }}>
+      <span
+        style={{
+          fontSize: 'var(--type-label)',
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: 'var(--color-text-dim)',
+        }}
+      >
         Add step
       </span>
       {STEP_KINDS.map((k) => (
@@ -19,17 +26,30 @@ export function Palette({ dispatch }: { dispatch: (a: BuilderAction) => void }):
           data-testid={`palette-add-${k.kind}`}
           title={k.description}
           onClick={() => add(k.kind)}
+          className="btn-box"
+          // A step-kind chip is the frame's control, sized and shaped like every
+          // other one; only the LEADING GLYPH carries the kind's categorical hue.
+          // A 1.5px outline in eight competing colours turned the palette into
+          // the loudest thing on the canvas.
           style={{
-            fontSize: '0.72rem',
-            fontWeight: 600,
-            padding: '0.25rem 0.6rem',
-            color: accentHex(k.accent),
-            background: 'var(--color-bg-card)',
-            border: `1.5px solid ${accentHex(k.accent)}`,
-            borderRadius: 'var(--radius-block)',
+            width: 'auto',
+            gap: 'var(--space-6)',
+            padding: '0 var(--space-8)',
+            fontSize: 'var(--type-meta)',
+            color: 'var(--color-text-muted)',
           }}
         >
-          + {k.label}
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              flexShrink: 0,
+              borderRadius: 'var(--radius-pill)',
+              background: accentHex(k.accent),
+            }}
+          />
+          {k.label}
         </button>
       ))}
     </div>

@@ -140,7 +140,7 @@ function ValidityBadge({ valid, validating }: { valid: boolean | null; validatin
     <span
       data-testid="validity-badge"
       style={{
-        fontSize: '0.72rem',
+        fontSize: 'var(--type-meta)',
         fontWeight: 700,
         color,
         border: `1px solid ${color}`,
@@ -158,7 +158,7 @@ function ValidityBadge({ valid, validating }: { valid: boolean | null; validatin
 }
 
 const metaLabel: React.CSSProperties = {
-  fontSize: '0.6rem',
+  fontSize: 'var(--type-label)',
   fontWeight: 700,
   textTransform: 'uppercase',
   color: 'var(--color-text-dim)',
@@ -170,7 +170,7 @@ const metaLabel: React.CSSProperties = {
 const CONTROL_H = 37;
 
 const primaryBtn: React.CSSProperties = {
-  fontSize: '0.8rem',
+  fontSize: 'var(--type-meta)',
   fontWeight: 600,
   padding: '0 1rem',
   height: CONTROL_H,
@@ -183,7 +183,7 @@ const primaryBtn: React.CSSProperties = {
 };
 
 const ghostBtn: React.CSSProperties = {
-  fontSize: '0.78rem',
+  fontSize: 'var(--type-meta)',
   color: 'var(--color-text-muted)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-block)',
@@ -200,7 +200,7 @@ const alertBox: React.CSSProperties = {
   border: '1px solid var(--color-red)',
   background: 'color-mix(in oklab, var(--color-red) 10%, transparent)',
   borderRadius: 'var(--radius-block)',
-  fontSize: '0.8rem',
+  fontSize: 'var(--type-meta)',
   display: 'flex',
   gap: 4,
 };
