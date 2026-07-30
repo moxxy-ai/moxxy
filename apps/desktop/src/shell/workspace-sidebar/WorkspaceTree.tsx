@@ -332,6 +332,9 @@ function SessionRow({
         tabIndex={0}
         aria-label={`open session ${s.name}`}
         aria-current={active ? 'true' : undefined}
+        // The row ellipsizes, so the full name is exactly what a tooltip is for —
+        // and ours says it in 140ms instead of the OS's second and a half.
+        data-tip={s.name}
         onClick={onSelect}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -343,7 +346,7 @@ function SessionRow({
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
         onBlurCapture={() => setHot(false)}
-        className={active ? 'session-row' : 'session-row row-button'}
+        className={active ? 'session-row tip' : 'session-row row-button tip'}
         style={{
           position: 'relative',
           // While its ⋯ menu is open, lift this row above the rows below
@@ -355,7 +358,7 @@ function SessionRow({
           alignItems: 'center',
           gap: 8,
           minHeight: 'var(--frame-row)',
-          padding: '2px var(--space-6) 2px var(--space-24)',
+          padding: '2px var(--space-6) 2px var(--space-8)',
           borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
           background: active ? 'var(--color-card-bg)' : 'transparent',
@@ -386,7 +389,6 @@ function SessionRow({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           }}
-          title={s.name}
         >
           {s.name}
         </span>
@@ -403,7 +405,10 @@ function SessionRow({
         )}
         <ActionsOverlay
           show={showActions}
-          background={active ? 'var(--color-sidebar-bg-active)' : HOVER_ROW_BG}
+          // Must match the row's CURRENT background or the mask paints a patch of
+          // some other colour behind the buttons. The active row is a raised card
+          // now, not the wash this used to name.
+          background={active ? 'var(--color-card-bg)' : HOVER_ROW_BG}
         >
           <RowMenu
             kind="session"

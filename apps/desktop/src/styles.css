@@ -1285,10 +1285,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   transform: translateY(-50%);
   z-index: 40;
   padding: 4px var(--space-8);
-  /* No max-width. With `white-space: nowrap` a max-width cannot clip, it only
-   * lets the text spill outside the bubble's own border — which is exactly what
-   * a long label did. Bubbles hold labels, and labels are short. */
+  /* `max-content` + `max-width` + WRAPPING is the combination that works: short
+   * labels stay on one line, long ones (a truncated session name) wrap inside the
+   * bubble. A max-width with `nowrap` cannot clip — it only lets the text spill
+   * outside the bubble's own border, which is what a long label did before. */
   width: max-content;
+  max-width: 260px;
   border: 1px solid var(--color-card-border-strong);
   border-radius: var(--radius-chip);
   background: var(--color-surface);
@@ -1296,8 +1298,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-size: var(--type-meta);
   letter-spacing: 0;
   text-transform: none;
-  white-space: nowrap;
   box-shadow: var(--color-card-shadow);
+  white-space: normal;
+  line-height: 1.35;
   opacity: 0;
   pointer-events: none;
   /* Hidden by default with NO delay, so leaving a control clears the bubble at
@@ -1771,21 +1774,75 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .index-col__search::placeholder { color: var(--color-text-dim); }
 
-/* --- The active session row --------------------------------------
- * Its commanded strap is a pseudo-element, not an inset box-shadow. An inset
- * shadow is clipped by the row's border radius, so the strap curved around the
- * corners and read as an outline — which is exactly what dropping the hairline
- * was meant to stop. Insetting it from top and bottom keeps it clear of the
- * corners entirely, so it stays a straight bar at any radius.
+/* The active session row is distinguished by its raised background and its
+ * weight, and by nothing else. It has carried, in turn, a magenta wash, a
+ * hairline outline and a commanded strap — each of which drew a BOX in a list of
+ * rows, so the row read as an object floating in the list rather than as the
+ * list's own current row. The lift is enough.
  */
 .session-row { position: relative; }
-.session-row[data-active='true']::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: var(--space-6);
-  bottom: var(--space-6);
-  width: 2px;
-  border-radius: 1px;
-  background: var(--color-primary);
+
+/* --- The docked approval ----------------------------------------
+ * A blocking ask is docked directly above the command bar, not floated over the
+ * trace as a card. The run is STOPPED until it is answered, so the control
+ * belongs where the eye already is — beside the thing you would type into — and a
+ * floating sheet meant the transcript kept scrolling underneath the one thing
+ * that could not be postponed.
+ *
+ * The accent is caution (amber), because "needs your attention" is precisely what
+ * this is; the commanded magenta means "the human ordered this", which an ask is
+ * the opposite of.
+ */
+
+.ask-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  border-top: 1px solid var(--ask-accent, var(--color-amber));
+  background: color-mix(in srgb, var(--ask-accent, var(--color-amber)) 9%, var(--color-main-bg));
+  animation: moxxy-fade-up var(--motion-overlay) ease-out both;
+}
+
+.ask-dock__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--type-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ask-accent, var(--color-amber));
+}
+
+/* The exact thing being asked about, in a sunk well. It scrolls sideways rather
+ * than wrapping: a shell command broken across lines is a different command to
+ * read, and this is the text you are being asked to vouch for. */
+.ask-dock__cmd {
+  margin: 0;
+  padding: var(--space-6) var(--space-8);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--type-row);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.ask-dock__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+
+/* The keyboard contract, pushed right. It states only what is actually wired. */
+.ask-dock__keys {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--type-label);
+  letter-spacing: 0.06em;
+  color: var(--color-text-dim);
 }
