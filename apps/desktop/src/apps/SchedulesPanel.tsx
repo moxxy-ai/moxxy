@@ -17,6 +17,22 @@ function whenLabel(s: ScheduleSummary): string {
   return 'on demand';
 }
 
+/** The soonest upcoming fire across all enabled schedules, or nothing when none
+ *  is pending. Measured from `nextFireAt`, which the scheduler already reports. */
+function nextFireSummary(list: ReadonlyArray<ScheduleSummary>): string {
+  const times = list
+    .filter((s) => s.enabled && s.nextFireAt !== null)
+    .map((s) => s.nextFireAt as number)
+    .sort((a, b) => a - b);
+  const soonest = times[0];
+  if (soonest === undefined) return 'none pending';
+  const mins = Math.round((soonest - Date.now()) / 60_000);
+  if (mins <= 0) return 'due now';
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `in ${hours}h ${mins % 60}m` : `in ${Math.floor(hours / 24)}d`;
+}
+
 function nextLabel(s: ScheduleSummary): string | null {
   if (!s.enabled) return null;
   if (s.nextFireAt) return `next ${new Date(s.nextFireAt).toLocaleString()}`;
@@ -45,10 +61,10 @@ export function SchedulesPanel(): JSX.Element {
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
-          padding: '1.5rem 2rem',
+          padding: 'var(--space-20) var(--space-32)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
+          gap: 'var(--space-16)',
         }}
       >
         {sched.error && (
@@ -56,9 +72,9 @@ export function SchedulesPanel(): JSX.Element {
             role="alert"
             style={{
               margin: 0,
-              padding: '0.45rem 0.65rem',
-              border: '1px solid var(--color-pink)',
-              background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
+              padding: 'var(--space-6) var(--space-8)',
+              border: '1px solid var(--color-red-border)',
+              background: 'var(--color-red-wash)',
               borderRadius: 'var(--radius-block)',
               fontSize: 'var(--type-row)',
             }}
@@ -67,7 +83,7 @@ export function SchedulesPanel(): JSX.Element {
           </p>
         )}
         {sched.loading && sched.list.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
             <Skeleton.Card />
             <Skeleton.Card />
           </div>
@@ -77,70 +93,110 @@ export function SchedulesPanel(): JSX.Element {
             ask the agent to schedule a task.
           </p>
         ) : (
-          <ul
-            role="list"
-            style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
-          >
-            {sched.list.map((s) => (
-              <li
-                key={s.id}
-                data-testid={`schedule-row-${s.id}`}
-                style={{
-                  padding: '0.65rem 0.85rem',
-                  background: 'var(--color-bg-card)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-block)',
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto auto',
-                  gap: '0.5rem',
-                  alignItems: 'center',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>{s.name}</div>
-                  <div className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
+          <>
+            {/* Schedules DO carry a next fire and a last result, unlike workflows —
+                so these tiles are measured rather than omitted. */}
+            <div className="kpi" style={{ marginBottom: 'var(--space-16)' }}>
+              <div className="kpi__c">
+                <span className="kpi__k">scheduled</span>
+                <span className="kpi__v">{sched.list.length}</span>
+              </div>
+              <div className="kpi__c">
+                <span className="kpi__k">paused</span>
+                <span
+                  className="kpi__v"
+                  data-tone={sched.list.some((s) => !s.enabled) ? 'caution' : undefined}
+                >
+                  {sched.list.filter((s) => !s.enabled).length}
+                </span>
+              </div>
+              <div className="kpi__c">
+                <span className="kpi__k">failing</span>
+                <span
+                  className="kpi__v"
+                  data-tone={
+                    sched.list.some((s) => s.lastResult === 'error') ? 'caution' : undefined
+                  }
+                >
+                  {sched.list.filter((s) => s.lastResult === 'error').length}
+                </span>
+              </div>
+              <div className="kpi__c">
+                <span className="kpi__k">next fire</span>
+                <span className="kpi__v kpi__v--text">{nextFireSummary(sched.list)}</span>
+              </div>
+            </div>
+            <div className="data-table data-table--sched" role="table" aria-label="Schedules">
+              <div className="data-row data-row--head" role="row">
+                <span />
+                <span role="columnheader">schedule</span>
+                <span role="columnheader">when</span>
+                <span role="columnheader">runs in</span>
+                <span role="columnheader">state</span>
+              </div>
+              {sched.list.map((s) => (
+                <div
+                  key={s.id}
+                  className="data-row"
+                  role="row"
+                  data-testid={`schedule-row-${s.id}`}
+                >
+                  <span
+                    className="led"
+                    data-state={
+                      s.lastResult === 'error' ? 'failed' : s.enabled ? 'done' : undefined
+                    }
+                    aria-hidden
+                  />
+                  <span className="data-row__name" role="cell">
+                    {s.name}
+                    <small>
+                      {s.source === 'workflow' && s.workflowName
+                        ? `workflow · ${s.workflowName}`
+                        : s.source}
+                      {s.lastResult ? ` · last ${s.lastResult}` : ''}
+                    </small>
+                  </span>
+                  <span className="data-row__meta" role="cell">
                     {whenLabel(s)}
-                    {s.source === 'workflow' && s.workflowName ? ` · workflow: ${s.workflowName}` : ''}
                     {nextLabel(s) ? ` · ${nextLabel(s)}` : ''}
-                    {s.lastResult ? ` · last: ${s.lastResult}` : ''}
-                  </div>
-                  <div style={{ marginTop: 6 }}>
+                  </span>
+                  <span role="cell">
                     {s.source === 'manual' ? (
                       <TargetSessionPicker
-                        label="Runs in"
                         value={s.targetSessionId ?? null}
                         valueName={s.targetSessionName ?? null}
                         onChange={(sid) => void sched.setTargetSession(s.id, sid)}
                       />
                     ) : (
-                      // workflow/skill-driven rows have their owner re-stamped on every
-                      // sync from their source, so reassigning here wouldn't stick —
-                      // show it read-only and point at where to change it.
-                      <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
-                        Runs in: {s.targetSessionName ?? 'any session'}
-                        {s.source === 'workflow' ? ' (set on the workflow)' : ''}
+                      // Workflow/skill-driven rows have their owner re-stamped on
+                      // every sync from their source, so reassigning here would not
+                      // stick — read-only, pointing at where it IS changed.
+                      <span className="data-row__meta">
+                        {s.targetSessionName ?? 'any session'}
                       </span>
                     )}
-                  </div>
+                  </span>
+                  <span role="cell">
+                    <button
+                      type="button"
+                      className="tag"
+                      aria-pressed={s.enabled}
+                      aria-label={`${s.enabled ? 'Disable' : 'Enable'} ${s.name}`}
+                      onClick={() => void sched.setEnabled(s.id, !s.enabled)}
+                      style={
+                        s.enabled
+                          ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
+                          : undefined
+                      }
+                    >
+                      {s.enabled ? 'on' : 'paused'}
+                    </button>
+                  </span>
                 </div>
-                <Button
-                  variant="chip"
-                  onClick={() => void sched.setEnabled(s.id, !s.enabled)}
-                  style={{ borderRadius: 9 }}
-                >
-                  {s.enabled ? 'Disable' : 'Enable'}
-                </Button>
-                <Button
-                  variant="chip"
-                  data-testid={`schedule-delete-${s.id}`}
-                  onClick={() => void sched.deleteSchedule(s.id)}
-                  style={{ borderRadius: 9 }}
-                >
-                  <Icon name="x" size={14} />
-                </Button>
-              </li>
-            ))}
-          </ul>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </>

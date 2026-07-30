@@ -196,7 +196,7 @@ const ghostBtn: React.CSSProperties = {
 
 const alertBox: React.CSSProperties = {
   margin: '0 1rem 0.5rem',
-  padding: '0.45rem 0.65rem',
+  padding: 'var(--space-6) var(--space-8)',
   border: '1px solid var(--color-red)',
   background: 'color-mix(in oklab, var(--color-red) 10%, transparent)',
   borderRadius: 'var(--radius-block)',

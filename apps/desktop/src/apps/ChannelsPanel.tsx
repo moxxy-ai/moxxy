@@ -20,7 +20,7 @@ function statusColor(entry: ChannelEntry): string {
   if (entry.status.running) return 'var(--color-green)';
   if (entry.status.error) return 'var(--color-pink)';
   if (entry.status.configured) return 'var(--color-text-dim)';
-  return 'var(--color-border)';
+  return 'var(--color-card-border)';
 }
 
 function statusLabel(entry: ChannelEntry): string {
@@ -79,7 +79,7 @@ export function ChannelPage({
       data-testid={`channel-row-${descriptor.id}`}
       style={{
         padding: '0.85rem 1rem',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         display: 'flex',

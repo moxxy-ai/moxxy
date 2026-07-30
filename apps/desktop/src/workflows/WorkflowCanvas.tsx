@@ -480,7 +480,7 @@ function ZoomControls({
         alignItems: 'center',
         gap: 2,
         padding: 3,
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         boxShadow: 'var(--color-card-shadow)',
@@ -627,7 +627,7 @@ function InsertNodeMenu({
         gap: 2,
         padding: 4,
         minWidth: 160,
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         boxShadow: 'var(--color-card-shadow)',
@@ -825,7 +825,7 @@ function Edge({
 function edgeColor(isHoverTarget: boolean, selected: boolean, accent: string, errors: number): string {
   if (isHoverTarget) return 'var(--color-primary)';
   if (selected) return accent;
-  return errors > 0 ? 'var(--color-red)' : 'var(--color-border)';
+  return errors > 0 ? 'var(--color-red)' : 'var(--color-card-border)';
 }
 
 /** World-units a keyboard arrow nudge moves a node (Shift = larger step). */
@@ -921,7 +921,7 @@ function NodeCard({
         minHeight: NODE_H,
         cursor: dragging ? 'grabbing' : 'grab',
         userSelect: 'none',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         borderStyle: errored ? 'dashed dashed dashed solid' : 'solid',
         borderWidth: errored ? '3px 2px 2px 5px' : '2px 2px 2px 5px',
         // Per-side colors only — mixing the borderColor shorthand with
@@ -1135,7 +1135,7 @@ function Handle({
         lineHeight: 1,
         color,
         borderRadius: '50%',
-        background: input && connecting ? color : 'var(--color-bg-card)',
+        background: input && connecting ? color : 'var(--color-card-bg)',
         border: `2px solid ${color}`,
         cursor: input ? 'default' : 'crosshair',
         boxShadow: input && connecting ? `0 0 0 3px color-mix(in oklab, ${color} 40%, transparent)` : 'none',
@@ -1175,7 +1175,7 @@ function BodyDropHandle({
         width: HANDLE_R * 2,
         height: HANDLE_R * 2,
         borderRadius: '50%',
-        background: connecting ? LOOP_BODY_COLOR : 'var(--color-bg-card)',
+        background: connecting ? LOOP_BODY_COLOR : 'var(--color-card-bg)',
         border: `2px dashed ${LOOP_BODY_COLOR}`,
         boxShadow: connecting ? `0 0 0 3px color-mix(in oklab, ${LOOP_BODY_COLOR} 40%, transparent)` : 'none',
         zIndex: 4,

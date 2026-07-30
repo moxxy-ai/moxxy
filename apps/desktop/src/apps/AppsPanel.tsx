@@ -45,7 +45,7 @@ export function AppsPanel(): JSX.Element {
 function Gallery({ onOpen }: { readonly onOpen: (id: string) => void }): JSX.Element {
   const apps = listDesktopApps();
   return (
-    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem 2rem' }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--space-20) var(--space-32)' }}>
       {apps.length === 0 ? (
         <p style={{ color: 'var(--color-text-dim)' }}>No apps available.</p>
       ) : (
@@ -56,7 +56,7 @@ function Gallery({ onOpen }: { readonly onOpen: (id: string) => void }): JSX.Ele
             padding: 0,
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-            gap: '1rem',
+            gap: 'var(--space-16)',
           }}
         >
           {apps.map((def) => (

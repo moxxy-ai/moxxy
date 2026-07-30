@@ -109,10 +109,10 @@ export function WorkflowsPanel(): JSX.Element {
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
-          padding: '1.5rem 2rem',
+          padding: 'var(--space-20) var(--space-32)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1rem',
+          gap: 'var(--space-16)',
         }}
       >
       {wf.error && (
@@ -120,9 +120,9 @@ export function WorkflowsPanel(): JSX.Element {
           role="alert"
           style={{
             margin: 0,
-            padding: '0.45rem 0.65rem',
-            border: '1px solid var(--color-pink)',
-            background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
+            padding: 'var(--space-6) var(--space-8)',
+            border: '1px solid var(--color-red-border)',
+            background: 'var(--color-red-wash)',
             borderRadius: 'var(--radius-block)',
             fontSize: 'var(--type-row)',
           }}
@@ -131,7 +131,7 @@ export function WorkflowsPanel(): JSX.Element {
         </p>
       )}
       {wf.loading && wf.list.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
           <Skeleton.Card />
           <Skeleton.Card />
           <Skeleton.Card />
@@ -174,11 +174,11 @@ export function WorkflowsPanel(): JSX.Element {
           </div>
         </div>
 
-        <div className="wf-section">
-          <span className="wf-section__t">defined</span>
+        <div className="data-section">
+          <span className="data-section__t">defined</span>
         </div>
-        <div className="wf-table" role="table" aria-label="Workflows">
-          <div className="wf-row wf-row--head" role="row">
+        <div className="data-table" role="table" aria-label="Workflows">
+          <div className="data-row data-row--head" role="row">
             <span />
             <span role="columnheader">workflow</span>
             <span role="columnheader">trigger</span>
@@ -189,21 +189,21 @@ export function WorkflowsPanel(): JSX.Element {
           {wf.list.map((w) => (
             <div
               key={w.name}
-              className="wf-row"
+              className="data-row"
               role="row"
               data-testid={`workflow-row-${w.name}`}
             >
               {/* State reads as a colour AND a word (the toggle below), so a
                   paused workflow is visible at a glance down the LED column. */}
               <span className="led" data-state={w.enabled ? 'done' : undefined} aria-hidden />
-              <span className="wf-row__name" role="cell">
+              <span className="data-row__name" role="cell">
                 {w.name}
                 <small>
                   {w.steps} nodes · {w.scope}
                 </small>
                 {w.description && <em>{w.description}</em>}
               </span>
-              <span className="wf-row__meta" role="cell">
+              <span className="data-row__meta" role="cell">
                 {w.triggers}
               </span>
               <span role="cell">
@@ -230,7 +230,7 @@ export function WorkflowsPanel(): JSX.Element {
                   {w.enabled ? 'on' : 'paused'}
                 </button>
               </span>
-              <span className="wf-row__acts" role="cell">
+              <span className="data-row__acts" role="cell">
                 <button
                   type="button"
                   className="btn-box tip"
@@ -262,7 +262,7 @@ export function WorkflowsPanel(): JSX.Element {
         <section
           style={{
             padding: '0.75rem 0.85rem',
-            background: 'var(--color-bg-card)',
+            background: 'var(--color-card-bg)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-block)',
           }}

@@ -65,7 +65,7 @@ export function AppCard({
         position: 'relative',
         listStyle: 'none',
         padding: '1rem 1.1rem',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         display: 'flex',
@@ -174,7 +174,7 @@ export function AppCard({
                 style={{
                   height: 6,
                   borderRadius: 'var(--radius-pill)',
-                  background: 'var(--color-border)',
+                  background: 'var(--color-card-border)',
                   overflow: 'hidden',
                 }}
               >

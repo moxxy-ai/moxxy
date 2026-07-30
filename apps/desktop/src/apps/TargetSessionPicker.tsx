@@ -14,7 +14,7 @@ const selectStyle: React.CSSProperties = {
   padding: '2px 6px',
   borderRadius: 'var(--radius-block)',
   border: '1px solid var(--color-border)',
-  background: 'var(--color-bg-card)',
+  background: 'var(--color-card-bg)',
   color: 'var(--color-text)',
   maxWidth: 220,
 };

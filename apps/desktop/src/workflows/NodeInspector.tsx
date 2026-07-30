@@ -51,7 +51,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
         flexShrink: 0,
         overflowY: 'auto',
         borderLeft: '1px solid var(--color-border)',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         padding: '1rem',
         display: 'flex',
         flexDirection: 'column',
@@ -700,7 +700,7 @@ const selectStyle: React.CSSProperties = {
   padding: '0.4rem 0.5rem',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-block)',
-  background: 'var(--color-bg-card)',
+  background: 'var(--color-card-bg)',
   fontSize: 'var(--type-row)',
 };
 

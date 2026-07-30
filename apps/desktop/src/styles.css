@@ -1912,21 +1912,22 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .palette__row:hover:not(:disabled) { filter: none; background: var(--color-input-soft); }
 .palette__row:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* --- The automations table ---------------------------------------
- * One row per automation, on the same grid as every other list in the frame:
+/* --- The data table ----------------------------------------------
+ * One row per thing, on the same grid as every other list in the frame:
  * an LED for state, a name with its subtitle, then the readings. It replaced a
  * stack of cards, which gave every workflow the visual weight of a panel and made
  * six of them unscannable.
  */
 
-.wf-table {
+.data-table {
   border: 1px solid var(--color-card-border);
   border-radius: var(--radius-card);
   overflow: hidden;
 }
 
-.wf-row {
+.data-row {
   display: grid;
+  /* Panels set their own column template; this is the workflows shape. */
   grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 0.8fr) auto auto auto;
   align-items: center;
   gap: var(--space-12);
@@ -1934,9 +1935,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-bottom: 1px solid var(--color-card-border);
   font-size: var(--type-row);
 }
-.wf-row:last-child { border-bottom: 0; }
+.data-row:last-child { border-bottom: 0; }
 
-.wf-row--head {
+.data-row--head {
   background: var(--color-input-soft);
   font-size: var(--type-label);
   letter-spacing: 0.12em;
@@ -1944,15 +1945,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
 }
 
-.wf-row__name {
+.data-row__name {
   min-width: 0;
   color: var(--color-text);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wf-row__name small,
-.wf-row__name em {
+.data-row__name small,
+.data-row__name em {
   display: block;
   font-weight: 400;
   font-style: normal;
@@ -1960,9 +1961,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
   margin-top: 1px;
 }
-.wf-row__name em { color: var(--color-text-muted); font-size: var(--type-meta); }
+.data-row__name em { color: var(--color-text-muted); font-size: var(--type-meta); }
 
-.wf-row__meta {
+.data-row__meta {
   min-width: 0;
   color: var(--color-text-muted);
   font-size: var(--type-meta);
@@ -1971,7 +1972,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   white-space: nowrap;
 }
 
-.wf-row__acts { display: inline-flex; gap: var(--space-6); }
+.data-row__acts { display: inline-flex; gap: var(--space-6); }
 
 /* --- Summary tiles ----------------------------------------------
  * The reading above a list: a few numbers that say what is in it before you read
@@ -2016,10 +2017,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   white-space: nowrap;
 }
 
-.wf-section { display: flex; align-items: center; gap: var(--space-8); }
-.wf-section__t {
+.data-section { display: flex; align-items: center; gap: var(--space-8); }
+.data-section__t {
   font-size: var(--type-label);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-text-dim);
 }
+
+/* Schedules and webhooks carry fewer columns than workflows. */
+.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 1fr) auto auto; }
+.data-table--hooks .data-row { grid-template-columns: 10px minmax(0, 1.2fr) minmax(0, 1.4fr) auto auto; }

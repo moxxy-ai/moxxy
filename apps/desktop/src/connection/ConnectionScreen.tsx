@@ -390,7 +390,7 @@ function TechnicalDetails({
           marginTop: '0.6rem',
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.5rem',
+          gap: 'var(--space-8)',
         }}
       >
         <DetailRow label="phase" value={phase.phase} />
@@ -464,7 +464,7 @@ function DetailRow({
       style={{
         display: 'grid',
         gridTemplateColumns: '70px 1fr',
-        gap: '0.5rem',
+        gap: 'var(--space-8)',
         fontSize: 'var(--type-meta)',
         alignItems: 'baseline',
       }}

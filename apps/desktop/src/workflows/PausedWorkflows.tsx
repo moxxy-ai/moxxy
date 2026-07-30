@@ -16,7 +16,7 @@ export function PausedWorkflows(): JSX.Element | null {
     <section
       data-testid="paused-workflows"
       aria-label="Workflows awaiting your reply"
-      style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}
     >
       {paused.map((run) => (
         <PausedCard
@@ -54,7 +54,7 @@ function PausedCard(props: {
         borderRadius: 'var(--radius-block)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.5rem',
+        gap: 'var(--space-8)',
       }}
     >
       <div className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)', textTransform: 'uppercase' }}>
@@ -68,7 +68,7 @@ function PausedCard(props: {
           e.preventDefault();
           submit();
         }}
-        style={{ display: 'flex', gap: '0.5rem' }}
+        style={{ display: 'flex', gap: 'var(--space-8)' }}
       >
         <input
           type="text"

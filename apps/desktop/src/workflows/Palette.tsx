@@ -7,7 +7,7 @@ export function Palette({ dispatch }: { dispatch: (a: BuilderAction) => void }):
   return (
     <div
       data-testid="palette"
-      style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-6)', alignItems: 'center' }}
     >
       <span
         style={{
