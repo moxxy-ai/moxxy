@@ -1846,3 +1846,30 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   letter-spacing: 0.06em;
   color: var(--color-text-dim);
 }
+
+/* Measured wall time, on a step header and on each of its rows. Tabular so the
+ * column of durations lines up and a slow call is visible by its width alone. */
+.activity-row__dur,
+.activity-detail-row__dur {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  color: var(--color-text-dim);
+  font-size: var(--type-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The fold line under a step's preview rows. */
+.activity-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin: var(--space-2) 0 0 var(--space-16);
+  padding: 0;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+  text-align: left;
+}
+.activity-fold:hover:not(:disabled) { filter: none; color: var(--color-text-muted); }
+.activity-fold b { color: var(--color-text-muted); font-weight: 600; }
+.activity-fold span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

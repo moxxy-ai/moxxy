@@ -30,9 +30,12 @@ import { TraceEntry } from '../trace/TraceEntry';
  */
 export function BlockView({
   block,
+  step,
   onPreviewImage,
 }: {
   readonly block: FoldedBlock;
+  /** 1-based ordinal within the turn, for the blocks that ARE steps. */
+  readonly step?: number;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }): JSX.Element | null {
   switch (block.kind) {
@@ -53,7 +56,7 @@ export function BlockView({
     case 'skill-scope':
       return (
         <TraceEntry kind="tool">
-          <SkillGroupView scope={block} />
+          <SkillGroupView scope={block} step={step} />
         </TraceEntry>
       );
     case 'subagent':
@@ -71,7 +74,7 @@ export function BlockView({
     case 'live-tools':
       return (
         <TraceEntry kind="tool">
-          <LiveToolGroupView block={block} />
+          <LiveToolGroupView block={block} step={step} />
         </TraceEntry>
       );
     case 'collab':

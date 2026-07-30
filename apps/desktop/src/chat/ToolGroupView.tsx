@@ -5,23 +5,26 @@ import {
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 import { ActivityRow } from './ActivityRow';
-import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData, ActivityCount } from './SkillGroupView';
+import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData, ActivityCount, stepLabel, stepDuration, ToolRows } from './SkillGroupView';
 import { useToolIcon } from './ToolIconContext';
 
 function errorCount(rows: ReadonlyArray<ToolRowData>): number {
   return rows.filter((row) => statusOf(row.outcome) === 'error').length;
 }
 
-function ActivityToolList({ rows }: { readonly rows: ReadonlyArray<ToolRowData> }): JSX.Element {
-  return <ul className="activity-list" role="list">{rows.map((row) => <ToolRow key={row.id} tool={row} />)}</ul>;
-}
-
-export function ToolGroupView({ tools }: { readonly tools: ReadonlyArray<ToolCallBlockData> }): JSX.Element {
+export function ToolGroupView({
+  tools,
+  step,
+}: {
+  readonly tools: ReadonlyArray<ToolCallBlockData>;
+  readonly step?: number;
+}): JSX.Element {
   const rows: ToolRowData[] = tools.map((tool) => ({
     id: tool.id,
     name: tool.request.name,
     input: tool.request.input,
     outcome: tool.outcome,
+    requestedAt: tool.request.ts,
   }));
   const running = rows.some((row) => statusOf(row.outcome) === 'running');
   const [open, toggle] = useActivityDisclosure(running);
@@ -34,23 +37,37 @@ export function ToolGroupView({ tools }: { readonly tools: ReadonlyArray<ToolCal
     >
       <ActivityRow
         icon="wrench"
-        label={`${running ? 'Running' : 'Ran'} ${rows.length} tools${running ? '…' : ''}`}
-        meta={<ActivityCount total={rows.length} failed={errors} />}
+        label={stepLabel(step, `${running ? 'Running' : 'Ran'} ${rows.length} tools${running ? '…' : ''}`)}
+        meta={
+          <>
+            <ActivityCount total={rows.length} failed={errors} />
+            {stepDuration(rows) !== null && (
+              <span className="activity-row__dur">{stepDuration(rows)}</span>
+            )}
+          </>
+        }
         active={running}
         open={open}
         onToggle={toggle}
       />
-      {open ? <ActivityToolList rows={rows} /> : null}
+      {rows.length > 0 && <ToolRows rows={rows} open={open} onExpand={toggle} />}
     </div>
   );
 }
 
-export function LiveToolGroupView({ block }: { readonly block: LiveToolBlockData }): JSX.Element {
+export function LiveToolGroupView({
+  block,
+  step,
+}: {
+  readonly block: LiveToolBlockData;
+  readonly step?: number;
+}): JSX.Element {
   const rows: ToolRowData[] = block.calls.map((call) => ({
     id: call.id,
     name: call.request.name,
     input: call.request.input,
     outcome: call.outcome,
+          requestedAt: call.request.ts,
   }));
   const running = !block.closed || rows.some((row) => statusOf(row.outcome) === 'running');
   const [open, toggle] = useActivityDisclosure(running);
@@ -65,13 +82,24 @@ export function LiveToolGroupView({ block }: { readonly block: LiveToolBlockData
     >
       <ActivityRow
         icon={latest ? iconForTool(latest.request.name, latestIcon) : 'wrench'}
-        label={buildCompactSummary(block.calls, running)}
-        meta={<ActivityCount total={rows.length} failed={errors} />}
+        label={stepLabel(step, buildCompactSummary(block.calls, running))}
+        meta={
+          <>
+            <ActivityCount total={rows.length} failed={errors} />
+            {stepDuration(rows) !== null && (
+              <span className="activity-row__dur">{stepDuration(rows)}</span>
+            )}
+          </>
+        }
         active={running}
         open={open}
         onToggle={toggle}
       />
-      {open ? <ActivityToolList rows={rows} /> : latest ? <div className="activity-preview">{compactPreviewLine(latest)}</div> : null}
+      {rows.length > 0 ? (
+        <ToolRows rows={rows} open={open} onExpand={toggle} />
+      ) : latest ? (
+        <div className="activity-preview">{compactPreviewLine(latest)}</div>
+      ) : null}
     </div>
   );
 }
