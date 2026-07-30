@@ -11,7 +11,7 @@ export function OfflineBadge(): JSX.Element {
         alignItems: 'center',
         gap: 5,
         padding: '2px 8px',
-        fontSize: 11,
+        fontSize: 'var(--type-meta)',
         fontWeight: 600,
         color: 'var(--color-green)',
         background: 'color-mix(in oklab, var(--color-green) 14%, transparent)',

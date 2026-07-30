@@ -115,7 +115,7 @@ export function ChannelPage({
         <Button
           variant="chip"
           onClick={() => setConfiguring((v) => !v)}
-          style={{ borderRadius: 9 }}
+          style={{ borderRadius: 'var(--radius-block)' }}
           data-testid={`channel-configure-${descriptor.id}`}
         >
           {configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
@@ -124,7 +124,7 @@ export function ChannelPage({
           variant={status.running ? 'secondary' : 'cta'}
           onClick={() => void toggleRun()}
           disabled={busy || (!status.running && !status.configured)}
-          style={{ borderRadius: 9 }}
+          style={{ borderRadius: 'var(--radius-block)' }}
           data-testid={`channel-toggle-${descriptor.id}`}
         >
           <Icon name={status.running ? 'stop' : 'spark'} size={14} />
@@ -158,7 +158,7 @@ export function ChannelPage({
                 placeholder={
                   f.placeholder ?? (status.configured ? 'Stored — leave blank to keep' : '')
                 }
-                style={{ width: '100%', fontSize: 13, borderRadius: 9 }}
+                style={{ width: '100%', fontSize: 'var(--type-ui)', borderRadius: 'var(--radius-block)' }}
               />
               {f.help && (
                 <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{f.help}</span>
@@ -170,7 +170,7 @@ export function ChannelPage({
               variant="cta"
               onClick={() => void save()}
               disabled={busy || Object.values(values).every((v) => !v.trim())}
-              style={{ borderRadius: 'var(--radius-block)', padding: '7px 14px', fontSize: 12.5 }}
+              style={{ borderRadius: 'var(--radius-block)', padding: '7px 14px', fontSize: 'var(--type-row)' }}
             >
               {busy ? 'Saving…' : 'Save'}
             </Button>
@@ -331,7 +331,7 @@ function ConnectUrlRow({
         <Button
           variant="chip"
           onClick={() => void api().invoke('onboarding.openExternal', { url })}
-          style={{ borderRadius: 9 }}
+          style={{ borderRadius: 'var(--radius-block)' }}
           data-testid="channel-connect-open"
         >
           <Icon name="globe" size={14} />
@@ -345,7 +345,7 @@ function ConnectUrlRow({
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        style={{ borderRadius: 9 }}
+        style={{ borderRadius: 'var(--radius-block)' }}
       >
         <Icon name={copied ? 'check' : 'copy'} size={14} />
         {copied ? 'Copied' : 'Copy'}

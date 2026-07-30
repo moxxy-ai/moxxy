@@ -84,14 +84,14 @@ export function ConnectionScreen({
       >
         <MoxxyMark size={120} />
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--type-section)', fontWeight: 700, letterSpacing: '-0.01em' }}>
             {friendlyTitle(phase.phase)}
           </h1>
           <p
             style={{
               margin: '6px 0 0',
               color: 'var(--color-text-muted)',
-              fontSize: 13.5,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.6,
             }}
           >
@@ -198,7 +198,7 @@ function ProtocolIncompatibleActions({
       <div
         role="note"
         style={{
-          fontSize: 12.5,
+          fontSize: 'var(--type-row)',
           color: 'var(--color-text-muted)',
           lineHeight: 1.6,
           maxWidth: 420,
@@ -245,7 +245,7 @@ function ProtocolIncompatibleActions({
         <div
           role="alert"
           style={{
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             color: 'var(--color-red)',
             lineHeight: 1.6,
             maxWidth: 420,
@@ -265,7 +265,7 @@ function ProtocolIncompatibleActions({
               background: 'var(--color-card-bg)',
               border: '1px solid var(--color-card-border)',
               borderRadius: 'var(--radius-block)',
-              fontSize: 11.5,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text)',
               wordBreak: 'break-all',
               textAlign: 'left',
@@ -312,7 +312,7 @@ function primaryButtonStyle(disabled: boolean): React.CSSProperties {
     border: 'none',
     borderRadius: 'var(--radius-block)',
     fontWeight: 600,
-    fontSize: 13.5,
+    fontSize: 'var(--type-ui)',
     cursor: disabled ? 'default' : 'pointer',
     boxShadow: disabled
       ? 'none'

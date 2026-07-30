@@ -23,12 +23,12 @@ export function DiffView({ diff }: { readonly diff: string }): JSX.Element {
       style={{
         margin: 0,
         padding: 10,
-        fontSize: 11.5,
+        fontSize: 'var(--type-meta)',
         lineHeight: 1.5,
         overflow: 'auto',
         height: '100%',
         background: 'var(--color-input-soft)',
-        borderRadius: 8,
+        borderRadius: 'var(--radius-block)',
         whiteSpace: 'pre',
       }}
     >
@@ -58,6 +58,6 @@ function lineStyle(line: string): React.CSSProperties {
 
 function Empty({ children }: { readonly children: React.ReactNode }): JSX.Element {
   return (
-    <div style={{ padding: 16, fontSize: 12, color: 'var(--color-text-dim)' }}>{children}</div>
+    <div style={{ padding: 16, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{children}</div>
   );
 }

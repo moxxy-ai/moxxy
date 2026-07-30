@@ -15,6 +15,8 @@ export type IconName =
   | 'pencil'
   | 'send'
   | 'stop'
+  | 'play'
+  | 'pause'
   | 'plus'
   | 'attach'
   | 'context'
@@ -122,6 +124,13 @@ const paths: Record<IconName, JSX.Element> = {
   ),
   send: <path d="m4 12 16-8-6 18-3-7z" />,
   stop: <rect x="5" y="5" width="14" height="14" rx="2" />,
+  play: <path d="M7 4.5 19 12 7 19.5Z" />,
+  pause: (
+    <>
+      <rect x="6.5" y="5" width="4" height="14" rx="1" />
+      <rect x="13.5" y="5" width="4" height="14" rx="1" />
+    </>
+  ),
   plus: (
     <>
       <path d="M12 5v14" />

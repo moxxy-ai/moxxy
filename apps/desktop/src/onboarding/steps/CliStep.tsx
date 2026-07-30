@@ -50,7 +50,7 @@ export function CliStep({
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
           }}
         >
           <div style={{ fontWeight: 600 }}>
@@ -74,7 +74,7 @@ export function CliStep({
                 background: '#0b0d12',
                 color: '#e2e8f0',
                 borderRadius: 'var(--radius-block)',
-                fontSize: 11,
+                fontSize: 'var(--type-meta)',
                 maxHeight: 180,
                 overflow: 'auto',
                 whiteSpace: 'pre-wrap',

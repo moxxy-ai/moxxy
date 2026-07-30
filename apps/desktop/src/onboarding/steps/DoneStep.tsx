@@ -26,12 +26,12 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
     >
       <MoxxyMark size={200} />
       <div>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>You&rsquo;re all set!</h2>
+        <h2 style={{ margin: 0, fontSize: 'var(--type-display)', fontWeight: 700 }}>You&rsquo;re all set!</h2>
         <p
           style={{
             margin: '8px 0 0',
             color: 'var(--color-text-muted)',
-            fontSize: 14,
+            fontSize: 'var(--type-ui)',
             lineHeight: 1.6,
           }}
         >

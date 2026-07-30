@@ -162,7 +162,7 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
             )}
           </div>
         ) : (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-dim)' }}>{fileDiffSummary(display)}</div>
+          <div style={{ marginTop: 4, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{fileDiffSummary(display)}</div>
         )}
       </div>
     </div>

@@ -35,7 +35,7 @@ export function ModeBanner({ badge }: { readonly badge: ModeBadge }): JSX.Elemen
         gap: 8,
         padding: '7px 10px',
         marginBottom: 6,
-        fontSize: 12.5,
+        fontSize: 'var(--type-row)',
         color: 'var(--color-text)',
         background: soft,
         border: `1px solid ${accent}`,
@@ -47,7 +47,7 @@ export function ModeBanner({ badge }: { readonly badge: ModeBadge }): JSX.Elemen
         style={{
           flex: '0 0 auto',
           padding: '1px 7px',
-          fontSize: 11,
+          fontSize: 'var(--type-meta)',
           fontWeight: 700,
           letterSpacing: 0.4,
           color: '#fff',

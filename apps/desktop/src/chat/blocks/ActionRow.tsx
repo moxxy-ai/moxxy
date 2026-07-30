@@ -67,7 +67,7 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
         </ActBtn>
       </div>
       {readAloud.errorReason && (
-        <p role="alert" style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-red)' }}>
+        <p role="alert" style={{ margin: '4px 0 0', fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
           TTS failed: {readAloud.errorReason}
         </p>
       )}

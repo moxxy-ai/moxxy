@@ -52,7 +52,7 @@ export function NodeStep({
                 background: '#0b0d12',
                 color: '#e2e8f0',
                 borderRadius: 'var(--radius-block)',
-                fontSize: 11,
+                fontSize: 'var(--type-meta)',
                 maxHeight: 180,
                 overflow: 'auto',
                 whiteSpace: 'pre-wrap',
@@ -75,7 +75,7 @@ export function NodeStep({
           }}
         >
           {error && (
-            <div role="alert" style={{ fontSize: 12.5, color: 'var(--color-red)' }}>
+            <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
               {error}
             </div>
           )}

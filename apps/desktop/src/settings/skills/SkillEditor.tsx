@@ -66,7 +66,7 @@ export function SkillEditor({
           className="mono"
           style={{
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-text)',
           }}
         >
@@ -75,7 +75,7 @@ export function SkillEditor({
         {dirty && (
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 'var(--type-label)',
               padding: '2px 6px',
               borderRadius: 'var(--radius-pill)',
               background: 'var(--color-primary-soft)',
@@ -124,7 +124,7 @@ export function SkillEditor({
               width: '100%',
               height: '100%',
               padding: '16px 18px',
-              fontSize: 13,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.55,
               fontFamily: 'var(--font-mono)',
               background: 'transparent',
@@ -167,7 +167,7 @@ function SegmentedToggle({
           onClick={() => onChange(m)}
           style={{
             padding: '4px 10px',
-            fontSize: 11.5,
+            fontSize: 'var(--type-meta)',
             fontWeight: 700,
             borderRadius: 'var(--radius-block)',
             color: value === m ? 'var(--color-text)' : 'var(--color-text-dim)',

@@ -247,7 +247,7 @@ export function ImagePreviewModal({
         </button>
         <span
           className="mono"
-          style={{ minWidth: 44, textAlign: 'center', fontSize: 13, fontWeight: 700 }}
+          style={{ minWidth: 44, textAlign: 'center', fontSize: 'var(--type-ui)', fontWeight: 700 }}
         >
           {percent}
         </span>
@@ -275,7 +275,7 @@ const zoomButtonStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 20,
+  fontSize: 'var(--type-section)',
   lineHeight: 1,
   fontWeight: 700,
 };

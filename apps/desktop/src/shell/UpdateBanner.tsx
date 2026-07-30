@@ -123,14 +123,14 @@ const wrap: React.CSSProperties = {
   border: '1px solid var(--color-card-border)',
   borderRadius: 'var(--radius-card)',
   boxShadow: 'var(--color-card-shadow)',
-  fontSize: 13,
+  fontSize: 'var(--type-ui)',
   color: 'var(--color-text)',
   maxWidth: '80vw',
 };
 
 const primaryBtn: React.CSSProperties = {
   padding: '5px 12px',
-  fontSize: 12.5,
+  fontSize: 'var(--type-row)',
   fontWeight: 600,
   borderRadius: 'var(--radius-block)',
   color: '#fff',
@@ -141,7 +141,7 @@ const primaryBtn: React.CSSProperties = {
 
 const dismissBtn: React.CSSProperties = {
   padding: '2px 6px',
-  fontSize: 12,
+  fontSize: 'var(--type-row)',
   color: 'var(--color-text-dim)',
   background: 'transparent',
   border: 'none',

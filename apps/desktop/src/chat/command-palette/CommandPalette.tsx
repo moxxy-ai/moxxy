@@ -212,7 +212,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
           }}
         >
           {filtered.length === 0 && (
-            <li style={{ padding: '10px 12px', fontSize: 12, color: 'var(--color-text-dim)' }}>
+            <li style={{ padding: '10px 12px', fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
               No actions match.
             </li>
           )}
@@ -234,7 +234,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                   <span
                     style={{
                       fontWeight: 600,
-                      fontSize: 13,
+                      fontSize: 'var(--type-ui)',
                       color: 'var(--color-text)',
                       minWidth: 110,
                       flexShrink: 0,
@@ -242,14 +242,14 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
                   >
                     {humanize(cmd.name)}
                   </span>
-                  <span style={{ flex: 1, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+                  <span style={{ flex: 1, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
                     {cmd.description || 'No description'}
                   </span>
                   {hasArgs && (
                     <span
                       title="Will prompt for arguments before running"
                       style={{
-                        fontSize: 10,
+                        fontSize: 'var(--type-label)',
                         padding: '1px 6px',
                         borderRadius: 'var(--radius-pill)',
                         background: 'var(--color-primary-soft)',
@@ -267,7 +267,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
             );
           })}
         </ul>
-        <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-dim)' }}>
+        <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
           ↑↓ to navigate · ↵ to run · Esc to close
         </p>
       </div>

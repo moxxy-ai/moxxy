@@ -52,7 +52,7 @@ function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
           width: '100%',
           resize: 'vertical',
           padding: '10px 12px',
-          fontSize: 13.5,
+          fontSize: 'var(--type-ui)',
           lineHeight: 1.5,
           color: 'var(--color-text)',
           background: 'var(--color-surface)',
@@ -176,7 +176,7 @@ function ApprovalSheet({
               width: '100%',
               resize: 'vertical',
               padding: '10px 12px',
-              fontSize: 13.5,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.5,
               color: 'var(--color-text)',
               background: 'var(--color-surface)',
@@ -283,7 +283,7 @@ const SheetButton = forwardRef<
       style={{
         padding: '0 var(--space-12)',
         height: 'var(--frame-control)',
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         fontWeight: 600,
         color: palette.color,
         background: palette.bg,
@@ -299,7 +299,7 @@ const SheetButton = forwardRef<
 
 const bodyTextStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: 13.5,
+  fontSize: 'var(--type-ui)',
   lineHeight: 1.55,
   color: 'var(--color-text-muted)',
 };
@@ -310,7 +310,7 @@ const preStyle: React.CSSProperties = {
   background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 'var(--radius-block)',
-  fontSize: 11.5,
+  fontSize: 'var(--type-meta)',
   fontFamily: 'var(--font-mono)',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',

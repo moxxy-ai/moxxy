@@ -8,12 +8,16 @@
 import type { Block, CollaborationBlock, CollabMsgView } from '@moxxy/chat-model';
 import { invariant } from '@/lib/assert';
 
-/** Status-dot colour for an agent row in the left rail. */
-export function dotColor(status: string): string {
-  if (status === 'done') return 'var(--color-green)';
-  if (status === 'crashed' || status === 'killed') return 'var(--color-red)';
-  if (status === 'working') return 'var(--color-primary)';
-  return 'var(--color-text-dim)';
+/**
+ * An agent's status in the app's own LED vocabulary, so a teammate's dot means
+ * exactly what a channel's or a schedule's does. It used to return a colour
+ * directly, which let this one rail invent its own mapping alongside `.led`'s.
+ */
+export function ledState(status: string): 'running' | 'done' | 'failed' | undefined {
+  if (status === 'done') return 'done';
+  if (status === 'crashed' || status === 'killed') return 'failed';
+  if (status === 'working') return 'running';
+  return undefined;
 }
 
 /** Background colour for a task-board status chip. */

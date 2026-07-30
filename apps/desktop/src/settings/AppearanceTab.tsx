@@ -39,7 +39,7 @@ export function AppearanceTab(): JSX.Element {
           borderRadius: 'var(--radius-card)',
         }}
       >
-        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Theme</div>
+        <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600 }}>Theme</div>
         <Segmented
           items={THEME_OPTIONS}
           value={theme}

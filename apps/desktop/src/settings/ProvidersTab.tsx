@@ -262,7 +262,7 @@ function ConfigureProviderModal({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {provider.authKind === 'oauth' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
+            <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
               This provider signs in with OAuth — no API key to store. We'll open your browser to
               finish; any pasted token stays in the encrypted vault.
             </p>
@@ -276,16 +276,16 @@ function ConfigureProviderModal({
         ) : providerNeedsNoKey(provider) ? (
           <p
             data-testid="provider-no-key-note"
-            style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}
+            style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)', lineHeight: 1.55 }}
           >
             Local servers need no API key — just point moxxy at a running OpenAI-compatible endpoint
-            (Ollama, LM Studio, llama.cpp). Set <code style={{ fontSize: 11.5 }}>LOCAL_MODEL_BASE_URL</code>{' '}
+            (Ollama, LM Studio, llama.cpp). Set <code style={{ fontSize: 'var(--type-meta)' }}>LOCAL_MODEL_BASE_URL</code>{' '}
             for a non-default endpoint, then start the server.
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={fieldLabelStyle}>
-              API key · stored in the vault as <code style={{ fontSize: 11.5 }}>{provider.keyName}</code>
+              API key · stored in the vault as <code style={{ fontSize: 'var(--type-meta)' }}>{provider.keyName}</code>
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
               <TextInput
@@ -366,7 +366,7 @@ function ConfigureProviderModal({
         )}
 
         {!isAdmin && provider.authKind !== 'oauth' && !providerNeedsNoKey(provider) && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
             Built-in provider — endpoint and model list ship with moxxy; only the key is configurable.
           </p>
         )}
@@ -397,19 +397,19 @@ function ConfigureProviderModal({
                 </option>
               ))}
             </select>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
               How much the model thinks before answering. Higher effort is slower but deeper.
             </p>
           </div>
         )}
 
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
         )}
         {saved && !error && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-green, #16a34a)' }}>{saved}</p>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-green, #16a34a)' }}>{saved}</p>
         )}
       </div>
     </Modal>
@@ -417,7 +417,7 @@ function ConfigureProviderModal({
 }
 
 const fieldLabelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 'var(--type-row)',
   fontWeight: 600,
   color: 'var(--color-text-muted)',
 };
@@ -427,7 +427,7 @@ const selectStyle: React.CSSProperties = {
   borderRadius: 'var(--radius-block)',
   border: '1px solid var(--color-card-border)',
   background: 'var(--color-card-bg)',
-  fontSize: 13,
+  fontSize: 'var(--type-ui)',
   fontFamily: 'inherit',
   color: 'inherit',
 };

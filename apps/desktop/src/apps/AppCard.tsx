@@ -136,7 +136,7 @@ export function AppCard({
               onClick={() => void runUninstall()}
               disabled={busy !== null}
               style={{
-                fontSize: 12,
+                fontSize: 'var(--type-row)',
                 color: 'var(--color-text-dim)',
                 background: 'none',
                 border: 'none',
@@ -159,7 +159,7 @@ export function AppCard({
             : 'Downloading…';
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 12, color: 'var(--color-text-dim)' }} aria-hidden>
+              <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }} aria-hidden>
                 {active
                   ? `Downloading… ${mb(active.receivedBytes)} / ${mb(active.totalBytes)}`
                   : 'Downloading…'}
@@ -192,7 +192,7 @@ export function AppCard({
         })()
       ) : state === 'error' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div role="alert" style={{ fontSize: 12, color: 'var(--color-pink)' }}>
+          <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-pink)' }}>
             {status?.error ?? 'Install failed.'}
           </div>
           <Button variant="secondary" onClick={() => void runInstall()} disabled={busy !== null}>
@@ -202,7 +202,7 @@ export function AppCard({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {def.installSummary && (
-            <div style={{ fontSize: 12, color: 'var(--color-text-dim)' }}>{def.installSummary}</div>
+            <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{def.installSummary}</div>
           )}
           <div>
             <Button

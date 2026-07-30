@@ -30,13 +30,13 @@ export function StreamingReasoning({ text }: { readonly text: string }): JSX.Ele
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
             Thinking
           </span>
           <span
             className="mono"
             style={{
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text-dim)',
               display: 'inline-flex',
               alignItems: 'center',

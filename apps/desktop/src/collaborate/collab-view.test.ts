@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Block, CollabMsgView } from '@moxxy/chat-model';
-import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
+import { filterCollabMessages, latestCollab, ledState, taskChipBg } from './collab-view';
 
 const msg = (over: Partial<CollabMsgView>): CollabMsgView => ({
   id: Math.random().toString(36).slice(2),
@@ -68,13 +68,13 @@ describe('latestCollab', () => {
   });
 });
 
-describe('dotColor', () => {
+describe('ledState', () => {
   it('maps known statuses, falling back to dim', () => {
-    expect(dotColor('done')).toBe('var(--color-green)');
-    expect(dotColor('crashed')).toBe('var(--color-red)');
-    expect(dotColor('killed')).toBe('var(--color-red)');
-    expect(dotColor('working')).toBe('var(--color-primary)');
-    expect(dotColor('pending')).toBe('var(--color-text-dim)');
+    expect(ledState('done')).toBe('done');
+    expect(ledState('crashed')).toBe('failed');
+    expect(ledState('killed')).toBe('failed');
+    expect(ledState('working')).toBe('running');
+    expect(ledState('pending')).toBeUndefined();
   });
 });
 

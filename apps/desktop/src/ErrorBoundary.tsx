@@ -53,18 +53,18 @@ export class ErrorBoundary extends Component<Props, State> {
           fontFamily: "'Inter', -apple-system, system-ui, sans-serif",
         }}
       >
-        <div style={{ fontSize: 18, fontWeight: 700 }}>MoxxyAI Workspaces hit an error</div>
-        <div style={{ fontSize: 14, color: 'var(--color-text-muted, #55596b)' }}>
+        <div style={{ fontSize: 'var(--type-section)', fontWeight: 700 }}>MoxxyAI Workspaces hit an error</div>
+        <div style={{ fontSize: 'var(--type-ui)', color: 'var(--color-text-muted, #55596b)' }}>
           The app failed to render. You can reload, or report this with the details below.
         </div>
         <pre
           style={{
             margin: 0,
             padding: 16,
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
             background: '#0b0d12',
             color: '#e2e8f0',
-            fontSize: 12,
+            fontSize: 'var(--type-row)',
             lineHeight: 1.5,
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             whiteSpace: 'pre-wrap',
@@ -84,12 +84,12 @@ export class ErrorBoundary extends Component<Props, State> {
             style={{
               height: 40,
               padding: '0 20px',
-              borderRadius: 10,
+              borderRadius: 'var(--radius-block)',
               border: 'none',
               background: 'var(--color-primary)',
               color: '#fff',
               fontWeight: 600,
-              fontSize: 14,
+              fontSize: 'var(--type-ui)',
               cursor: 'pointer',
             }}
           >

@@ -57,7 +57,7 @@ export function FileMenu({
         padding: 4,
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         boxShadow: 'var(--color-card-shadow)',
       }}
     >
@@ -88,8 +88,8 @@ function MenuItem({
         gap: 8,
         width: '100%',
         padding: '7px 9px',
-        borderRadius: 8,
-        fontSize: 12.5,
+        borderRadius: 'var(--radius-block)',
+        fontSize: 'var(--type-row)',
         color: 'var(--color-text)',
         textAlign: 'left',
       }}
@@ -117,7 +117,7 @@ export function Group({
           display: 'flex',
           alignItems: 'center',
           gap: 6,
-          fontSize: 10,
+          fontSize: 'var(--type-label)',
           fontWeight: 700,
           color: 'var(--color-text-dim)',
           textTransform: 'uppercase',
@@ -141,14 +141,14 @@ export function Group({
 
 /** Dim hint / empty-state text. */
 export function Hint({ children }: { readonly children: React.ReactNode }): JSX.Element {
-  return <div style={{ fontSize: 11, color: 'var(--color-text-dim)', padding: '2px 4px' }}>{children}</div>;
+  return <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', padding: '2px 4px' }}>{children}</div>;
 }
 
 /** Square icon-button style for in-list actions (e.g. a reload button). */
 export const iconBtn: React.CSSProperties = {
   width: 20,
   height: 20,
-  borderRadius: 6,
+  borderRadius: 'var(--radius-chip)',
   color: 'var(--color-text-dim)',
   display: 'inline-flex',
   alignItems: 'center',

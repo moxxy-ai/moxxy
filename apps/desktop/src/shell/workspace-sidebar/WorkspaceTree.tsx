@@ -578,7 +578,7 @@ function RowMenu({
     gap: 8,
     width: '100%',
     padding: '7px 10px',
-    fontSize: 12.5,
+    fontSize: 'var(--type-row)',
     fontWeight: 500,
     textAlign: 'left',
     borderRadius: 'var(--radius-block)',

@@ -43,7 +43,7 @@ export function SearchBox({
           border: 'none',
           outline: 'none',
           background: 'transparent',
-          fontSize: 13,
+          fontSize: 'var(--type-ui)',
           color: 'var(--color-text)',
         }}
       />
@@ -121,7 +121,7 @@ export function Row({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 14,
+            fontSize: 'var(--type-ui)',
             fontWeight: 600,
             color: 'var(--color-text)',
             whiteSpace: 'nowrap',
@@ -132,7 +132,7 @@ export function Row({
           {title}
         </div>
         {subtitle && (
-          <div style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}>{subtitle}</div>
+          <div style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{subtitle}</div>
         )}
       </div>
       {trailing}
@@ -156,13 +156,13 @@ export function Tile({
         width: 38,
         height: 38,
         flexShrink: 0,
-        borderRadius: 11,
+        borderRadius: 'var(--radius-block)',
         background: bg,
         color: fg,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 15,
+        fontSize: 'var(--type-prose)',
         fontWeight: 700,
       }}
     >
@@ -187,7 +187,7 @@ export function StatusDot({
         display: 'inline-flex',
         alignItems: 'center',
         gap: 8,
-        fontSize: 12.5,
+        fontSize: 'var(--type-row)',
         fontWeight: 600,
         color: ok ? 'var(--color-text-muted)' : 'var(--color-text-dim)',
       }}
@@ -273,7 +273,7 @@ export function Badge({ children }: { readonly children: React.ReactNode }): JSX
         display: 'inline-flex',
         alignItems: 'center',
         gap: 5,
-        fontSize: 10.5,
+        fontSize: 'var(--type-label)',
         fontWeight: 700,
         textTransform: 'uppercase',
         letterSpacing: '0.04em',
@@ -309,7 +309,7 @@ export function EmptyState({
       }}
     >
       <Icon name={icon} size={22} />
-      <p style={{ margin: 0, fontSize: 13 }}>{text}</p>
+      <p style={{ margin: 0, fontSize: 'var(--type-ui)' }}>{text}</p>
     </div>
   );
 }

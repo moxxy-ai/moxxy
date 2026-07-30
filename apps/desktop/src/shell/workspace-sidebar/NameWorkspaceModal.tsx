@@ -33,7 +33,7 @@ export function NameWorkspaceModal({
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-text-muted)',
           }}
@@ -44,13 +44,13 @@ export function NameWorkspaceModal({
         <div
           className="mono"
           style={{
-            fontSize: 11.5,
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-text-dim)',
             wordBreak: 'break-all',
             padding: '8px 10px',
             background: 'var(--color-input-soft)',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 8,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           {folder}

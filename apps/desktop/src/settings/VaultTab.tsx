@@ -150,21 +150,21 @@ function AddKeyForm({
         style={vaultFieldStyle}
       />
       {name.trim() && !validName && (
-        <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
           Use letters, digits, and . _ / - (no spaces or “..”).
         </span>
       )}
       {exists && (
-        <span style={{ fontSize: 11.5, color: 'var(--color-amber)' }}>
+        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-amber)' }}>
           A key named “{trimmed}” already exists — saving overwrites it.
         </span>
       )}
-      {error && <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>{error}</span>}
+      {error && <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>{error}</span>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <Button
           variant="secondary"
           onClick={onCancel}
-          style={{ padding: '7px 13px', fontSize: 12.5, borderRadius: 9 }}
+          style={{ padding: '7px 13px', fontSize: 'var(--type-row)', borderRadius: 'var(--radius-block)' }}
         >
           Cancel
         </Button>
@@ -174,7 +174,7 @@ function AddKeyForm({
           disabled={!(validName && value.length > 0) || busy}
           style={{
             padding: '7px 14px',
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             borderRadius: 'var(--radius-block)',
             opacity: validName && value.length > 0 && !busy ? 1 : 0.5,
           }}
@@ -188,7 +188,7 @@ function AddKeyForm({
 
 // Deltas from the shared TextInput default: full-width, the vault's slightly
 // tighter 13px/radius-9 sizing.
-const vaultFieldStyle: React.CSSProperties = { width: '100%', fontSize: 13, borderRadius: 9 };
+const vaultFieldStyle: React.CSSProperties = { width: '100%', fontSize: 'var(--type-ui)', borderRadius: 'var(--radius-block)' };
 
 /** Password-manager-style credential tile: a key glyph, the secret name,
  *  and a masked value — distinct from the provider/MCP row list so the
@@ -222,7 +222,7 @@ function VaultKeyCard({
           style={{
             flex: 1,
             minWidth: 0,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-text)',
             whiteSpace: 'nowrap',
@@ -248,7 +248,7 @@ function VaultKeyCard({
           aria-label="hidden value"
           style={{
             letterSpacing: '0.22em',
-            fontSize: 15,
+            fontSize: 'var(--type-prose)',
             lineHeight: 1,
             color: 'var(--color-text-dim)',
             userSelect: 'none',

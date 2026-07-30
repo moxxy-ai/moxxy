@@ -233,7 +233,7 @@ export function SettingsPanel({ tab }: { readonly tab: Tab }): JSX.Element {
             border: '1px solid color-mix(in oklab, var(--color-red) 30%, transparent)',
             background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
             borderRadius: 'var(--radius-card)',
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-red)',
           }}
         >

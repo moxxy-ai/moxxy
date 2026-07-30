@@ -208,7 +208,7 @@ function ClerkProfilePill({ compact }: { readonly compact: boolean }): JSX.Eleme
       >
         <span style={profileLabelStyle('var(--color-sidebar-text)')}>{displayName}</span>
         {!isLoaded ? (
-          <span style={{ fontSize: 10.5, color: 'var(--color-sidebar-text-dim)', flexShrink: 0 }}>…</span>
+          <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-sidebar-text-dim)', flexShrink: 0 }}>…</span>
         ) : (
           <span style={tierBadgeStyle(tier)}>{tier}</span>
         )}
@@ -249,11 +249,11 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
   const isFree = tier.toLowerCase() === 'free';
   return {
     padding: '1px 7px',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     fontWeight: 700,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
-    fontSize: 9.5,
+    fontSize: 'var(--type-label)',
     background: isFree
       ? 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)'
       : 'var(--color-primary)',
@@ -276,7 +276,7 @@ function profileRowStyle(color: string): React.CSSProperties {
     padding: '8px 10px',
     background: 'transparent',
     border: 'none',
-    borderRadius: 10,
+    borderRadius: 'var(--radius-block)',
     color,
     textAlign: 'left',
   };
@@ -286,7 +286,7 @@ function profileLabelStyle(color: string): React.CSSProperties {
   return {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
+    fontSize: 'var(--type-ui)',
     fontWeight: 600,
     color,
     whiteSpace: 'nowrap',

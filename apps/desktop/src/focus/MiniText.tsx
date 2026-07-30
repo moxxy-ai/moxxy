@@ -183,7 +183,7 @@ function ThinkingLine({ label }: { readonly label: string }): JSX.Element {
       <Dot delay={0} />
       <Dot delay={160} />
       <Dot delay={320} />
-      <span style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: 13 }}>{label}</span>
+      <span style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: 'var(--type-ui)' }}>{label}</span>
     </div>
   );
 }
@@ -214,6 +214,6 @@ function LatestTurn({
 
 function IdleLine({ label }: { readonly label: string }): JSX.Element {
   return (
-    <div style={{ fontSize: 12.5, color: 'var(--focus-muted)', fontStyle: 'italic' }}>{label}</div>
+    <div style={{ fontSize: 'var(--type-row)', color: 'var(--focus-muted)', fontStyle: 'italic' }}>{label}</div>
   );
 }

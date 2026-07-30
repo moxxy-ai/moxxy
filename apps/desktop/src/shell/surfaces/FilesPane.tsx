@@ -162,7 +162,7 @@ export function FilesPane({
             title={selected.label}
             style={{
               padding: '6px 10px',
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text-muted)',
               borderBottom: '1px solid var(--color-card-border)',
               whiteSpace: 'nowrap',
@@ -221,8 +221,8 @@ function ChangedRow({
         gap: 6,
         width: '100%',
         padding: '4px 6px',
-        borderRadius: 6,
-        fontSize: 12,
+        borderRadius: 'var(--radius-chip)',
+        fontSize: 'var(--type-row)',
         textAlign: 'left',
         background: active ? 'var(--color-primary-soft)' : undefined,
       }}
@@ -234,7 +234,7 @@ function ChangedRow({
         role="img"
         aria-label={statusLabel(file.status)}
         title={statusLabel(file.status)}
-        style={{ width: 18, flexShrink: 0, color: statusColor(file.status), fontSize: 10.5 }}
+        style={{ width: 18, flexShrink: 0, color: statusColor(file.status), fontSize: 'var(--type-label)' }}
       >
         {file.status.trim() || '•'}
       </span>

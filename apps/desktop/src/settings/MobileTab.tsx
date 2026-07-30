@@ -90,7 +90,7 @@ export function MobileTab(): JSX.Element {
               width: 38,
               height: 38,
               flexShrink: 0,
-              borderRadius: 11,
+              borderRadius: 'var(--radius-block)',
               background: 'var(--color-primary-soft)',
               color: 'var(--color-primary-strong)',
               display: 'inline-flex',
@@ -101,7 +101,7 @@ export function MobileTab(): JSX.Element {
             <Icon name="lock" size={18} />
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
+            <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text)' }}>
               Enable mobile gateway
             </div>
             {/* Announce status transitions (starting/listening/off) to screen
@@ -109,7 +109,7 @@ export function MobileTab(): JSX.Element {
             <div
               role="status"
               aria-live="polite"
-              style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}
+              style={{ marginTop: 2, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}
             >
               {loading
                 ? 'Checking…'
@@ -134,7 +134,7 @@ export function MobileTab(): JSX.Element {
         </div>
 
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)', lineHeight: 1.5 }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)', lineHeight: 1.5 }}>
             {error}
           </p>
         )}
@@ -155,7 +155,7 @@ export function MobileTab(): JSX.Element {
               border: '1px solid color-mix(in oklab, var(--color-amber, #d97706) 30%, transparent)',
               background: 'color-mix(in oklab, var(--color-amber, #d97706) 8%, transparent)',
               borderRadius: 'var(--radius-card)',
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               lineHeight: 1.5,
               color: 'var(--color-text)',
             }}
@@ -184,7 +184,7 @@ export function MobileTab(): JSX.Element {
               border: '1px solid color-mix(in oklab, var(--color-red) 30%, transparent)',
               background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
               borderRadius: 'var(--radius-card)',
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               lineHeight: 1.5,
               color: 'var(--color-red)',
             }}
@@ -208,7 +208,7 @@ export function MobileTab(): JSX.Element {
             <QrCode value={status.connectUrl} testId="mobile-qr" />
 
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+              <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
                 Connect URL
               </span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -217,7 +217,7 @@ export function MobileTab(): JSX.Element {
                   style={{
                     flex: 1,
                     minWidth: 0,
-                    fontSize: 12,
+                    fontSize: 'var(--type-row)',
                     padding: '8px 10px',
                     // Deliberate literals: terminal-style chip is dark in both
                     // themes (same as the AboutTab update log).
@@ -241,7 +241,7 @@ export function MobileTab(): JSX.Element {
                 <span
                   role="status"
                   data-testid="mobile-copy-failed"
-                  style={{ fontSize: 11.5, color: 'var(--color-red)' }}
+                  style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}
                 >
                   Copy failed — select the URL above and copy it manually.
                 </span>
@@ -250,7 +250,7 @@ export function MobileTab(): JSX.Element {
 
             <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12 }}>
               {typeof status.clientCount === 'number' && (
-                <span style={{ fontSize: 12.5, color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', fontWeight: 600 }}>
                   {status.clientCount === 1
                     ? '1 device connected'
                     : `${status.clientCount} devices connected`}

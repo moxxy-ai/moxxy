@@ -325,7 +325,7 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                     placeholder={'Jane Doe\n123 Main St\nAcme Corp'}
                     rows={3}
                     tone="soft"
-                    style={{ width: '100%', fontSize: 13 }}
+                    style={{ width: '100%', fontSize: 'var(--type-ui)' }}
                   />
                 </Field>
               </div>
@@ -421,7 +421,7 @@ function Stage({
             height: 28,
             flexShrink: 0,
             borderRadius: 'var(--radius-pill)',
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
             fontWeight: 700,
             color: '#fff',
             background: 'var(--color-primary-strong)',
@@ -430,8 +430,8 @@ function Stage({
           {n}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <strong style={{ fontSize: 15 }}>{title}</strong>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{subtitle}</span>
+          <strong style={{ fontSize: 'var(--type-prose)' }}>{title}</strong>
+          <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>{subtitle}</span>
         </div>
       </header>
       {children}
@@ -453,7 +453,7 @@ function Field({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
+        <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text)' }}>{label}</span>
         {help && <span style={dim}>{help}</span>}
       </div>
       {children}
@@ -502,16 +502,16 @@ function EmptyOutput(): JSX.Element {
         <Icon name="file" size={22} />
       </span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <strong style={{ fontSize: 13.5, color: 'var(--color-text-muted)' }}>
+        <strong style={{ fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
           Nothing to redact yet
         </strong>
-        <span style={{ fontSize: 12.5 }}>Import a document or paste text to see the result here.</span>
+        <span style={{ fontSize: 'var(--type-row)' }}>Import a document or paste text to see the result here.</span>
       </div>
     </div>
   );
 }
 
-const dim: React.CSSProperties = { fontSize: 12, color: 'var(--color-text-dim)' };
+const dim: React.CSSProperties = { fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' };
 const panelBox: React.CSSProperties = {
   border: '1px solid var(--color-card-border)',
   background: 'var(--color-surface)',
@@ -523,7 +523,7 @@ const preBox: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   fontFamily: 'inherit',
-  fontSize: 13,
+  fontSize: 'var(--type-ui)',
   lineHeight: 1.55,
   maxHeight: 360,
   overflowY: 'auto',

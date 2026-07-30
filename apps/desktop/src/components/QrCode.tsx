@@ -47,7 +47,7 @@ export function QrCode({
 
   if (failed) {
     return (
-      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)' }}>
+      <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
         Could not render the QR code. Use the link below instead.
       </p>
     );
@@ -62,7 +62,7 @@ export function QrCode({
         // Deliberate literal: QR codes need a white quiet zone for scanner
         // contrast in BOTH themes — never theme this surface.
         background: '#fff',
-        borderRadius: 14,
+        borderRadius: 'var(--radius-card)',
         padding: 10,
         border: '1px solid var(--color-card-border)',
         display: 'flex',

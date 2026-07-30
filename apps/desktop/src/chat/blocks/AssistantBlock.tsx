@@ -21,7 +21,7 @@ export function AssistantBlock({
             className="mono"
             style={{
               marginTop: 6,
-              fontSize: 10.5,
+              fontSize: 'var(--type-label)',
               color: 'var(--color-text-dim)',
               textTransform: 'uppercase',
               letterSpacing: '0.06em',

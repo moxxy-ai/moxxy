@@ -7,12 +7,12 @@ import type { CollabMsgView, CollabTaskView } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { useFocusTrap } from '../chat/useFocusTrap';
 import { useCollab, type CollabApproval } from './useCollab';
-import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
+import { filterCollabMessages, latestCollab, ledState, taskChipBg } from './collab-view';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
 function taskChip(status: string): React.CSSProperties {
   return {
-    fontSize: 10,
+    fontSize: 'var(--type-label)',
     fontWeight: 700,
     padding: '1px 6px',
     borderRadius: 'var(--radius-pill)',
@@ -174,7 +174,7 @@ export function CollaboratePanel({
   const header = (
     <InstrumentBar crumbs={['Collaborate', collab?.task || 'No collaboration yet']}>
       {collab && (
-        <span className="mono" style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+        <span className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
           {collab.completedAtMs === null
             ? `running · ${collab.agents.filter((a) => a.status === 'done').length}/${collab.agents.length} done`
             : `done · ${collab.agents.filter((a) => a.status === 'done').length}/${collab.agents.length}`}
@@ -188,7 +188,7 @@ export function CollaboratePanel({
           if (next) void loadHistory();
         }}
         className="btn-chip"
-        style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600, ...(showHistory ? { color: 'var(--color-primary)' } : {}) }}
+        style={{ fontSize: 'var(--type-row)', padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600, ...(showHistory ? { color: 'var(--color-primary)' } : {}) }}
         title="Past collaborations"
       >
         History
@@ -199,7 +199,7 @@ export function CollaboratePanel({
           onClick={() => void endCollaboration()}
           disabled={ending}
           className="btn-chip"
-          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600, color: 'var(--color-red)' }}
+          style={{ fontSize: 'var(--type-row)', padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600, color: 'var(--color-red)' }}
           title="Stop the team for good and archive this run"
           aria-label="End and archive this collaboration"
         >
@@ -211,7 +211,7 @@ export function CollaboratePanel({
           type="button"
           onClick={() => setForceStart(true)}
           className="btn-chip"
-          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600 }}
+          style={{ fontSize: 'var(--type-row)', padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600 }}
           aria-label="Start a new collaboration"
         >
           <span aria-hidden>＋</span> New
@@ -265,10 +265,10 @@ export function CollaboratePanel({
             <Icon name="agent" size={26} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'center' }}>
-            <div style={{ fontWeight: 700, fontSize: 19, color: 'var(--color-text)' }}>
+            <div style={{ fontWeight: 700, fontSize: 'var(--type-section)', color: 'var(--color-text)' }}>
               Start a collaboration
             </div>
-            <div style={{ fontSize: 13, maxWidth: 460, color: 'var(--color-text-dim)', lineHeight: 1.55 }}>
+            <div style={{ fontSize: 'var(--type-ui)', maxWidth: 460, color: 'var(--color-text-dim)', lineHeight: 1.55 }}>
               Describe a goal and a team of agents — an architect plus implementers — will plan it,
               propose a roster for you to approve, then build it in parallel. Only one collaboration
               runs at a time.
@@ -277,7 +277,7 @@ export function CollaboratePanel({
           {globalActive?.active && (
             <div
               style={{
-                fontSize: 12.5,
+                fontSize: 'var(--type-row)',
                 color: 'var(--color-amber-text)',
                 maxWidth: 520,
                 background: 'color-mix(in srgb, var(--color-amber) 12%, transparent)',
@@ -313,7 +313,7 @@ export function CollaboratePanel({
               type="button"
               onClick={() => setForceStart(false)}
               className="btn-ghost"
-              style={{ fontSize: 12.5, padding: '4px 10px', borderRadius: 'var(--radius-block)', color: 'var(--color-text-muted)' }}
+              style={{ fontSize: 'var(--type-row)', padding: '4px 10px', borderRadius: 'var(--radius-block)', color: 'var(--color-text-muted)' }}
             >
               ← Back to the current team
             </button>
@@ -340,11 +340,12 @@ export function CollaboratePanel({
         {/* LEFT RAIL — agents · tasks · contracts */}
         <aside
           style={{
-            width: 260,
+            width: 'var(--frame-index)',
             flexShrink: 0,
             borderRight: '1px solid var(--color-card-border)',
             overflowY: 'auto',
-            background: 'var(--color-card-bg)',
+            background: 'var(--color-sidebar-bg)',
+            padding: 'var(--space-6)',
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -352,10 +353,10 @@ export function CollaboratePanel({
           <Section title={`Agents · ${collab.agents.length}`}>
             {collab.agents.map((a) => (
               <RailRow key={a.id} active={channel === a.id} onClick={() => setChannel(a.id)}>
-                <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor(a.status), flexShrink: 0, ...(a.status === 'working' ? { animation: 'moxxy-thinking 1.1s ease-in-out infinite' } : {}) }} />
+                <span className="led" data-state={ledState(a.status)} aria-hidden />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                  <div className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>{a.role} · {a.status}</div>
+                  <div style={{ fontWeight: 600, fontSize: 'var(--type-ui)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                  <div className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{a.role} · {a.status}</div>
                 </span>
               </RailRow>
             ))}
@@ -368,14 +369,18 @@ export function CollaboratePanel({
                 type="button"
                 onClick={() => setSelectedTask(t.id)}
                 title="Show details"
-                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, padding: '5px 12px' }}
+                className="row-button"
+                style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 'var(--space-6)', minHeight: 'var(--frame-row)', padding: '2px var(--space-6)', borderRadius: 'var(--radius-block)' }}
               >
                 <span style={taskChip(t.status)}>{t.status}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text)' }}>{t.title}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--type-row)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text)' }}>{t.title}</span>
                 {t.paths && t.paths.length > 0 && (
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--color-text-dim)' }}>{t.paths.length}📄</span>
+                  <span className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
+                    <Icon name="file" size={10} />
+                    {t.paths.length}
+                  </span>
                 )}
-                {t.owner && <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>@{t.owner}</span>}
+                {t.owner && <span className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>@{t.owner}</span>}
               </button>
             ))}
           </Section>
@@ -384,7 +389,7 @@ export function CollaboratePanel({
             return files.length > 0 ? (
               <Section title={`Deliverables · ${files.length}`}>
                 {files.map((f) => (
-                  <div key={f} className="mono" style={{ padding: '3px 12px', fontSize: 11.5, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
+                  <div key={f} className="mono" style={{ padding: '2px var(--space-6)', fontSize: 'var(--type-label)', color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
                 ))}
               </Section>
             ) : null;
@@ -392,10 +397,10 @@ export function CollaboratePanel({
           {collab.contracts.length > 0 && (
             <Section title="Contracts">
               {collab.contracts.map((c) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 12px' }}>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)', minHeight: 'var(--frame-row)', padding: '2px var(--space-6)' }}>
                   <Icon name={c.status === 'change_proposed' ? 'rotate' : 'check'} size={13} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
-                  <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>@{c.owner} v{c.version}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--type-row)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                  <span className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>@{c.owner} v{c.version}</span>
                 </div>
               ))}
             </Section>
@@ -403,7 +408,7 @@ export function CollaboratePanel({
           {collab.conflicts.length > 0 && (
             <Section title="Conflicts">
               {collab.conflicts.map((c, i) => (
-                <div key={i} style={{ padding: '5px 12px', fontSize: 12, color: 'var(--color-amber-text)' }}>
+                <div key={i} style={{ padding: '2px var(--space-6)', fontSize: 'var(--type-row)', color: 'var(--color-amber-text)' }}>
                   @{c.agentId}: {c.files.join(', ')}
                 </div>
               ))}
@@ -420,11 +425,12 @@ export function CollaboratePanel({
               <button
                 type="button"
                 onClick={() => void runCmd(paused ? 'collab_resume' : 'collab_pause', '')}
-                className="btn-chip"
-                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 'var(--radius-block)', fontWeight: 600, color: paused ? 'var(--color-green)' : 'var(--color-amber-text)' }}
+                className="btn-box"
+                style={{ width: 'auto', padding: '0 var(--space-8)', gap: 'var(--space-6)', fontSize: 'var(--type-meta)', color: paused ? 'var(--color-green)' : 'var(--color-amber-text)' }}
                 aria-label={paused ? 'Resume the team' : 'Pause the team'}
               >
-                {paused ? <><span aria-hidden>▶</span> Resume</> : <><span aria-hidden>⏸</span> Pause</>}
+                <Icon name={paused ? 'play' : 'pause'} size={12} />
+                {paused ? 'Resume' : 'Pause'}
               </button>
             )}
           </div>
@@ -432,7 +438,7 @@ export function CollaboratePanel({
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {channel !== 'all' && <AgentHeader agent={collab.agents.find((a) => a.id === channel)} />}
             {visibleMessages.length === 0 ? (
-              <div style={{ color: 'var(--color-text-dim)', fontSize: 13, fontStyle: 'italic' }}>
+              <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-ui)', fontStyle: 'italic' }}>
                 {channel === 'all' ? 'No team messages yet.' : 'No messages to or from this agent yet.'}
               </div>
             ) : (
@@ -460,7 +466,7 @@ export function CollaboratePanel({
                   borderRadius: 'var(--radius-block)',
                   border: '1px solid var(--color-card-border)',
                   background: 'var(--color-input-soft)',
-                  fontSize: 13,
+                  fontSize: 'var(--type-ui)',
                   color: 'var(--color-text)',
                 }}
               />
@@ -468,7 +474,7 @@ export function CollaboratePanel({
                 Send
               </button>
             </div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-muted)' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
               <input type="checkbox" checked={directive} onChange={(e) => setDirective(e.target.checked)} />
               Send as <strong>directive</strong> (authoritative — overrides the team's current plan)
             </label>
@@ -512,9 +518,9 @@ function CollabApprovalCard({
         gap: 10,
       }}
     >
-      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>{request.title}</div>
+      <div style={{ fontWeight: 700, fontSize: 'var(--type-ui)', color: 'var(--color-text)' }}>{request.title}</div>
       {request.body && (
-        <div style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 'var(--type-row)', whiteSpace: 'pre-wrap', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
           {request.body}
         </div>
       )}
@@ -530,7 +536,7 @@ function CollabApprovalCard({
             borderRadius: 'var(--radius-block)',
             border: '1px solid var(--color-card-border)',
             background: 'var(--color-input-soft)',
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-text)',
             fontFamily: 'inherit',
           }}
@@ -563,11 +569,11 @@ function AgentHeader({ agent }: { readonly agent?: { name: string; role: string;
   if (!agent) return null;
   return (
     <div style={{ padding: '8px 12px', borderRadius: 'var(--radius-block)', background: 'var(--color-input-soft)', marginBottom: 4 }}>
-      <div style={{ fontWeight: 600, fontSize: 13 }}>
-        {agent.name} <span className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>· {agent.role} · {agent.status}</span>
+      <div style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>
+        {agent.name} <span className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>· {agent.role} · {agent.status}</span>
       </div>
-      {agent.subtask && <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginTop: 2 }}>{agent.subtask}</div>}
-      {agent.summary && <div style={{ fontSize: 12.5, color: 'var(--color-green)', marginTop: 2 }}>✓ {agent.summary}</div>}
+      {agent.subtask && <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', marginTop: 2 }}>{agent.subtask}</div>}
+      {agent.summary && <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-green)', marginTop: 2 }}>✓ {agent.summary}</div>}
     </div>
   );
 }
@@ -592,7 +598,7 @@ function ChannelSelector({
             onClick={() => onChange(it.id)}
             style={{
               padding: '5px 12px',
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               fontWeight: 600,
               borderRadius: 'var(--radius-block)',
               color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
@@ -610,18 +616,9 @@ function ChannelSelector({
 
 function Section({ title, children }: { readonly title: string; readonly children: React.ReactNode }): JSX.Element {
   return (
-    <div style={{ paddingBottom: 6 }}>
-      <div
-        style={{
-          padding: '10px 12px 6px',
-          fontSize: 10.5,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'var(--color-text-dim)',
-        }}
-      >
-        {title}
+    <div style={{ paddingBottom: 'var(--space-6)' }}>
+      <div className="index-group">
+        <span className="index-group__label">{title}</span>
       </div>
       {children}
     </div>
@@ -633,15 +630,18 @@ function RailRow({ active, onClick, children }: { readonly active: boolean; read
     <button
       type="button"
       onClick={onClick}
-      className="row-button"
+      className={active ? 'session-row' : 'session-row row-button'}
+      data-active={active}
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 9,
+        gap: 'var(--space-8)',
         width: '100%',
+        minHeight: 'var(--frame-row)',
         textAlign: 'left',
-        padding: '6px 12px',
-        background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+        padding: '2px var(--space-6)',
+        borderRadius: 'var(--radius-block)',
+        background: active ? 'var(--color-card-bg)' : 'transparent',
       }}
     >
       {children}
@@ -650,7 +650,7 @@ function RailRow({ active, onClick, children }: { readonly active: boolean; read
 }
 
 function Empty({ children }: { readonly children: React.ReactNode }): JSX.Element {
-  return <div style={{ padding: '4px 12px', fontSize: 12, color: 'var(--color-text-dim)', fontStyle: 'italic' }}>{children}</div>;
+  return <div style={{ padding: '2px var(--space-6)', fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{children}</div>;
 }
 
 const COLLAB_EXAMPLES = [
@@ -714,7 +714,7 @@ function StartComposer({
             border: 'none',
             outline: 'none',
             background: 'transparent',
-            fontSize: 14,
+            fontSize: 'var(--type-ui)',
             lineHeight: 1.55,
             color: 'var(--color-text)',
             fontFamily: 'inherit',
@@ -722,7 +722,7 @@ function StartComposer({
           }}
         />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+          <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd> to start
           </span>
@@ -745,7 +745,7 @@ function StartComposer({
             className="btn-chip"
             onClick={() => setGoal(ex)}
             style={{
-              fontSize: 12,
+              fontSize: 'var(--type-row)',
               padding: '5px 11px',
               borderRadius: 'var(--radius-pill)',
               maxWidth: '100%',
@@ -771,12 +771,12 @@ function Kbd({ children }: { readonly children: React.ReactNode }): JSX.Element 
         textAlign: 'center',
         padding: '1px 4px',
         margin: '0 2px',
-        fontSize: 10.5,
+        fontSize: 'var(--type-label)',
         fontFamily: 'inherit',
         color: 'var(--color-text-muted)',
         background: 'var(--color-app-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 5,
+        borderRadius: 'var(--radius-chip)',
       }}
     >
       {children}
@@ -791,7 +791,7 @@ function outcomeChip(outcome: string): React.CSSProperties {
       : outcome === 'aborted'
         ? 'var(--color-amber)'
         : 'var(--color-red)';
-  return { fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 'var(--radius-pill)', color: '#fff', background: bg, flexShrink: 0 };
+  return { fontSize: 'var(--type-label)', fontWeight: 700, padding: '1px 7px', borderRadius: 'var(--radius-pill)', color: '#fff', background: bg, flexShrink: 0 };
 }
 
 function whenAgo(ms: number): string {
@@ -857,8 +857,8 @@ function CollabHistory({ runs, onClose }: { readonly runs: CollabRunSummary[] | 
   if (runs.length === 0) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--color-text-dim)' }}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>No past collaborations yet</div>
-        <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: 12.5 }}>← Back</button>
+        <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600 }}>No past collaborations yet</div>
+        <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: 'var(--type-row)' }}>← Back</button>
       </div>
     );
   }
@@ -874,20 +874,20 @@ function CollabHistory({ runs, onClose }: { readonly runs: CollabRunSummary[] | 
               style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}
             >
               <span style={outcomeChip(r.outcome)}>{r.outcome}</span>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.task}</span>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)', flexShrink: 0 }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.task}</span>
+              <span className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', flexShrink: 0 }}>
                 {r.doneCount}/{r.totalCount} · {whenAgo(r.startedAtMs)}
               </span>
             </button>
             {isOpen && (
               <div style={{ borderTop: '1px solid var(--color-card-border)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
+                <div className="mono" style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
                   {r.parallel ? 'parallel' : 'sequential'}
                   {r.merge ? ` · merged ${r.merge.merged.length}${r.merge.promoted ? ' (promoted)' : ''}${r.merge.conflicts ? ` · ${r.merge.conflicts} conflicts` : ''}` : ''}
                   {typeof r.messageCount === 'number' ? ` · ${r.messageCount} messages` : ''}
                 </div>
                 {r.agents.map((a) => (
-                  <div key={a.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                  <div key={a.id} style={{ fontSize: 'var(--type-row)', lineHeight: 1.5 }}>
                     <span style={{ fontWeight: 600 }}>{a.name}</span>
                     <span className="mono" style={{ color: 'var(--color-text-dim)' }}> · {a.role} · {a.status}</span>
                     {a.doneSummary ? <div style={{ color: 'var(--color-text-muted)' }}>{a.doneSummary}</div> : null}
@@ -940,26 +940,26 @@ function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-        <span className="mono" style={{ fontWeight: 700, fontSize: 12, color: isHuman ? 'var(--color-accent-strong)' : 'var(--color-primary-strong)' }}>
+        <span className="mono" style={{ fontWeight: 700, fontSize: 'var(--type-row)', color: isHuman ? 'var(--color-accent-strong)' : 'var(--color-primary-strong)' }}>
           {m.from}
         </span>
         <span
           className="mono"
-          style={{ fontSize: 10, color: 'var(--color-text-dim)', border: '1px solid var(--color-card-border)', borderRadius: 'var(--radius-pill)', padding: '0 6px' }}
+          style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)', border: '1px solid var(--color-card-border)', borderRadius: 'var(--radius-pill)', padding: '0 6px' }}
           title={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
           aria-label={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
         >
           <span aria-hidden>{m.to === 'all' ? '📣 all' : `→ ${m.to}`}</span>
         </span>
         {kind && (
-          <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
+          <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
             {kind.label}
           </span>
         )}
         <span style={{ flex: 1 }} />
-        <span className="mono" style={{ fontSize: 10, color: 'var(--color-text-dim)' }}>{whenShort(m.atMs)}</span>
+        <span className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>{whenShort(m.atMs)}</span>
       </div>
-      <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-text)', whiteSpace: 'pre-wrap' }}>{m.body}</div>
+      <div style={{ fontSize: 'var(--type-ui)', lineHeight: 1.5, color: 'var(--color-text)', whiteSpace: 'pre-wrap' }}>{m.body}</div>
     </div>
   );
 }
@@ -993,20 +993,20 @@ function TaskModal({ task, onClose }: { readonly task?: CollabTaskView; readonly
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <span style={taskChip(task.status)}>{task.status}</span>
-          <span id={titleId} style={{ flex: 1, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>{task.title}</span>
-          <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 16, lineHeight: 1, padding: '0 6px' }} aria-label="Close">×</button>
+          <span id={titleId} style={{ flex: 1, fontSize: 'var(--type-prose)', fontWeight: 700, color: 'var(--color-text)' }}>{task.title}</span>
+          <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 'var(--type-section)', lineHeight: 1, padding: '0 6px' }} aria-label="Close">×</button>
         </div>
         {task.owner && (
-          <div className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>owner · @{task.owner}</div>
+          <div className="mono" style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>owner · @{task.owner}</div>
         )}
         {task.detail && (
-          <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text)' }}>{task.detail}</div>
+          <div style={{ fontSize: 'var(--type-ui)', lineHeight: 1.55, color: 'var(--color-text)' }}>{task.detail}</div>
         )}
         {task.paths && task.paths.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-dim)' }}>Deliverables</div>
+            <div style={{ fontSize: 'var(--type-meta)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-dim)' }}>Deliverables</div>
             {task.paths.map((p) => (
-              <div key={p} className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)', wordBreak: 'break-all' }}>{p}</div>
+              <div key={p} className="mono" style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', wordBreak: 'break-all' }}>{p}</div>
             ))}
           </div>
         )}

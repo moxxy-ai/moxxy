@@ -39,11 +39,11 @@ export function ThinkingIndicator(): JSX.Element {
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>Assistant</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>Assistant</span>
           <span
             className="mono"
             style={{
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-primary)',
               display: 'inline-flex',
               alignItems: 'center',

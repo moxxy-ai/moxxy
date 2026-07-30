@@ -154,7 +154,7 @@ export function ProviderStep({
         }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Provider
           </span>
           <select
@@ -180,7 +180,7 @@ export function ProviderStep({
         </label>
         {authKind === 'api-key' && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               API key
             </span>
             <input
@@ -195,7 +195,7 @@ export function ProviderStep({
           </label>
         )}
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
         )}

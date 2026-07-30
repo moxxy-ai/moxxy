@@ -10,7 +10,7 @@ export const preStyle: React.CSSProperties = {
   background: 'var(--color-input-soft)',
   border: '1px solid var(--color-card-border)',
   borderRadius: 'var(--radius-chip)',
-  fontSize: 11,
+  fontSize: 'var(--type-meta)',
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   maxHeight: 280,

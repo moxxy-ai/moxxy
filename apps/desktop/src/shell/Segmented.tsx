@@ -92,7 +92,7 @@ function PillRow<T extends string>({
         gap: 2,
         padding: 3,
         background: 'var(--color-app-bg)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
       }}
     >
       {items.map((t) => {
@@ -124,7 +124,7 @@ function PillRow<T extends string>({
 function pillStyle(active: boolean, disabled = false): React.CSSProperties {
   return {
     padding: '6px 15px',
-    fontSize: 13,
+    fontSize: 'var(--type-ui)',
     fontWeight: 600,
     borderRadius: 'var(--radius-block)',
     whiteSpace: 'nowrap',
@@ -302,9 +302,9 @@ function CollapsibleSegmented<T extends string>({
               alignItems: 'center',
               gap: 6,
               padding: '6px 12px',
-              fontSize: 13,
+              fontSize: 'var(--type-ui)',
               fontWeight: 600,
-              borderRadius: 11,
+              borderRadius: 'var(--radius-block)',
               whiteSpace: 'nowrap',
               color: 'var(--color-text)',
               background: 'var(--color-app-bg)',
@@ -341,7 +341,7 @@ function CollapsibleSegmented<T extends string>({
                 padding: 4,
                 background: 'var(--color-card-bg)',
                 border: '1px solid var(--color-card-border)',
-                borderRadius: 12,
+                borderRadius: 'var(--radius-card)',
                 boxShadow: 'var(--color-card-shadow)',
               }}
             >
@@ -370,8 +370,8 @@ function CollapsibleSegmented<T extends string>({
                       gap: 8,
                       width: '100%',
                       padding: '8px 10px',
-                      borderRadius: 8,
-                      fontSize: 13,
+                      borderRadius: 'var(--radius-block)',
+                      fontSize: 'var(--type-ui)',
                       fontWeight: active ? 600 : 500,
                       textAlign: 'left',
                       color: disabled

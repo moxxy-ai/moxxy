@@ -91,7 +91,7 @@ export function AgentTaskModal({
     <Modal title={title} onClose={onClose} width={760}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             {label}
           </span>
           <TextArea
@@ -100,10 +100,10 @@ export function AgentTaskModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder={placeholder}
             disabled={phase === 'streaming'}
-            style={{ minHeight: 110, padding: '12px 14px', fontSize: 13, lineHeight: 1.6 }}
+            style={{ minHeight: 110, padding: '12px 14px', fontSize: 'var(--type-ui)', lineHeight: 1.6 }}
           />
         </label>
-        <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
           {workspaceId ? hint : 'No active workspace — open one before generating.'}
         </span>
         {(phase === 'streaming' || phase === 'done' || phase === 'error') && (
@@ -120,7 +120,7 @@ export function AgentTaskModal({
                 padding: '8px 12px',
                 background: 'var(--color-sidebar-bg-hover)',
                 borderBottom: '1px solid var(--color-card-border)',
-                fontSize: 11,
+                fontSize: 'var(--type-meta)',
                 fontWeight: 700,
                 color: 'var(--color-text-dim)',
                 textTransform: 'uppercase',
@@ -142,7 +142,7 @@ export function AgentTaskModal({
               {task.output ? (
                 <MarkdownBody text={task.output} streaming={phase === 'streaming'} />
               ) : (
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-dim)' }}>
+                <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
                   Waiting for the first chunk…
                 </p>
               )}
@@ -151,7 +151,7 @@ export function AgentTaskModal({
         )}
         {ask && <AskSheet ask={ask} />}
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
         )}

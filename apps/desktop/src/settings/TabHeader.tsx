@@ -44,7 +44,7 @@ export function TabHeader({
         <h2
           style={{
             margin: 0,
-            fontSize: 15,
+            fontSize: 'var(--type-prose)',
             fontWeight: 700,
             minWidth: 0,
             whiteSpace: 'nowrap',
@@ -62,7 +62,7 @@ export function TabHeader({
               textAlign: 'center',
               padding: '1px 7px',
               borderRadius: 'var(--radius-pill)',
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               fontWeight: 700,
               color: 'var(--color-text-muted)',
               background: 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)',
@@ -93,7 +93,7 @@ export function TabHeader({
             gridRow: 2,
             margin: 0,
             minWidth: 0,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             color: 'var(--color-text-dim)',
             lineHeight: 1.5,
             display: '-webkit-box',

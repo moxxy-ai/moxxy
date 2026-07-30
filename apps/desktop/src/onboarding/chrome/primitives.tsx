@@ -7,7 +7,6 @@
  */
 
 import { MoxxyMark } from '@/components/MoxxyMark';
-import { Icon } from '@moxxy/desktop-ui';
 import { primaryBtnStyle, secondaryBtnStyle } from './styles';
 
 // ---- StepCard -------------------------------------------------------------
@@ -22,15 +21,19 @@ export function StepCard({
   readonly children: React.ReactNode;
 }): JSX.Element {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-16)' }}>
       <header>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{title}</h2>
+        <h2 style={{ margin: 0, fontSize: 'var(--type-section)', fontWeight: 600, letterSpacing: '-0.01em' }}>
+          {title}
+        </h2>
+        {/* The one place the wizard speaks in the prose voice: this is the
+         *  sentence explaining the step, not a readout. */}
         <p
+          className="prose"
           style={{
-            margin: '6px 0 0',
+            margin: 'var(--space-6) 0 0',
             color: 'var(--color-text-muted)',
-            fontSize: 13.5,
-            lineHeight: 1.6,
+            fontSize: 'var(--type-ui)',
           }}
         >
           {sub}
@@ -55,7 +58,7 @@ export function Nav({
   readonly nextDisabled?: boolean;
 }): JSX.Element {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--space-4)' }}>
       <button type="button" onClick={onBack} style={secondaryBtnStyle}>
         Back
       </button>
@@ -121,30 +124,20 @@ export function SuccessRow({ text }: { readonly text: string }): JSX.Element {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '10px 14px',
+        gap: 'var(--space-8)',
+        minHeight: 'var(--frame-row)',
+        padding: '0 var(--space-8)',
         background: 'var(--color-success-soft)',
         border: '1px solid var(--color-success-soft-border)',
-        borderRadius: 'var(--radius-block)',
-        fontSize: 13,
+        borderRadius: 'var(--radius-chip)',
+        fontSize: 'var(--type-row)',
         color: 'var(--color-success-soft-text)',
-        fontWeight: 600,
+        fontWeight: 500,
       }}
     >
-      <span
-        style={{
-          width: 22,
-          height: 22,
-          borderRadius: 'var(--radius-pill)',
-          background: 'var(--color-green)',
-          color: '#fff',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="check" size={13} />
-      </span>
+      {/* Nominal is nominal: the same green LED that reports it everywhere else,
+       *  not a badge invented for this one row. */}
+      <span className="led" data-state="done" aria-hidden />
       {text}
     </div>
   );
@@ -156,14 +149,14 @@ export function Pulse({ label }: { readonly label: string }): JSX.Element {
   return (
     <div
       style={{
-        padding: '14px 16px',
+        padding: 'var(--space-8) var(--space-12)',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 'var(--radius-card)',
+        borderRadius: 'var(--radius-block)',
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        fontSize: 13,
+        gap: 'var(--space-8)',
+        fontSize: 'var(--type-row)',
         color: 'var(--color-text-muted)',
       }}
     >

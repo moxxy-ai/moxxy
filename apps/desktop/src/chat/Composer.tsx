@@ -398,7 +398,7 @@ export function Composer({
             gap: 8,
             padding: '7px 10px',
             marginBottom: 6,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-primary-strong)',
             background: 'var(--color-primary-soft)',
