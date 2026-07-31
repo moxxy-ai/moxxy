@@ -83,7 +83,6 @@ describe('WorkspaceTree', () => {
     renderTree();
     const alphaGroup = screen.getByTestId('workspace-group-a');
     const betaGroup = screen.getByTestId('workspace-group-b');
-    expect(alphaGroup.classList.contains('workspace-group')).toBe(true);
     expect(alphaGroup.dataset.active).toBe('true');
     expect(betaGroup.dataset.active).toBe('false');
     expect(screen.getByTestId('desk-row-a')).toBeTruthy();
@@ -216,6 +215,26 @@ describe('WorkspaceTree', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('uses a stronger text tier for workspace headers than idle sessions', () => {
+    renderTree();
+    expect(screen.getByText('Alpha').style.color).toBe('var(--color-text-muted)');
+    expect(screen.getByTestId('session-row-a').style.color).toBe(
+      'var(--color-sidebar-text-dim)',
+    );
+  });
+
+  it('distinguishes workspace colour chips from round session LEDs', () => {
+    renderTree();
+    expect(screen.getByTestId('desk-chip-a').style.background).toBe('rgb(59, 130, 246)');
+    expect(screen.getByTestId('session-row-a').querySelector('.led')).toBeTruthy();
+  });
+
+  it('hangs sessions from a visible workspace guide rail', () => {
+    renderTree();
+    const group = screen.getByRole('group', { name: 'sessions in Alpha' });
+    expect(group.style.borderLeft).toBe('1px solid var(--color-sidebar-border)');
   });
 
   // Regression: the ⋯ menu is anchored inside the row's subtree, and the

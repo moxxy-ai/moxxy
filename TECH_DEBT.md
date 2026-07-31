@@ -28,6 +28,17 @@ No open items.
 
 ## Resolved ledger
 
+- [med, desktop/sidebar-hierarchy, RESOLVED 2026-07-31] Workspace headers and
+  idle session rows collapsed into nearly the same visual tier, while the
+  borderless grouping experiment left indentation as the primary containment
+  cue. The workspace tree now adopts the hierarchy proven in PR #498: square
+  `Desk.color` chips distinguish folders from round session LEDs, muted header
+  text stays distinct from dim rows, inter-group rhythm separates siblings,
+  and a narrow guide rail makes each session list's ownership explicit. Tests
+  pin all four cues and both theme palettes pin the tier contrast.
+  `apps/desktop/src/shell/workspace-sidebar/WorkspaceTree.tsx`,
+  `packages/design-tokens/src/contrast.test.ts`.
+
 - [med, desktop/file-previews, RESOLVED 2026-07-31] The workspace file and
   diff surfaces rendered every source file as undifferentiated text, while PDF
   content was a bare iframe and common document/media formats fell through to

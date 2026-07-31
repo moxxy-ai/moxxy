@@ -10,10 +10,18 @@ import { useMenuKeyboard } from '../useMenuKeyboard';
  * active-desk-only pair (WorkspaceSwitcher card + flat SessionList).
  *
  *   WORKSPACES                                 [+]  ← new workspace
- *   ▾ ▣ blocky                              [+] ⋯   ← toggle / new session / menu
- *       Fix the sign-in bug                          ← session (first-prompt title)
- *       Redesign the sidebar          ●              ← unread dot
- *   ▸ ▣ website                       ●     [+] ⋯   ← collapsed: dot rolls up
+ *   ▾ ▣ BLOCKY                            2 [+] ⋯   ← toggle / count / new / menu
+ *     │ ● Fix the sign-in bug                        ← session (first-prompt title)
+ *     │ ● Redesign the sidebar                       ← rail shows what nests where
+ *   ▸ ▣ WEBSITE                       ●   1 [+] ⋯   ← collapsed: dot rolls up
+ *
+ * Telling the two row kinds apart is the layout's whole job, and it is carried
+ * by four cues at once rather than by any single one: a SQUARE workspace-colour
+ * chip vs a ROUND session LED, the muted header tier vs the dim row tier,
+ * uppercase+letterspaced vs sentence case, and the guide rail + group gap that
+ * make containment visible. They previously shared one colour
+ * (`--color-text-dim` === `--color-sidebar-text-dim`) and a 4px indent, and the
+ * tree read as one flat list.
  *
  * Interaction contract:
  *  - clicking a folder row (or its chevron) toggles collapse — switching
@@ -63,8 +71,19 @@ export function WorkspaceTree({
   readonly onRemoveWorkspace: (desk: Desk) => void;
 }): JSX.Element {
   return (
-    <div className="workspace-tree">
-      <ul role="tree" aria-label="Workspaces" className="workspace-tree__list">
+    <div>
+      <ul
+        role="tree"
+        aria-label="Workspaces"
+        style={{
+          listStyle: 'none',
+          margin: '0 0 4px',
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-6)',
+        }}
+      >
         {desks.map((desk) => {
           const isCollapsed = collapsed.has(desk.id);
           const hasUnread =
@@ -77,7 +96,6 @@ export function WorkspaceTree({
               data-testid={`workspace-group-${desk.id}`}
               data-active={desk.id === activeDeskId}
               data-collapsed={isCollapsed}
-              className="workspace-group"
             >
               <FolderRow
                 desk={desk}
@@ -94,7 +112,15 @@ export function WorkspaceTree({
                 <ul
                   role="group"
                   aria-label={`sessions in ${desk.name}`}
-                  className="workspace-group__sessions"
+                  style={{
+                    listStyle: 'none',
+                    margin: '2px 0 0 var(--space-12)',
+                    padding: '0 0 0 var(--space-8)',
+                    borderLeft: '1px solid var(--color-sidebar-border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
                 >
                   {desk.sessions.map((s) => (
                     <SessionRow
@@ -167,7 +193,7 @@ function FolderRow({
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
       onBlurCapture={() => setHot(false)}
-      className="workspace-group__header row-button"
+      className="row-button"
       style={{
         position: 'relative',
         // While its ⋯ menu is open this row must paint ABOVE the rows
@@ -207,7 +233,7 @@ function FolderRow({
           width: 18,
           height: 18,
           flexShrink: 0,
-          color: active ? 'var(--color-primary)' : 'var(--color-sidebar-text-dim)',
+          color: 'var(--color-sidebar-text-dim)',
         }}
       >
         <span
@@ -222,14 +248,27 @@ function FolderRow({
         </span>
       </button>
       <span
+        aria-hidden
+        data-testid={`desk-chip-${desk.id}`}
+        style={{
+          width: 8,
+          height: 8,
+          flexShrink: 0,
+          borderRadius: 'var(--radius-tag)',
+          background: desk.color,
+          opacity: active || !collapsed ? 1 : 0.55,
+          transition: 'opacity 120ms ease',
+        }}
+      />
+      <span
         style={{
           flex: 1,
           minWidth: 0,
           fontSize: 'var(--type-label)',
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          color: active ? 'var(--color-sidebar-text)' : 'var(--color-text-dim)',
-          fontWeight: active ? 600 : 500,
+          color: 'var(--color-text-muted)',
+          fontWeight: 600,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -244,9 +283,11 @@ function FolderRow({
           to find out. */}
       <span
         aria-hidden
-        className="workspace-group__count"
         style={{
           flexShrink: 0,
+          paddingRight: 'var(--space-4)',
+          fontSize: 'var(--type-label)',
+          color: 'var(--color-text-dim)',
         }}
       >
         {desk.sessions.length}
@@ -346,7 +387,7 @@ function SessionRow({
           alignItems: 'center',
           gap: 8,
           minHeight: 'var(--frame-row)',
-          padding: '2px var(--space-6) 2px var(--space-8)',
+          padding: '2px var(--space-6) 2px var(--space-4)',
           borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
           background: active ? 'var(--color-card-bg)' : 'transparent',

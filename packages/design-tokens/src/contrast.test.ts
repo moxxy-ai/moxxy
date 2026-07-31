@@ -81,6 +81,13 @@ describe.each([
   it('dim text clears the large-text floor', () => {
     expect(contrast(theme.color.textDim, theme.color.cardBg)).toBeGreaterThanOrEqual(3);
   });
+
+  it('keeps workspace headers distinct from idle session rows', () => {
+    expect(theme.color.textMuted).not.toBe(theme.color.sidebarTextDim);
+    expect(contrast(theme.color.textMuted, theme.color.sidebarTextDim)).toBeGreaterThanOrEqual(
+      1.25,
+    );
+  });
 });
 
 describe.each([

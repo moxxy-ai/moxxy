@@ -861,55 +861,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .index-group__label { flex: 1; min-width: 0; }
 .index-group__count { flex-shrink: 0; }
 
-/* Workspaces stay inside the sidebar's single visual plane. Separation comes
- * from rhythm + the compact section header, not a card nested inside the
- * sidebar; sessions are indented beneath their owner and the active group uses
- * only semantic ink on its chevron/count. */
-.workspace-tree__list,
-.workspace-group__sessions {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.workspace-tree__list {
-  gap: var(--space-12);
-  margin: 0 0 var(--space-4);
-}
-
-.workspace-group {
-  position: relative;
-  min-width: 0;
-}
-
-.workspace-group__header { background: transparent; }
-
-.workspace-group__count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-pill);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-dim);
-  background: color-mix(in srgb, var(--color-sidebar-text) 7%, transparent);
-  font-size: var(--type-micro);
-  line-height: 1;
-}
-
-.workspace-group[data-active='true'] .workspace-group__count {
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
-
-.workspace-group__sessions {
-  gap: 1px;
-  margin: var(--space-2) 0 0;
-  padding: 0 0 0 var(--space-12);
-}
-
 /* --- The field: instrument bar + content ----------------------- */
 
 .field {
