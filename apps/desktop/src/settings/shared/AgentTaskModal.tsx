@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useActiveAsk, useActiveWorkspaceId } from '@moxxy/client-core';
-import { Button, Icon, Modal, TextArea } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal, ModalFooter, TextArea } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { AskSheet } from '@/chat/AskSheet';
 import { useClaimAskSurface } from '@/lib/askSurface';
@@ -155,7 +155,7 @@ export function AgentTaskModal({
             {error}
           </p>
         )}
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -181,7 +181,7 @@ export function AgentTaskModal({
               </Button>
             );
           })()}
-        </footer>
+        </ModalFooter>
       </div>
     </Modal>
   );

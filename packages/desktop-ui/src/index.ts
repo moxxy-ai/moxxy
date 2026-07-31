@@ -1,5 +1,10 @@
 export { Icon, type IconName, type IconProps } from './Icon.js';
-export { Modal, ConfirmModal } from './Modal.js';
+export {
+  Modal,
+  ModalFooter,
+  ConfirmModal,
+  type ModalFooterProps,
+} from './Modal.js';
 export {
   Button,
   IconButton,

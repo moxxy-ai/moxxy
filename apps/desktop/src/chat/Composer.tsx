@@ -362,14 +362,7 @@ export function Composer({
         </span>
       </div>
       {(attachments.length > 0 || queued.length > 0) && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 6,
-            paddingBottom: 4,
-          }}
-        >
+        <div className="cmdbar__pending">
           {attachments.map((a) => (
             <AttachmentChip
               key={a.path}
@@ -479,7 +472,7 @@ export function Composer({
               className="btn-cta"
               data-testid="composer-abort"
               onClick={onAbort}
-              style={sendBtn('var(--color-red)', true)}
+              style={sendBtn('var(--color-red)', true, 'var(--color-on-primary)')}
               aria-label="Abort"
             >
               <Icon name="stop" size={14} />
@@ -491,7 +484,7 @@ export function Composer({
               className="btn-cta"
               data-testid="composer-send"
               disabled={!canSubmit}
-              style={sendBtn('var(--color-send)', canSubmit)}
+              style={sendBtn('var(--color-action)', canSubmit)}
               aria-label={inFlight ? 'Queue' : 'Send'}
             >
               {/* Says what it will actually DO: mid-turn a submit queues behind the

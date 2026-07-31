@@ -66,6 +66,11 @@ export const tokens = {
      * site: the dark theme's accent is light and needs an ink label instead,
      * and a hard-coded white would silently fail there. */
     onPrimary: '#ffffff',
+    /* Filled actions use their own stop. The data accent can stay luminous in
+     * dark mode, while a button keeps a calm, high-contrast white label. */
+    action: '#c21e6b',
+    actionHover: '#9d1355',
+    onAction: '#ffffff',
     send: '#c21e6b',
     /* One accent means the secondary stays inside it rather than introducing a
      * second brand hue that would compete with the semantic set. */
@@ -235,6 +240,9 @@ export const darkTokens: ThemeTokens = {
     primaryStrong: '#ff63a8',
     primarySoft: '#24101b',
     onPrimary: '#0b0f12',
+    action: '#c21e6b',
+    actionHover: '#d12673',
+    onAction: '#ffffff',
     send: '#f4408f',
     accent: '#f4408f',
     accentStrong: '#ff63a8',

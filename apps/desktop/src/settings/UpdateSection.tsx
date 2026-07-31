@@ -394,9 +394,9 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
   fontSize: 'var(--type-ui)',
   fontWeight: 600,
   borderRadius: 'var(--radius-block)',
-  color: '#fff',
-  border: 'none',
-  background: disabled ? 'var(--color-card-border-strong)' : 'var(--color-primary)',
+  color: disabled ? 'var(--color-text-muted)' : 'var(--color-on-action)',
+  border: `1px solid ${disabled ? 'var(--color-card-border-strong)' : 'var(--color-action)'}`,
+  background: disabled ? 'var(--color-input-soft)' : 'var(--color-action)',
   cursor: disabled ? 'default' : 'pointer',
   transition: 'background 140ms',
 });

@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
-import { Button, Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 
 interface Props {
@@ -150,20 +150,19 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             )}
           </dl>
 
-          <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+          <ModalFooter>
             <Button variant="secondary" onClick={onClose}>
               Close
             </Button>
             <Button
-              variant="cta"
+              variant="danger"
               onClick={() => setConfirmSignOut(true)}
               disabled={busy}
-              style={{ background: 'var(--color-red)' }}
             >
               <Icon name="x" size={13} />
               Sign out
             </Button>
-          </footer>
+          </ModalFooter>
         </div>
       </Modal>
       {confirmSignOut && (

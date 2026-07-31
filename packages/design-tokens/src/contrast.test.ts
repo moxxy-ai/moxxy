@@ -52,6 +52,8 @@ function pairsFor(t: ThemeTokens): ReadonlyArray<readonly [string, string, strin
     // Component boundaries: a filled control against the surface behind it.
     ['the primary fill against the app background', t.color.primary, t.color.appBg, 3],
     ['the primary fill against a card', t.color.primary, t.color.cardBg, 3],
+    ['the action fill against the app background', t.color.action, t.color.appBg, 3],
+    ['the action fill against a card', t.color.action, t.color.cardBg, 3],
     ['the send fill against the main column', t.color.send, t.color.mainBg, 3],
   ];
 }
@@ -78,6 +80,25 @@ describe.each([
   // large-text floor is the honest bar for it rather than exempting it.
   it('dim text clears the large-text floor', () => {
     expect(contrast(theme.color.textDim, theme.color.cardBg)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps workspace headers distinct from idle session rows', () => {
+    expect(theme.color.textMuted).not.toBe(theme.color.sidebarTextDim);
+    expect(contrast(theme.color.textMuted, theme.color.sidebarTextDim)).toBeGreaterThanOrEqual(
+      1.25,
+    );
+  });
+});
+
+describe.each([
+  ['light', tokens as ThemeTokens],
+  ['dark', darkTokens],
+])('%s: filled action labels', (_name, theme) => {
+  it.each([
+    ['resting', 'action'],
+    ['hovered', 'actionHover'],
+  ] as const)('the %s action keeps a readable label', (_label, key) => {
+    expect(contrast(theme.color.onAction, theme.color[key])).toBeGreaterThanOrEqual(4.5);
   });
 });
 

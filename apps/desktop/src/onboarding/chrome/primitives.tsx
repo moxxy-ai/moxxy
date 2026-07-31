@@ -1,13 +1,13 @@
 /**
  * Shared onboarding step primitives — the small building blocks every step
  * composes: StepCard (title + sub + body), Nav (Back / Next footer),
- * PrimaryButton (the gradient CTA), SuccessRow (the green confirmed row),
+ * PrimaryButton (the shared filled action), SuccessRow (the green confirmed row),
  * and Pulse (the avatar loading row). Style tokens live in ./styles; this
  * module is otherwise self-contained so it stays a dependency leaf.
  */
 
 import { MoxxyMark } from '@/components/MoxxyMark';
-import { primaryBtnStyle, secondaryBtnStyle } from './styles';
+import { Button } from '@moxxy/desktop-ui';
 
 // ---- StepCard -------------------------------------------------------------
 
@@ -59,9 +59,9 @@ export function Nav({
 }): JSX.Element {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--space-4)' }}>
-      <button type="button" onClick={onBack} style={secondaryBtnStyle}>
+      <Button variant="secondary" size="lg" onClick={onBack}>
         Back
-      </button>
+      </Button>
       <PrimaryButton onClick={onNext} disabled={nextDisabled}>
         {nextLabel}
       </PrimaryButton>
@@ -73,21 +73,20 @@ export function Nav({
 
 export function PrimaryButton({
   children,
+  className,
+  style,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
   return (
-    <button
-      type="button"
+    <Button
+      variant="cta"
+      size="lg"
       {...rest}
-      className={`btn-cta ${rest.className ?? ''}`.trim()}
-      style={{
-        ...primaryBtnStyle,
-        opacity: rest.disabled ? 0.5 : 1,
-        cursor: rest.disabled ? 'not-allowed' : 'pointer',
-      }}
+      className={className}
+      style={{ fontWeight: 600, ...style }}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -97,22 +96,20 @@ export function PrimaryButton({
  *  (e.g. "Open nodejs.org" beside "Install automatically"). */
 export function SecondaryButton({
   children,
+  className,
   style,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
   return (
-    <button
-      type="button"
+    <Button
+      variant="secondary"
+      size="lg"
       {...rest}
-      style={{
-        ...secondaryBtnStyle,
-        opacity: rest.disabled ? 0.5 : 1,
-        cursor: rest.disabled ? 'not-allowed' : 'pointer',
-        ...style,
-      }}
+      className={className}
+      style={style}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

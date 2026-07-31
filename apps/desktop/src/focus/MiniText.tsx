@@ -133,8 +133,7 @@ export function MiniText({
               disabled={!composer.canSubmit}
               style={{
                 ...style.send,
-                opacity: composer.canSubmit ? 1 : 0.45,
-                cursor: composer.canSubmit ? 'pointer' : 'not-allowed',
+                ...(composer.canSubmit ? null : style.sendDisabled),
               }}
             >
               <SendIcon />

@@ -16,7 +16,7 @@ const MAX_READ_BYTES = 1_000_000;
 /** Above this, even a text file goes through the "open anyway?" confirm — a
  *  multi-MB blob rendered in a <pre> can jank or crash the renderer. */
 const CONFIRM_BYTES = 2_000_000;
-/** Hard cap for inlining a binary doc (image/pdf) as base64 (base64 ~+33%). */
+/** Hard cap for inlining a binary preview as base64 (base64 ~+33%). */
 const INLINE_MAX_BYTES = 40_000_000;
 
 /** Extensions we render as an inline image rather than text. */
@@ -30,6 +30,24 @@ const IMAGE_MEDIA_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
   '.avif': 'image/avif',
   '.svg': 'image/svg+xml',
+};
+
+/** Common browser-decodable media. The renderer receives a Blob URL and never
+ * autoplays it; codecs unsupported by Chromium fail inside the native control. */
+const MEDIA_TYPES: Record<string, string> = {
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.oga': 'audio/ogg',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg; codecs=opus',
+  '.wav': 'audio/wav',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.ogv': 'video/ogg',
+  '.webm': 'video/webm',
 };
 
 /** Office / OpenDocument extensions we preview as EXTRACTED TEXT rather than as
@@ -105,10 +123,11 @@ export interface ReadFileResult {
   /**
    * - `text`  — UTF-8 content to show in the viewer (`content`, maybe `truncated`)
    * - `image` — inline image (`base64` + `mediaType`)
+   * - `media` — browser-decodable audio/video (`base64` + `mediaType`)
    * - `confirm` — opening could be risky (binary blob / very large); the UI asks
    *   before re-reading with `force` and showing it as text. `reason` says why.
    */
-  readonly kind: 'text' | 'image' | 'pdf' | 'confirm';
+  readonly kind: 'text' | 'image' | 'pdf' | 'media' | 'confirm';
   readonly content: string;
   readonly truncated: boolean;
   /** Back-compat: true exactly when `kind === 'text'`. */
@@ -121,7 +140,7 @@ export interface ReadFileResult {
 
 /**
  * Read a workspace file for the "Open" viewer, with the SAME cwd-scoping +
- * symlink guard as {@link listDir}. Images + PDFs render inline (base64);
+ * symlink guard as {@link listDir}. Images, PDFs, and media render inline (base64);
  * Office/ODF docs render as their EXTRACTED text; text/code render as UTF-8
  * (truncated past {@link MAX_READ_BYTES}). Anything else that looks binary, or
  * is larger than {@link CONFIRM_BYTES}, returns `kind: 'confirm'` so the UI can
@@ -145,20 +164,21 @@ export async function readFile(
   const byteLength = info.size;
   const ext = path.extname(abs).toLowerCase();
 
-  // Images + PDFs: inline as base64 so the viewer can render them natively
-  // (an <img> for images, Chromium's built-in PDF viewer for PDFs).
+  // Images, PDFs, audio, and video: inline as base64 so the viewer can render
+  // them with local Blob URLs. Nothing here grants a remote media origin.
   const imageType = IMAGE_MEDIA_TYPES[ext];
-  if (imageType || ext === '.pdf') {
+  const mediaType = MEDIA_TYPES[ext];
+  if (imageType || mediaType || ext === '.pdf') {
     if (byteLength > INLINE_MAX_BYTES && !opts.force) {
       return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
     }
     const buf = await fsReadFile(abs);
     return {
       ...base,
-      kind: imageType ? 'image' : 'pdf',
+      kind: imageType ? 'image' : mediaType ? 'media' : 'pdf',
       content: '',
       byteLength,
-      mediaType: imageType ?? 'application/pdf',
+      mediaType: imageType ?? mediaType ?? 'application/pdf',
       base64: buf.toString('base64'),
     };
   }

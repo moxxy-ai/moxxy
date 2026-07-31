@@ -1,12 +1,8 @@
 /**
- * useChat integration test — the first open of a workspace usually races the
- * runner spawn: `chat.loadHistory` returns null (no attached runner yet) and
- * `loadInitial` leaves the slot retryable. Because the runner attaches with
- * `replay:'none'`, nothing pushes history in — so the hook MUST re-run the load
- * once the workspace's runner reaches `connected`. Without that the transcript
- * stays empty until the user re-opens the workspace ("first click empty, second
- * click loads"). Each test uses a unique workspace id so the module-level
- * chat/connection singletons stay isolated.
+ * useChat integration tests for cache-first history. A host that cannot serve a
+ * pre-runner page stays retryable on connect; a successful startup page is
+ * reconciled with the live runner tail after a disconnect/reconnect edge.
+ * Unique workspace ids keep the module-level stores isolated.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,10 +21,10 @@ function ws(): string {
   return `ws-usechat-${wsSeq}`;
 }
 
-function userPrompt(text: string): MoxxyEvent {
+function userPrompt(text: string, seq = 1): MoxxyEvent {
   return {
     id: `e-${text}`,
-    seq: 1,
+    seq,
     ts: 1,
     turnId: 'T1',
     sessionId: 'S',
@@ -97,13 +93,14 @@ describe('useChat history backfill on runner connect', () => {
     expect(loadCalls).toBeGreaterThan(callsBeforeConnect);
   });
 
-  it('does not re-page once a load has already succeeded (idempotent on reconnect)', async () => {
+  it('reconciles a successful startup page with the live tail on reconnect', async () => {
     const id = ws();
     let loadCalls = 0;
+    let history = [userPrompt('hi')];
     const invoke = (async (cmd: string) => {
       if (cmd === 'chat.loadHistory') {
         loadCalls += 1;
-        return { events: [userPrompt('hi')], prevCursor: null };
+        return { events: history, prevCursor: null };
       }
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
@@ -117,18 +114,23 @@ describe('useChat history backfill on runner connect', () => {
     await waitFor(() => expect(result.current.events).toHaveLength(1));
     const callsAfterLoad = loadCalls;
 
-    // A reconnect (connected → reconnecting → connected) must NOT re-page: the
-    // window is already loaded (slot.loaded guards re-entry).
+    // The startup snapshot can become stale while disconnected. Reconnecting
+    // must pull the live tail without duplicating the already-rendered prompt.
     act(() => {
       connectionStore.setSnapshot(id, {
         ...connectedSnapshot(),
         phase: { phase: 'reconnecting', reason: 'drop', attempt: 1 },
       });
     });
+    history = [...history, userPrompt('arrived while offline', 2)];
     act(() => {
       connectionStore.setSnapshot(id, connectedSnapshot());
     });
-    await waitFor(() => expect(result.current.events).toHaveLength(1));
-    expect(loadCalls).toBe(callsAfterLoad);
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(loadCalls).toBeGreaterThan(callsAfterLoad);
+    expect(result.current.events.map((event) => event.id)).toEqual([
+      'e-hi',
+      'e-arrived while offline',
+    ]);
   });
 });

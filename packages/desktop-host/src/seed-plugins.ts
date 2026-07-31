@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
+import { writeFileAtomic } from '@moxxy/sdk/server';
+
 /**
  * First-launch plugin seeding: copy the packaged app's bundled
  * `plugins-seed` npm tree (assembled at build time by
@@ -30,7 +32,19 @@ export interface SeedPluginsResult {
   readonly skipped: ReadonlyArray<string>;
 }
 
+export interface SeedManifestRepairResult {
+  /** Broken generated specs replaced by the exact installed version. */
+  readonly replaced: ReadonlyArray<string>;
+  /** Broken generated specs removed because no valid package is installed. */
+  readonly removed: ReadonlyArray<string>;
+}
+
 const NOOP: SeedPluginsResult = { copied: [], skipped: [] };
+const NO_REPAIR: SeedManifestRepairResult = { replaced: [], removed: [] };
+const MOXXY_PACKAGE_NAME = /^@moxxy\/[a-z0-9][a-z0-9._-]*$/i;
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
+const TRANSIENT_SEED_TARBALL = /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i;
+let manifestMutationTail: Promise<void> = Promise.resolve();
 
 export async function seedPluginsFromResources(
   opts: SeedPluginsOptions,
@@ -89,26 +103,158 @@ async function listModuleEntries(modulesDir: string): Promise<string[]> {
  *  the standard user-plugins stub when absent) so future `npm install --save`
  *  runs in the target tree keep every seeded package on their ledger. */
 async function mergeManifest(seedDir: string, targetDir: string): Promise<void> {
-  const seedPkg = await readJson(path.join(seedDir, 'package.json'));
-  const seedDeps = (seedPkg?.dependencies ?? {}) as Record<string, string>;
-  const targetPath = path.join(targetDir, 'package.json');
-  const targetPkg = (await readJson(targetPath)) ?? {
-    name: 'moxxy-user-plugins',
-    version: '0.0.0',
-    private: true,
-    type: 'module',
-    description: 'Auto-generated workspace for moxxy plugins installed at runtime.',
-  };
-  targetPkg.dependencies = { ...seedDeps, ...(targetPkg.dependencies ?? {}) };
-  await fs.writeFile(targetPath, JSON.stringify(targetPkg, null, 2) + '\n');
+  await serializeManifestMutation(async () => {
+    const seedPkg = await readJson(path.join(seedDir, 'package.json'));
+    const seedDeps = await normalizeGeneratedSeedSpecs(
+      dependenciesOf(seedPkg),
+      path.join(seedDir, 'node_modules'),
+    );
+    const targetPath = path.join(targetDir, 'package.json');
+    const targetPkg = (await readJson(targetPath)) ?? {
+      name: 'moxxy-user-plugins',
+      version: '0.0.0',
+      private: true,
+      type: 'module',
+      description: 'Auto-generated workspace for moxxy plugins installed at runtime.',
+    };
+    const targetDeps = await normalizeGeneratedSeedSpecs(
+      dependenciesOf(targetPkg),
+      path.join(targetDir, 'node_modules'),
+      seedDeps.dependencies,
+    );
+    targetPkg.dependencies = {
+      ...seedDeps.dependencies,
+      ...targetDeps.dependencies,
+    };
+    await writeFileAtomic(targetPath, `${JSON.stringify(targetPkg, null, 2)}\n`);
+  });
 }
 
-async function readJson(p: string): Promise<Record<string, any> | null> {
+/**
+ * Repair manifests written by desktop builds that briefly used `file:` specs
+ * pointing at their build-time `moxxy-seed-tars-*` directory. That directory
+ * is deleted after packaging, so a later `npm install` (including Local Piper)
+ * otherwise fails while resolving an unrelated, long-gone tarball.
+ *
+ * Only the exact first-party generated shape is touched. User-authored `file:`
+ * dependencies remain intact. A valid installed package supplies the durable
+ * exact version; an entry with no package behind it is removed so npm can work
+ * again.
+ */
+export async function repairSeededPluginManifest(
+  pluginsDir: string,
+): Promise<SeedManifestRepairResult> {
+  return serializeManifestMutation(async () => {
+    const manifestPath = path.join(pluginsDir, 'package.json');
+    const pkg = await readJson(manifestPath);
+    if (!pkg) return NO_REPAIR;
+
+    const normalized = await normalizeGeneratedSeedSpecs(
+      dependenciesOf(pkg),
+      path.join(pluginsDir, 'node_modules'),
+    );
+    if (normalized.replaced.length === 0 && normalized.removed.length === 0) {
+      return NO_REPAIR;
+    }
+    pkg.dependencies = normalized.dependencies;
+    await writeFileAtomic(manifestPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    return {
+      replaced: normalized.replaced,
+      removed: normalized.removed,
+    };
+  });
+}
+
+interface NormalizedDependencies extends SeedManifestRepairResult {
+  readonly dependencies: Record<string, string>;
+}
+
+async function normalizeGeneratedSeedSpecs(
+  dependencies: Readonly<Record<string, string>>,
+  modulesDir: string,
+  fallback: Readonly<Record<string, string>> = {},
+): Promise<NormalizedDependencies> {
+  const normalized = { ...dependencies };
+  const replaced: string[] = [];
+  const removed: string[] = [];
+  for (const [name, spec] of Object.entries(dependencies)) {
+    if (!isGeneratedTransientSeedSpec(name, spec)) continue;
+    const installedVersion = await readInstalledExactVersion(modulesDir, name);
+    const fallbackSpec = fallback[name];
+    const durableSpec = installedVersion ?? (
+      fallbackSpec && EXACT_VERSION.test(fallbackSpec) ? fallbackSpec : null
+    );
+    if (durableSpec) {
+      normalized[name] = durableSpec;
+      replaced.push(name);
+    } else {
+      delete normalized[name];
+      removed.push(name);
+    }
+  }
+  return { dependencies: normalized, replaced, removed };
+}
+
+function isGeneratedTransientSeedSpec(name: string, spec: string): boolean {
+  return (
+    MOXXY_PACKAGE_NAME.test(name) &&
+    spec.startsWith('file:') &&
+    TRANSIENT_SEED_TARBALL.test(spec.slice('file:'.length))
+  );
+}
+
+async function readInstalledExactVersion(
+  modulesDir: string,
+  expectedName: string,
+): Promise<string | null> {
   try {
-    return JSON.parse(await fs.readFile(p, 'utf8')) as Record<string, any>;
+    const manifest = await readJson(path.join(modulesDir, expectedName, 'package.json'));
+    if (!manifest || manifest.name !== expectedName) return null;
+    return typeof manifest.version === 'string' && EXACT_VERSION.test(manifest.version)
+      ? manifest.version
+      : null;
   } catch {
     return null;
   }
+}
+
+function dependenciesOf(pkg: JsonObject | null): Record<string, string> {
+  if (!pkg || !isJsonObject(pkg.dependencies)) return {};
+  return Object.fromEntries(
+    Object.entries(pkg.dependencies).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
+}
+
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJson(p: string): Promise<JsonObject | null> {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(p, 'utf8'));
+    if (!isJsonObject(parsed)) throw new Error(`Expected a JSON object in ${p}`);
+    return parsed;
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return isJsonObject(error) && error.code === 'ENOENT';
+}
+
+function serializeManifestMutation<T>(work: () => Promise<T>): Promise<T> {
+  const run = manifestMutationTail.then(work, work);
+  manifestMutationTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 async function isDir(p: string): Promise<boolean> {

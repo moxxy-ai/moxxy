@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { DiffView } from './DiffView';
+import { MediaViewer } from './MediaViewer';
+import { PdfViewer } from './PdfViewer';
+import { TextFilePreview } from './TextFilePreview';
 
 export type FileViewMode = 'diff' | 'content';
 
@@ -9,7 +12,8 @@ type Body =
   | { readonly diff: string }
   | { readonly kind: 'text'; readonly content: string; readonly truncated: boolean }
   | { readonly kind: 'image'; readonly src: string }
-  | { readonly kind: 'pdf'; readonly base64: string }
+  | { readonly kind: 'pdf'; readonly base64: string; readonly byteLength: number }
+  | { readonly kind: 'media'; readonly base64: string; readonly mediaType: string }
   | { readonly kind: 'confirm'; readonly reason?: 'binary' | 'large'; readonly byteLength: number };
 
 /** Decode a base64 payload into a Blob (for a PDF object URL — avoids the
@@ -54,29 +58,30 @@ export function FileViewer({
   const [loading, setLoading] = useState(false);
   // Set when the user confirms "open anyway" past the binary/large gate.
   const [force, setForce] = useState(false);
-  // Object URL for a PDF body, created/revoked alongside it.
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  // Object URL for a binary preview body, created/revoked alongside it.
+  const [binaryUrl, setBinaryUrl] = useState<string | null>(null);
 
   // A fresh selection starts gated again.
   useEffect(() => setForce(false), [path, mode]);
 
-  // Maintain a revocable object URL whenever the body is a PDF. A malformed /
+  // Maintain a revocable object URL whenever the body is PDF/audio/video. A malformed /
   // non-base64 payload makes atob throw a DOMException — catch it and fall back
   // to the regular error state instead of letting it escape the effect.
   useEffect(() => {
-    if (!body || !('kind' in body) || body.kind !== 'pdf') {
-      setPdfUrl(null);
+    if (!body || !('kind' in body) || (body.kind !== 'pdf' && body.kind !== 'media')) {
+      setBinaryUrl(null);
       return;
     }
     let u: string;
     try {
-      u = URL.createObjectURL(base64ToBlob(body.base64, 'application/pdf'));
+      const type = body.kind === 'pdf' ? 'application/pdf' : body.mediaType;
+      u = URL.createObjectURL(base64ToBlob(body.base64, type));
     } catch {
-      setPdfUrl(null);
-      setError('Could not open this PDF — the file appears to be corrupt.');
+      setBinaryUrl(null);
+      setError(`Could not open this ${body.kind === 'pdf' ? 'PDF' : 'media file'} — it appears to be corrupt.`);
       return;
     }
-    setPdfUrl(u);
+    setBinaryUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [body]);
 
@@ -100,7 +105,9 @@ export function FileViewer({
         if (res.kind === 'image') {
           setBody({ kind: 'image', src: `data:${res.mediaType ?? 'image/png'};base64,${res.base64 ?? ''}` });
         } else if (res.kind === 'pdf') {
-          setBody({ kind: 'pdf', base64: res.base64 ?? '' });
+          setBody({ kind: 'pdf', base64: res.base64 ?? '', byteLength: res.byteLength });
+        } else if (res.kind === 'media') {
+          setBody({ kind: 'media', base64: res.base64 ?? '', mediaType: res.mediaType ?? 'application/octet-stream' });
         } else if (res.kind === 'confirm') {
           setBody({ kind: 'confirm', reason: res.reason, byteLength: res.byteLength });
         } else {
@@ -128,7 +135,7 @@ export function FileViewer({
   if (error) return <div style={{ ...pad, color: 'var(--color-danger, #f87171)' }}>{error}</div>;
   if (!body) return <div style={pad} />;
 
-  if ('diff' in body) return <DiffView diff={body.diff} />;
+  if ('diff' in body) return <DiffView diff={body.diff} path={path} />;
 
   if (body.kind === 'image') {
     return (
@@ -154,12 +161,16 @@ export function FileViewer({
   }
 
   if (body.kind === 'pdf') {
-    return pdfUrl ? (
-      <iframe
-        src={pdfUrl}
-        title={path}
-        style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-block)', background: '#fff' }}
-      />
+    return binaryUrl ? (
+      <PdfViewer key={path} url={binaryUrl} path={path} byteLength={body.byteLength} />
+    ) : (
+      <div style={pad}>Loading…</div>
+    );
+  }
+
+  if (body.kind === 'media') {
+    return binaryUrl ? (
+      <MediaViewer url={binaryUrl} path={path} mediaType={body.mediaType} />
     ) : (
       <div style={pad}>Loading…</div>
     );
@@ -209,26 +220,7 @@ export function FileViewer({
     );
   }
 
-  return (
-    <pre
-      className="mono"
-      style={{
-        margin: 0,
-        padding: 10,
-        fontSize: 'var(--type-meta)',
-        lineHeight: 1.5,
-        overflow: 'auto',
-        height: '100%',
-        background: 'var(--color-input-soft)',
-        borderRadius: 'var(--radius-block)',
-        whiteSpace: 'pre',
-        color: 'var(--color-text-muted)',
-      }}
-    >
-      {body.content}
-      {body.truncated ? '\n\n… (truncated)' : ''}
-    </pre>
-  );
+  return <TextFilePreview key={path} path={path} content={body.content} truncated={body.truncated} />;
 }
 
 const pad: React.CSSProperties = { padding: 16, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' };

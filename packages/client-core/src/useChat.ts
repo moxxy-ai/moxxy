@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
@@ -214,24 +214,37 @@ export function useChat(workspaceId: string | null): UseChat {
     workspaceId ? chatStore.getChat(workspaceId) : EMPTY_SNAPSHOT,
   );
 
-  // Whether this workspace's runner has reached the `connected` phase. The
-  // history pull (`chat.loadHistory`) only succeeds once a runner is attached —
-  // before that the IPC returns null.
+  // Whether this workspace's runner has reached the `connected` phase. History
+  // can load from the host's validated JSONL before this flips; the transition
+  // is still important because it triggers a live-tail reconciliation.
   const runnerConnected = useSyncExternalStore(connectionStore.subscribe, () =>
     workspaceId ? connectionStore.get(workspaceId)?.phase.phase === 'connected' : false,
   );
 
-  // Load the most-recent window from the runner the first time this workspace is
-  // observed AND again once its runner reaches `connected`. The first open
-  // usually races the runner spawn: `chat.loadHistory` returns null (no attached
-  // runner yet), so `loadInitial` leaves the slot unloaded for a retry. The
-  // runner attaches with `replay:'none'`, so nothing pushes history in — without
-  // this re-run on connect the transcript stays empty until the user re-opens
-  // the workspace (the "first click shows empty, second click loads" bug).
-  // Idempotent: `loadInitial` bails once a load has succeeded (`slot.loaded`),
-  // so a later reconnect never re-pages.
+  // Load the most-recent window immediately. Depending on startup timing this is
+  // served either from the host's validated JSONL or the connected runner's live
+  // log. Keep `runnerConnected` in the dependencies for the older/no-host-cache
+  // path: a null first result remains retryable when the runner attaches.
   useEffect(() => {
     if (workspaceId) void chatStore.loadInitial(workspaceId);
+  }, [workspaceId, runnerConnected]);
+
+  // The startup page is a stale-while-revalidate snapshot. On a genuine
+  // disconnected → connected edge, pull the live tail to recover anything that
+  // landed after the disk read (or while this thin client was offline). Do not
+  // do the extra read when a workspace is already connected on first mount.
+  const previousConnection = useRef({ workspaceId, connected: runnerConnected });
+  useEffect(() => {
+    const previous = previousConnection.current;
+    previousConnection.current = { workspaceId, connected: runnerConnected };
+    if (
+      workspaceId &&
+      previous.workspaceId === workspaceId &&
+      !previous.connected &&
+      runnerConnected
+    ) {
+      void chatStore.refreshLatest(workspaceId);
+    }
   }, [workspaceId, runnerConnected]);
 
   const loadOlder = useCallback((): void => {

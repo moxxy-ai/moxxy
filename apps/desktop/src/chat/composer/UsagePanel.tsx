@@ -96,7 +96,7 @@ export function UsagePanel({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Section title="Context window">
         {f != null ? (
           <>
@@ -146,7 +146,16 @@ export function UsagePanel({
         </CollapsibleSection>
       )}
 
-      <footer style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+      <footer
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          marginTop: 2,
+          paddingTop: 12,
+          borderTop: '1px solid var(--color-card-border)',
+        }}
+      >
         {note && (
           <p
             role="status"

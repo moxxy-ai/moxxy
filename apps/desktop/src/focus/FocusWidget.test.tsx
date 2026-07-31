@@ -835,8 +835,8 @@ describe('FocusWidget theme', () => {
     const css = focusCss();
 
     // The two dark paths used to be hand-maintained copies, and the
-    // `prefers-color-scheme` one had drifted: it omitted --color-primary,
-    // --color-primary-strong and --color-red, so a system-dark user with no
+    // `prefers-color-scheme` one had drifted: it omitted shared colour vars, so
+    // a system-dark user with no
     // stored theme pref got the LIGHT accent on a dark panel. Both paths now
     // interpolate one shared constant; assert the accent reaches both, and
     // that the light accent appears exactly once (in the :root block).
@@ -845,6 +845,8 @@ describe('FocusWidget theme', () => {
     for (const decl of [
       '--color-primary: #f4408f',
       '--color-primary-strong: #ff63a8',
+      '--color-action: #c21e6b',
+      '--color-on-action: #ffffff',
       '--color-red: #f2545b',
     ]) {
       expect(systemDark, `system-dark is missing ${decl}`).toContain(decl);
@@ -1507,6 +1509,21 @@ describe('FocusWidget bidirectional sync', () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
+    const latestPreviewDimensions = (): { width: number; height: number } | undefined => {
+      const resize = spy.invokes.findLast((invoke) => {
+        if (invoke.channel !== 'focus.resize') return false;
+        const args = invoke.args as { width?: unknown; height?: unknown };
+        return (
+          typeof args.width === 'number' &&
+          typeof args.height === 'number' &&
+          args.height > 104
+        );
+      });
+      if (!resize) return undefined;
+      const args = resize.args as { width: number; height: number };
+      return { width: args.width, height: args.height };
+    };
+
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
       event: {
@@ -1525,9 +1542,12 @@ describe('FocusWidget bidirectional sync', () => {
         .toHaveTextContent(/first live chunk/i);
     });
 
-    const resizeCountAfterFirstPreview = spy.invokes.filter(
-      (i) => i.channel === 'focus.resize',
-    ).length;
+    let dimensionsAfterFirstPreview: { width: number; height: number } | undefined;
+    await waitFor(() => {
+      dimensionsAfterFirstPreview = latestPreviewDimensions();
+      expect(dimensionsAfterFirstPreview).toBeDefined();
+    });
+    assertDefined(dimensionsAfterFirstPreview, 'first inactive preview dimensions');
 
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
@@ -1547,10 +1567,7 @@ describe('FocusWidget bidirectional sync', () => {
         .toHaveTextContent(/first live chunk and second live chunk/i);
     });
 
-    const resizeCountAfterSecondPreview = spy.invokes.filter(
-      (i) => i.channel === 'focus.resize',
-    ).length;
-    expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
+    expect(latestPreviewDimensions()).toEqual(dimensionsAfterFirstPreview);
   });
 
   it('shows the active task above Moxxy and keeps the native window bottom-anchored', async () => {
