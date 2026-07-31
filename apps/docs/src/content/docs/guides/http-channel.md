@@ -77,7 +77,7 @@ Optional tuning lives in the query string so the body stays raw:
 
 ```sh
 curl -X POST \
-  "http://localhost:3737/v1/turn/audio?model=claude-sonnet-4-6&language=en" \
+  "http://localhost:3737/v1/turn/audio?model=claude-sonnet-5&language=en" \
   -H "Authorization: Bearer $MOXXY_HTTP_TOKEN" \
   -H "Content-Type: audio/m4a" \
   --data-binary @voicenote.m4a

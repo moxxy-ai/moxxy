@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertDefined, defineTool, z } from '@moxxy/sdk';
-import { AnthropicProvider } from './provider.js';
+import { AnthropicProvider, anthropicModels } from './provider.js';
 
 // A minimal fake Anthropic SDK client to drive the translator without HTTP.
 function fakeAnthropic(stream: ReadonlyArray<unknown>): { messages: { stream: () => AsyncIterable<unknown>; countTokens: () => Promise<{ input_tokens: number }> } } {
@@ -46,7 +46,7 @@ describe('AnthropicProvider.stream', () => {
 
     const events = [];
     for await (const event of provider.stream({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       messages: [],
       tools: [fallback],
     })) events.push(event);
@@ -76,7 +76,7 @@ describe('AnthropicProvider.stream', () => {
     ]);
     const provider = new AnthropicProvider({ client: fake as never });
     const events = [];
-    for await (const event of provider.stream({ model: 'claude-sonnet-4-6', messages: [] })) {
+    for await (const event of provider.stream({ model: 'claude-sonnet-5', messages: [] })) {
       events.push(event);
     }
     const text = events
@@ -303,16 +303,48 @@ describe('AnthropicProvider.stream', () => {
     };
     const p = new AnthropicProvider({ client: client as never });
     // haiku ceiling is 64_000 — an absurd request must be clamped, not forwarded.
-    for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', maxTokens: 5_000_000, messages: [] })) {
+    for await (const _ of p.stream({ model: 'claude-haiku-4-5', maxTokens: 5_000_000, messages: [] })) {
       void _;
     }
     const call0 = calls[0];
     assertDefined(call0, 'first call recorded');
     expect(call0.max_tokens).toBe(64_000);
     // No maxTokens → defaults to the descriptor ceiling.
-    for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', messages: [] })) void _;
+    for await (const _ of p.stream({ model: 'claude-haiku-4-5', messages: [] })) void _;
     const call1 = calls[1];
     assertDefined(call1, 'second call recorded');
     expect(call1.max_tokens).toBe(64_000);
+  });
+});
+
+describe('anthropicModels', () => {
+  it('offers the current Claude catalog and defaults to a model inside it', async () => {
+    expect(anthropicModels.map((model) => model.id)).toEqual([
+      'claude-fable-5',
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
+    ]);
+
+    const calls: Array<{ model?: string }> = [];
+    const client = {
+      messages: {
+        stream: (args: { model?: string }) => {
+          calls.push(args);
+          return (async function* () {
+            yield { type: 'message_stop' };
+          })();
+        },
+        countTokens: async () => ({ input_tokens: 0 }),
+      },
+    };
+    const p = new AnthropicProvider({ client: client as never });
+    // An unset model falls back to the provider default, which must be a listed
+    // model — an unlisted default silently loses its output ceiling (4096) and
+    // its hosted tools.
+    for await (const _ of p.stream({ model: '', messages: [] })) void _;
+    const call0 = calls[0];
+    assertDefined(call0, 'request recorded');
+    expect(anthropicModels.some((model) => model.id === call0.model)).toBe(true);
   });
 });

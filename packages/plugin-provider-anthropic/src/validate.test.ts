@@ -36,9 +36,9 @@ describe('anthropic validateKey', () => {
   it('respects model override', async () => {
     const create = vi.fn().mockResolvedValue({});
     const make = () => ({ messages: { create } });
-    await validateKey('sk-ant-key-of-reasonable-length', { client: make, model: 'claude-opus-4-7' });
+    await validateKey('sk-ant-key-of-reasonable-length', { client: make, model: 'claude-opus-5' });
     const args = create.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(args.model).toBe('claude-opus-4-7');
+    expect(args.model).toBe('claude-opus-5');
   });
 
   it('maps a 401 to a fixed friendly message (no raw SDK text echoed)', async () => {
