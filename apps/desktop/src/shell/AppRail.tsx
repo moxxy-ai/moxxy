@@ -78,7 +78,6 @@ export function AppRail({
         {expanded && (
           <span className="app-rail__word">
             <b>MoxxyAI</b>
-            <small>Workspaces</small>
           </span>
         )}
         {/* Beside the mark, because widening the rail is a property of the rail

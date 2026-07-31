@@ -6,10 +6,14 @@
  * shadow on a flat surface, which this language does not do, and the size made
  * it a floating object rather than the terminal item in a row of controls.
  *
- * The label carries `--color-on-primary`, never `#fff` — the dark theme's accent
- * is luminous and takes an ink label.
+ * The normal send action uses the dedicated action stop and its light label;
+ * destructive Abort keeps the semantic red/on-primary pairing.
  */
-export function sendBtn(bg: string, enabled: boolean): React.CSSProperties {
+export function sendBtn(
+  bg: string,
+  enabled: boolean,
+  foreground = 'var(--color-on-action)',
+): React.CSSProperties {
   const shared: React.CSSProperties = {
     height: 'var(--frame-control)',
     padding: '0 var(--space-8)',
@@ -39,6 +43,6 @@ export function sendBtn(bg: string, enabled: boolean): React.CSSProperties {
     // object sitting in the input rather than as the row's last control.
     border: `1px solid ${bg}`,
     background: bg,
-    color: 'var(--color-on-primary)',
+    color: foreground,
   };
 }

@@ -32,6 +32,11 @@ function ensureButtonStates(): void {
     `.${MARKER}{cursor:pointer;}`,
     `.${MARKER}:focus-visible{outline:2px solid var(--color-primary-strong,#2563eb);outline-offset:2px;}`,
     `.${MARKER}:disabled{opacity:0.55;cursor:not-allowed;}`,
+    `.${MARKER}.btn-primary,.${MARKER}.btn-cta{background:var(--color-action,var(--color-primary,#c21e6b));color:var(--color-on-action,#fff);border:1px solid var(--color-action,var(--color-primary,#c21e6b));}`,
+    `.${MARKER}.btn-primary:hover:not(:disabled),.${MARKER}.btn-cta:hover:not(:disabled){background:var(--color-action-hover,var(--color-primary-strong,#9d1355));border-color:var(--color-action-hover,var(--color-primary-strong,#9d1355));}`,
+    `.${MARKER}.btn-primary:disabled,.${MARKER}.btn-cta:disabled{opacity:1;background:var(--color-input-soft,#f1f3f4);color:var(--color-text-muted,#4a5a64);border-color:var(--color-card-border-strong,#c7cfd2);}`,
+    `.${MARKER}.btn-danger{background:var(--color-red,#dc2626);color:var(--color-on-primary,#fff);border:1px solid var(--color-red,#dc2626);}`,
+    `.${MARKER}.btn-danger:hover:not(:disabled){filter:brightness(0.9);}`,
   ].join('');
   document.head.appendChild(style);
 }
@@ -54,8 +59,8 @@ function isDev(): boolean {
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /**
-   * - `primary` — solid accent fill (the modal-footer confirm look)
-   * - `cta` — gradient call-to-action (`btn-cta`)
+   * - `primary` — solid action fill (the modal-footer confirm look)
+   * - `cta` — solid call-to-action (`btn-cta`)
    * - `secondary` — bordered/ghost-outline ("Cancel"/"Close"/"Back")
    * - `chip` — small bordered pill
    * - `ghost` — borderless, transparent
@@ -68,23 +73,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties }> = {
-  // `--color-on-primary`, never a literal `#fff`: the dark theme's accent is
-  // luminous magenta and carries an INK label, so a hard-coded white here is
-  // readable in light and near-invisible in dark.
   primary: {
-    style: {
-      background: 'var(--color-primary-strong)',
-      color: 'var(--color-on-primary)',
-      border: 'none',
-    },
+    className: 'btn-primary',
+    style: {},
   },
   cta: {
     className: 'btn-cta',
-    style: {
-      background: 'var(--color-primary)',
-      color: 'var(--color-on-primary)',
-      border: 'none',
-    },
+    style: {},
   },
   secondary: {
     className: 'btn-outline',
@@ -109,7 +104,8 @@ const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties 
     style: { background: 'transparent', color: 'var(--color-text-muted)', border: 'none' },
   },
   danger: {
-    style: { background: 'var(--color-red)', color: 'var(--color-on-primary)', border: 'none' },
+    className: 'btn-danger',
+    style: {},
   },
 };
 

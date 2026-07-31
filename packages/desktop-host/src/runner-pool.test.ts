@@ -1,12 +1,13 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { socketFor, UNBOUND_ID } from './runner-pool';
+import { RunnerPool, socketFor, UNBOUND_ID } from './runner-pool';
 
 const orig = { ...process.env };
 beforeEach(() => {
   process.env = { ...orig };
   delete process.env.MOXXY_RUNNER_SOCKET;
+  delete process.env.MOXXY_HOME;
 });
 afterEach(() => {
   process.env = orig;
@@ -39,6 +40,16 @@ describe('socketFor — platform-correct runner address', () => {
     );
   });
 
+  it('honors MOXXY_HOME for both unbound and workspace POSIX sockets', () => {
+    const relocated = path.join('/tmp', 'moxxy-relocated');
+    process.env.MOXXY_HOME = relocated;
+
+    expect(socketFor(UNBOUND_ID, 'linux')).toBe(path.join(relocated, 'serve.sock'));
+    expect(socketFor('ws-1', 'darwin')).toBe(
+      path.join(relocated, 'desktop', 'sockets', 'serve-ws-1.sock'),
+    );
+  });
+
   it('accepts a real UUID workspace id on POSIX', () => {
     const id = '6b1f3c2a-0e4d-4a7b-9c1e-2f3a4b5c6d7e';
     expect(socketFor(id, 'linux')).toBe(
@@ -53,5 +64,34 @@ describe('socketFor — platform-correct runner address', () => {
     expect(() => socketFor('a/b', 'darwin')).toThrow(/unsafe workspace id/i);
     expect(() => socketFor('..', 'linux')).toThrow(/unsafe workspace id/i);
     expect(() => socketFor('with space', 'linux')).toThrow(/unsafe workspace id/i);
+  });
+});
+
+describe('RunnerPool deferred startup', () => {
+  it('runs preparation once and cannot spawn after shutdown wins the race', async () => {
+    let releasePreparation: (() => void) | null = null;
+    const beforeStart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePreparation = resolve;
+        }),
+    );
+    const pool = new RunnerPool({ beforeStart });
+
+    const first = pool.getOrCreate('ws-delayed-a', null);
+    const second = pool.getOrCreate('ws-delayed-b', null);
+    await Promise.resolve();
+
+    expect(beforeStart).toHaveBeenCalledTimes(1);
+    expect(pool.list()).toEqual([]);
+
+    const stopped = pool.stopAll();
+    expect(releasePreparation).not.toBeNull();
+    releasePreparation?.();
+
+    await expect(first).rejects.toThrow(/stopped/i);
+    await expect(second).rejects.toThrow(/stopped/i);
+    await stopped;
+    expect(pool.list()).toEqual([]);
   });
 });

@@ -61,7 +61,14 @@ export function Onboarding({ phase, onComplete }: Props): JSX.Element {
 
   return (
     <Shell steps={flow.steps} currentIndex={flow.index}>
-      {renderStep(flow.currentId, flow.next, flow.isFirst ? null : flow.back, onComplete, ob)}
+      {renderStep(
+        flow.currentId,
+        flow.next,
+        flow.isFirst ? null : flow.back,
+        onComplete,
+        ob,
+        ctx.full,
+      )}
     </Shell>
   );
 }
@@ -72,6 +79,7 @@ function renderStep(
   back: (() => void) | null,
   onComplete: () => void,
   ob: UseOnboarding,
+  full: boolean,
 ): JSX.Element {
   const onBack = back ?? ((): void => undefined);
   switch (id) {
@@ -85,7 +93,11 @@ function renderStep(
     case 'cli':
       return <CliStep onNext={next} onBack={onBack} />;
     case 'provider':
-      return <ProviderStep onNext={next} onBack={onBack} />;
+      // Recovery mode resolves from backend state and intentionally ignores the
+      // linear cursor. Its optional provider step must therefore dismiss the
+      // recovery surface directly when the user chooses "Skip for now";
+      // calling `next` here is a no-op in auto mode.
+      return <ProviderStep onNext={full ? next : onComplete} onBack={onBack} />;
     case 'workspace':
       return <WorkspaceStep onNext={next} onBack={onBack} />;
     case 'done':

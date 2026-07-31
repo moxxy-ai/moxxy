@@ -19,10 +19,12 @@
  * silently skipped by plugin discovery at runtime.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { writeFileAtomicSync } from '@moxxy/sdk/server';
 
 /** On-demand plugins seeded into the desktop. Extend as batches unbundle. */
 const SEED_PLUGINS = [
@@ -63,6 +65,7 @@ const SEED_PLUGINS = [
 /** First-party runtime deps of seed members — packed so the closure installs
  *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
 const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which
 // path.resolve prefixes with the drive again (`D:\D:\a\...`).
@@ -101,5 +104,36 @@ run('npm', [
   ...tarballs,
 ]);
 
+// npm records direct local tarballs exactly as `file:/tmp/moxxy-seed-tars-*`.
+// The tar directory is intentionally removed below, so persisting those specs
+// would poison every later `npm install` in the user's copied plugin tree.
+// Replace them with the exact versions npm just installed while both sources
+// are still available.
+const seedManifestPath = path.join(seedDir, 'package.json');
+const seedManifest = JSON.parse(readFileSync(seedManifestPath, 'utf8'));
+for (const [name, spec] of Object.entries(seedManifest.dependencies ?? {})) {
+  if (!isTransientSeedTarball(spec)) continue;
+  const installedManifest = JSON.parse(
+    readFileSync(path.join(seedDir, 'node_modules', name, 'package.json'), 'utf8'),
+  );
+  if (
+    installedManifest.name !== name ||
+    typeof installedManifest.version !== 'string' ||
+    !EXACT_VERSION.test(installedManifest.version)
+  ) {
+    throw new Error(`Cannot normalize transient seed dependency ${name}`);
+  }
+  seedManifest.dependencies[name] = installedManifest.version;
+}
+writeFileAtomicSync(seedManifestPath, `${JSON.stringify(seedManifest, null, 2)}\n`);
+
 rmSync(tarDir, { recursive: true, force: true });
 console.log(`plugins-seed assembled at ${seedDir} (${SEED_PLUGINS.length} plugins + closure)`);
+
+function isTransientSeedTarball(spec) {
+  return (
+    typeof spec === 'string' &&
+    spec.startsWith('file:') &&
+    /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i.test(spec.slice(5))
+  );
+}

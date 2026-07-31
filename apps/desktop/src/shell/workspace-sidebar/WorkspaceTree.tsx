@@ -63,25 +63,22 @@ export function WorkspaceTree({
   readonly onRemoveWorkspace: (desk: Desk) => void;
 }): JSX.Element {
   return (
-    <div>
-      <ul
-        role="tree"
-        aria-label="Workspaces"
-        style={{
-          listStyle: 'none',
-          margin: '0 0 4px',
-          padding: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 1,
-        }}
-      >
+    <div className="workspace-tree">
+      <ul role="tree" aria-label="Workspaces" className="workspace-tree__list">
         {desks.map((desk) => {
           const isCollapsed = collapsed.has(desk.id);
           const hasUnread =
             desk.sessions.some((s) => unread.has(s.id)) || unread.has(desk.id);
           return (
-            <li key={desk.id} role="treeitem" aria-expanded={!isCollapsed}>
+            <li
+              key={desk.id}
+              role="treeitem"
+              aria-expanded={!isCollapsed}
+              data-testid={`workspace-group-${desk.id}`}
+              data-active={desk.id === activeDeskId}
+              data-collapsed={isCollapsed}
+              className="workspace-group"
+            >
               <FolderRow
                 desk={desk}
                 active={desk.id === activeDeskId}
@@ -97,14 +94,7 @@ export function WorkspaceTree({
                 <ul
                   role="group"
                   aria-label={`sessions in ${desk.name}`}
-                  style={{
-                    listStyle: 'none',
-                    margin: 0,
-                    padding: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 1,
-                  }}
+                  className="workspace-group__sessions"
                 >
                   {desk.sessions.map((s) => (
                     <SessionRow
@@ -177,7 +167,7 @@ function FolderRow({
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
       onBlurCapture={() => setHot(false)}
-      className="row-button"
+      className="workspace-group__header row-button"
       style={{
         position: 'relative',
         // While its ⋯ menu is open this row must paint ABOVE the rows
@@ -217,7 +207,7 @@ function FolderRow({
           width: 18,
           height: 18,
           flexShrink: 0,
-          color: 'var(--color-sidebar-text-dim)',
+          color: active ? 'var(--color-primary)' : 'var(--color-sidebar-text-dim)',
         }}
       >
         <span
@@ -238,7 +228,7 @@ function FolderRow({
           fontSize: 'var(--type-label)',
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          color: 'var(--color-text-dim)',
+          color: active ? 'var(--color-sidebar-text)' : 'var(--color-text-dim)',
           fontWeight: active ? 600 : 500,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -254,11 +244,9 @@ function FolderRow({
           to find out. */}
       <span
         aria-hidden
+        className="workspace-group__count"
         style={{
           flexShrink: 0,
-          paddingRight: 'var(--space-4)',
-          fontSize: 'var(--type-label)',
-          color: 'var(--color-text-dim)',
         }}
       >
         {desk.sessions.length}
@@ -553,7 +541,7 @@ function RowMenu({
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, onOpenChange]);
+  }, [menuRef, open, onOpenChange]);
 
   useEffect(() => {
     if (!open) {

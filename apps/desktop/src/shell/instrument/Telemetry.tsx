@@ -114,8 +114,8 @@ export function Telemetry({
       </button>
       {open && (
         <Modal title="Model & usage" width={620} onClose={() => setOpen(false)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <h3
                 style={{
                   margin: 0,

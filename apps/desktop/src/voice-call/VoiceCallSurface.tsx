@@ -1,5 +1,5 @@
 import type { VoiceCallPhase, VoiceToolActivity } from '@moxxy/client-core';
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import { VoiceActivityIndicator } from './VoiceActivityIndicator';
 import { VoiceAvatar } from './VoiceAvatar';
 import { VoiceTranscript } from './VoiceTranscript';
@@ -80,28 +80,39 @@ export function VoiceCallSurface({
     <div className="voice-call-surface">
       <header className="voice-call-header">
         <div className="voice-call-header-actions">
-          <button type="button" className="voice-call-back" aria-label="Back to chat" onClick={onClose}>
+          <Button
+            variant="ghost"
+            className="voice-call-back"
+            aria-label="Back to chat"
+            onClick={onClose}
+          >
             <Icon name="chevron-right" size={17} />
             <span>Back to chat</span>
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
             className="voice-call-focus"
             aria-label="Open focus mode"
             onClick={onEnterFocusMode}
+            style={{ color: 'var(--color-primary)' }}
           >
             <Icon name="focus" size={16} />
             <span>Focus mode</span>
-          </button>
+          </Button>
         </div>
         <div className="voice-call-title">
           <span>Voice conversation</span>
           <small>Local Piper</small>
         </div>
-        <button type="button" className="voice-call-end" onClick={onClose}>
+        <Button
+          variant="ghost"
+          className="voice-call-end"
+          onClick={onClose}
+          style={{ color: 'var(--color-red-text)' }}
+        >
           <Icon name="x" size={16} />
           <span>End call</span>
-        </button>
+        </Button>
       </header>
 
       <section className="voice-call-stage">

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import {
   ConnectionBridge,
-  isConnected,
   useActiveAsk,
   useActiveWorkspaceId,
   useConnection,
@@ -11,6 +10,7 @@ import {
   usePrefs,
   useSessionInfoBridge,
   useComposerChatViewRequest,
+  useDesks,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
@@ -41,6 +41,7 @@ import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import {
   resolveActiveSessionShell,
+  shouldShowBlockingConnectionScreen,
   shouldShowProviderRecovery,
   type LastConnectedSession,
 } from './app-readiness';
@@ -50,13 +51,14 @@ const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps', 'automa
 const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
- * Top-level shell. Three layers of gating, in order:
+ * Top-level shell. Runner startup is non-blocking: persisted desks/history can
+ * render while the selected supervisor connects. Full-pane gates are reserved
+ * for onboarding and terminal recovery.
  *
  *   1. CLI / provider onboarding takes the whole pane while either
  *      condition is unmet.
- *   2. While the runner is connecting (any phase that isn't
- *      `connected`), the ConnectionScreen owns the pane.
- *   3. Once connected, the Harness frame renders:
+ *   2. A terminal first-connect failure owns the pane.
+ *   3. Otherwise the Harness frame renders:
  *      AppRail | index column | field | workbench.
  */
 export function App(): JSX.Element {
@@ -68,6 +70,10 @@ export function App(): JSX.Element {
   // tabs, mode badge, agent picker — so agent-made changes (provider_add, …)
   // show up live instead of after an app restart. Mounted exactly once.
   useSessionInfoBridge();
+  // Prime the authoritative desk overview independently of runner startup. Its
+  // shared store also points connectionStore at the persisted active session,
+  // letting the shell + disk-backed transcript render before a pool snapshot.
+  useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
@@ -88,6 +94,13 @@ export function App(): JSX.Element {
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
   const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
+  // A connected runner can exist without an active provider. Recovery still
+  // offers the provider picker, but "Skip for now" must let the user reach the
+  // shell and configure it later from Settings. Scope the dismissal to one
+  // workspace and clear it after that workspace gains a provider.
+  const [dismissedProviderRecoveryFor, setDismissedProviderRecoveryFor] = useState<
+    string | null
+  >(null);
   // Capture the latest `connected` phase (keyed by the active workspace) to keep
   // the shell mounted across the brief `snapshot === undefined` gap a workspace
   // switch can produce. Gate the derive-during-render update on a STABLE SCALAR
@@ -116,6 +129,15 @@ export function App(): JSX.Element {
   useEffect(() => {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  const connectedProvider =
+    phase?.phase === 'connected' ? phase.activeProvider : null;
+  useEffect(() => {
+    if (!activeWorkspaceId || connectedProvider === null) return;
+    setDismissedProviderRecoveryFor((current) =>
+      current === activeWorkspaceId ? null : current,
+    );
+  }, [activeWorkspaceId, connectedProvider]);
 
   // When an app (or other off-chat surface) does "Send to chat", it stages a
   // composer draft and pulses a request to show the chat view — switch to it so
@@ -237,6 +259,7 @@ export function App(): JSX.Element {
   const connectedWithoutProvider = shouldShowProviderRecovery(
     shell.phase,
     shell.sessionLoading,
+    dismissedProviderRecoveryFor === activeWorkspaceId,
   );
 
   if (cliMissing || connectedWithoutProvider) {
@@ -246,16 +269,16 @@ export function App(): JSX.Element {
         <ChatStoreBridge />
         <Onboarding
           phase={shell.phase}
-          // Nothing to do on completion: finishing the recovery gate (CLI
-          // installed / provider added) flips the connection phase, which
-          // re-renders this gate and drops it on its own.
-          onComplete={() => undefined}
+          // A successful CLI/provider repair still drops this gate through the
+          // connection phase. The explicit callback also handles the optional
+          // provider step's "Skip for now" action.
+          onComplete={() => setDismissedProviderRecoveryFor(activeWorkspaceId)}
         />
       </>
     );
   }
 
-  if (!shell.connected && !hasEverConnected) {
+  if (shouldShowBlockingConnectionScreen(shell, hasEverConnected)) {
     // Terminal protocol-incompatible self-heal: update the bundled CLI in
     // place (host `app.updateCli`), then re-run the supervisor connect — which
     // respawns the runner from the now-newer CLI, so the client attaches
@@ -363,7 +386,7 @@ export function App(): JSX.Element {
           <MobilePanel />
         </main>
       )}
-      {!connected && <ReconnectBanner label={describePhase(phase)} />}
+      {!connected && <ReconnectBanner label={describePhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
           background-agent modal is open — this fallback catches every other

@@ -41,9 +41,6 @@
   -webkit-backdrop-filter: blur(20px) saturate(130%);
 }
 
-.voice-call-back,
-.voice-call-focus,
-.voice-call-end,
 .voice-call-primary-control button,
 .voice-call-error button,
 .voice-call-install button {
@@ -57,6 +54,25 @@
     color 160ms ease,
     background 160ms ease,
     box-shadow 160ms ease;
+}
+
+.voice-call-back,
+.voice-call-focus,
+.voice-call-end {
+  transition:
+    transform 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.moxxy-btn.voice-call-focus:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-primary) 9%, transparent);
+  color: var(--color-primary);
+}
+
+.moxxy-btn.voice-call-end:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--color-red) 10%, transparent);
+  color: var(--color-red-text);
 }
 
 .voice-call-install {
@@ -149,8 +165,6 @@
   to { transform: rotate(360deg); }
 }
 
-.voice-call-back:hover,
-.voice-call-focus:hover,
 .voice-call-primary-control button:hover,
 .voice-call-error button:hover {
   border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-card-border));
@@ -174,53 +188,18 @@
   transform: scale(0.97);
 }
 
-.voice-call-back,
-.voice-call-focus,
-.voice-call-end {
-  min-width: 0;
-  width: max-content;
-  height: 36px;
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-chip);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--type-row);
-  white-space: nowrap;
-}
-
 .voice-call-header-actions {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.voice-call-focus {
-  color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-card-border));
-  background: var(--color-primary-soft);
-}
-
-.voice-call-focus:hover {
-  border-color: color-mix(in srgb, var(--color-primary) 62%, var(--color-card-border));
+  gap: var(--space-6);
 }
 
 .voice-call-back svg {
   transform: rotate(180deg);
 }
 
-.voice-call-end {
-  justify-self: end;
-  color: var(--color-red-text);
-  border-color: var(--color-red-border);
-  background: var(--color-red-wash);
-}
-
-.voice-call-end:hover {
-  border-color: var(--color-red);
-  background: var(--color-red-soft);
-}
+.voice-call-end { justify-self: end; }
 
 .voice-call-title {
   display: flex;
@@ -571,7 +550,7 @@
 
   .voice-call-back,
   .voice-call-focus {
-    width: 36px;
+    width: var(--frame-control);
     padding: 0;
     justify-content: center;
   }

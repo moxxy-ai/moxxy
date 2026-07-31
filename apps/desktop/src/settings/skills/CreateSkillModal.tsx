@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Button, Modal, TextArea, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextArea, TextInput } from '@moxxy/desktop-ui';
 
 export function CreateSkillModal({
   initial,
@@ -105,7 +105,7 @@ Describe the inputs, the steps to take, and any constraints here.
             }}
           />
         </label>
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
@@ -117,7 +117,7 @@ Describe the inputs, the steps to take, and any constraints here.
           >
             {busy ? 'Saving…' : 'Create skill'}
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

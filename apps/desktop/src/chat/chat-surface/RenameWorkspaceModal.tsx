@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 import { toErrorMessage } from '@moxxy/client-core';
 
 export function RenameWorkspaceModal({
@@ -66,7 +66,7 @@ export function RenameWorkspaceModal({
             {error}
           </p>
         )}
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -78,7 +78,7 @@ export function RenameWorkspaceModal({
           >
             {busy ? 'Renaming…' : 'Rename'}
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

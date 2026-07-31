@@ -24,18 +24,75 @@ or recorded-on-purpose decision.
 
 ## Open
 
-- [low, tests/determinism, LOGGED 2026-07-30] `FocusWidget.test.tsx` >
-  "keeps the inactive preview window size stable while assistant chunks stream"
-  is order-dependent. It asserts an exact `focus.resize` invoke COUNT (`expected 3
-  to be 2`), which only holds if no earlier test in the file leaves a pending
-  resize in the shared fake-api spy. Seen failing once in a full
-  `turbo run test` and passing both in isolation (59/59) and on an immediate
-  re-run of the whole suite, so it is a flake rather than a regression. The fix is
-  to assert the resize DIMENSIONS stayed equal across the two chunks instead of
-  counting calls — the count is a proxy for "did not resize", and a brittle one.
-  Found while landing the desktop redesign; not caused by it.
+No open items.
 
 ## Resolved ledger
+
+- [med, desktop/file-previews, RESOLVED 2026-07-31] The workspace file and
+  diff surfaces rendered every source file as undifferentiated text, while PDF
+  content was a bare iframe and common document/media formats fell through to
+  binary confirmation. Filename-driven Prism grammars now load on demand and
+  render token trees as React nodes (never HTML), with line numbers and strict
+  source/diff size caps that preserve the plain-text fast path. Markdown gains
+  a safe preview/source switch, Office and OpenDocument files expose extracted
+  text, PDFs have app-native fit/download chrome, and local audio/video use
+  non-autoplay Blob previews. Workspace/symlink confinement, bounded host reads,
+  remote IPC denial, and the existing blob-only CSP remain intact.
+  `apps/desktop/src/shell/surfaces/`,
+  `packages/{desktop-host,desktop-ipc-contract}/src/`.
+
+- [med, desktop/dialog-layout, RESOLVED 2026-07-31] The shared dialog primitive
+  had no viewport height bound or internal scrolling region, while the model
+  picker independently grew both lists to 360 px. On compact windows this
+  pushed usage details and the primary action below the visible frame. Dialogs
+  now share compact header and action-row chrome, stay inside the dynamic
+  viewport, and scroll only their content. The provider/model grid owns a
+  responsive bounded height with independently scrolling columns, so “Model &
+  usage” keeps its context readout and compaction action reachable without
+  allowing a long model catalog to resize the overlay.
+  `packages/desktop-ui/src/Modal.tsx`,
+  `apps/desktop/src/{chat/agent-picker,shell/instrument}/`.
+
+- [med, desktop/onboarding, RESOLVED 2026-07-31] The final onboarding CTA
+  waited for the preferences IPC round-trip before flipping renderer state.
+  A durable `onboardingComplete: true` write could therefore succeed while the
+  user remained on the last screen if the response was delayed or lost during
+  startup. After that write, a provider-less runner opened the one-step recovery
+  flow, whose "Skip for now" action incorrectly called the linear cursor even
+  though auto-recovery ignores that cursor, producing a second dead end.
+  Completion is now optimistic, and skipping optional provider recovery
+  dismisses it for the active workspace until that workspace gains a provider.
+  Regressions cover both an unresolved preferences IPC and the recovery skip.
+  `apps/desktop/src/{App,app-readiness,onboarding}/`.
+
+- [high, desktop/runner-isolation, RESOLVED 2026-07-31] The desktop runner pool,
+  bare supervisor, and stale-socket sweep hard-coded `~/.moxxy` even though the
+  runner and every other state helper honor `MOXXY_HOME`. An isolated packaged
+  smoke test could therefore scan and terminate a live runner belonging to the
+  user's normal profile. All three paths now share `moxxyPath` /
+  `runnerSocketPath`; regressions pin relocated unbound, workspace, and sweep
+  paths so one profile cannot inspect another profile's sockets.
+  `packages/desktop-host/src/{runner-pool,runner-supervisor,sweep-sockets}.ts`.
+
+- [high, desktop/voice/plugin-seed, RESOLVED 2026-07-31] Packaged plugin seeds
+  persisted direct dependencies as `file:.../moxxy-seed-tars-*/package.tgz`,
+  then deleted that build directory. Every later npm mutation of the shared
+  plugin prefix therefore failed while resolving an unrelated missing tarball,
+  which broke the one-click Local Piper install. New seeds rewrite only those
+  generated specs to exact installed versions before packaging; existing user
+  manifests are migrated atomically and serially from validated installed
+  package metadata before Piper invokes the fixed host-owned CLI command.
+  User-authored local dependencies remain untouched, dead generated entries are
+  removed, and bounded CLI stderr now reaches the installer error instead of a
+  generic network-only diagnosis. `apps/desktop/scripts/bundle-plugins-seed.mjs`,
+  `packages/desktop-host/src/{seed-plugins,local-piper}.ts`.
+
+- [low, tests/determinism, RESOLVED 2026-07-31] The Focus Mode streaming-preview
+  regression now compares the native window dimensions after consecutive
+  assistant chunks instead of counting `focus.resize` calls. Pending effects
+  from an earlier test can no longer make the assertion order-dependent, while
+  the user-visible invariant — a stable inactive preview window — remains
+  covered. `apps/desktop/src/focus/FocusWidget.test.tsx`.
 
 - [med, tests/determinism, RESOLVED 2026-07-28] The workflows
   `fileChanged`-across-two-runners test was still failing (1 in 6 idle, 2 in 3

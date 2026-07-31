@@ -39,6 +39,9 @@
   --color-primary-strong: #9d1355;
   --color-primary-soft: #fbeaf2;
   --color-on-primary: #ffffff;
+  --color-action: #c21e6b;
+  --color-action-hover: #9d1355;
+  --color-on-action: #ffffff;
   --color-send: #c21e6b;
   --color-accent: #c21e6b;
   --color-accent-strong: #9d1355;
@@ -165,6 +168,9 @@
   --color-primary-strong: #ff63a8;
   --color-primary-soft: #24101b;
   --color-on-primary: #0b0f12;
+  --color-action: #c21e6b;
+  --color-action-hover: #d12673;
+  --color-on-action: #ffffff;
   --color-send: #f4408f;
   --color-accent: #f4408f;
   --color-accent-strong: #ff63a8;
@@ -332,6 +338,232 @@ h1, h2, h3, h4, .display {
 
 code, kbd, pre, .mono { font-family: var(--font-mono); }
 
+/* Workspace source/diff highlighting. Prism is used only as a tokenizer; the
+ * renderer creates these spans itself, so file content never enters innerHTML. */
+.syntax-code {
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(max-content, 1fr);
+  align-items: start;
+  overflow: auto;
+  background: var(--color-input-soft);
+  border-radius: var(--radius-block);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  line-height: 1.55;
+}
+
+.syntax-code__gutter,
+.syntax-code__body {
+  min-height: 100%;
+  margin: 0;
+  padding-block: var(--space-8);
+  white-space: pre;
+}
+
+.syntax-code__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding-inline: var(--space-8);
+  border-right: 1px solid var(--color-card-border);
+  background: var(--color-card-bg);
+  color: var(--color-diff-gutter);
+  text-align: right;
+  user-select: none;
+}
+
+.syntax-code__body {
+  padding-inline: var(--space-12);
+  color: var(--color-text-muted);
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata { color: var(--color-text-dim); font-style: italic; }
+.token.punctuation { color: var(--color-text-muted); }
+.token.namespace { opacity: 0.78; }
+.token.property,
+.token.tag,
+.token.symbol,
+.token.deleted { color: var(--color-reference); }
+.token.boolean,
+.token.number,
+.token.constant { color: var(--color-amber-text); }
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted { color: var(--color-green); }
+.token.operator,
+.token.entity,
+.token.url { color: var(--color-text); }
+.token.atrule,
+.token.attr-value,
+.token.keyword { color: var(--color-purple-strong, var(--color-purple)); font-weight: 600; }
+.token.function,
+.token.class-name { color: var(--color-reference); }
+.token.regex,
+.token.important,
+.token.variable { color: var(--color-red-text); }
+
+.diff-code__marker {
+  width: var(--space-16);
+  flex-shrink: 0;
+  color: currentColor;
+  text-align: center;
+  user-select: none;
+}
+
+.file-preview {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: file-preview;
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+}
+
+.file-preview__toolbar {
+  min-height: var(--frame-row);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-6) 0 var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-card-bg);
+}
+
+.file-preview__kind {
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+  font-size: var(--type-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.file-preview__toolbar .moxxy-btn { flex-shrink: 0; }
+.file-preview__label--compact { display: none; }
+
+.file-preview__download {
+  flex-shrink: 0;
+  height: var(--frame-control);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-8);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-chip);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  font-size: var(--type-meta);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+@container file-preview (max-width: 380px) {
+  .file-preview__bytes,
+  .file-preview__label--full { display: none; }
+  .file-preview__label--compact { display: inline; }
+}
+
+@container file-preview (max-width: 260px) {
+  .file-preview__toolbar--pdf {
+    justify-content: center;
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
+  }
+  .file-preview__toolbar--pdf .file-preview__kind,
+  .file-preview__toolbar--pdf .file-preview__spacer { display: none; }
+  .file-preview__toolbar--pdf .moxxy-btn { padding-inline: var(--space-4) !important; }
+}
+
+.file-preview__frame {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
+.file-preview__source,
+.file-preview__document {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.file-preview__source { overflow: hidden; }
+.file-preview__document {
+  padding: var(--space-16);
+  color: var(--color-text);
+  background: var(--color-main-bg);
+}
+.file-preview__truncated {
+  margin: var(--space-12) 0 0;
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+}
+
+.media-preview {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: var(--space-16);
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+}
+
+.media-preview video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  background: #000;
+}
+
+.media-preview__audio {
+  width: min(100%, 440px);
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  background: var(--color-card-bg);
+}
+
+.media-preview__audio div { min-width: 0; }
+.media-preview__audio strong,
+.media-preview__audio small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-preview__audio strong { font-size: var(--type-row); }
+.media-preview__audio small { margin-top: 2px; color: var(--color-text-dim); font-size: var(--type-label); }
+.media-preview__audio audio { grid-column: 1 / -1; width: 100%; }
+.media-preview__icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-block);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
 /* --- Layout primitives ----------------------------------------- */
 
 .app-shell {
@@ -379,27 +611,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .app-rail__mark-glyph { display: inline-flex; flex-shrink: 0; }
 
-/* The wordmark. Chrome face, because it names the instrument. */
+/* The wordmark is the single typographic exception to the machine chrome: the
+ * warmer humanist face makes the brand read as a name, not another readout. */
 .app-rail__word {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.15;
+  display: block;
+  line-height: 1;
   overflow: hidden;
 }
 .app-rail__word b {
-  font-size: var(--type-row);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-prose);
+  font-size: var(--type-ui);
+  font-weight: 700;
+  letter-spacing: -0.04em;
   color: var(--color-sidebar-text);
-  white-space: nowrap;
-}
-.app-rail__word small {
-  font-size: var(--type-micro);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-sidebar-text-dim);
   white-space: nowrap;
 }
 
@@ -634,6 +860,55 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .index-group:first-child { margin-top: 0; }
 .index-group__label { flex: 1; min-width: 0; }
 .index-group__count { flex-shrink: 0; }
+
+/* Workspaces stay inside the sidebar's single visual plane. Separation comes
+ * from rhythm + the compact section header, not a card nested inside the
+ * sidebar; sessions are indented beneath their owner and the active group uses
+ * only semantic ink on its chevron/count. */
+.workspace-tree__list,
+.workspace-group__sessions {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-tree__list {
+  gap: var(--space-12);
+  margin: 0 0 var(--space-4);
+}
+
+.workspace-group {
+  position: relative;
+  min-width: 0;
+}
+
+.workspace-group__header { background: transparent; }
+
+.workspace-group__count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-dim);
+  background: color-mix(in srgb, var(--color-sidebar-text) 7%, transparent);
+  font-size: var(--type-micro);
+  line-height: 1;
+}
+
+.workspace-group[data-active='true'] .workspace-group__count {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.workspace-group__sessions {
+  gap: 1px;
+  margin: var(--space-2) 0 0;
+  padding: 0 0 0 var(--space-12);
+}
 
 /* --- The field: instrument bar + content ----------------------- */
 
@@ -1154,14 +1429,30 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text);
 }
 
-/* No glow: in this language a flat control never casts a shadow, so the CTA's
- * feedback is a step to its own deeper stop instead of a coloured halo. */
+/* Filled actions deliberately do not reuse the luminous data accent in dark
+ * mode. A deeper action stop carries a light label cleanly in both themes. */
+.btn-primary,
+.btn-cta {
+  background: var(--color-action);
+  color: var(--color-on-action);
+  border: 1px solid var(--color-action);
+}
+.btn-primary:hover:not(:disabled),
 .btn-cta:hover:not(:disabled) {
   filter: none;
-  background: var(--color-primary-strong);
+  background: var(--color-action-hover);
+  border-color: var(--color-action-hover);
 }
+.btn-primary:active:not(:disabled),
 .btn-cta:active:not(:disabled) {
   filter: brightness(0.97);
+}
+.btn-primary:disabled,
+.btn-cta:disabled {
+  opacity: 1;
+  background: var(--color-input-soft);
+  color: var(--color-text-muted);
+  border-color: var(--color-card-border-strong);
 }
 
 .btn-outline:hover:not(:disabled) {
@@ -1310,8 +1601,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .rail-avatar:hover:not(:disabled) {
   filter: none;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--color-action);
+  color: var(--color-on-action);
+  border-color: var(--color-action);
 }
 
 /* --- Tooltips ---------------------------------------------------
@@ -1625,6 +1917,17 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   letter-spacing: 0.06em;
   color: var(--color-text-dim);
   white-space: nowrap;
+}
+
+/* Staged attachments and queued turns belong to the same content grid as the
+ * input row. Without this inset their pills touched the field separator while
+ * every control below started one spacing unit inward. */
+.cmdbar__pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  min-width: 0;
+  padding: var(--space-8) var(--space-16) var(--space-4);
 }
 
 /* One row: leading controls, the growing input, trailing actions. Aligned to

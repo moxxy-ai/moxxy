@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { usePausedWorkflows, type PausedWorkflow } from '@moxxy/client-core';
+import { Button } from '@moxxy/desktop-ui';
 
 /**
  * Human-in-the-loop surface: every workflow run currently parked on an
@@ -88,22 +89,19 @@ function PausedCard(props: {
             color: 'var(--color-text)',
           }}
         />
-        <button
+        <Button
+          variant="cta"
           type="submit"
           data-testid={`paused-send-${run.runId}`}
           disabled={!trimmed || busy}
           style={{
             fontSize: 'var(--type-meta)',
             fontWeight: 600,
-            color: 'var(--color-bg)',
-            background: 'var(--color-primary)',
-            borderRadius: 'var(--radius-block)',
-            padding: '0.3rem 0.8rem',
-            opacity: !trimmed || busy ? 0.5 : 1,
+            padding: '0 0.8rem',
           }}
         >
           {busy ? 'Sending…' : 'Send'}
-        </button>
+        </Button>
       </form>
       {error && (
         <p role="alert" style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-pink)' }}>
