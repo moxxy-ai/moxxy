@@ -10,10 +10,18 @@ import { useMenuKeyboard } from '../useMenuKeyboard';
  * active-desk-only pair (WorkspaceSwitcher card + flat SessionList).
  *
  *   WORKSPACES                                 [+]  ← new workspace
- *   ▾ ▣ blocky                              [+] ⋯   ← toggle / new session / menu
- *       Fix the sign-in bug                          ← session (first-prompt title)
- *       Redesign the sidebar          ●              ← unread dot
- *   ▸ ▣ website                       ●     [+] ⋯   ← collapsed: dot rolls up
+ *   ▾ ▣ BLOCKY                            2 [+] ⋯   ← toggle / count / new / menu
+ *     │ ● Fix the sign-in bug                        ← session (first-prompt title)
+ *     │ ● Redesign the sidebar                       ← rail shows what nests where
+ *   ▸ ▣ WEBSITE                       ●   1 [+] ⋯   ← collapsed: dot rolls up
+ *
+ * Telling the two row kinds apart is the layout's whole job, and it is carried
+ * by four cues at once rather than by any single one: a SQUARE workspace-colour
+ * chip vs a ROUND session LED, the muted header tier vs the dim row tier,
+ * uppercase+letterspaced vs sentence case, and the guide rail + group gap that
+ * make containment visible. They previously shared one colour
+ * (`--color-text-dim` === `--color-sidebar-text-dim`) and a 4px indent, and the
+ * tree read as one flat list.
  *
  * Interaction contract:
  *  - clicking a folder row (or its chevron) toggles collapse — switching
@@ -73,7 +81,11 @@ export function WorkspaceTree({
           padding: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: 1,
+          // Gap BETWEEN groups, where the old `1` packed folders and sessions at
+          // one density and left the tree reading as a single flat list. Rows
+          // inside a group keep the tight `1` — the rhythm itself now says which
+          // rows belong together.
+          gap: 'var(--space-6)',
         }}
       >
         {desks.map((desk) => {
@@ -99,8 +111,14 @@ export function WorkspaceTree({
                   aria-label={`sessions in ${desk.name}`}
                   style={{
                     listStyle: 'none',
-                    margin: 0,
-                    padding: 0,
+                    // The guide rail. Nesting used to be carried by a 4px indent
+                    // alone, which is invisible beside a 12.5px row — the rail
+                    // is what actually shows a session hanging off its group,
+                    // and it makes the group's extent readable at a glance
+                    // (where it starts, where it ends).
+                    margin: '2px 0 0 var(--space-12)',
+                    padding: '0 0 0 var(--space-8)',
+                    borderLeft: '1px solid var(--color-sidebar-border)',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 1,
@@ -231,6 +249,26 @@ function FolderRow({
           <Icon name="chevron-right" size={13} />
         </span>
       </button>
+      {/* The workspace's own colour, as a SQUARE chip. A session row is headed by
+          a round LED, so the two row kinds now differ in shape as well as hue —
+          the distinction survives both a colourblind reader and a glance too
+          quick to read any text. `Desk.color` has been in the contract all along
+          and was simply never rendered. */}
+      <span
+        aria-hidden
+        data-testid={`desk-chip-${desk.id}`}
+        style={{
+          width: 8,
+          height: 8,
+          flexShrink: 0,
+          borderRadius: 'var(--radius-tag)',
+          background: desk.color,
+          // Dim the chip while the group is collapsed and idle, so an expanded
+          // (or active) workspace is the one that draws the eye.
+          opacity: active || !collapsed ? 1 : 0.55,
+          transition: 'opacity 120ms ease',
+        }}
+      />
       <span
         style={{
           flex: 1,
@@ -238,8 +276,13 @@ function FolderRow({
           fontSize: 'var(--type-label)',
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          color: 'var(--color-text-dim)',
-          fontWeight: active ? 600 : 500,
+          // The muted tier, NOT the dim one. `--color-text-dim` is byte-identical
+          // to the `--color-sidebar-text-dim` the rows below use, so a header
+          // painted with it was literally the same colour as its own children.
+          // Hierarchy is now three real tiers: active row (bright) > group header
+          // (muted) > idle row (dim).
+          color: 'var(--color-text-muted)',
+          fontWeight: 600,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -358,7 +401,10 @@ function SessionRow({
           alignItems: 'center',
           gap: 8,
           minHeight: 'var(--frame-row)',
-          padding: '2px var(--space-6) 2px var(--space-8)',
+          // The group now carries the indent (margin + rail + padding), so the
+          // row itself only needs breathing room — keeping the old space-8 here
+          // would push every title a further 8px right for no added meaning.
+          padding: '2px var(--space-6) 2px var(--space-4)',
           borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
           background: active ? 'var(--color-card-bg)' : 'transparent',

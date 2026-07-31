@@ -210,6 +210,47 @@ describe('WorkspaceTree', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  /**
+   * Reported bug: "grupa zlewa się z czatami" — a group header and the session
+   * rows under it were indistinguishable.
+   *
+   * Root cause was a palette collision, not a layout mistake: the header was
+   * painted `--color-text-dim` and an inactive row `--color-sidebar-text-dim`,
+   * which are the SAME hex in both themes (#77868f dark / #66757e light). Two
+   * different token NAMES resolving to one colour is why this passed review —
+   * so these tests pin the three cues that actually separate the two row kinds,
+   * and the companion token test (design-tokens/contrast.test.ts) pins that the
+   * tiers stay different colours.
+   */
+  it('paints the group header in a different tier from the rows beneath it', () => {
+    renderTree();
+    // The header name carries the muted tier; the row keeps the dim one. The
+    // assertion is on the TOKEN because the bug was two names, one value —
+    // comparing rendered strings would have passed while the bug was live.
+    expect(screen.getByText('Alpha').style.color).toBe('var(--color-text-muted)');
+    expect(screen.getByTestId('session-row-a').style.color).toBe(
+      'var(--color-sidebar-text-dim)',
+    );
+  });
+
+  it('marks a folder row with its workspace colour, and a session row with an LED', () => {
+    renderTree();
+    // Shape AND colour differ: a square tinted chip heads a group, a round LED
+    // heads a conversation. `Desk.color` already exists in the contract and was
+    // simply never rendered here.
+    const chip = screen.getByTestId('desk-chip-a');
+    expect(chip.style.background).toBe('rgb(59, 130, 246)'); // desk.color #3b82f6
+    expect(screen.getByTestId('session-row-a').querySelector('.led')).toBeTruthy();
+  });
+
+  it('hangs a group’s sessions off a guide rail so they read as children', () => {
+    renderTree();
+    // The rail is the containment cue — without it the only nesting signal was
+    // a 4px indent, which is invisible next to a 12px row.
+    const group = screen.getByRole('group', { name: 'sessions in Alpha' });
+    expect(group.style.borderLeft).not.toBe('');
+  });
+
   // Regression: the ⋯ menu is anchored inside the row's subtree, and the
   // ActionsOverlay's `transform` traps the menu's z-index in a local
   // stacking context. Without lifting the owning row while its menu is

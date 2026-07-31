@@ -79,6 +79,25 @@ describe.each([
   it('dim text clears the large-text floor', () => {
     expect(contrast(theme.color.textDim, theme.color.cardBg)).toBeGreaterThanOrEqual(3);
   });
+
+  /**
+   * The sidebar tree paints a GROUP HEADER in `textMuted` and the session rows
+   * under it in `sidebarTextDim`. Those two must stay visibly different colours,
+   * or the tree collapses into one flat list — which is exactly what shipped:
+   * the header used `textDim`, and `textDim === sidebarTextDim` to the byte, so
+   * two token names resolved to one colour and nothing failed.
+   *
+   * Contrast between two TEXT tiers has no WCAG rule (the standard is about text
+   * against its background), so the floor here is a deliberate house rule: a
+   * ratio of 1.25 is roughly where a tier separation stops being a rounding
+   * error and starts being legible as hierarchy.
+   */
+  it('separates the sidebar’s group-header tier from its row tier', () => {
+    expect(theme.color.textMuted).not.toBe(theme.color.sidebarTextDim);
+    expect(contrast(theme.color.textMuted, theme.color.sidebarTextDim)).toBeGreaterThanOrEqual(
+      1.25,
+    );
+  });
 });
 
 /**
