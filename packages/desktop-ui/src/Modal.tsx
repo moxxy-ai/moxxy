@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useId, useRef } from 'react';
+import type { CSSProperties, HTMLAttributes, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './Button.js';
 import { IconButton } from './Button.js';
@@ -25,7 +26,7 @@ import { Icon } from './Icon.js';
 
 interface ModalProps {
   readonly title: string;
-  readonly children: React.ReactNode;
+  readonly children: ReactNode;
   readonly onClose: () => void;
   readonly width?: number;
   /**
@@ -171,12 +172,16 @@ export function Modal({
   if (typeof document === 'undefined') return <></>;
   return createPortal(
     <div
+      className="moxxy-modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
         background: 'var(--color-overlay)',
         display: 'grid',
         placeItems: 'center',
+        boxSizing: 'border-box',
+        padding: 'var(--space-16)',
+        overflow: 'hidden',
         zIndex: 1000,
       }}
       onMouseDown={(e) => {
@@ -184,6 +189,7 @@ export function Modal({
       }}
     >
       <div
+        className="moxxy-modal"
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -192,41 +198,100 @@ export function Modal({
         tabIndex={-1}
         style={{
           width,
-          maxWidth: '92vw',
+          maxWidth: '100%',
+          maxHeight: 'calc(100dvh - var(--space-32, 32px))',
+          minHeight: 0,
+          boxSizing: 'border-box',
           background: 'var(--color-card-bg)',
-          border: '1px solid var(--color-card-border)',
+          border: '1px solid var(--color-card-border-strong)',
           borderRadius: 'var(--radius-card)',
           boxShadow: 'var(--color-card-shadow)',
-          padding: 'var(--space-16)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          overflow: 'hidden',
           outline: 'none',
         }}
       >
         <header
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+          className="moxxy-modal__header"
+          style={{
+            minHeight: 'var(--frame-bar, 44px)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--space-12)',
+            padding: '0 var(--space-12) 0 var(--space-16)',
+            borderBottom: '1px solid var(--color-card-border)',
+          }}
         >
           <h2
             id={titleId}
             style={{
               margin: 0,
-              fontSize: 'var(--type-section)',
-              fontWeight: 500,
-              letterSpacing: '-0.02em',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 'var(--type-ui)',
+              fontWeight: 600,
+              letterSpacing: '-0.01em',
             }}
           >
             {title}
           </h2>
-          <IconButton aria-label="Close" onClick={onClose} size={30}>
-            <Icon name="x" size={16} />
+          <IconButton aria-label="Close" onClick={onClose} size={26}>
+            <Icon name="x" size={15} />
           </IconButton>
         </header>
-        {children}
+        <div
+          className="moxxy-modal__body"
+          style={{
+            minHeight: 0,
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            scrollbarGutter: 'stable',
+            padding: 'var(--space-12) var(--space-16) var(--space-16)',
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>,
     document.body,
   ) as JSX.Element;
+}
+
+export interface ModalFooterProps extends HTMLAttributes<HTMLElement> {
+  /** `between` keeps a navigation action on the left and confirmations right. */
+  readonly justify?: 'end' | 'between';
+}
+
+/** A single action-row treatment shared by every form dialog. */
+export function ModalFooter({
+  justify = 'end',
+  className,
+  style,
+  children,
+  ...rest
+}: ModalFooterProps): JSX.Element {
+  const merged: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: justify === 'between' ? 'space-between' : 'flex-end',
+    gap: 'var(--space-8)',
+    marginTop: 'var(--space-4)',
+    paddingTop: 'var(--space-12)',
+    borderTop: '1px solid var(--color-card-border)',
+    ...style,
+  };
+  const classes = ['moxxy-modal__footer', className].filter(Boolean).join(' ');
+  return (
+    <footer className={classes} style={merged} {...rest}>
+      {children}
+    </footer>
+  );
 }
 
 interface ConfirmProps {
@@ -262,14 +327,14 @@ export function ConfirmModal({
       >
         {message}
       </p>
-      <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+      <ModalFooter>
         <Button variant="secondary" onClick={onCancel}>
           {cancelLabel}
         </Button>
         <Button variant={destructive ? 'danger' : 'primary'} onClick={onConfirm} autoFocus>
           {confirmLabel}
         </Button>
-      </footer>
+      </ModalFooter>
     </Modal>
   );
 }

@@ -6,6 +6,10 @@ import { MoxxyMark } from '@/components/MoxxyMark';
 import { reloadRailExpandedFromStorage } from '@/lib/useRailExpanded';
 import { AppRail } from './AppRail';
 
+vi.mock('./workspace-sidebar/ProfilePill', () => ({
+  ProfilePill: () => <span data-testid="profile-pill" />,
+}));
+
 /**
  * The app rail is the app's ONLY navigation organ, and it is icon-only by
  * default. Both of those make it easy to ship something unusable, so what is
@@ -112,6 +116,15 @@ describe('AppRail', () => {
       'data-expanded',
       'true',
     );
+  });
+
+  it('uses a one-line MoxxyAI wordmark without the old Workspaces subtitle', () => {
+    render(<AppRail view="chat" onView={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('rail-expand'));
+
+    const rail = screen.getByRole('navigation', { name: 'Main' });
+    expect(rail).toHaveTextContent('MoxxyAI');
+    expect(rail).not.toHaveTextContent('Workspaces');
   });
 });
 

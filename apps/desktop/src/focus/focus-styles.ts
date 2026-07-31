@@ -468,13 +468,16 @@ export const style = {
     color: 'var(--focus-ask-text)',
   },
   focusAskButtonPrimary: {
-    background: 'var(--color-primary)',
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    color: '#ffffff',
-    boxShadow: '0 10px 22px rgba(196, 49, 15, 0.25)',
+    background: 'var(--color-action)',
+    borderColor: 'var(--color-action)',
+    color: 'var(--color-on-action)',
+    boxShadow: 'none',
   },
   focusAskButtonDisabled: {
-    opacity: 0.45,
+    opacity: 1,
+    background: 'var(--focus-input-bg)',
+    borderColor: 'var(--color-card-border-strong)',
+    color: 'var(--focus-dim)',
     cursor: 'not-allowed',
   },
 
@@ -795,13 +798,20 @@ export const style = {
     height: 34,
     border: 'none',
     borderRadius: 'var(--radius-block)',
-    background: 'var(--color-primary)',
-    color: '#fff',
+    background: 'var(--color-action)',
+    color: 'var(--color-on-action)',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+  },
+  sendDisabled: {
+    opacity: 1,
+    background: 'var(--focus-input-bg)',
+    color: 'var(--focus-dim)',
+    border: '1px solid var(--color-card-border-strong)',
+    cursor: 'not-allowed',
   },
 } satisfies Record<string, React.CSSProperties>;
 
@@ -829,6 +839,9 @@ const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
       --color-primary-strong: #9d1355;
       --color-primary-soft: #fbeaf2;
       --color-on-primary: #ffffff;
+      --color-action: #c21e6b;
+      --color-action-hover: #9d1355;
+      --color-on-action: #ffffff;
       --color-surface: #ffffff;
       --color-red: #c0303a;
       --color-card-border: #dfe4e6;
@@ -878,6 +891,9 @@ const FOCUS_DARK_VARS = `      --color-text: #e4ebef;
       --color-primary-strong: #ff63a8;
       --color-primary-soft: #24101b;
       --color-on-primary: #0b0f12;
+      --color-action: #c21e6b;
+      --color-action-hover: #d12673;
+      --color-on-action: #ffffff;
       --color-surface: #1c242a;
       --color-red: #f2545b;
       --color-card-border: #212a31;

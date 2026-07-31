@@ -2,9 +2,8 @@
  * Electron entry point. Owns the lifecycle of:
  *
  *   - the main window (single, for now — multi-window is deferred)
- *   - the [`RunnerSupervisor`] (started before the window opens; the
- *     supervisor's first `connection.changed` event lands at the
- *     renderer the moment the preload bridge is ready)
+ *   - the [`RunnerSupervisor`] (prepared after first paint; connection changes
+ *     stream into the already-mounted renderer)
  *   - the IPC wiring
  */
 
@@ -51,8 +50,6 @@ import {
   startLoopbackServer,
   installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
-  isTrustedLoopbackCert,
-  isTrustedLoopbackCertByHost,
   sendEvent,
   readPrefs,
   updatePrefs,
@@ -170,6 +167,52 @@ function focusMain(): void {
 // ./deep-link; it reads the current window + focuses it through these injected
 // accessors so it stays decoupled from the `mainWindow` singleton.
 const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
+
+/** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
+ *  the renderer can paint persisted desks/history before any runner spawns. */
+async function prepareRunnerEnvironment(): Promise<void> {
+  if (app.isPackaged) {
+    const moxxyHome =
+      process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
+    try {
+      await seedPluginsFromResources({
+        resourcesPath: process.resourcesPath,
+        moxxyHome,
+        log: (msg) => console.log(`[moxxy] ${msg}`),
+      });
+    } catch (err) {
+      console.warn('[moxxy] plugins-seed copy failed:', err);
+    }
+  }
+
+  try {
+    const swept = await sweepStaleSockets();
+    if (swept.killed.length || swept.removed.length) {
+      console.log(
+        `[moxxy] swept ${swept.removed.length} stale socket(s), killed ${swept.killed.length} orphan pid(s)`,
+      );
+    }
+    for (const err of swept.errors) console.warn('[moxxy] sweep:', err);
+  } catch (err) {
+    // Cleanup is best-effort. Each supervisor still owns its identity-checked
+    // stale-socket recovery if this broad startup sweep fails.
+    console.warn('[moxxy] startup socket sweep failed:', err);
+  }
+}
+
+async function primeInitialRunner(runnerPool: RunnerPool, desks: DeskStore): Promise<void> {
+  const initialActive = await desks.getActive();
+  if (initialActive?.activeSessionId) {
+    await runnerPool.getOrCreate(
+      initialActive.activeSessionId,
+      cwdForSession(initialActive, initialActive.activeSessionId),
+    );
+    runnerPool.setActive(initialActive.activeSessionId);
+    return;
+  }
+  await runnerPool.getOrCreate(UNBOUND_ID, null);
+  runnerPool.setActive(UNBOUND_ID);
+}
 
 async function createWindow(): Promise<void> {
   // The renderer is served either from Vite's dev server or from the
@@ -672,71 +715,21 @@ app.whenReady().then(async () => {
   // keychain) with "vault: passphrase required but no interactive terminal".
   ensureDesktopVaultKey();
 
-  // First-launch plugin seeding: copy the bundled plugins-seed npm tree into
-  // ~/.moxxy/plugins so the slim CLI runner finds the on-demand plugins
-  // (providers, modes, view, …) OFFLINE — no npm, no network. Idempotent and
-  // never overwrites a user-updated install; must complete before any runner
-  // spawns so the first session's discovery scan sees the seeded packages.
-  if (app.isPackaged) {
-    const moxxyHome =
-      process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
-    try {
-      await seedPluginsFromResources({
-        resourcesPath: process.resourcesPath,
-        moxxyHome,
-        log: (msg) => console.log(`[moxxy] ${msg}`),
-      });
-    } catch (err) {
-      // Seeding is best-effort: a failure degrades to on-demand npm installs.
-      console.warn('[moxxy] plugins-seed copy failed:', err);
-    }
-  }
-
   // If the user auto-installed Node on a previous run (onboarding's "Install
   // automatically"), put that managed Node back on PATH before any runner
   // spawns so `moxxy serve` / npm resolve it without a manual PATH edit.
   activateManagedNode(app.getPath('userData'));
 
-  // Reap any orphan runners from a previous crashed desktop process
-  // before we try to spawn new ones. Without this, the first workspace
-  // a returning user opens hits EADDRINUSE because a zombie moxxy serve
-  // still has 4040 (or the workspace's unix socket) bound.
-  const swept = await sweepStaleSockets();
-  if (swept.killed.length || swept.removed.length) {
-     
-    console.log(
-      `[moxxy] swept ${swept.removed.length} stale socket(s), killed ${swept.killed.length} orphan pid(s)`,
-    );
-  }
-  for (const err of swept.errors) {
-     
-    console.warn('[moxxy] sweep:', err);
-  }
-
-  pool = new RunnerPool();
+  // The pool exists before the window so IPC can bind immediately, but its
+  // expensive preparation + first supervisor are lazy and run after first
+  // paint. Every user-triggered getOrCreate shares the same preparation gate.
+  pool = new RunnerPool({ beforeStart: prepareRunnerEnvironment });
   // No boot-time import step: each runner writes its session's single metadata
   // file directly, and the registry derives the workspace list from those files.
   const desks = new DeskStore();
   // Push live workspace updates to every surface when a runner changes a session
   // file (e.g. the first prompt becomes the session's title).
   watchSessionsForChanges(desks);
-  // Prime: spawn a runner for the active workspace if one is bound,
-  // otherwise an unbound runner so the user lands in a working chat
-  // surface from the first paint.
-  const initialActive = await desks.getActive();
-  if (initialActive?.activeSessionId) {
-    // The pool is keyed by SESSION id — prime the desk's active session
-    // (for a pre-multi-session desk this is the desk id itself, so the
-    // sticky runner log it resumes is unchanged).
-    await pool.getOrCreate(
-      initialActive.activeSessionId,
-      cwdForSession(initialActive, initialActive.activeSessionId),
-    );
-    pool.setActive(initialActive.activeSessionId);
-  } else {
-    await pool.getOrCreate(UNBOUND_ID, null);
-    pool.setActive(UNBOUND_ID);
-  }
   // The Electron transport is always present. The WebSocket bridge (remote
   // clients / the mobile app) is now controllable at RUNTIME from Settings →
   // Mobile (the "mobile gateway"), so the bus + module are loaded unconditionally
@@ -815,31 +808,6 @@ app.whenReady().then(async () => {
   // server is up yet, so a client that connects later still gets the live stream.
   if (wsBus) wsEventBus.addSink(wsBus);
 
-  if (wsBridge && wsBus && wsConfig && mobileGateway) {
-    // Back-compat env-gated boot path: start the bridge once and hand the running
-    // server to the runtime controller so status/rotate/stop see it too.
-    try {
-      wsServer = await wsBridge.startWsBridge(wsBus, {
-        ...wsConfig,
-        onClientCountChange: () => mobileGateway?.notifyClientCountChanged(),
-      });
-      const host = wsConfig.host ?? '127.0.0.1';
-      const m = /:(\d+)$/.exec(wsServer.address);
-      mobileGateway.adopt(wsServer, host, m ? Number(m[1]) : wsConfig.port);
-      console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
-    } catch (e) {
-      console.error('[moxxy] WebSocket bridge failed to start:', e);
-    }
-  }
-  // Without the env override the gateway stays OFF on boot — it is on-demand
-  // only and never auto-starts with the app. The user enables it explicitly
-  // from the Mobile view; we deliberately do NOT resume the persisted
-  // preference here. (Auto-resume re-opened a fresh proxy tunnel on every
-  // launch — racing the relay's still-registered tunnel from the previous run
-  // and leaving pairing "unresponsive until you regenerate the code".) The
-  // pairing token + identity are still persisted, so re-enabling reuses the
-  // same QR without re-pairing.
-
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
   // clears any `moxxy://` links buffered before the renderer was listening
   // (cold-start), and flips the ready flag so subsequent links push live.
@@ -862,6 +830,32 @@ app.whenReady().then(async () => {
       quit: () => app.quit(),
     });
   }
+
+  // First paint is complete. Seed plugins, sweep stale sockets, and connect the
+  // active runner in the background while the renderer shows the persisted
+  // shell/transcript. User-triggered runner creation shares this same gate.
+  void primeInitialRunner(pool, desks).catch((err) => {
+    console.error('[moxxy] initial runner startup failed:', err);
+  });
+
+  if (wsBridge && wsBus && wsConfig && mobileGateway) {
+    // The opt-in env bridge is independent of first paint. Hand the running
+    // server to the runtime controller so status/rotate/stop see it too.
+    try {
+      wsServer = await wsBridge.startWsBridge(wsBus, {
+        ...wsConfig,
+        onClientCountChange: () => mobileGateway?.notifyClientCountChanged(),
+      });
+      const host = wsConfig.host ?? '127.0.0.1';
+      const m = /:(\d+)$/.exec(wsServer.address);
+      mobileGateway.adopt(wsServer, host, m ? Number(m[1]) : wsConfig.port);
+      console.log(`[moxxy] WebSocket bridge listening on ${wsServer.address}`);
+    } catch (e) {
+      console.error('[moxxy] WebSocket bridge failed to start:', e);
+    }
+  }
+  // Without the env override the gateway stays off until explicitly enabled;
+  // its token + identity remain persisted, so re-enabling does not re-pair.
 
   // Cold-start deep-link: Windows/Linux pass a `moxxy://` URL as an argv
   // token (macOS uses open-url, already buffered above). Buffer it for the

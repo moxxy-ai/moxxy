@@ -2,6 +2,7 @@ import { MoxxyMark } from '@/components/MoxxyMark';
 import { useState } from 'react';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 import { Splash } from '@/Splash';
+import { Button } from '@moxxy/desktop-ui';
 
 /** Result of an in-app CLI update attempt. On success the caller (App.tsx)
  *  has already kicked the supervisor retry; on failure we surface `error`
@@ -107,13 +108,9 @@ export function ConnectionScreen({
           />
         ) : (
           !terminal && (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={primaryButtonStyle(false)}
-            >
+            <Button variant="cta" size="lg" onClick={onRetry} style={primaryButtonStyle()}>
               Try again
-            </button>
+            </Button>
           )
         )}
 
@@ -231,15 +228,16 @@ function ProtocolIncompatibleActions({
         width: '100%',
       }}
     >
-      <button
-        type="button"
+      <Button
+        variant="cta"
+        size="lg"
         onClick={() => void runUpdate()}
         disabled={updating}
         aria-busy={updating}
-        style={primaryButtonStyle(updating)}
+        style={primaryButtonStyle()}
       >
         {updating ? 'Updating the moxxy CLI…' : 'Update CLI & reconnect'}
-      </button>
+      </Button>
 
       {status === 'error' && error && (
         <div
@@ -304,19 +302,11 @@ function cliPrefixFromPath(cliPath: string | null): string | null {
   return cliPath.slice(0, m.index);
 }
 
-function primaryButtonStyle(disabled: boolean): React.CSSProperties {
+function primaryButtonStyle(): React.CSSProperties {
   return {
-    padding: '9px 20px',
-    background: disabled ? 'var(--color-card-border-strong)' : 'var(--color-primary)',
-    color: 'var(--color-on-primary)',
-    border: 'none',
-    borderRadius: 'var(--radius-block)',
+    padding: '0 20px',
     fontWeight: 600,
     fontSize: 'var(--type-ui)',
-    cursor: disabled ? 'default' : 'pointer',
-    boxShadow: disabled
-      ? 'none'
-      : '0 10px 20px -12px color-mix(in srgb, var(--color-primary) 55%, transparent)',
   };
 }
 

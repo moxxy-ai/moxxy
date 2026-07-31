@@ -3,9 +3,9 @@
 import type { SessionSource } from '@moxxy/sdk';
 
 /** One conversation under a desk. Each session is backed by its own
- *  runner process (the pool keys supervisors by session id) with its
- *  own sticky runner log (`~/.moxxy/sessions/<id>.jsonl`) and chat
- *  NDJSON mirror — switching sessions never tears the others down. */
+ *  runner process (the pool keys supervisors by session id) and one sticky,
+ *  authoritative log (`~/.moxxy/sessions/<id>.jsonl`) — switching sessions
+ *  never tears the others down. */
 export interface DeskSession {
   id: string;
   name: string;

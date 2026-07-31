@@ -19,7 +19,6 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { Socket } from 'node:net';
@@ -30,7 +29,7 @@ import {
   connectRemoteSession,
   isNamedPipe,
   isProtocolMismatchError,
-  platformSocket,
+  runnerSocketPath,
   RUNNER_PROTOCOL_VERSION,
   type RemoteSession,
 } from '@moxxy/runner';
@@ -76,12 +75,9 @@ export class RunnerSupervisor extends EventEmitter {
   private cwd: string | null = null;
 
   constructor(
-    // The pool passes socketFor() explicitly; this default keeps a bare
-    // supervisor correct too. platformSocket() gives a named pipe on Windows
-    // (a raw .sock can't bind there, so `moxxy serve` would exit → "lost the
-    // runner").
-    private readonly socketPath: string = process.env.MOXXY_RUNNER_SOCKET ??
-      platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock')),
+    // The pool passes socketFor() explicitly; the runner-owned helper keeps a
+    // bare supervisor aligned with MOXXY_HOME and the Windows named-pipe rule.
+    private readonly socketPath: string = runnerSocketPath(),
     /**
      * Sticky session id for the spawned runner (resume-if-present). The pool
      * passes the workspace's desk id so the runner resumes that workspace's

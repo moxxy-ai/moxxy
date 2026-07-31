@@ -13,10 +13,9 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { homedir } from 'node:os';
-import path from 'node:path';
 
 import { platformSocket } from '@moxxy/runner';
+import { moxxyPath } from '@moxxy/sdk/server';
 
 import { RunnerSupervisor } from './runner-supervisor';
 
@@ -29,6 +28,12 @@ interface Entry {
   readonly supervisor: RunnerSupervisor;
 }
 
+export interface RunnerPoolOptions {
+  /** One-time host preparation that must finish before any runner starts (the
+   *  desktop uses it for plugin seeding + stale-socket cleanup). */
+  readonly beforeStart?: () => Promise<void>;
+}
+
 export class RunnerPool extends EventEmitter {
   private entries = new Map<string, Entry>();
   /** In-flight creations, keyed by id, so two concurrent getOrCreate(id) calls
@@ -36,6 +41,12 @@ export class RunnerPool extends EventEmitter {
    *  a supervisor and race two writes of the session log). */
   private pending = new Map<string, Promise<RunnerSupervisor>>();
   private activeId: string | null = null;
+  private preparation: Promise<void> | null = null;
+  private stopped = false;
+
+  constructor(private readonly options: RunnerPoolOptions = {}) {
+    super();
+  }
 
   /**
    * Return (creating if needed) the supervisor bound to the given
@@ -44,6 +55,9 @@ export class RunnerPool extends EventEmitter {
    * supervisor in place — its run loop will tear down and respawn.
    */
   async getOrCreate(id: string, cwd: string | null): Promise<RunnerSupervisor> {
+    if (this.stopped) throw new Error('RunnerPool is stopped');
+    await this.prepareToStart();
+    if (this.stopped) throw new Error('RunnerPool stopped before runner startup completed');
     const existing = this.entries.get(id);
     if (existing) {
       await existing.supervisor.setCwd(cwd);
@@ -75,6 +89,10 @@ export class RunnerPool extends EventEmitter {
     // resumes it next launch) instead of booting an empty session every time.
     const supervisor = new RunnerSupervisor(socketPath, id);
     if (cwd) await supervisor.setCwd(cwd);
+    if (this.stopped) {
+      await supervisor.stop();
+      throw new Error('RunnerPool stopped before supervisor creation completed');
+    }
     this.entries.set(id, { id, supervisor });
     // Forward every supervisor's change event upward, tagged with the
     // workspace id, so the IPC layer can fan out to the renderer with
@@ -83,6 +101,13 @@ export class RunnerPool extends EventEmitter {
     void supervisor.run();
     if (this.activeId === null) this.activeId = id;
     return supervisor;
+  }
+
+  private async prepareToStart(): Promise<void> {
+    const beforeStart = this.options.beforeStart;
+    if (!beforeStart) return;
+    if (!this.preparation) this.preparation = beforeStart();
+    await this.preparation;
   }
 
   /** Mark a workspace as foregrounded — the chat view follows it. */
@@ -134,16 +159,25 @@ export class RunnerPool extends EventEmitter {
 
   /** Tear down every supervised runner. Awaited from `before-quit`. */
   async stopAll(): Promise<void> {
+    this.stopped = true;
     const all = Array.from(this.entries.values());
+    const pending = Array.from(this.pending.values());
+    const preparation = this.preparation;
     this.entries.clear();
     this.activeId = null;
     await Promise.all(
-      all.map((e) =>
-        e.supervisor
-          .stop()
-          .catch(() => undefined)
-          .finally(() => e.supervisor.removeAllListeners()),
-      ),
+      [
+        ...all.map((e) =>
+          e.supervisor
+            .stop()
+            .catch(() => undefined)
+            .finally(() => e.supervisor.removeAllListeners()),
+        ),
+        ...pending.map((creation) => creation.then(() => undefined).catch(() => undefined)),
+        ...(preparation
+          ? [preparation.then(() => undefined).catch(() => undefined)]
+          : []),
+      ],
     );
   }
 }
@@ -161,7 +195,7 @@ export function socketFor(id: string, platform: NodeJS.Platform = process.platfo
   if (id === UNBOUND_ID) {
     return (
       process.env.MOXXY_RUNNER_SOCKET ??
-      platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock'), platform)
+      platformSocket('serve', moxxyPath('serve.sock'), platform)
     );
   }
   // Defense-in-depth: on unix the id is interpolated into a real filesystem
@@ -173,12 +207,12 @@ export function socketFor(id: string, platform: NodeJS.Platform = process.platfo
   if (platform !== 'win32' && !isSafeSocketSegment(id)) {
     throw new Error(`Refusing to build a socket path for an unsafe workspace id: ${JSON.stringify(id)}`);
   }
-  // Workspace-bound sockets sit under ~/.moxxy/desktop/sockets/ on unix so a
-  // single deleted workspace's stale .sock doesn't pollute the home dir's top
-  // level; on Windows they become `\\.\pipe\moxxy-serve-<id>`.
+  // Workspace-bound sockets sit under $MOXXY_HOME/desktop/sockets/ on unix so
+  // isolated profiles never inspect or stop one another's runners; on Windows
+  // they become `\\.\pipe\moxxy-serve-<id>`.
   return platformSocket(
     `serve-${id}`,
-    path.join(homedir(), '.moxxy', 'desktop', 'sockets', `serve-${id}.sock`),
+    moxxyPath('desktop', 'sockets', `serve-${id}.sock`),
     platform,
   );
 }

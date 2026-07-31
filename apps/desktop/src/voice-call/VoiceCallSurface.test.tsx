@@ -72,9 +72,16 @@ describe('VoiceCallSurface', () => {
     expect(muteButton).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(muteButton);
     expect(onMuteMicrophone).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    const backButton = screen.getByRole('button', { name: 'Back to chat' });
+    const focusButton = screen.getByRole('button', { name: 'Open focus mode' });
+    const endButton = screen.getByRole('button', { name: 'End call' });
+    expect(backButton).toHaveClass('moxxy-btn', 'btn-ghost');
+    expect(focusButton).toHaveClass('moxxy-btn', 'btn-ghost');
+    expect(endButton).toHaveClass('moxxy-btn', 'btn-ghost');
+    expect(backButton).toHaveStyle({ height: 'var(--frame-control)' });
+    fireEvent.click(backButton);
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Open focus mode' }));
+    fireEvent.click(focusButton);
     expect(onEnterFocusMode).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(container.textContent).not.toMatch(/[—–]/u);

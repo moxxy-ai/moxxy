@@ -103,12 +103,13 @@ export function ProviderModelGrid({
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '220px 1fr',
+        gridTemplateColumns: 'clamp(148px, 30%, 190px) minmax(0, 1fr)',
         gap: 0,
         border: '1px solid var(--color-card-border)',
         borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
-        minHeight: 280,
+        height: 'clamp(180px, 38dvh, 320px)',
+        minHeight: 0,
       }}
     >
       <ul
@@ -121,7 +122,7 @@ export function ProviderModelGrid({
           background: 'var(--color-input-soft)',
           borderRight: '1px solid var(--color-card-border)',
           overflowY: 'auto',
-          maxHeight: 360,
+          minHeight: 0,
         }}
       >
         {providers.length === 0 && (
@@ -148,8 +149,8 @@ export function ProviderModelGrid({
                 style={{
                   width: '100%',
                   textAlign: 'left',
-                  padding: '8px 10px',
-                  fontSize: 'var(--type-ui)',
+                  padding: '6px 8px',
+                  fontSize: 'var(--type-row)',
                   borderRadius: 'var(--radius-block)',
                   color: isHovered ? 'var(--color-text)' : 'var(--color-text-muted)',
                   background: isHovered ? 'var(--color-surface)' : 'transparent',
@@ -182,11 +183,14 @@ export function ProviderModelGrid({
           flexDirection: 'column',
           background: 'var(--color-surface)',
           overflow: 'hidden',
+          minHeight: 0,
         }}
       >
         <header
           style={{
             padding: '8px 10px',
+            minHeight: 'var(--frame-control)',
+            boxSizing: 'border-box',
             borderBottom: '1px solid var(--color-card-border)',
             display: 'flex',
             alignItems: 'center',
@@ -249,8 +253,9 @@ export function ProviderModelGrid({
             listStyle: 'none',
             margin: 0,
             padding: 6,
+            flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
-            maxHeight: 360,
           }}
         >
           <li>
@@ -340,8 +345,8 @@ function modelRowStyle(active: boolean): React.CSSProperties {
   return {
     width: '100%',
     textAlign: 'left',
-    padding: '8px 10px',
-    fontSize: 'var(--type-ui)',
+    padding: '6px 8px',
+    fontSize: 'var(--type-row)',
     borderRadius: 'var(--radius-block)',
     background: active ? 'var(--color-primary-soft)' : 'transparent',
     color: active ? 'var(--color-primary-strong)' : 'var(--color-text)',

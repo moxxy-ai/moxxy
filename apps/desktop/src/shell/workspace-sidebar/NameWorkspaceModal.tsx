@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 
 /**
  * Naming dialog shown after the user picks a folder for a new workspace.
@@ -55,7 +55,7 @@ export function NameWorkspaceModal({
         >
           {folder}
         </div>
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
@@ -67,7 +67,7 @@ export function NameWorkspaceModal({
           >
             Create
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

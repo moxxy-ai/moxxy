@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { assertDefined } from '@/lib/assert';
-import { Button, Icon, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 import { humanize } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 
@@ -77,14 +77,7 @@ export function ArgsForm({
             )}
           </label>
         ))}
-        <footer
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
+        <ModalFooter justify="between">
           <Button variant="ghost" onClick={onBack} disabled={running}>
             ← Back
           </Button>
@@ -102,7 +95,7 @@ export function ArgsForm({
               <Icon name="send" size={13} />
             </Button>
           </div>
-        </footer>
+        </ModalFooter>
       </div>
     </Modal>
   );

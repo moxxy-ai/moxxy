@@ -1,5 +1,5 @@
 /**
- * On boot, scan ~/.moxxy/desktop/sockets/ for stale per-workspace
+ * On boot, scan $MOXXY_HOME/desktop/sockets/ for stale per-workspace
  * runner sockets and tear down anything still bound. A previous
  * desktop process that crashed without running its shutdown handler
  * leaves both a unix-socket FD held by the orphaned moxxy serve AND
@@ -22,8 +22,8 @@
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { Socket } from 'node:net';
 import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
 import path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 
 const PROBE_TIMEOUT_MS = 200;
 
@@ -68,7 +68,7 @@ export async function sweepStaleSockets(): Promise<SweepLog> {
 
 function candidateDirs(): string[] {
   return [
-    path.join(homedir(), '.moxxy', 'desktop', 'sockets'),
+    moxxyPath('desktop', 'sockets'),
     // Don't touch ~/.moxxy/serve.sock here — that's the legacy socket
     // shared with the TUI and external tools. The supervisor's own
     // cleanupStaleSocket handles that path conservatively.
