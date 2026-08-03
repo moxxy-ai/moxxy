@@ -46,6 +46,9 @@ export function Header({
   readonly onRename: () => void;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
+  // A live query forces the field open, so the ⌘F shortcut (which sets the
+  // query from outside this component) reveals and focuses it.
+  const open = searchOpen || searchQuery !== null;
   const toggleFocusMode = useFocusModeToggle();
   const crumbs = [deskName, sessionName].filter((c): c is string => Boolean(c));
   return (
@@ -62,7 +65,7 @@ export function Header({
           onPick={agent.onPickProviderModel}
         />
       )}
-      {searchOpen ? (
+      {open ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
           <input
             autoFocus

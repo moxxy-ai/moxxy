@@ -7,6 +7,7 @@ import { defaultModePlugin } from '@moxxy/mode-default';
 import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
 import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
+import { segmentsCompactorPlugin } from '@moxxy/compactor-segments';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
@@ -93,6 +94,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/mode-collaborative', plugin: collaborativeModePlugin },
     { name: '@moxxy/plugin-collab', plugin: collabPlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
+    // Sub-session compaction, the default. Records each finished turn as one
+    // outcome summary and folds old records into chapters, so a session's
+    // context is bounded by policy instead of by how long you've been talking.
+    // `summarize-old-turns` stays registered as the protected floor.
+    { name: '@moxxy/compactor-segments', plugin: segmentsCompactorPlugin },
     { name: '@moxxy/cache-strategy-stable-prefix', plugin: stablePrefixCacheStrategyPlugin },
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
     // plugin-stt-whisper(+codex) are NOT bundled — install on demand / seeded

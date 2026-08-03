@@ -350,6 +350,18 @@ export {
   type ManualCompactionResult,
 } from './compactor-helpers.js';
 export {
+  activeCompactionRanges,
+  makeCompactionLookup,
+  type CompactionRange,
+} from './compaction-state.js';
+export {
+  summarizeWithProvider,
+  truncateMiddle,
+  isAbort,
+  abortError,
+  type ProviderSummaryOptions,
+} from './compactor-summary.js';
+export {
   runElisionIfNeeded,
   resolveElisionSettings,
   type ResolvedElisionSettings,

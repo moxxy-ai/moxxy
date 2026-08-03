@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.35.4",
+  "version": "0.36.0",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -66,6 +66,7 @@
   "devDependencies": {
     "@clack/prompts": "catalog:",
     "@moxxy/cache-strategy-stable-prefix": "workspace:*",
+    "@moxxy/compactor-segments": "workspace:*",
     "@moxxy/compactor-summarize": "workspace:*",
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",

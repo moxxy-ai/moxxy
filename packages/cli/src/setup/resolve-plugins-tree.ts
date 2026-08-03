@@ -18,7 +18,10 @@ import type {
 /** Built-in default contribution name per category, used when a slot omits `default`. */
 const BUILTIN_DEFAULTS: Partial<Record<PluginCategoryKey, string>> = {
   mode: 'default',
-  compactor: 'summarize',
+  // Sub-session compaction: bounds context by policy rather than by session
+  // length. `summarize-old-turns` remains registered as the protected floor and
+  // is selectable via `plugins.compactor.default`.
+  compactor: 'segments',
   cacheStrategy: 'stable-prefix',
   workflowExecutor: 'dag',
   embedder: 'tfidf',

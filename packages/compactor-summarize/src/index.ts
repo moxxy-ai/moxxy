@@ -1,6 +1,8 @@
 import {
+  abortError,
   defineCompactor,
   definePlugin,
+  summarizeWithProvider,
   toolResultBytes,
   type CompactContext,
   type CompactorDef,
@@ -120,7 +122,7 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
       // Final abort gate: if the turn was cancelled while the summary was being
       // produced (incl. via a custom `opts.summary`), don't rewrite history the
       // user is abandoning — let the dispatcher no-op / the caller surface it.
-      if (ctx?.signal?.aborted) throwAbort();
+      if (ctx?.signal?.aborted) throw abortError('summarize-old-turns: compaction aborted');
       // Honest accounting: tokens saved = what the replaced events would have
       // cost the context minus what the summary costs (chars/4, matching
       // `estimateContextTokens`'s heuristic) — NOT the old fabricated
@@ -147,70 +149,20 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
  * provider/model is available or the call genuinely fails — callers fall back to
  * the labeled digest truncation. A turn CANCELLATION, however, must NOT degrade
  * to a lossy fallback that silently rewrites history the user is trying to
- * abandon: when `ctx.signal` is aborted the AbortError is re-thrown so
- * `compact()` propagates it (the auto dispatcher then no-ops; the manual caller
- * surfaces it) instead of producing a truncated digest with tokensSaved > 0.
+ * abandon: the shared helper re-throws the AbortError so `compact()` propagates
+ * it (the auto dispatcher then no-ops; the manual caller surfaces it) instead of
+ * producing a truncated digest with tokensSaved > 0.
  */
-async function providerSummary(text: string, ctx?: CompactContext): Promise<string | null> {
-  if (!ctx?.provider) return null;
-  // Already cancelled before we even start — don't fabricate a fallback digest.
-  if (ctx.signal?.aborted) throwAbort();
-  const provider = ctx.provider;
-  const model = ctx.model ?? provider.models[0]?.id;
-  if (!model) return null;
-  const input =
-    text.length > MAX_SUMMARIZE_INPUT_CHARS
-      ? `${text.slice(0, MAX_SUMMARIZE_INPUT_CHARS / 2)}\n[... digest truncated ...]\n${text.slice(-MAX_SUMMARIZE_INPUT_CHARS / 2)}`
-      : text;
-  try {
-    let out = '';
-    for await (const event of provider.stream({
-      model,
-      system: SUMMARY_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: [{ type: 'text', text: `Digest of the turns to compress:\n\n${input}` }],
-        },
-      ],
-      maxTokens: SUMMARY_MAX_TOKENS,
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-    })) {
-      // Stop consuming (and accumulating `out`) the moment the turn is
-      // cancelled, even if the provider keeps yielding — the final abort gate
-      // in compact() will then no-op rather than rewrite abandoned history.
-      if (ctx.signal?.aborted) throwAbort();
-      if (event.type === 'text_delta') out += event.delta;
-      if (event.type === 'error') {
-        // An `error` event during an aborted turn is the cancellation, not a
-        // transient provider failure — propagate rather than degrade.
-        if (ctx.signal?.aborted) throwAbort();
-        return null;
-      }
-    }
-    const trimmed = out.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  } catch (err) {
-    // Distinguish a user/turn cancellation (re-throw) from a transient provider
-    // failure (fall back). Re-throw if the thrown error is an abort OR the
-    // signal fired mid-stream.
-    if (isAbort(err) || ctx.signal?.aborted) throw err instanceof Error ? err : abortError();
-    return null;
-  }
-}
-
-function isAbort(err: unknown): boolean {
-  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
-}
-
-function abortError(): Error {
-  const e = new Error('summarize-old-turns: compaction aborted');
-  e.name = 'AbortError';
-  return e;
-}
-
-function throwAbort(): never {
-  throw abortError();
+function providerSummary(text: string, ctx?: CompactContext): Promise<string | null> {
+  return summarizeWithProvider(text, {
+    system: SUMMARY_SYSTEM_PROMPT,
+    prompt: (digest) => `Digest of the turns to compress:\n\n${digest}`,
+    maxInputChars: MAX_SUMMARIZE_INPUT_CHARS,
+    maxTokens: SUMMARY_MAX_TOKENS,
+    ...(ctx?.provider ? { provider: ctx.provider } : {}),
+    ...(ctx?.model ? { model: ctx.model } : {}),
+    ...(ctx?.signal ? { signal: ctx.signal } : {}),
+  });
 }
 
 function describeEvent(e: MoxxyEvent): string | null {

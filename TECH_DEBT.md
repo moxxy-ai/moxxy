@@ -24,7 +24,37 @@ or recorded-on-purpose decision.
 
 ## Open
 
-No open items.
+- [med, context/intra-turn-overflow, LOGGED 2026-08-03] The `segments` compactor
+  bounds context ACROSS turns; it cannot bound a single runaway turn. Compaction
+  and elision both advance only on completed-turn boundaries, so one turn that
+  makes hundreds of tool calls can still approach the window on its own. Under
+  pressure `segments` drops the verbatim tail to one turn and the loop's
+  reactive `force` compaction still fires, but neither touches the live turn.
+  A real fix needs intra-turn compaction that preserves tool_use/tool_result
+  pairing. `packages/compactor-segments/src/segments.ts`,
+  `packages/sdk/src/elision-helpers.ts`.
+
+- [low, context/chapter-fidelity, LOGGED 2026-08-03] Each chapter fold caps its
+  output at half the records it replaces, so detail degrades geometrically the
+  longer a session runs. That is the intended trade (a bounded index beats a
+  faithful one that overflows), and `recall({ turnId })` still reaches the
+  originals, but there is no signal to the model that an old chapter is
+  lossier than a recent record. Consider stamping a fold depth on the header.
+  `packages/compactor-segments/src/index.ts`.
+
+- [low, desktop/hotkeys-menu, LOGGED 2026-08-03] The keymap is renderer-only, so
+  the Electron application menu still lists just Focus Mode. Nothing surfaces
+  the shortcuts outside the ⌘/ sheet and the composer hint, and shortcuts do not
+  work when a non-renderer window holds focus. Wiring menu accelerators needs a
+  main→renderer IPC command and a rule that a chord is bound in exactly one
+  place (menu OR renderer) so it can't fire twice.
+  `apps/desktop/electron/main/menus.ts`, `apps/desktop/src/hotkeys/`.
+
+- [low, desktop/editable-target-dupe, LOGGED 2026-08-03] `isEditableTarget` now
+  exists in both `apps/desktop/src/hotkeys/chord.ts` and the workflow canvas's
+  helpers. The App.tsx copy was retired with the hand-rolled ⌘B handler; the
+  canvas one should move onto the hotkeys registry rather than keep its own
+  window listener. `apps/desktop/src/workflows/WorkflowCanvas.tsx`.
 
 ## Resolved ledger
 

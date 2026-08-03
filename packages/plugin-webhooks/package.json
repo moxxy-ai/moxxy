@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-webhooks",
   "private": true,
-  "version": "0.35.4",
+  "version": "0.36.0",
   "description": "Generic webhook trigger plugin for moxxy. External events (GitHub, Stripe, ...) wake the agent via a verified HTTP listener; agent-facing tools create/manage triggers and bootstrap a public tunnel.",
   "type": "module",
   "main": "./dist/index.js",

@@ -17,6 +17,7 @@ import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
+import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
@@ -98,6 +99,11 @@ export function ChatSurface({
   const enterFocusMode = useFocusModeToggle();
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
+  // Keyboard shortcuts owned by the shell, executed here where the state lives.
+  transcriptSearchPulse.use(() => setSearchQuery((q) => q ?? ''));
+  abortTurnPulse.use(() => {
+    if (chat.activeTurnId !== null || chat.sending) void chat.abort();
+  });
   const imagePreview = useImagePreview();
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
