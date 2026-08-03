@@ -7,6 +7,7 @@ import {
   toolResultStubbed,
   type ElisionState,
 } from './elision-state.js';
+import { activeCompactionRanges } from './compaction-state.js';
 import type { CompactorDef, TokenBudget } from './compactor.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { EventLogReader } from './log.js';
@@ -48,15 +49,12 @@ export function estimateContextTokens(
   // thousands of seqs after several compactions, and this runs every iteration.
   // The ranges are disjoint, so a small per-event interval check is equivalent
   // to the old Set membership test but allocates O(#compactions), not O(#seqs).
-  const compactedRanges: Array<readonly [number, number]> = [];
-  for (const e of events) {
-    if (e.type === 'compaction') {
-      compactedRanges.push([e.replacedRange[0], e.replacedRange[1]]);
-      chars += e.summary.length;
-    }
-  }
+  // Shares `activeCompactionRanges` with projection so a SUPERSEDED summary
+  // (one folded into a coarser range) is neither counted here nor sent there.
+  const compactedRanges = activeCompactionRanges(events);
+  for (const range of compactedRanges) chars += range.summary.length;
   const isCompacted = (seq: number): boolean =>
-    compactedRanges.some(([from, to]) => seq >= from && seq <= to);
+    compactedRanges.some(({ from, to }) => seq >= from && seq <= to);
   for (const e of events) {
     if (isCompacted(e.seq)) continue;
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {

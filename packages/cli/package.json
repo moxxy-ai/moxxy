@@ -66,6 +66,7 @@
   "devDependencies": {
     "@clack/prompts": "catalog:",
     "@moxxy/cache-strategy-stable-prefix": "workspace:*",
+    "@moxxy/compactor-segments": "workspace:*",
     "@moxxy/compactor-summarize": "workspace:*",
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",

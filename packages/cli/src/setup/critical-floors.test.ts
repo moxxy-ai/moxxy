@@ -13,8 +13,9 @@ function makeSession(): Session {
   });
   // Seed the kernel-plugin-contributed defaults the kernel would register.
   session.modes.register({ name: 'default', run: async function* () {} });
+  // The real def name the kernel registers; the floor table matches on it.
   session.compactors.register({
-    name: 'summarize',
+    name: 'summarize-old-turns',
     shouldCompact: () => false,
     compact: async () => ({}) as never,
   });
@@ -59,7 +60,7 @@ describe('critical floors', () => {
     });
     session.compactors.setActive('other');
     session.compactors.unregister('other');
-    expect(session.compactors.getActiveName()).toBe('summarize');
+    expect(session.compactors.getActiveName()).toBe('summarize-old-turns');
   });
 
   it('throws when a non-nullable floor is missing', () => {

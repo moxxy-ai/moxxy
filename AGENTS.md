@@ -18,7 +18,8 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/mode-default               "default" mode — Claude Code-style ReAct loop (registered by the CLI; first registered mode auto-activates)
 @moxxy/mode-goal                  "goal" mode — autonomous auto-approve loop; works across turns until goal_complete
 @moxxy/mode-deep-research         "research" mode — multi-query fan-out + synthesis
-@moxxy/compactor-summarize        default summarize-old-turns compactor
+@moxxy/compactor-segments         DEFAULT compactor: sub-session records (one per finished turn) folded into chapters; adds `session_recall`
+@moxxy/compactor-summarize        summarize-old-turns compactor; the protected floor, selectable via `plugins.compactor.default`
 @moxxy/cache-strategy-stable-prefix  default prompt-cache strategy (stable-prefix breakpoints; `none` = opt-out)
 @moxxy/skills-builtin             MD skills shipped with the framework
 
@@ -77,6 +78,8 @@ apps/desktop                 Electron desktop app — attaches to @moxxy/runner,
 **Plugin model.** Plugins are TS code distributed as `@moxxy/*` npm packages, auto-discovered via `package.json#moxxy.plugin.entry`. The CLI also auto-loads any package under `~/.moxxy/plugins/*/` that carries that manifest. Plugins contribute `tools`, `providers`, `loopStrategies`, `compactors`, `cacheStrategies`, `channels`, and `hooks` via `definePlugin({...})`.
 
 **Caching model.** A `CacheStrategy` decides *where* prompt-cache breakpoints go and returns provider-neutral `CacheHint`s (`{ target: 'tools' | 'system' | { messageIndex } }`); the provider expresses them (Anthropic → `cache_control`). One is active per session — registered via plugins exactly like compactors/modes; first registered auto-activates. `@moxxy/cache-strategy-stable-prefix` is the default (static prefix + rolling tail); `none` opts out. `plan()` MUST be deterministic given identical inputs — a non-deterministic breakpoint shifts the cached prefix between calls and silently defeats the cache (paying 1.25x writes for 0 reads).
+
+**Context model.** Three layers keep one long-running session inside the window, all expressed as EVENTS the projection folds, never as mutations of history. (1) **Elision** stubs bulky old tool results (`recall(callId)` expands them). (2) **Compaction** replaces a seq range with a summary; the default `segments` compactor records each finished turn as one dense sub-session record and folds old records into chapters once the index passes its cap, so context is bounded by policy rather than by session length. `session_recall` searches those records, `recall({ turnId })` restores one verbatim. (3) **Memory** (`@moxxy/plugin-memory`) persists across sessions. A compaction range fully contained in a LATER range is superseded (see `activeCompactionRanges`), which is what lets a compactor re-compact its own summaries.
 
 **Channels.** A `Channel` is a bidirectional surface that drives a Session — TUI, Telegram, HTTP, etc. Channels expose `subcommands` for one-shot maintenance ops (`moxxy channels telegram pair|unpair|status`); the CLI's `bin.ts` knows nothing about specific channels.
 
