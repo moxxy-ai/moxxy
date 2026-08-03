@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.35.4",
+  "version": "0.36.0",
   "description": "Claude Pro/Max subscription provider for moxxy. Streams through the user's authenticated installed Claude CLI, with opt-in native-tool tasks and no Anthropic API key.",
   "keywords": [
     "moxxy",

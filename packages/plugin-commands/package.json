@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-commands",
   "private": true,
-  "version": "0.35.4",
+  "version": "0.36.0",
   "description": "Channel-agnostic slash commands: /info, /clear, /new, /help. Every channel that consumes session.commands picks them up automatically.",
   "type": "module",
   "main": "./dist/index.js",

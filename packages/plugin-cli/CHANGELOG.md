@@ -1,5 +1,18 @@
 # @moxxy/plugin-cli
 
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/channel-kit@0.36.0
+  - @moxxy/chat-model@0.4.2
+  - @moxxy/config@0.36.0
+  - @moxxy/core@0.36.0
+  - @moxxy/plugin-mcp@0.36.0
+  - @moxxy/plugin-plugins-admin@0.36.0
+
 ## 0.35.4
 
 ### Patch Changes
