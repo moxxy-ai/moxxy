@@ -6,7 +6,7 @@ import type { MoxxyConfig } from './schema.js';
  *   import { defineConfig } from '@moxxy/config';
  *
  *   export default defineConfig({
- *     provider: { name: 'anthropic', model: 'claude-sonnet-4-6' },
+ *     provider: { name: 'anthropic', model: 'claude-sonnet-5' },
  *     plugins: {
  *       '@moxxy/plugin-mcp': { enabled: true, options: { servers: [...] } },
  *       '@acme/moxxy-plugin-shell': { enabled: false },

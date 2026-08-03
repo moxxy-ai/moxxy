@@ -237,7 +237,7 @@ import { defineConfig } from '@moxxy/config';
 export default defineConfig({
   provider: {
     name: 'anthropic',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },   // resolved from the vault
   },
   mode: 'default',
