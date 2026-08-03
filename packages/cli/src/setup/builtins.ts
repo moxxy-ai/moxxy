@@ -64,6 +64,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/mode-collaborative': { hardRequirements: false, reason: 'coordinator spawns separate agent processes; needs @moxxy/plugin-collab at runtime, surfaced if absent' },
   '@moxxy/plugin-collab': { hardRequirements: false, reason: 'collaboration hub + tools; inert outside a collaboration' },
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
+  '@moxxy/compactor-segments': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/cache-strategy-stable-prefix': { hardRequirements: false, reason: 'cache strategy has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },

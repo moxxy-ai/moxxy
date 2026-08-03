@@ -1,7 +1,12 @@
 import type { ContentBlock, ProviderMessage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { Skill } from '../skill.js';
-import type { CompactionEvent, MoxxyEvent, UserPromptEvent } from '../events.js';
+import type { MoxxyEvent, UserPromptEvent } from '../events.js';
+import {
+  activeCompactionRanges,
+  makeCompactionLookup,
+  type CompactionRange,
+} from '../compaction-state.js';
 import {
   computeElisionState,
   conversationalStub,
@@ -114,90 +119,6 @@ export interface ProjectMessagesOptions {
    * recomputes (memoized on the log version), byte-identically.
    */
   readonly precomputedElisionState?: ElisionState;
-}
-
-interface CompactionRange {
-  readonly from: number;
-  readonly to: number;
-  readonly summary: string;
-}
-
-function activeCompactionRanges(events: ReadonlyArray<MoxxyEvent>): ReadonlyArray<CompactionRange> {
-  return events
-    .filter((event): event is CompactionEvent =>
-      event.type === 'compaction' &&
-      event.tokensSaved > 0 &&
-      event.summary.trim().length > 0 &&
-      event.replacedRange[0] <= event.replacedRange[1],
-    )
-    .map((event) => ({
-      from: event.replacedRange[0],
-      to: event.replacedRange[1],
-      summary: event.summary,
-    }));
-}
-
-function eventInCompactionRange(
-  seq: number,
-  ranges: ReadonlyArray<CompactionRange>,
-): CompactionRange | null {
-  for (const range of ranges) {
-    if (seq >= range.from && seq <= range.to) return range;
-  }
-  return null;
-}
-
-/**
- * A compaction lookup that answers "which range (if any) contains `seq`" in
- * O(log ranges) instead of {@link eventInCompactionRange}'s O(ranges) linear
- * scan per event. Compaction ranges are non-overlapping ascending seq prefixes,
- * so a seq belongs to at most one range and binary search over the
- * sorted-by-`from` array returns the SAME range the linear first-match did —
- * byte-identical projection.
- *
- * Defensive fallback: if the ranges are NOT strictly non-overlapping (which the
- * compaction invariant forbids, but a hand-crafted/corrupt log could violate),
- * we keep the exact linear first-match semantics so the projection can never
- * diverge from the old code.
- */
-function makeCompactionLookup(
-  ranges: ReadonlyArray<CompactionRange>,
-): (seq: number) => CompactionRange | null {
-  if (ranges.length === 0) return () => null;
-  if (ranges.length === 1) {
-    const only = ranges[0]!;
-    return (seq) => (seq >= only.from && seq <= only.to ? only : null);
-  }
-  // Sort a copy by `from` (stable enough — ranges are non-overlapping). Verify
-  // the non-overlap invariant on the sorted copy; only then is binary search
-  // provably equivalent to the linear first-match.
-  const sorted = [...ranges].sort((a, b) => a.from - b.from);
-  let nonOverlapping = true;
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i]!.from <= sorted[i - 1]!.to) {
-      nonOverlapping = false;
-      break;
-    }
-  }
-  if (!nonOverlapping) return (seq) => eventInCompactionRange(seq, ranges);
-  return (seq) => {
-    // Largest `from <= seq`, then a single containment check.
-    let lo = 0;
-    let hi = sorted.length - 1;
-    let cand = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (sorted[mid]!.from <= seq) {
-        cand = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    if (cand < 0) return null;
-    const range = sorted[cand]!;
-    return seq <= range.to ? range : null;
-  };
 }
 
 /**

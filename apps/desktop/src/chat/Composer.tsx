@@ -14,6 +14,7 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
+import { commandPalettePulse, focusComposerPulse } from '@/lib/chatPulses';
 import type { AgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
 import { CommandPalette } from './CommandPalette';
@@ -109,6 +110,15 @@ export function Composer({
 
   /** Stable callback for the attachment hooks to refocus the textarea. */
   const focusInput = useCallback(() => taRef.current?.focus(), []);
+
+  // Shell-owned shortcuts (⌘K / ⌘L) landing on the state that owns them.
+  commandPalettePulse.use(() => setActionsOpen(true));
+  focusComposerPulse.use(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+  });
 
   // Attachment handling (rail file-insert, native picker, image paste) lives
   // in its own hook so the attach path is independently testable.
@@ -505,7 +515,7 @@ export function Composer({
       )}
       <p className="cmdbar__keys">
         {inFlight ? 'Enter queues behind the running turn' : 'Enter sends'} · Shift+Enter
-        newline · Esc clears
+        newline · Esc clears · ⌘/ shortcuts
       </p>
       {actionsOpen && (
         <CommandPalette
