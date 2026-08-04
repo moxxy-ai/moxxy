@@ -1,5 +1,14 @@
 # @moxxy/plugin-provider-admin
 
+## 0.36.1
+
+### Patch Changes
+
+- Updated dependencies [9d343c0]
+  - @moxxy/config@0.36.1
+  - @moxxy/sdk@0.36.1
+  - @moxxy/plugin-provider-openai@0.36.1
+
 ## 0.36.0
 
 ### Patch Changes

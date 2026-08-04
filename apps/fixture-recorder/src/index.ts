@@ -9,7 +9,7 @@
  *     --prompt "list files in cwd"  \
  *     --name list-files-demo        \
  *     --out packages/testing/__fixtures__ \
- *     --model claude-sonnet-4-6     \
+ *     --model claude-sonnet-5       \
  *     [--allow-tools Read,Glob]     \
  *     [--max-iterations 4]
  *

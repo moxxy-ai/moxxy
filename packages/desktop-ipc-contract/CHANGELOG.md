@@ -1,5 +1,11 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.14.17
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+
 ## 0.14.16
 
 ### Patch Changes
