@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.36.0",
+  "version": "0.36.1",
   "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
   "keywords": [
     "moxxy",

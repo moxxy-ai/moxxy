@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/compactor-segments",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Sub-session (segment) compactor for moxxy: one outcome summary per turn, folded into chapters, with session_recall over the history.",
   "type": "module",
   "main": "./dist/index.js",

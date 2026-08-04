@@ -1,5 +1,15 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.36.1
+
+### Patch Changes
+
+- Updated dependencies [9d343c0]
+  - @moxxy/plugin-provider-anthropic@0.36.1
+  - @moxxy/sdk@0.36.1
+  - @moxxy/plugin-browser@0.36.1
+  - @moxxy/plugin-oauth@0.36.1
+
 ## 0.36.0
 
 ### Patch Changes
