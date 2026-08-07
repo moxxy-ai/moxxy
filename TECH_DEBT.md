@@ -50,13 +50,24 @@ or recorded-on-purpose decision.
   place (menu OR renderer) so it can't fire twice.
   `apps/desktop/electron/main/menus.ts`, `apps/desktop/src/hotkeys/`.
 
-- [low, desktop/editable-target-dupe, LOGGED 2026-08-03] `isEditableTarget` now
-  exists in both `apps/desktop/src/hotkeys/chord.ts` and the workflow canvas's
-  helpers. The App.tsx copy was retired with the hand-rolled ⌘B handler; the
-  canvas one should move onto the hotkeys registry rather than keep its own
-  window listener. `apps/desktop/src/workflows/WorkflowCanvas.tsx`.
-
 ## Resolved ledger
+
+- [med, desktop/chat/virtualization, RESOLVED 2026-08-08] The shared transcript
+  passed unmatched tool-result fallback blocks to Virtuoso even though the
+  desktop renderer intentionally produced no DOM for those bookkeeping events.
+  Their measured height was therefore zero, producing repeated runtime errors
+  after Voice Mode reused the full transcript. A pure render-node visibility
+  filter now removes only non-rendering event fallbacks before grouping and
+  virtualization; real user, assistant, reasoning, tool, extension, error, and
+  abort rows remain chronological and measurable. A reducer-backed regression
+  covers an orphan result between visible conversation events.
+  `apps/desktop/src/chat/{Transcript,transcript-nodes}.ts`.
+
+- [low, desktop/editable-target-dupe, RESOLVED 2026-08-08] Workflow canvas now
+  imports the canonical editable-target predicate from the hotkey subsystem;
+  the duplicate graph helper and its duplicate tests were removed, while the
+  shared behavior remains pinned beside the hotkey registry tests.
+  `apps/desktop/src/{hotkeys,workflows}/`.
 
 - [med, desktop/sidebar-hierarchy, RESOLVED 2026-07-31] Workspace headers and
   idle session rows collapsed into nearly the same visual tier, while the

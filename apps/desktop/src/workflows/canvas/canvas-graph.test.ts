@@ -14,7 +14,6 @@ import {
   NODE_W,
   disconnectEdge,
   inBodyRegion,
-  isEditableTarget,
   labelOf,
   nodeAt,
   portOrigin,
@@ -155,23 +154,6 @@ describe('disconnectEdge', () => {
     const dispatch = vi.fn();
     disconnectEdge(dispatch, { id: 'e', kind: 'needs', from: 'a', to: 'b' } as BuilderEdge, node('a'));
     expect(dispatch).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('isEditableTarget', () => {
-  it('is true for input/textarea/select and contentEditable, false otherwise', () => {
-    const make = (tag: string): HTMLElement => document.createElement(tag);
-    expect(isEditableTarget(make('input'))).toBe(true);
-    expect(isEditableTarget(make('textarea'))).toBe(true);
-    expect(isEditableTarget(make('select'))).toBe(true);
-    expect(isEditableTarget(make('div'))).toBe(false);
-    expect(isEditableTarget(null)).toBe(false);
-    const ce = make('div');
-    ce.contentEditable = 'true';
-    // jsdom doesn't reflect isContentEditable from the attribute, so assert via
-    // a spy'd getter to exercise the branch deterministically.
-    Object.defineProperty(ce, 'isContentEditable', { value: true });
-    expect(isEditableTarget(ce)).toBe(true);
   });
 });
 
