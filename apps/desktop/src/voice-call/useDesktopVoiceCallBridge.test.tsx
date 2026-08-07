@@ -33,6 +33,7 @@ function voiceCall(overrides: Partial<UseVoiceCall> = {}): UseVoiceCall {
     active: false,
     phase: 'idle',
     activity: null,
+    activeOperations: [],
     errorReason: null,
     microphoneMuted: false,
     waitingSoundEnabled: true,
