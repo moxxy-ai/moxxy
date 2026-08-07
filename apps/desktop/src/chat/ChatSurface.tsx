@@ -18,9 +18,9 @@ import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
-import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
+import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -142,18 +142,15 @@ export function ChatSurface({
     return compact;
   }, [actionCatalog]);
 
-  // Suggested-action chips are only shown when the composer is idle and the
-  // transcript is non-empty. Compute them only then, and memoize on the event
-  // log so they aren't re-derived (regex scans) on every streaming tick.
-  // Computed before any early return so the hook order stays stable.
-  const voiceLines = useMemo(
-    () => deriveVoiceTranscriptLines(
-      chat.events,
-      chat.streamingText,
-      voiceCall.lastTranscript,
-    ),
-    [chat.events, chat.streamingText, voiceCall.lastTranscript],
-  );
+  const voicePresentation = useVoiceModePresentation({
+    active: voiceCall.active,
+    phase: voiceCall.phase,
+    microphoneMuted: voiceCall.microphoneMuted,
+    localPiperInstallRequired: voiceCall.localPiperInstallRequired,
+    localPiperInstalling: voiceCall.localPiperInstalling,
+    activeOperations: voiceCall.activeOperations,
+    events: chat.events,
+  });
 
   useVoiceCallRequest(voiceCall.open);
 
@@ -164,7 +161,8 @@ export function ChatSurface({
       <main className="col-main col-main--flat">
         <VoiceCallSurface
           phase={voiceCall.phase}
-          activity={voiceCall.activity}
+          status={voicePresentation.status}
+          orbit={voicePresentation.orbit}
           microphoneMuted={voiceCall.microphoneMuted}
           waitingSoundEnabled={voiceCall.waitingSoundEnabled}
           localPiperInstallRequired={voiceCall.localPiperInstallRequired}
@@ -172,7 +170,21 @@ export function ChatSurface({
           errorReason={voiceCall.errorReason}
           inputAnalyser={voiceCall.inputAnalyser}
           outputAnalyser={voiceCall.outputAnalyser}
-          lines={voiceLines}
+          conversation={(
+            <Transcript
+              events={chat.events}
+              extensions={chat.extensions}
+              streamingText={chat.streamingText}
+              streamingReasoning={chat.streamingReasoning}
+              sending={chat.sending}
+              workspaceId={workspaceId}
+              hasOlder={chat.hasOlder}
+              onReachedTop={chat.loadOlder}
+              onPreviewImage={imagePreview.open}
+              compactTools={compactTools}
+            />
+          )}
+          request={activeAsk ? <AskSheet ask={activeAsk} /> : undefined}
           onClose={voiceCall.close}
           onEnterFocusMode={enterFocusMode}
           onRetry={voiceCall.retry}
@@ -181,7 +193,7 @@ export function ChatSurface({
           onUnmuteMicrophone={voiceCall.unmuteMicrophone}
           onToggleWaitingSound={voiceCall.toggleWaitingSound}
         />
-        {activeAsk && <AskSheet ask={activeAsk} />}
+        <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       </main>
     );
   }

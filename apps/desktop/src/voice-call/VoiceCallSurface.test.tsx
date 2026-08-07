@@ -1,303 +1,161 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { VoiceCallSurface } from './VoiceCallSurface';
+import type { VoiceOrbitView } from './voice-orbit';
 
-afterEach(() => {
-  vi.restoreAllMocks();
+afterEach(() => vi.restoreAllMocks());
+
+const EMPTY_ORBIT: VoiceOrbitView = Object.freeze({
+  items: Object.freeze([]),
+  overflowCount: 0,
+  nextExpiry: null,
 });
 
-describe('VoiceCallSurface', () => {
-  it('shows microphone preparation until capture is actually ready', () => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    render(
-      <VoiceCallSurface
-        phase="arming"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
+function props(overrides: Partial<Parameters<typeof VoiceCallSurface>[0]> = {}) {
+  return {
+    phase: 'listening' as const,
+    status: { title: 'Listening', detail: 'Speak naturally.' },
+    orbit: EMPTY_ORBIT,
+    microphoneMuted: false,
+    waitingSoundEnabled: true,
+    localPiperInstallRequired: false,
+    localPiperInstalling: false,
+    errorReason: null,
+    inputAnalyser: null,
+    outputAnalyser: null,
+    conversation: <div>Full formatted conversation</div>,
+    onClose: vi.fn(),
+    onEnterFocusMode: vi.fn(),
+    onRetry: vi.fn(),
+    onInstallLocalPiper: vi.fn(),
+    onMuteMicrophone: vi.fn(),
+    onUnmuteMicrophone: vi.fn(),
+    onToggleWaitingSound: vi.fn(),
+    ...overrides,
+  };
+}
 
-    expect(screen.getByRole('status')).toHaveTextContent('Preparing microphone');
+describe('VoiceCallSurface', () => {
+  it('renders the dumb presentation model, hologram and full conversation slot', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const { container } = render(<VoiceCallSurface {...props()} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Listening');
+    expect(screen.getByText('Full formatted conversation')).toBeInTheDocument();
+    expect(screen.getByTestId('voice-hologram-canvas')).toBeInTheDocument();
+    expect(container.querySelector('.voice-avatar')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/[—–]/u);
   });
-  it('renders the listening state, quiet transcript and call controls', () => {
+
+  it('integrates the hologram and transcript in one continuous voice surface', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const { container } = render(<VoiceCallSurface {...props()} />);
+    const content = container.querySelector<HTMLElement>('.voice-call-content');
+    const presence = container.querySelector<HTMLElement>('.voice-presence-stage');
+    const conversation = container.querySelector<HTMLElement>('.voice-call-conversation');
+
+    if (!content || !presence || !conversation) throw new Error('Integrated voice surface regions are missing');
+    expect(content).toContainElement(presence);
+    expect(content).toContainElement(conversation);
+    expect(presence.parentElement).toBe(content);
+    expect(conversation.parentElement).toBe(content);
+  });
+
+  it('renders multiple active operations in stable orbit slots', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(<VoiceCallSurface {...props({
+      phase: 'working',
+      status: { title: 'Working', detail: 'Operations remain visible until they finish' },
+      orbit: {
+        items: [
+          { callId: 'web', kind: 'web-search', label: 'Searching the web', slot: 0, state: 'running' },
+          { callId: 'edit', kind: 'editing', label: 'Writing changes', slot: 1, state: 'running' },
+          { callId: 'test', kind: 'verification', label: 'Running focused tests', slot: 2, state: 'running' },
+        ],
+        overflowCount: 2,
+        nextExpiry: null,
+      },
+    })} />);
+
+    expect(screen.getByLabelText('Current voice operations')).toHaveTextContent('Searching the web');
+    expect(screen.getByLabelText('Current voice operations')).toHaveTextContent('Writing changes');
+    expect(screen.getByLabelText('Current voice operations')).toHaveTextContent('Running focused tests');
+    expect(screen.getByText('+2 active')).toBeInTheDocument();
+  });
+
+  it('keeps navigation and microphone controls wired', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onClose = vi.fn();
     const onEnterFocusMode = vi.fn();
     const onMuteMicrophone = vi.fn();
-    const { container } = render(
-      <VoiceCallSurface
-        phase="listening"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[
-          { role: 'user', text: 'Opowiedz mi o kawie', streaming: false },
-          { role: 'assistant', text: 'Najpierw zmiel świeże ziarna.', streaming: false },
-        ]}
-        onClose={onClose}
-        onEnterFocusMode={onEnterFocusMode}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={onMuteMicrophone}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
+    const componentProps = props({ onClose, onEnterFocusMode, onMuteMicrophone });
+    render(<VoiceCallSurface {...componentProps} />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Listening');
-    expect(screen.getByText('Opowiedz mi o kawie')).toBeInTheDocument();
-    expect(screen.getByText('Najpierw zmiel świeże ziarna.')).toBeInTheDocument();
-    expect(container.querySelector('.voice-avatar')).toBeInTheDocument();
-    expect(container.querySelector('.voice-orb')).not.toBeInTheDocument();
-    const muteButton = screen.getByRole('button', { name: 'Mute microphone' });
-    expect(muteButton).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(muteButton);
-    expect(onMuteMicrophone).toHaveBeenCalledTimes(1);
-    const backButton = screen.getByRole('button', { name: 'Back to chat' });
-    const focusButton = screen.getByRole('button', { name: 'Open focus mode' });
-    const endButton = screen.getByRole('button', { name: 'End call' });
-    expect(backButton).toHaveClass('moxxy-btn', 'btn-ghost');
-    expect(focusButton).toHaveClass('moxxy-btn', 'btn-ghost');
-    expect(endButton).toHaveClass('moxxy-btn', 'btn-ghost');
-    expect(backButton).toHaveStyle({ height: 'var(--frame-control)' });
-    fireEvent.click(backButton);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(focusButton);
-    expect(onEnterFocusMode).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(container.textContent).not.toMatch(/[—–]/u);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open focus mode' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mute microphone' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onEnterFocusMode).toHaveBeenCalledOnce();
+    expect(onMuteMicrophone).toHaveBeenCalledOnce();
   });
 
-  it('keeps the microphone control available while speaking and exposes the muted state', () => {
+  it('exposes muted microphone and waiting sound states', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onUnmuteMicrophone = vi.fn();
-    render(
-      <VoiceCallSurface
-        phase="speaking"
-        activity={null}
-        microphoneMuted
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={onUnmuteMicrophone}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
+    const onToggleWaitingSound = vi.fn();
+    render(<VoiceCallSurface {...props({
+      microphoneMuted: true,
+      waitingSoundEnabled: false,
+      onUnmuteMicrophone,
+      onToggleWaitingSound,
+    })} />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Speaking');
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'The microphone will stay off after this answer',
-    );
-    const unmuteButton = screen.getByRole('button', { name: 'Unmute microphone' });
-    expect(unmuteButton).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(unmuteButton);
-    expect(onUnmuteMicrophone).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Unmute microphone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Turn waiting sound on' }));
+    expect(onUnmuteMicrophone).toHaveBeenCalledOnce();
+    expect(onToggleWaitingSound).toHaveBeenCalledOnce();
   });
 
-  it('explains that an unmuted spoken answer can be interrupted', () => {
+  it('renders the request between conversation and controls', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    render(
-      <VoiceCallSurface
-        phase="speaking"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('status')).toHaveTextContent('Speak at any time to interrupt');
+    const { container } = render(<VoiceCallSurface {...props({ request: <div>Approval required</div> })} />);
+    const conversation = container.querySelector('.voice-call-conversation');
+    const request = container.querySelector('.voice-call-request');
+    const controls = container.querySelector('.voice-control-dock');
+    expect(request).toHaveTextContent('Approval required');
+    if (!conversation || !request || !controls) throw new Error('Voice surface regions are missing');
+    expect(conversation.compareDocumentPosition(request) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(request.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('offers retry for a visible Piper error', () => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    const onRetry = vi.fn();
-    render(
-      <VoiceCallSurface
-        phase="error"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason="Local Piper is not active."
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={onRetry}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText('Local Piper is not active.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-  });
-
-  it('explains and installs Local Piper when the offline voice is missing', () => {
+  it('offers Local Piper installation and locks it while downloading', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onInstallLocalPiper = vi.fn();
-    render(
-      <VoiceCallSurface
-        phase="error"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired
-        localPiperInstalling={false}
-        errorReason="Local Piper is not installed."
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={onInstallLocalPiper}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('status')).toHaveTextContent('Local voice required');
-    expect(screen.getByText(/runs privately on this computer/i)).toBeInTheDocument();
-    const install = screen.getByRole('button', { name: 'Install Local Piper' });
-    fireEvent.click(install);
+    const { rerender } = render(<VoiceCallSurface {...props({
+      phase: 'error',
+      localPiperInstallRequired: true,
+      onInstallLocalPiper,
+    })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Install Local Piper' }));
     expect(onInstallLocalPiper).toHaveBeenCalledOnce();
-  });
 
-  it('locks the Local Piper installer while the package is downloading', () => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    render(
-      <VoiceCallSurface
-        phase="error"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired
-        localPiperInstalling
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
-
+    rerender(<VoiceCallSurface {...props({
+      phase: 'error',
+      localPiperInstallRequired: true,
+      localPiperInstalling: true,
+    })} />);
     expect(screen.getByRole('button', { name: 'Installing Local Piper' })).toBeDisabled();
-    expect(screen.getByText(/Downloading the offline voice package/i)).toBeInTheDocument();
   });
 
-  it('renders an explicit working state between spoken updates', () => {
+  it('offers retry for a call error', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    render(
-      <VoiceCallSurface
-        phase="working"
-        activity="editing"
-        microphoneMuted={false}
-        waitingSoundEnabled
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('status')).toHaveTextContent('Working');
-    expect(screen.getByRole('status')).toHaveTextContent('I will keep you updated');
-    expect(screen.getByLabelText('Current activity')).toHaveTextContent('Writing changes');
-    expect(screen.getByLabelText('Current activity')).toHaveTextContent('In progress');
-  });
-
-  it('exposes a quiet, accessible switch for the waiting sound', () => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-    const onToggleWaitingSound = vi.fn();
-    render(
-      <VoiceCallSurface
-        phase="thinking"
-        activity={null}
-        microphoneMuted={false}
-        waitingSoundEnabled={false}
-        localPiperInstallRequired={false}
-        localPiperInstalling={false}
-        errorReason={null}
-        inputAnalyser={null}
-        outputAnalyser={null}
-        lines={[]}
-        onClose={vi.fn()}
-        onEnterFocusMode={vi.fn()}
-        onRetry={vi.fn()}
-        onInstallLocalPiper={vi.fn()}
-        onMuteMicrophone={vi.fn()}
-        onUnmuteMicrophone={vi.fn()}
-        onToggleWaitingSound={onToggleWaitingSound}
-      />,
-    );
-
-    const soundButton = screen.getByRole('button', { name: 'Turn waiting sound on' });
-    expect(soundButton).toHaveAttribute('aria-pressed', 'false');
-    expect(soundButton).toHaveTextContent('Waiting sound off');
-    fireEvent.click(soundButton);
-    expect(onToggleWaitingSound).toHaveBeenCalledTimes(1);
+    const onRetry = vi.fn();
+    render(<VoiceCallSurface {...props({
+      phase: 'error',
+      errorReason: 'Local Piper is not active.',
+      onRetry,
+    })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 });

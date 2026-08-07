@@ -9,12 +9,12 @@ import {
   type StepKind,
 } from '@moxxy/workflows-builder';
 import { accentHex } from './accents';
+import { isEditableTarget } from '../hotkeys';
 import {
   ANCHOR_OFFSET,
   NODE_H,
   NODE_W,
   disconnectEdge,
-  isEditableTarget,
   preview,
   type PortKind,
   // Re-exported below so `./WorkflowCanvas` keeps its existing public surface
@@ -1184,7 +1184,7 @@ function BodyDropHandle({
   );
 }
 
-// portOrigin / inBodyRegion / disconnectEdge / isEditableTarget / nodeAt /
+// portOrigin / inBodyRegion / disconnectEdge / nodeAt /
 // topologySignature / topoOrder / preview / labelOf moved to
 // ./canvas/canvas-graph (pure, independently unit-tested). topoOrder +
 // topologySignature are re-exported from this module's top so the canvas'
