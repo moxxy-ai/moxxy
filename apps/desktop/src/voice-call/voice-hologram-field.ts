@@ -325,6 +325,27 @@ export function advanceVoiceHologramSpin(
   return ((advanced % full) + full) % full;
 }
 
+/** Shortest gap between painted frames. The mark turns a quarter revolution in
+ *  ~8s, so half of a 60Hz display's frames carry it with no visible loss — and
+ *  on a 120Hz panel this is what stops it painting twice as often for nothing. */
+const HOLOGRAM_FRAME_MS = 1_000 / 30 - 1;
+
+/**
+ * Whether this animation-frame callback should actually paint.
+ *
+ * `null` (a fresh loop, a resize, a return from hidden) always paints, and a
+ * timestamp that moves backwards paints too rather than stalling until the
+ * clock catches up.
+ */
+export function shouldPaintVoiceHologramFrame(
+  lastPaint: number | null,
+  timestamp: number,
+): boolean {
+  if (lastPaint === null || !Number.isFinite(lastPaint) || !Number.isFinite(timestamp)) return true;
+  const elapsed = timestamp - lastPaint;
+  return elapsed < 0 || elapsed >= HOLOGRAM_FRAME_MS;
+}
+
 /**
  * How fast the mark's motion runs in a given phase, as a multiple of nominal.
  * Shared with the Focus widget so the floating mark and the full Voice Mode

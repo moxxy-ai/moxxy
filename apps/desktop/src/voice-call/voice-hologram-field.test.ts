@@ -7,6 +7,7 @@ import {
   resolveVoiceHologramEnergy,
   resolveVoiceHologramLayout,
   sampleRoundedSquare,
+  shouldPaintVoiceHologramFrame,
   VOICE_HOLOGRAM_MARK,
   VOICE_HOLOGRAM_SPIN_RATE,
 } from './voice-hologram-field';
@@ -177,6 +178,18 @@ describe('voice hologram geometry', () => {
       advanceVoiceHologramSpin(0, 16, 1),
       12,
     );
+  });
+
+  it('paces the mark at half the display rate without drifting', () => {
+    // A 60Hz display: every other callback should paint.
+    expect(shouldPaintVoiceHologramFrame(null, 1_000)).toBe(true);
+    expect(shouldPaintVoiceHologramFrame(1_000, 1_016.7)).toBe(false);
+    expect(shouldPaintVoiceHologramFrame(1_000, 1_033.4)).toBe(true);
+    // A 120Hz display still lands on ~30Hz, not 60.
+    expect(shouldPaintVoiceHologramFrame(1_000, 1_008.3)).toBe(false);
+    expect(shouldPaintVoiceHologramFrame(1_000, 1_024.9)).toBe(false);
+    // A clock that jumps backwards (or a fresh loop) must not stall the mark.
+    expect(shouldPaintVoiceHologramFrame(5_000, 1_000)).toBe(true);
   });
 
   it('uses live audio only in listening and speaking phases', () => {
