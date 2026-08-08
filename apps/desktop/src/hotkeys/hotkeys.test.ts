@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatChord, matchesChord, parseChord } from './chord';
+import { formatChord, isEditableTarget, matchesChord, parseChord } from './chord';
 import { HotkeyRegistry, type HotkeyBinding } from './registry';
 
 function key(k: string, mods: Partial<Record<'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey', boolean>> = {}) {
@@ -56,6 +56,20 @@ describe('formatChord', () => {
     expect(formatChord(parseChord('mod+shift+k'), false)).toBe('Ctrl+Shift+K');
     expect(formatChord(parseChord('mod+alt+arrowdown'), true)).toBe('⌘⌥↓');
     expect(formatChord(parseChord('escape'), false)).toBe('Esc');
+  });
+});
+
+describe('isEditableTarget', () => {
+  it('recognizes every text-entry surface from the canonical hotkey helper', () => {
+    const make = (tag: string): HTMLElement => document.createElement(tag);
+    expect(isEditableTarget(make('input'))).toBe(true);
+    expect(isEditableTarget(make('textarea'))).toBe(true);
+    expect(isEditableTarget(make('select'))).toBe(true);
+    expect(isEditableTarget(make('div'))).toBe(false);
+    expect(isEditableTarget(null)).toBe(false);
+    const contentEditable = make('div');
+    Object.defineProperty(contentEditable, 'isContentEditable', { value: true });
+    expect(isEditableTarget(contentEditable)).toBe(true);
   });
 });
 

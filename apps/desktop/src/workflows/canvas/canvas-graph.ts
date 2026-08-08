@@ -84,14 +84,6 @@ export function disconnectEdge(
   }
 }
 
-/** True when a key event originated in a text-editing element (don't delete). */
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
-
 /** The node whose card contains the point (excluding `exclude`), or null. */
 export function nodeAt(
   nodes: ReadonlyArray<BuilderNode>,

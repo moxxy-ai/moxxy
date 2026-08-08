@@ -260,10 +260,30 @@ describe('FocusWidget stages', () => {
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
     expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'idle');
-    expect(screen.getByTestId('focus-pet-canvas')).toHaveAttribute(
-      'data-avatar-assets',
-      'focus',
-    );
+  });
+
+  it('draws the pet as the woven Moxxy mark, not the retired raster mascot', () => {
+    installFakeApi();
+    const { container } = render(<FocusWidget />);
+
+    const mark = screen.getByTestId('focus-pet-mark');
+    const svg = mark.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 256 256');
+    expect(svg?.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(container.querySelector('canvas')).toBeNull();
+    expect(container.querySelector('img[src*="brick-girl"]')).toBeNull();
+  });
+
+  it('drives the pet mark from the same turn and energy Voice Mode uses', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    const mark = screen.getByTestId('focus-pet-mark');
+    // The animation writes both properties every frame; their presence is what
+    // the stylesheet's rotation and glow read.
+    expect(mark.style.getPropertyValue('--focus-mark-turn')).toMatch(/rad$/u);
+    expect(Number(mark.style.getPropertyValue('--focus-mark-energy'))).toBeGreaterThanOrEqual(0);
   });
 
   it('renders the inactive pet without native button chrome', () => {
@@ -328,6 +348,22 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
     expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
+  });
+
+  it('heads mini-text with the inline brand mark, not the raster app icon', () => {
+    installFakeApi();
+    const { container } = render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    // The floating window cannot inherit styles.css, so the mark has to be
+    // inline SVG driven by the focus palette rather than a fetched raster —
+    // and it has to be the SAME mark the main window paints.
+    const mark = screen.getByRole('img', { name: 'moxxy' });
+    expect(mark.tagName.toLowerCase()).toBe('svg');
+    expect(mark.querySelectorAll('rect[rx="12"]').length).toBeGreaterThanOrEqual(3);
+    expect(mark.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(container.querySelector('img[src*="logo.png"]')).toBeNull();
   });
 
   it('active → mini-text enables edge-resize via focus.resize', async () => {

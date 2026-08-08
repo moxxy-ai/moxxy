@@ -50,13 +50,45 @@ or recorded-on-purpose decision.
   place (menu OR renderer) so it can't fire twice.
   `apps/desktop/electron/main/menus.ts`, `apps/desktop/src/hotkeys/`.
 
-- [low, desktop/editable-target-dupe, LOGGED 2026-08-03] `isEditableTarget` now
-  exists in both `apps/desktop/src/hotkeys/chord.ts` and the workflow canvas's
-  helpers. The App.tsx copy was retired with the hand-rolled ⌘B handler; the
-  canvas one should move onto the hotkeys registry rather than keep its own
-  window listener. `apps/desktop/src/workflows/WorkflowCanvas.tsx`.
+- [note, desktop/voice-hologram-two-modes, LOGGED 2026-08-08] The Voice Mode
+  hologram deliberately renders in two different visual languages, not one
+  parameterised look: on ink it is emissive (`lighter` compositing, canvas
+  shadow bloom, a near-black field the canvas paints itself), on paper it is a
+  drawn technical trace (`source-over`, no bloom, flares degraded to
+  registration crosses) because additive light over white is a no-op. Anyone
+  "unifying" the two branches will silently erase the mark in the light theme.
+  The stage's `::after` fades exist only to hand the canvas's own deep field
+  back to `--color-main-bg` at the header and transcript edges.
+  `apps/desktop/src/voice-call/{useVoiceHologramAnimation.ts,voice-call.css}`.
+
+- [low, desktop/focus/retired-mascot-assets, LOGGED 2026-08-08] Focus Mode now
+  draws the Moxxy mark, so the `brick-girl` avatar subsystem has no consumer
+  left: `useVoiceAvatarAnimation.ts`, `voice-avatar-animation.ts` and their two
+  test files are unreachable, and the five owner-supplied PNGs under
+  `voice-call/assets/brick-girl/` are no longer imported (so Vite no longer
+  bundles them). Deliberately NOT deleted in the same change — the frames were
+  supplied by the project owner and the checksum contract still pins them.
+  Delete the code and the assets together once the owner confirms the mascot is
+  not coming back. `apps/desktop/src/voice-call/`.
 
 ## Resolved ledger
+
+- [med, desktop/chat/virtualization, RESOLVED 2026-08-08] The shared transcript
+  passed unmatched tool-result fallback blocks to Virtuoso even though the
+  desktop renderer intentionally produced no DOM for those bookkeeping events.
+  Their measured height was therefore zero, producing repeated runtime errors
+  after Voice Mode reused the full transcript. A pure render-node visibility
+  filter now removes only non-rendering event fallbacks before grouping and
+  virtualization; real user, assistant, reasoning, tool, extension, error, and
+  abort rows remain chronological and measurable. A reducer-backed regression
+  covers an orphan result between visible conversation events.
+  `apps/desktop/src/chat/{Transcript,transcript-nodes}.ts`.
+
+- [low, desktop/editable-target-dupe, RESOLVED 2026-08-08] Workflow canvas now
+  imports the canonical editable-target predicate from the hotkey subsystem;
+  the duplicate graph helper and its duplicate tests were removed, while the
+  shared behavior remains pinned beside the hotkey registry tests.
+  `apps/desktop/src/{hotkeys,workflows}/`.
 
 - [med, desktop/sidebar-hierarchy, RESOLVED 2026-07-31] Workspace headers and
   idle session rows collapsed into nearly the same visual tier, while the

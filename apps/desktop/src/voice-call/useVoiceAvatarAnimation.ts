@@ -22,18 +22,11 @@ type LiveAnalyser =
   | { readonly kind: 'time-domain'; readonly analyser: TimeDomainAnalyser }
   | { readonly kind: 'frequency'; readonly analyser: FrequencyAnalyser };
 
-export type VoiceAvatarAssetSet = 'voice' | 'focus';
+export type VoiceAvatarAssetSet = 'focus';
 type AvatarFrames = Readonly<Record<VoiceAvatarFrame, HTMLImageElement>>;
 const framePromises = new Map<VoiceAvatarAssetSet, Promise<AvatarFrames>>();
 
 const FRAME_URLS: Readonly<Record<VoiceAvatarAssetSet, Readonly<Record<VoiceAvatarFrame, string>>>> = Object.freeze({
-  voice: Object.freeze({
-    idle: new URL('./assets/brick-girl/brick-girl-idle.png', import.meta.url).href,
-    medium: new URL('./assets/brick-girl/brick-girl-mouth-medium.png', import.meta.url).href,
-    wide: new URL('./assets/brick-girl/brick-girl-mouth-wide.png', import.meta.url).href,
-    round: new URL('./assets/brick-girl/brick-girl-mouth-o.png', import.meta.url).href,
-    blink: new URL('./assets/brick-girl/brick-girl-blink.png', import.meta.url).href,
-  }),
   focus: Object.freeze({
     idle: new URL('./assets/brick-girl/focus/brick-girl-idle.png', import.meta.url).href,
     medium: new URL('./assets/brick-girl/focus/brick-girl-mouth-medium.png', import.meta.url).href,
@@ -123,7 +116,7 @@ export function useVoiceAvatarAnimation({
   phase,
   inputAnalyser,
   outputAnalyser,
-  assetSet = 'voice',
+  assetSet = 'focus',
 }: {
   readonly phase: VoiceCallPhase;
   readonly inputAnalyser: unknown | null;

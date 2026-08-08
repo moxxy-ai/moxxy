@@ -263,6 +263,12 @@ describe('useVoiceCall integration', () => {
 
     await waitFor(() => expect(result.current.phase).toBe('working'));
     expect(result.current.activity).toBe('research');
+    expect(result.current.activeOperations).toEqual([{
+      callId: `call-${language}`,
+      kind: 'project-read',
+      ordinal: 0,
+    }]);
+    expect(JSON.stringify(result.current.activeOperations)).not.toContain('/private/path');
     expect(transport.invoke).not.toHaveBeenCalledWith('session.synthesize', expect.objectContaining({
       text: cue,
       language,
@@ -284,6 +290,7 @@ describe('useVoiceCall integration', () => {
       });
     });
     await waitFor(() => expect(result.current.activity).toBeNull());
+    expect(result.current.activeOperations).toEqual([]);
   });
 
   it('loops the local waiting tone and persists the user sound preference', async () => {

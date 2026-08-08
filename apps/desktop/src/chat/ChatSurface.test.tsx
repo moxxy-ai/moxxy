@@ -11,6 +11,7 @@ const voiceCallState = vi.hoisted(() => ({
   active: false,
   phase: 'idle' as const,
   activity: null,
+  activeOperations: [],
   errorReason: null as string | null,
   lastTranscript: null as string | null,
   inputAnalyser: null,
@@ -51,13 +52,16 @@ vi.mock('../voice-call/VoiceCallSurface', () => ({
   VoiceCallSurface: ({
     onClose,
     onEnterFocusMode,
+    conversation,
   }: {
     readonly onClose: () => void;
     readonly onEnterFocusMode: () => void;
+    readonly conversation: React.ReactNode;
   }) => (
     <div data-testid="voice-call-surface-mock">
       <button type="button" onClick={onClose}>Back to chat</button>
       <button type="button" onClick={onEnterFocusMode}>Focus mode</button>
+      {conversation}
     </div>
   ),
 }));
@@ -142,6 +146,7 @@ describe('ChatSurface session readiness', () => {
     chatState.loading = false;
     chatState.events = [];
     voiceCallState.active = false;
+    voiceCallState.activeOperations = [];
     voiceCallState.open.mockClear();
     voiceCallState.close.mockClear();
     focusModeToggle.mockClear();
@@ -207,6 +212,10 @@ describe('ChatSurface session readiness', () => {
   });
 
   it('opens voice mode from the composer and replaces chat chrome until the call closes', () => {
+    chatState.events = [
+      { type: 'user_prompt', text: 'Keep the complete formatted conversation' },
+      { type: 'assistant_message', content: 'Voice mode uses the shared transcript' },
+    ];
     const props = {
       phase: {
         phase: 'connected',
@@ -230,6 +239,7 @@ describe('ChatSurface session readiness', () => {
     view.rerender(<ChatSurface {...props} />);
 
     expect(screen.getByTestId('voice-call-surface-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toHaveTextContent('Voice mode uses the shared transcript');
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
