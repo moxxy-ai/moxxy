@@ -83,28 +83,18 @@
   overflow: hidden;
 }
 
-.voice-presence-stage::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at 50% 44%,
-    color-mix(in srgb, var(--color-primary) 9%, transparent),
-    transparent 58%
-  );
-}
-
+/* The hologram canvas paints its own deep field edge to edge — the stage only
+   has to hand that field back to the surface colour where it meets the header
+   above and the transcript below, so the deep centre never ends in a seam. */
 .voice-presence-stage::after {
   content: '';
   position: absolute;
+  inset: 0;
   z-index: 1;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 42px;
   pointer-events: none;
-  background: linear-gradient(transparent, var(--color-main-bg));
+  background:
+    linear-gradient(to bottom, var(--color-main-bg), transparent 34px),
+    linear-gradient(to top, var(--color-main-bg), transparent 44px);
 }
 
 .voice-hologram,
