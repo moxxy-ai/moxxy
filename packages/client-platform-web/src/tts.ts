@@ -128,6 +128,32 @@ export function cancelSpeech(): void {
   synth()?.cancel();
 }
 
+/**
+ * ONE audio context for the whole session, not one per clip.
+ *
+ * Piper streams a sentence at a time, so a context constructed and closed
+ * around each clip meant opening and tearing down the audio device between
+ * every sentence — audible as a cut exactly where the speech should run on.
+ * A context is cheap to keep and expensive to create, so it is kept warm and
+ * only the per-clip nodes are built and disconnected.
+ */
+let sharedAudioContext: AudioContext | null = null;
+
+function getSharedAudioContext(): AudioContext | null {
+  // A context can be closed out from under us (page teardown, device loss);
+  // drop it and build a fresh one rather than handing back a dead graph.
+  if (sharedAudioContext && sharedAudioContext.state === 'closed') sharedAudioContext = null;
+  if (sharedAudioContext) return sharedAudioContext;
+  const AudioContextCtor = getAudioContextCtor();
+  if (!AudioContextCtor) return null;
+  try {
+    sharedAudioContext = new AudioContextCtor();
+  } catch {
+    sharedAudioContext = null;
+  }
+  return sharedAudioContext;
+}
+
 function playAudioSource(
   sourceUrl: string,
   opts: SpeakOptions,
@@ -142,10 +168,9 @@ function playAudioSource(
   let analyserExposed = false;
 
   if (opts.onAnalyser) {
-    const AudioContextCtor = getAudioContextCtor();
-    if (AudioContextCtor) {
+    audioContext = getSharedAudioContext();
+    if (audioContext) {
       try {
-        audioContext = new AudioContextCtor();
         source = audioContext.createMediaElementSource(audio);
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
@@ -164,8 +189,8 @@ function playAudioSource(
           if (audioContext && source) source.connect(audioContext.destination);
           if (audioContext) void audioContext.resume().catch(() => undefined);
         } catch {
-          if (audioContext) void audioContext.close().catch(() => undefined);
-          audioContext = null;
+          // The shared context serves every later clip, so a failure here must
+          // release only THIS clip's nodes and leave the context standing.
           source = null;
         }
         analyser = null;
@@ -184,30 +209,43 @@ function playAudioSource(
     }
     source = null;
     analyser = null;
-    if (audioContext) void audioContext.close().catch(() => undefined);
+    // Deliberately NOT closed: the next sentence reuses it.
     audioContext = null;
+  };
+  /**
+   * Hand the media element back.
+   *
+   * While every clip owned its own context, `close()` tore the graph down and
+   * the element went with it. Sharing one context removes that guarantee, so
+   * each clip has to release its own element on EVERY finish path — a voice
+   * conversation is hundreds of sentences, and one retained decoded sentence
+   * each is a leak that only the garbage collector might get round to.
+   * Detaching the handlers first stops `load()`'s abort re-entering `finish`,
+   * and breaks the element → closure → element reference cycle.
+   */
+  const releaseElement = (): void => {
+    audio.onended = null;
+    audio.onerror = null;
+    try {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    } catch {
+      /* element already torn down */
+    }
   };
   const finish = (cb?: () => void): void => {
     if (done) return;
     done = true;
     releaseAudioGraph();
+    releaseElement();
     releaseSource();
     cb?.();
   };
   audio.onended = () => finish(opts.onend);
   audio.onerror = () => finish(opts.onerror);
   void audio.play().catch(() => finish(opts.onerror));
-  return {
-    stop: () => {
-      try {
-        audio.pause();
-        audio.src = '';
-      } catch {
-        /* already gone */
-      }
-      finish();
-    },
-  };
+  return { stop: () => finish() };
 }
 
 /**

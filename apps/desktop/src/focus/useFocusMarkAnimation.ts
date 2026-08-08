@@ -5,6 +5,7 @@ import {
   advanceVoiceHologramSpin,
   resolveVoiceHologramEnergy,
   resolveVoiceHologramSpeed,
+  shouldPaintVoiceHologramFrame,
 } from '../voice-call/voice-hologram-field';
 import { createAnalyserLevelBuffers, readAnalyserLevel } from '../voice-call/voice-analyser-level';
 
@@ -47,9 +48,18 @@ export function useFocusMarkAnimation({
     let turn = 0;
     let energy = 0;
     let lastFrame: number | null = null;
+    let lastPaint: number | null = null;
 
     const paint = (timestamp: number): void => {
       if (cancelled) return;
+      // Writing the two properties is cheap, but each write costs a style
+      // recalculation and a composite in an always-on-top window that never
+      // closes. Half the display's frames carry this turn just as well.
+      if (!reducedMotion && !shouldPaintVoiceHologramFrame(lastPaint, timestamp)) {
+        if (visible) frame = requestAnimationFrame(paint);
+        return;
+      }
+      lastPaint = timestamp;
       const live = reducedMotion
         ? 0
         : readAnalyserLevel(
