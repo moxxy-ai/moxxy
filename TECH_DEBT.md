@@ -50,6 +50,17 @@ or recorded-on-purpose decision.
   place (menu OR renderer) so it can't fire twice.
   `apps/desktop/electron/main/menus.ts`, `apps/desktop/src/hotkeys/`.
 
+- [note, desktop/voice-hologram-two-modes, LOGGED 2026-08-08] The Voice Mode
+  hologram deliberately renders in two different visual languages, not one
+  parameterised look: on ink it is emissive (`lighter` compositing, canvas
+  shadow bloom, a near-black field the canvas paints itself), on paper it is a
+  drawn technical trace (`source-over`, no bloom, flares degraded to
+  registration crosses) because additive light over white is a no-op. Anyone
+  "unifying" the two branches will silently erase the mark in the light theme.
+  The stage's `::after` fades exist only to hand the canvas's own deep field
+  back to `--color-main-bg` at the header and transcript edges.
+  `apps/desktop/src/voice-call/{useVoiceHologramAnimation.ts,voice-call.css}`.
+
 ## Resolved ledger
 
 - [med, desktop/chat/virtualization, RESOLVED 2026-08-08] The shared transcript

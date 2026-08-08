@@ -1,147 +1,182 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildVoiceHologramSegments,
+  advanceVoiceHologramSpin,
   buildVoiceHologramField,
-  groupVoiceHologramSegments,
-  orderVoiceHologramParticles,
+  resolveHologramCrossings,
+  resolveVoiceCanvasSize,
   resolveVoiceHologramEnergy,
   resolveVoiceHologramLayout,
-  resolveVoiceCanvasSize,
   sampleRoundedSquare,
+  VOICE_HOLOGRAM_MARK,
+  VOICE_HOLOGRAM_SPIN_RATE,
 } from './voice-hologram-field';
 
+const { half, band, corner } = VOICE_HOLOGRAM_MARK;
+
 describe('voice hologram geometry', () => {
-  it('builds a deterministic two-strand Moxxy mark', () => {
-    const first = buildVoiceHologramField({ seed: 42, particleCount: 360 });
-    const second = buildVoiceHologramField({ seed: 42, particleCount: 360 });
+  it('normalises the mark so the woven diamond just reaches the layout radius', () => {
+    const outerHalf = half + band;
+    const outerCorner = corner + band;
+    const diamondReach = outerHalf * Math.SQRT2 - outerCorner * (Math.SQRT2 - 1);
+
+    expect(diamondReach).toBeCloseTo(1, 2);
+    // Both strands are the SAME square — the brand mark is one shape rotated.
+    expect(band / half).toBeCloseTo(11 / 60, 2);
+    expect(corner / half).toBeCloseTo(12 / 60, 2);
+  });
+
+  it('samples a rounded square with straight edges and outward unit normals', () => {
+    const samples = sampleRoundedSquare({ count: 400, half, corner, rotation: 0 });
+
+    expect(samples).toHaveLength(400);
+    expect(samples.every(({ nx, ny }) => Math.abs(Math.hypot(nx, ny) - 1) < 1e-9)).toBe(true);
+    expect(samples.every(({ x, y }) => Math.abs(x) <= half + 1e-9 && Math.abs(y) <= half + 1e-9)).toBe(true);
+
+    const rightEdge = samples.filter(({ x }) => Math.abs(x - half) < 1e-12);
+    expect(rightEdge.length).toBeGreaterThan(40);
+    expect(rightEdge.every(({ nx, ny }) => nx === 1 && ny === 0)).toBe(true);
+  });
+
+  it('walks the perimeter at a constant arc-length step and closes the loop', () => {
+    const samples = sampleRoundedSquare({ count: 240, half, corner, rotation: 0 });
+    const steps = samples.map((point, index) => {
+      const next = samples[(index + 1) % samples.length];
+      if (!next) throw new Error('closed sample ring required');
+      return Math.hypot(next.x - point.x, next.y - point.y);
+    });
+
+    const largest = Math.max(...steps);
+    const smallest = Math.min(...steps);
+    expect(largest / smallest).toBeLessThan(1.02);
+    expect(samples.map((point) => point.progress)).toEqual([...samples.map((point) => point.progress)].sort(
+      (left, right) => left - right,
+    ));
+  });
+
+  it('rotates the sampled ring rigidly', () => {
+    const flat = sampleRoundedSquare({ count: 120, half, corner, rotation: 0 });
+    const turned = sampleRoundedSquare({ count: 120, half, corner, rotation: Math.PI / 4 });
+    const cos = Math.cos(Math.PI / 4);
+    const sin = Math.sin(Math.PI / 4);
+
+    turned.forEach((point, index) => {
+      const source = flat[index];
+      if (!source) throw new Error('matching sample required');
+      expect(point.x).toBeCloseTo(source.x * cos - source.y * sin, 9);
+      expect(point.y).toBeCloseTo(source.x * sin + source.y * cos, 9);
+    });
+  });
+
+  it('resolves the eight woven crossings with an alternating over-strand', () => {
+    const crossings = resolveHologramCrossings();
+    const inset = (Math.SQRT2 - 1) * half;
+
+    expect(crossings).toHaveLength(8);
+    // Every crossing sits on the axis-aligned centreline...
+    expect(crossings.every(({ x, y }) => (
+      Math.abs(Math.abs(x) - half) < 1e-9 || Math.abs(Math.abs(y) - half) < 1e-9
+    ))).toBe(true);
+    // ...and on the diagonal centreline.
+    expect(crossings.every(({ x, y }) => (
+      Math.abs(Math.abs(x + y) - half * Math.SQRT2) < 1e-6
+        || Math.abs(Math.abs(x - y) - half * Math.SQRT2) < 1e-6
+    ))).toBe(true);
+    expect(crossings.filter(({ over }) => over === 0)).toHaveLength(4);
+    expect(crossings.filter(({ over }) => over === 1)).toHaveLength(4);
+    // The brand mark puts the ink strand over at (h, k·h) and its three turns.
+    expect(crossings.filter(({ over }) => over === 0).map(({ x, y }) => [
+      Math.round(x * 1e6) / 1e6,
+      Math.round(y * 1e6) / 1e6,
+    ])).toEqual(expect.arrayContaining([
+      [Math.round(half * 1e6) / 1e6, Math.round(inset * 1e6) / 1e6],
+    ]));
+    const angles = crossings.map(({ x, y }) => Math.atan2(y, x));
+    expect(angles).toEqual([...angles].sort((left, right) => left - right));
+    expect(crossings.every((crossing, index) => (
+      index === 0 || crossing.over !== crossings[index - 1]?.over
+    ))).toBe(true);
+  });
+
+  it('builds a deterministic lattice that fills both ribbons edge to edge', () => {
+    const first = buildVoiceHologramField({ seed: 42, particleCount: 600 });
+    const second = buildVoiceHologramField({ seed: 42, particleCount: 600 });
 
     expect(first).toEqual(second);
-    expect(first.logo).toHaveLength(360);
-    expect(new Set(first.logo.map((particle) => particle.strand))).toEqual(new Set([0, 1]));
-    expect(new Set(first.logo.map((particle) => particle.filament)).size).toBeGreaterThanOrEqual(11);
-    expect(first.logo.every(({ x, y }) => Math.abs(x) <= 1 && Math.abs(y) <= 1)).toBe(true);
-    expect(first.orbits.length).toBeGreaterThan(20);
-  });
-
-  it('keeps the pink diamond larger while both ribbons retain the same material width', () => {
-    const field = buildVoiceHologramField({ seed: 7, particleCount: 700 });
-    const extent = (strand: 0 | 1): number => Math.max(
-      ...field.logo
-        .filter((particle) => particle.strand === strand)
-        .map((particle) => Math.hypot(particle.x, particle.y)),
-    );
-
-    const ratio = extent(1) / extent(0);
-    expect(ratio).toBeGreaterThan(1.15);
-    expect(ratio).toBeLessThan(1.19);
-  });
-
-  it('builds a materially wide particle ribbon rather than a single thin contour', () => {
-    const field = buildVoiceHologramField({ seed: 9, particleCount: 880 });
-    const firstCrossSection = field.logo
-      .filter((particle) => particle.strand === 0)
-      .slice(0, 11);
-    const width = Math.max(...firstCrossSection.flatMap((left) => (
-      firstCrossSection.map((right) => Math.hypot(left.x - right.x, left.y - right.y))
-    )));
-
-    expect(width).toBeGreaterThan(0.17);
-  });
-
-  it('keeps the holographic mark dominant in the accepted desktop stage proportions', () => {
-    expect(resolveVoiceHologramLayout(900, 390)).toEqual({
-      centreX: 450,
-      centreY: 171.6,
-      radius: 205,
-    });
-    expect(resolveVoiceHologramLayout(760, 360).radius).toBeGreaterThanOrEqual(190);
-  });
-
-  it('localizes the weave to four crossing zones instead of dimming whole path sections', () => {
-    const field = buildVoiceHologramField({ seed: 11, particleCount: 700 });
-    const crossingPoints = field.logo.filter((particle) => particle.crossing !== 'none');
-    const neutralPoints = field.logo.filter((particle) => particle.crossing === 'none');
-
-    expect(crossingPoints.length).toBeGreaterThan(0);
-    expect(crossingPoints.length).toBeLessThan(field.logo.length * 0.25);
-    expect(neutralPoints.length).toBeGreaterThan(field.logo.length * 0.5);
-  });
-
-  it('alternates the foreground ribbon in the four logo quadrants', () => {
-    const field = buildVoiceHologramField({ seed: 17, particleCount: 700 });
-    const overPasses = field.logo.filter((particle) => particle.crossing === 'over');
-    const underPasses = field.logo.filter((particle) => particle.crossing === 'under');
-
-    expect(new Set(overPasses.map((particle) => particle.strand))).toEqual(new Set([0, 1]));
-    expect(new Set(underPasses.map((particle) => particle.strand))).toEqual(new Set([0, 1]));
-    expect(overPasses.every((particle) => (
-      particle.strand === (particle.x * particle.y >= 0 ? 1 : 0)
-    ))).toBe(true);
-    expect(underPasses.every((particle) => (
-      particle.strand !== (particle.x * particle.y >= 0 ? 1 : 0)
+    expect(first.samples).toHaveLength(2);
+    expect(new Set(first.particles.map((particle) => particle.strand))).toEqual(new Set([0, 1]));
+    expect(first.particles.every((particle) => Math.abs(particle.offset) <= 1)).toBe(true);
+    expect(Math.max(...first.particles.map((particle) => particle.offset))).toBeGreaterThan(0.9);
+    expect(Math.min(...first.particles.map((particle) => particle.offset))).toBeLessThan(-0.9);
+    expect(first.particles.every((particle) => (
+      particle.index >= 0 && particle.index < first.samples[0].length
     ))).toBe(true);
   });
 
-  it('renders under passes first, neutral ribbons next, and over passes last', () => {
-    const field = buildVoiceHologramField({ seed: 19, particleCount: 700 });
-    const ordered = orderVoiceHologramParticles(field.logo);
-    const ranks = ordered.map((particle) => ({ under: 0, none: 1, over: 2 })[particle.crossing]);
+  it('spreads the lattice around the whole ribbon rather than bunching at the seam', () => {
+    const field = buildVoiceHologramField({ seed: 7, particleCount: 1_200 });
+    const length = field.samples[0].length;
+    const quarters = [0, 0, 0, 0];
+    for (const particle of field.particles) {
+      if (particle.strand !== 0) continue;
+      const quarter = Math.min(3, Math.floor((particle.index / length) * 4));
+      quarters[quarter] = (quarters[quarter] ?? 0) + 1;
+    }
 
-    expect(ranks).toContain(0);
-    expect(ranks).toContain(1);
-    expect(ranks).toContain(2);
-    expect(ranks).toEqual([...ranks].sort((left, right) => left - right));
+    expect(Math.min(...quarters)).toBeGreaterThan(0);
+    expect(Math.max(...quarters) / Math.min(...quarters)).toBeLessThan(1.6);
   });
 
-  it('keeps the locally occluded ribbon bright enough to remain continuous', () => {
-    const field = buildVoiceHologramField({ seed: 23, particleCount: 700 });
-    const underPasses = field.logo.filter((particle) => particle.crossing === 'under');
+  it('scatters the dust field on concentric rings outside the mark', () => {
+    const field = buildVoiceHologramField({ seed: 11, particleCount: 600 });
 
-    expect(underPasses.length).toBeGreaterThan(0);
-    expect(Math.min(...underPasses.map((particle) => particle.weave))).toBeGreaterThanOrEqual(0.7);
-  });
-
-  it('builds closed stroke segments that preserve local depth layers', () => {
-    const field = buildVoiceHologramField({ seed: 29, particleCount: 700 });
-    const centreLine = field.logo.filter((particle) => (
-      particle.strand === 0 && particle.filament === 4
-    ));
-    const segments = buildVoiceHologramSegments(centreLine);
-
-    expect(segments).toHaveLength(centreLine.length);
-    expect(new Set(segments.map((segment) => segment.crossing))).toEqual(
-      new Set(['under', 'none', 'over']),
+    expect(field.rings.length).toBeGreaterThanOrEqual(3);
+    expect(field.rings.every((ring) => ring.radius > 1)).toBe(true);
+    expect(field.rings.map((ring) => ring.radius)).toEqual(
+      [...field.rings.map((ring) => ring.radius)].sort((left, right) => left - right),
     );
-    expect(segments.filter((segment) => segment.crossing === 'over').length)
-      .toBeLessThan(segments.length * 0.4);
-    expect(segments.at(-1)?.end).toBe(centreLine[0]);
+    expect(field.dust.length).toBeGreaterThan(80);
+    expect(field.dust.every((mote) => mote.radius > 1 && mote.radius < 2.6)).toBe(true);
+    expect(new Set(field.dust.map((mote) => mote.tint))).toEqual(new Set([0, 1]));
   });
 
-  it('joins adjacent crossing segments into continuous ribbon strokes', () => {
-    const field = buildVoiceHologramField({ seed: 31, particleCount: 880 });
-    const centreLine = field.logo.filter((particle) => (
-      particle.strand === 1 && particle.filament === 5
-    ));
-    const segments = buildVoiceHologramSegments(centreLine);
-    const overSegments = segments.filter((segment) => segment.crossing === 'over');
-    const groups = groupVoiceHologramSegments(segments, 'over');
+  it('keeps the holographic mark centred with room for its crossing flares', () => {
+    const layout = resolveVoiceHologramLayout(900, 390);
 
-    expect(groups.length).toBeGreaterThan(0);
-    expect(groups.length).toBeLessThan(overSegments.length);
-    expect(groups.flat()).toEqual(overSegments);
-    expect(groups.every((group) => group.every((segment, index) => (
-      index === 0 || group[index - 1]?.end === segment.start
-    )))).toBe(true);
+    expect(layout.centreX).toBe(450);
+    expect(layout.centreY).toBeCloseTo(175.5, 5);
+    expect(layout.radius).toBeCloseTo(156, 5);
+    expect(layout.radius).toBeLessThan(390 / 2);
+    expect(resolveVoiceHologramLayout(760, 360).radius).toBeGreaterThanOrEqual(140);
   });
 
-  it('samples a closed rounded square without introducing a seam', () => {
-    const points = sampleRoundedSquare({ count: 96, rotation: Math.PI / 4 });
-    const first = points[0];
-    const last = points.at(-1);
-    if (!first || !last) throw new Error('Rounded-square sample must contain boundary points');
-    expect(points).toHaveLength(96);
-    expect(Math.hypot(first.x - last.x, first.y - last.y))
-      .toBeLessThan(0.12);
+  it('turns the mark clockwise at a rate the phase scales', () => {
+    expect(advanceVoiceHologramSpin(0, 50, 1)).toBeCloseTo(VOICE_HOLOGRAM_SPIN_RATE * 0.05, 12);
+    expect(advanceVoiceHologramSpin(0, 40, 2)).toBeCloseTo(
+      advanceVoiceHologramSpin(0, 40, 1) * 2,
+      12,
+    );
+    expect(advanceVoiceHologramSpin(0.5, 16, 1)).toBeGreaterThan(0.5);
+    expect(advanceVoiceHologramSpin(0.5, 0, 1)).toBe(0.5);
+  });
+
+  it('wraps a whole turn so the accumulator never drifts out of range', () => {
+    const step = VOICE_HOLOGRAM_SPIN_RATE * 0.05;
+    const wrapped = advanceVoiceHologramSpin(Math.PI * 2 - step / 2, 50, 1);
+
+    expect(wrapped).toBeGreaterThanOrEqual(0);
+    expect(wrapped).toBeLessThan(Math.PI * 2);
+    expect(wrapped).toBeCloseTo(step / 2, 9);
+  });
+
+  it('clamps a stalled frame so a backgrounded tab cannot jump the mark', () => {
+    expect(advanceVoiceHologramSpin(0, 5_000, 1)).toBe(advanceVoiceHologramSpin(0, 64, 1));
+    expect(advanceVoiceHologramSpin(1, -20, 1)).toBe(1);
+    expect(advanceVoiceHologramSpin(1, Number.NaN, 1)).toBe(1);
+    // A poisoned accumulator recovers to a usable angle instead of staying NaN.
+    expect(advanceVoiceHologramSpin(Number.NaN, 16, 1)).toBeCloseTo(
+      advanceVoiceHologramSpin(0, 16, 1),
+      12,
+    );
   });
 
   it('uses live audio only in listening and speaking phases', () => {
