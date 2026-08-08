@@ -61,6 +61,16 @@ or recorded-on-purpose decision.
   back to `--color-main-bg` at the header and transcript edges.
   `apps/desktop/src/voice-call/{useVoiceHologramAnimation.ts,voice-call.css}`.
 
+- [low, desktop/focus/retired-mascot-assets, LOGGED 2026-08-08] Focus Mode now
+  draws the Moxxy mark, so the `brick-girl` avatar subsystem has no consumer
+  left: `useVoiceAvatarAnimation.ts`, `voice-avatar-animation.ts` and their two
+  test files are unreachable, and the five owner-supplied PNGs under
+  `voice-call/assets/brick-girl/` are no longer imported (so Vite no longer
+  bundles them). Deliberately NOT deleted in the same change — the frames were
+  supplied by the project owner and the checksum contract still pins them.
+  Delete the code and the assets together once the owner confirms the mascot is
+  not coming back. `apps/desktop/src/voice-call/`.
+
 ## Resolved ledger
 
 - [med, desktop/chat/virtualization, RESOLVED 2026-08-08] The shared transcript

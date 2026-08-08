@@ -325,6 +325,18 @@ export function advanceVoiceHologramSpin(
   return ((advanced % full) + full) % full;
 }
 
+/**
+ * How fast the mark's motion runs in a given phase, as a multiple of nominal.
+ * Shared with the Focus widget so the floating mark and the full Voice Mode
+ * sculpture read as the same object turning at the same speed.
+ */
+export function resolveVoiceHologramSpeed(phase: VoiceCallPhase): number {
+  if (phase === 'working' || phase === 'thinking' || phase === 'synthesizing') return 1.5;
+  if (phase === 'speaking') return 1.25;
+  if (phase === 'paused' || phase === 'error') return 0.35;
+  return 0.75;
+}
+
 export function resolveVoiceHologramEnergy(phase: VoiceCallPhase, audioLevel: number): number {
   const level = Number.isFinite(audioLevel) ? Math.max(0, Math.min(1, audioLevel)) : 0;
   if (phase === 'listening' || phase === 'speaking') return Math.max(0.18, level);

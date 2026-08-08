@@ -30,19 +30,36 @@
       }
       /* Always show a click target while the JS bundle loads. The
        * React tree replaces this on mount; if main fails to load,
-       * at least the user sees something. */
+       * at least the user sees something. The mark is inline for the
+       * same reason index.html's splash inlines it: this window has to
+       * paint with no network and no bundle, so it cannot wait on a
+       * raster. It is the same geometry MoxxyMark renders, which is what
+       * keeps the pre-mount and post-mount widget looking like one app. */
       #boot-fallback {
         position: fixed;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 18px;
-        font-weight: 800;
-        color: #ec4899;
         background: rgba(255, 255, 255, 0.96);
         border-radius: 12px;
         -webkit-app-region: drag;
+      }
+      /* A quarter turn is a full loop: the mark is symmetric under 90deg,
+       * so the animation closes on itself. */
+      #boot-fallback .mark {
+        width: 28px;
+        height: 28px;
+        color: #0b0f12;
+        animation: focus-boot-turn 3.4s linear infinite;
+      }
+      #boot-fallback .strand {
+        stroke: #c21e6b;
+      }
+      @keyframes focus-boot-turn {
+        to {
+          transform: rotate(90deg);
+        }
       }
       @media (prefers-color-scheme: dark) {
         html,
@@ -54,12 +71,41 @@
           background: rgba(22, 24, 35, 0.96);
           border: 1px solid rgba(148, 163, 184, 0.22);
         }
+        #boot-fallback .mark {
+          color: #e4ebef;
+        }
+        #boot-fallback .strand {
+          stroke: #f4408f;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-fallback .mark {
+          animation: none;
+        }
       }
     </style>
   </head>
   <body>
     <div id="root">
-      <div id="boot-fallback">m</div>
+      <div id="boot-fallback">
+        <svg class="mark" viewBox="0 0 256 256" role="img" aria-label="moxxy">
+          <mask id="focus-weave" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+            <rect width="256" height="256" fill="#000" />
+            <circle cx="188" cy="153" r="27" fill="#fff" />
+            <circle cx="103" cy="188" r="27" fill="#fff" />
+            <circle cx="68" cy="103" r="27" fill="#fff" />
+            <circle cx="153" cy="68" r="27" fill="#fff" />
+          </mask>
+          <g fill="none" stroke-width="22" stroke-linejoin="round">
+            <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />
+            <rect class="strand" x="68" y="68" width="120" height="120" rx="12"
+                  transform="rotate(45 128 128)" />
+            <g mask="url(#focus-weave)">
+              <rect x="68" y="68" width="120" height="120" rx="12" stroke="currentColor" />
+            </g>
+          </g>
+        </svg>
+      </div>
     </div>
     <script type="module" src="/src/focus/focus-main.tsx"></script>
   </body>
