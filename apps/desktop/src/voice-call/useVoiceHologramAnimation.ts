@@ -8,23 +8,11 @@ import {
   resolveVoiceCanvasSize,
   resolveVoiceHologramEnergy,
   resolveVoiceHologramLayout,
+  resolveVoiceHologramSpeed,
   VOICE_HOLOGRAM_MARK,
 } from './voice-hologram-field';
 import type { HologramStrand } from './voice-hologram-field';
-
-interface FrequencyAnalyser {
-  readonly frequencyBinCount: number;
-  getByteFrequencyData(target: Uint8Array): void;
-}
-
-interface TimeDomainAnalyser {
-  readonly fftSize: number;
-  getFloatTimeDomainData(target: Float32Array): void;
-}
-
-type Analyser =
-  | { readonly kind: 'frequency'; readonly value: FrequencyAnalyser }
-  | { readonly kind: 'time'; readonly value: TimeDomainAnalyser };
+import { createAnalyserLevelBuffers, readAnalyserLevel } from './voice-analyser-level';
 
 type Rgb = readonly [number, number, number];
 const FALLBACK_PRIMARY: Rgb = [244, 64, 143];
@@ -38,19 +26,6 @@ const FILAMENTS: ReadonlyArray<number> = [-0.82, -0.6, -0.38, -0.16, 0.06, 0.28,
 /** Samples between two transverse lattice ticks — chosen so the mesh cells come
  *  out roughly square against {@link FILAMENTS}' spacing across the ribbon. */
 const TICK_STRIDE = 3;
-
-function asAnalyser(value: unknown): Analyser | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const frequency = value as Partial<FrequencyAnalyser>;
-  if (typeof frequency.frequencyBinCount === 'number' && typeof frequency.getByteFrequencyData === 'function') {
-    return { kind: 'frequency', value: frequency as FrequencyAnalyser };
-  }
-  const time = value as Partial<TimeDomainAnalyser>;
-  if (typeof time.fftSize === 'number' && typeof time.getFloatTimeDomainData === 'function') {
-    return { kind: 'time', value: time as TimeDomainAnalyser };
-  }
-  return null;
-}
 
 function parseColor(value: string, fallback: Rgb): Rgb {
   const hex = value.trim().replace('#', '');
@@ -79,13 +54,6 @@ function rgba(color: Rgb, alpha: number): string {
 
 function isLight(color: Rgb): boolean {
   return color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114 > 140;
-}
-
-function phaseSpeed(phase: VoiceCallPhase): number {
-  if (phase === 'working' || phase === 'thinking' || phase === 'synthesizing') return 1.5;
-  if (phase === 'speaking') return 1.25;
-  if (phase === 'paused' || phase === 'error') return 0.35;
-  return 0.75;
 }
 
 /**
@@ -142,8 +110,7 @@ export function useVoiceHologramAnimation({
     let smoothed = 0;
     let turn = 0;
     let lastFrame: number | null = null;
-    let frequencyBuffer = new Uint8Array(64);
-    let timeBuffer = new Float32Array(256);
+    const buffers = createAnalyserLevelBuffers();
     let primary = FALLBACK_PRIMARY;
     let ink = FALLBACK_INK;
     let failure: Rgb = [242, 84, 91];
@@ -157,31 +124,14 @@ export function useVoiceHologramAnimation({
     };
     readThemeColors();
 
-    const readLevel = (): number => {
-      const current = phaseRef.current === 'speaking'
+    const readLevel = (): number => readAnalyserLevel(
+      phaseRef.current === 'speaking'
         ? outputRef.current
         : phaseRef.current === 'listening'
           ? inputRef.current
-          : null;
-      const analyser = asAnalyser(current);
-      if (!analyser) return 0;
-      if (analyser.kind === 'frequency') {
-        if (frequencyBuffer.length !== analyser.value.frequencyBinCount) {
-          frequencyBuffer = new Uint8Array(analyser.value.frequencyBinCount);
-        }
-        analyser.value.getByteFrequencyData(frequencyBuffer);
-        let total = 0;
-        for (const sample of frequencyBuffer) total += sample;
-        return Math.min(1, total / Math.max(1, frequencyBuffer.length) / 180);
-      }
-      if (timeBuffer.length !== analyser.value.fftSize) {
-        timeBuffer = new Float32Array(analyser.value.fftSize);
-      }
-      analyser.value.getFloatTimeDomainData(timeBuffer);
-      let squares = 0;
-      for (const sample of timeBuffer) squares += sample * sample;
-      return Math.min(1, Math.sqrt(squares / Math.max(1, timeBuffer.length)) * 6);
-    };
+          : null,
+      buffers,
+    );
 
     const draw = (timestamp: number): void => {
       if (cancelled) return;
@@ -220,7 +170,7 @@ export function useVoiceHologramAnimation({
       const energy = smoothed;
 
       const clock = reducedMotion ? 2_400 : timestamp;
-      const speed = phaseSpeed(phaseRef.current);
+      const speed = resolveVoiceHologramSpeed(phaseRef.current);
       const layout = resolveVoiceHologramLayout(width, height);
       const centreX = layout.centreX;
       const centreY = layout.centreY;

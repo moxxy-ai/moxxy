@@ -15,7 +15,8 @@ import { UserBlock } from '@/chat/blocks/UserBlock';
 import { QueuedChip } from '@/chat/composer/QueuedChip';
 import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
 import type { ImagePreviewItem } from '@/chat/image-preview/types';
-import { Dot, LogoMark } from './focus-primitives';
+import { MoxxyMark } from '@/components/MoxxyMark';
+import { Dot } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
 import { useLatestTurn, type LatestFocusTurn } from './useLatestTurn';
 import { style } from './focus-styles';
@@ -161,7 +162,7 @@ function MiniHeader({
         <ChevronLeftIcon />
       </button>
       <div style={style.miniTitle}>
-        <LogoMark size={16} />
+        <MoxxyMark size={16} />
         <span>{title}</span>
       </div>
       <button

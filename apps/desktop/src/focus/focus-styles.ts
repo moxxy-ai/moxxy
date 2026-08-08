@@ -20,12 +20,6 @@ import {
 export const drag = { WebkitAppRegion: 'drag' as const };
 export const noDrag = { WebkitAppRegion: 'no-drag' as const };
 
-// ---- Logo asset ----------------------------------------------------------
-// Uses the logo served from public/. Fallback to a typed glyph if the
-// image fails to load (offline / dist mis-copy) — see LogoMark.
-
-export const ASSET_LOGO = './logo.png';
-
 // ---- Panel tokens --------------------------------------------------------
 
 const PANEL_BG = 'var(--focus-panel-bg)';
@@ -100,13 +94,15 @@ export const style = {
   },
   focusPetGlow: {
     position: 'absolute',
-    inset: '23% 2% 3%',
+    // Centred on the mark. The old inset hung the glow low and left because
+    // the retired mascot stood on the bottom of the tile.
+    inset: 0,
     zIndex: -1,
     borderRadius: '50%',
     background:
-      'radial-gradient(ellipse at 52% 58%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 68%)',
+      'radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 66%)',
     opacity: 0.48,
-    transform: 'scale(0.92)',
+    transform: 'scale(0.98)',
     pointerEvents: 'none',
   },
   focusPetMotionLayer: {
@@ -114,14 +110,18 @@ export const style = {
     height: '100%',
     display: 'grid',
     placeItems: 'center',
-    transformOrigin: '50% 82%',
+    // The nudge pivots through the mark's own centre; the retired mascot
+    // pivoted near its feet.
+    transformOrigin: '50% 50%',
   },
-  focusPetCanvas: {
+  focusPetMark: {
     width: '100%',
     height: '100%',
-    display: 'block',
-    objectFit: 'contain',
-    imageRendering: 'pixelated',
+    display: 'grid',
+    placeItems: 'center',
+    // The turn and the glow are written per frame by useFocusMarkAnimation;
+    // the stylesheet below is what reads them.
+    willChange: 'transform, filter',
   },
   visuallyHidden: {
     position: 'absolute',
@@ -1008,13 +1008,18 @@ ${FOCUS_DARK_VARS}
       background: var(--color-red) !important;
       box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
     }
-    .focus-pet-canvas {
-      opacity: 0;
-      filter: drop-shadow(0 8px 9px rgba(9, 10, 18, 0.32));
-      transition: opacity 160ms ease, filter 200ms ease;
-    }
-    .focus-pet-canvas[data-avatar-state="ready"] {
-      opacity: 1;
+    /* The floating twin of the Voice Mode sculpture: the same mark, the same
+       clockwise turn, the same accent bloom — scaled down to a widget. The
+       turn and energy come from useFocusMarkAnimation as custom properties. */
+    .focus-pet-mark {
+      color: var(--focus-text);
+      transform:
+        rotate(var(--focus-mark-turn, 0rad))
+        scale(calc(1 + var(--focus-mark-energy, 0) * 0.05));
+      filter:
+        drop-shadow(0 0 calc(2px + var(--focus-mark-energy, 0) * 8px)
+          color-mix(in srgb, var(--color-primary) 62%, transparent))
+        drop-shadow(0 5px 8px rgba(9, 10, 18, 0.34));
     }
     .focus-pet-glow {
       transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
@@ -1034,12 +1039,16 @@ ${FOCUS_DARK_VARS}
       opacity: 0.82 !important;
       filter: hue-rotate(22deg) saturate(1.2);
     }
-    .focus-pet--error .focus-pet-canvas {
-      filter: saturate(0.58) sepia(0.12) drop-shadow(0 7px 8px rgba(100, 20, 34, 0.32));
+    /* The mark takes its second strand from --color-primary, so a failed call
+       recolours it by re-pointing that one property rather than filtering. */
+    .focus-pet--error .focus-pet-mark {
+      --color-primary: var(--color-red);
+      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-red) 55%, transparent))
+        drop-shadow(0 5px 8px rgba(100, 20, 34, 0.3));
     }
-    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-canvas {
-      filter: saturate(0.58) drop-shadow(0 8px 9px rgba(9, 10, 18, 0.28));
-      opacity: 0.76;
+    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-mark {
+      filter: saturate(0.55) drop-shadow(0 5px 8px rgba(9, 10, 18, 0.28));
+      opacity: 0.72;
     }
     @keyframes focus-voice-live {
       0%, 100% { transform: scale(0.86); opacity: 0.62; }
@@ -1050,7 +1059,6 @@ ${FOCUS_DARK_VARS}
       .focus-voice-live[data-phase="speaking"] {
         animation: none;
       }
-      .focus-pet-canvas,
       .focus-pet-glow {
         transition: none;
       }

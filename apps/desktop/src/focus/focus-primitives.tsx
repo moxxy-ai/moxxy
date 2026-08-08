@@ -1,59 +1,17 @@
 /**
- * Cross-stage atoms shared by the focus widget: the brand LogoMark, the
- * pulsing thinking Dot and the hover-aware ActionButton used in the active
- * action row. Each is intentionally tiny
- * and self-contained so the stage components can compose them without
- * re-declaring hover/fallback logic.
+ * Cross-stage atoms shared by the focus widget: the pulsing thinking Dot and
+ * the hover-aware ActionButton used in the active action row. Each is
+ * intentionally tiny and self-contained so the stage components can compose
+ * them without re-declaring hover logic.
+ *
+ * The brand mark is NOT one of these — the widget renders the shared
+ * {@link ../components/MoxxyMark}, the same inline SVG the main window paints,
+ * so the two windows can never drift to different logos.
  */
 
 import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { ASSET_LOGO, style } from './focus-styles';
-
-// ---- LogoMark ------------------------------------------------------------
-// Uses the logo served from public/. Fallback to a typed glyph if the
-// image fails to load (offline / dist mis-copy).
-
-export function LogoMark({ size = 24 }: { readonly size?: number }): JSX.Element {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span
-        aria-hidden
-        style={{
-          width: size,
-          height: size,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: Math.round(size * 0.7),
-          fontWeight: 800,
-          color: 'var(--color-primary)',
-        }}
-      >
-        m
-      </span>
-    );
-  }
-  return (
-    <img
-      src={ASSET_LOGO}
-      width={size}
-      height={size}
-      alt=""
-      aria-hidden
-      draggable={false}
-      onError={() => setFailed(true)}
-      style={{
-        width: size,
-        height: size,
-        display: 'block',
-        objectFit: 'cover',
-      }}
-    />
-  );
-}
+import { style } from './focus-styles';
 
 // ---- Dot -----------------------------------------------------------------
 
