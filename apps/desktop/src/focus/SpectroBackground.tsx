@@ -14,6 +14,7 @@ import type {
   AudioSpectrumAnalyser,
   FocusAudioSource,
 } from './focus-audio-visualization';
+import { shouldPaintVoiceHologramFrame } from '../voice-call/voice-hologram-field';
 
 const SPECTRO_BARS = 64;
 
@@ -50,6 +51,8 @@ export function SpectroBackground({
     const reduceMotion = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    let lastPaint: number | null = null;
+
     const draw = (): void => {
       // Pause the per-frame analyser read + canvas paint while the widget is
       // backgrounded — rAF is already throttled when hidden, but skipping the
@@ -58,6 +61,14 @@ export function SpectroBackground({
         raf = requestAnimationFrame(draw);
         return;
       }
+      // Thirty bars of a voice level do not need a 120Hz panel's every frame.
+      // Painted per frame this canvas measured ~15 points of GPU on a ProMotion
+      // display, in an always-on-top window, for a decoration.
+      if (!reduceMotion && !shouldPaintVoiceHologramFrame(lastPaint, performance.now())) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      lastPaint = performance.now();
       if (!reduceMotion) raf = requestAnimationFrame(draw);
       analyser.getByteFrequencyData(data);
       const w = canvas.clientWidth;
@@ -100,11 +111,10 @@ export function SpectroBackground({
       gradient.addColorStop(1, 'rgba(244, 114, 182, 0.8)'); // soft pink
       ctx.fillStyle = gradient;
 
-      // Strong glow per bar — the secret to the "music video"
-      // look. Pink shadow on a violet/blue gradient bar reads as
-      // electric / luminous.
-      ctx.shadowColor = 'rgba(236, 72, 153, 0.85)';
-      ctx.shadowBlur = 20;
+      // No canvas shadow per bar. A shadow blurs the drawn geometry on every
+      // single fill, and with 64 bars a frame it was the most expensive thing
+      // in this window — while the element's own 10px CSS blur below already
+      // fuses the bars into the same luminous cloud.
 
       for (let i = 0; i < SPECTRO_BARS; i++) {
         const amp = amps[i] ?? 0;
@@ -116,7 +126,6 @@ export function SpectroBackground({
         // shadow + outer blur reads as luminous on its own.
         ctx.fillRect(x, y, barW, barH);
       }
-      ctx.shadowBlur = 0;
     };
     draw();
     const ro = new ResizeObserver(() => {

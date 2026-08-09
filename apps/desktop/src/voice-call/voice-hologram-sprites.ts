@@ -34,53 +34,6 @@ export interface HologramPalette {
   readonly traceScale: number;
 }
 
-/**
- * Sprites are rebuilt on a QUANTISED size, not the exact one.
- *
- * Every sprite is composited through `drawImage` with an explicit destination
- * size, so a sprite baked one bucket off simply scales — and a soft gradient or
- * a bloomed contour scaled by a few percent is invisible. Keying on the exact
- * pixel size instead meant a window drag rebuilt four canvases on every frame
- * of the drag (~21ms/frame and ~11MB of churn against ~4.5ms steady), which
- * threw away the whole point of baking exactly when the machine was busiest.
- */
-const SIZE_BUCKET_PX = 32;
-
-function quantise(value: number, bucket: number): number {
-  return Math.max(bucket, Math.round(value / bucket) * bucket);
-}
-
-/** The canvas size the sprites for this stage are baked at. */
-export function resolveSpriteSize(
-  width: number,
-  height: number,
-): { readonly width: number; readonly height: number } {
-  return {
-    width: quantise(width, SIZE_BUCKET_PX),
-    height: quantise(height, SIZE_BUCKET_PX),
-  };
-}
-
-/** Identity of a sprite set: same key means the cached canvases still serve. */
-export function resolveSpriteCacheKey({
-  width,
-  height,
-  dpr,
-  ink,
-  accent,
-  background,
-}: {
-  readonly width: number;
-  readonly height: number;
-  readonly dpr: number;
-  readonly ink: Rgb;
-  readonly accent: Rgb;
-  readonly background: Rgb;
-}): string {
-  const size = resolveSpriteSize(width, height);
-  return [size.width, size.height, dpr, ink.join(), accent.join(), background.join()].join('|');
-}
-
 /** Half-width of the mark sprite, in mark radii — leaves room for the bloom. */
 export const MARK_SPRITE_SPAN = 1.24;
 /** Flare sprite half-width, in mark radii. */

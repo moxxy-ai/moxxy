@@ -5,8 +5,6 @@ import {
   buildFlareSprite,
   buildMarkSprite,
   mix,
-  resolveSpriteCacheKey,
-  resolveSpriteSize,
   rgba,
   FLARE_SPRITE_SPAN,
   MARK_SPRITE_SPAN,
@@ -32,31 +30,6 @@ describe('voice hologram sprites', () => {
     // shadow bloom on top of that, and the flare's long rays reach 1.5x scale.
     expect(MARK_SPRITE_SPAN).toBeGreaterThan(1 + 0.09 + 0.05 * SPRITE_NOMINAL_ENERGY);
     expect(FLARE_SPRITE_SPAN).toBeGreaterThan((0.24 + SPRITE_NOMINAL_ENERGY * 0.06) * 1.5);
-  });
-
-  it('keys sprites on a quantised size so a window drag cannot rebuild per pixel', () => {
-    const base = { dpr: 2, ink: [228, 235, 239] as const, accent: [244, 64, 143] as const, background: [16, 21, 25] as const };
-
-    // A drag moves the edge a pixel at a time; those all have to share a key.
-    const dragged = [1_200, 1_201, 1_207, 1_213].map((width) => (
-      resolveSpriteCacheKey({ ...base, width, height: 410 })
-    ));
-    expect(new Set(dragged).size).toBe(1);
-    // A real size change still gets its own sprites.
-    expect(resolveSpriteCacheKey({ ...base, width: 1_400, height: 410 })).not.toBe(dragged[0]);
-    expect(resolveSpriteCacheKey({ ...base, width: 1_200, height: 620 })).not.toBe(dragged[0]);
-    // So do a theme swap, a phase colour and a change of pixel density.
-    expect(resolveSpriteCacheKey({ ...base, width: 1_200, height: 410, dpr: 1 })).not.toBe(dragged[0]);
-    expect(resolveSpriteCacheKey({
-      ...base, width: 1_200, height: 410, accent: [242, 84, 91],
-    })).not.toBe(dragged[0]);
-    expect(resolveSpriteCacheKey({
-      ...base, width: 1_200, height: 410, background: [255, 255, 255],
-    })).not.toBe(dragged[0]);
-
-    // The baked size never collapses to zero on a stage that has not laid out.
-    expect(resolveSpriteSize(0, 0).width).toBeGreaterThan(0);
-    expect(resolveSpriteSize(0, 0).height).toBeGreaterThan(0);
   });
 
   it('mixes and formats colours without leaking out of range', () => {

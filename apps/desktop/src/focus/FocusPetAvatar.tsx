@@ -1,8 +1,8 @@
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import { MoxxyMark } from '@/components/MoxxyMark';
+import { useVoicePulse } from '../voice-call/useVoicePulse';
 import { FocusVoiceLiveIndicator } from './FocusVoiceLiveIndicator';
 import { style } from './focus-styles';
-import { useFocusMarkAnimation } from './useFocusMarkAnimation';
 import { useFocusPetMotion } from './useFocusPetMotion';
 
 /** Rendered size of the mark inside the widget's dock, in CSS pixels. Leaves a
@@ -23,11 +23,12 @@ export function FocusPetAvatar({
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
 }): JSX.Element {
-  const markRef = useFocusMarkAnimation({ phase, inputAnalyser, outputAnalyser });
+  const pulseRef = useVoicePulse({ phase, inputAnalyser, outputAnalyser });
   const motionRef = useFocusPetMotion(phase);
 
   return (
     <div
+      ref={pulseRef}
       data-testid="focus-pet"
       data-phase={phase}
       className={`focus-pet focus-pet--${phase}${microphoneMuted ? ' focus-pet--microphone-muted' : ''}`}
@@ -36,12 +37,7 @@ export function FocusPetAvatar({
     >
       <span className="focus-pet-glow" style={style.focusPetGlow} />
       <div ref={motionRef} style={style.focusPetMotionLayer}>
-        <div
-          ref={markRef}
-          data-testid="focus-pet-mark"
-          className="focus-pet-mark"
-          style={style.focusPetMark}
-        >
+        <div data-testid="focus-pet-mark" className="focus-pet-mark" style={style.focusPetMark}>
           <MoxxyMark size={FOCUS_MARK_SIZE} />
         </div>
       </div>

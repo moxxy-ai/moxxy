@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  advanceVoiceHologramSpin,
   buildVoiceHologramField,
   resolveHologramCrossings,
   resolveVoiceCanvasSize,
@@ -9,7 +8,6 @@ import {
   sampleRoundedSquare,
   shouldPaintVoiceHologramFrame,
   VOICE_HOLOGRAM_MARK,
-  VOICE_HOLOGRAM_SPIN_RATE,
 } from './voice-hologram-field';
 
 const { half, band, corner } = VOICE_HOLOGRAM_MARK;
@@ -148,36 +146,6 @@ describe('voice hologram geometry', () => {
     expect(layout.radius).toBeCloseTo(156, 5);
     expect(layout.radius).toBeLessThan(390 / 2);
     expect(resolveVoiceHologramLayout(760, 360).radius).toBeGreaterThanOrEqual(140);
-  });
-
-  it('turns the mark clockwise at a rate the phase scales', () => {
-    expect(advanceVoiceHologramSpin(0, 50, 1)).toBeCloseTo(VOICE_HOLOGRAM_SPIN_RATE * 0.05, 12);
-    expect(advanceVoiceHologramSpin(0, 40, 2)).toBeCloseTo(
-      advanceVoiceHologramSpin(0, 40, 1) * 2,
-      12,
-    );
-    expect(advanceVoiceHologramSpin(0.5, 16, 1)).toBeGreaterThan(0.5);
-    expect(advanceVoiceHologramSpin(0.5, 0, 1)).toBe(0.5);
-  });
-
-  it('wraps a whole turn so the accumulator never drifts out of range', () => {
-    const step = VOICE_HOLOGRAM_SPIN_RATE * 0.05;
-    const wrapped = advanceVoiceHologramSpin(Math.PI * 2 - step / 2, 50, 1);
-
-    expect(wrapped).toBeGreaterThanOrEqual(0);
-    expect(wrapped).toBeLessThan(Math.PI * 2);
-    expect(wrapped).toBeCloseTo(step / 2, 9);
-  });
-
-  it('clamps a stalled frame so a backgrounded tab cannot jump the mark', () => {
-    expect(advanceVoiceHologramSpin(0, 5_000, 1)).toBe(advanceVoiceHologramSpin(0, 64, 1));
-    expect(advanceVoiceHologramSpin(1, -20, 1)).toBe(1);
-    expect(advanceVoiceHologramSpin(1, Number.NaN, 1)).toBe(1);
-    // A poisoned accumulator recovers to a usable angle instead of staying NaN.
-    expect(advanceVoiceHologramSpin(Number.NaN, 16, 1)).toBeCloseTo(
-      advanceVoiceHologramSpin(0, 16, 1),
-      12,
-    );
   });
 
   it('paces the mark at half the display rate without drifting', () => {
