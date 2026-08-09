@@ -77,7 +77,16 @@ export function useVoiceHologramScene({
   readonly occupiedSlots: ReadonlyArray<number>;
 }): RefObject<HTMLCanvasElement> {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The caller hands us a freshly mapped array on every render, so the effect
+  // keys off its CONTENT and reads the array through a ref. Depending on the
+  // array itself re-ran the effect on every render of the surface — and during
+  // a streaming turn that is every delta, each one rebuilding the 2,600-particle
+  // field and repainting the canvas, shadow bloom and all.
   const slots = occupiedSlots.join(',');
+  const slotsRef = useRef(occupiedSlots);
+  slotsRef.current = occupiedSlots;
+  const fieldRef = useRef<ReturnType<typeof buildVoiceHologramField> | null>(null);
+  fieldRef.current ??= buildVoiceHologramField();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -85,7 +94,7 @@ export function useVoiceHologramScene({
     const context = canvas.getContext('2d', { alpha: true });
     if (!context) return;
 
-    const field = buildVoiceHologramField();
+    const field = fieldRef.current ?? buildVoiceHologramField();
     const crossings = resolveHologramCrossings();
     let disposed = false;
 
@@ -174,11 +183,12 @@ export function useVoiceHologramScene({
         { x: width * 0.83, y: height * 0.3 },
         { x: width * 0.82, y: height * 0.72 },
       ] as const;
-      if (occupiedSlots.length > 0) {
+      const activeSlots = slotsRef.current;
+      if (activeSlots.length > 0) {
         context.setLineDash([2, 7]);
         context.lineWidth = 1;
         context.strokeStyle = rgba(accent, (0.34 + energy * 0.22) * palette.traceScale);
-        for (const slot of occupiedSlots) {
+        for (const slot of activeSlots) {
           const endpoint = endpoints[slot];
           if (!endpoint) continue;
           const direction = endpoint.x < centreX ? -1 : 1;
@@ -215,7 +225,7 @@ export function useVoiceHologramScene({
       observer?.disconnect();
       themeObserver?.disconnect();
     };
-  }, [phase, slots, occupiedSlots]);
+  }, [phase, slots]);
 
   return canvasRef;
 }
