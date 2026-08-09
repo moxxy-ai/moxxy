@@ -138,10 +138,59 @@ export function cancelSpeech(): void {
  * only the per-clip nodes are built and disconnected.
  */
 let sharedAudioContext: AudioContext | null = null;
+/** Clips still feeding the context they were built on. Keyed by context so a
+ *  retired one can be closed by its LAST clip rather than by the newest. */
+const liveClips = new WeakMap<AudioContext, number>();
+let deviceListenerAttached = false;
+
+function closeContext(context: AudioContext): void {
+  try {
+    void context.close().catch(() => undefined);
+  } catch {
+    /* already closed */
+  }
+}
+
+function retainContext(context: AudioContext): void {
+  liveClips.set(context, (liveClips.get(context) ?? 0) + 1);
+}
+
+function releaseContext(context: AudioContext): void {
+  const next = Math.max(0, (liveClips.get(context) ?? 0) - 1);
+  liveClips.set(context, next);
+  // Retired means: no longer the shared one. Once its last sentence is done
+  // playing there is nothing left to keep the old device open for.
+  if (next === 0 && context !== sharedAudioContext) closeContext(context);
+}
+
+/**
+ * Let go of the context the moment the audio device changes.
+ *
+ * A context is bound to the device it was constructed on, so plugging in
+ * headphones mid-conversation can leave it feeding a device that is gone. The
+ * next clip must therefore be built fresh — but the sentence that is playing
+ * RIGHT NOW still belongs to the old context, and closing it under that clip
+ * would cut the speech off. So the old context is only detached here; whichever
+ * finishes last, the clip or this handler, does the closing.
+ */
+function retireSharedAudioContext(): void {
+  const retired = sharedAudioContext;
+  sharedAudioContext = null;
+  if (retired && (liveClips.get(retired) ?? 0) === 0) closeContext(retired);
+}
+
+function watchAudioDevices(): void {
+  if (deviceListenerAttached) return;
+  const devices = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
+  if (!devices?.addEventListener) return;
+  deviceListenerAttached = true;
+  devices.addEventListener('devicechange', retireSharedAudioContext);
+}
 
 function getSharedAudioContext(): AudioContext | null {
-  // A context can be closed out from under us (page teardown, device loss);
-  // drop it and build a fresh one rather than handing back a dead graph.
+  watchAudioDevices();
+  // A context can also be closed out from under us (page teardown, device
+  // loss); drop it and build fresh rather than handing back a dead graph.
   if (sharedAudioContext && sharedAudioContext.state === 'closed') sharedAudioContext = null;
   if (sharedAudioContext) return sharedAudioContext;
   const AudioContextCtor = getAudioContextCtor();
@@ -170,6 +219,7 @@ function playAudioSource(
   if (opts.onAnalyser) {
     audioContext = getSharedAudioContext();
     if (audioContext) {
+      retainContext(audioContext);
       try {
         source = audioContext.createMediaElementSource(audio);
         analyser = audioContext.createAnalyser();
@@ -209,7 +259,10 @@ function playAudioSource(
     }
     source = null;
     analyser = null;
-    // Deliberately NOT closed: the next sentence reuses it.
+    // Deliberately NOT closed while it is still the shared one: the next
+    // sentence reuses it. A context retired by a device change is closed here,
+    // once its last clip has let go.
+    if (audioContext) releaseContext(audioContext);
     audioContext = null;
   };
   /**
