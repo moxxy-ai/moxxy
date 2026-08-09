@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -8,7 +9,8 @@ import {
 } from './useStreamingMarkdownText';
 
 function Probe({ text, streaming }: { readonly text: string; readonly streaming: boolean }) {
-  return <span data-testid="shown">{useStreamingMarkdownText(text, streaming, 80)}</span>;
+  const cost = useRef(0);
+  return <span data-testid="shown">{useStreamingMarkdownText(text, streaming, cost)}</span>;
 }
 
 const shown = (): string => screen.getByTestId('shown').textContent ?? '';
@@ -59,16 +61,16 @@ describe('useStreamingMarkdownText', () => {
 });
 
 describe('resolveStreamingParseInterval', () => {
-  it('holds the parse share flat as the message grows', () => {
-    // Short answers stay responsive...
+  it('holds Markdown to a fifth of the thread whatever the parse costs', () => {
+    // Nothing measured yet, or a parse so cheap it does not matter: stay fast.
     expect(resolveStreamingParseInterval(0)).toBe(STREAMING_PARSE_INTERVAL_MS);
-    expect(resolveStreamingParseInterval(1_000)).toBe(STREAMING_PARSE_INTERVAL_MS);
-    // ...and a long one re-parses proportionally less often, because each of
-    // those parses now costs proportionally more.
-    expect(resolveStreamingParseInterval(8_000)).toBe(200);
-    expect(resolveStreamingParseInterval(20_000)).toBe(500);
-    // Never so slow that the text visibly stalls.
-    expect(resolveStreamingParseInterval(10_000_000)).toBe(STREAMING_PARSE_MAX_INTERVAL_MS);
+    expect(resolveStreamingParseInterval(10)).toBe(STREAMING_PARSE_INTERVAL_MS);
+    // A parse that costs real time buys proportionally more silence after it,
+    // so parsing settles at one part in five of the renderer.
+    expect(resolveStreamingParseInterval(40)).toBe(200);
+    expect(resolveStreamingParseInterval(200)).toBe(1_000);
+    // Never so slow that a long answer visibly stalls.
+    expect(resolveStreamingParseInterval(10_000)).toBe(STREAMING_PARSE_MAX_INTERVAL_MS);
     expect(resolveStreamingParseInterval(Number.NaN)).toBe(STREAMING_PARSE_INTERVAL_MS);
     expect(resolveStreamingParseInterval(-5)).toBe(STREAMING_PARSE_INTERVAL_MS);
   });

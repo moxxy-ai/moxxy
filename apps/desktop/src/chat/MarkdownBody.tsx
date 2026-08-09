@@ -9,7 +9,7 @@
  * (a citation is neither a state nor a command, so it may not have the accent).
  */
 
-import { memo } from 'react';
+import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
@@ -171,7 +171,20 @@ const components: Components = {
  * and the parse runs again with identical input. Cutting the subtree here is
  * what turns an unchanged string into no work at all.
  */
-const MarkdownContent = memo(function MarkdownContent({ text }: { readonly text: string }) {
+const MarkdownContent = memo(function MarkdownContent({
+  text,
+  cost,
+}: {
+  readonly text: string;
+  /** Written on every real parse; the throttle upstream reads it to decide how
+   *  long to wait before asking for the next one. A ref, so handing it down
+   *  costs nothing and never defeats the memo. */
+  readonly cost: MutableRefObject<number>;
+}) {
+  const started = performance.now();
+  useLayoutEffect(() => {
+    cost.current = performance.now() - started;
+  });
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
       {text}
@@ -200,7 +213,8 @@ export const MarkdownBody = memo(function MarkdownBody({
    *  a new line. */
   readonly streaming?: boolean;
 }): JSX.Element {
-  const parsed = useStreamingMarkdownText(text, streaming);
+  const parseCost = useRef(0);
+  const parsed = useStreamingMarkdownText(text, streaming, parseCost);
   return (
     // `prose` is the app's ONE proportional voice: the chrome face is the
     // default everywhere else, and rendered Markdown is the only long-form text
@@ -217,7 +231,7 @@ export const MarkdownBody = memo(function MarkdownBody({
         maxWidth: '70ch',
       }}
     >
-      <MarkdownContent text={parsed} />
+      <MarkdownContent text={parsed} cost={parseCost} />
     </div>
   );
 });
