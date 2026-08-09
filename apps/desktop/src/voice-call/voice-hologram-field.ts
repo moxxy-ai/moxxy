@@ -294,68 +294,33 @@ export function buildVoiceHologramField({
   });
 }
 
-/** Radians per second the mark turns at nominal phase speed. A quarter turn is
- *  a whole visual loop for a mark symmetric under 90°, and lands every ~8s —
- *  fast enough to read as motion, slow enough to sit behind a conversation. */
-export const VOICE_HOLOGRAM_SPIN_RATE = 0.2;
-
-/** Longest frame the spin will integrate. A backgrounded tab hands back one
- *  enormous delta on its first frame; without this the mark would snap. */
-const MAX_SPIN_STEP_MS = 64;
-
-/**
- * Advance the mark's clockwise turn by one frame.
- *
- * The angle is ACCUMULATED rather than derived from the timestamp so that a
- * phase change (which scales `speed`) eases into the new rate instead of
- * teleporting the mark. Wrapping at a whole turn — not at the 90° symmetry
- * period — keeps the accumulator bounded without snapping the particle
- * lattice, whose per-mote grain is only invariant under a full revolution.
- */
-export function advanceVoiceHologramSpin(
-  spin: number,
-  elapsedMs: number,
-  speed: number,
-): number {
-  const turn = Number.isFinite(spin) ? spin : 0;
-  if (!Number.isFinite(elapsedMs) || !Number.isFinite(speed)) return turn;
-  const step = Math.max(0, Math.min(MAX_SPIN_STEP_MS, elapsedMs));
-  const advanced = turn + (step / 1_000) * VOICE_HOLOGRAM_SPIN_RATE * speed;
-  const full = Math.PI * 2;
-  return ((advanced % full) + full) % full;
-}
-
-/** Shortest gap between painted frames. The mark turns a quarter revolution in
- *  ~8s, so half of a 60Hz display's frames carry it with no visible loss — and
- *  on a 120Hz panel this is what stops it painting twice as often for nothing. */
+/** Shortest gap between painted frames, for anything still painting per frame. */
 const HOLOGRAM_FRAME_MS = 1_000 / 30 - 1;
 
 /**
- * Whether this animation-frame callback should actually paint.
+ * Shortest gap between voice-level samples.
  *
- * `null` (a fresh loop, a resize, a return from hidden) always paints, and a
- * timestamp that moves backwards paints too rather than stalling until the
+ * The pulse is a glow breathing with someone's voice, not a waveform — a
+ * fifteenth of a second of latency is invisible on it, and on a 120Hz display
+ * sampling every frame would cost eight times the work for nothing.
+ */
+export const VOICE_PULSE_FRAME_MS = 1_000 / 15 - 1;
+
+/**
+ * Whether this animation-frame callback should do its work.
+ *
+ * `null` (a fresh loop, a resize, a return from hidden) always runs, and a
+ * timestamp that moves backwards runs too rather than stalling until the
  * clock catches up.
  */
 export function shouldPaintVoiceHologramFrame(
   lastPaint: number | null,
   timestamp: number,
+  minGapMs: number = HOLOGRAM_FRAME_MS,
 ): boolean {
   if (lastPaint === null || !Number.isFinite(lastPaint) || !Number.isFinite(timestamp)) return true;
   const elapsed = timestamp - lastPaint;
-  return elapsed < 0 || elapsed >= HOLOGRAM_FRAME_MS;
-}
-
-/**
- * How fast the mark's motion runs in a given phase, as a multiple of nominal.
- * Shared with the Focus widget so the floating mark and the full Voice Mode
- * sculpture read as the same object turning at the same speed.
- */
-export function resolveVoiceHologramSpeed(phase: VoiceCallPhase): number {
-  if (phase === 'working' || phase === 'thinking' || phase === 'synthesizing') return 1.5;
-  if (phase === 'speaking') return 1.25;
-  if (phase === 'paused' || phase === 'error') return 0.35;
-  return 0.75;
+  return elapsed < 0 || elapsed >= minGapMs;
 }
 
 export function resolveVoiceHologramEnergy(phase: VoiceCallPhase, audioLevel: number): number {

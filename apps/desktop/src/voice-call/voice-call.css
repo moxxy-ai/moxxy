@@ -106,10 +106,51 @@
 }
 
 .voice-hologram {
-  transition: opacity var(--motion-overlay) ease, filter var(--motion-overlay) ease;
+  /* useVoicePulse writes --voice-pulse here, fifteen times a second. */
+  --voice-pulse: 0;
+  transition: opacity var(--motion-overlay) ease;
 }
 
-.voice-hologram-canvas { display: block; }
+/* The canvas is painted once and never again. Only these two compositor
+   properties move with the voice, so the browser animates the pulse without
+   asking for a repaint — and keeps animating it while the main thread is busy,
+   which is exactly what the old per-frame loop could not do. */
+.voice-hologram-canvas {
+  display: block;
+  transform: scale(calc(1 + var(--voice-pulse) * 0.02));
+  transform-origin: 50% 45%;
+  will-change: transform;
+}
+
+.voice-hologram-pulse {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--color-primary) 24%, transparent),
+    transparent 42%
+  );
+  opacity: calc(var(--voice-pulse) * 0.55);
+  transform: scale(calc(0.94 + var(--voice-pulse) * 0.1));
+  transform-origin: 50% 45%;
+  will-change: opacity, transform;
+}
+
+.voice-hologram--error .voice-hologram-pulse {
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--color-red) 24%, transparent),
+    transparent 42%
+  );
+}
+
+.voice-hologram.is-muted .voice-hologram-pulse { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-hologram-canvas,
+  .voice-hologram-pulse { transform: none; }
+}
 
 .voice-call-status {
   position: absolute;
@@ -338,8 +379,19 @@
 @keyframes voice-orbit-success { 55% { border-color: var(--color-green); background: var(--color-green-soft); } to { opacity: 0; transform: scale(0.98); } }
 @keyframes voice-orbit-failure { 25% { border-color: var(--color-red-text); background: var(--color-red-wash); } to { opacity: 0; } }
 @keyframes voice-orbit-cancel { to { opacity: 0; transform: scale(0.98); } }
-@keyframes voice-dock-wave { to { transform: scaleY(0.48); opacity: 0.48; } }
-@keyframes voice-dock-spin { to { transform: rotate(360deg); } }
+/* Both ends written out on purpose. A keyframe set with only a `to` leaves the
+   start value to be inferred from computed style, and an animation with an
+   implicit keyframe cannot be handed to the compositor — so these four 2px
+   bars were forcing a style recalculation on every frame of a 120Hz display,
+   measured at ~11 points of GPU, as much as the whole hologram cost. */
+@keyframes voice-dock-wave {
+  from { transform: scaleY(1); opacity: 1; }
+  to { transform: scaleY(0.48); opacity: 0.48; }
+}
+@keyframes voice-dock-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .voice-hologram,

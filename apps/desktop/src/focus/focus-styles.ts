@@ -101,8 +101,6 @@ export const style = {
     borderRadius: '50%',
     background:
       'radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 66%)',
-    opacity: 0.48,
-    transform: 'scale(0.98)',
     pointerEvents: 'none',
   },
   focusPetMotionLayer: {
@@ -119,9 +117,8 @@ export const style = {
     height: '100%',
     display: 'grid',
     placeItems: 'center',
-    // The turn and the glow are written per frame by useFocusMarkAnimation;
-    // the stylesheet below is what reads them.
-    willChange: 'transform, filter',
+    // The pulse is written by useVoicePulse; the stylesheet below reads it.
+    willChange: 'transform',
   },
   visuallyHidden: {
     position: 'absolute',
@@ -1008,35 +1005,33 @@ ${FOCUS_DARK_VARS}
       background: var(--color-red) !important;
       box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
     }
-    /* The floating twin of the Voice Mode sculpture: the same mark, the same
-       clockwise turn, the same accent bloom — scaled down to a widget. The
-       turn and energy come from useFocusMarkAnimation as custom properties. */
+    /* The floating twin of the Voice Mode mark: same shape, same accent bloom,
+       scaled to a widget and standing still. --voice-pulse comes from
+       useVoicePulse fifteen times a second.
+
+       The bloom radius is FIXED on purpose. Driving it from the pulse meant
+       re-rasterising a blurred SVG on every frame, in an always-on-top window,
+       because a CSS filter is not a compositor property. Only scale moves. */
     .focus-pet-mark {
       color: var(--focus-text);
-      transform:
-        rotate(var(--focus-mark-turn, 0rad))
-        scale(calc(1 + var(--focus-mark-energy, 0) * 0.05));
+      transform: scale(calc(1 + var(--voice-pulse, 0) * 0.06));
       filter:
-        drop-shadow(0 0 calc(2px + var(--focus-mark-energy, 0) * 8px)
-          color-mix(in srgb, var(--color-primary) 62%, transparent))
+        drop-shadow(0 0 5px color-mix(in srgb, var(--color-primary) 62%, transparent))
         drop-shadow(0 5px 8px rgba(9, 10, 18, 0.34));
+      will-change: transform;
     }
+    /* Breathes with the voice through the same pulse the mark uses; the phase
+       rules below still set the floor for each state. */
     .focus-pet-glow {
-      transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+      opacity: calc(0.32 + var(--voice-pulse, 0) * 0.5);
+      transform: scale(calc(0.9 + var(--voice-pulse, 0) * 0.16));
+      transition: opacity 220ms ease, transform 220ms ease;
+      will-change: opacity, transform;
     }
     .focus-pet--speaking .focus-pet-glow {
-      opacity: 0.78 !important;
-      transform: scale(1.05) !important;
       filter: saturate(1.16);
     }
-    .focus-pet--thinking .focus-pet-glow,
-    .focus-pet--working .focus-pet-glow,
-    .focus-pet--synthesizing .focus-pet-glow {
-      opacity: 0.62 !important;
-      transform: scale(1.01) !important;
-    }
     .focus-pet--waiting-for-input .focus-pet-glow {
-      opacity: 0.82 !important;
       filter: hue-rotate(22deg) saturate(1.2);
     }
     /* The mark takes its second strand from --color-primary, so a failed call

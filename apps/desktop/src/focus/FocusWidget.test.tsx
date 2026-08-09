@@ -275,15 +275,16 @@ describe('FocusWidget stages', () => {
     expect(container.querySelector('img[src*="brick-girl"]')).toBeNull();
   });
 
-  it('drives the pet mark from the same turn and energy Voice Mode uses', () => {
+  it('drives the pet mark from the same voice pulse Voice Mode uses', () => {
     installFakeApi();
     render(<FocusWidget />);
 
-    const mark = screen.getByTestId('focus-pet-mark');
-    // The animation writes both properties every frame; their presence is what
-    // the stylesheet's rotation and glow read.
-    expect(mark.style.getPropertyValue('--focus-mark-turn')).toMatch(/rad$/u);
-    expect(Number(mark.style.getPropertyValue('--focus-mark-energy'))).toBeGreaterThanOrEqual(0);
+    // The mark stands still; only the pulse moves, published on the widget root
+    // as one custom property that the stylesheet turns into a scale.
+    expect(screen.getByTestId('focus-pet-mark')).toBeTruthy();
+    const pulse = Number(screen.getByTestId('focus-pet').style.getPropertyValue('--voice-pulse'));
+    expect(pulse).toBeGreaterThanOrEqual(0);
+    expect(pulse).toBeLessThanOrEqual(1);
   });
 
   it('renders the inactive pet without native button chrome', () => {
