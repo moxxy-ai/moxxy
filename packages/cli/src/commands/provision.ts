@@ -1,9 +1,28 @@
-import { bootSessionWithConfig, stringFlag } from '../argv-helpers.js';
+import { bootSessionWithConfig, helpRequested, stringFlag } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import type { ParsedArgv } from '../argv.js';
 import { provision, type ProvisionSpec } from '../provision/provision.js';
 import { installPluginPackage, resolveCatalogPackageName } from '@moxxy/plugin-plugins-admin';
 import { setCategoryDefault, setPluginEnabled, setProviderModel } from '@moxxy/config';
+import { formatHelp } from './help-format.js';
+
+const HELP = formatHelp({
+  title: 'moxxy provision',
+  tagline: 'connect a model non-interactively on a managed machine',
+  sections: [
+    {
+      title: 'USAGE',
+      rows: [
+        ['--provider <slug>', 'provider to connect, such as anthropic or openai'],
+        ['--model <id>', 'optional default model'],
+        ['--key <value>', 'optional provider key; stored in the local vault'],
+        ['--basics <list>', 'comma-separated optional extensions to install'],
+        ['--spec -', 'read the complete JSON provisioning spec from stdin'],
+      ],
+    },
+  ],
+  footer: ['For an interactive first run, use `moxxy` instead.'],
+});
 
 /**
  * `moxxy provision` — headless first-run setup. Installs the chosen provider (+
@@ -13,6 +32,11 @@ import { setCategoryDefault, setPluginEnabled, setProviderModel } from '@moxxy/c
  * (`--provider anthropic --key … --model …`) or a JSON spec on stdin (`--spec -`).
  */
 export async function runProvisionCommand(argv: ParsedArgv): Promise<number> {
+  if (helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+
   let spec: ProvisionSpec;
   try {
     spec = await parseSpec(argv);

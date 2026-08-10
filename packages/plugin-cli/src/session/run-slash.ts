@@ -6,9 +6,8 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { isSelectableMode } from '@moxxy/sdk';
 import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
-import { BUILTIN_SLASH_COMMANDS } from '../components/SlashCommands.js';
 import type { Overlay, Picker } from './types.js';
-import { formatTokensShort } from './helpers.js';
+import { buildSlashSuggestions, formatTokensShort } from './helpers.js';
 import { buildSessionPickerOptions } from './sessions-picker.js';
 
 export interface SlashDeps {
@@ -85,38 +84,49 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
   if (key === 'help') {
     const helpArg = args.trim().toLowerCase();
     if (helpArg === '') {
-      deps.setSystemNotice(
-        [
-          'Everyday commands',
-          '/new         start a fresh run',
-          '/runs        continue another run',
-          '/model       change the model connection',
-          '/extensions  manage optional capabilities',
-          '/exit        leave moxxy',
+      const everyday = [
+        'Everyday commands',
+        ...(deps.canSwitchSession ? ['/new         start a fresh run'] : []),
+        ...(deps.canSwitchSession ? ['/runs        continue another run'] : []),
+        '/model       change the model connection',
+        ...(deps.session.pluginsAdmin
+          ? ['/extensions  manage optional capabilities']
+          : []),
+        '/exit        leave moxxy',
+        '',
+        'Type `/help advanced` for runtime and operator commands.',
+      ];
+      if (!deps.canSwitchSession || !deps.session.pluginsAdmin) {
+        everyday.push(
           '',
-          'Type `/help advanced` for runtime and operator commands.',
-        ].join('\n'),
-      );
+          'This window follows one shared run.',
+          'Another run: `moxxy resume`',
+          'Extensions: `moxxy extensions`',
+        );
+      }
+      deps.setSystemNotice(everyday.join('\n'));
       return;
     }
     if (helpArg === 'advanced') {
-      const registered = deps.session.commands.listForChannel('tui').map((command) => ({
-        name: command.name,
-        description: command.description,
-      }));
-      const merged = [...registered, ...BUILTIN_SLASH_COMMANDS];
-      const seen = new Set<string>();
-      const lines = merged
-        .filter((command) => {
-          if (seen.has(command.name)) return false;
-          seen.add(command.name);
-          return true;
-        })
+      const lines = [...buildSlashSuggestions(deps.session, {
+        canSwitchRuns: deps.canSwitchSession ?? false,
+        canManageExtensions: Boolean(deps.session.pluginsAdmin),
+      })]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((command) => `/${command.name.padEnd(14)} ${command.description}`);
       deps.setSystemNotice(['Advanced commands', ...lines].join('\n'));
       return;
     }
+  }
+
+  // A fixed runner cannot mint a second persisted run. Older builds silently
+  // cleared the attached runner's history here, which contradicted "new run"
+  // and could destroy the conversation the user meant to preserve.
+  if (key === 'new' && !deps.canSwitchSession) {
+    deps.setSystemNotice(
+      'starting a separate run is unavailable in this attached TUI — run `moxxy` in another terminal',
+    );
+    return;
   }
 
   const registered = deps.session.commands.get(name);
@@ -524,6 +534,14 @@ function shortPluginName(name: string): string {
   return name.replace(/^@moxxy\/(?:plugin-|mode-|compactor-|cache-strategy-)?/, '');
 }
 
+export function isProductExtensionPackage(
+  packageName: string,
+  provides: ReadonlyArray<{ readonly category: string }> = [],
+): boolean {
+  if (/^@moxxy\/plugin-provider-/.test(packageName)) return false;
+  return !provides.some((contribution) => contribution.category === 'provider');
+}
+
 /**
  * Product-facing extension manager. Runtime swap axes stay in advanced CLI
  * configuration; this surface shows only capabilities the user installed and
@@ -538,6 +556,10 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   const loaded = admin.loaded();
   const disabled = admin.disabled();
   const catalog = admin.catalog();
+  const catalogByPackage = new Map(catalog.map((entry) => [entry.packageName, entry] as const));
+  const productCatalog = catalog.filter((entry) =>
+    isProductExtensionPackage(entry.packageName, entry.provides ?? []),
+  );
   const core = new Set<string>(admin.protectedPackages());
   const installed = new Set<string>([...loaded.map((p) => p.name), ...disabled]);
 
@@ -546,19 +568,32 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   // Installed extensions only. Core and bundled runtime packages are an
   // implementation detail and never compete with user-added capabilities.
   const pkgOptions: ListPickerOption[] = [];
-  for (const p of loaded.filter((item) => item.installed && !core.has(item.name)).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const p of loaded.filter((item) =>
+    item.installed &&
+    !core.has(item.name) &&
+    isProductExtensionPackage(
+      item.name,
+      catalogByPackage.get(item.name)?.provides ?? [],
+    )
+  ).sort((a, b) => a.name.localeCompare(b.name))) {
+    const catalogEntry = catalogByPackage.get(p.name);
     pkgOptions.push({
       id: `${p.name}::disable`,
-      label: shortPluginName(p.name),
+      label: catalogEntry?.label ?? shortPluginName(p.name),
       description: 'enabled · select to disable',
       badge: 'on',
       badgeColor: 'green',
     });
   }
-  for (const name of [...disabled].filter((item) => !core.has(item)).sort()) {
+  for (const name of [...disabled].filter(
+    (item) =>
+      !core.has(item) &&
+      isProductExtensionPackage(item, catalogByPackage.get(item)?.provides ?? []),
+  ).sort()) {
+    const catalogEntry = catalogByPackage.get(name);
     pkgOptions.push({
       id: `${name}::enable`,
-      label: shortPluginName(name),
+      label: catalogEntry?.label ?? shortPluginName(name),
       description: 'disabled · select to enable',
       badge: 'off',
       badgeColor: 'gray',
@@ -569,7 +604,7 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   }
 
   // Curated catalog of capabilities not present on this machine.
-  const installable = catalog.filter((e) => !installed.has(e.packageName));
+  const installable = productCatalog.filter((entry) => !installed.has(entry.packageName));
   if (installable.length > 0) {
     tabs.push({
       id: 'installable',

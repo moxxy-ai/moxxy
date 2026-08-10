@@ -41,9 +41,10 @@ const HELP = formatHelp({
 
 export async function runProfileCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0];
-  if (!sub || sub === 'help' || helpRequested(argv)) {
+  const wantsHelp = sub === 'help' || helpRequested(argv);
+  if (!sub || wantsHelp) {
     process.stdout.write(HELP);
-    return sub ? 0 : 2;
+    return wantsHelp ? 0 : 2;
   }
 
   if (sub === 'list') {

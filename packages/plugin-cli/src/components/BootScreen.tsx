@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pickExamples } from '../logo-data.js';
 import { Border, Colors, Glyphs } from '../theme.js';
 import { terminalSafeText } from './terminal-text.js';
-import { RunStageRail } from './RunStageRail.js';
+import { Logo } from './Logo.js';
 
 /**
  * A single boot-progress event. Mirrors `BootStep` from
@@ -62,6 +62,8 @@ export interface BootScreenProps {
   readonly error?: { readonly failedStep?: BootEventId; readonly message: string };
   /** Project directory the ready session is scoped to. */
   readonly workspace?: string;
+  /** Whether this boot is the user's first meaningful local run. */
+  readonly welcome?: boolean;
 }
 
 // Number of core developer tasks to surface on the ready screen.
@@ -75,7 +77,13 @@ const READY_EXAMPLE_COUNT = 2;
  * Stays mounted until the InteractiveSession flips to `phase === 'ready'`,
  * at which point the parent swaps in the steady-state layout.
  */
-export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error, workspace }) => {
+export const BootScreen: React.FC<BootScreenProps> = ({
+  events,
+  startedAt,
+  error,
+  workspace,
+  welcome = false,
+}) => {
   void startedAt;
   // `pickExamples` is itself process-cached, so re-renders never
   // shuffle the picks; the useMemo is for clarity.
@@ -89,7 +97,13 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
   const ready = !error && STEPS.every((s) => seen.has(s.id));
 
   return (
-    <Box flexDirection="column" width="100%" marginTop={1}>
+    <Box flexDirection="column" width="100%">
+      {welcome && !error ? (
+        <Logo
+          compact
+          slogan="Your model. This workspace. Actions in view."
+        />
+      ) : null}
       <Box
         flexDirection="column"
         width="100%"
@@ -97,11 +111,11 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
         borderColor={Border.color}
         borderDimColor={Border.dim}
       >
-        <Box justifyContent="space-between" paddingX={1} marginTop={1}>
+        <Box justifyContent="space-between" paddingX={1}>
           <Box>
             <Text color={error ? Colors.danger : Colors.busy}>{Glyphs.filled}</Text>
-            <Text bold>{' moxxy'}</Text>
-            <Text dimColor>{' · workspace run'}</Text>
+            <Text bold>{ready && workspace ? ` ${workspaceLabel(workspace)}` : ' moxxy'}</Text>
+            <Text dimColor>{ready ? ' · workspace ready' : ' · preparing workspace'}</Text>
           </Box>
           <Text color={error ? Colors.danger : ready ? Colors.active : Colors.busy} bold>
             {error ? 'START FAILED' : ready ? 'LOCAL' : 'STARTING'}
@@ -123,17 +137,12 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
             </>
           ) : ready ? (
             <>
-              {workspace ? (
-                <Box flexDirection="column" marginBottom={1}>
-                  <Box>
-                    <Text color={Colors.active}>{Glyphs.filled}</Text>
-                    <Text bold>{` ${workspaceLabel(workspace)}`}</Text>
-                    <Text dimColor> workspace ready</Text>
-                  </Box>
-                  <Text dimColor>{`  ${terminalSafeText(workspace, 120)}`}</Text>
-                </Box>
-              ) : null}
-              <Text dimColor>Try a task</Text>
+              <Text>
+                Start with a real task. Moxxy inspects first; actions stay reviewable.
+              </Text>
+              <Box marginTop={1}>
+                <Text dimColor>Try one</Text>
+              </Box>
               {examples.map((example, index) => (
                 <Box key={index}>
                   <Text color={Colors.busy}>{`${Glyphs.prompt}  `}</Text>
@@ -147,10 +156,6 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
               <Text dimColor>{' Preparing your workspace…'}</Text>
             </Box>
           )}
-        </Box>
-
-        <Box marginTop={1} marginBottom={1}>
-          <RunStageRail stage="understand" inset />
         </Box>
       </Box>
     </Box>

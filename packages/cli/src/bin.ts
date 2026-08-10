@@ -12,6 +12,7 @@ import { colors } from './colors.js';
 import { cliVersion } from './version.js';
 import { formatErrorForCli } from './error-formatter.js';
 import { installProcessGuards } from './process-guards.js';
+import { wrapHelpText } from './commands/help-format.js';
 
 type CommandHandler = (argv: ParsedArgv) => Promise<number>;
 
@@ -65,50 +66,50 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
     ],
   },
   {
-    title: 'SETUP',
+    title: 'CONNECT',
     rows: [
-      ['onboard', 'connect a model account; use --advanced for channels and services'],
-      ['init', 'connect a model account with recommended defaults'],
-      ['provision', 'headless setup: install + configure a provider (flags or --spec -)'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
-      ['login status|logout', 'inspect / remove stored OAuth credentials'],
-      ['doctor [--check-keys]', 'diagnose config, vault, providers, channels, memory'],
-      ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
+      ['login <action>', 'inspect or remove stored OAuth credentials'],
+      ['onboard --advanced', 'add channels or background services after the first run'],
+      ['provision', 'headless model setup for scripts and managed machines'],
+      ['init', 're-run the recommended interactive model setup'],
     ],
   },
   {
-    title: 'RUN',
+    title: 'WORKSPACE',
     rows: [
-      ['tui', 'start the Ink TUI channel'],
       ['resume [-s <id>|<id>]', 'continue a saved run (interactive picker if no id)'],
-      ['channels', 'list registered channels + their subcommands'],
-      ['channels start|stop <name>', 'run a channel detached on its own runner (or stop it)'],
-      ['channels status [name]', 'list the detached channels currently running'],
-      ['channels rotate-token <name>', "rotate a channel's persisted pairing secret (clients re-pair)"],
-      ['channels <name>', 'start a channel by name in the foreground (same as `moxxy <name>`)'],
-      ['channels <name> <sub>', 'invoke a channel-defined subcommand'],
-      ['serve [--except <list>]', 'run every channel + background daemon in ONE process'],
+      ['runs <action>', 'inspect or remove saved runs (`sessions` remains an alias)'],
+      ['extensions <action>', 'manage optional capabilities (`plugins` remains an alias)'],
+      ['skills <action>', 'manage project and user skill files'],
+      ['mcp <action>', 'manage Model Context Protocol servers'],
+      ['memory <action>', 'curate long-term memory'],
     ],
   },
   {
-    title: 'MANAGE',
+    title: 'GOVERN',
     rows: [
-      ['runs list|delete', 'list / remove saved runs (`sessions` remains an alias)'],
-      ['skills list|new|audit', 'manage skill files'],
-      ['extensions list|search|install|remove|enable|disable|reload|new', 'find, install + manage extensions (`plugins` is an alias)'],
-      ['self-update status|rollback', 'inspect / roll back self-update transactions'],
-      ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
-      ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
+      ['policy', 'show what the agent may do here and who decided it'],
+      ['perms <action>', 'view or edit the permission policy'],
+      ['receipt <turnId>', 'verify one run: actor, tools, denials, policy, and cost'],
+      ['security <action>', 'inspect extension isolation state'],
+      ['config <action>', 'read or edit the moxxy config (user or project scope)'],
       ['config trust|untrust', 'approve an executable project config so it may run'],
-      ['profile list|<name>', 'print a deployment baseline for the system config scope'],
-      ['sync [--check]', 'reconcile installed plugins with the config manifest'],
-      ['receipt <turnId>', 'verified account of one run: actor, tools, denials, policy, cost'],
-      ['policy', 'what the agent may do here, and who decided it'],
-      ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
-      ['security audit|isolators|status', 'inspect plugin-security isolation state'],
-      ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
-      ['schedule list|add|remove|run|daemon', 'manage time-driven prompts (cron / heartbeat)'],
-      ['service list|install|uninstall|start|stop|logs', 'run channels + scheduler as a background OS unit'],
+      ['profile [name]', 'print a managed deployment baseline'],
+    ],
+  },
+  {
+    title: 'OPERATE',
+    rows: [
+      ['channels <action>', 'manage registered chat and web surfaces'],
+      ['serve [--except <list>]', 'run channels and background daemons in one process'],
+      ['schedule <action>', 'manage time-driven prompts (cron / heartbeat)'],
+      ['service <action>', 'run channels + scheduler as a background OS unit'],
+      ['sync [--check]', 'reconcile installed extensions with the config manifest'],
+      ['doctor [--check-keys]', 'diagnose config, vault, model connections, and channels'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
+      ['self-update status|rollback', 'inspect or roll back agent-applied updates'],
+      ['tui [--standalone]', 'start an isolated TUI instead of attaching to a runner'],
     ],
   },
   {
@@ -204,18 +205,36 @@ function renderHelp(advanced = false): string {
     out.push(rule(section.title.toLowerCase()));
     for (const [cmd, desc] of section.rows) {
       const padded = cmd.padEnd(colWidth, ' ');
-      out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(desc)}`);
+      const prefixWidth = ROW_INDENT + colWidth + 2;
+      const descriptionWidth = width - prefixWidth;
+      if (descriptionWidth >= 24) {
+        const lines = wrapHelpText(desc, descriptionWidth);
+        out.push(
+          `${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(lines[0] ?? '')}`,
+        );
+        for (const line of lines.slice(1)) {
+          out.push(`${' '.repeat(prefixWidth)}${colors.dim(line)}`);
+        }
+      } else {
+        out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(cmd)}`);
+        const lines = wrapHelpText(desc, Math.max(20, width - ROW_INDENT - 2));
+        for (const line of lines) {
+          out.push(`${' '.repeat(ROW_INDENT + 2)}${colors.dim(line)}`);
+        }
+      }
     }
     if (i < sections.length - 1) out.push('');
   });
 
-  out.push('');
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
-  );
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
-  );
+  if (advanced) {
+    out.push('');
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
+    );
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
+    );
+  }
   out.push('');
   out.push(`${colors.dim('Run')} ${colors.bold('moxxy')} ${colors.dim('in a project to get started.')}`);
   if (!advanced) {

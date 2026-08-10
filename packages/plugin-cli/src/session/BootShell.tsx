@@ -26,6 +26,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   model,
   version,
   updateAvailable,
+  firstRun = false,
   resumed,
   switchSession,
 }) => {
@@ -125,13 +126,11 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     };
   }, [eagerSession, bootstrap]);
 
-  // Splash phase: render the BootScreen until the user submits the
-  // first prompt. The input unlocks the moment a session resolves; the
-  // submission flips us into the chat view AND becomes the first turn.
-  // Resumed sessions (and sessions reached via the /sessions switcher)
-  // skip the splash entirely — the user wants to land back in their
-  // conversation without re-typing anything.
-  if (!session || (initialPrompt == null && !resumed && !landedViaSwitch)) {
+  // Boot progress is always visible while setup is running. The branded
+  // ready state, however, is a one-time welcome: later fresh runs land in the
+  // work surface immediately. Resumed/switched runs always show their history.
+  const showWelcome = firstRun && initialPrompt == null && !resumed && !landedViaSwitch;
+  if (!session || showWelcome) {
     return (
       <Box flexDirection="column">
         <BootScreen
@@ -139,6 +138,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           startedAt={startedAt}
           {...(session ? { workspace: session.cwd } : {})}
           {...(bootError ? { error: bootError } : {})}
+          welcome={firstRun}
         />
         {session ? (
           <BootInputArea

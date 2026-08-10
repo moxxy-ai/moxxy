@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { PermissionEngine } from '@moxxy/core';
 import type { ParsedArgv } from '../argv.js';
-import { confirmedYes } from '../argv-helpers.js';
+import { confirmedYes, helpRequested } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
@@ -30,6 +30,11 @@ function policyPath(): string {
 }
 
 export async function runPermsCommand(argv: ParsedArgv): Promise<number> {
+  if (helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+
   // No subcommand + TTY → mount the Ink editor.
   const sub = argv.positional[0];
   if (!sub && process.stdin.isTTY) {

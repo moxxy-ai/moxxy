@@ -8,7 +8,7 @@ import {
   type ConfigScope,
 } from '@moxxy/config';
 import type { ParsedArgv } from '../argv.js';
-import { stringFlag } from '../argv-helpers.js';
+import { helpRequested, stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
@@ -68,6 +68,11 @@ function valueAtPath(obj: unknown, dotPath: string): unknown {
 }
 
 export async function runConfigCommand(argv: ParsedArgv): Promise<number> {
+  if (helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+
   const sub = argv.positional[0];
   const scope = (stringFlag(argv, 'scope') ?? 'user') as ConfigScope;
   if (scope !== 'user' && scope !== 'project') {

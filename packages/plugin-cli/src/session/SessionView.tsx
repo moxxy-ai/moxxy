@@ -5,7 +5,7 @@ import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
 import { RunFrameHeader, StatusLine } from '../components/StatusLine.js';
-import { RunStageRail, deriveRunStage } from '../components/RunStageRail.js';
+import { RunStageStatus, deriveRunStage } from '../components/RunStageRail.js';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -193,7 +193,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
     pendingPermission != null || pendingApproval != null,
   );
 
-  const slashSuggestions = React.useMemo(() => buildSlashSuggestions(session), [session]);
+  const slashSuggestions = React.useMemo(
+    () =>
+      buildSlashSuggestions(session, {
+        canSwitchRuns: canSwitchSession ?? false,
+        canManageExtensions: Boolean(session.pluginsAdmin),
+      }),
+    [session, canSwitchSession],
+  );
 
   // Guards against a second picker-driven npm install while one is running.
   // npm itself is mutex-serialized host-side; this is purely UX (one clear
@@ -249,6 +256,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
     if (action === 'exit') {
       readAloud.stop();
       exit();
+      return;
+    }
+    if (action === 'new' && onSwitchSession) {
+      setSystemNotice('starting a fresh run…');
+      void onSwitchSession({ kind: 'new' }).catch((err: unknown) => {
+        setSystemNotice(
+          `could not start a fresh run: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
       return;
     }
     // Stop any read-aloud playback so a wiped/cleared session isn't still
@@ -424,7 +440,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
           pendingApproval != null
         }
       />
-      <RunStageRail stage={runStage} inset />
+      {turn.busy || pendingPermission != null || pendingApproval != null ? (
+        <RunStageStatus stage={runStage} inset />
+      ) : null}
       <OverlayOrNotice
         overlay={overlay}
         systemNotice={systemNotice}

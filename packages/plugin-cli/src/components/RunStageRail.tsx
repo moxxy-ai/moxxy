@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../theme.js';
 
 export type RunStage = 'understand' | 'act' | 'verify';
 
-const STAGES: ReadonlyArray<{ readonly id: RunStage; readonly full: string; readonly short: string }> = [
-  { id: 'understand', full: 'UNDERSTAND', short: 'UND' },
-  { id: 'act', full: 'ACT', short: 'ACT' },
-  { id: 'verify', full: 'VERIFY', short: 'VER' },
-];
+const STAGE_COPY: Readonly<Record<RunStage, { readonly label: string; readonly detail: string }>> = {
+  understand: { label: 'Understanding', detail: 'reading the workspace' },
+  act: { label: 'Acting', detail: 'changes stay reviewable' },
+  verify: { label: 'Verifying', detail: 'checking the result' },
+};
 
 const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'recall', 'session_recall']);
 
@@ -74,46 +74,17 @@ export function deriveRunStage(
   return !busy && answerCompleted ? 'verify' : 'understand';
 }
 
-export const RunStageRail: React.FC<{ readonly stage: RunStage; readonly inset?: boolean }> = ({
+export const RunStageStatus: React.FC<{ readonly stage: RunStage; readonly inset?: boolean }> = ({
   stage,
   inset = false,
 }) => {
-  const columns = useTerminalColumns();
-  const compact = columns < 64;
-  const activeIndex = STAGES.findIndex((entry) => entry.id === stage);
+  const copy = STAGE_COPY[stage];
 
   return (
     <Box width="100%" marginTop={inset ? 0 : 1} paddingX={1}>
-      <Text dimColor>{compact ? '' : 'RUN  '}</Text>
-      {STAGES.map((entry, index) => {
-        const active = index === activeIndex;
-        const complete = index < activeIndex;
-        const glyph = active || complete ? Glyphs.filled : Glyphs.pending;
-        return (
-          <React.Fragment key={entry.id}>
-            {index > 0 ? <Text dimColor>{compact ? '  ' : '  ─  '}</Text> : null}
-            <Text
-              color={active ? Colors.busy : complete ? Colors.active : undefined}
-              dimColor={!active && !complete}
-              bold={active}
-            >
-              {`${glyph} 0${index + 1} ${compact ? entry.short : entry.full}`}
-            </Text>
-          </React.Fragment>
-        );
-      })}
+      <Text color={Colors.busy}>{Glyphs.filled}</Text>
+      <Text color={Colors.busy} bold>{` ${copy.label}`}</Text>
+      <Text dimColor>{` · ${copy.detail}`}</Text>
     </Box>
   );
 };
-
-function useTerminalColumns(): number {
-  const [columns, setColumns] = useState(() => process.stdout.columns ?? 80);
-  useEffect(() => {
-    const onResize = (): void => setColumns(process.stdout.columns ?? 80);
-    process.stdout.on('resize', onResize);
-    return () => {
-      process.stdout.off('resize', onResize);
-    };
-  }, []);
-  return columns;
-}
