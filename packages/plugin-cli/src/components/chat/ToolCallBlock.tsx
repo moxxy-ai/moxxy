@@ -4,11 +4,6 @@ import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, t
 import { Colors } from '../../theme.js';
 import { formatToolActivity, isFileDiffResult, oneLine, stringify, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
-import { ShimmerText } from './ShimmerText.js';
-
-/** Cap displayed identifier length so an oversized MCP/skill name
- *  doesn't blow the header off the right edge of the terminal. */
-const NAME_DISPLAY_MAX = 48;
 
 export const ToolCallBlock: React.FC<{
   request: ToolCallRequestedEvent;
@@ -23,7 +18,11 @@ export const ToolCallBlock: React.FC<{
   if (isFileDiffResult(outcome)) {
     const display = (outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
-      return <FileDiffView display={display} expanded={expanded} />;
+      return (
+        <Box paddingLeft={nested ? 0 : 2}>
+          <FileDiffView display={display} expanded={expanded} />
+        </Box>
+      );
     }
   }
   const status: 'pending' | 'ok' | 'err' =
@@ -35,12 +34,17 @@ export const ToolCallBlock: React.FC<{
           ? 'ok'
           : 'err';
   const columns = process.stdout.columns ?? 80;
+  const transcriptColumns = Math.min(108, columns);
   const detail = truncate(
     formatToolActivity(request.name, request.input, status === 'pending'),
-    Math.max(NAME_DISPLAY_MAX, columns - (nested ? 8 : 4)),
+    Math.max(24, transcriptColumns - (nested ? 8 : 4)),
   );
   return (
-    <Box flexDirection="column" marginTop={nested ? 0 : 1}>
+    <Box
+      flexDirection="column"
+      marginTop={nested ? 0 : 1}
+      paddingLeft={nested ? 0 : 2}
+    >
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
         <Text
@@ -49,13 +53,11 @@ export const ToolCallBlock: React.FC<{
         >
           {status === 'err' ? '✗' : status === 'ok' ? '✓' : toolGlyph(request.name)}{' '}
         </Text>
-        <ShimmerText text={detail} active={status === 'pending'} />
+        <Text dimColor>{detail}</Text>
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
-        {status === 'ok' && !expanded ? <Text dimColor>{' · Ctrl+O result'}</Text> : null}
       </Box>
       {outcome && (expanded || status === 'err') ? (
-        <Box marginLeft={nested ? 2 : 0}>
-          <Text dimColor>{nested ? '  result · ' : '  └ result · '}</Text>
+        <Box marginLeft={nested ? 4 : 2}>
           <OutcomeText outcome={outcome} />
         </Box>
       ) : null}
@@ -75,16 +77,16 @@ const OutcomeText: React.FC<{
   outcome: ToolResultEvent | { type: 'denied'; reason: string };
 }> = ({ outcome }) => {
   if (outcome.type === 'denied') {
-    return <Text color={Colors.danger}>denied: {outcome.reason}</Text>;
+    return <Text color={Colors.danger}>Result · denied: {outcome.reason}</Text>;
   }
   if (!outcome.ok) {
     return (
       <Text color={Colors.danger}>
-        {outcome.error?.kind ?? 'error'}: {outcome.error?.message}
+        Result · {outcome.error?.kind ?? 'error'}: {outcome.error?.message}
       </Text>
     );
   }
   const preview = oneLine(stringify(outcome.output));
-  const maxWidth = Math.max(24, (process.stdout.columns ?? 80) - 14);
-  return <Text dimColor>{truncate(preview, maxWidth)}</Text>;
+  const maxWidth = Math.max(24, Math.min(108, process.stdout.columns ?? 80) - 12);
+  return <Text dimColor>{`Result · ${truncate(preview, maxWidth)}`}</Text>;
 };

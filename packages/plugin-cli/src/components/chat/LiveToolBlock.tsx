@@ -2,7 +2,6 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors } from '../../theme.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
-import { ShimmerText } from './ShimmerText.js';
 import {
   buildCompactSummary,
   truncate,
@@ -13,7 +12,7 @@ import {
  * Renders a run of consecutive "compact" tool calls as one live block.
  * Collapsed (default):
  *
- *     ▸ Tools · Read 3 files, searched 1 pattern · Ctrl+O details
+ *     ▸ Tools · Read 3 files, searched 1 pattern
  *
  * Expanded (Ctrl+O on):
  *
@@ -39,10 +38,9 @@ export const LiveToolBlock: React.FC<{
   // window, otherwise a completed read/search keeps shimmering indefinitely.
   const inFlight = block.calls.some((call) => call.outcome === null);
   const showDetails = expanded || inFlight;
-  const hintWidth = inFlight ? 0 : 26;
   const summary = truncate(
     buildCompactSummary(block.calls, inFlight),
-    Math.max(24, (process.stdout.columns ?? 80) - hintWidth - (nested ? 14 : 10)),
+    Math.max(24, (process.stdout.columns ?? 80) - (nested ? 14 : 10)),
   );
   // Errors among the latest few calls get surfaced even when collapsed —
   // a silent failure inside a live block would be confusing.
@@ -54,21 +52,22 @@ export const LiveToolBlock: React.FC<{
   }, 0);
 
   return (
-    <Box flexDirection="column" marginTop={nested ? 0 : 1}>
+    <Box
+      flexDirection="column"
+      marginTop={nested ? 0 : 1}
+      paddingLeft={nested ? 0 : 2}
+    >
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
         <Text dimColor>{`${showDetails ? '▾' : '▸'} `}</Text>
         <Text bold>Tools</Text>
         <Text dimColor>{' · '}</Text>
-        <ShimmerText text={summary} active={inFlight} />
-        {!inFlight ? (
-          <Text dimColor>{`  ·  Ctrl+O ${showDetails ? 'collapse' : 'details'}`}</Text>
-        ) : null}
+        <Text dimColor>{summary}</Text>
       </Box>
       {errorCount > 0 && !showDetails ? (
         <Box marginLeft={2}>
           <Text color={Colors.danger}>
-            {errorCount} {errorCount === 1 ? 'call' : 'calls'} failed — press ctrl+o for detail
+            {errorCount} {errorCount === 1 ? 'call' : 'calls'} failed
           </Text>
         </Box>
       ) : null}

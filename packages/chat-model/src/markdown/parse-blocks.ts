@@ -119,9 +119,22 @@ export function parseBlocks(src: string): Block[] {
       paraLines.push(next);
       i++;
     }
-    blocks.push({ kind: 'paragraph', text: paraLines.join(' ') });
+    blocks.push({ kind: 'paragraph', text: joinParagraphLines(paraLines) });
   }
   return blocks;
+}
+
+/** Soft Markdown line breaks become spaces; two trailing spaces are an
+ * explicit hard break and must remain a newline for terminal/DOM renderers. */
+function joinParagraphLines(lines: ReadonlyArray<string>): string {
+  let text = '';
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const hardBreak = / {2,}$/.test(line);
+    text += line.trimEnd();
+    if (index < lines.length - 1) text += hardBreak ? '\n' : ' ';
+  }
+  return text;
 }
 
 /**

@@ -503,7 +503,10 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       // Touch a matching file; the watcher (debounced 600ms) should fire runNow.
       await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
 
-      await vi.waitFor(() => expect(runs).toContain('on-touch'), { timeout: 4000, interval: 50 });
+      // The watcher itself debounces for 600ms. Full-monorepo Vitest runs can
+      // heavily delay timers on shared CI workers, so leave enough wall time
+      // for the already-registered event to drain without weakening the check.
+      await vi.waitFor(() => expect(runs).toContain('on-touch'), { timeout: 10_000, interval: 50 });
     } finally {
       integration.stop();
     }

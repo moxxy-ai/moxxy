@@ -2,22 +2,23 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
+import { wrapLogicalLine } from '../prompt/BufferLines.js';
 import { blockGap } from './density.js';
 import { AssistantBlock } from './AssistantBlock.js';
 
-export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolean }> = ({
-  event,
-  expandToolOutputs,
-}) => {
+export const EventLine: React.FC<{
+  event: MoxxyEvent;
+  expandToolOutputs?: boolean;
+  availableWidth?: number;
+}> = ({ event, expandToolOutputs, availableWidth }) => {
   switch (event.type) {
-    case 'user_prompt':
+    case 'user_prompt': {
       if (event.origin) {
         return (
           <Box flexDirection="column" marginTop={blockGap()}>
             <Box>
               <Text dimColor>{`${Glyphs.filled} ${formatTriggerOrigin(event.origin)} · `}</Text>
               <Text>{event.origin.name}</Text>
-              {!expandToolOutputs ? <Text dimColor>{'  ·  Ctrl+O details'}</Text> : null}
             </Box>
             {expandToolOutputs ? (
               <Box marginLeft={2}>
@@ -37,17 +38,21 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
           </Box>
         );
       }
-      // Editorial transcript treatment: a quiet speaker label and the exact
-      // prompt below it. No underline/rule — long prompts should wrap like
-      // prose, not look like a selected terminal command.
+      // Keep authored prompts visually distinct from agent output without
+      // reintroducing YOU/MOXXY labels. The prompt is terminal chrome rather
+      // than prose, so its band spans the viewport while answers retain their
+      // narrower reading column.
+      const promptWidth = Math.max(24, availableWidth ?? (process.stdout.columns ?? 80) - 1);
+      const blankPromptRow = ' '.repeat(promptWidth);
+      const promptRows = formatUserPromptRows(event.text, promptWidth);
       return (
-        <Box flexDirection="column" marginTop={blockGap()} paddingX={1}>
-          <Text dimColor bold>YOU</Text>
-          <Box marginLeft={1}>
-            <Text bold>{event.text.trim()}</Text>
-          </Box>
+        <Box flexDirection="column" marginTop={blockGap()}>
+          <Text bold color="white" backgroundColor={Colors.chrome}>
+            {[blankPromptRow, ...promptRows, blankPromptRow].join('\n')}
+          </Text>
         </Box>
       );
+    }
     case 'assistant_message':
       return <AssistantBlock content={event.content} />;
     case 'reasoning_message': {
@@ -66,8 +71,8 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // since Ink has no native collapse affordance.
       if (expandToolOutputs) {
         return (
-          <Box flexDirection="column" marginTop={blockGap()}>
-            <Text dimColor>{'▾ Thinking  ·  Ctrl+O collapse'}</Text>
+          <Box flexDirection="column" marginTop={blockGap()} paddingLeft={2}>
+            <Text dimColor>▾ Thinking</Text>
             <Box marginLeft={2}>
               <Text dimColor>{content}</Text>
             </Box>
@@ -75,8 +80,8 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
         );
       }
       return (
-        <Box marginTop={blockGap()}>
-          <Text dimColor>{'▸ Thinking  ·  Ctrl+O details'}</Text>
+        <Box marginTop={blockGap()} paddingLeft={2}>
+          <Text dimColor>▸ Thinking</Text>
         </Box>
       );
     }
@@ -123,6 +128,17 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       return null;
   }
 };
+
+export function formatUserPromptRows(text: string, width: number): ReadonlyArray<string> {
+  const rowWidth = Math.max(8, width);
+  const contentWidth = Math.max(1, rowWidth - 4); // two-column horizontal padding
+  const visualRows = text.trim().split('\n').flatMap((line) => wrapLogicalLine(line, contentWidth));
+  return visualRows.map((row) => {
+    const content = row.text.trimEnd();
+    const prefix = '  ';
+    return `${prefix}${content}${' '.repeat(Math.max(2, rowWidth - prefix.length - content.length))}`;
+  });
+}
 
 const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
   webhook: 'Webhook received',

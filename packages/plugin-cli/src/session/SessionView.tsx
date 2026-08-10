@@ -7,7 +7,7 @@ import {
   type UserPromptAttachment,
 } from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
-import { RunFrameHeader, StatusLine } from '../components/StatusLine.js';
+import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -444,11 +444,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   return (
     <Box flexDirection="column">
-      <RunFrameHeader workspace={session.cwd} governance={sessionInfo.governance ?? null} />
       <ChatView
         events={stream.events}
-        streamingDelta={stream.streamingDelta}
-        reasoningDelta={stream.reasoningDelta}
         expandToolOutputs={expandToolOutputs}
         compactTools={compactTools}
         hideLive={
@@ -565,9 +562,21 @@ export const SessionView: React.FC<SessionViewProps> = ({
         busyStartedAt={
           turn.busy && !pendingPermission && !pendingApproval ? turn.busyStartedAt : null
         }
+        busyLabel={
+          stream.streamingDelta.trim()
+            ? 'Writing'
+            : stream.reasoningDelta.trim()
+              ? 'Thinking'
+              : 'Working'
+        }
         queueCount={turn.queueCount}
         modeBadge={modeBadge}
         modeName={modeName}
+        modelName={activeModel}
+        contextUsed={contextUsed}
+        contextWindow={contextWindow}
+        governance={sessionInfo.governance ?? null}
+        detailsExpanded={expandToolOutputs}
         chromeItems={sessionInfo.clientChrome ?? []}
       />
     </Box>

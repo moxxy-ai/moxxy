@@ -18,7 +18,7 @@ const ERROR_MAX = 80;
  *
  * Collapsed (default) — a single header row:
  *
- *   ▸ Agents · 4 Explore agents finished · Ctrl+O details
+ *   ▸ Agents · 4 Explore agents finished
  *
  * Expanded (Ctrl+O / `expandToolOutputs`) — a compact tree, one branch per
  * agent with a status sub-line:
@@ -51,24 +51,22 @@ export const SubagentGroupView: React.FC<{
 
   if (!expandToolOutputs) {
     return (
-      <Box marginTop={blockGap()}>
+      <Box marginTop={blockGap()} paddingLeft={2}>
         <Text dimColor>▸ </Text>
         <Text color={dotColor} bold>Agents</Text>
         <Text dimColor>{' · '}</Text>
         <Text>{header}</Text>
-        <Text dimColor>{'  ·  Ctrl+O details'}</Text>
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column" marginTop={blockGap()}>
+    <Box flexDirection="column" marginTop={blockGap()} paddingLeft={2}>
       <Box>
         <Text dimColor>▾ </Text>
         <Text color={dotColor} bold>Agents</Text>
         <Text dimColor>{' · '}</Text>
         <Text>{header}</Text>
-        <Text dimColor>{'  ·  Ctrl+O collapse'}</Text>
       </Box>
       <Box flexDirection="column" marginLeft={2}>
         {agents.map((a) => (

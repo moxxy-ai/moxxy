@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import path from 'node:path';
 import { Box, Text } from 'ink';
 import type { ClientChromeItem, GovernanceInfo, ModeBadge } from '@moxxy/sdk';
-import { formatElapsed } from '@moxxy/chat-model';
+import { formatElapsed, formatTokensK } from '@moxxy/chat-model';
 import { Colors, Glyphs, badgeBackground, badgeMarker } from '../theme.js';
 import { Spinner } from './Spinner.js';
 import { MOTION_ENABLED } from './motion.js';
@@ -10,51 +9,48 @@ import { terminalSafeText } from './terminal-text.js';
 
 export interface StatusLineProps {
   readonly busyStartedAt?: number | null;
+  /** Fixed-height activity copy; replaces transcript streaming previews. */
+  readonly busyLabel?: 'Working' | 'Thinking' | 'Writing';
   readonly queueCount?: number;
   /** Safety-critical badge for a special/autonomous run. */
   readonly modeBadge?: ModeBadge | null;
   /** Active run behavior. Always visible; Shift+Tab cycles it. */
   readonly modeName: string;
+  /** Active provider model. Always visible in the persistent status edge. */
+  readonly modelName: string;
+  /** Estimated tokens currently occupying the active context window. */
+  readonly contextUsed: number;
+  /** Model context limit when known. */
+  readonly contextWindow?: number | null;
+  /** Governed workspaces keep their safety state visible; local is implicit. */
+  readonly governance?: GovernanceInfo | null;
+  /** One global transcript-details toggle; avoids repeating Ctrl+O per block. */
+  readonly detailsExpanded?: boolean;
   /** Bounded, UI-neutral status items from loaded plugins. */
   readonly chromeItems?: ReadonlyArray<ClientChromeItem>;
 }
 
-export const RunFrameHeader: React.FC<{
-  readonly workspace: string;
-  readonly governance?: GovernanceInfo | null;
-}> = ({ workspace, governance }) => {
-  const columns = useTerminalColumns();
-  const visibleWorkspace = terminalSafeText(workspaceName(workspace), columns < 58 ? 16 : 32);
-  return (
-    <Box justifyContent="space-between" width="100%" paddingX={1}>
-      <Box>
-        <Text color={Colors.busy}>{Glyphs.filled}</Text>
-        <Text bold>{' moxxy'}</Text>
-        <Text dimColor>{` ${Glyphs.midDot} `}</Text>
-        <Text>{visibleWorkspace}</Text>
-      </Box>
-      <Text color={governance?.stale ? Colors.busy : governance ? Colors.active : undefined} bold>
-        {governance ? (governance.stale ? 'MANAGED!' : 'MANAGED') : 'LOCAL'}
-      </Text>
-    </Box>
-  );
-};
-
 /**
- * Bottom edge of the product frame: run state + workspace on the left,
- * extension slots + policy on the right. Runtime architecture (provider,
- * compactor, MCP) remains available from explicit detail panels.
+ * Bottom edge of the product frame: run state on the left; model, remaining
+ * context, and mode on the right. Local is intentionally implicit, while a
+ * governed workspace remains explicit because it changes the safety contract.
  */
 export const StatusLine: React.FC<StatusLineProps> = ({
   busyStartedAt,
+  busyLabel = 'Working',
   queueCount = 0,
   modeBadge,
   modeName,
+  modelName,
+  contextUsed,
+  contextWindow,
+  governance,
+  detailsExpanded = false,
   chromeItems = [],
 }) => {
   const columns = useTerminalColumns();
   const tiny = columns < 58;
-  const chromeFits = columns >= 84;
+  const chromeFits = columns >= 128;
   const itemLimit = columns >= 140 ? 2 : 1;
   const leadingItems = chromeFits
     ? selectChromeItems(chromeItems, 'status.leading', itemLimit)
@@ -62,7 +58,12 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   const trailingItems = chromeFits
     ? selectChromeItems(chromeItems, 'status.trailing', itemLimit)
     : [];
-  const visibleMode = terminalSafeText(modeName || 'default', tiny ? 12 : 24);
+  const visibleModel = terminalSafeText(
+    modelName || 'no model',
+    tiny ? 10 : columns < 100 ? 18 : 28,
+  );
+  const visibleMode = terminalSafeText(modeName || 'default', tiny ? 9 : 18);
+  const context = formatContextRemaining(contextUsed, contextWindow, columns >= 110);
   return (
     <Box justifyContent="space-between" width="100%">
       <Box>
@@ -72,10 +73,21 @@ export const StatusLine: React.FC<StatusLineProps> = ({
             <Text> </Text>
           </>
         ) : null}
+        {governance ? (
+          <>
+            <Text color={governance.stale ? Colors.busy : Colors.active} bold>
+              {governance.stale ? 'MANAGED!' : 'MANAGED'}
+            </Text>
+            <Text dimColor>
+              {` ${Glyphs.midDot} ${terminalSafeText(governance.label, tiny ? 10 : 24)}`}
+            </Text>
+            <Text> </Text>
+          </>
+        ) : null}
         <ChromeItems items={leadingItems} />
         {leadingItems.length > 0 ? <Text> </Text> : null}
         {busyStartedAt != null ? (
-          <BusyMarker startedAt={busyStartedAt} />
+          <BusyMarker startedAt={busyStartedAt} label={busyLabel} />
         ) : (
           <>
             <Text color={Colors.active}>{Glyphs.filled}</Text>
@@ -83,11 +95,15 @@ export const StatusLine: React.FC<StatusLineProps> = ({
           </>
         )}
         {queueCount > 0 ? <Text dimColor>{`  ${Glyphs.contextUp} ${queueCount} queued`}</Text> : null}
+        {!tiny ? (
+          <Text dimColor>{`  ${Glyphs.midDot}  Ctrl+O ${detailsExpanded ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       <Box>
         <ChromeItems items={trailingItems} />
         {trailingItems.length > 0 ? <Text>  </Text> : null}
-        {!tiny ? <Text dimColor>{`mode ${Glyphs.midDot} `}</Text> : null}
+        <Text>{visibleModel}</Text>
+        <Text dimColor>{` ${Glyphs.midDot} ${context} ${Glyphs.midDot} `}</Text>
         <Text bold>{visibleMode}</Text>
         <Text dimColor>{tiny ? ' ⇧Tab' : '  ⇧Tab'}</Text>
       </Box>
@@ -95,10 +111,17 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   );
 };
 
-export function workspaceName(workspace: string): string {
-  const trimmed = workspace.trim();
-  if (!trimmed) return 'workspace';
-  return terminalSafeText(path.basename(path.resolve(trimmed)) || 'workspace', 32);
+export function formatContextRemaining(
+  used: number,
+  window: number | null | undefined,
+  detailed = false,
+): string {
+  if (window == null || !Number.isFinite(window) || window <= 0) return 'ctx —';
+  const boundedUsed = Number.isFinite(used) ? Math.max(0, used) : 0;
+  const remaining = Math.max(0, window - boundedUsed);
+  const percent = Math.max(0, Math.min(100, Math.round((remaining / window) * 100)));
+  if (!detailed) return `ctx ${percent}% left`;
+  return `ctx ${formatTokensK(Math.round(remaining)) ?? '0'} left`;
 }
 
 export function selectChromeItems(
@@ -140,7 +163,10 @@ const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (
   </Text>
 );
 
-const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {
+const BusyMarker: React.FC<{
+  startedAt: number;
+  label: 'Working' | 'Thinking' | 'Writing';
+}> = ({ startedAt, label }) => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!MOTION_ENABLED) return;
@@ -150,7 +176,7 @@ const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {
   return (
     <Box>
       <Spinner color={Colors.busy} />
-      <Text color={Colors.busy} bold>{' Working'}</Text>
+      <Text color={Colors.busy} bold>{` ${label}`}</Text>
       <Text dimColor>{`  ${formatElapsed(now - startedAt)}`}</Text>
     </Box>
   );

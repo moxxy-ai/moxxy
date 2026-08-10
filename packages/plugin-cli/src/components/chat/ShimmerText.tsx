@@ -8,6 +8,12 @@ export interface ShimmerSlices {
   readonly after: string;
 }
 
+export interface ShimmerBandSlices {
+  readonly leading: string;
+  readonly core: string;
+  readonly trailing: string;
+}
+
 /** Pure frame helper kept separate so the terminal animation is testable. */
 export function shimmerSlices(text: string, frame: number, width = 6): ShimmerSlices {
   if (!text) return { before: '', glow: '', after: '' };
@@ -22,8 +28,21 @@ export function shimmerSlices(text: string, frame: number, width = 6): ShimmerSl
   };
 }
 
-/** ANSI approximation of the desktop luminance sweep: dim text with a small,
- * moving bold window. Motion is skipped for pipes, NO_COLOR and reduced-motion. */
+/** Split the moving window into a soft gray → black → gray sweep. */
+export function shimmerBandSlices(text: string): ShimmerBandSlices {
+  if (text.length === 0) return { leading: '', core: '', trailing: '' };
+  if (text.length === 1) return { leading: '', core: text, trailing: '' };
+  const edgeWidth = Math.max(1, Math.floor(text.length / 3));
+  const coreEnd = Math.max(edgeWidth + 1, text.length - edgeWidth);
+  return {
+    leading: text.slice(0, edgeWidth),
+    core: text.slice(edgeWidth, coreEnd),
+    trailing: text.slice(coreEnd),
+  };
+}
+
+/** Active work stays high-contrast while a dark sweep crosses the label.
+ * Motion is skipped for pipes, NO_COLOR and reduced-motion. */
 export const ShimmerText: React.FC<{ readonly text: string; readonly active: boolean }> = ({ text, active }) => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
@@ -32,13 +51,17 @@ export const ShimmerText: React.FC<{ readonly text: string; readonly active: boo
     return () => clearInterval(timer);
   }, [active]);
 
-  if (!active || !MOTION_ENABLED) return <Text dimColor>{text}</Text>;
-  const slices = shimmerSlices(text, frame);
+  if (!active) return <Text dimColor>{text}</Text>;
+  if (!MOTION_ENABLED) return <Text bold color="white">{text}</Text>;
+  const slices = shimmerSlices(text, frame, 9);
+  const band = shimmerBandSlices(slices.glow);
   return (
-    <Text>
-      <Text dimColor>{slices.before}</Text>
-      <Text bold>{slices.glow}</Text>
-      <Text dimColor>{slices.after}</Text>
+    <Text bold color="white">
+      {slices.before}
+      <Text color="gray">{band.leading}</Text>
+      <Text color="black">{band.core}</Text>
+      <Text color="gray">{band.trailing}</Text>
+      {slices.after}
     </Text>
   );
 };

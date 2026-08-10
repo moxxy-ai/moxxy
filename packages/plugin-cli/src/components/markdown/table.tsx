@@ -64,7 +64,7 @@ const TableRow: React.FC<{
         <React.Fragment key={ci}>
           {ci > 0 ? <Text dimColor>{' │ '}</Text> : null}
           <Box width={w} flexShrink={0}>
-            <Text bold={bold} wrap="truncate">
+            <Text bold={bold} color="white" wrap="truncate">
               {text}
             </Text>
           </Box>

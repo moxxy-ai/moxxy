@@ -27,12 +27,26 @@ export interface BlockLineProps {
   readonly renderVersion: number;
   /** Child of a skill/activity group: use a compact branch guide and no blank row. */
   readonly nested?: boolean;
+  /** Width available to viewport-level transcript chrome such as user prompts. */
+  readonly availableWidth?: number;
 }
 
 export const BlockLine: React.FC<BlockLineProps> = memo(
-  function BlockLine({ block, expandToolOutputs, renderVersion, nested = false }) {
+  function BlockLine({
+    block,
+    expandToolOutputs,
+    renderVersion,
+    nested = false,
+    availableWidth,
+  }) {
     if (block.kind === 'event')
-      return <EventLine event={block.event} expandToolOutputs={expandToolOutputs} />;
+      return (
+        <EventLine
+          event={block.event}
+          expandToolOutputs={expandToolOutputs}
+          availableWidth={availableWidth}
+        />
+      );
     if (block.kind === 'tool-call') {
       return (
         <ToolCallBlock
@@ -70,6 +84,7 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
   (prev, next) => {
     if (prev.expandToolOutputs !== next.expandToolOutputs) return false;
     if (prev.nested !== next.nested) return false;
+    if (prev.availableWidth !== next.availableWidth) return false;
     if (prev.renderVersion !== next.renderVersion) return false;
     return blocksEquivalent(prev.block, next.block);
   },
@@ -85,21 +100,22 @@ const SkillScopeView: React.FC<{
   renderVersion: number;
 }> = ({ scope, expandToolOutputs, renderVersion }) => {
   const childToolCount = countToolCalls(scope.children);
-  const presentation = skillActivityPresentation(scope, childToolCount);
   const runningTools = scope.children.some(hasRunningTool);
+  const presentation = skillActivityPresentation(
+    scope,
+    childToolCount,
+    scope.loading || !scope.closed || runningTools,
+  );
   const hasDetails = childToolCount > 0;
   const showChildren = hasDetails && (!scope.closed || runningTools || expandToolOutputs);
   const marker = presentation.active ? '◇' : hasDetails ? (showChildren ? '▾' : '▸') : '•';
+  const activityText = `${presentation.active ? 'Using' : 'Used'} ${presentation.label}`;
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text dimColor>{`${marker} `}</Text>
-        <ShimmerText text={presentation.label} active={presentation.active} />
+        <ShimmerText text={activityText} active={presentation.active} />
         {presentation.meta ? <Text dimColor>{` · ${presentation.meta}`}</Text> : null}
-        {presentation.active ? <Text dimColor>{' · loading'}</Text> : null}
-        {scope.closed && hasDetails ? (
-          <Text dimColor>{`  ·  Ctrl+O ${showChildren ? 'collapse' : 'details'}`}</Text>
-        ) : null}
       </Box>
       {showChildren ? (
         <Box flexDirection="column" marginLeft={2}>
@@ -121,13 +137,13 @@ const SkillScopeView: React.FC<{
 export function skillActivityPresentation(
   scope: SkillScopeBlock,
   childToolCount = countToolCalls(scope.children),
+  active = scope.loading,
 ): { readonly label: string; readonly meta: string | null; readonly active: boolean } {
   const name = truncate(scope.skillEvent.name, NAME_DISPLAY_MAX);
   const meta = childToolCount > 0
     ? `${childToolCount} tool${childToolCount === 1 ? '' : 's'}`
     : null;
-  if (scope.loading) return { label: `Skill · ${name}`, meta, active: true };
-  return { label: `Skill · ${name}`, meta, active: false };
+  return { label: name, meta, active };
 }
 
 function hasRunningTool(block: Block): boolean {

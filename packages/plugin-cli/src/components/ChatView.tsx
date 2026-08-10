@@ -3,13 +3,9 @@ import { Box, Static } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { BlockLine } from './chat/BlockLine.js';
 import { IncrementalFold, isSettled, pairToolEvents, type Block, type CompactToolMap } from '@moxxy/chat-model';
-import { StreamingPreview, tailForViewport } from './chat/StreamingPreview.js';
 
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
-  readonly streamingDelta?: string;
-  /** Live (un-persisted) thinking stream; shown when no assistant text yet. */
-  readonly reasoningDelta?: string;
   /** Global Ctrl+O toggle — reveal reasoning, skill, and tool details. */
   readonly expandToolOutputs?: boolean;
   /** Per-tool compact-presentation metadata from the active tool registry. */
@@ -37,12 +33,15 @@ export interface ChatViewProps {
  */
 export const ChatView: React.FC<ChatViewProps> = ({
   events,
-  streamingDelta,
-  reasoningDelta,
   expandToolOutputs,
   compactTools,
   hideLive,
 }) => {
+  // Prose becomes hard to scan on ultrawide terminals. Keep the transcript in
+  // an editorial reading column while dialogs, input, and status chrome retain
+  // the full viewport. The small left inset forms a consistent canvas edge.
+  const viewportWidth = Math.max(32, process.stdout.columns ?? 80);
+  const transcriptWidth = Math.min(108, viewportWidth);
   // The fold is INCREMENTAL: an IncrementalFold keeps the folded block tree
   // alive across renders and re-folds only the tail past its high-water mark
   // (the old pairToolEvents walked the whole array from index 0 on every
@@ -120,35 +119,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
   return (
     <>
       <Static key={clearGenerationRef.current} items={settledRef.current}>
-        {(block) => (
-          <BlockLine
-            key={block.id}
-            block={block}
-            expandToolOutputs={!!expandToolOutputs}
-            renderVersion={renderVersion}
-          />
-        )}
+        {(block) => {
+          const blockWidth = isAuthoredPrompt(block) ? viewportWidth : transcriptWidth;
+          return (
+            <Box key={block.id} flexDirection="column" width={blockWidth} paddingLeft={1}>
+              <BlockLine
+                block={block}
+                expandToolOutputs={!!expandToolOutputs}
+                renderVersion={renderVersion}
+                availableWidth={blockWidth - 1}
+              />
+            </Box>
+          );
+        }}
       </Static>
       {hideLive ? null : (
-        <Box flexDirection="column">
-          {liveBlocks.map((b) => (
-            <BlockLine
-              key={b.id}
-              block={b}
-              expandToolOutputs={!!expandToolOutputs}
-              renderVersion={renderVersion}
-            />
-          ))}
-          {streamingDelta && streamingDelta.trim() ? (
-            <StreamingPreview kind="writing" content={tailForViewport(streamingDelta)} />
-          ) : reasoningDelta && reasoningDelta.trim() ? (
-            <StreamingPreview
-              kind="thinking"
-              content={expandToolOutputs ? tailForViewport(reasoningDelta) : ''}
-            />
-          ) : null}
+        <Box flexDirection="column" width={viewportWidth}>
+          {liveBlocks.map((block) => {
+            const blockWidth = isAuthoredPrompt(block) ? viewportWidth : transcriptWidth;
+            return (
+              <Box key={block.id} flexDirection="column" width={blockWidth} paddingLeft={1}>
+                <BlockLine
+                  block={block}
+                  expandToolOutputs={!!expandToolOutputs}
+                  renderVersion={renderVersion}
+                  availableWidth={blockWidth - 1}
+                />
+              </Box>
+            );
+          })}
         </Box>
       )}
     </>
   );
 };
+
+function isAuthoredPrompt(block: Block): boolean {
+  if (block.kind !== 'event' || block.event.type !== 'user_prompt') return false;
+  if (block.event.origin) return false;
+  return !block.event.source || block.event.source === 'user';
+}

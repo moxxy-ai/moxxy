@@ -68,7 +68,6 @@ export const FileDiffView: React.FC<{
     ...rows.map((r) => (r.kind === 'gap' ? 0 : String(diffGutterNo(r) ?? '').length)),
   );
   const dotColor = display.mode === 'create' ? Colors.active : 'cyan';
-  const canToggle = allRows.length > COLLAPSED_ROWS;
   const pathWidth = Math.max(18, (process.stdout.columns ?? 80) - 36);
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
@@ -76,9 +75,6 @@ export const FileDiffView: React.FC<{
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text bold>{fileDiffVerb(display)}</Text>
         <Text dimColor>{`(${terminalSafeText(display.path, pathWidth)})`}</Text>
-        {canToggle ? (
-          <Text dimColor>{`  ·  Ctrl+O ${expanded ? 'collapse' : 'details'}`}</Text>
-        ) : null}
       </Box>
       <Box>
         <Text dimColor>{`  └ ${fileDiffSummary(display)}`}</Text>
