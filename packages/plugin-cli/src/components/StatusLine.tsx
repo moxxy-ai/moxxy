@@ -21,11 +21,31 @@ export interface StatusLineProps {
   readonly chromeItems?: ReadonlyArray<ClientChromeItem>;
 }
 
+export const RunFrameHeader: React.FC<{
+  readonly workspace: string;
+  readonly governance?: GovernanceInfo | null;
+}> = ({ workspace, governance }) => {
+  const columns = useTerminalColumns();
+  const visibleWorkspace = terminalSafeText(workspaceName(workspace), columns < 58 ? 16 : 32);
+  return (
+    <Box justifyContent="space-between" width="100%" paddingX={1}>
+      <Box>
+        <Text color={Colors.busy}>{Glyphs.filled}</Text>
+        <Text bold>{' moxxy'}</Text>
+        <Text dimColor>{` ${Glyphs.midDot} `}</Text>
+        <Text>{visibleWorkspace}</Text>
+      </Box>
+      <Text color={governance?.stale ? Colors.busy : governance ? Colors.active : undefined} bold>
+        {governance ? (governance.stale ? 'MANAGED!' : 'MANAGED') : 'LOCAL'}
+      </Text>
+    </Box>
+  );
+};
+
 /**
- * Product status line. It deliberately answers only three everyday questions:
- * where am I, is moxxy working, and is organization policy active? Runtime
- * architecture (provider, mode, MCP, context strategy) remains available from
- * explicit detail panels instead of occupying every frame.
+ * Bottom edge of the product frame: run state + workspace on the left,
+ * extension slots + policy on the right. Runtime architecture (provider,
+ * compactor, MCP) remains available from explicit detail panels.
  */
 export const StatusLine: React.FC<StatusLineProps> = ({
   busyStartedAt,
@@ -38,6 +58,8 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   const columns = useTerminalColumns();
   const tiny = columns < 58;
   const chromeFits = columns >= (governance ? 120 : 72);
+  const showPolicyLabel = columns >= 80;
+  const showPersonalPolicy = columns >= 58;
   const itemLimit = columns >= 140 ? 2 : 1;
   const leadingItems = chromeFits
     ? selectChromeItems(chromeItems, 'status.leading', itemLimit)
@@ -46,7 +68,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
     ? selectChromeItems(chromeItems, 'status.trailing', itemLimit)
     : [];
   const visibleWorkspace = tiny
-    ? terminalSafeText(workspaceName(workspace), 18)
+    ? terminalSafeText(workspaceName(workspace), 14)
     : workspaceName(workspace);
   return (
     <Box justifyContent="space-between" width="100%">
@@ -67,15 +89,24 @@ export const StatusLine: React.FC<StatusLineProps> = ({
             <Text bold> Ready</Text>
           </>
         )}
+        <Text dimColor>{`  ${Glyphs.midDot}  ${tiny ? '' : 'workspace '}`}</Text>
+        <Text bold>{visibleWorkspace}</Text>
         {queueCount > 0 ? <Text dimColor>{`  ${Glyphs.contextUp} ${queueCount} queued`}</Text> : null}
       </Box>
       <Box>
         <ChromeItems items={trailingItems} />
         {trailingItems.length > 0 ? <Text>  </Text> : null}
-        {governance ? <GovernanceBadge governance={governance} compact={columns < 120} /> : null}
-        {governance ? <Text>  </Text> : null}
-        <Text dimColor>{'◱ '}</Text>
-        <Text bold>{visibleWorkspace}</Text>
+        {governance ? (
+          <>
+            {showPolicyLabel ? <Text dimColor>{`policy ${Glyphs.midDot} `}</Text> : null}
+            <GovernanceBadge governance={governance} compact={columns < 120} />
+          </>
+        ) : showPersonalPolicy ? (
+          <>
+            <Text dimColor>{`policy ${Glyphs.midDot} `}</Text>
+            <Text>personal</Text>
+          </>
+        ) : null}
       </Box>
     </Box>
   );

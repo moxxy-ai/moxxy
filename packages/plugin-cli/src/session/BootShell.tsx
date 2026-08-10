@@ -202,7 +202,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
 
   return (
     <Box flexDirection="column">
-      <Box marginTop={2}>
+      <Box marginTop={1}>
         <InputBox
           disabled={!ready}
           voicePhase={voice.phase}
@@ -232,7 +232,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
 
 const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) => (
   <>
-    <Box marginTop={2}>
+    <Box marginTop={1}>
       <InputBox disabled placeholder={placeholder} onSubmit={() => undefined} />
     </Box>
     <Box>

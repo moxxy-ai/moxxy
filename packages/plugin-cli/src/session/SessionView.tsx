@@ -4,7 +4,8 @@ import { useApp } from 'ink';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
-import { StatusLine } from '../components/StatusLine.js';
+import { RunFrameHeader, StatusLine } from '../components/StatusLine.js';
+import { RunStageRail, deriveRunStage } from '../components/RunStageRail.js';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -186,6 +187,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
   const sessionInfo = session.getInfo();
+  const runStage = deriveRunStage(
+    stream.events,
+    turn.busy,
+    pendingPermission != null || pendingApproval != null,
+  );
 
   const slashSuggestions = React.useMemo(() => buildSlashSuggestions(session), [session]);
 
@@ -404,6 +410,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   return (
     <Box flexDirection="column">
+      <RunFrameHeader workspace={session.cwd} governance={sessionInfo.governance ?? null} />
       <ChatView
         events={stream.events}
         streamingDelta={stream.streamingDelta}
@@ -417,6 +424,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
           pendingApproval != null
         }
       />
+      <RunStageRail stage={runStage} inset />
       <OverlayOrNotice
         overlay={overlay}
         systemNotice={systemNotice}

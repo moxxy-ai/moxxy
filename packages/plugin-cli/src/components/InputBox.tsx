@@ -33,7 +33,7 @@ const VOICE_TRANSCRIBE_LABEL = ' TRANSCRIBING ';
 const RIGHT_PAD = 1;
 
 /**
- * Bordered wrapper around `PromptInput`. The rounded border lives here
+ * Bordered wrapper around `PromptInput`. The square product-frame border lives here
  * (PromptInput stays borderless). When `yolo` is true, the standard
  * top edge is replaced with a hand-drawn row containing an inverse-
  * yellow auto-approve tab embedded in the border, mirroring the reference
@@ -82,9 +82,9 @@ const VoiceInputBox: React.FC<{ phase: Exclude<VoicePhase, 'idle'> } & Omit<Inpu
   return (
     <Box flexDirection="column" width="100%">
       <Box>
-        <Text color={accent}>{'╭' + '─'.repeat(dashesBefore)}</Text>
+        <Text color={accent}>{'┌' + '─'.repeat(dashesBefore)}</Text>
         <Text backgroundColor={accent} color="black" bold>{label}</Text>
-        <Text color={accent}>{'─'.repeat(RIGHT_PAD) + '╮'}</Text>
+        <Text color={accent}>{'─'.repeat(RIGHT_PAD) + '┐'}</Text>
       </Box>
       <Box
         flexDirection="column"
@@ -116,9 +116,9 @@ const YoloInputBox: React.FC<Omit<InputBoxProps, 'yolo'>> = ({
   return (
     <Box flexDirection="column" width="100%">
       <Box>
-        <Text color={Colors.busy}>{'╭' + '─'.repeat(dashesBefore)}</Text>
+        <Text color={Colors.busy}>{'┌' + '─'.repeat(dashesBefore)}</Text>
         <Text backgroundColor={Colors.busy} color="black" bold>{YOLO_LABEL}</Text>
-        <Text color={Colors.busy}>{'─'.repeat(RIGHT_PAD) + '╮'}</Text>
+        <Text color={Colors.busy}>{'─'.repeat(RIGHT_PAD) + '┐'}</Text>
       </Box>
       <Box
         flexDirection="column"

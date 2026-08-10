@@ -126,18 +126,25 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({
   const queueNote = queueDepth > 0 ? `${queueDepth} more decision${queueDepth === 1 ? '' : 's'} queued` : undefined;
   return (
     <Modal
-      title={presentation.title}
+      title="02 ACT · approval"
       subtitle={queueNote}
       hints={`Enter allow once · A ${presentation.sessionLabel} · D details · Esc deny`}
     >
-      <Text bold>{presentation.action}</Text>
-      <Box flexDirection="column" marginTop={1}>
+      <Text bold>{presentation.title}</Text>
+      <Text dimColor>{presentation.action}</Text>
+      <Box
+        flexDirection="column"
+        marginTop={1}
+        paddingX={1}
+        borderStyle="single"
+        borderColor={Colors.busy}
+      >
         <Text dimColor>{presentation.targetLabel}</Text>
         <Text>{presentation.target}</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text color={Colors.busy}>Impact  </Text>
-        <Text>{presentation.impact}</Text>
+        <Box marginTop={1}>
+          <Text color={Colors.busy}>Consequence  </Text>
+          <Text>{presentation.impact}</Text>
+        </Box>
       </Box>
       {details ? (
         <Box flexDirection="column" marginTop={1}>
