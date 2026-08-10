@@ -614,6 +614,62 @@ describe('FocusWidget stages', () => {
     }
   });
 
+  it('shows and removes a voice follow-up queued by the main renderer', async () => {
+    installFakeApi();
+    const canvasContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    const owner = new BroadcastChannel(DESKTOP_VOICE_CALL_CHANNEL);
+    const received: unknown[] = [];
+    owner.addEventListener('message', (message: MessageEvent<unknown>) => {
+      received.push(message.data);
+    });
+
+    try {
+      render(<FocusWidget />);
+      await waitFor(() => {
+        expect(received).toContainEqual(expect.objectContaining({
+          type: 'snapshot-request',
+          workspaceId: 'ws-test',
+        }));
+      });
+      owner.postMessage({
+        type: 'snapshot',
+        source: 'main',
+        workspaceId: 'ws-test',
+        snapshot: {
+          active: true,
+          phase: 'thinking',
+          activity: null,
+          errorReason: null,
+          microphoneMuted: false,
+          waitingSoundEnabled: true,
+          localPiperInstallRequired: false,
+          localPiperInstalling: false,
+          queuedTurns: [{ id: 'q-voice-1', prompt: 'Transcribed voice follow-up' }],
+        },
+      });
+
+      await screen.findByRole('button', { name: /end voice mode/i });
+      fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+      expect(await screen.findByText('Transcribed voice follow-up')).toBeTruthy();
+      expect(screen.getByRole('status', { name: /1 queued message/i })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: /drop queued message/i }));
+      await waitFor(() => {
+        expect(received).toContainEqual({
+          type: 'queue-drop',
+          source: 'focus',
+          workspaceId: 'ws-test',
+          queueId: 'q-voice-1',
+        });
+      });
+    } finally {
+      owner.close();
+      canvasContext.mockRestore();
+    }
+  });
+
   it('exposes the full voice microphone and waiting-sound controls in focus mode', async () => {
     let captureStarts = 0;
     const cancelCapture = vi.fn();

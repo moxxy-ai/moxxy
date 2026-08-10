@@ -1,6 +1,7 @@
 import {
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -27,8 +28,11 @@ export interface FocusMiniTextComposer {
   readonly canSubmit: boolean;
   readonly sending: boolean;
   readonly canAbort: boolean;
-  readonly queued: ReturnType<typeof useQueuedTurns>;
-  readonly removeQueued: (id: string) => void;
+  readonly queued: ReadonlyArray<{
+    readonly key: string;
+    readonly prompt: string;
+    readonly onRemove: () => void;
+  }>;
   readonly submit: () => void;
   readonly abort: () => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -39,14 +43,18 @@ const MAX_TEXTAREA_HEIGHT = 112;
 
 export function useFocusMiniTextComposer({
   workspaceId,
+  remoteQueuedTurns,
+  onRemoveRemoteQueuedTurn,
 }: {
   readonly workspaceId: string | null;
+  readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
+  readonly onRemoveRemoteQueuedTurn: (id: string) => void;
 }): FocusMiniTextComposer {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusInput = useCallback(() => inputRef.current?.focus(), []);
   const chat = useChat(workspaceId);
-  const queued = useQueuedTurns(workspaceId);
+  const localQueuedTurns = useQueuedTurns(workspaceId);
   const {
     attachments,
     removeAttachment,
@@ -90,6 +98,23 @@ export function useFocusMiniTextComposer({
   const removeQueued = useCallback((id: string): void => {
     if (workspaceId) chatStore.dropFromQueue(workspaceId, id);
   }, [workspaceId]);
+  const queued = useMemo(() => [
+    ...localQueuedTurns.map((turn) => ({
+      key: `local:${turn.id}`,
+      prompt: turn.prompt,
+      onRemove: () => removeQueued(turn.id),
+    })),
+    ...remoteQueuedTurns.map((turn) => ({
+      key: `remote:${turn.id}`,
+      prompt: turn.prompt,
+      onRemove: () => onRemoveRemoteQueuedTurn(turn.id),
+    })),
+  ], [
+    localQueuedTurns,
+    onRemoveRemoteQueuedTurn,
+    remoteQueuedTurns,
+    removeQueued,
+  ]);
 
   return {
     inputRef,
@@ -104,7 +129,6 @@ export function useFocusMiniTextComposer({
     sending: chat.sending,
     canAbort: chat.activeTurnId !== null,
     queued,
-    removeQueued,
     submit,
     abort,
     onKeyDown,

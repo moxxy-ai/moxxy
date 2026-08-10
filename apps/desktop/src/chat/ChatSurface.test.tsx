@@ -103,7 +103,8 @@ vi.mock('@moxxy/client-core', () => ({
     rename: vi.fn(),
   }),
   useActiveAsk: () => null,
-  useVoiceCall: () => voiceCallState,
+  useVoiceCall: () => ({ ...voiceCallState }),
+  useQueuedTurns: () => [],
   deskForWorkspace: () => undefined,
   // ChatSurface owns the session-info fetch now (one fetch shared by the
   // instrument bar's telemetry and the composer's mode menu), so its hook's
@@ -114,6 +115,7 @@ vi.mock('@moxxy/client-core', () => ({
     getModel: () => null,
     getAutoApprove: () => false,
     setActive: vi.fn(),
+    dropFromQueue: vi.fn(),
   },
   useContextUsage: () => ({
     contextTokens: null,

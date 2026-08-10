@@ -34,18 +34,26 @@ export function MiniText({
   transcribing = false,
   voiceModeActive,
   voiceModePhase,
+  remoteQueuedTurns,
+  onRemoveRemoteQueuedTurn,
 }: {
   readonly workspaceId: string | null;
   readonly ask: FocusAskPrompt | null;
   readonly onBack: () => void;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
+  readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
+  readonly onRemoveRemoteQueuedTurn: (id: string) => void;
   /** True while a voice clip is being transcribed (before it's sent) — so
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
 }): JSX.Element {
   const latest = useLatestTurn(workspaceId);
-  const composer = useFocusMiniTextComposer({ workspaceId });
+  const composer = useFocusMiniTextComposer({
+    workspaceId,
+    remoteQueuedTurns,
+    onRemoveRemoteQueuedTurn,
+  });
   const transcript = useFocusTranscriptAutoScroll([
     latest?.key ?? 'empty',
     composer.sending ? 'sending' : 'idle',
@@ -111,9 +119,9 @@ export function MiniText({
               <span aria-hidden style={style.focusQueueLabel}>Queued</span>
               {composer.queued.map((queued) => (
                 <QueuedChip
-                  key={queued.id}
+                  key={queued.key}
                   text={queued.prompt}
-                  onRemove={() => composer.removeQueued(queued.id)}
+                  onRemove={queued.onRemove}
                 />
               ))}
             </div>

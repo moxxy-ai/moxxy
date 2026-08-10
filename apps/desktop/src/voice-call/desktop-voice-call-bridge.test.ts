@@ -98,6 +98,45 @@ describe('desktop voice-call bridge validation', () => {
     })).toBeNull();
   });
 
+  it('accepts a bounded queued-turn preview and its exact removal command', () => {
+    const parsed = parseDesktopVoiceCallMessage({
+      type: 'snapshot',
+      source: 'main',
+      workspaceId: 'ws-1',
+      snapshot: {
+        active: true,
+        phase: 'thinking',
+        activity: null,
+        errorReason: null,
+        microphoneMuted: false,
+        waitingSoundEnabled: true,
+        localPiperInstallRequired: false,
+        localPiperInstalling: false,
+        queuedTurns: [{ id: 'q-1', prompt: 'Follow-up from the microphone' }],
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      type: 'snapshot',
+      snapshot: {
+        queuedTurns: [{ id: 'q-1', prompt: 'Follow-up from the microphone' }],
+      },
+    });
+    expect(parseDesktopVoiceCallMessage({
+      type: 'queue-drop',
+      source: 'focus',
+      workspaceId: 'ws-1',
+      queueId: 'q-1',
+    })).not.toBeNull();
+    expect(parseDesktopVoiceCallMessage({
+      type: 'queue-drop',
+      source: 'focus',
+      workspaceId: 'ws-1',
+      queueId: 'q-1',
+      prompt: 'unvalidated extra data',
+    })).toBeNull();
+  });
+
   it('accepts Uint8Array spectrum frames cloned from another renderer realm', () => {
     const bins = runInNewContext('new Uint8Array([2, 4, 8])') as Uint8Array;
     expect(bins instanceof Uint8Array).toBe(false);
