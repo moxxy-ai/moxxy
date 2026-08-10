@@ -422,7 +422,7 @@ describe('FocusWidget stages', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
-    const status = screen.getByRole('status', { name: /voice mode: listening/i });
+    const status = screen.getByRole('status', { name: /voice mode: i'm listening/i });
     expect(status).toHaveAttribute('data-phase', 'listening');
     const waves = Array.from(status.querySelectorAll('.voice-radio-waves'));
     expect(waves).toHaveLength(2);
@@ -1174,11 +1174,32 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
 
     expect(spy.invokes.filter((invoke) => invoke.channel === 'session.runTurn')).toHaveLength(1);
+    expect(screen.getByRole('status', { name: /1 queued message/i })).toBeTruthy();
     expect(await screen.findByText('queued prompt')).toBeTruthy();
     const remove = screen.getByRole('button', { name: /drop queued message/i });
     fireEvent.click(remove);
     expect(screen.queryByText('queued prompt')).toBeNull();
     expect(chatStore.getQueue('ws-test')).toHaveLength(0);
+  });
+
+  it('aborts the current turn from mini-text through the canonical session action', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+
+    fireEvent.change(input, { target: { value: 'long running task' } });
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+    await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
+
+    fireEvent.click(screen.getByRole('button', { name: /stop current task/i }));
+
+    await waitFor(() => {
+      const abort = spy.invokes.find((invoke) => invoke.channel === 'session.abortTurn');
+      expect(abort?.args).toEqual({ workspaceId: 'ws-test', turnId: 't-1' });
+    });
   });
 
   it('pasting an image in mini-text stages a preview attachment and enables image-only send', async () => {

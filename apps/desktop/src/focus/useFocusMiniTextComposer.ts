@@ -26,9 +26,11 @@ export interface FocusMiniTextComposer {
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
   readonly sending: boolean;
+  readonly canAbort: boolean;
   readonly queued: ReturnType<typeof useQueuedTurns>;
   readonly removeQueued: (id: string) => void;
   readonly submit: () => void;
+  readonly abort: () => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly imagePreview: ReturnType<typeof useImagePreview>;
 }
@@ -67,6 +69,10 @@ export function useFocusMiniTextComposer({
     clearAttachments();
   }, [attachments, canSubmit, chat, clearAttachments, trimmedDraft]);
 
+  const abort = useCallback((): void => {
+    void chat.abort();
+  }, [chat.abort]);
+
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -96,9 +102,11 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     canSubmit,
     sending: chat.sending,
+    canAbort: chat.activeTurnId !== null,
     queued,
     removeQueued,
     submit,
+    abort,
     onKeyDown,
     imagePreview,
   };

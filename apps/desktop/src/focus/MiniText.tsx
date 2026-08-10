@@ -17,7 +17,7 @@ import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
 import type { ImagePreviewItem } from '@/chat/image-preview/types';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { Dot } from './focus-primitives';
-import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
+import { ChevronLeftIcon, SendIcon, StopIcon, WindowIcon } from './focus-icons';
 import { useLatestTurn, type LatestFocusTurn } from './useLatestTurn';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
@@ -102,7 +102,13 @@ export function MiniText({
             </div>
           )}
           {composer.queued.length > 0 && (
-            <div aria-label="Queued messages" style={style.focusQueuedTurns}>
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label={`${composer.queued.length} queued ${composer.queued.length === 1 ? 'message' : 'messages'}`}
+              style={style.focusQueuedTurns}
+            >
+              <span aria-hidden style={style.focusQueueLabel}>Queued</span>
               {composer.queued.map((queued) => (
                 <QueuedChip
                   key={queued.id}
@@ -138,6 +144,17 @@ export function MiniText({
               disabled={!workspaceId}
               style={style.input}
             />
+            {composer.canAbort && (
+              <button
+                type="button"
+                aria-label="Stop current task"
+                title="Stop current task"
+                onClick={composer.abort}
+                style={style.stop}
+              >
+                <StopIcon />
+              </button>
+            )}
             <button
               type="submit"
               aria-label="Send"
