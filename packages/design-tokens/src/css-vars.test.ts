@@ -62,7 +62,7 @@ describe('generateRootCss', () => {
     // carry the palette's blue-green bias. If one of these changes here without
     // styles.css following, the desktop and the mobile theme map have silently
     // diverged from the design language.
-    expect(css).toContain('--color-primary: #c21e6b;');
+    expect(css).toContain('--color-primary: #d62a00;');
     expect(css).toContain('--color-on-primary: #ffffff;');
     expect(css).toContain('--color-text: #0b0f12;');
     expect(css).toContain('--color-app-bg: #e7eaeb;');

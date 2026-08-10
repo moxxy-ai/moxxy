@@ -64,8 +64,8 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
       theme: {
         background: token('--color-input-soft', '#0a0e11'),
         foreground: token('--color-text', '#e4ebef'),
-        cursor: token('--color-primary', '#f4408f'),
-        selectionBackground: token('--color-primary-soft', '#24101b'),
+        cursor: token('--color-primary', '#ff4a1e'),
+        selectionBackground: token('--color-primary-soft', '#2b130d'),
       },
       scrollback: 5000,
     });

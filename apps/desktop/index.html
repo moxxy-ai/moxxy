@@ -26,10 +26,11 @@
         animation: splash-turn 3.4s linear infinite; }
       #splash-fallback .label { font-size: 0.7rem; color: #4a5a64;
         letter-spacing: 0.12em; text-transform: uppercase; }
-      /* The mark's second strand takes the commanded accent, which is a
-         different stop per theme (deep mulberry on paper, luminous magenta on
-         ink) for the same reason the brand ships a -dark mark. */
-      #splash-fallback .strand { stroke: #c21e6b; }
+      /* The mark's second strand takes the commanded accent, which is the
+         brand's Signal at a different stop per theme (deepened on paper so it
+         holds against white, Signal exactly on ink) for the same reason the
+         brand ships a -dark mark. */
+      #splash-fallback .strand { stroke: #d62a00; }
       @keyframes splash-turn { to { transform: rotate(90deg); } }
       /* Dark splash — main sets nativeTheme.themeSource from the persisted
          pref BEFORE the window is created, so this media query reflects the
@@ -39,7 +40,7 @@
         html, body { background: #101519; color: #e4ebef; }
         #splash-fallback .label { color: #93a2ab; }
         #splash-fallback .mark { color: #e4ebef; }
-        #splash-fallback .strand { stroke: #f4408f; }
+        #splash-fallback .strand { stroke: #ff4a1e; }
       }
       @media (prefers-reduced-motion: reduce) {
         #splash-fallback .mark { animation: none; }
