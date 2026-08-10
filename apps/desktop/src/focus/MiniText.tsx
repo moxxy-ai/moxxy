@@ -1,31 +1,21 @@
 /**
- * Stage 3: mini-text — a scrollable, markdown-rendered view of the latest
- * turn plus a composer. The body shows the full freshest message (the user
- * prompt or the streaming assistant answer), auto-scrolling to the bottom as
- * text arrives. Sending invokes the same runner turn as the main window
- * (bidirectional sync); the window itself is drag-resizable.
- *
- * Hosts the mini-text-only line primitives (header, thinking / latest /
- * idle preview lines) since nothing else consumes them.
+ * Stage 3: Mini Chat. It embeds the same canonical Transcript as the main
+ * surface, preserving tools, skills, diffs, Markdown and streaming while the
+ * compact composer drives the same runner session.
  */
 
 import { api, type VoiceCallPhase } from '@moxxy/client-core';
-import { MarkdownBody } from '@/chat/MarkdownBody';
-import { UserBlock } from '@/chat/blocks/UserBlock';
+import { Transcript } from '@/chat/Transcript';
 import { QueuedChip } from '@/chat/composer/QueuedChip';
 import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
-import type { ImagePreviewItem } from '@/chat/image-preview/types';
 import { MoxxyMark } from '@/components/MoxxyMark';
-import { Dot } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, StopIcon, WindowIcon } from './focus-icons';
-import { useLatestTurn, type LatestFocusTurn } from './useLatestTurn';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusAttachmentStrip } from './FocusAttachmentStrip';
-import { useFocusMiniTextComposer } from './useFocusMiniTextComposer';
-import { useFocusTranscriptAutoScroll } from './useFocusTranscriptAutoScroll';
 import { FocusMiniVoiceStatus } from './FocusMiniVoiceStatus';
+import { useFocusMiniTextModel } from './useFocusMiniTextModel';
 
 export function MiniText({
   workspaceId,
@@ -48,52 +38,41 @@ export function MiniText({
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
 }): JSX.Element {
-  const latest = useLatestTurn(workspaceId);
-  const composer = useFocusMiniTextComposer({
+  const { transcript, composer } = useFocusMiniTextModel({
     workspaceId,
     remoteQueuedTurns,
     onRemoveRemoteQueuedTurn,
   });
-  const transcript = useFocusTranscriptAutoScroll([
-    latest?.key ?? 'empty',
-    composer.sending ? 'sending' : 'idle',
-    transcribing ? 'transcribing' : 'ready',
-  ].join(':'));
-
-  // Show a "working" indicator while transcribing speech, or while a turn is
-  // in flight but the assistant hasn't produced any text yet (otherwise the
-  // user's own prompt would sit there with no sign of progress).
-  const showThinking =
-    transcribing || (composer.sending && (!latest || !latest.assistantLive));
-
   return (
     <>
       <div style={style.panel}>
         <MiniHeader
-          title="Text"
           onBack={onBack}
           voiceModeActive={voiceModeActive}
           voiceModePhase={voiceModePhase}
         />
         <div
-          ref={transcript.bodyRef}
           data-testid="focus-transcript"
-          onScroll={transcript.onScroll}
           style={style.panelBody}
         >
           {ask && <FocusAskCard prompt={ask} variant="panel" />}
-          {latest && (
-            <LatestTurn
-              turn={latest}
-              onPreviewImage={composer.imagePreview.open}
-            />
-          )}
-          {showThinking && (
-            <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
-          )}
-          {!latest && !showThinking && (
+          {transcribing && <TransientStatus label="Transcribing…" />}
+          {!workspaceId || (transcript.isEmpty && !transcript.sending) ? (
             <IdleLine
               label={workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'}
+            />
+          ) : (
+            <Transcript
+              events={transcript.events}
+              extensions={transcript.extensions}
+              streamingText={transcript.streamingText}
+              streamingReasoning={transcript.streamingReasoning}
+              sending={transcript.sending}
+              workspaceId={workspaceId ?? undefined}
+              hasOlder={transcript.hasOlder}
+              onReachedTop={transcript.loadOlder}
+              onPreviewImage={composer.imagePreview.open}
+              compactTools={transcript.compactTools}
             />
           )}
         </div>
@@ -116,12 +95,12 @@ export function MiniText({
               aria-label={`${composer.queued.length} queued ${composer.queued.length === 1 ? 'message' : 'messages'}`}
               style={style.focusQueuedTurns}
             >
-              <span aria-hidden style={style.focusQueueLabel}>Queued</span>
               {composer.queued.map((queued) => (
                 <QueuedChip
                   key={queued.key}
                   text={queued.prompt}
                   onRemove={queued.onRemove}
+                  compact
                 />
               ))}
             </div>
@@ -185,12 +164,10 @@ export function MiniText({
 // ---- Mini-text line primitives -------------------------------------------
 
 function MiniHeader({
-  title,
   onBack,
   voiceModeActive,
   voiceModePhase,
 }: {
-  readonly title: string;
   readonly onBack: () => void;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
@@ -205,7 +182,6 @@ function MiniHeader({
         : (
           <div style={style.miniTitle}>
             <MoxxyMark size={16} />
-            <span>{title}</span>
           </div>
         )}
       <button
@@ -220,38 +196,11 @@ function MiniHeader({
   );
 }
 
-function ThinkingLine({ label }: { readonly label: string }): JSX.Element {
+function TransientStatus({ label }: { readonly label: string }): JSX.Element {
   return (
-    <div style={{ ...style.lineRow, marginTop: 8 }}>
-      <Dot delay={0} />
-      <Dot delay={160} />
-      <Dot delay={320} />
-      <span style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: 'var(--type-ui)' }}>{label}</span>
+    <div role="status" style={style.focusTransientStatus}>
+      {label}
     </div>
-  );
-}
-
-function LatestTurn({
-  turn,
-  onPreviewImage,
-}: {
-  readonly turn: LatestFocusTurn;
-  readonly onPreviewImage: (image: ImagePreviewItem) => void;
-}): JSX.Element {
-  return (
-    <section aria-label="Latest conversation" style={style.focusLatestTurn}>
-      <UserBlock
-        text={turn.userText}
-        attachments={turn.userAttachments}
-        onPreviewImage={onPreviewImage}
-      />
-      {turn.assistantText && (
-        <div style={style.focusAssistantReply}>
-          <span style={style.focusMessageLabel}>Moxxy</span>
-          <MarkdownBody text={turn.assistantText} />
-        </div>
-      )}
-    </section>
   );
 }
 

@@ -274,6 +274,13 @@ export function useDesktopVoiceCallBridge({
     bridgePortRef.current?.post({ type: 'command', source: 'focus', workspaceId, command });
   }, [workspaceId]);
   const dropRemoteQueuedTurn = useCallback((id: string): void => {
+    setRemoteSnapshot((snapshot) => {
+      if (!snapshot) return snapshot;
+      return {
+        ...snapshot,
+        queuedTurns: snapshot.queuedTurns.filter((turn) => turn.id !== id),
+      };
+    });
     bridgePortRef.current?.post({
       type: 'queue-drop',
       source: 'focus',

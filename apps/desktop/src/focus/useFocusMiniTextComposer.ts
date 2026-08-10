@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import { chatStore, useChat, useQueuedTurns } from '@moxxy/client-core';
+import { chatStore, useQueuedTurns, type UseChat } from '@moxxy/client-core';
 import {
   useComposerAttachments,
   type ComposerAttachment,
@@ -45,15 +45,16 @@ export function useFocusMiniTextComposer({
   workspaceId,
   remoteQueuedTurns,
   onRemoveRemoteQueuedTurn,
+  chat,
 }: {
   readonly workspaceId: string | null;
   readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
   readonly onRemoveRemoteQueuedTurn: (id: string) => void;
+  readonly chat: UseChat;
 }): FocusMiniTextComposer {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusInput = useCallback(() => inputRef.current?.focus(), []);
-  const chat = useChat(workspaceId);
   const localQueuedTurns = useQueuedTurns(workspaceId);
   const {
     attachments,
