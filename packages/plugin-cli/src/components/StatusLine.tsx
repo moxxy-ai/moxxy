@@ -13,10 +13,8 @@ export interface StatusLineProps {
   readonly queueCount?: number;
   /** Safety-critical badge for a special/autonomous run. */
   readonly modeBadge?: ModeBadge | null;
-  /** Current project directory; the default chrome is workspace-first. */
-  readonly workspace: string;
-  /** Organization policy in force, mirrored through SessionInfo. */
-  readonly governance?: GovernanceInfo | null;
+  /** Active run behavior. Always visible; Shift+Tab cycles it. */
+  readonly modeName: string;
   /** Bounded, UI-neutral status items from loaded plugins. */
   readonly chromeItems?: ReadonlyArray<ClientChromeItem>;
 }
@@ -51,15 +49,12 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   busyStartedAt,
   queueCount = 0,
   modeBadge,
-  workspace,
-  governance,
+  modeName,
   chromeItems = [],
 }) => {
   const columns = useTerminalColumns();
   const tiny = columns < 58;
-  const chromeFits = columns >= (governance ? 120 : 72);
-  const showPolicyLabel = columns >= 80;
-  const showPersonalPolicy = columns >= 58;
+  const chromeFits = columns >= 84;
   const itemLimit = columns >= 140 ? 2 : 1;
   const leadingItems = chromeFits
     ? selectChromeItems(chromeItems, 'status.leading', itemLimit)
@@ -67,9 +62,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   const trailingItems = chromeFits
     ? selectChromeItems(chromeItems, 'status.trailing', itemLimit)
     : [];
-  const visibleWorkspace = tiny
-    ? terminalSafeText(workspaceName(workspace), 14)
-    : workspaceName(workspace);
+  const visibleMode = terminalSafeText(modeName || 'default', tiny ? 12 : 24);
   return (
     <Box justifyContent="space-between" width="100%">
       <Box>
@@ -89,24 +82,14 @@ export const StatusLine: React.FC<StatusLineProps> = ({
             <Text bold> Ready</Text>
           </>
         )}
-        <Text dimColor>{`  ${Glyphs.midDot}  ${tiny ? '' : 'workspace '}`}</Text>
-        <Text bold>{visibleWorkspace}</Text>
         {queueCount > 0 ? <Text dimColor>{`  ${Glyphs.contextUp} ${queueCount} queued`}</Text> : null}
       </Box>
       <Box>
         <ChromeItems items={trailingItems} />
         {trailingItems.length > 0 ? <Text>  </Text> : null}
-        {governance ? (
-          <>
-            {showPolicyLabel ? <Text dimColor>{`policy ${Glyphs.midDot} `}</Text> : null}
-            <GovernanceBadge governance={governance} compact={columns < 120} />
-          </>
-        ) : showPersonalPolicy ? (
-          <>
-            <Text dimColor>{`policy ${Glyphs.midDot} `}</Text>
-            <Text>personal</Text>
-          </>
-        ) : null}
+        {!tiny ? <Text dimColor>{`mode ${Glyphs.midDot} `}</Text> : null}
+        <Text bold>{visibleMode}</Text>
+        <Text dimColor>{tiny ? ' ⇧Tab' : '  ⇧Tab'}</Text>
       </Box>
     </Box>
   );
@@ -149,19 +132,6 @@ const ChromeItems: React.FC<{ items: ReadonlyArray<ClientChromeItem> }> = ({ ite
       </React.Fragment>
     ))}
   </>
-);
-
-const GovernanceBadge: React.FC<{ governance: GovernanceInfo; compact: boolean }> = ({
-  governance,
-  compact,
-}) => (
-  <Text backgroundColor={governance.stale ? Colors.busy : Colors.chrome} color="black" bold>
-    {compact
-      ? governance.stale
-        ? ' MANAGED! '
-        : ' MANAGED '
-      : ` MANAGED${governance.stale ? '!' : ''} · ${terminalSafeText(governance.label, 28)} `}
-  </Text>
 );
 
 const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (

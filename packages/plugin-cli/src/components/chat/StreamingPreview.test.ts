@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { lastNonEmptyLineShown, tailForViewport } from './StreamingPreview.js';
+import {
+  cleanStreamingTail,
+  lastNonEmptyLineShown,
+  tailForViewport,
+} from './StreamingPreview.js';
 
 describe('tailForViewport', () => {
   it('is now an identity passthrough — truncation lives in the renderer', () => {
@@ -11,6 +15,13 @@ describe('tailForViewport', () => {
   it('preserves long inputs untouched (StreamingPreview handles compact vs full rendering)', () => {
     const lines = Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n');
     expect(tailForViewport(lines)).toBe(lines);
+  });
+});
+
+describe('cleanStreamingTail', () => {
+  it('hides incomplete markdown chrome in the live row', () => {
+    expect(cleanStreamingTail('### Latest article')).toBe('Latest article');
+    expect(cleanStreamingTail('- searching sources')).toBe('searching sources');
   });
 });
 

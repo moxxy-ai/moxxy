@@ -83,38 +83,14 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
 
   if (key === 'help') {
     const helpArg = args.trim().toLowerCase();
-    if (helpArg === '') {
-      const everyday = [
-        'Everyday commands',
-        ...(deps.canSwitchSession ? ['/new         start a fresh run'] : []),
-        ...(deps.canSwitchSession ? ['/runs        continue another run'] : []),
-        '/model       change the model connection',
-        ...(deps.session.pluginsAdmin
-          ? ['/extensions  manage optional capabilities']
-          : []),
-        '/exit        leave moxxy',
-        '',
-        'Type `/help advanced` for runtime and operator commands.',
-      ];
-      if (!deps.canSwitchSession || !deps.session.pluginsAdmin) {
-        everyday.push(
-          '',
-          'This window follows one shared run.',
-          'Another run: `moxxy resume`',
-          'Extensions: `moxxy extensions`',
-        );
-      }
-      deps.setSystemNotice(everyday.join('\n'));
-      return;
-    }
-    if (helpArg === 'advanced') {
+    if (helpArg === '' || helpArg === 'advanced') {
       const lines = [...buildSlashSuggestions(deps.session, {
         canSwitchRuns: deps.canSwitchSession ?? false,
         canManageExtensions: Boolean(deps.session.pluginsAdmin),
       })]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((command) => `/${command.name.padEnd(14)} ${command.description}`);
-      deps.setSystemNotice(['Advanced commands', ...lines].join('\n'));
+      deps.setSystemNotice(['Commands', ...lines, '', 'Type / and keep typing to filter.'].join('\n'));
       return;
     }
   }

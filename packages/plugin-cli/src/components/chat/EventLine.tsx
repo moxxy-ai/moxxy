@@ -3,7 +3,6 @@ import { Box, Text } from 'ink';
 import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
 import { blockGap } from './density.js';
-import { truncate } from '@moxxy/chat-model';
 import { AssistantBlock } from './AssistantBlock.js';
 
 export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolean }> = ({
@@ -18,7 +17,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
             <Box>
               <Text dimColor>{`${Glyphs.filled} ${formatTriggerOrigin(event.origin)} · `}</Text>
               <Text>{event.origin.name}</Text>
-              {!expandToolOutputs ? <Text dimColor>{'  ›'}</Text> : null}
+              {!expandToolOutputs ? <Text dimColor>{'  ·  Ctrl+O details'}</Text> : null}
             </Box>
             {expandToolOutputs ? (
               <Box marginLeft={2}>
@@ -38,33 +37,15 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
           </Box>
         );
       }
-      // Highlighted echo bar: bold prompt glyph + the user text, then a
-      // dim horizontal rule under it. Matches the Grok-style "pinned
-      // user prompt" treatment without needing a full bordered box.
-      //
-      // Layout note: glyph and body live in separate flex columns (same
-      // pattern as AssistantBlock). A naked `<Box><Text>› </Text><Text bold>…
-      // </Text></Box>` lets Ink's default `flexShrink: 1` on `<Text>`
-      // squash the prompt glyph's trailing space at narrow widths and
-      // mis-indent wrapped continuation lines.
-      //
-      // Display normalization: collapse runs of blank lines in the body
-      // to a single line break. Pasted prose often carries paragraph
-      // breaks (`\n\n+`); rendering them verbatim leaves an empty row
-      // mid-bar that looks like a layout bug. The actual `event.text`
-      // and what the model receives are untouched — this only tightens
-      // the echo render.
+      // Editorial transcript treatment: a quiet speaker label and the exact
+      // prompt below it. No underline/rule — long prompts should wrap like
+      // prose, not look like a selected terminal command.
       return (
-        <Box flexDirection="column" marginTop={blockGap()}>
-          <Box flexDirection="row">
-            <Box flexDirection="column" marginRight={1} flexShrink={0}>
-              <Text>{Glyphs.prompt}</Text>
-            </Box>
-            <Box flexDirection="column" flexGrow={1}>
-              <Text bold>{collapseBlankLines(event.text)}</Text>
-            </Box>
+        <Box flexDirection="column" marginTop={blockGap()} paddingX={1}>
+          <Text dimColor bold>YOU</Text>
+          <Box marginLeft={1}>
+            <Text bold>{event.text.trim()}</Text>
           </Box>
-          <Text dimColor>{'─'.repeat(Math.min(60, event.text.length + 2))}</Text>
         </Box>
       );
     case 'assistant_message':
@@ -75,7 +56,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       if (event.redacted) {
         return (
           <Box marginTop={blockGap()}>
-            <Text dimColor>{`${Glyphs.pending} reasoning withheld`}</Text>
+            <Text dimColor>{'◇ Thinking · details withheld'}</Text>
           </Box>
         );
       }
@@ -86,17 +67,16 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       if (expandToolOutputs) {
         return (
           <Box flexDirection="column" marginTop={blockGap()}>
-            <Text dimColor>{`${Glyphs.pending} thinking`}</Text>
+            <Text dimColor>{'▾ Thinking  ·  Ctrl+O collapse'}</Text>
             <Box marginLeft={2}>
               <Text dimColor>{content}</Text>
             </Box>
           </Box>
         );
       }
-      const firstLine = content.split('\n').find((l) => l.trim()) ?? '';
       return (
         <Box marginTop={blockGap()}>
-          <Text dimColor>{`${Glyphs.pending} thinking · ${truncate(firstLine, 100)}`}</Text>
+          <Text dimColor>{'▸ Thinking  ·  Ctrl+O details'}</Text>
         </Box>
       );
     }
@@ -153,17 +133,6 @@ const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
 
 export function formatTriggerOrigin(origin: TriggerOrigin): string {
   return TRIGGER_VERBS[origin.kind];
-}
-
-/**
- * Display-only newline normalization for the user-prompt echo bar.
- * Drops blank lines (two or more newlines, optionally containing only
- * whitespace, collapse to a single `\n`) while preserving the user's
- * intentional single-line breaks. Leading/trailing whitespace is
- * trimmed so a stray paste-end blank doesn't push the rule down a row.
- */
-export function collapseBlankLines(text: string): string {
-  return text.replace(/\n[ \t]*\n+/g, '\n').replace(/^\s+|\s+$/g, '');
 }
 
 export function formatCompactionEvent(event: Extract<MoxxyEvent, { type: 'compaction' }>): string {

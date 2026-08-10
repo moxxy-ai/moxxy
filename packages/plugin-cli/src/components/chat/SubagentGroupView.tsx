@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { Colors, Glyphs } from '../../theme.js';
+import { Colors } from '../../theme.js';
 import { blockGap } from './density.js';
 import {
   DotColors,
@@ -18,7 +18,7 @@ const ERROR_MAX = 80;
  *
  * Collapsed (default) — a single header row:
  *
- *   ● 4 Explore agents finished (ctrl+o to expand)
+ *   ▸ Agents · 4 Explore agents finished · Ctrl+O details
  *
  * Expanded (Ctrl+O / `expandToolOutputs`) — a compact tree, one branch per
  * agent with a status sub-line:
@@ -52,9 +52,11 @@ export const SubagentGroupView: React.FC<{
   if (!expandToolOutputs) {
     return (
       <Box marginTop={blockGap()}>
-        <Text color={dotColor}>{Glyphs.filled} </Text>
+        <Text dimColor>▸ </Text>
+        <Text color={dotColor} bold>Agents</Text>
+        <Text dimColor>{' · '}</Text>
         <Text>{header}</Text>
-        <Text dimColor>{' (ctrl+o to expand)'}</Text>
+        <Text dimColor>{'  ·  Ctrl+O details'}</Text>
       </Box>
     );
   }
@@ -62,8 +64,11 @@ export const SubagentGroupView: React.FC<{
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
-        <Text color={dotColor}>{Glyphs.filled} </Text>
+        <Text dimColor>▾ </Text>
+        <Text color={dotColor} bold>Agents</Text>
+        <Text dimColor>{' · '}</Text>
         <Text>{header}</Text>
+        <Text dimColor>{'  ·  Ctrl+O collapse'}</Text>
       </Box>
       <Box flexDirection="column" marginLeft={2}>
         {agents.map((a) => (

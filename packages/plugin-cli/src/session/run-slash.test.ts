@@ -242,8 +242,8 @@ describe('runSlash /runs', () => {
   });
 });
 
-describe('runSlash progressive help', () => {
-  it('shows only available everyday concepts until advanced help is requested', () => {
+describe('runSlash command help', () => {
+  it('shows the complete available command catalog', () => {
     const notices: Array<string | null> = [];
     runSlash('/help', {
       ...baseDeps(),
@@ -258,7 +258,7 @@ describe('runSlash progressive help', () => {
 
     expect(notices[0]).toContain('/runs');
     expect(notices[0]).toContain('/extensions');
-    expect(notices[0]).not.toMatch(/^\/mode\s/m);
+    expect(notices[0]).toMatch(/^\/mode\s/m);
   });
 
   it('does not advertise controls an attached fixed runner cannot execute', () => {
@@ -276,8 +276,7 @@ describe('runSlash progressive help', () => {
     expect(notices[0]).not.toMatch(/^\/runs\s/m);
     expect(notices[0]).not.toMatch(/^\/extensions\s/m);
     expect(notices[0]).not.toMatch(/^\/new\s/m);
-    expect(notices[0]).toContain('shared run');
-    expect(notices[0]).toContain('moxxy resume');
+    expect(notices[0]).toContain('Type / and keep typing to filter.');
   });
 
   it('does not clear an attached runner when /new cannot create a separate run', () => {

@@ -12,8 +12,6 @@ export interface SlashCommand {
   /** Usage hint for args, e.g. `set <key> <value>` — shown as ghost text. */
   readonly argumentHint?: string;
   readonly aliases?: ReadonlyArray<string>;
-  /** Advanced commands remain searchable but stay out of the bare `/` menu. */
-  readonly visibility?: 'essential' | 'advanced';
 }
 
 /**
@@ -31,70 +29,60 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     name: 'runs',
     description: 'Continue another run or start a new one',
     aliases: ['sessions', 'switch'],
-    visibility: 'essential',
   },
   {
     name: 'model',
     description: 'Change the model connection for this run',
-    visibility: 'essential',
   },
   {
     name: 'extensions',
     description: 'Manage optional capabilities',
     aliases: ['plugins'],
-    visibility: 'essential',
   },
-  { name: 'tools', description: 'List the tools the active run can call', visibility: 'advanced' },
-  { name: 'skills', description: 'List the discovered skills', visibility: 'advanced' },
-  { name: 'agents', description: 'Inspect subagents and their activity', visibility: 'advanced' },
+  { name: 'tools', description: 'List the tools the active run can call' },
+  { name: 'skills', description: 'List the discovered skills' },
+  { name: 'agents', description: 'Inspect subagents and their activity' },
   {
     name: 'usage',
     description: 'Token usage for this run and saved model totals',
     argumentHint: '[clear]',
-    visibility: 'advanced',
   },
   {
     name: 'mode',
     description: 'Switch mode (default / goal / research)',
     argumentHint: '[mode]',
     aliases: ['loop'],
-    visibility: 'advanced',
   },
-  { name: 'mcp', description: 'Manage MCP servers', visibility: 'advanced' },
-  { name: 'settings', description: 'Advanced runtime and presentation settings', visibility: 'advanced' },
-  { name: 'setup', description: 'Configure an installed extension', visibility: 'advanced' },
+  { name: 'mcp', description: 'Manage MCP servers' },
+  { name: 'settings', description: 'Advanced runtime and presentation settings' },
+  { name: 'setup', description: 'Configure an installed extension' },
   {
     name: 'channels',
     description: 'Run Slack / Telegram bots on their own runner — configure, start, stop',
-    visibility: 'advanced',
   },
   {
     name: 'goal',
     description: 'Work autonomously until the objective is delivered (switches mode + auto-approves; Esc stops)',
     argumentHint: '<objective>',
-    visibility: 'advanced',
   },
   {
     name: 'collab',
     description: 'Run a team of agents on a goal — architect proposes a roster (you approve), then they build in parallel',
     argumentHint: '<goal>',
-    visibility: 'advanced',
   },
   {
     name: 'speak',
     description: 'Read replies aloud via the active TTS voice — bare speaks the last reply, on/off auto-speaks, stop halts',
     argumentHint: '[on|off|stop]',
     aliases: ['say'],
-    visibility: 'advanced',
   },
   {
     name: 'auto-approve',
     description: 'Allow every tool call for this run without asking',
     aliases: ['yolo'],
-    visibility: 'advanced',
   },
-  { name: 'queue', description: 'Show queued follow-ups', visibility: 'advanced' },
-  { name: 'clear-queue', description: 'Drop all queued follow-ups', visibility: 'advanced' },
+  { name: 'queue', description: 'Show queued follow-ups' },
+  { name: 'clear-queue', description: 'Drop all queued follow-ups' },
 ];
 
 /**
@@ -107,12 +95,12 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
 export function matchSlash(
   query: string,
   commands: ReadonlyArray<SlashCommand> = BUILTIN_SLASH_COMMANDS,
-  limit = 8,
+  limit = Number.MAX_SAFE_INTEGER,
 ): SlashCommand[] {
   if (!query.startsWith('/')) return [];
   const needle = query.slice(1).toLowerCase();
   if (needle === '') {
-    return commands.filter((command) => command.visibility !== 'advanced').slice(0, limit);
+    return commands.slice(0, limit);
   }
   const exact: SlashCommand[] = [];
   const prefix: SlashCommand[] = [];
@@ -149,20 +137,26 @@ export const SlashSuggestions: React.FC<{
   const moreBelow = matches.length - end;
   return (
     <Box flexDirection="column">
+      <Text dimColor>{`  commands · ${matches.length}`}</Text>
       {moreAbove > 0 ? <Text dimColor>{`  ↑ ${moreAbove} more`}</Text> : null}
       {matches.slice(start, end).map((m, idx) => {
         const i = start + idx;
         const focused = i === cursor;
+        const columns = process.stdout.columns ?? 80;
+        const descriptionWidth = Math.max(18, columns - m.name.length - 10);
+        const description = m.description.length > descriptionWidth
+          ? `${m.description.slice(0, Math.max(1, descriptionWidth - 1))}…`
+          : m.description;
         return (
           <Box key={m.name}>
             <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
             <Text {...(focused ? { bold: true } : { dimColor: true })}>/{m.name}</Text>
-            <Text dimColor>{`  — ${m.description}`}</Text>
+            <Text dimColor>{`  ${description}`}</Text>
           </Box>
         );
       })}
       {moreBelow > 0 ? <Text dimColor>{`  ↓ ${moreBelow} more`}</Text> : null}
-      <Text dimColor>  ↑↓ navigate · tab to complete · enter to send · esc to dismiss</Text>
+      <Text dimColor>  ↑↓ navigate · Tab complete · Enter run · Esc close</Text>
     </Box>
   );
 };

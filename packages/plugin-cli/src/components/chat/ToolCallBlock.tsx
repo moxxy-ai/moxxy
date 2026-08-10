@@ -34,7 +34,11 @@ export const ToolCallBlock: React.FC<{
         : outcome.ok
           ? 'ok'
           : 'err';
-  const detail = truncate(formatToolActivity(request.name, request.input, status === 'pending'), NAME_DISPLAY_MAX + 70);
+  const columns = process.stdout.columns ?? 80;
+  const detail = truncate(
+    formatToolActivity(request.name, request.input, status === 'pending'),
+    Math.max(NAME_DISPLAY_MAX, columns - (nested ? 8 : 4)),
+  );
   return (
     <Box flexDirection="column" marginTop={nested ? 0 : 1}>
       <Box>
@@ -47,10 +51,11 @@ export const ToolCallBlock: React.FC<{
         </Text>
         <ShimmerText text={detail} active={status === 'pending'} />
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
+        {status === 'ok' && !expanded ? <Text dimColor>{' · Ctrl+O result'}</Text> : null}
       </Box>
       {outcome && (expanded || status === 'err') ? (
         <Box marginLeft={nested ? 2 : 0}>
-          <Text dimColor>{nested ? '  ' : '  └ '}</Text>
+          <Text dimColor>{nested ? '  result · ' : '  └ result · '}</Text>
           <OutcomeText outcome={outcome} />
         </Box>
       ) : null}
@@ -80,5 +85,6 @@ const OutcomeText: React.FC<{
     );
   }
   const preview = oneLine(stringify(outcome.output));
-  return <Text dimColor>{truncate(preview, 100)}</Text>;
+  const maxWidth = Math.max(24, (process.stdout.columns ?? 80) - 14);
+  return <Text dimColor>{truncate(preview, maxWidth)}</Text>;
 };

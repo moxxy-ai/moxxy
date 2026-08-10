@@ -8,9 +8,9 @@ import { StreamingPreview, tailForViewport } from './chat/StreamingPreview.js';
 export interface ChatViewProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly streamingDelta?: string;
-  /** Live (un-persisted) thinking stream; shown dim when no assistant text yet. */
+  /** Live (un-persisted) thinking stream; shown when no assistant text yet. */
   readonly reasoningDelta?: string;
-  /** Global Ctrl+O toggle — expand every live-tools block at once. */
+  /** Global Ctrl+O toggle — reveal reasoning, skill, and tool details. */
   readonly expandToolOutputs?: boolean;
   /** Per-tool compact-presentation metadata from the active tool registry. */
   readonly compactTools?: CompactToolMap;
@@ -82,6 +82,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // closed with all children settled, subagent has completed, etc.).
   const settledRef = useRef<Block[]>([]);
   const clearGenerationRef = useRef(0);
+  const detailModeRef = useRef(!!expandToolOutputs);
+  // Ink Static rows cannot update after they enter scrollback. SessionView
+  // intentionally clears the terminal when Ctrl+O changes; remount the Static
+  // prefix here so the complete transcript is painted in the requested detail
+  // mode instead of leaving old rows visually frozen.
+  if (detailModeRef.current !== !!expandToolOutputs) {
+    detailModeRef.current = !!expandToolOutputs;
+    settledRef.current = [];
+    clearGenerationRef.current += 1;
+  }
   // /clear and /new drop events back to []. settledRef still holds old
   // captures — detect the shrink, drop them, and bump a key so the
   // Static node fully remounts (its internal `index` resets).
@@ -130,12 +140,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
             />
           ))}
           {streamingDelta && streamingDelta.trim() ? (
-            <StreamingPreview content={tailForViewport(streamingDelta)} />
+            <StreamingPreview kind="writing" content={tailForViewport(streamingDelta)} />
           ) : reasoningDelta && reasoningDelta.trim() ? (
-            // Dim live-thinking preview, only while there's no assistant text
-            // yet. Prefix lands on the same single visual row as the content
-            // tail, preserving StreamingPreview's no-stacking invariant.
-            <StreamingPreview content={`thinking · ${tailForViewport(reasoningDelta)}`} dim />
+            <StreamingPreview
+              kind="thinking"
+              content={expandToolOutputs ? tailForViewport(reasoningDelta) : ''}
+            />
           ) : null}
         </Box>
       )}

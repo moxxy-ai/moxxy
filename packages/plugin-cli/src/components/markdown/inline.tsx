@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text } from 'ink';
 import { tokenizeInline, type InlineTok } from '@moxxy/chat-model/markdown';
+import { terminalSafeText } from '../terminal-text.js';
 
 /**
  * Inline-span renderer: handles `code`, **bold**, *italic*, and [text](url)
@@ -32,8 +33,23 @@ const InlineToken: React.FC<{ tok: InlineTok }> = ({ tok }) => {
       return (
         <Text>
           <Text underline color="blue">{tok.label}</Text>
-          <Text dimColor>{` (${tok.url})`}</Text>
+          <Text dimColor>{formatLinkHint(tok.url)}</Text>
         </Text>
       );
   }
 };
+
+/** Keep link destinations recognizable without printing an unbounded raw URL. */
+export function formatLinkHint(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      const host = parsed.hostname.replace(/^www\./, '');
+      return host ? ` ↗ ${terminalSafeText(host, 30)}` : ' ↗';
+    }
+    if (parsed.protocol === 'mailto:') return ' ↗ email';
+  } catch {
+    // Relative links and malformed model output still get a bounded cue.
+  }
+  return ' ↗';
+}

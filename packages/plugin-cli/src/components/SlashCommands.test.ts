@@ -59,12 +59,10 @@ describe('matchSlash', () => {
     expect(matchSlash('/zzz', FIXTURE)).toEqual([]);
   });
 
-  it('keeps the bare menu focused while advanced commands remain searchable', () => {
-    expect(names(matchSlash('/', BUILTIN_SLASH_COMMANDS))).toEqual([
-      'runs',
-      'model',
-      'extensions',
-    ]);
+  it('shows the complete command catalog for the bare menu', () => {
+    expect(names(matchSlash('/', BUILTIN_SLASH_COMMANDS))).toEqual(
+      BUILTIN_SLASH_COMMANDS.map((command) => command.name),
+    );
     expect(names(matchSlash('/mode', BUILTIN_SLASH_COMMANDS))).toEqual(['mode', 'model']);
   });
 });

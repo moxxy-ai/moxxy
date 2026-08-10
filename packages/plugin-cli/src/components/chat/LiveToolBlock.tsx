@@ -1,11 +1,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { Colors, Glyphs } from '../../theme.js';
-import { ToolCallBlock, toolGlyph } from './ToolCallBlock.js';
+import { Colors } from '../../theme.js';
+import { ToolCallBlock } from './ToolCallBlock.js';
 import { ShimmerText } from './ShimmerText.js';
 import {
   buildCompactSummary,
-  compactPreviewLine,
+  truncate,
   type LiveToolBlockData,
 } from '@moxxy/chat-model';
 
@@ -13,8 +13,7 @@ import {
  * Renders a run of consecutive "compact" tool calls as one live block.
  * Collapsed (default):
  *
- *     Reading 3 files, searching for 1 pattern… (ctrl+o to expand)
- *       └ packages/plugin-cli/src/components/chat/pair-events.ts
+ *     ▸ Tools · Read 3 files, searched 1 pattern · Ctrl+O details
  *
  * Expanded (Ctrl+O on):
  *
@@ -40,8 +39,11 @@ export const LiveToolBlock: React.FC<{
   // window, otherwise a completed read/search keeps shimmering indefinitely.
   const inFlight = block.calls.some((call) => call.outcome === null);
   const showDetails = expanded || inFlight;
-  const summary = buildCompactSummary(block.calls, inFlight);
-  const latest = block.calls[block.calls.length - 1];
+  const hintWidth = inFlight ? 0 : 26;
+  const summary = truncate(
+    buildCompactSummary(block.calls, inFlight),
+    Math.max(24, (process.stdout.columns ?? 80) - hintWidth - (nested ? 14 : 10)),
+  );
   // Errors among the latest few calls get surfaced even when collapsed —
   // a silent failure inside a live block would be confusing.
   const errorCount = block.calls.reduce((n, c) => {
@@ -55,9 +57,13 @@ export const LiveToolBlock: React.FC<{
     <Box flexDirection="column" marginTop={nested ? 0 : 1}>
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
-        <Text dimColor>{latest ? toolGlyph(latest.request.name) : Glyphs.pending} </Text>
+        <Text dimColor>{`${showDetails ? '▾' : '▸'} `}</Text>
+        <Text bold>Tools</Text>
+        <Text dimColor>{' · '}</Text>
         <ShimmerText text={summary} active={inFlight} />
-        {!showDetails ? <Text dimColor>{'  ›'}</Text> : null}
+        {!inFlight ? (
+          <Text dimColor>{`  ·  Ctrl+O ${showDetails ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       {errorCount > 0 && !showDetails ? (
         <Box marginLeft={2}>
@@ -66,16 +72,16 @@ export const LiveToolBlock: React.FC<{
           </Text>
         </Box>
       ) : null}
-      {!showDetails && latest ? (
-        <Box marginLeft={2}>
-          <Text dimColor>└ </Text>
-          <Text dimColor>{compactPreviewLine(latest)}</Text>
-        </Box>
-      ) : null}
       {showDetails ? (
         <Box flexDirection="column" marginLeft={2}>
           {block.calls.map((c) => (
-            <ToolCallBlock key={c.id} request={c.request} outcome={c.outcome} nested />
+            <ToolCallBlock
+              key={c.id}
+              request={c.request}
+              outcome={c.outcome}
+              expanded={expanded}
+              nested
+            />
           ))}
         </Box>
       ) : null}

@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
-import { Glyphs } from '../../theme.js';
+import { Colors } from '../../theme.js';
+import { Spinner } from '../Spinner.js';
 import { blockGap } from './density.js';
 
 /**
@@ -28,24 +29,37 @@ import { blockGap } from './density.js';
  * full Markdown pipeline only kicks in once the `assistant_message` event lands
  * and the message becomes a settled `<Static>` block.
  */
-export const StreamingPreview: React.FC<{ content: string; dim?: boolean }> = memo(
-  function StreamingPreview({ content, dim }) {
+export const StreamingPreview: React.FC<{
+  content: string;
+  kind: 'thinking' | 'writing';
+}> = memo(
+  function StreamingPreview({ content, kind }) {
   const cols = process.stdout.columns ?? 80;
-  // Room for the marker column (glyph + 1-col margin) plus a little slack.
-  const innerCols = Math.max(20, cols - 4);
+  // Room for the speaker + activity label while preserving one visual row.
+  const innerCols = Math.max(12, cols - 24);
 
   // Show the most recent non-empty line so the row reads as live typing.
-  const shown = lastNonEmptyLineShown(content, innerCols);
+  const shown = cleanStreamingTail(lastNonEmptyLineShown(content, innerCols));
+  const label = kind === 'thinking' ? 'Thinking' : 'Writing';
 
   return (
-    <Box flexDirection="row" marginTop={blockGap()}>
-      <Box marginRight={1}>
-        <Text dimColor>{Glyphs.filled}</Text>
-      </Box>
-      <Text dimColor={dim}>{shown || ' '}</Text>
+    <Box flexDirection="row" marginTop={blockGap()} paddingX={1}>
+      <Text color={Colors.busy} bold>MOXXY</Text>
+      <Text>  </Text>
+      <Spinner color={Colors.busy} />
+      <Text dimColor>{` ${label}`}</Text>
+      {shown ? <Text dimColor>{` · ${shown}`}</Text> : null}
     </Box>
   );
 });
+
+/** Strip incomplete Markdown chrome from the one-line live preview. */
+export function cleanStreamingTail(line: string): string {
+  return line
+    .replace(/^\s{0,3}#{1,6}\s+/, '')
+    .replace(/^\s*[-*+]\s+/, '')
+    .trim();
+}
 
 /**
  * Pick the most recent non-empty line and render its tail exactly as the old

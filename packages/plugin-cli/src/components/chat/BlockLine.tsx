@@ -87,14 +87,19 @@ const SkillScopeView: React.FC<{
   const childToolCount = countToolCalls(scope.children);
   const presentation = skillActivityPresentation(scope, childToolCount);
   const runningTools = scope.children.some(hasRunningTool);
-  const showChildren = !scope.closed || runningTools || expandToolOutputs;
+  const hasDetails = childToolCount > 0;
+  const showChildren = hasDetails && (!scope.closed || runningTools || expandToolOutputs);
+  const marker = presentation.active ? '◇' : hasDetails ? (showChildren ? '▾' : '▸') : '•';
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
-        <Text dimColor>✦ </Text>
+        <Text dimColor>{`${marker} `}</Text>
         <ShimmerText text={presentation.label} active={presentation.active} />
         {presentation.meta ? <Text dimColor>{` · ${presentation.meta}`}</Text> : null}
-        {!showChildren && childToolCount > 0 ? <Text dimColor>{'  ›'}</Text> : null}
+        {presentation.active ? <Text dimColor>{' · loading'}</Text> : null}
+        {scope.closed && hasDetails ? (
+          <Text dimColor>{`  ·  Ctrl+O ${showChildren ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       {showChildren ? (
         <Box flexDirection="column" marginLeft={2}>
@@ -121,10 +126,8 @@ export function skillActivityPresentation(
   const meta = childToolCount > 0
     ? `${childToolCount} tool${childToolCount === 1 ? '' : 's'}`
     : null;
-  if (scope.loading) return { label: `Loading skill ${name}…`, meta, active: true };
-  if (scope.closed) return { label: `Used skill ${name}`, meta, active: false };
-  if (childToolCount > 0) return { label: `Using skill ${name}`, meta, active: false };
-  return { label: `Loaded skill ${name}`, meta: null, active: false };
+  if (scope.loading) return { label: `Skill · ${name}`, meta, active: true };
+  return { label: `Skill · ${name}`, meta, active: false };
 }
 
 function hasRunningTool(block: Block): boolean {

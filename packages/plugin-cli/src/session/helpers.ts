@@ -1,4 +1,9 @@
-import type { ClientSession as Session, ModeBadge } from '@moxxy/sdk';
+import {
+  isSelectableMode,
+  type ClientSession as Session,
+  type ModeBadge,
+  type ModeDef,
+} from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
   type SlashCommand,
@@ -49,7 +54,6 @@ export function buildSlashSuggestions(
       description: c.description,
       ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
       ...(c.aliases ? { aliases: c.aliases } : {}),
-      visibility: essentialOrder.has(c.name) ? 'essential' : 'advanced',
     }));
   const seen = new Set(fromRegistry.map((c) => c.name));
   const tuiLocal = BUILTIN_SLASH_COMMANDS.filter(
@@ -87,6 +91,15 @@ export function getModeName(session: Session): string {
   } catch {
     return '(none)';
   }
+}
+
+/** Next user-selectable mode in registry order, wrapping at the end. */
+export function nextSelectableMode(session: Session): ModeDef | null {
+  const modes = session.modes.list().filter(isSelectableMode);
+  if (modes.length < 2) return null;
+  const current = getModeName(session);
+  const currentIndex = modes.findIndex((candidate) => candidate.name === current);
+  return modes[(currentIndex + 1 + modes.length) % modes.length] ?? null;
 }
 
 /**
