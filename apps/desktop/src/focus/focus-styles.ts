@@ -635,11 +635,10 @@ export const style = {
   },
   panelBody: {
     flex: 1,
-    padding: '12px 14px',
-    // Reads top-down like a transcript; the latest message scrolls and
-    // MiniText auto-scrolls it to the bottom as the answer streams in.
-    display: 'block',
-    overflowY: 'auto',
+    padding: '8px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
     minHeight: 0,
     fontSize: 'var(--type-ui)',
     color: 'var(--focus-text)',
@@ -647,47 +646,23 @@ export const style = {
     WebkitUserSelect: 'text',
     ...noDrag,
   },
-  focusLatestTurn: {
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 14,
-  },
-  focusAssistantReply: {
-    width: '100%',
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 5,
-    color: 'var(--focus-text)',
-  },
-  focusMessageLabel: {
-    color: 'var(--color-primary-strong)',
-    fontSize: 'var(--type-label)',
-    fontWeight: 760,
-    letterSpacing: '0.035em',
-  },
   focusQueuedTurns: {
     display: 'flex',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    maxHeight: 58,
-    overflowY: 'auto',
+    flexWrap: 'nowrap',
+    gap: 5,
+    maxWidth: '100%',
+    minHeight: 28,
+    overflowX: 'auto',
+    overflowY: 'hidden',
     ...noDrag,
   },
-  focusQueueLabel: {
-    flexShrink: 0,
-    color: 'var(--focus-muted)',
-    fontSize: 'var(--type-label)',
-    fontWeight: 750,
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-  },
-  lineRow: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
+  focusTransientStatus: {
+    flex: '0 0 auto',
+    padding: '3px 8px',
+    color: 'var(--color-primary-strong)',
+    fontSize: 'var(--type-meta)',
+    fontWeight: 700,
   },
   composerDock: {
     display: 'flex',
@@ -849,17 +824,14 @@ export const style = {
 // ---- Keyframes + theme vars ----------------------------------------------
 // Injected once on module load so Focus motion and theme tokens resolve
 // regardless of which stage mounts first. The focus document loads
-// its own bundle and does NOT import the app's styles.css (that would set a
-// non-transparent body background and break the floating window), so the
-// handful of CSS custom properties MarkdownBody reads are mirrored here, plus
-// focus-specific surface tokens. Values track src/styles.css' light/dark
-// palette while keeping this standalone window transparent.
+// its own bundle. It imports the shared transcript styles, then restores the
+// transparent document background in focus-document.css. The tokens below
+// provide the Focus-specific surface palette.
 
 /**
- * The focus window is its own transparent BrowserWindow, so it cannot inherit
- * `styles.css`. These two constants are the whole palette it needs: the handful
- * of shared `--color-*` properties MarkdownBody reads, plus the `--focus-*`
- * surface tokens that only exist here. Values track the Harness palette in
+ * The focus window is its own transparent BrowserWindow. These constants
+ * overlay the shared palette with the `--focus-*` surface tokens used only
+ * here. Values track the Harness palette in
  * @moxxy/design-tokens; the `--focus-*` alphas are ink-tinted with the panel's
  * own blue-green ink (11, 15, 18) rather than a slate borrowed from Tailwind.
  */

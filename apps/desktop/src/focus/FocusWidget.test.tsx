@@ -34,6 +34,32 @@ import { __resetThemeForTests } from '@/lib/useTheme';
 import { style as focusStyle } from './focus-styles';
 import { DESKTOP_VOICE_CALL_CHANNEL } from '../voice-call/desktop-voice-call-bridge';
 
+vi.mock('react-virtuoso', async () => {
+  const React = await import('react');
+  return {
+    Virtuoso: React.forwardRef(function FocusTestVirtuoso(
+      props: {
+        readonly data?: ReadonlyArray<unknown>;
+        readonly itemContent?: (index: number, item: unknown) => React.ReactNode;
+        readonly components?: { readonly Footer?: () => React.ReactNode };
+        readonly ['data-testid']?: string;
+      },
+      ref: React.Ref<unknown>,
+    ) {
+      React.useImperativeHandle(ref, () => ({ scrollToIndex: () => undefined }));
+      const Footer = props.components?.Footer;
+      return React.createElement(
+        'div',
+        { 'data-testid': props['data-testid'] ?? 'virtuoso-mock' },
+        ...(props.data ?? []).map((item, index) => (
+          React.createElement(React.Fragment, { key: index }, props.itemContent?.(index, item))
+        )),
+        Footer ? React.createElement(Footer) : null,
+      );
+    }),
+  };
+});
+
 interface IpcSpy {
   invokes: Array<{ channel: string; args: unknown }>;
   emit: (channel: string, payload: unknown) => void;
@@ -148,7 +174,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
         return Promise.resolve(hasTranscriber);
       }
       if (channel === 'session.info') {
-        return Promise.resolve({ activeSynthesizer });
+        return Promise.resolve({ activeSynthesizer, skills: [], tools: [] });
       }
       if (channel === 'voice.isLocalPiperInstalled') {
         return Promise.resolve(localPiperInstalled);
@@ -664,6 +690,7 @@ describe('FocusWidget stages', () => {
           queueId: 'q-voice-1',
         });
       });
+      expect(screen.queryByText('Transcribed voice follow-up')).toBeNull();
     } finally {
       owner.close();
       canvasContext.mockRestore();
@@ -1035,7 +1062,7 @@ describe('FocusWidget theme', () => {
 });
 
 describe('FocusWidget bidirectional sync', () => {
-  it('shows only the latest user question, its attachment, and matching answer in mini-text', async () => {
+  it('shows the complete conversation, attachments, and answers in mini chat', async () => {
     const spy = installFakeApi({
       historyEvents: [
         event(1, {
@@ -1095,14 +1122,14 @@ describe('FocusWidget bidirectional sync', () => {
     }));
     expect(screen.getByRole('dialog', { name: /question\.png/i })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText(/older user prompt/i)).toBeNull();
-    expect(screen.queryByText(/older assistant answer/i)).toBeNull();
+    expect(screen.getByText(/older user prompt/i)).toBeTruthy();
+    expect(screen.getByText(/older assistant answer/i)).toBeTruthy();
     expect(screen.getByTestId('focus-transcript').getAttribute('style')).toContain(
       'user-select: text',
     );
   });
 
-  it('does not present an intermediate tool-use message as the final mini-text answer', async () => {
+  it('preserves intermediate tool-use messages in the canonical mini chat timeline', async () => {
     installFakeApi({
       historyEvents: [
         event(1, {
@@ -1126,7 +1153,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
     expect(await screen.findByText('Run the requested operation')).toBeTruthy();
-    expect(screen.queryByText('internal tool preamble')).toBeNull();
+    expect(screen.getByText('internal tool preamble')).toBeTruthy();
   });
 
   it('sending from mini-text invokes session.runTurn for the active workspace', async () => {
@@ -1452,6 +1479,45 @@ describe('FocusWidget bidirectional sync', () => {
       expect(screen.getByText('newest').tagName).toBe('STRONG');
       expect(screen.getByText('const answer = 42;').tagName).toBe('CODE');
     });
+  });
+
+  it('renders canonical tool activity in mini chat and exposes its details', async () => {
+    installFakeApi({
+      historyEvents: [
+        event(1, {
+          type: 'user_prompt',
+          turnId: 't-tool-detail',
+          source: 'user',
+          text: 'Inspect the project',
+        } as never),
+        event(2, {
+          type: 'tool_call_requested',
+          turnId: 't-tool-detail',
+          source: 'model',
+          callId: 'call-read-1',
+          name: 'Read',
+          input: { file_path: 'src/app.ts' },
+        } as never),
+        event(3, {
+          type: 'tool_result',
+          turnId: 't-tool-detail',
+          source: 'tool',
+          callId: 'call-read-1',
+          ok: true,
+          output: 'export const ready = true;',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const activity = await screen.findByRole('button', { name: /read/i });
+    expect(activity.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(activity);
+    expect(screen.getAllByText(/src\/app\.ts/i)).not.toHaveLength(0);
+    expect(screen.getByText(/export const ready = true/i)).toBeTruthy();
   });
 
   it('shows an inactive assistant preview bubble and opens mini-text when the pet is clicked', async () => {

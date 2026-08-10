@@ -159,6 +159,7 @@ describe('useDesktopVoiceCallBridge', () => {
     await waitFor(() => expect(remote().remoteQueuedTurns).toEqual(queuedTurns));
     act(() => remote().dropRemoteQueuedTurn('q-7'));
     expect(dropQueuedTurn).toHaveBeenCalledWith('q-7');
+    expect(remote().remoteQueuedTurns).toEqual([]);
   });
 
   it('opens Voice Mode in the main renderer when Focus initiates the call', async () => {

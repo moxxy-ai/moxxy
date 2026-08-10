@@ -42,7 +42,6 @@ export function FocusMiniVoiceStatus({
       <VoiceRadioWaves side="left" active={voiceCarrying} variant="compact" />
       <MoxxyMark size={16} />
       <VoiceRadioWaves side="right" active={voiceCarrying} variant="compact" />
-      <span>Text</span>
       <span aria-hidden style={style.miniVoiceState}>{label}</span>
     </span>
   );
