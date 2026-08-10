@@ -99,19 +99,17 @@ describe('VoicePresenceRail', () => {
     expect(screen.getByTestId('voice-rail-operation')).toHaveTextContent('Searching the web');
   });
 
-  it('marks the rail with the phase the waves are gated on', () => {
-    // The stylesheet shows the waves only under these two modifiers, so the
-    // class is the whole contract: lose it and a silent rail starts waving.
+  it('activates the waves only while a voice is carrying', () => {
     for (const phase of ['listening', 'speaking'] as const) {
       const { container, unmount } = renderRail({ phase });
-      expect(container.querySelector('.voice-rail')).toHaveClass(`voice-rail--${phase}`);
+      const waves = Array.from(container.querySelectorAll('.voice-radio-waves'));
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'true')).toBe(true);
       unmount();
     }
     for (const phase of ['thinking', 'transcribing', 'synthesizing'] as const) {
       const { container, unmount } = renderRail({ phase });
-      const rail = container.querySelector('.voice-rail');
-      expect(rail).not.toHaveClass('voice-rail--listening');
-      expect(rail).not.toHaveClass('voice-rail--speaking');
+      const waves = Array.from(container.querySelectorAll('.voice-radio-waves'));
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'false')).toBe(true);
       unmount();
     }
   });
@@ -119,7 +117,7 @@ describe('VoicePresenceRail', () => {
   it('lays the waves out beside the mark, never on top of the status text', () => {
     const { container } = renderRail();
 
-    const waves = Array.from(container.querySelectorAll('.voice-rail-waves'));
+    const waves = Array.from(container.querySelectorAll('.voice-radio-waves'));
     expect(waves).toHaveLength(2);
     // Overlaying them on the mark is what let them land on the copy. Being
     // siblings inside the presence row means the layout reserves their space.

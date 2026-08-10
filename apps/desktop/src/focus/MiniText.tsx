@@ -9,7 +9,7 @@
  * idle preview lines) since nothing else consumes them.
  */
 
-import { api } from '@moxxy/client-core';
+import { api, type VoiceCallPhase } from '@moxxy/client-core';
 import { MarkdownBody } from '@/chat/MarkdownBody';
 import { UserBlock } from '@/chat/blocks/UserBlock';
 import { QueuedChip } from '@/chat/composer/QueuedChip';
@@ -25,16 +25,21 @@ import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusAttachmentStrip } from './FocusAttachmentStrip';
 import { useFocusMiniTextComposer } from './useFocusMiniTextComposer';
 import { useFocusTranscriptAutoScroll } from './useFocusTranscriptAutoScroll';
+import { FocusMiniVoiceStatus } from './FocusMiniVoiceStatus';
 
 export function MiniText({
   workspaceId,
   ask,
   onBack,
   transcribing = false,
+  voiceModeActive,
+  voiceModePhase,
 }: {
   readonly workspaceId: string | null;
   readonly ask: FocusAskPrompt | null;
   readonly onBack: () => void;
+  readonly voiceModeActive: boolean;
+  readonly voiceModePhase: VoiceCallPhase;
   /** True while a voice clip is being transcribed (before it's sent) — so
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
@@ -56,7 +61,12 @@ export function MiniText({
   return (
     <>
       <div style={style.panel}>
-        <MiniHeader title="Text" onBack={onBack} />
+        <MiniHeader
+          title="Text"
+          onBack={onBack}
+          voiceModeActive={voiceModeActive}
+          voiceModePhase={voiceModePhase}
+        />
         <div
           ref={transcript.bodyRef}
           data-testid="focus-transcript"
@@ -152,19 +162,27 @@ export function MiniText({
 function MiniHeader({
   title,
   onBack,
+  voiceModeActive,
+  voiceModePhase,
 }: {
   readonly title: string;
   readonly onBack: () => void;
+  readonly voiceModeActive: boolean;
+  readonly voiceModePhase: VoiceCallPhase;
 }): JSX.Element {
   return (
     <header style={style.miniHeader}>
       <button type="button" onClick={onBack} style={style.headerButton} aria-label="Back">
         <ChevronLeftIcon />
       </button>
-      <div style={style.miniTitle}>
-        <MoxxyMark size={16} />
-        <span>{title}</span>
-      </div>
+      {voiceModeActive
+        ? <FocusMiniVoiceStatus phase={voiceModePhase} />
+        : (
+          <div style={style.miniTitle}>
+            <MoxxyMark size={16} />
+            <span>{title}</span>
+          </div>
+        )}
       <button
         type="button"
         onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}

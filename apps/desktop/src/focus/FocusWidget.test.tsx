@@ -24,7 +24,11 @@ import { __setApiOverride, configurePlatform } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { asTurnId, assertDefined } from '@moxxy/sdk';
-import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
+import {
+  FOCUS_PET_LAYOUT,
+  type AskRequest,
+  type ThemePreference,
+} from '@moxxy/desktop-ipc-contract';
 import { FocusWidget, focusActiveWidth } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
 import { style as focusStyle } from './focus-styles';
@@ -401,6 +405,30 @@ describe('FocusWidget stages', () => {
     expect(container.querySelector('img[src*="logo.png"]')).toBeNull();
   });
 
+  it('keeps the active listening state visible after opening mini-text', async () => {
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => ({ stop: vi.fn(), cancel: vi.fn() }),
+      },
+    });
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'listening');
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const status = screen.getByRole('status', { name: /voice mode: listening/i });
+    expect(status).toHaveAttribute('data-phase', 'listening');
+    const waves = Array.from(status.querySelectorAll('.voice-radio-waves'));
+    expect(waves).toHaveLength(2);
+    expect(waves.every((wave) => wave.getAttribute('data-active') === 'true')).toBe(true);
+  });
+
   it('active → mini-text enables edge-resize via focus.resize', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
@@ -472,7 +500,7 @@ describe('FocusWidget stages', () => {
   });
 
   it('adopts an active main-window call without restarting it and routes controls back', async () => {
-    installFakeApi();
+    const ipc = installFakeApi();
     const canvasContext = vi
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
       .mockReturnValue(null);
@@ -535,6 +563,20 @@ describe('FocusWidget stages', () => {
       expect(screen.getByRole('button', {
         name: /voice mode active.*click to expand/i,
       })).toBeTruthy();
+      const waves = Array.from(
+        screen.getByTestId('focus-pet').querySelectorAll('.voice-radio-waves'),
+      );
+      expect(waves).toHaveLength(2);
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'true')).toBe(true);
+      await waitFor(() => {
+        expect(ipc.invokes).toContainEqual({
+          channel: 'focus.resize',
+          args: expect.objectContaining({
+            width: FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth,
+            height: FOCUS_PET_LAYOUT.collapsedHeight,
+          }),
+        });
+      });
 
       owner.postMessage({
         type: 'snapshot',
@@ -555,7 +597,17 @@ describe('FocusWidget stages', () => {
         expect(document.querySelector('.focus-voice-live')?.getAttribute('data-phase'))
           .toBe('working');
       });
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'false')).toBe(true);
       expect(screen.queryByRole('button', { name: /end voice mode/i })).toBeNull();
+
+      act(() => ipc.emit('ask.request', permissionAsk('ask-during-collapsed-voice')));
+      await screen.findByRole('group', { name: /permission required/i });
+      await waitFor(() => {
+        expect(ipc.invokes).toContainEqual({
+          channel: 'focus.resize',
+          args: expect.objectContaining({ width: 640, height: 216 }),
+        });
+      });
     } finally {
       owner.close();
       canvasContext.mockRestore();

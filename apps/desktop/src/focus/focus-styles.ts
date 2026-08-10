@@ -87,10 +87,23 @@ export const style = {
     width: '100%',
     height: '100%',
     position: 'relative',
-    display: 'grid',
-    placeItems: 'center',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     isolation: 'isolate',
     pointerEvents: 'none',
+  },
+  focusPetCore: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    display: 'grid',
+    placeItems: 'center',
+    flex: '1 1 auto',
+  },
+  focusPetCoreWithWaves: {
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    flex: `0 0 ${FOCUS_PET_LAYOUT.collapsedWidth}px`,
   },
   focusPetGlow: {
     position: 'absolute',
@@ -238,7 +251,7 @@ export const style = {
     color: 'var(--focus-muted)',
     fontWeight: 650,
   },
-  focusTaskSpinner: {
+  focusTaskLoader: {
     position: 'absolute',
     right: 18,
     top: 16,
@@ -246,8 +259,7 @@ export const style = {
     height: 22,
     boxSizing: 'border-box',
     border: '3px solid color-mix(in srgb, var(--color-primary) 22%, transparent)',
-    borderTopColor: 'var(--color-primary)',
-    borderRadius: 'var(--radius-pill)',
+    borderRadius: 'var(--radius-block)',
     pointerEvents: 'none',
   },
   focusBubbleHideButton: {
@@ -615,6 +627,12 @@ export const style = {
     color: 'var(--focus-muted)',
     ...noDrag,
   },
+  miniVoiceState: {
+    color: 'var(--color-primary)',
+    fontSize: 'var(--type-label)',
+    fontWeight: 800,
+    letterSpacing: '0.045em',
+  },
   panelBody: {
     flex: 1,
     padding: '12px 14px',
@@ -808,7 +826,7 @@ export const style = {
 } satisfies Record<string, React.CSSProperties>;
 
 // ---- Keyframes + theme vars ----------------------------------------------
-// Injected once on module load so the spinner-dot animation resolves
+// Injected once on module load so Focus motion and theme tokens resolve
 // regardless of which stage mounts first. The focus document loads
 // its own bundle and does NOT import the app's styles.css (that would set a
 // non-transparent body background and break the floating window), so the
@@ -966,8 +984,9 @@ ${FOCUS_DARK_VARS}
       0%, 100% { transform: scale(0.72); opacity: 0.45; }
       50% { transform: scale(1); opacity: 1; }
     }
-    @keyframes focus-task-spin {
-      to { transform: rotate(360deg); }
+    @keyframes focus-task-corner {
+      0%, 18% { opacity: 1; }
+      30%, 100% { opacity: 0.16; }
     }
     @keyframes focus-bubble-enter {
       from { transform: translateY(5px) scale(0.985); opacity: 0; }
@@ -976,8 +995,42 @@ ${FOCUS_DARK_VARS}
     .focus-pet-bubble {
       animation: focus-bubble-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
     }
-    .focus-task-spinner {
-      animation: focus-task-spin 920ms linear infinite;
+    .focus-task-loader i {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      box-sizing: border-box;
+      border-color: var(--color-primary);
+      opacity: 0.16;
+      animation: focus-task-corner 1.2s ease-in-out infinite;
+    }
+    .focus-task-loader i[data-corner="top-left"] {
+      top: -3px;
+      left: -3px;
+      border-top: 3px solid var(--color-primary);
+      border-left: 3px solid var(--color-primary);
+      animation-delay: 0ms;
+    }
+    .focus-task-loader i[data-corner="top-right"] {
+      top: -3px;
+      right: -3px;
+      border-top: 3px solid var(--color-primary);
+      border-right: 3px solid var(--color-primary);
+      animation-delay: 300ms;
+    }
+    .focus-task-loader i[data-corner="bottom-right"] {
+      right: -3px;
+      bottom: -3px;
+      border-right: 3px solid var(--color-primary);
+      border-bottom: 3px solid var(--color-primary);
+      animation-delay: 600ms;
+    }
+    .focus-task-loader i[data-corner="bottom-left"] {
+      bottom: -3px;
+      left: -3px;
+      border-bottom: 3px solid var(--color-primary);
+      border-left: 3px solid var(--color-primary);
+      animation-delay: 900ms;
     }
     .focus-bubble-hide-button:hover,
     .focus-bubble-restore-button:hover {
@@ -1053,8 +1106,11 @@ ${FOCUS_DARK_VARS}
         transition: none;
       }
       .focus-pet-bubble,
-      .focus-task-spinner {
+      .focus-task-loader i {
         animation: none;
+      }
+      .focus-task-loader i {
+        opacity: 0.72;
       }
     }
   `;
