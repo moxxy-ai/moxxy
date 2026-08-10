@@ -1,9 +1,11 @@
+import type { PropsWithChildren } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { configurePlatform, type AudioCaptureStartOptions, type SpeakOptions } from './platform.js';
 import { __setApiOverride } from './transport.js';
-import { useChat } from './useChat.js';
+import { chatStore } from './chatStore.js';
+import { ChatStoreBridge, useChat, useQueuedTurns } from './useChat.js';
 import { useVoiceCall, type VoiceCallChat } from './useVoiceCall.js';
 
 type PushHandler = (payload: never) => void;
@@ -149,9 +151,17 @@ function chat(overrides: Partial<VoiceCallChat> = {}): VoiceCallChat {
     activeTurnId: null,
     error: null,
     send: vi.fn(async () => undefined),
-    abort: vi.fn(async () => undefined),
     ...overrides,
   };
+}
+
+function ChatBridge({ children }: PropsWithChildren): React.JSX.Element {
+  return (
+    <>
+      <ChatStoreBridge />
+      {children}
+    </>
+  );
 }
 
 afterEach(() => {
@@ -405,21 +415,20 @@ describe('useVoiceCall integration', () => {
     expect(audio.cancels[1]).toHaveBeenCalledOnce();
   });
 
-  it('interrupts Piper with confirmed user speech and sends the continued utterance', async () => {
+  it('interrupts only Piper, preserves the live turn, and queues the continued utterance', async () => {
     const transport = createTransport('Mam dodatkowe pytanie');
     const audio = createAudioPlatform();
     __setApiOverride(transport.api);
     const send = vi.fn(async () => undefined);
-    const abort = vi.fn(async () => undefined);
-    let chatState = chat({ send, abort });
+    let chatState = chat({ send });
     const { result, rerender } = renderHook(
-      ({ currentChat }) => useVoiceCall({
+      ({ currentChat, inputRequired }) => useVoiceCall({
         workspaceId: 'workspace-barge-in',
         ready: true,
         chat: currentChat,
-        inputRequired: false,
+        inputRequired,
       }),
-      { initialProps: { currentChat: chatState } },
+      { initialProps: { currentChat: chatState, inputRequired: false } },
     );
 
     act(() => result.current.open());
@@ -434,15 +443,32 @@ describe('useVoiceCall integration', () => {
 
     chatState = chat({
       send,
-      abort,
       sending: true,
       activeTurnId: 'turn-barge-in',
     });
-    rerender({ currentChat: chatState });
+    rerender({ currentChat: chatState, inputRequired: false });
     act(() => {
       transport.emit('runner.turn.started', {
         workspaceId: 'workspace-barge-in',
         turnId: 'turn-barge-in',
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-barge-in',
+        event: {
+          type: 'tool_call_requested',
+          turnId: 'turn-barge-in',
+          callId: 'call-barge-in',
+          name: 'web_search',
+          input: { query: 'private query' },
+        },
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-barge-in',
+        event: {
+          type: 'tool_call_approved',
+          turnId: 'turn-barge-in',
+          callId: 'call-barge-in',
+        },
       });
       transport.emit('runner.event', {
         workspaceId: 'workspace-barge-in',
@@ -464,7 +490,39 @@ describe('useVoiceCall integration', () => {
     expect(result.current.phase).toBe('listening');
     expect(audio.utteranceMarks[1]).toHaveBeenCalledOnce();
     expect(audio.playbackStops[0]).toHaveBeenCalledOnce();
-    expect(abort).toHaveBeenCalledOnce();
+    expect(result.current.activeOperations).toEqual([{
+      callId: 'call-barge-in',
+      kind: 'web-search',
+      ordinal: 0,
+    }]);
+
+    act(() => {
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-barge-in',
+        event: {
+          type: 'tool_call_requested',
+          turnId: 'turn-barge-in',
+          callId: 'call-after-barge-in',
+          name: 'Read',
+          input: { path: '/private/file' },
+        },
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-barge-in',
+        event: {
+          type: 'tool_call_approved',
+          turnId: 'turn-barge-in',
+          callId: 'call-after-barge-in',
+        },
+      });
+    });
+    expect(result.current.phase).toBe('listening');
+    expect(result.current.activeOperations).toHaveLength(2);
+
+    rerender({ currentChat: chatState, inputRequired: true });
+    expect(result.current.phase).toBe('listening');
+    expect(audio.cancels[1]).not.toHaveBeenCalled();
+    rerender({ currentChat: chatState, inputRequired: false });
 
     act(() => transport.emit('runner.event', {
       workspaceId: 'workspace-barge-in',
@@ -479,13 +537,6 @@ describe('useVoiceCall integration', () => {
       ([channel]) => channel === 'session.synthesize',
     )).toHaveLength(synthesizedBeforeInterrupt);
 
-    act(() => transport.emit('runner.turn.complete', {
-      workspaceId: 'workspace-barge-in',
-      turnId: 'turn-barge-in',
-      error: null,
-    }));
-    expect(result.current.phase).toBe('listening');
-
     act(() => audio.captures[1]?.onResult({
       pcm16Base64: 'BQYHCA==',
       mimeType: 'audio/x-moxxy-pcm16-24khz',
@@ -494,6 +545,174 @@ describe('useVoiceCall integration', () => {
     }));
     await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
     expect(send).toHaveBeenLastCalledWith('Mam dodatkowe pytanie');
+
+    act(() => transport.emit('runner.event', {
+      workspaceId: 'workspace-barge-in',
+      event: {
+        type: 'tool_result',
+        turnId: 'turn-barge-in',
+        callId: 'call-barge-in',
+        ok: true,
+        output: 'done',
+      },
+    }));
+    expect(result.current.activeOperations).toEqual([{
+      callId: 'call-after-barge-in',
+      kind: 'project-read',
+      ordinal: 1,
+    }]);
+
+    act(() => transport.emit('runner.turn.complete', {
+      workspaceId: 'workspace-barge-in',
+      turnId: 'turn-barge-in',
+      error: null,
+    }));
+    expect(result.current.phase).toBe('thinking');
+  });
+
+  it('keeps late assistant text in the real chat store and drains the spoken follow-up after completion', async () => {
+    const workspaceId = 'workspace-barge-in-real-chat';
+    let transcriptionCount = 0;
+    let turnCount = 0;
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'session.hasTranscriber') return true;
+      if (channel === 'session.info') return { activeSynthesizer: 'local-piper' };
+      if (channel === 'chat.loadHistory') return { events: [], prevCursor: null };
+      if (channel === 'session.transcribe') {
+        transcriptionCount += 1;
+        return transcriptionCount === 1 ? 'Pierwsze pytanie' : 'Dodatkowe pytanie';
+      }
+      if (channel === 'session.synthesize') {
+        return { audioBase64: 'AQIDBA==', mimeType: 'audio/wav' };
+      }
+      if (channel === 'session.runTurn') {
+        turnCount += 1;
+        return { turnId: `turn-real-${turnCount}`, payload };
+      }
+      if (channel === 'session.abortTurn') return {};
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result, unmount } = renderHook(() => {
+      const currentChat = useChat(workspaceId);
+      return {
+        call: useVoiceCall({
+          workspaceId,
+          ready: true,
+          chat: currentChat,
+          inputRequired: false,
+        }),
+        chat: currentChat,
+        queuedTurns: useQueuedTurns(workspaceId),
+      };
+    }, { wrapper: ChatBridge });
+
+    act(() => result.current.call.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(result.current.chat.activeTurnId).toBe('turn-real-1'));
+
+    act(() => {
+      transport.emit('runner.turn.started', { workspaceId, turnId: 'turn-real-1' });
+      transport.emit('runner.event', {
+        workspaceId,
+        event: {
+          id: 'event-real-1',
+          seq: 1,
+          ts: 1,
+          sessionId: workspaceId,
+          source: 'model',
+          type: 'assistant_chunk',
+          turnId: 'turn-real-1',
+          delta: 'Pierwsza część. ',
+        },
+      });
+    });
+    await waitFor(() => expect(result.current.call.phase).toBe('speaking'));
+    await waitFor(() => expect(audio.captures).toHaveLength(2));
+
+    act(() => result.current.call.bargeIn());
+    expect(transport.invoke).not.toHaveBeenCalledWith(
+      'session.abortTurn',
+      expect.anything(),
+    );
+
+    act(() => transport.emit('runner.event', {
+      workspaceId,
+      event: {
+        id: 'event-real-2',
+        seq: 2,
+        ts: 2,
+        sessionId: workspaceId,
+        source: 'model',
+        type: 'assistant_chunk',
+        turnId: 'turn-real-1',
+        delta: 'Pełna odpowiedź.',
+      },
+    }));
+    await waitFor(() => expect(result.current.chat.streamingText).toBe(
+      'Pierwsza część. Pełna odpowiedź.',
+    ));
+
+    act(() => audio.captures[1]?.onResult({
+      pcm16Base64: 'BQYHCA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.5,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(result.current.queuedTurns).toEqual([{
+      id: 'q-1',
+      prompt: 'Dodatkowe pytanie',
+    }]));
+    expect(transport.invoke.mock.calls.filter(
+      ([channel]) => channel === 'session.runTurn',
+    )).toHaveLength(1);
+
+    act(() => {
+      transport.emit('runner.event', {
+        workspaceId,
+        event: {
+          id: 'event-real-3',
+          seq: 3,
+          ts: 3,
+          sessionId: workspaceId,
+          source: 'model',
+          type: 'assistant_message',
+          turnId: 'turn-real-1',
+          content: 'Pierwsza część. Pełna odpowiedź.',
+          stopReason: 'end_turn',
+        },
+      });
+      transport.emit('runner.turn.complete', {
+        workspaceId,
+        turnId: 'turn-real-1',
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(transport.invoke.mock.calls.filter(
+      ([channel]) => channel === 'session.runTurn',
+    )).toHaveLength(2));
+    expect(transport.invoke).toHaveBeenLastCalledWith('session.runTurn', expect.objectContaining({
+      workspaceId,
+      prompt: 'Dodatkowe pytanie',
+    }));
+    expect(result.current.chat.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'assistant_message',
+        content: 'Pierwsza część. Pełna odpowiedź.',
+      }),
+    ]));
+
+    unmount();
+    chatStore.drop(workspaceId);
   });
 
   it('discards the monitoring capture when spoken output finishes naturally', async () => {
