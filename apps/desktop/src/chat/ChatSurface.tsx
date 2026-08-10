@@ -224,24 +224,26 @@ export function ChatSurface({
       </div>
       {activeAsk && <AskSheet ask={activeAsk} />}
       {voiceCall.active && (
-        <VoicePresenceRail
-          phase={voiceCall.phase}
-          status={voicePresentation.status}
-          rail={voicePresentation.rail}
-          microphoneMuted={voiceCall.microphoneMuted}
-          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
-          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-          localPiperInstalling={voiceCall.localPiperInstalling}
-          errorReason={voiceCall.errorReason}
-          inputAnalyser={voiceCall.inputAnalyser}
-          outputAnalyser={voiceCall.outputAnalyser}
-          onRetry={voiceCall.retry}
-          onInstallLocalPiper={voiceCall.installLocalPiper}
-          onMuteMicrophone={voiceCall.muteMicrophone}
-          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-          onToggleWaitingSound={voiceCall.toggleWaitingSound}
-          onClose={voiceCall.close}
-        />
+        <div className="voice-rail-shell">
+          <VoicePresenceRail
+            phase={voiceCall.phase}
+            status={voicePresentation.status}
+            rail={voicePresentation.rail}
+            microphoneMuted={voiceCall.microphoneMuted}
+            waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+            localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+            localPiperInstalling={voiceCall.localPiperInstalling}
+            errorReason={voiceCall.errorReason}
+            inputAnalyser={voiceCall.inputAnalyser}
+            outputAnalyser={voiceCall.outputAnalyser}
+            onRetry={voiceCall.retry}
+            onInstallLocalPiper={voiceCall.installLocalPiper}
+            onMuteMicrophone={voiceCall.muteMicrophone}
+            onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+            onToggleWaitingSound={voiceCall.toggleWaitingSound}
+            onClose={voiceCall.close}
+          />
+        </div>
       )}
       <Composer
         agent={agent}

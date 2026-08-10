@@ -5,16 +5,23 @@
  * row of the chat surface that happens to be listening.
  */
 
+.voice-rail-shell {
+  min-width: 0;
+  flex: 0 0 auto;
+  container-type: inline-size;
+  container-name: voice-rail;
+}
+
 .voice-rail {
   --voice-pulse: 0;
   position: relative;
   z-index: 3;
+  width: 100%;
   min-height: 58px;
-  flex: 0 0 auto;
   box-sizing: border-box;
-  padding: 0 clamp(10px, 2vw, 18px);
+  padding: 0 18px;
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(170px, 1fr) auto auto;
+  grid-template-columns: minmax(150px, max-content) minmax(170px, 1fr) auto auto;
   align-items: center;
   gap: 14px;
   border-top: 1px solid var(--color-card-border-strong);
@@ -307,19 +314,39 @@
    operation and every control's accessible name survive to the narrowest
    layout — nothing becomes unreachable, only quieter. */
 
-@media (max-width: 1200px) {
+@container voice-rail (max-width: 1200px) {
   .voice-rail-copy small,
   .voice-rail-work-copy small { display: none; }
 }
 
-@media (max-width: 900px) {
-  .voice-rail { grid-template-columns: minmax(0, auto) minmax(150px, 1fr) auto auto; gap: 10px; }
+@container voice-rail (max-width: 900px) {
+  .voice-rail {
+    grid-template-columns: minmax(108px, max-content) minmax(0, 1fr) auto auto;
+    gap: 10px;
+  }
   .voice-rail-control span { display: none; }
   .voice-rail-waves { display: none; }
 }
 
-@media (max-width: 700px) {
+@container voice-rail (max-width: 700px) {
   .voice-rail-operation-state { display: none; }
+}
+
+@container voice-rail (max-width: 520px) {
+  .voice-rail {
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .voice-rail-presence { min-width: 108px; }
+  .voice-rail-copy { margin-left: 6px; }
+  .voice-rail-work { padding-left: 8px; }
+  .voice-rail-operation--idle { display: none; }
+  .voice-rail-operation-dots,
+  .voice-rail-operation-more { display: none; }
+  .voice-rail-controls { padding-left: 4px; }
+  .voice-rail-control { padding: 6px; }
+  .voice-rail-end { margin-left: 0; padding: 6px 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
