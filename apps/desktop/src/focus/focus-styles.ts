@@ -676,6 +676,14 @@ export const style = {
     overflowY: 'auto',
     ...noDrag,
   },
+  focusQueueLabel: {
+    flexShrink: 0,
+    color: 'var(--focus-muted)',
+    fontSize: 'var(--type-label)',
+    fontWeight: 750,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
   lineRow: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -822,6 +830,19 @@ export const style = {
     color: 'var(--focus-dim)',
     border: '1px solid var(--color-card-border-strong)',
     cursor: 'not-allowed',
+  },
+  stop: {
+    width: 34,
+    height: 34,
+    border: '1px solid color-mix(in srgb, var(--color-red) 72%, transparent)',
+    borderRadius: 'var(--radius-block)',
+    background: 'color-mix(in srgb, var(--color-red) 18%, var(--focus-input-bg))',
+    color: 'var(--color-red)',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
 } satisfies Record<string, React.CSSProperties>;
 
