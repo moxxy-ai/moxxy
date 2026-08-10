@@ -3,6 +3,7 @@ import { Icon, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import type { VoiceModeStatus } from './useVoiceModePresentation';
 import type { VoiceRailView } from './voice-rail';
+import { VoiceRadioWaves } from './VoiceRadioWaves';
 import { useVoicePulse } from './useVoicePulse';
 import './voice-rail.css';
 
@@ -68,6 +69,7 @@ export function VoicePresenceRail({
 }): JSX.Element {
   const pulseRef = useVoicePulse({ phase, inputAnalyser, outputAnalyser });
   const failed = phase === 'error';
+  const voiceCarrying = phase === 'listening' || phase === 'speaking';
 
   return (
     <section
@@ -76,21 +78,12 @@ export function VoicePresenceRail({
       aria-label="Voice mode"
     >
       <div className="voice-rail-presence">
-        {/* Radio waves either side of the mark: they travel outward while a
-            voice is actually carrying, and stand still otherwise, so the rail
-            reads as a live channel rather than a decorated logo. They are laid
-            out beside the mark rather than over it, so they can never land on
-            the status text however long it gets. */}
-        <span className="voice-rail-waves voice-rail-waves--left" aria-hidden="true">
-          <i /><i /><i />
-        </span>
+        <VoiceRadioWaves side="left" active={voiceCarrying} />
         <span className="voice-rail-mark" aria-hidden="true">
           <MoxxyMark size={RAIL_MARK_SIZE} />
           <span className="voice-rail-halo" />
         </span>
-        <span className="voice-rail-waves voice-rail-waves--right" aria-hidden="true">
-          <i /><i /><i />
-        </span>
+        <VoiceRadioWaves side="right" active={voiceCarrying} />
         <span className="voice-rail-copy">
           <strong role="status" aria-live="polite">{status.title}</strong>
           <small>{status.detail}</small>

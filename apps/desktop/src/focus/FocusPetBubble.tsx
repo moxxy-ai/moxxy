@@ -1,5 +1,6 @@
 import { Icon } from '@moxxy/desktop-ui';
 import { style } from './focus-styles';
+import { FocusTaskLoader } from './FocusTaskLoader';
 
 export interface FocusPetBubbleContent {
   readonly kind: 'task' | 'reply';
@@ -47,7 +48,7 @@ export function FocusPetBubble({
           <span style={task ? style.focusTaskBubbleText : undefined}>{content.text}</span>
         </span>
       </button>
-      {content.busy && <span className="focus-task-spinner" aria-hidden style={style.focusTaskSpinner} />}
+      {content.busy && <FocusTaskLoader />}
       <button
         type="button"
         className="focus-bubble-hide-button"

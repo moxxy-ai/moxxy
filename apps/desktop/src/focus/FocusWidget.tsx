@@ -3,7 +3,8 @@
  *
  * Stages:
  *
- *   inactive    84×104  animated Moxxy pet. Click → ACTIVE.
+ *   inactive    84×104  animated Moxxy pet. An active Voice Mode reserves
+ *                       136px for the two radio-wave fans. Click → ACTIVE.
  *
  *   active     232×56   logo + voice + text + restore-main + close.
  *                       Mic button starts an in-place recording overlay
@@ -199,6 +200,9 @@ function Surface({
     voiceModeRetryAvailable: !voiceCall.localPiperInstallRequired,
   });
   const activeWidth = baseActiveWidth;
+  const inactiveVoiceWidthDelta = voiceCall.active
+    ? FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth - FOCUS_PET_LAYOUT.collapsedWidth
+    : 0;
   const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
   const openBubble = (): void => {
     if (bubble?.kind === 'reply') pinPreview();
@@ -294,6 +298,9 @@ function Surface({
 
   useEffect(() => {
     let { width, height } = SIZE[stage];
+    if (stage === 'inactive' && voiceCall.active) {
+      width = FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth;
+    }
     if (stage === 'active') {
       width = activeWidth + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
       if (bubbleRestoreVisible) height = FOCUS_PET_ACTIVE_RESTORE_LAYOUT.height;
@@ -302,13 +309,15 @@ function Surface({
       height = miniTextSize.height;
     }
     if (stage === 'inactive' && askVisible) {
-      width = INACTIVE_ASK_SIZE.width;
+      width = INACTIVE_ASK_SIZE.width + inactiveVoiceWidthDelta;
       height = INACTIVE_ASK_SIZE.height;
     } else if (stage === 'inactive' && bubbleVisible) {
       width = FOCUS_PET_BUBBLE_LAYOUT.width;
       height = FOCUS_PET_BUBBLE_LAYOUT.height;
     } else if (stage === 'inactive' && bubbleRestoreVisible) {
-      width = FOCUS_PET_RESTORE_LAYOUT.width;
+      width = voiceCall.active
+        ? FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth + 36
+        : FOCUS_PET_RESTORE_LAYOUT.width;
       height = FOCUS_PET_RESTORE_LAYOUT.height;
     }
     if (stage === 'active' && askVisible) {
@@ -343,6 +352,8 @@ function Surface({
     askVisible,
     miniTextSize.width,
     miniTextSize.height,
+    voiceCall.active,
+    inactiveVoiceWidthDelta,
   ]);
 
   // Collapsing back to the inactive pet hides the recording UI but the voice
@@ -413,6 +424,8 @@ function Surface({
     <MiniText
       workspaceId={workspaceId}
       ask={ask}
+      voiceModeActive={voiceCall.active}
+      voiceModePhase={voiceCall.phase}
       transcribing={
         voice.phase === 'transcribing' || voiceCall.phase === 'transcribing'
       }

@@ -3,6 +3,7 @@ export type FocusVerticalAnchor = 'center' | 'bottom';
 
 export const FOCUS_PET_LAYOUT = Object.freeze({
   collapsedWidth: 84,
+  voiceActiveCollapsedWidth: 136,
   collapsedHeight: 104,
   activeAvatarWidth: 72,
   activeHeight: 90,

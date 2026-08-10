@@ -76,59 +76,6 @@
   pointer-events: none;
 }
 
-/* The fan is silent by default and fades in when a voice starts carrying. Its
-   box is reserved either way, so the mark never slides sideways mid-call. */
-.voice-rail-waves {
-  position: relative;
-  flex: 0 0 26px;
-  width: 26px;
-  height: 40px;
-  opacity: 0;
-  transition: opacity var(--motion-shift) ease;
-  pointer-events: none;
-}
-
-/* Each arc is a circle showing only the border on the side that faces away
-   from the mark, which is what gives the ((( ))) radio silhouette. */
-.voice-rail-waves i {
-  position: absolute;
-  top: 50%;
-  border: 2px solid transparent;
-  border-radius: var(--radius-pill);
-  opacity: 0.45;
-}
-/* Concentric circles sharing an origin at the mark: only the far-side border
-   is painted, so what shows is the ((( ))) fan. Each arc is anchored on the
-   side nearest the mark, which is what makes them nest instead of stack. */
-.voice-rail-waves--left i { right: 0; border-left-color: var(--color-primary); }
-.voice-rail-waves--right i { left: 0; border-right-color: var(--color-primary); }
-
-.voice-rail-waves i:nth-child(1) { width: 14px; height: 14px; margin-top: -7px; animation-delay: 0ms; }
-.voice-rail-waves i:nth-child(2) { width: 20px; height: 20px; margin-top: -10px; animation-delay: 300ms; }
-.voice-rail-waves i:nth-child(3) { width: 26px; height: 26px; margin-top: -13px; animation-delay: 600ms; }
-
-/* Both ends written out: a keyframe set with only a `to` leaves the start
-   value to be inferred, and an implicit keyframe cannot be composited. */
-@keyframes voice-rail-wave {
-  from { opacity: 0.85; transform: scaleX(0.5); }
-  70% { opacity: 0.45; transform: scaleX(1); }
-  to { opacity: 0.12; transform: scaleX(1.2); }
-}
-
-/* Waves exist only while someone is actually talking. Pausing them instead
-   froze each arc at a different point of its cycle, so a silent rail showed a
-   lopsided fan that read as broken rather than as quiet. Off means off: no
-   animation at all, which also costs nothing. */
-.voice-rail--listening .voice-rail-waves,
-.voice-rail--speaking .voice-rail-waves { opacity: 1; }
-
-.voice-rail--listening .voice-rail-waves i,
-.voice-rail--speaking .voice-rail-waves i {
-  animation: voice-rail-wave 1.6s ease-out infinite;
-}
-
-.voice-rail--error .voice-rail-waves--left i { border-left-color: var(--color-red); }
-.voice-rail--error .voice-rail-waves--right i { border-right-color: var(--color-red); }
 .voice-rail--error .voice-rail-halo {
   background: radial-gradient(circle, color-mix(in srgb, var(--color-red) 40%, transparent), transparent 68%);
 }
@@ -325,7 +272,7 @@
     gap: 10px;
   }
   .voice-rail-control span { display: none; }
-  .voice-rail-waves { display: none; }
+  .voice-radio-waves { display: none; }
 }
 
 @container voice-rail (max-width: 700px) {
@@ -352,7 +299,5 @@
 @media (prefers-reduced-motion: reduce) {
   .voice-rail-mark svg,
   .voice-rail-halo { transform: none; transition: none; }
-  .voice-rail--listening .voice-rail-waves i,
-  .voice-rail--speaking .voice-rail-waves i,
   .voice-rail-operation-dots i { animation: none; }
 }

@@ -3,26 +3,9 @@ import type { MoxxyEvent } from '@moxxy/sdk';
 import type { VoiceActiveOperation, VoiceCallPhase } from '@moxxy/client-core';
 import { createVoiceOrbitState, syncVoiceOrbit } from './voice-orbit';
 import { buildVoiceRail, type VoiceRailView } from './voice-rail';
+import { resolveVoiceModeStatus, type VoiceModeStatus } from './voice-mode-status.js';
 
-export interface VoiceModeStatus {
-  readonly title: string;
-  readonly detail: string;
-}
-
-const STATUS: Readonly<Record<VoiceCallPhase, VoiceModeStatus>> = Object.freeze({
-  idle: { title: 'Voice mode', detail: 'Ready to start' },
-  checking: { title: 'Preparing', detail: 'Checking microphone and Local Piper' },
-  arming: { title: 'Preparing microphone', detail: 'The microphone will be ready in a moment' },
-  listening: { title: 'Listening', detail: 'Speak naturally. You can still type.' },
-  transcribing: { title: 'Transcribing', detail: 'Turning your voice into text' },
-  thinking: { title: 'Thinking', detail: 'Using the context from this conversation' },
-  working: { title: 'Working', detail: 'Operations remain visible until they finish' },
-  'waiting-for-input': { title: 'Needs your input', detail: 'Answer the request to continue' },
-  synthesizing: { title: 'Preparing voice', detail: 'Local Piper is generating the next sentence' },
-  speaking: { title: 'Speaking', detail: 'Speak at any time to interrupt' },
-  paused: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' },
-  error: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
-});
+export type { VoiceModeStatus } from './voice-mode-status.js';
 const EMPTY_OUTCOMES: ReadonlyMap<string, boolean> = new Map();
 
 function resultOutcomes(events: ReadonlyArray<MoxxyEvent>): ReadonlyMap<string, boolean> {
@@ -71,13 +54,12 @@ export function useVoiceModePresentation({
     return () => window.clearTimeout(timer);
   }, [active, activeOperations, rail.nextExpiry, outcomes]);
 
-  const status = localPiperInstallRequired
-    ? localPiperInstalling
-      ? { title: 'Installing local voice', detail: 'Downloading the offline voice package' }
-      : { title: 'Local voice required', detail: 'Install Local Piper once to use Voice Mode' }
-    : phase === 'speaking' && microphoneMuted
-      ? { title: STATUS.speaking.title, detail: 'The microphone will stay off after this answer' }
-      : STATUS[phase];
+  const status = resolveVoiceModeStatus({
+    phase,
+    microphoneMuted,
+    localPiperInstallRequired,
+    localPiperInstalling,
+  });
 
   return { status, rail };
 }
