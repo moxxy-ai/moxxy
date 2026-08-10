@@ -48,20 +48,10 @@ vi.mock('./Composer', () => ({
   ),
 }));
 
-vi.mock('../voice-call/VoiceCallSurface', () => ({
-  VoiceCallSurface: ({
-    onClose,
-    onEnterFocusMode,
-    conversation,
-  }: {
-    readonly onClose: () => void;
-    readonly onEnterFocusMode: () => void;
-    readonly conversation: React.ReactNode;
-  }) => (
-    <div data-testid="voice-call-surface-mock">
-      <button type="button" onClick={onClose}>Back to chat</button>
-      <button type="button" onClick={onEnterFocusMode}>Focus mode</button>
-      {conversation}
+vi.mock('../voice-call/VoicePresenceRail', () => ({
+  VoicePresenceRail: ({ onClose }: { readonly onClose: () => void }) => (
+    <div data-testid="voice-rail-mock">
+      <button type="button" onClick={onClose}>End voice mode</button>
     </div>
   ),
 }));
@@ -211,7 +201,7 @@ describe('ChatSurface session readiness', () => {
     expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
   });
 
-  it('opens voice mode from the composer and replaces chat chrome until the call closes', () => {
+  it('keeps the whole chat surface mounted when a voice conversation starts', () => {
     chatState.events = [
       { type: 'user_prompt', text: 'Keep the complete formatted conversation' },
       { type: 'assistant_message', content: 'Voice mode uses the shared transcript' },
@@ -235,18 +225,27 @@ describe('ChatSurface session readiness', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voice mode' }));
     expect(voiceCallState.open).toHaveBeenCalledOnce();
 
+    // The transcript node itself must SURVIVE the switch. Remounting it would
+    // throw away scroll position and re-parse the whole history, which is the
+    // whole reason the rail lives inside the surface instead of replacing it.
+    const transcriptBefore = screen.getByTestId('transcript-mock');
+    const composerBefore = screen.getByTestId('composer-mock');
+
     voiceCallState.active = true;
     view.rerender(<ChatSurface {...props} />);
 
-    expect(screen.getByTestId('voice-call-surface-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
+    expect(screen.getByTestId('composer-mock')).toBe(composerBefore);
     expect(screen.getByTestId('transcript-mock')).toHaveTextContent('Voice mode uses the shared transcript');
-    expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('voice-rail-mock')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
-    expect(focusModeToggle).toHaveBeenCalledOnce();
-    expect(voiceCallState.close).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'End voice mode' }));
     expect(voiceCallState.close).toHaveBeenCalledOnce();
+
+    voiceCallState.active = false;
+    view.rerender(<ChatSurface {...props} />);
+    expect(screen.queryByTestId('voice-rail-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
   });
+
 });

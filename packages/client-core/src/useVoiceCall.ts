@@ -512,7 +512,19 @@ export function useVoiceCall({
     const offStarted = api().subscribe('runner.turn.started', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
       if (interruptedTurnIdsRef.current.has(payload.turnId)) return;
+      const alreadyOurs = currentTurnIdRef.current === payload.turnId;
       currentTurnIdRef.current = payload.turnId;
+      // A turn can also begin from the text composer, which stays available
+      // for the whole conversation now that Voice Mode is a rail rather than a
+      // takeover. Treat it exactly like a spoken one: stop listening, follow
+      // the work, and let the answer be read back. `turnCycleRef` marks a turn
+      // this hook started itself, so this only fires for the other kind.
+      if (alreadyOurs || turnCycleRef.current) return;
+      turnCycleRef.current = true;
+      turnObservedRef.current = true;
+      completionTargetRef.current = completedTurnCountRef.current + 1;
+      voice.cancel();
+      dispatch({ type: 'turn-started' });
     });
     const offEvent = api().subscribe('runner.event', (payload) => {
       if (payload.workspaceId !== workspaceId) return;

@@ -2,10 +2,10 @@ import { useEffect, useRef, type RefObject } from 'react';
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import { useReducedMotion } from '../shell/useReducedMotion';
 import {
-  resolveVoiceHologramEnergy,
-  shouldPaintVoiceHologramFrame,
+  resolveVoiceEnergy,
+  shouldPaintVoiceFrame,
   VOICE_PULSE_FRAME_MS,
-} from './voice-hologram-field';
+} from './voice-pacing';
 import { createAnalyserLevelBuffers, readAnalyserLevel } from './voice-analyser-level';
 
 /** CSS custom property the stylesheets read to size the pulse. */
@@ -73,13 +73,13 @@ export function useVoicePulse({
 
     const tick = (timestamp: number): void => {
       if (cancelled) return;
-      if (!shouldPaintVoiceHologramFrame(lastTick, timestamp, VOICE_PULSE_FRAME_MS)) {
+      if (!shouldPaintVoiceFrame(lastTick, timestamp, VOICE_PULSE_FRAME_MS)) {
         frame = requestAnimationFrame(tick);
         return;
       }
       lastTick = timestamp;
       const live = source();
-      const target = resolveVoiceHologramEnergy(phaseRef.current, readAnalyserLevel(live, buffers));
+      const target = resolveVoiceEnergy(phaseRef.current, readAnalyserLevel(live, buffers));
       energy += (target - energy) * 0.3;
       publish();
       // A live analyser always has a next sample; without one the level is
@@ -102,7 +102,7 @@ export function useVoicePulse({
     wakeRef.current = wake;
 
     if (reducedMotion) {
-      energy = resolveVoiceHologramEnergy(phaseRef.current, 0);
+      energy = resolveVoiceEnergy(phaseRef.current, 0);
       publish();
       return () => {
         cancelled = true;

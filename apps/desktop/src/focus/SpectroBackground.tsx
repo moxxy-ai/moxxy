@@ -14,7 +14,7 @@ import type {
   AudioSpectrumAnalyser,
   FocusAudioSource,
 } from './focus-audio-visualization';
-import { shouldPaintVoiceHologramFrame } from '../voice-call/voice-hologram-field';
+import { shouldPaintVoiceFrame } from '../voice-call/voice-pacing';
 
 const SPECTRO_BARS = 64;
 
@@ -64,7 +64,7 @@ export function SpectroBackground({
       // Thirty bars of a voice level do not need a 120Hz panel's every frame.
       // Painted per frame this canvas measured ~15 points of GPU on a ProMotion
       // display, in an always-on-top window, for a decoration.
-      if (!reduceMotion && !shouldPaintVoiceHologramFrame(lastPaint, performance.now())) {
+      if (!reduceMotion && !shouldPaintVoiceFrame(lastPaint, performance.now())) {
         raf = requestAnimationFrame(draw);
         return;
       }

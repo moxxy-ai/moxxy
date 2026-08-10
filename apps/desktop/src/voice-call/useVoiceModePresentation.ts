@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import type { VoiceActiveOperation, VoiceCallPhase } from '@moxxy/client-core';
-import {
-  buildVoiceOrbit,
-  createVoiceOrbitState,
-  syncVoiceOrbit,
-  type VoiceOrbitView,
-} from './voice-orbit';
+import { createVoiceOrbitState, syncVoiceOrbit } from './voice-orbit';
+import { buildVoiceRail, type VoiceRailView } from './voice-rail';
 
 export interface VoiceModeStatus {
   readonly title: string;
@@ -17,7 +13,7 @@ const STATUS: Readonly<Record<VoiceCallPhase, VoiceModeStatus>> = Object.freeze(
   idle: { title: 'Voice mode', detail: 'Ready to start' },
   checking: { title: 'Preparing', detail: 'Checking microphone and Local Piper' },
   arming: { title: 'Preparing microphone', detail: 'The microphone will be ready in a moment' },
-  listening: { title: 'Listening', detail: 'Speak naturally. I will answer when you finish.' },
+  listening: { title: 'Listening', detail: 'Speak naturally. You can still type.' },
   transcribing: { title: 'Transcribing', detail: 'Turning your voice into text' },
   thinking: { title: 'Thinking', detail: 'Using the context from this conversation' },
   working: { title: 'Working', detail: 'Operations remain visible until they finish' },
@@ -53,7 +49,7 @@ export function useVoiceModePresentation({
   readonly localPiperInstalling: boolean;
   readonly activeOperations: ReadonlyArray<VoiceActiveOperation>;
   readonly events: ReadonlyArray<MoxxyEvent>;
-}): { readonly status: VoiceModeStatus; readonly orbit: VoiceOrbitView } {
+}): { readonly status: VoiceModeStatus; readonly rail: VoiceRailView } {
   const outcomes = useMemo(() => active ? resultOutcomes(events) : EMPTY_OUTCOMES, [active, events]);
   const [orbitState, setOrbitState] = useState(createVoiceOrbitState);
 
@@ -65,15 +61,15 @@ export function useVoiceModePresentation({
     setOrbitState((previous) => syncVoiceOrbit(previous, activeOperations, outcomes, Date.now()));
   }, [active, activeOperations, outcomes]);
 
-  const orbit = buildVoiceOrbit(orbitState, Date.now());
+  const rail = buildVoiceRail(orbitState, Date.now());
   useEffect(() => {
-    if (!active || orbit.nextExpiry === null) return;
-    const delay = Math.max(0, orbit.nextExpiry - Date.now());
+    if (!active || rail.nextExpiry === null) return;
+    const delay = Math.max(0, rail.nextExpiry - Date.now());
     const timer = window.setTimeout(() => {
       setOrbitState((previous) => syncVoiceOrbit(previous, activeOperations, outcomes, Date.now()));
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [active, activeOperations, orbit.nextExpiry, outcomes]);
+  }, [active, activeOperations, rail.nextExpiry, outcomes]);
 
   const status = localPiperInstallRequired
     ? localPiperInstalling
@@ -83,5 +79,5 @@ export function useVoiceModePresentation({
       ? { title: STATUS.speaking.title, detail: 'The microphone will stay off after this answer' }
       : STATUS[phase];
 
-  return { status, orbit };
+  return { status, rail };
 }
