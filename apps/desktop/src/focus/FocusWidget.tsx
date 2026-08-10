@@ -64,9 +64,10 @@ import type { FocusPetBubbleContent } from './FocusPetBubble';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
-// Keep the compact bar fitted to its current action set. Full Voice Mode adds
-// mute and waiting-sound controls, while its error state swaps those for retry.
-const ACTIVE_WIDTH_WITHOUT_MIC = 160;
+// The compact bar always carries text, restore-main and close. Its base width
+// is exactly those three controls plus the inset that clears the overlapping
+// Moxxy mark. Full Voice Mode adds only the controls it actually renders.
+const ACTIVE_BAR_BASE_WIDTH = 144;
 const ACTIVE_ACTION_WIDTH = 36;
 const INACTIVE_ASK_SIZE = { width: 588, height: 216 };
 const ACTIVE_ASK_EXTRA_WIDTH = 500 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
@@ -78,7 +79,7 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
     height: FOCUS_PET_LAYOUT.collapsedHeight,
   },
   active: {
-    width: ACTIVE_WIDTH_WITHOUT_MIC + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+    width: ACTIVE_BAR_BASE_WIDTH + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
     height: FOCUS_PET_LAYOUT.activeHeight,
   },
   // Taller default so a few lines of the latest message are readable
@@ -101,12 +102,12 @@ export function focusActiveWidth({
 }): number {
   if (!voiceModeActive) {
     const actionCount = Number(hasTranscriber) + Number(voiceModeAvailable);
-    return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * actionCount;
+    return ACTIVE_BAR_BASE_WIDTH + ACTIVE_ACTION_WIDTH * actionCount;
   }
   const voiceActionCount = voiceModePhase === 'error'
     ? 1 + Number(voiceModeRetryAvailable)
     : 3;
-  return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * voiceActionCount;
+  return ACTIVE_BAR_BASE_WIDTH + ACTIVE_ACTION_WIDTH * voiceActionCount;
 }
 
 // ---- Top-level wrapper ---------------------------------------------------

@@ -25,7 +25,7 @@ import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { asTurnId, assertDefined } from '@moxxy/sdk';
 import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
-import { FocusWidget } from './FocusWidget';
+import { FocusWidget, focusActiveWidth } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
 import { style as focusStyle } from './focus-styles';
 import { DESKTOP_VOICE_CALL_CHANNEL } from '../voice-call/desktop-voice-call-bridge';
@@ -334,12 +334,46 @@ describe('FocusWidget stages', () => {
       const resize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width: number; height: number }).width >= 280 &&
-          (i.args as { width: number; height: number }).width <= 360 &&
+          (i.args as { width: number; height: number }).width === 270 &&
           (i.args as { width: number; height: number }).height === 90,
       );
       expect(resize).toBeTruthy();
     });
+  });
+
+  it('sizes the active bar from its visible controls without a dead spacer', () => {
+    expect(focusActiveWidth({
+      hasTranscriber: false,
+      voiceModeAvailable: false,
+      voiceModeActive: false,
+      voiceModePhase: 'idle',
+      voiceModeRetryAvailable: false,
+    })).toBe(144);
+    expect(focusActiveWidth({
+      hasTranscriber: true,
+      voiceModeAvailable: true,
+      voiceModeActive: false,
+      voiceModePhase: 'idle',
+      voiceModeRetryAvailable: false,
+    })).toBe(216);
+    expect(focusActiveWidth({
+      hasTranscriber: true,
+      voiceModeAvailable: true,
+      voiceModeActive: true,
+      voiceModePhase: 'speaking',
+      voiceModeRetryAvailable: false,
+    })).toBe(252);
+  });
+
+  it('places the active controls directly beside Moxxy without a separator', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    const actions = screen.getByTestId('focus-active-actions');
+
+    expect(actions.previousElementSibling).toBeNull();
+    expect(actions.style.marginLeft).not.toBe('auto');
   });
 
   it('active → mini-text shows the composer input + send', () => {

@@ -109,7 +109,6 @@ export function Active({
           source={audioVisualization.source}
         />
       )}
-      <div style={style.activeDivider} aria-hidden />
       <div data-testid="focus-active-actions" style={style.activeActions}>
         {hasTranscriber && !voiceModeActive && (
           <ActionButton
