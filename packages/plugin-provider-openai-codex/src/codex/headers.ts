@@ -9,7 +9,7 @@ import type { CodexTokens } from '../types.js';
  * `~/.moxxy/plugins` installs); falls back to `0.0.0` defensively — never
  * throws. (NOTE: when inlined into the single-file CLI bundle the relative
  * resolve fails and we keep the `0.0.0` fallback; a build-time constant would
- * close that gap — see TECH_DEBT.)
+ * close that gap.)
  */
 function resolvePluginVersion(): string {
   try {

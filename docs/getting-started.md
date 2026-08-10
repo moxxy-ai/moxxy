@@ -1,59 +1,71 @@
 # Getting started
 
-This guide covers installation and the common paths from a new Moxxy installation to a running agent.
+The personal path is deliberately short: install, connect one model account,
+open a project, and ask moxxy to work.
 
 ## Requirements
 
 - Node.js 20.10 or newer
-- One supported authentication method:
-  - an API key for a supported provider
-  - ChatGPT OAuth
-  - an authenticated Claude Code installation for a Claude Pro or Max subscription
+- one supported authentication method:
+  - an API key for a supported provider;
+  - ChatGPT OAuth;
+  - an authenticated Claude Code installation for Claude Pro or Max.
 
-## Install
-
-Install the CLI globally, or run the initializer without installing it:
+## 1. Install
 
 ```sh
 npm install -g @moxxy/cli
-# Alternatively: npx @moxxy/cli init
 ```
 
-For a guided setup, run:
+## 2. Connect a model
+
+From the project you want to work in:
 
 ```sh
+cd your-project
 moxxy onboard
 ```
 
-The onboarding flow configures a provider, optionally connects a messaging channel, pairs your account, and can install a background service. Launch the interactive terminal UI afterward:
+Choose a model account and sign in or paste an API key. The key is stored in
+moxxy's encrypted local vault. Onboarding selects the recommended model,
+runtime, and local memory index automatically; you do not need a config file.
+
+## 3. Start working
 
 ```sh
 moxxy
 ```
 
-If you prefer to configure each piece separately, `moxxy init` runs only the provider wizard, `moxxy <channel>` configures one channel, and `moxxy service install serve` installs the combined service.
+Try a read-only first task:
 
-## Run a one-shot prompt
+> Explain how requests move from the entry point to the database in this repo.
+
+Then try a change:
+
+> Add a focused test for the login validation and run it.
+
+Moxxy shows consequential tool calls and asks for approval. Session-scoped
+approval avoids repeating the same safe decision during one run.
+
+For a single response in the current shell:
 
 ```sh
 moxxy -p "summarize the README in three bullets"
 ```
 
-Run `moxxy --help` to see all commands and options.
+## Authentication alternatives
 
-## Use a Claude Code subscription
+### Claude Code subscription
 
-Install the official `claude` CLI and sign in:
+Install the official `claude` CLI and sign in before onboarding:
 
 ```sh
 claude auth login
-# Or let moxxy launch sign-in:
-moxxy login claude-code
+moxxy onboard
 ```
 
-Choose `claude-code` during `moxxy init`. Moxxy uses the CLI's existing subscription session and does not require an `ANTHROPIC_API_KEY`.
-
-Check and recover the installation with:
+Choose the Claude Code connection. Moxxy reuses the subscription session and
+does not copy Claude's credentials into its vault. Diagnose it with:
 
 ```sh
 claude auth status
@@ -61,51 +73,51 @@ moxxy doctor
 moxxy login claude-code
 ```
 
-For a custom installation that is not on `PATH`, set the executable explicitly:
+If the executable is not on `PATH`, set
+`CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`.
+
+### ChatGPT account
+
+Choose the OpenAI Codex connection during onboarding. Moxxy opens the OAuth
+flow; no OpenAI API key is required. You can also sign in separately:
 
 ```sh
-CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude moxxy doctor
+moxxy login openai-codex
 ```
 
-The default model is `claude-sonnet-5`. Select another model advertised by Moxxy with `--model` or the `plugins.provider.items.claude-code.model` setting.
+### API keys
 
-The provider uses a text transport and enables only Claude Code's native `WebSearch` by default. Set `config.webSearch: false` to disable it. Other native Claude tools are a separate opt-in setting, `config.mode: native-tools`, and should be paired with explicit `allowedTools` (include `WebSearch` there if desired) and, when needed, `permissionMode`. The Claude CLI owns and enforces native-tool permissions. Moxxy's `--allow-tools`, permission resolver, and isolators govern only Moxxy tools and do not override the Claude CLI.
+Anthropic and OpenAI API keys can be entered during onboarding or supplied to
+headless `moxxy init` through `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
-The Codex, Anthropic API, and Claude Code provider packages also install `@moxxy/plugin-browser` as a lightweight companion. It provides the local search adapter and `web_fetch`; Playwright remains optional and is downloaded only after an explicit interactive-browser install action. Because Claude Code is an opaque CLI text transport, its turns cannot dispatch the local Moxxy fallback when native `WebSearch` fails.
+## Add capabilities later
 
-Interactive desktop and TUI sessions can launch sign-in. Headless channels and OS services cannot reliably complete browser or TTY authentication. Sign in once as the same OS user before starting the service, make sure that user's `PATH` or `CLAUDE_CODE_EXECUTABLE` reaches `claude`, then restart the service. Claude continues to own its authentication files; Moxxy does not copy them into its vault.
-
-## Keep Moxxy running
-
-Run one channel as its own launchd or systemd user service:
+Extensions and channels are optional:
 
 ```sh
-moxxy service install telegram
-moxxy service logs telegram
+moxxy extensions list
+moxxy onboard --advanced
 ```
 
-Or run every configured channel, the scheduler, and webhooks in one process with a shared event log:
+Advanced onboarding can configure messaging channels, runtime choices, and a
+background service. It does not change the personal golden path.
 
-```sh
-moxxy serve --background
-moxxy serve --background --except http
-moxxy serve --status
-```
-
-Service logs are stored in `~/.moxxy/services/<name>.log`. Installed service units survive reboots.
+Use `moxxy help advanced` for the full operator command set.
 
 ## Update and diagnose
 
 ```sh
 moxxy update
-moxxy doctor
+moxxy doctor --check-keys
 ```
 
-The TUI also notifies you when a new version is available.
+If setup fails, include the OS, Node version, install command, selected model
+connection, failing step, and sanitized output in a
+[GitHub issue](https://github.com/moxxy-ai/moxxy/issues).
 
 ## Next steps
 
-- Review [features and channels](features.md).
-- Configure Moxxy with the [configuration reference](configuration.md).
-- Build an integration with the [developer guide](developer-guide.md).
-- Harden a deployment with the [security guide](../SECURITY.md).
+- Read the [developer alpha contract](developer-alpha.md).
+- Browse [features and channels](features.md).
+- Add an integration with the [developer guide](developer-guide.md).
+- Apply organizational controls with the [deployment guide](deployment.md).

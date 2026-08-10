@@ -8,7 +8,7 @@ This report consolidates the **complete** repo-wide quality + performance audit 
 
 The standout, executable-now themes:
 
-1. **~500 LOC of proven-dead code is removable now** — the entire CDP screencast cluster in `plugin-browser` (orphaned by the PR #205 polling revert, already in TECH_DEBT) plus ~24 zero-consumer exports across core/cli/desktop/sdk. All typecheck-gated, invariant-#11 dynamic-dispatch checks done.
+1. **~500 LOC of proven-dead code is removable now** — the entire CDP screencast cluster in `plugin-browser` (orphaned by the PR #205 polling revert, already in archived backlog) plus ~24 zero-consumer exports across core/cli/desktop/sdk. All typecheck-gated, invariant-#11 dynamic-dispatch checks done.
 2. **Invariant #5 (atomic write + per-instance mutex) is unevenly applied** — five whole-file JSON stores reimplement the mutex+atomic+zod+quarantine pattern by hand, three boot/update paths re-roll a *sync* tmp+rename (no `writeFileAtomicSync` in the SDK), and ~18 read-modify-write stores have no mutex (preferences.json, plugins-admin config.yaml, chat-log NDJSON, tunnel-settings, channel-auth, config_set, runner provider-toggle…). One Tier-2 block extraction + one SDK helper centralize this.
 3. **The chat-model block fold is O(n²) per turn on both surfaces** — desktop `Transcript` and TUI `ChatView` re-fold the entire growing event log via `pairToolEvents` on every committed event, and the live in-memory log / `seenIds` Set never evict. Highest-value perf item; Tier-2 because the fold output is load-bearing and needs golden tests first.
 4. **Eight registries and five JSON stores are byte-for-byte copy-paste** whose own doc-comments say "Mirrors X" — two generic-base extractions centralize correctness in one tested place.
@@ -68,13 +68,13 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 
 **What / why:** Delete the entire CDP screencast push cluster (dispatch cases, CDPSession type, sidecar emit wiring, browser-session onEvent channel) orphaned by the PR #205 polling revert.
 
-**Rationale / risk:** Confirmed dead by repo-wide grep (callers only inside plugin-browser + dist artifacts); already journaled in TECH_DEBT as dormant debt. ~57 lines + ~9 cross-file symbols. Typecheck-gated, no test covers the removed path.
+**Rationale / risk:** Confirmed dead by repo-wide grep (callers only inside plugin-browser + dist artifacts); already journaled in archived backlog as dormant debt. ~57 lines + ~9 cross-file symbols. Typecheck-gated, no test covers the removed path.
 
 **Affected files & merged findings:**
 
 - **[deadcode-global-1 · deadcode/medium/unverified]** Entire CDP screencast plumbing in plugin-browser is dead (no caller after polling revert)
   - Files: `packages/plugin-browser/src/sidecar/dispatch.ts; packages/plugin-browser/src/sidecar/types.ts; packages/plugin-browser/src/sidecar.ts; packages/plugin-browser/src/browser-session.ts` (Ldispatch.ts:12,28-36,52-77,206-239; types.ts:69-75,86-88; sidecar.ts:90-94; browser-session.ts:107-132,200-210,407-414)
-  - Fix: Delete the two screencast dispatch cases + stopScreencast() helper + cdp/emit SidecarState fields + the stopScreencast() call in teardown(); remove the CDPSession interface and newCDPSession from PlaywrightHandle in types.ts; drop the state.emit assignment in sidecar.ts main(); remove onEvent/eventListeners/browserSidecarOnEvent and the unsolicited-event branch in handleLine from browser-session.ts. If screencast is ever revived, re-add it gated behind a polling fallback (TECH_DEBT note).
+  - Fix: Delete the two screencast dispatch cases + stopScreencast() helper + cdp/emit SidecarState fields + the stopScreencast() call in teardown(); remove the CDPSession interface and newCDPSession from PlaywrightHandle in types.ts; drop the state.emit assignment in sidecar.ts main(); remove onEvent/eventListeners/browserSidecarOnEvent and the unsolicited-event branch in handleLine from browser-session.ts. If screencast is ever revived, re-add it gated behind a polling fallback (archived backlog note).
   - Test: Run plugin-browser unit tests; the screencast path has no test, so removal only needs the existing goto/screenshot/eval suite green plus `pnpm build` typecheck (CDPSession type import drops).
 - **[u68-1 · deadcode/medium/confirmed]** Dormant screencast event-push plumbing: onEvent/eventListeners/browserSidecarOnEvent has no consumer
   - Files: `packages/plugin-browser/src/browser-session.ts` (L108-132, 200-210, 407-414)
@@ -166,7 +166,7 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
   - Test: Typecheck + existing WorkflowsPanel.test suite still green after removal.
 - **[u8-1 · deadcode/low/confirmed]** useLatestDeepLink export is dead — zero consumers, dormant 'future routing' plumbing
   - Files: `apps/desktop/src/lib/useDeepLink.ts` (L69-72)
-  - Fix: Either delete useLatestDeepLink + DeepLinkStore.last/latest() until a consumer exists (store just needs push/subscribe for the live-event invariant), or wire the intended routing consumer. Keeping it as documented dormant plumbing is acceptable only if explicitly tracked in TECH_DEBT.
+  - Fix: Either delete useLatestDeepLink + DeepLinkStore.last/latest() until a consumer exists (store just needs push/subscribe for the live-event invariant), or wire the intended routing consumer. Keeping it as documented dormant plumbing is acceptable only if explicitly tracked in archived backlog.
   - Test: After removal, `pnpm --filter @moxxy/desktop typecheck` stays green; if kept, add a test that pushes a link and asserts useLatestDeepLink re-renders with it.
 - **[u16-1 · deadcode/low/confirmed]** accentWash() is an unused export — no static or dynamic references
   - Files: `apps/desktop/src/workflows/accents.ts` (L23-26)
@@ -204,13 +204,13 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 
 **What / why:** SkillGallery re-implements the settings SearchBox primitive byte-for-byte; import and delete ~28 lines of markup.
 
-**Rationale / risk:** High-severity duplication already journaled in TECH_DEBT (2026-06-17). One-line replacement, guarantees visual parity with MCP/Vault/Providers tabs.
+**Rationale / risk:** High-severity duplication already journaled in archived backlog (2026-06-17). One-line replacement, guarantees visual parity with MCP/Vault/Providers tabs.
 
 **Affected files & merged findings:**
 
 - **[duplication-3 · duplication/high/unverified]** SkillGallery hand-rolls a near-verbatim copy of the shared settings SearchBox primitive
   - Files: `apps/desktop/src/settings/skills/SkillGallery.tsx; apps/desktop/src/settings/settings-primitives.tsx` (LSkillGallery 56-85; settings-primitives 13-52)
-  - Fix: Import `SearchBox` from '../settings-primitives' (already imports EmptyState from there) and replace the inline block with `<SearchBox value={query} onChange={setQuery} placeholder="Search skills…" />`. Delete the duplicate markup. Exactly the fix described in TECH_DEBT.
+  - Fix: Import `SearchBox` from '../settings-primitives' (already imports EmptyState from there) and replace the inline block with `<SearchBox value={query} onChange={setQuery} placeholder="Search skills…" />`. Delete the duplicate markup. Exactly the fix described in archived backlog.
   - Test: Render SkillGallery in jsdom, type into the search box, assert filtered cards; visual parity is guaranteed by sharing the primitive.
 
 ### [t1-blockshared-dup] Collapse copy-pasted desktop chat / TUI render helpers onto their shared modules
@@ -801,7 +801,7 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 - **Lens:** duplication | **Risk:** medium | **Effort:** L | **Findings merged:** 4
 - **Packages:** packages/client-core
 
-**What / why:** useDesks/useSessions/useConnection each hand-roll subscribe/emit/listeners; the optimistic connection-flip on session switch is duplicated across desksStore.setActiveSession and sessionsStore; queue ids (q-<rev>-<len>) can collide after dropFromQueue. Fold sessionsStore into thin selectors over desksStore (per TECH_DEBT L878) and unify the store primitive.
+**What / why:** useDesks/useSessions/useConnection each hand-roll subscribe/emit/listeners; the optimistic connection-flip on session switch is duplicated across desksStore.setActiveSession and sessionsStore; queue ids (q-<rev>-<len>) can collide after dropFromQueue. Fold sessionsStore into thin selectors over desksStore (per archived backlog L878) and unify the store primitive.
 
 **Rationale / risk:** State-store refactor (not a pure extraction) feeding desktop + mobile; medium risk. The chatStore has NO co-located test today, so build the test harness first (see t2-test-harness).
 
@@ -809,7 +809,7 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 
 - **[duplication-6 · duplication/low/unverified]** Optimistic connection-flip logic duplicated across desksStore.setActiveSession and sessionsStore (useSessions) paths
   - Files: `packages/client-core/src/useDesks.ts; packages/client-core/src/useSessions.ts` (LuseDesks setActiveSession 170+; useSessions parallel path)
-  - Fix: Fold the tracked-desk sessionsStore into thin selectors over desksStore (as the TECH_DEBT entry proposes) so the connection-flip lives in exactly one place; do it when either file is next touched. Lower priority — it is a state-store refactor, not a pure extraction.
+  - Fix: Fold the tracked-desk sessionsStore into thin selectors over desksStore (as the archived backlog entry proposes) so the connection-flip lives in exactly one place; do it when either file is next touched. Lower priority — it is a state-store refactor, not a pure extraction.
   - Test: Existing client-core store tests for both hooks must pass against the consolidated path; add a switch-session test asserting the optimistic active id updates before the RPC resolves.
 - **[u33-5 · consistency/low/unverified-lowrisk]** Three near-identical hand-rolled external stores (subscribe/emit/listeners Set) duplicated
   - Files: `packages/client-core/src/useDesks.ts; packages/client-core/src/useSessions.ts; packages/client-core/src/useConnection.ts` (LuseDesks 52-92; useSessions 56-100; useConnection 12-55)
@@ -1646,7 +1646,7 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 
 **What / why:** Low-severity correctness and robustness nitpicks across many files (swallowed errors, minor edge cases, defensive-fill gaps) that did not rise to the targeted bug clusters. (116 deduped findings.)
 
-**Rationale / risk:** Low severity, low risk; address opportunistically when the owning file is next touched (TECH_DEBT journal).
+**Rationale / risk:** Low severity, low risk; address opportunistically when the owning file is next touched (archived backlog journal).
 
 <details><summary>116 merged findings (file — title)</summary>
 
@@ -2095,14 +2095,14 @@ Every cluster was screened against the 11 repo invariants. No cluster recommends
 
 ---
 
-## TECH_DEBT.md items retirable by this work
+## archived backlog items retirable by this work
 
-- TECH_DEBT.md 'Browser surface reverted from CDP screencast' dormant-debt entry (lines 140-151)
-- TECH_DEBT.md 2026-06-17 'Skills gallery reimplements the shared settings SearchBox' (L40-51)
-- TECH_DEBT.md L878-884 (desksStore/sessionsStore consolidation)
+- archived backlog 'Browser surface reverted from CDP screencast' dormant-debt entry (lines 140-151)
+- archived backlog 2026-06-17 'Skills gallery reimplements the shared settings SearchBox' (L40-51)
+- archived backlog L878-884 (desksStore/sessionsStore consolidation)
 - A41 (follow-on: the re-index was fixed but the recall-time scan stayed serial)
 
-Beyond the explicitly-tagged entries, this sweep also re-validates and gives execution plans for the standing TECH_DEBT themes: the desksStore/sessionsStore consolidation, the dormant CDP-screencast removal, the SkillGallery SearchBox dup, the missing `writeFileAtomicSync`, and the under-tested chatStore / SurfaceHost / runner-surface subsystems. Per the TECH_DEBT-journal rule, each executed cluster should retire its matching journal entry and log any newly-discovered debt in the same PR.
+Beyond the explicitly-tagged entries, this sweep also re-validates and gives execution plans for the standing archived backlog themes: the desksStore/sessionsStore consolidation, the dormant CDP-screencast removal, the SkillGallery SearchBox dup, the missing `writeFileAtomicSync`, and the under-tested chatStore / SurfaceHost / runner-surface subsystems. Per the old backlog workflow rule, each executed cluster should retire its matching journal entry and log any newly-discovered debt in the same PR.
 
 ## Suggested execution order
 

@@ -2191,7 +2191,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
 - ff73468: Quality sweep, wave 5 (safe longtail — coverage + mechanical consistency/perf)
 
   The additive/mechanical slice of the audit's low-severity long-tail; subjective
-  nitpicks and anything behavior-risky were deferred (tracked in `TECH_DEBT.md`).
+  nitpicks and anything behavior-risky were deferred (tracked in `archived backlog`).
   Behavior-preserving except the small fixes noted, each covered by a test.
 
   - **Coverage:** focused unit tests for previously-untested pure logic —
@@ -2228,7 +2228,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
     consolidated duplicated `<NAME>_API_KEY` slug + config up-walk helpers.
 
   Risky/voluminous Tier-3 (god-file decomposition, the long-tail review/test-gap/
-  consistency/perf clusters) remains tracked in `TECH_DEBT.md` as the standing
+  consistency/perf clusters) remains tracked in `archived backlog` as the standing
   journal.
 
 - Updated dependencies [091ef41]
@@ -2405,7 +2405,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
   per-instance mutexes + atomic writes to the file-backed stores that lacked them.
 
   Larger/riskier items (the O(n²) chat-model fold rewrite, a generic JSON store,
-  god-file splits, and the long-tail findings) are tracked in `TECH_DEBT.md` for
+  god-file splits, and the long-tail findings) are tracked in `archived backlog` for
   focused follow-up PRs rather than bundled here.
 
 - Updated dependencies [89ad994]

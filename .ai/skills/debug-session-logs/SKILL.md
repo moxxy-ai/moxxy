@@ -5,8 +5,7 @@ description: Inspect and repair session event logs and desktop chat NDJSON (resu
 
 # Debug session logs
 
-Two independent stores persist every desktop conversation (known debt,
-TECH_DEBT P1 #2):
+Two independent stores persist every desktop conversation:
 
 1. **Runner session log** — `~/.moxxy/sessions/<id>.jsonl`. Authoritative
    append-only event log; replayed IN FULL from seq 0 on every attach.
@@ -26,7 +25,7 @@ What the runtime already self-heals (don't re-fix):
   broadcasts `session.reset` so every mirror clears in lockstep, truncates the
   JSONL (protocol v3, A10). Old context resurrecting on `--resume` = reset
   didn't reach the runner (renderer cleared first — the remaining desync
-  window, P1 #2).
+  window).
 
 Inspect:
 ```sh

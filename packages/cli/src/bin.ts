@@ -21,7 +21,41 @@ type CommandHandler = (argv: ParsedArgv) => Promise<number>;
  * `moxxy channels` listing aesthetic — no rails, no clack glyphs,
  * mono palette only.
  */
-const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyArray<readonly [string, string]> }> = [
+type HelpSection = {
+  readonly title: string;
+  readonly rows: ReadonlyArray<readonly [string, string]>;
+};
+
+const CORE_SECTIONS: ReadonlyArray<HelpSection> = [
+  {
+    title: 'START',
+    rows: [
+      ['moxxy', 'work with the current project in the interactive TUI'],
+      ['moxxy onboard', 'connect a model account with recommended defaults'],
+      ['moxxy -p "…"', 'ask one question and print the answer'],
+      ['moxxy resume', 'continue an earlier run'],
+    ],
+  },
+  {
+    title: 'ESSENTIALS',
+    rows: [
+      ['extensions', 'find, install, enable, or remove optional capabilities'],
+      ['doctor [--check-keys]', 'check model connections and local setup'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI'],
+      ['help advanced', 'show channels, automation, policy, and operator commands'],
+    ],
+  },
+  {
+    title: 'FLAGS',
+    rows: [
+      ['--model <id>', 'use a different model for this run'],
+      ['--allow-tools, --allow-all', 'permission shortcuts for non-interactive runs'],
+      ['--help, --version', 'show help or the installed version'],
+    ],
+  },
+];
+
+const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'USAGE',
     rows: [
@@ -34,8 +68,8 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
   {
     title: 'SETUP',
     rows: [
-      ['onboard', 'guided setup: provider → messaging channel → pairing → background service'],
-      ['init', 'interactive first-time setup (provider keys → vault)'],
+      ['onboard', 'connect a model account; use --advanced for channels and services'],
+      ['init', 'connect a model account with recommended defaults'],
       ['provision', 'headless setup: install + configure a provider (flags or --spec -)'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
       ['login status|logout', 'inspect / remove stored OAuth credentials'],
@@ -128,8 +162,9 @@ function banner(): string {
   return renderLogo(undefined, { center: true });
 }
 
-function renderHelp(): string {
+function renderHelp(advanced = false): string {
   const width = process.stdout.columns ?? 80;
+  const sections = advanced ? ADVANCED_SECTIONS : CORE_SECTIONS;
 
   // Center the slogan + version "crown" to the terminal, matching the
   // bootscreen. Pad off the VISIBLE length (raw strings) — the ANSI codes
@@ -145,7 +180,7 @@ function renderHelp(): string {
   // Width of the widest rendered "    cmd  desc" row across every section —
   // the dividers extend to this so they all line up, capped to the terminal.
   const rowWidth = Math.max(
-    ...SECTIONS.map((s) => {
+    ...sections.map((s) => {
       const colWidth = Math.max(...s.rows.map(([cmd]) => cmd.length));
       return Math.max(...s.rows.map(([, desc]) => ROW_INDENT + colWidth + 2 + desc.length));
     }),
@@ -163,7 +198,7 @@ function renderHelp(): string {
   out.push(header);
   out.push('');
 
-  SECTIONS.forEach((section, i) => {
+  sections.forEach((section, i) => {
     // Per-section column width so short commands (moxxy, init, tui) sit
     // tight against their descriptions instead of floating off a global max.
     const colWidth = Math.max(...section.rows.map(([cmd]) => cmd.length));
@@ -172,7 +207,7 @@ function renderHelp(): string {
       const padded = cmd.padEnd(colWidth, ' ');
       out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(desc)}`);
     }
-    if (i < SECTIONS.length - 1) out.push('');
+    if (i < sections.length - 1) out.push('');
   });
 
   out.push('');
@@ -184,6 +219,9 @@ function renderHelp(): string {
   );
   out.push('');
   out.push(`${colors.dim('Run')} ${colors.bold('moxxy onboard')} ${colors.dim('to get started.')}`);
+  if (!advanced) {
+    out.push(`${colors.dim('Run')} ${colors.bold('moxxy help advanced')} ${colors.dim('for every operator command.')}`);
+  }
   out.push(`${colors.dim('See')} ${colors.bold('moxxy <command> --help')} ${colors.dim('for per-command details.')}`);
 
   return out.join('\n') + '\n';
@@ -206,8 +244,8 @@ function renderHelp(): string {
  * KNOWN_COMMANDS set to drift out of sync.
  */
 const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
-  help: async () => async () => {
-    process.stdout.write(banner() + renderHelp());
+  help: async () => async (argv) => {
+    process.stdout.write(banner() + renderHelp(argv.positional[0] === 'advanced'));
     return 0;
   },
   version: async () => async () => {
@@ -242,6 +280,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   security: async () => (await import('./commands/security.js')).runSecurityCommand,
   skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
   plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
+  extensions: async () => (await import('./commands/plugins.js')).runPluginsCommand,
   channels: async () => (await import('./commands/channels.js')).runChannelsCommand,
   profile: async () => (await import('./commands/profile.js')).runProfileCommand,
   sync: async () => (await import('./commands/sync.js')).runSyncCommand,

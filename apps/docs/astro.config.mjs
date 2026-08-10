@@ -6,8 +6,8 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'moxxy',
-      description: 'Block-based, modular agentic loop framework for TypeScript.',
-      tagline: 'Block-based agentic loop framework.',
+      description: 'A local AI agent for developers: simple to start, extensible when needed, ready to govern.',
+      tagline: 'Your local agent. Simple to start. Ready to govern.',
       social: {
         github: 'https://github.com/moxxy-ai/moxxy',
       },
@@ -16,8 +16,16 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             { label: 'Introduction', slug: 'index' },
-            { label: 'Why moxxy', slug: 'why-moxxy' },
             { label: 'Quickstart', slug: 'quickstart' },
+            { label: 'Developer alpha', slug: 'developer-alpha' },
+            { label: 'Why moxxy', slug: 'why-moxxy' },
+          ],
+        },
+        {
+          label: 'Extend',
+          items: [
+            { label: 'Author a skill', slug: 'guides/authoring-a-skill' },
+            { label: 'Author an extension', slug: 'guides/authoring-a-plugin' },
             { label: 'Architecture', slug: 'architecture' },
           ],
         },

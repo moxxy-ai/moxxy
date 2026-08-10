@@ -31,36 +31,43 @@ import { colors } from '../colors.js';
 import { cliVersion } from '../version.js';
 import { formatHelp } from './help-format.js';
 
-const HELP = formatHelp({
-  title: 'moxxy plugins',
-  tagline: 'install, enable/disable, and manage plugins',
-  sections: [
-    {
-      title: 'COMMANDS',
-      rows: [
-        ['list', 'list loaded + disabled plugins and the install catalog'],
-        ['search <query>', 'search npm + catalog for installable plugins'],
-        [
-          'install <spec> [--version v] [--ref r] [--yes] [--allow-scripts]',
-          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting; --allow-scripts: permit the package’s npm install hooks to run, needed only by native modules, off by default)',
-        ],
-        ['remove <pkg>', 'uninstall a plugin package'],
-        ['enable <pkg>', 'enable (plug in) a plugin'],
-        ['disable <pkg>', 'disable (unplug) a plugin — kept installed'],
-        ['defaults', 'show each category’s active default + swappable options'],
-        ['set-default <category> <name>', 'swap a category default (e.g. provider openai)'],
-        ['open <id>', 'show how to open a UI plugin'],
-        ['reload', 'rescan discovery roots and hot-reload'],
-        ['new <name> [--here]', 'scaffold a new user-scope plugin'],
-      ],
-    },
+const COMMAND_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ['list', 'list loaded + disabled extensions and the install catalog'],
+  ['search <query>', 'search npm + catalog for installable extensions'],
+  [
+    'install <spec> [--version v] [--ref r] [--yes] [--allow-scripts]',
+    'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting; --allow-scripts: permit the package’s npm install hooks to run, needed only by native modules, off by default)',
   ],
-});
+  ['remove <pkg>', 'uninstall an extension package'],
+  ['enable <pkg>', 'enable an installed extension'],
+  ['disable <pkg>', 'disable an extension but keep it installed'],
+  ['open <id>', 'show how to open a UI extension'],
+  ['new <name> [--here]', 'scaffold a new user-scope extension'],
+  ['defaults', 'advanced: show each runtime category’s active default + options'],
+  ['set-default <category> <name>', 'advanced: change a runtime category default'],
+  ['reload', 'advanced: rescan discovery roots and hot-reload'],
+];
+
+function helpFor(command: string): string {
+  const extensions = command === 'extensions';
+  return formatHelp({
+    title: extensions ? 'moxxy extensions' : 'moxxy plugins',
+    tagline: extensions
+      ? 'add, remove, enable, or inspect optional capabilities'
+      : 'author-level extension package and runtime management',
+    sections: [
+      {
+        title: 'COMMANDS',
+        rows: COMMAND_ROWS,
+      },
+    ],
+  });
+}
 
 export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0] ?? 'list';
   if (sub === 'help' || helpRequested(argv)) {
-    process.stdout.write(HELP);
+    process.stdout.write(helpFor(argv.command));
     return 0;
   }
   switch (sub) {
@@ -89,7 +96,7 @@ export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
     case 'open':
       return runOpen(argv);
     default:
-      printError(`unknown 'plugins' subcommand: ${sub}\n${HELP}`);
+      printError(`unknown '${argv.command}' subcommand: ${sub}\n${helpFor(argv.command)}`);
       return 2;
   }
 }

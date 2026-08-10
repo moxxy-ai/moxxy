@@ -13,7 +13,7 @@
     "packages/plugin-browser"
    ],
    "oneLine": "Delete the entire CDP screencast push cluster (dispatch cases, CDPSession type, sidecar emit wiring, browser-session onEvent channel) orphaned by the PR #205 polling revert.",
-   "rationale": "Confirmed dead by repo-wide grep (callers only inside plugin-browser + dist artifacts); already journaled in TECH_DEBT as dormant debt. ~57 lines + ~9 cross-file symbols. Typecheck-gated, no test covers the removed path.",
+   "rationale": "Confirmed dead by repo-wide grep (callers only inside plugin-browser + dist artifacts); already journaled in archived backlog as dormant debt. ~57 lines + ~9 cross-file symbols. Typecheck-gated, no test covers the removed path.",
    "findings": [
     {
      "id": "deadcode-global-1",
@@ -31,11 +31,11 @@
      ],
      "lines": "dispatch.ts:12,28-36,52-77,206-239; types.ts:69-75,86-88; sidecar.ts:90-94; browser-session.ts:107-132,200-210,407-414",
      "title": "Entire CDP screencast plumbing in plugin-browser is dead (no caller after polling revert)",
-     "problem": "The browser surface was reverted from a CDP Page.startScreencast push to screenshot polling (PR #205, see TECH_DEBT). The whole screencast cluster it needed is now unreachable: the `startScreencast`/`stopScreencast` JSON-RPC cases + `stopScreencast()` helper + `cdp`/`emit` SidecarState fields (dispatch.ts), the `CDPSession` interface and `newCDPSession` on PlaywrightHandle (types.ts), the `state.emit` wiring (sidecar.ts), and the unsolicited-event channel `onEvent`/`eventListeners`/`browserSidecarOnEvent` + the `reply.event && !reply.id` branch in handleLine (browser-session.ts). Nothing invokes any of it.",
-     "fix": "Delete the two screencast dispatch cases + stopScreencast() helper + cdp/emit SidecarState fields + the stopScreencast() call in teardown(); remove the CDPSession interface and newCDPSession from PlaywrightHandle in types.ts; drop the state.emit assignment in sidecar.ts main(); remove onEvent/eventListeners/browserSidecarOnEvent and the unsolicited-event branch in handleLine from browser-session.ts. If screencast is ever revived, re-add it gated behind a polling fallback (TECH_DEBT note).",
+     "problem": "The browser surface was reverted from a CDP Page.startScreencast push to screenshot polling (PR #205, see archived backlog). The whole screencast cluster it needed is now unreachable: the `startScreencast`/`stopScreencast` JSON-RPC cases + `stopScreencast()` helper + `cdp`/`emit` SidecarState fields (dispatch.ts), the `CDPSession` interface and `newCDPSession` on PlaywrightHandle (types.ts), the `state.emit` wiring (sidecar.ts), and the unsolicited-event channel `onEvent`/`eventListeners`/`browserSidecarOnEvent` + the `reply.event && !reply.id` branch in handleLine (browser-session.ts). Nothing invokes any of it.",
+     "fix": "Delete the two screencast dispatch cases + stopScreencast() helper + cdp/emit SidecarState fields + the stopScreencast() call in teardown(); remove the CDPSession interface and newCDPSession from PlaywrightHandle in types.ts; drop the state.emit assignment in sidecar.ts main(); remove onEvent/eventListeners/browserSidecarOnEvent and the unsolicited-event branch in handleLine from browser-session.ts. If screencast is ever revived, re-add it gated behind a polling fallback (archived backlog note).",
      "testStrategy": "Run plugin-browser unit tests; the screencast path has no test, so removal only needs the existing goto/screenshot/eval suite green plus `pnpm build` typecheck (CDPSession type import drops).",
      "complexity": "262 lines -> ~205 lines in dispatch.ts; removes ~9 cross-file symbols",
-     "retiresTechDebt": "TECH_DEBT.md 'Browser surface reverted from CDP screencast' dormant-debt entry (lines 140-151)"
+     "retiresTechDebt": "archived backlog 'Browser surface reverted from CDP screencast' dormant-debt entry (lines 140-151)"
     },
     {
      "id": "u68-1",
@@ -438,7 +438,7 @@
      "lines": "69-72",
      "title": "useLatestDeepLink export is dead \u2014 zero consumers, dormant 'future routing' plumbing",
      "problem": "useLatestDeepLink() (and the deepLinkStore.latest() read path it is the only caller of) has no consumers anywhere. The module doc itself states 'No routing is wired yet' and 'For future routing'. DeepLinkBridge still usefully drains/forwards links into the store, but the reactive read hook is dead until a routing feature actually subscribes.",
-     "fix": "Either delete useLatestDeepLink + DeepLinkStore.last/latest() until a consumer exists (store just needs push/subscribe for the live-event invariant), or wire the intended routing consumer. Keeping it as documented dormant plumbing is acceptable only if explicitly tracked in TECH_DEBT.",
+     "fix": "Either delete useLatestDeepLink + DeepLinkStore.last/latest() until a consumer exists (store just needs push/subscribe for the live-event invariant), or wire the intended routing consumer. Keeping it as documented dormant plumbing is acceptable only if explicitly tracked in archived backlog.",
      "testStrategy": "After removal, `pnpm --filter @moxxy/desktop typecheck` stays green; if kept, add a test that pushes a link and asserts useLatestDeepLink re-renders with it.",
      "complexity": "n/a",
      "retiresTechDebt": null
@@ -589,7 +589,7 @@
     "apps/desktop"
    ],
    "oneLine": "SkillGallery re-implements the settings SearchBox primitive byte-for-byte; import and delete ~28 lines of markup.",
-   "rationale": "High-severity duplication already journaled in TECH_DEBT (2026-06-17). One-line replacement, guarantees visual parity with MCP/Vault/Providers tabs.",
+   "rationale": "High-severity duplication already journaled in archived backlog (2026-06-17). One-line replacement, guarantees visual parity with MCP/Vault/Providers tabs.",
    "findings": [
     {
      "id": "duplication-3",
@@ -606,10 +606,10 @@
      "lines": "SkillGallery 56-85; settings-primitives 13-52",
      "title": "SkillGallery hand-rolls a near-verbatim copy of the shared settings SearchBox primitive",
      "problem": "SkillGallery.tsx L57-84 inlines a search row (flex container with the same padding/background/border/borderRadius, an Icon name='search', and an <input type='search'> with identical flex/border/outline/background/fontSize/color styles) that is byte-for-byte the SearchBox primitive exported from settings-primitives.tsx L13-52 and already used by the MCP/Vault/Providers tabs. Styling drift between the Skills search and the other tabs' search is a when-not-if.",
-     "fix": "Import `SearchBox` from '../settings-primitives' (already imports EmptyState from there) and replace the inline block with `<SearchBox value={query} onChange={setQuery} placeholder=\"Search skills\u2026\" />`. Delete the duplicate markup. Exactly the fix described in TECH_DEBT.",
+     "fix": "Import `SearchBox` from '../settings-primitives' (already imports EmptyState from there) and replace the inline block with `<SearchBox value={query} onChange={setQuery} placeholder=\"Search skills\u2026\" />`. Delete the duplicate markup. Exactly the fix described in archived backlog.",
      "testStrategy": "Render SkillGallery in jsdom, type into the search box, assert filtered cards; visual parity is guaranteed by sharing the primitive.",
      "complexity": "~28 lines of duplicated markup -> 1 line",
-     "retiresTechDebt": "TECH_DEBT.md 2026-06-17 'Skills gallery reimplements the shared settings SearchBox' (L40-51)"
+     "retiresTechDebt": "archived backlog 2026-06-17 'Skills gallery reimplements the shared settings SearchBox' (L40-51)"
     }
    ]
   },
@@ -2780,7 +2780,7 @@
    "packages": [
     "packages/client-core"
    ],
-   "oneLine": "useDesks/useSessions/useConnection each hand-roll subscribe/emit/listeners; the optimistic connection-flip on session switch is duplicated across desksStore.setActiveSession and sessionsStore; queue ids (q-<rev>-<len>) can collide after dropFromQueue. Fold sessionsStore into thin selectors over desksStore (per TECH_DEBT L878) and unify the store primitive.",
+   "oneLine": "useDesks/useSessions/useConnection each hand-roll subscribe/emit/listeners; the optimistic connection-flip on session switch is duplicated across desksStore.setActiveSession and sessionsStore; queue ids (q-<rev>-<len>) can collide after dropFromQueue. Fold sessionsStore into thin selectors over desksStore (per archived backlog L878) and unify the store primitive.",
    "rationale": "State-store refactor (not a pure extraction) feeding desktop + mobile; medium risk. The chatStore has NO co-located test today, so build the test harness first (see t2-test-harness).",
    "findings": [
     {
@@ -2798,10 +2798,10 @@
      "lines": "useDesks setActiveSession 170+; useSessions parallel path",
      "title": "Optimistic connection-flip logic duplicated across desksStore.setActiveSession and sessionsStore (useSessions) paths",
      "problem": "desksStore carries desk-scoped session ops (createSession/setActiveSession/renameSession/removeSession) while sessionsStore/useSessions keeps the same mutations scoped to one tracked desk; the optimistic connection-flip logic on session switch is implemented in both setActive* paths. The desktop already uses only desksStore \u2014 useSessions is retained for mobile/API parity \u2014 so the two surfaces drift independently.",
-     "fix": "Fold the tracked-desk sessionsStore into thin selectors over desksStore (as the TECH_DEBT entry proposes) so the connection-flip lives in exactly one place; do it when either file is next touched. Lower priority \u2014 it is a state-store refactor, not a pure extraction.",
+     "fix": "Fold the tracked-desk sessionsStore into thin selectors over desksStore (as the archived backlog entry proposes) so the connection-flip lives in exactly one place; do it when either file is next touched. Lower priority \u2014 it is a state-store refactor, not a pure extraction.",
      "testStrategy": "Existing client-core store tests for both hooks must pass against the consolidated path; add a switch-session test asserting the optimistic active id updates before the RPC resolves.",
      "complexity": "2 setActive* implementations -> 1 shared flip + selectors",
-     "retiresTechDebt": "TECH_DEBT.md L878-884 (desksStore/sessionsStore consolidation)"
+     "retiresTechDebt": "archived backlog L878-884 (desksStore/sessionsStore consolidation)"
     },
     {
      "id": "u33-5",
@@ -6388,7 +6388,7 @@
     "packages/workflows-builder"
    ],
    "oneLine": "Low-severity correctness and robustness nitpicks across many files (swallowed errors, minor edge cases, defensive-fill gaps) that did not rise to the targeted bug clusters. (116 deduped findings.)",
-   "rationale": "Low severity, low risk; address opportunistically when the owning file is next touched (TECH_DEBT journal).",
+   "rationale": "Low severity, low risk; address opportunistically when the owning file is next touched (archived backlog journal).",
    "findings": [
     {
      "id": "u52-6",
@@ -8706,7 +8706,7 @@
      ],
      "lines": "144-170, 638-699",
      "title": "Security/health-critical deep-link parsing and boot-probe revert logic have zero unit tests",
-     "problem": "parseDeepLink() parses OS-delivered (untrusted) moxxy:// URLs at a trust boundary and forwards host/path/params to the renderer, and armBootProbe() decides whether a hot-updated bundle is healthy or must be poisoned + relaunched onto the floor. Both are load-bearing (the self-update saga in TECH_DEBT history turned on exactly this poison/confirm logic) yet neither has a test \u2014 index.ts has no .test.ts. A regression that mis-parses a scheme or that confirms a white-screened bundle (or poisons a healthy one) ships silently.",
+     "problem": "parseDeepLink() parses OS-delivered (untrusted) moxxy:// URLs at a trust boundary and forwards host/path/params to the renderer, and armBootProbe() decides whether a hot-updated bundle is healthy or must be poisoned + relaunched onto the floor. Both are load-bearing (the self-update saga in archived backlog history turned on exactly this poison/confirm logic) yet neither has a test \u2014 index.ts has no .test.ts. A regression that mis-parses a scheme or that confirms a white-screened bundle (or poisons a healthy one) ships silently.",
      "fix": "Add index.test.ts (or extract per u6-1 then test). Cover parseDeepLink: only moxxy: scheme accepted, params extracted, malformed -> null. Cover armBootProbe with an injected fake webContents + fake confirmed/bad stores: DOM-mounted -> markConfirmed; never-mounted -> markBad + relaunch; already-confirmed fast path; window destroyed mid-poll -> no relaunch.",
      "testStrategy": "Vitest with a stub BrowserWindow.webContents whose executeJavaScript returns scripted booleans and a fake clock (vi.useFakeTimers) to drive the poll deadline.",
      "complexity": null,
@@ -11955,7 +11955,7 @@
      "lines": "61-85",
      "title": "Package exports (generateThemeCss/RootCss, CSS_VAR_MAP, tokens) have no runtime consumer anywhere",
      "problem": "Nothing in the repo imports @moxxy/design-tokens or its ./css-vars subpath at runtime. apps/desktop/package.json declares the dep (workspace:*) but no .ts/.tsx in apps/desktop or any package imports `tokens`, `darkTokens`, `generateThemeCss`, `generateRootCss`, `CSS_VAR_MAP`, or `DARK_CSS_VAR_MAP`. styles.css remains the desktop's source of truth, so the generator is dormant. This is documented-on-purpose plumbing (the file header says 'shipped now but not yet consumed... the parity test guards the mapping so a later switch is safe'), so it is NOT to be deleted \u2014 flagging only so the dormancy is tracked and the desktop's declared-but-unused dependency does not look like accidental drift.",
-     "fix": "No code change needed now; keep as-is. When the desktop switch is made, replace the hand-maintained :root/[data-theme=\"dark\"] blocks in apps/desktop/src/styles.css with generateThemeCss() output (build-time emit or a runtime <style> inject) so the parity test stops being the only thing exercising this code. Until then, leave a TECH_DEBT note pointing styles.css at this generator.",
+     "fix": "No code change needed now; keep as-is. When the desktop switch is made, replace the hand-maintained :root/[data-theme=\"dark\"] blocks in apps/desktop/src/styles.css with generateThemeCss() output (build-time emit or a runtime <style> inject) so the parity test stops being the only thing exercising this code. Until then, leave a archived backlog note pointing styles.css at this generator.",
      "testStrategy": "Existing css-vars.test.ts already covers generateRootCss/generateThemeCss and styles.css parity; when wired, add a desktop-side test asserting the injected CSS equals generateThemeCss().",
      "complexity": "n/a",
      "retiresTechDebt": null

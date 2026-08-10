@@ -99,16 +99,14 @@ export function selectLogo(width: number): LogoSelection {
  * chars and a mild attitude.
  */
 export const SLOGANS: ReadonlyArray<string> = [
-  'block-by-block agentic modes',
-  'every block swappable, every skill replicable',
-  'skills that breed skills, plugins that hot-load',
-  'the framework that builds itself',
-  'modes. tools. skills. all yours.',
-  'agents, assembled from interchangeable parts',
-  'an event log, a loop, and a lot of plugins',
-  'your agent stack, with the cover off',
-  'self-improving by design, paranoid by default',
-  'open-loop architecture for closed-loop agents',
+  'your local agent, ready for this project',
+  'connect a model. open a project. start.',
+  'local by default, extensible by design',
+  'use first. extend when needed.',
+  'your model, your workspace, your approval',
+  'simple to start. ready to govern.',
+  'software work with the actions in view',
+  'one local agent, from first task to policy',
 ];
 
 let cachedSlogan: string | null = null;

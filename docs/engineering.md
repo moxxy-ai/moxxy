@@ -18,7 +18,7 @@ The live end-to-end workflow drives the real CLI against a real provider. It che
 
 ### A repository that teaches its contributors
 
-The [technical debt journal](../TECH_DEBT.md), focused playbooks in [`.claude/skills/`](../.claude/skills/), and specialized definitions in [`.claude/agents/`](../.claude/agents/) capture decisions close to the code. Each change should leave the repository easier to modify safely.
+The product contract in [`PRODUCT.md`](../PRODUCT.md), focused playbooks in [`.ai/skills/`](../.ai/skills/), and specialized definitions in [`.ai/agents/`](../.ai/agents/) capture decisions close to the code. Each change should leave the repository easier to modify safely.
 
 ## What this means for releases
 
@@ -34,5 +34,5 @@ The result is an agent-built codebase held to the same production standards expe
 
 - [Developer guide](developer-guide.md)
 - [Security model](../SECURITY.md)
-- [Technical debt journal](../TECH_DEBT.md)
+- [Product contract](../PRODUCT.md)
 - [Contributing](../CONTRIBUTING.md)

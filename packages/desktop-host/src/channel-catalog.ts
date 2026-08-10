@@ -6,8 +6,8 @@
  * single source of truth for those names is the plugin's own `keys.ts`; the few
  * lines are duplicated here so the desktop can render the config form + check
  * "configured" WITHOUT booting plugin discovery in the Electron main). When a
- * channel's vault keys change, update them here too. (Logged in TECH_DEBT: a
- * future `moxxy channels describe --json` could source this from the ChannelDef.)
+ * channel's vault keys change, update them here too. A future
+ * `moxxy channels describe --json` could source this from the ChannelDef.
  */
 
 import type { ChannelDescriptor } from '@moxxy/desktop-ipc-contract';

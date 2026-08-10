@@ -88,6 +88,26 @@ describe('SettingsIndex', () => {
     expect(screen.getByTestId('settings-tab-skills')).toBeTruthy();
   });
 
+  it('splits extensions from application settings in the product navigation', () => {
+    const { rerender } = render(
+      <SettingsIndex
+        tab="providers"
+        onPick={vi.fn()}
+        scope="extensions"
+      />,
+    );
+    expect(screen.getByText('agent')).toBeTruthy();
+    expect(screen.getByText('extend')).toBeTruthy();
+    expect(screen.queryByTestId('settings-tab-vault')).toBeNull();
+
+    rerender(
+      <SettingsIndex tab="vault" onPick={vi.fn()} scope="settings" />,
+    );
+    expect(screen.getByText('trust')).toBeTruthy();
+    expect(screen.getByText('app')).toBeTruthy();
+    expect(screen.queryByTestId('settings-tab-skills')).toBeNull();
+  });
+
   it('picks a section on click', () => {
     const onPick = vi.fn();
     render(<SettingsIndex tab="providers" onPick={onPick} />);
