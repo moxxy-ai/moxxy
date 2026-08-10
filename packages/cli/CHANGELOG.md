@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.37.0
+
+### Minor Changes
+
+- 78938f8: Introduce the developer-alpha product contract and personal golden path, redesign the TUI around a one-time workspace welcome, contextual work status, consequence-first approvals, responsive Runs, Models, and product-facing Extensions, progressively disclose CLI and TUI commands by capability, auto-allow real-path-safe reads inside the workspace, and add bounded data-only client chrome slots for extensions.
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+
 ## 0.36.1
 
 ### Patch Changes
