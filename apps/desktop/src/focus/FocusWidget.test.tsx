@@ -914,15 +914,15 @@ describe('FocusWidget theme', () => {
     const systemDark = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'));
     expect(systemDark).toContain(':root:not([data-theme])');
     for (const decl of [
-      '--color-primary: #f4408f',
-      '--color-primary-strong: #ff63a8',
-      '--color-action: #c21e6b',
+      '--color-primary: #ff4a1e',
+      '--color-primary-strong: #ff8a3d',
+      '--color-action: #d62a00',
       '--color-on-action: #ffffff',
       '--color-red: #f2545b',
     ]) {
       expect(systemDark, `system-dark is missing ${decl}`).toContain(decl);
     }
-    expect(css.match(/--color-primary: #c21e6b/g)).toHaveLength(1);
+    expect(css.match(/--color-primary: #d62a00/g)).toHaveLength(1);
   });
 });
 
