@@ -15,11 +15,10 @@ import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
-import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
+import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
-import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 
 interface ChatSurfaceProps {
@@ -96,7 +95,6 @@ export function ChatSurface({
     chat,
     inputRequired: activeAsk !== null,
   });
-  const enterFocusMode = useFocusModeToggle();
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   // Keyboard shortcuts owned by the shell, executed here where the state lives.
@@ -155,48 +153,6 @@ export function ChatSurface({
   useVoiceCallRequest(voiceCall.open);
 
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
-
-  if (voiceCall.active) {
-    return (
-      <main className="col-main col-main--flat">
-        <VoiceCallSurface
-          phase={voiceCall.phase}
-          status={voicePresentation.status}
-          orbit={voicePresentation.orbit}
-          microphoneMuted={voiceCall.microphoneMuted}
-          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
-          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-          localPiperInstalling={voiceCall.localPiperInstalling}
-          errorReason={voiceCall.errorReason}
-          inputAnalyser={voiceCall.inputAnalyser}
-          outputAnalyser={voiceCall.outputAnalyser}
-          conversation={(
-            <Transcript
-              events={chat.events}
-              extensions={chat.extensions}
-              streamingText={chat.streamingText}
-              streamingReasoning={chat.streamingReasoning}
-              sending={chat.sending}
-              workspaceId={workspaceId}
-              hasOlder={chat.hasOlder}
-              onReachedTop={chat.loadOlder}
-              onPreviewImage={imagePreview.open}
-              compactTools={compactTools}
-            />
-          )}
-          request={activeAsk ? <AskSheet ask={activeAsk} /> : undefined}
-          onClose={voiceCall.close}
-          onEnterFocusMode={enterFocusMode}
-          onRetry={voiceCall.retry}
-          onInstallLocalPiper={voiceCall.installLocalPiper}
-          onMuteMicrophone={voiceCall.muteMicrophone}
-          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-          onToggleWaitingSound={voiceCall.toggleWaitingSound}
-        />
-        <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
-      </main>
-    );
-  }
 
   if (showBlockingLoading) {
     return (
@@ -267,8 +223,29 @@ export function ChatSurface({
         )}
       </div>
       {activeAsk && <AskSheet ask={activeAsk} />}
+      {voiceCall.active && (
+        <VoicePresenceRail
+          phase={voiceCall.phase}
+          status={voicePresentation.status}
+          rail={voicePresentation.rail}
+          microphoneMuted={voiceCall.microphoneMuted}
+          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+          localPiperInstalling={voiceCall.localPiperInstalling}
+          errorReason={voiceCall.errorReason}
+          inputAnalyser={voiceCall.inputAnalyser}
+          outputAnalyser={voiceCall.outputAnalyser}
+          onRetry={voiceCall.retry}
+          onInstallLocalPiper={voiceCall.installLocalPiper}
+          onMuteMicrophone={voiceCall.muteMicrophone}
+          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+          onToggleWaitingSound={voiceCall.toggleWaitingSound}
+          onClose={voiceCall.close}
+        />
+      )}
       <Composer
         agent={agent}
+        voiceModeActive={voiceCall.active}
         ready={ready}
         sending={chat.sending}
         compacting={chat.compacting}

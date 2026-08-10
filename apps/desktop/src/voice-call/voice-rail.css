@@ -1,0 +1,331 @@
+/*
+ * Voice Presence rail — one instrument strip between the ask sheet and the
+ * composer. Flat, hairline-separated and rectangular like the rest of the
+ * panel: no card, no glass, no gradient, and no second header. It reads as a
+ * row of the chat surface that happens to be listening.
+ */
+
+.voice-rail {
+  --voice-pulse: 0;
+  position: relative;
+  z-index: 3;
+  min-height: 58px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 0 clamp(10px, 2vw, 18px);
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(170px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--color-card-border-strong);
+  background: color-mix(in srgb, var(--color-main-bg) 94%, var(--color-surface));
+}
+
+/* ---- presence ---------------------------------------------------------- */
+
+.voice-rail-presence {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.voice-rail-copy { margin-left: 8px; }
+
+.voice-rail-mark {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text);
+}
+
+/* The mark itself breathes with the voice. Only transform and opacity move,
+   so the compositor carries the animation without a repaint — and keeps
+   carrying it when the main thread is busy. */
+.voice-rail-mark svg {
+  position: relative;
+  z-index: 1;
+  transform: scale(calc(1 + var(--voice-pulse) * 0.07));
+  will-change: transform;
+}
+
+/* A soft halo hugging the mark, and three travelling arcs on each side. Only
+   transform and opacity move, so the compositor carries all of it. */
+.voice-rail-halo {
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--radius-pill);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-primary) 40%, transparent),
+    transparent 68%
+  );
+  opacity: calc(var(--voice-pulse) * 0.75);
+  transform: scale(calc(0.8 + var(--voice-pulse) * 0.35));
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+
+/* The fan is silent by default and fades in when a voice starts carrying. Its
+   box is reserved either way, so the mark never slides sideways mid-call. */
+.voice-rail-waves {
+  position: relative;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 40px;
+  opacity: 0;
+  transition: opacity var(--motion-shift) ease;
+  pointer-events: none;
+}
+
+/* Each arc is a circle showing only the border on the side that faces away
+   from the mark, which is what gives the ((( ))) radio silhouette. */
+.voice-rail-waves i {
+  position: absolute;
+  top: 50%;
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  opacity: 0.45;
+}
+/* Concentric circles sharing an origin at the mark: only the far-side border
+   is painted, so what shows is the ((( ))) fan. Each arc is anchored on the
+   side nearest the mark, which is what makes them nest instead of stack. */
+.voice-rail-waves--left i { right: 0; border-left-color: var(--color-primary); }
+.voice-rail-waves--right i { left: 0; border-right-color: var(--color-primary); }
+
+.voice-rail-waves i:nth-child(1) { width: 14px; height: 14px; margin-top: -7px; animation-delay: 0ms; }
+.voice-rail-waves i:nth-child(2) { width: 20px; height: 20px; margin-top: -10px; animation-delay: 300ms; }
+.voice-rail-waves i:nth-child(3) { width: 26px; height: 26px; margin-top: -13px; animation-delay: 600ms; }
+
+/* Both ends written out: a keyframe set with only a `to` leaves the start
+   value to be inferred, and an implicit keyframe cannot be composited. */
+@keyframes voice-rail-wave {
+  from { opacity: 0.85; transform: scaleX(0.5); }
+  70% { opacity: 0.45; transform: scaleX(1); }
+  to { opacity: 0.12; transform: scaleX(1.2); }
+}
+
+/* Waves exist only while someone is actually talking. Pausing them instead
+   froze each arc at a different point of its cycle, so a silent rail showed a
+   lopsided fan that read as broken rather than as quiet. Off means off: no
+   animation at all, which also costs nothing. */
+.voice-rail--listening .voice-rail-waves,
+.voice-rail--speaking .voice-rail-waves { opacity: 1; }
+
+.voice-rail--listening .voice-rail-waves i,
+.voice-rail--speaking .voice-rail-waves i {
+  animation: voice-rail-wave 1.6s ease-out infinite;
+}
+
+.voice-rail--error .voice-rail-waves--left i { border-left-color: var(--color-red); }
+.voice-rail--error .voice-rail-waves--right i { border-right-color: var(--color-red); }
+.voice-rail--error .voice-rail-halo {
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-red) 40%, transparent), transparent 68%);
+}
+
+.voice-rail-copy {
+  min-width: 0;
+  max-width: 30ch;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.voice-rail-copy strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-chrome);
+  font-size: var(--type-row);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-rail-copy small {
+  overflow: hidden;
+  color: var(--color-text-dim);
+  font-size: var(--type-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- work in flight ---------------------------------------------------- */
+
+.voice-rail-work {
+  min-width: 0;
+  height: 34px;
+  justify-self: stretch;
+  padding-left: clamp(10px, 2vw, 20px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  overflow: hidden;
+  /* Hairline seams, the way the rest of the panel divides itself. */
+  border-left: 1px solid var(--color-card-border);
+}
+
+/* Four dots ticking under a running label: the one piece of motion that says
+   "still going" without a spinner's noise. */
+.voice-rail-operation-dots { display: inline-flex; align-items: center; gap: 4px; }
+.voice-rail-operation-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  opacity: 0.25;
+  animation: voice-rail-dot 1.2s ease-in-out infinite;
+}
+.voice-rail-operation-dots i:nth-child(2) { animation-delay: 150ms; }
+.voice-rail-operation-dots i:nth-child(3) { animation-delay: 300ms; }
+.voice-rail-operation-dots i:nth-child(4) { animation-delay: 450ms; }
+
+@keyframes voice-rail-dot {
+  from { opacity: 0.25; }
+  50% { opacity: 1; }
+  to { opacity: 0.25; }
+}
+
+.voice-rail-operation {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-family: var(--font-chrome);
+  font-size: var(--type-label);
+}
+
+.voice-rail-operation--idle {
+  color: var(--color-text-dim);
+  opacity: 0.75;
+}
+.voice-rail-operation--idle .voice-rail-operation-icon { color: var(--color-text-dim); }
+
+.voice-rail-operation-icon { display: grid; place-items: center; color: var(--color-primary); }
+.voice-rail-operation-label { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-rail-operation-state {
+  flex: 0 0 auto;
+  color: var(--color-primary-strong);
+  font-size: var(--type-micro);
+  letter-spacing: 0.05em;
+}
+.voice-rail-operation-more {
+  flex: 0 0 auto;
+  color: var(--color-text-dim);
+  font-size: var(--type-micro);
+}
+.voice-rail-operation.is-succeeded .voice-rail-operation-icon,
+.voice-rail-operation.is-succeeded .voice-rail-operation-state { color: var(--color-green); }
+.voice-rail-operation.is-failed .voice-rail-operation-icon,
+.voice-rail-operation.is-failed .voice-rail-operation-state { color: var(--color-red-text); }
+.voice-rail-operation.is-cancelled { opacity: 0.55; }
+
+.voice-rail-work-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.voice-rail-work-copy strong { font-size: var(--type-label); font-weight: 600; white-space: nowrap; }
+.voice-rail-work-copy small {
+  overflow: hidden;
+  color: var(--color-text-dim);
+  font-size: var(--type-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-rail-work-copy--error strong { color: var(--color-red-text); }
+
+.voice-rail-action {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--type-label);
+  cursor: pointer;
+}
+.voice-rail-action:hover:not(:disabled) { background: var(--color-primary-soft); }
+.voice-rail-action:disabled { opacity: 0.6; cursor: default; }
+
+/* ---- controls ---------------------------------------------------------- */
+
+.voice-rail-controls {
+  height: 34px;
+  padding-left: clamp(8px, 1.5vw, 16px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: end;
+  border-left: 1px solid var(--color-card-border);
+}
+
+/* Ending the call is the one destructive control here, so it carries a border
+   rather than sitting flat among the toggles. */
+.voice-rail-end {
+  margin-left: clamp(8px, 1.5vw, 16px);
+  padding: 6px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-red-text) 55%, transparent);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--color-red-text);
+  font: inherit;
+  font-size: var(--type-label);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--motion-shift) ease;
+}
+.voice-rail-end:hover { background: var(--color-red-wash); }
+.voice-rail-end:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+.voice-rail-control {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--type-label);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--motion-shift) ease;
+}
+.voice-rail-control svg { color: var(--color-primary); }
+.voice-rail-control:hover { background: var(--color-primary-soft); }
+.voice-rail-control.is-off { color: var(--color-text-muted); }
+.voice-rail-control.is-off svg { color: var(--color-text-dim); }
+.voice-rail-control:focus-visible,
+.voice-rail-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+
+/* ---- narrow windows -----------------------------------------------------
+   Supporting copy goes first, then control labels. The status, the mark, the
+   operation and every control's accessible name survive to the narrowest
+   layout — nothing becomes unreachable, only quieter. */
+
+@media (max-width: 1200px) {
+  .voice-rail-copy small,
+  .voice-rail-work-copy small { display: none; }
+}
+
+@media (max-width: 900px) {
+  .voice-rail { grid-template-columns: minmax(0, auto) minmax(150px, 1fr) auto auto; gap: 10px; }
+  .voice-rail-control span { display: none; }
+  .voice-rail-waves { display: none; }
+}
+
+@media (max-width: 700px) {
+  .voice-rail-operation-state { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-rail-mark svg,
+  .voice-rail-halo { transform: none; transition: none; }
+  .voice-rail--listening .voice-rail-waves i,
+  .voice-rail--speaking .voice-rail-waves i,
+  .voice-rail-operation-dots i { animation: none; }
+}
