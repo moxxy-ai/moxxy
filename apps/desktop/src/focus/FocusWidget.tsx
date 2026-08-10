@@ -426,6 +426,8 @@ function Surface({
       ask={ask}
       voiceModeActive={voiceCall.active}
       voiceModePhase={voiceCall.phase}
+      remoteQueuedTurns={voiceCall.remoteQueuedTurns}
+      onRemoveRemoteQueuedTurn={voiceCall.dropRemoteQueuedTurn}
       transcribing={
         voice.phase === 'transcribing' || voiceCall.phase === 'transcribing'
       }

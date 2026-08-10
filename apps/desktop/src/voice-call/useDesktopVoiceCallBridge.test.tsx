@@ -122,6 +122,45 @@ describe('useDesktopVoiceCallBridge', () => {
     expect(focusCall.close).not.toHaveBeenCalled();
   });
 
+  it('mirrors the owner queue and routes removal back to that renderer', async () => {
+    const bus = new InMemoryVoiceBridge();
+    const dropQueuedTurn = vi.fn();
+    const mainPort = bus.port();
+    const focusPort = bus.port();
+    const queuedTurns = [{ id: 'q-7', prompt: 'Transcribed follow-up' }];
+
+    const { result } = renderHook(() => {
+      const main = useDesktopVoiceCallBridge({
+        surface: 'main',
+        workspaceId: 'ws-queue',
+        localCall: voiceCall({ active: true, phase: 'thinking' }),
+        port: mainPort,
+        queuedTurns,
+        dropQueuedTurn,
+      } as Parameters<typeof useDesktopVoiceCallBridge>[0] & {
+        readonly queuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
+        readonly dropQueuedTurn: (id: string) => void;
+      });
+      const focus = useDesktopVoiceCallBridge({
+        surface: 'focus',
+        workspaceId: 'ws-queue',
+        localCall: voiceCall(),
+        port: focusPort,
+      });
+      return { main, focus };
+    });
+
+    type RemoteQueue = {
+      readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
+      readonly dropRemoteQueuedTurn: (id: string) => void;
+    };
+    const remote = (): RemoteQueue => result.current.focus as unknown as RemoteQueue;
+
+    await waitFor(() => expect(remote().remoteQueuedTurns).toEqual(queuedTurns));
+    act(() => remote().dropRemoteQueuedTurn('q-7'));
+    expect(dropQueuedTurn).toHaveBeenCalledWith('q-7');
+  });
+
   it('opens Voice Mode in the main renderer when Focus initiates the call', async () => {
     const bus = new InMemoryVoiceBridge();
     const ownerOpen = vi.fn();
@@ -265,6 +304,7 @@ describe('useDesktopVoiceCallBridge', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        queuedTurns: [],
       },
     } satisfies DesktopVoiceCallBridgeMessage));
 
@@ -307,6 +347,7 @@ describe('useDesktopVoiceCallBridge', () => {
           waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
+          queuedTurns: [],
         },
       }));
       expect(result.current.active).toBe(true);
