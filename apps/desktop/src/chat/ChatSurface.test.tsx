@@ -237,7 +237,9 @@ describe('ChatSurface session readiness', () => {
     expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
     expect(screen.getByTestId('composer-mock')).toBe(composerBefore);
     expect(screen.getByTestId('transcript-mock')).toHaveTextContent('Voice mode uses the shared transcript');
-    expect(screen.getByTestId('voice-rail-mock')).toBeInTheDocument();
+    const voiceRail = screen.getByTestId('voice-rail-mock');
+    expect(voiceRail).toBeInTheDocument();
+    expect(voiceRail.parentElement).toHaveClass('voice-rail-shell');
 
     fireEvent.click(screen.getByRole('button', { name: 'End voice mode' }));
     expect(voiceCallState.close).toHaveBeenCalledOnce();
