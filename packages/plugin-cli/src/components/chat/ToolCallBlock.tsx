@@ -20,7 +20,7 @@ export const ToolCallBlock: React.FC<{
     if (isFileDiffDisplay(display)) {
       return (
         <Box paddingLeft={nested ? 0 : 2}>
-          <FileDiffView display={display} expanded={expanded} />
+          <FileDiffView display={display} expanded={expanded} showToggle={!nested} />
         </Box>
       );
     }
@@ -55,6 +55,9 @@ export const ToolCallBlock: React.FC<{
         </Text>
         <Text dimColor>{detail}</Text>
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
+        {!nested && status === 'ok' ? (
+          <Text dimColor>{` · Ctrl+O ${expanded ? 'collapse' : 'result'}`}</Text>
+        ) : null}
       </Box>
       {outcome && (expanded || status === 'err') ? (
         <Box marginLeft={nested ? 4 : 2}>

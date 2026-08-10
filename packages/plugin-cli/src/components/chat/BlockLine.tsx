@@ -116,6 +116,9 @@ const SkillScopeView: React.FC<{
         <Text dimColor>{`${marker} `}</Text>
         <ShimmerText text={activityText} active={presentation.active} />
         {presentation.meta ? <Text dimColor>{` · ${presentation.meta}`}</Text> : null}
+        {scope.closed && hasDetails ? (
+          <Text dimColor>{`  ·  Ctrl+O ${showChildren ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       {showChildren ? (
         <Box flexDirection="column" marginLeft={2}>

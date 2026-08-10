@@ -24,8 +24,6 @@ export interface StatusLineProps {
   readonly contextWindow?: number | null;
   /** Governed workspaces keep their safety state visible; local is implicit. */
   readonly governance?: GovernanceInfo | null;
-  /** One global transcript-details toggle; avoids repeating Ctrl+O per block. */
-  readonly detailsExpanded?: boolean;
   /** Bounded, UI-neutral status items from loaded plugins. */
   readonly chromeItems?: ReadonlyArray<ClientChromeItem>;
 }
@@ -45,7 +43,6 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   contextUsed,
   contextWindow,
   governance,
-  detailsExpanded = false,
   chromeItems = [],
 }) => {
   const columns = useTerminalColumns();
@@ -95,9 +92,6 @@ export const StatusLine: React.FC<StatusLineProps> = ({
           </>
         )}
         {queueCount > 0 ? <Text dimColor>{`  ${Glyphs.contextUp} ${queueCount} queued`}</Text> : null}
-        {!tiny ? (
-          <Text dimColor>{`  ${Glyphs.midDot}  Ctrl+O ${detailsExpanded ? 'collapse' : 'details'}`}</Text>
-        ) : null}
       </Box>
       <Box>
         <ChromeItems items={trailingItems} />

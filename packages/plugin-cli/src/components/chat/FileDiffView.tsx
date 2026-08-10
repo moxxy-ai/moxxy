@@ -59,7 +59,9 @@ export const FileDiffView: React.FC<{
   display: FileDiffDisplay;
   /** Global Ctrl+O toggle. */
   expanded: boolean;
-}> = ({ display, expanded }) => {
+  /** Only top-level tool rows own the global details affordance. */
+  showToggle?: boolean;
+}> = ({ display, expanded, showToggle = false }) => {
   const allRows = toDiffRows(display);
   const rows = expanded ? allRows : allRows.slice(0, COLLAPSED_ROWS);
   const hidden = allRows.length - rows.length;
@@ -68,6 +70,7 @@ export const FileDiffView: React.FC<{
     ...rows.map((r) => (r.kind === 'gap' ? 0 : String(diffGutterNo(r) ?? '').length)),
   );
   const dotColor = display.mode === 'create' ? Colors.active : 'cyan';
+  const canToggle = allRows.length > COLLAPSED_ROWS;
   const pathWidth = Math.max(18, (process.stdout.columns ?? 80) - 36);
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
@@ -75,6 +78,9 @@ export const FileDiffView: React.FC<{
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text bold>{fileDiffVerb(display)}</Text>
         <Text dimColor>{`(${terminalSafeText(display.path, pathWidth)})`}</Text>
+        {showToggle && canToggle ? (
+          <Text dimColor>{`  ·  Ctrl+O ${expanded ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       <Box>
         <Text dimColor>{`  └ ${fileDiffSummary(display)}`}</Text>

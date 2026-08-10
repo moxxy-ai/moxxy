@@ -63,6 +63,9 @@ export const LiveToolBlock: React.FC<{
         <Text bold>Tools</Text>
         <Text dimColor>{' · '}</Text>
         <Text dimColor>{summary}</Text>
+        {!nested && !inFlight ? (
+          <Text dimColor>{`  ·  Ctrl+O ${showDetails ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       {errorCount > 0 && !showDetails ? (
         <Box marginLeft={2}>

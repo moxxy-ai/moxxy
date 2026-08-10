@@ -179,11 +179,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
       // explicit details toggle therefore performs one intentional redraw so
       // already-settled tool/skill rows can actually expand and collapse.
       clearTerminalScreen();
-      setExpandToolOutputs((e) => {
-        const next = !e;
-        setSystemNotice(next ? 'details shown · Ctrl+O to collapse' : null);
-        return next;
-      });
+      setExpandToolOutputs((expanded) => !expanded);
     },
     r: voice.toggleVoiceInput,
   };
@@ -576,7 +572,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
         contextUsed={contextUsed}
         contextWindow={contextWindow}
         governance={sessionInfo.governance ?? null}
-        detailsExpanded={expandToolOutputs}
         chromeItems={sessionInfo.clientChrome ?? []}
       />
     </Box>
