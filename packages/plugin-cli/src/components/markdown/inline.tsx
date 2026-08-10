@@ -50,18 +50,17 @@ const LinkToken: React.FC<{ label: string; url: string }> = ({ label, url }) => 
   const link = terminalHyperlinkText(visibleLabel, url);
   return (
     <>
-      <Text>{link}</Text>
+      <Text underline color="blue">{link}</Text>
       <Text dimColor>{formatLinkHint(url, visibleLabel.length)}</Text>
     </>
   );
 };
 
 const OSC_LINK = '\u001B]8;;';
-// BEL is the terminator emitted by ansi-escapes/terminal-link and has the
-// broadest OSC 8 compatibility in Warp, iTerm2 and legacy terminal parsers.
-const OSC_END = '\u0007';
-const LINK_STYLE = '\u001B[4m\u001B[34m';
-const LINK_STYLE_RESET = '\u001B[39m\u001B[24m';
+// Warp's documented OSC 8 contract uses the String Terminator (ESC + `\\`).
+// Keep the exact sequence instead of BEL so Warp recognizes the styled label
+// as a link inside its terminal block renderer.
+const OSC_END = '\u001B\\';
 
 export interface TerminalHyperlinkParts {
   readonly open: string;
@@ -84,12 +83,11 @@ export function terminalHyperlinkParts(
   };
 }
 
-/** Keep the complete OSC 8 region in one Ink text leaf. Splitting its open and
- * close markers across nested <Text> nodes lets Ink's style restoration land
- * between them, which some terminals no longer recognize as one link. */
+/** Keep the complete OSC 8 region in one Ink text leaf. Visual styling wraps
+ * this leaf from outside, leaving Warp the exact documented OSC payload. */
 export function terminalHyperlinkText(label: string, url: string, enabled?: boolean): string {
   const hyperlink = terminalHyperlinkParts(url, enabled);
-  return `${hyperlink.open}${LINK_STYLE}${label}${LINK_STYLE_RESET}${hyperlink.close}`;
+  return `${hyperlink.open}${label}${hyperlink.close}`;
 }
 
 function terminalHyperlinksEnabled(): boolean {

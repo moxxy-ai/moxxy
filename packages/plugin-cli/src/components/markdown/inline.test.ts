@@ -26,16 +26,14 @@ describe('formatLinkHint', () => {
 describe('terminalHyperlinkParts', () => {
   it('wraps a styled span in OSC 8 boundaries when hyperlinks are enabled', () => {
     expect(terminalHyperlinkParts('https://example.com/post', true)).toEqual({
-      open: '\u001B]8;;https://example.com/post\u0007',
-      close: '\u001B]8;;\u0007',
+      open: '\u001B]8;;https://example.com/post\u001B\\',
+      close: '\u001B]8;;\u001B\\',
     });
   });
 
-  it('keeps the clickable region and visual style in one terminal string', () => {
+  it('keeps the complete Warp hyperlink payload in one terminal string', () => {
     expect(terminalHyperlinkText('Example', 'https://example.com/post', true)).toBe(
-      '\u001B]8;;https://example.com/post\u0007' +
-        '\u001B[4m\u001B[34mExample\u001B[39m\u001B[24m' +
-        '\u001B]8;;\u0007',
+      '\u001B]8;;https://example.com/post\u001B\\Example\u001B]8;;\u001B\\',
     );
   });
 
