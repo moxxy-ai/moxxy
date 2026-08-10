@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { VoiceCallPhase } from '@moxxy/client-core';
+import { tokens, darkTokens } from '@moxxy/design-tokens';
 import {
   buildVoiceHologramField,
   resolveHologramCrossings,
@@ -19,10 +20,35 @@ import {
   type Rgb,
 } from './voice-hologram-sprites';
 
-const FALLBACK_PRIMARY: Rgb = [244, 64, 143];
-const FALLBACK_INK: Rgb = [228, 235, 239];
-const WHITE: Rgb = [255, 255, 255];
-const VOID: Rgb = [3, 4, 8];
+/**
+ * Every colour the sculpture uses comes from the token palette.
+ *
+ * The Harness language gives each hue exactly one meaning and says plainly
+ * that nothing else may borrow the accent — so there are no invented tints
+ * here, only palette entries and mixes BETWEEN palette entries. Reading the
+ * fallbacks from `@moxxy/design-tokens` rather than retyping the hexes also
+ * means a palette change flows here on its own, with nothing to drift.
+ */
+function tokenRgb(hex: string): Rgb {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!match) throw new Error(`design token is not a #rrggbb colour: ${hex}`);
+  return [
+    Number.parseInt(match[1] ?? '0', 16),
+    Number.parseInt(match[2] ?? '0', 16),
+    Number.parseInt(match[3] ?? '0', 16),
+  ];
+}
+
+/** Used only until the stylesheet resolves; the live values win immediately. */
+export const FALLBACK_PRIMARY: Rgb = tokenRgb(darkTokens.color.primary);
+export const FALLBACK_INK: Rgb = tokenRgb(darkTokens.color.text);
+export const FALLBACK_RED: Rgb = tokenRgb(darkTokens.color.red);
+export const FALLBACK_BACKGROUND: Rgb = tokenRgb(darkTokens.color.mainBg);
+/** Paper: the palette's white, what a filament's hot core burns toward. */
+const PAPER: Rgb = tokenRgb(tokens.color.mainBg);
+/** The palette's deepest ink — the field the mark floats in, and the same
+ *  colour the dark theme's own sidebar sits on. */
+const DEEP_INK: Rgb = tokenRgb(tokens.color.text);
 
 function parseColor(value: string, fallback: Rgb): Rgb {
   const hex = value.trim().replace('#', '');
@@ -38,17 +64,20 @@ function isLight(color: Rgb): boolean {
   return color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114 > 140;
 }
 
-function resolvePalette(ink: Rgb, accent: Rgb, background: Rgb): HologramPalette {
+export function resolvePalette(ink: Rgb, accent: Rgb, background: Rgb): HologramPalette {
   const lightTheme = isLight(background);
   return {
     lightTheme,
     background,
     accent,
-    voidTone: lightTheme ? background : mix(background, VOID, 0.72),
-    strandColor: lightTheme
-      ? [mix(ink, background, 0.12), accent]
-      : [mix(ink, [186, 214, 255], 0.34), mix(accent, [255, 26, 96], 0.35)],
-    strandCore: lightTheme ? [ink, mix(accent, VOID, 0.25)] : [WHITE, mix(accent, WHITE, 0.66)],
+    voidTone: lightTheme ? background : DEEP_INK,
+    // The accent strand IS the accent, untouched. Shifting it toward a warmer
+    // red — which this used to do — introduces a second brand hue competing
+    // with the semantic set, which is exactly what the palette forbids.
+    strandColor: lightTheme ? [mix(ink, background, 0.12), accent] : [ink, accent],
+    strandCore: lightTheme
+      ? [ink, mix(accent, DEEP_INK, 0.25)]
+      : [PAPER, mix(accent, PAPER, 0.66)],
     blend: lightTheme ? 'source-over' : 'lighter',
     glowScale: lightTheme ? 0 : 1,
     traceScale: lightTheme ? 2.1 : 1,
@@ -115,8 +144,8 @@ export function useVoiceHologramScene({
       const style = getComputedStyle(canvas);
       const primary = parseColor(style.getPropertyValue('--color-primary'), FALLBACK_PRIMARY);
       const ink = parseColor(style.getPropertyValue('--color-text'), FALLBACK_INK);
-      const failure = parseColor(style.getPropertyValue('--color-red'), [242, 84, 91]);
-      const background = parseColor(style.getPropertyValue('--color-main-bg'), [16, 21, 25]);
+      const failure = parseColor(style.getPropertyValue('--color-red'), FALLBACK_RED);
+      const background = parseColor(style.getPropertyValue('--color-main-bg'), FALLBACK_BACKGROUND);
       const accent = phase === 'error' ? failure : primary;
       const palette = resolvePalette(ink, accent, background);
 

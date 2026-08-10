@@ -47,6 +47,10 @@ const FILAMENTS: ReadonlyArray<number> = [-0.82, -0.6, -0.38, -0.16, 0.06, 0.28,
  *  out roughly square against {@link FILAMENTS}' spacing across the ribbon. */
 const TICK_STRIDE = 3;
 const TAU = Math.PI * 2;
+/** Under `destination-out` a stroke reads only its ALPHA, so this is an eraser
+ *  rather than a colour choice — the palette has no say in it, and the
+ *  palette guard test exempts this one name for that reason. */
+const ERASER_ALPHA_ONLY = '#000';
 
 export function mix(from: Rgb, to: Rgb, amount: number): Rgb {
   const t = Math.max(0, Math.min(1, amount));
@@ -131,7 +135,7 @@ export function buildMarkSprite({
     context.globalCompositeOperation = 'destination-out';
     context.setLineDash([]);
     context.lineJoin = 'round';
-    context.strokeStyle = '#000';
+    context.strokeStyle = ERASER_ALPHA_ONLY;
     context.lineWidth = band * 2 + radius * 0.024;
     trace(half, corner, spin);
     context.stroke();
