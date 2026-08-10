@@ -126,7 +126,7 @@ async function runList(argv: ParsedArgv): Promise<number> {
   if (disabled.size > 0) {
     process.stdout.write(colors.bold('\nDisabled\n'));
     for (const name of disabled) {
-      process.stdout.write(`  ${name.padEnd(nameCol)}  ${colors.dim('(enable with: moxxy plugins enable ' + name + ')')}\n`);
+      process.stdout.write(`  ${name.padEnd(nameCol)}  ${colors.dim('(enable with: moxxy extensions enable ' + name + ')')}\n`);
     }
   }
   if (INSTALLABLE_PLUGIN_CATALOG.length > 0) {
@@ -142,13 +142,13 @@ async function runList(argv: ParsedArgv): Promise<number> {
 async function runSearch(argv: ParsedArgv): Promise<number> {
   const query = argv.positional.slice(1).join(' ').trim();
   if (!query) {
-    printError('plugins search requires a query, e.g. `moxxy plugins search notion`');
+    printError('extensions search requires a query, e.g. `moxxy extensions search notion`');
     return 2;
   }
   try {
     const results = await searchInstallablePlugins(query);
     if (results.length === 0) {
-      process.stdout.write(colors.dim(`no plugins found for "${query}"\n`));
+      process.stdout.write(colors.dim(`no extensions found for "${query}"\n`));
       return 0;
     }
     const nameCol = Math.max(8, ...results.map((r) => r.name.length));
@@ -159,7 +159,7 @@ async function runSearch(argv: ParsedArgv): Promise<number> {
           (r.description ? `  ${colors.dim(r.description)}\n` : ''),
       );
     }
-    process.stdout.write(colors.dim('\ninstall with: moxxy plugins install <name>\n'));
+    process.stdout.write(colors.dim('\ninstall with: moxxy extensions install <name>\n'));
     return 0;
   } catch (err) {
     printError(errorMessage(err));
@@ -181,7 +181,7 @@ async function runReload(argv: ParsedArgv): Promise<number> {
 async function runInstall(argv: ParsedArgv): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins install requires a catalog id, npm package, GitHub spec, or path');
+    printError('extensions install requires a catalog id, npm package, GitHub spec, or path');
     return 2;
   }
   const version = stringFlag(argv, 'version');
@@ -241,7 +241,7 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     process.stdout.write(
       `installed ${resolved?.packageName ?? entry?.packageName ?? spec}\n` +
         `source: ${result.installed}\nplugins dir: ${result.dir}\n` +
-        colors.dim('run `moxxy plugins reload` (or restart) to load it\n'),
+        colors.dim('run `moxxy extensions reload` (or restart) to load it\n'),
     );
     return await reviewInstallCapabilities(argv, entry?.packageName ?? packageNameFromSpec(spec));
   } catch (err) {
@@ -259,7 +259,7 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
  *
  * The consent is post-hoc by design: npm lifecycle scripts have already run
  * by the time we can inspect anything, so what consent actually governs is
- * whether the plugin participates in sessions from here on.
+ * whether the extension participates in runs from here on.
  */
 async function reviewInstallCapabilities(
   argv: ParsedArgv,
@@ -292,10 +292,10 @@ async function reviewInstallCapabilities(
   if (!tty) {
     await setPluginEnabled(packageName, false);
     process.stdout.write(
-      `${packageName} is a third-party plugin and was left ${colors.bold('DISABLED')} ` +
+      `${packageName} is a third-party extension and was left ${colors.bold('DISABLED')} ` +
         '(no TTY to ask for consent).\n' +
         'Re-run with --yes to accept its capability surface, or enable it later with ' +
-        `\`moxxy plugins enable ${packageName}\`.\n`,
+        `\`moxxy extensions enable ${packageName}\`.\n`,
     );
     return 0;
   }
@@ -308,7 +308,7 @@ async function reviewInstallCapabilities(
     await setPluginEnabled(packageName, false);
     process.stdout.write(
       `disabled ${packageName} — it stays installed but contributes nothing.\n` +
-        colors.dim(`re-enable it anytime with \`moxxy plugins enable ${packageName}\`\n`),
+        colors.dim(`re-enable it anytime with \`moxxy extensions enable ${packageName}\`\n`),
     );
     return 0;
   }
@@ -407,7 +407,7 @@ function renderCapabilityReview(
 async function runRemove(argv: ParsedArgv): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins remove requires a plugin id or package name');
+    printError('extensions remove requires an extension id or package name');
     return 2;
   }
   const packageName = resolveCatalogPackageName(target);
@@ -425,14 +425,14 @@ async function runRemove(argv: ParsedArgv): Promise<number> {
 async function runToggle(argv: ParsedArgv, enabled: boolean): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError(`plugins ${enabled ? 'enable' : 'disable'} requires a plugin id or package name`);
+    printError(`extensions ${enabled ? 'enable' : 'disable'} requires an extension id or package name`);
     return 2;
   }
   const packageName = resolveCatalogPackageName(target);
   if (!enabled && isCriticalPackage(packageName)) {
     printError(
       `${packageName} is a core module and cannot be disabled. ` +
-        'Swap the relevant category default instead (e.g. `moxxy plugins set-default mode <other>`).',
+        'Swap the relevant category default instead (e.g. `moxxy extensions set-default mode <other>`).',
     );
     return 2;
   }
@@ -440,7 +440,7 @@ async function runToggle(argv: ParsedArgv, enabled: boolean): Promise<number> {
     await setPluginEnabled(packageName, enabled);
     process.stdout.write(
       `${enabled ? 'enabled' : 'disabled'} ${packageName}\n` +
-        colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
+        colors.dim('applies to new runs; a running TUI applies it immediately via /extensions\n'),
     );
     return 0;
   } catch (err) {
@@ -482,14 +482,14 @@ async function runSetDefault(argv: ParsedArgv): Promise<number> {
   const category = argv.positional[1];
   const name = argv.positional[2];
   if (!category || !name) {
-    printError('plugins set-default requires <category> <name> (e.g. provider openai)');
+    printError('extensions set-default requires <category> <name> (e.g. provider openai)');
     return 2;
   }
   try {
     await setCategoryDefault(category, name);
     process.stdout.write(
       `set ${category} default to ${name}\n` +
-        colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
+        colors.dim('applies to new runs; a running TUI applies it immediately via /extensions\n'),
     );
     return 0;
   } catch (err) {
@@ -501,7 +501,7 @@ async function runSetDefault(argv: ParsedArgv): Promise<number> {
 function runOpen(argv: ParsedArgv): number {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins open requires a plugin id or package name');
+    printError('extensions open requires an extension id or package name');
     return 2;
   }
   const entry = resolveCatalogEntry(target);

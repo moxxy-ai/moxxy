@@ -135,7 +135,7 @@ export async function runConfigCommand(argv: ParsedArgv): Promise<number> {
     case 'path': {
       const { sources } = await loadConfig({ cwd: process.cwd() });
       if (sources.length === 0) {
-        process.stdout.write(colors.dim('no config files found (run `moxxy init`)\n'));
+        process.stdout.write(colors.dim('no config files found (run `moxxy` to get started)\n'));
         return 0;
       }
       const col = Math.max(...sources.map((s) => s.scope.length));

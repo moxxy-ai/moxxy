@@ -79,8 +79,8 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
         if (hint) {
           printError(
             `channel not installed: ${name}\n` +
-              `  install it with: moxxy plugins install ${hint.id}\n` +
-              `  (or from the TUI: /plugins → Installable → ${hint.label})`,
+              `  install it with: moxxy extensions install ${hint.id}\n` +
+              `  (or from the TUI: /extensions → Available → ${hint.label})`,
           );
           return { code: 2 };
         }

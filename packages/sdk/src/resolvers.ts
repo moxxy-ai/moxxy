@@ -67,8 +67,9 @@ export interface DeferredPermissionResolver extends PermissionResolver {
  * Resolver for channels that defer permission decisions to an external UI
  * (Ink dialog, Telegram inline keyboard, web form). Wraps a `prompt`
  * callback with:
- *   - sessionAllows shortcut — `allow_session` decisions skip subsequent
- *     prompts for the same tool name.
+ *   - sessionAllows shortcut — legacy `allow_session` decisions skip later
+ *     prompts for the same tool; decisions carrying `sessionScope` match only
+ *     the selected input values (for example one file or one command).
  *   - in-flight tracking — `abortAll()` resolves pending prompts with
  *     `deny`, so the channel can shut down cleanly without hangs.
  */
@@ -76,11 +77,21 @@ export function createDeferredPermissionResolver(
   opts: DeferredPermissionResolverOptions,
 ): DeferredPermissionResolver {
   const sessionAllows = opts.sessionAllows ?? new Set<string>();
+  const scopedSessionAllows: Array<{
+    toolName: string;
+    inputKeys: ReadonlyArray<string>;
+    signature: string;
+  }> = [];
   const pending = new Set<(d: PermissionDecision) => void>();
   return {
     name: opts.name ?? 'deferred',
     async check(call, ctx) {
-      if (sessionAllows.has(call.name)) {
+      const scopedAllowed = scopedSessionAllows.some(
+        (grant) =>
+          grant.toolName === call.name &&
+          grant.signature === scopedGrantKey(call, grant.inputKeys),
+      );
+      if (sessionAllows.has(call.name) || scopedAllowed) {
         return { mode: 'allow_session', reason: 'allow_session previously granted' };
       }
       const decision = await new Promise<PermissionDecision>((resolve) => {
@@ -96,13 +107,20 @@ export function createDeferredPermissionResolver(
           },
         );
       });
-      // Both allow_session and allow_always should skip future prompts for
-      // the same tool within this resolver instance. allow_always
+      // Unscoped allow_session and allow_always skip future prompts for the
+      // same tool within this resolver instance. A scoped grant above remembers
+      // only the matching consequence. allow_always
       // additionally signals to the caller (via the decision flag) that
       // the rule should be persisted to ~/.moxxy/permissions.json — but
       // that persistence isn't our job; the channel does it when wiring
       // up the dialog.
-      if (decision.mode === 'allow_session' || decision.mode === 'allow_always') {
+      if (decision.mode === 'allow_session' && decision.sessionScope) {
+        scopedSessionAllows.push({
+          toolName: call.name,
+          inputKeys: decision.sessionScope.inputKeys,
+          signature: scopedGrantKey(call, decision.sessionScope.inputKeys),
+        });
+      } else if (decision.mode === 'allow_session' || decision.mode === 'allow_always') {
         sessionAllows.add(call.name);
       }
       return decision;
@@ -112,6 +130,22 @@ export function createDeferredPermissionResolver(
       pending.clear();
     },
   };
+}
+
+function scopedGrantKey(call: PendingToolCall, inputKeys?: ReadonlyArray<string>): string {
+  const input = isRecord(call.input) ? call.input : {};
+  const keys = inputKeys ?? Object.keys(input).sort();
+  try {
+    return JSON.stringify([call.name, keys.map((key) => [key, input[key]])]);
+  } catch {
+    // Non-JSON tool input must never broaden a grant. Including the call id
+    // makes this key single-use, so the next request prompts again.
+    return JSON.stringify([call.name, 'unserializable', call.callId]);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -135,6 +169,7 @@ export function evaluateToolRule(
   rule: PermissionRule | undefined,
   call: PendingToolCall,
 ): PermissionDecision | null {
+  if (rule?.workspace) return null;
   if (!rule || !toolRuleMatches(rule, call)) return null;
   switch (rule.action) {
     case 'allow':

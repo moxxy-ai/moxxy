@@ -17,24 +17,20 @@ open a project, and ask moxxy to work.
 npm install -g @moxxy/cli
 ```
 
-## 2. Connect a model
+## 2. Start in a project
 
 From the project you want to work in:
 
 ```sh
 cd your-project
-moxxy onboard
-```
-
-Choose a model account and sign in or paste an API key. The key is stored in
-moxxy's encrypted local vault. Onboarding selects the recommended model,
-runtime, and local memory index automatically; you do not need a config file.
-
-## 3. Start working
-
-```sh
 moxxy
 ```
+
+On the first start, choose a model account and sign in or paste an API key. The
+key is stored in moxxy's encrypted local vault. Moxxy selects the recommended
+model and safe local defaults automatically; you do not need a config file.
+
+## 3. Ask for work
 
 Try a read-only first task:
 
@@ -44,8 +40,16 @@ Then try a change:
 
 > Add a focused test for the login validation and run it.
 
-Moxxy shows consequential tool calls and asks for approval. Session-scoped
-approval avoids repeating the same safe decision during one run.
+Safe reads and searches inside the workspace proceed without ceremony. Before
+a command, file change, or access beyond the workspace, Moxxy explains the
+target and impact. Press Enter to allow once, `A` to allow that exact
+consequence for this run, or Esc to deny.
+
+The bottom status line stays focused on what matters: whether Moxxy is working,
+the current workspace, special-run state, and whether organization policy is
+active. Type `/` for everyday commands, `/runs` to continue earlier work, and
+`/extensions` to add optional capabilities. Use `/help advanced` only when you
+need runtime or operator controls.
 
 For a single response in the current shell:
 
@@ -57,11 +61,11 @@ moxxy -p "summarize the README in three bullets"
 
 ### Claude Code subscription
 
-Install the official `claude` CLI and sign in before onboarding:
+Install the official `claude` CLI and sign in before starting Moxxy:
 
 ```sh
 claude auth login
-moxxy onboard
+moxxy
 ```
 
 Choose the Claude Code connection. Moxxy reuses the subscription session and
@@ -78,7 +82,7 @@ If the executable is not on `PATH`, set
 
 ### ChatGPT account
 
-Choose the OpenAI Codex connection during onboarding. Moxxy opens the OAuth
+Choose the OpenAI Codex connection on first start. Moxxy opens the OAuth
 flow; no OpenAI API key is required. You can also sign in separately:
 
 ```sh
@@ -87,8 +91,8 @@ moxxy login openai-codex
 
 ### API keys
 
-Anthropic and OpenAI API keys can be entered during onboarding or supplied to
-headless `moxxy init` through `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+Anthropic and OpenAI API keys can be entered on first start or supplied through
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 ## Add capabilities later
 
@@ -97,6 +101,7 @@ Extensions and channels are optional:
 ```sh
 moxxy extensions list
 moxxy onboard --advanced
+moxxy runs list
 ```
 
 Advanced onboarding can configure messaging channels, runtime choices, and a

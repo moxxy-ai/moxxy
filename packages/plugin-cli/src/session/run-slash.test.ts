@@ -176,11 +176,11 @@ describe('runSlash dispatch safety', () => {
   });
 });
 
-describe('runSlash /sessions', () => {
-  it('degrades to a notice when the host cannot switch sessions', () => {
+describe('runSlash /runs', () => {
+  it('degrades to a notice when the host cannot switch runs', () => {
     const notices: Array<string | null> = [];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       canSwitchSession: false,
       setSystemNotice: (n) => notices.push(n),
@@ -188,10 +188,10 @@ describe('runSlash /sessions', () => {
     } as unknown as SlashDeps);
     // No async index read / picker open on the degrade path.
     expect(pickers).toEqual([]);
-    expect(notices.some((n) => typeof n === 'string' && /only available/.test(n))).toBe(true);
+    expect(notices.some((n) => typeof n === 'string' && /unavailable/.test(n))).toBe(true);
   });
 
-  it('opens a sessions picker (with a new-session entry) when switching is available', async () => {
+  it('opens a Runs picker with a new-run entry when switching is available', async () => {
     sessionIndex.value = [
       {
         id: 'sess-current',
@@ -215,7 +215,7 @@ describe('runSlash /sessions', () => {
       },
     ];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       session: { id: 'sess-current', commands: { get: () => undefined } },
       canSwitchSession: true,
@@ -226,13 +226,33 @@ describe('runSlash /sessions', () => {
     expect(pickers).toHaveLength(1);
     const picker = pickers[0] as {
       kind: string;
+      title: string;
       options: Array<{ id: string; current?: boolean }>;
     };
     expect(picker.kind).toBe('sessions');
-    // "+ New session" first, then the two persisted ones; current marked.
+    expect(picker.title).toBe('Runs');
+    // "+ New run" first, then the two persisted ones; current marked.
     expect(picker.options[0]!.id).toBe('__new__');
     expect(picker.options.find((o) => o.id === 'sess-current')!.current).toBe(true);
     expect(picker.options.map((o) => o.id)).toContain('sess-other');
+  });
+});
+
+describe('runSlash progressive help', () => {
+  it('shows only everyday concepts until advanced help is requested', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/help', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined, listForChannel: () => [] },
+      },
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(notices[0]).toContain('/runs');
+    expect(notices[0]).toContain('/extensions');
+    expect(notices[0]).not.toMatch(/^\/mode\s/m);
   });
 });
 

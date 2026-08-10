@@ -113,6 +113,36 @@ describe('PluginHost', () => {
     expect(() => host.registerStatic(p)).toThrow(/already registered/);
   });
 
+  it('exposes bounded, sanitized client-chrome slots without renderer code', () => {
+    const { host } = makeHost();
+    host.registerStatic(
+      definePlugin({
+        name: 'review-plugin',
+        clientChrome: [
+          {
+            id: 'review',
+            slot: 'status.trailing',
+            label: ' Review\u001b[31m\u009b31m ready ',
+            tone: 'positive',
+            priority: 999,
+          },
+        ],
+      }),
+    );
+
+    expect(host.listClientChrome()).toEqual([
+      {
+        id: 'review-plugin:review',
+        source: 'review-plugin',
+        slot: 'status.trailing',
+        label: 'Review[31m31m ready',
+        tone: 'positive',
+        priority: 100,
+      },
+    ]);
+    expect(host.list()[0]?.kinds).toContain('clientChrome');
+  });
+
   it('rejects plugins whose required plugin is missing without partial registration', () => {
     const { host, tools } = makeHost();
     const plugin = definePlugin({

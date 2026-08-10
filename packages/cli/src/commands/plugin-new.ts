@@ -5,19 +5,22 @@ import type { ParsedArgv } from '../argv.js';
 import { hasBoolFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 
-const HELP = `moxxy plugins new — scaffold a new user-scope plugin
+function help(command: 'extensions' | 'plugins'): string {
+  return `moxxy ${command} new — scaffold a new user-scope extension
 
-  moxxy plugins new <name>            create ~/.moxxy/plugins/<name>
-  moxxy plugins new <name> --here     create ./<name> in the current dir
-  moxxy plugins new <name> --force    overwrite if the dir already exists
+  moxxy ${command} new <name>            create ~/.moxxy/plugins/<name>
+  moxxy ${command} new <name> --here     create ./<name> in the current dir
+  moxxy ${command} new <name> --force    overwrite if the dir already exists
 `;
+}
 
 export async function runPluginNewCommand(argv: ParsedArgv): Promise<number> {
+  const command = argv.command === 'extensions' ? 'extensions' : 'plugins';
   // The first positional is "new" (subcommand) when called via
   // `moxxy plugins new <name>`; the actual name is the second.
   const name = argv.positional[1];
   if (!name) {
-    process.stdout.write(HELP);
+    process.stdout.write(help(command));
     return 2;
   }
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
@@ -76,7 +79,7 @@ export async function runPluginNewCommand(argv: ParsedArgv): Promise<number> {
       `  index.mjs      ${pkgName} skeleton (no tools yet)\n` +
       `  README.md      notes\n\n` +
       `Next: edit ${path.join(root, 'index.mjs')} to add tools/providers/etc., ` +
-      `then run \`moxxy plugins reload\` (or restart moxxy) to pick it up.\n`,
+      `then run \`moxxy extensions reload\` (or restart moxxy) to pick it up.\n`,
   );
   return 0;
 }

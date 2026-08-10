@@ -30,8 +30,7 @@ const CORE_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'START',
     rows: [
-      ['moxxy', 'work with the current project in the interactive TUI'],
-      ['moxxy onboard', 'connect a model account with recommended defaults'],
+      ['moxxy', 'connect a model if needed, then work with the current project'],
       ['moxxy -p "…"', 'ask one question and print the answer'],
       ['moxxy resume', 'continue an earlier run'],
     ],
@@ -81,7 +80,7 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
     title: 'RUN',
     rows: [
       ['tui', 'start the Ink TUI channel'],
-      ['resume [-s <id>|<id>]', 'resume a persisted session (interactive picker if no id)'],
+      ['resume [-s <id>|<id>]', 'continue a saved run (interactive picker if no id)'],
       ['channels', 'list registered channels + their subcommands'],
       ['channels start|stop <name>', 'run a channel detached on its own runner (or stop it)'],
       ['channels status [name]', 'list the detached channels currently running'],
@@ -94,9 +93,9 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'MANAGE',
     rows: [
-      ['sessions list|delete', 'list / remove persisted sessions'],
+      ['runs list|delete', 'list / remove saved runs (`sessions` remains an alias)'],
       ['skills list|new|audit', 'manage skill files'],
-      ['plugins list|search|install|remove|enable|disable|reload|new', 'find, install + manage plugins'],
+      ['extensions list|search|install|remove|enable|disable|reload|new', 'find, install + manage extensions (`plugins` is an alias)'],
       ['self-update status|rollback', 'inspect / roll back self-update transactions'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
       ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
@@ -218,7 +217,7 @@ function renderHelp(advanced = false): string {
     `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
   );
   out.push('');
-  out.push(`${colors.dim('Run')} ${colors.bold('moxxy onboard')} ${colors.dim('to get started.')}`);
+  out.push(`${colors.dim('Run')} ${colors.bold('moxxy')} ${colors.dim('in a project to get started.')}`);
   if (!advanced) {
     out.push(`${colors.dim('Run')} ${colors.bold('moxxy help advanced')} ${colors.dim('for every operator command.')}`);
   }
@@ -277,6 +276,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
   collab: async () => (await import('./commands/collab.js')).runCollabCommand,
   sessions: async () => (await import('./commands/sessions.js')).runSessionsCommand,
+  runs: async () => (await import('./commands/sessions.js')).runSessionsCommand,
   security: async () => (await import('./commands/security.js')).runSecurityCommand,
   skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
   plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
@@ -382,8 +382,8 @@ async function main(): Promise<number> {
   if (hint) {
     process.stderr.write(
       colors.red(`channel not installed: ${argv.command}`) +
-        `\ninstall it with: ${colors.bold(`moxxy plugins install ${hint.id}`)}` +
-        `\n(or from the TUI: /plugins → Installable → ${hint.label})\n`,
+        `\ninstall it with: ${colors.bold(`moxxy extensions install ${hint.id}`)}` +
+        `\n(or from the TUI: /extensions → Available → ${hint.label})\n`,
     );
     return 2;
   }

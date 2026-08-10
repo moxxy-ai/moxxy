@@ -74,9 +74,9 @@ Success means:
 
 ## Default surfaces
 
-The CLI leads with `moxxy`, `moxxy onboard`, `moxxy doctor`, and
-`moxxy extensions`. Advanced runtime and channel commands remain available but
-do not dominate help or onboarding.
+The CLI leads with `moxxy`, `moxxy resume`, `moxxy doctor`, and `moxxy
+extensions`. Connecting a model is part of first start; explicit onboarding,
+runtime, and channel commands remain available but do not dominate help.
 
 The desktop leads with Runs, Extensions, and Settings. Collaboration,
 automation, channels, voice, and mobile are optional capabilities, not primary
@@ -115,6 +115,12 @@ introduces that power progressively.
 An extension must declare its capabilities, pass through the normal permission
 flow, and leave the core usable after removal. Core and SDK dependency
 boundaries remain enforced.
+
+Client extensibility is data-first. Plugins may add bounded, typed items to
+declared chrome slots such as `status.leading` and `status.trailing`; the client
+retains ownership of layout, sanitization, truncation, and responsive behavior.
+Plugins do not inject arbitrary Ink/React renderers. Rich interactive output
+uses the existing validated view-spec path inside the run transcript.
 
 ## Developer alpha scope
 

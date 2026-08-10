@@ -30,6 +30,9 @@ export function resolveContextWindow(session: Session, activeModel: string): num
 }
 
 export function buildSlashSuggestions(session: Session): ReadonlyArray<SlashCommand> {
+  const essentialOrder = new Map(
+    ['new', 'runs', 'model', 'extensions', 'help', 'exit'].map((name, index) => [name, index]),
+  );
   const fromRegistry: SlashCommand[] = session.commands
     .listForChannel('tui')
     .map((c: CommandDef) => ({
@@ -37,10 +40,15 @@ export function buildSlashSuggestions(session: Session): ReadonlyArray<SlashComm
       description: c.description,
       ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
       ...(c.aliases ? { aliases: c.aliases } : {}),
+      visibility: essentialOrder.has(c.name) ? 'essential' : 'advanced',
     }));
   const seen = new Set(fromRegistry.map((c) => c.name));
   const tuiLocal = BUILTIN_SLASH_COMMANDS.filter((c) => !seen.has(c.name));
-  return [...fromRegistry, ...tuiLocal].sort((a, b) => a.name.localeCompare(b.name));
+  return [...fromRegistry, ...tuiLocal].sort((a, b) => {
+    const aRank = essentialOrder.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = essentialOrder.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+    return aRank - bRank || a.name.localeCompare(b.name);
+  });
 }
 
 export function resolveActiveDescriptor(

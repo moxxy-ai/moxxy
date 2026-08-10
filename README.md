@@ -51,12 +51,12 @@ part of first-run setup. See the [product contract](PRODUCT.md) for the boundary
 ```sh
 npm install -g @moxxy/cli
 cd your-project
-moxxy onboard
 moxxy
 ```
 
-Onboarding asks you to choose a model connection and sign in or add an API
-key. Moxxy selects the recommended model and local runtime defaults. No config
+On first start, Moxxy asks you to choose a model connection and sign in or add
+an API key, then opens the project TUI. Safe workspace reads proceed directly;
+commands, changes, and external access are described before approval. No config
 file is required.
 
 Ask one question without opening the interactive UI:
@@ -74,9 +74,9 @@ supported authentication paths.
 | | |
 |---|---|
 | **Local workspace context** | The agent works in the project you launch it from and persists runs locally. |
-| **Explicit approvals** | Consequential tools pass through policy and the active permission resolver. |
+| **Clear approvals** | Commands, changes, and external access are presented by target and impact. |
 | **Model choice** | Use first-party API providers or subscription-backed ChatGPT and Claude Code connections. |
-| **Long-running work** | Resume event-backed sessions with bounded context and optional long-term memory. |
+| **Long-running work** | Continue saved runs with bounded context and optional long-term memory. |
 | **CLI and desktop** | Use the same runtime from a keyboard-first terminal or native desktop workspace. |
 | **Open extension surface** | Add capabilities without forking the core or locking into one model vendor. |
 

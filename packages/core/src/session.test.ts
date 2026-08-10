@@ -1,5 +1,15 @@
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { asSessionId, asToolCallId, defineMode, definePlugin } from '@moxxy/sdk';
+import {
+  asSessionId,
+  asToolCallId,
+  defineMode,
+  definePlugin,
+  defineTool,
+  z,
+} from '@moxxy/sdk';
 import { Session } from './session.js';
 import {
   getRetainedChild,
@@ -170,6 +180,20 @@ describe('Session', () => {
     expect(s.getInfo().activeModeBadge).toBeNull();
   });
 
+  it('getInfo carries a serializable managed-policy indicator', () => {
+    const s = new Session({
+      cwd: '/tmp',
+      silent: true,
+      governance: { managed: true, label: 'corp-baseline', stale: true },
+    });
+    expect(s.getInfo().governance).toEqual({
+      managed: true,
+      label: 'corp-baseline',
+      stale: true,
+    });
+    expect(JSON.parse(JSON.stringify(s.getInfo())).governance).toEqual(s.getInfo().governance);
+  });
+
   it('exposes runTurn as a method (SessionLike conformance)', () => {
     const s = new Session({ cwd: '/tmp', silent: true });
     expect(typeof s.runTurn).toBe('function');
@@ -210,6 +234,72 @@ describe('Session', () => {
     );
     expect(viaCheck.mode).toBe('allow');
     expect(prompted).toBe(1);
+  });
+
+  it('auto-allows scoped reads only for real paths inside the workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'moxxy-workspace-'));
+    const outside = await mkdtemp(join(tmpdir(), 'moxxy-outside-'));
+    const insideFile = join(workspace, 'inside.txt');
+    const outsideFile = join(outside, 'outside.txt');
+    const linkedOutsideFile = join(workspace, 'linked-outside.txt');
+    await writeFile(insideFile, 'inside');
+    await writeFile(outsideFile, 'outside');
+    await symlink(outsideFile, linkedOutsideFile);
+
+    const prompted = vi.fn(async () => ({ mode: 'allow' as const }));
+    const s = new Session({ cwd: workspace, silent: true });
+    s.tools.register(
+      defineTool({
+        name: 'ScopedRead',
+        description: 'test read',
+        inputSchema: z.object({ file_path: z.string() }),
+        permission: {
+          action: 'allow',
+          workspace: { pathInputs: [{ key: 'file_path' }] },
+        },
+        handler: () => 'ok',
+      }),
+    );
+    s.setPermissionResolver({ name: 'prompt', check: prompted });
+    const ctx = { sessionId: String(s.id) };
+
+    try {
+      const inside = await s.resolver.check(
+        { callId: asToolCallId('inside'), name: 'ScopedRead', input: { file_path: insideFile } },
+        ctx,
+      );
+      expect(inside).toEqual({ mode: 'allow', reason: 'tool-declared allow' });
+      expect(prompted).not.toHaveBeenCalled();
+
+      await s.resolver.check(
+        { callId: asToolCallId('outside'), name: 'ScopedRead', input: { file_path: outsideFile } },
+        ctx,
+      );
+      await s.resolver.check(
+        {
+          callId: asToolCallId('symlink'),
+          name: 'ScopedRead',
+          input: { file_path: linkedOutsideFile },
+        },
+        ctx,
+      );
+      expect(prompted).toHaveBeenCalledTimes(2);
+
+      s.permissions.setImmutableRules({
+        allow: [],
+        deny: [{ name: 'ScopedRead', reason: 'managed deny wins' }],
+      });
+      const denied = await s.resolver.check(
+        { callId: asToolCallId('denied'), name: 'ScopedRead', input: { file_path: insideFile } },
+        ctx,
+      );
+      expect(denied).toEqual({ mode: 'deny', reason: 'managed deny wins' });
+      expect(prompted).toHaveBeenCalledTimes(2);
+    } finally {
+      await s.close();
+      await rm(workspace, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it('resolver passes non-check members (e.g. abortAll) through to the underlying resolver with correct `this`', () => {

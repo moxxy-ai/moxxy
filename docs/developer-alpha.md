@@ -11,7 +11,7 @@ approvals, and resume the run without learning the runtime architecture.
 - Anthropic and OpenAI API keys;
 - ChatGPT OAuth and an existing Claude Code subscription session;
 - local workspace read, edit, command, and search tools;
-- approvals, persisted sessions, and the default local memory path;
+- consequence-first approvals, persisted runs, and the default local memory path;
 - optional extensions after the first successful run;
 - governed workstation profiles as a design-partner preview.
 

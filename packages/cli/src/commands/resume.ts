@@ -22,7 +22,7 @@ export async function runResumeCommand(argv: ParsedArgv): Promise<number> {
   const index = await readSessionIndex();
   const meta = index.find((m) => m.id === id);
   const label = meta?.firstPrompt ?? colors.dim('(empty)');
-  process.stdout.write(colors.dim(`resuming ${id} — `) + label + '\n');
+  process.stdout.write(colors.dim('continuing run — ') + label + '\n');
   return runTuiWithBootstrap(argv, {
     resumeSessionId: id,
     cwd: await cwdForResumeSession(id, process.cwd()),

@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AppContext,
   ClientSession,
@@ -8,6 +10,7 @@ import type {
   RunTurnOptions,
   SessionId,
   SessionInfo,
+  GovernanceInfo,
 } from '@moxxy/sdk';
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
@@ -74,6 +77,8 @@ export interface SessionOptions {
   readonly permissionResolver?: PermissionResolver;
   readonly hookTimeoutMs?: number;
   readonly silent?: boolean;
+  /** Organization policy summary rendered by local and remote clients. */
+  readonly governance?: GovernanceInfo;
   /**
    * Optional plugin loader. When provided, `session.pluginHost.discoverAndLoad()`
    * can dynamic-import discovered plugins; without one, only static plugins
@@ -118,6 +123,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly cwd: string;
   readonly log: EventLog;
   readonly logger: Logger;
+  readonly governance?: GovernanceInfo;
   readonly tools: ToolRegistry;
   readonly providers: ProviderRegistry;
   readonly modes: ModeRegistry;
@@ -221,6 +227,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.id = opts.sessionId ?? newSessionId();
     this.cwd = opts.cwd;
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
+    if (opts.governance) this.governance = Object.freeze({ ...opts.governance });
     this.log = opts.log ?? new EventLog();
     this.tools = new ToolRegistryImpl({
       logger: this.logger,
@@ -336,6 +343,7 @@ export class Session implements ClientSession, SessionRuntime {
       opts.permissionResolver ?? autoAllowResolver,
       this.permissions,
       (name) => this.tools.get(name)?.permission,
+      this.cwd,
     );
     this.dispatcher = new HookDispatcherImpl({
       logger: this.logger,
@@ -409,6 +417,7 @@ export class Session implements ClientSession, SessionRuntime {
       resolver,
       this.permissions,
       (name) => this.tools.get(name)?.permission,
+      this.cwd,
     );
   }
 
@@ -574,6 +583,8 @@ export class Session implements ClientSession, SessionRuntime {
     return {
       sessionId: this.id,
       cwd: this.cwd,
+      ...(this.governance ? { governance: this.governance } : {}),
+      clientChrome: this.pluginHost.listClientChrome(),
       activeProvider: active,
       providers: this.providers.list().map((p) => ({
         name: p.name,
@@ -636,6 +647,7 @@ function wrapWithPolicy(
   inner: PermissionResolver,
   engine: PermissionEngine,
   getToolRule: (name: string) => PermissionRule | undefined,
+  cwd: string,
 ): PermissionResolver {
   // The policy-only decision: user policy (permissions.json) wins, then the
   // tool's own declared rule (so a tool marked `allow` is never blocked in
@@ -643,10 +655,10 @@ function wrapWithPolicy(
   // through to the channel resolver's prompt / deny-by-default path, while
   // `policyCheck` callers (auto-approving modes) supply their own fallback
   // so no prompt can ever fire.
-  const policyDecision = (call: PendingToolCall): PermissionDecision | null => {
+  const policyDecision = async (call: PendingToolCall): Promise<PermissionDecision | null> => {
     const policy = engine.check(call);
     if (policy) return policy;
-    return evaluateToolRule(getToolRule(call.name), call);
+    return evaluateWorkspaceToolRule(getToolRule(call.name), call, cwd);
   };
   // Use a Proxy so any extra methods on the underlying resolver
   // (`abortAll`, channel-specific helpers) remain accessible — only
@@ -655,7 +667,7 @@ function wrapWithPolicy(
     get(target, prop, receiver) {
       if (prop === 'check') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
-          const decided = policyDecision(call);
+          const decided = await policyDecision(call);
           if (decided) return decided;
           return target.check(call, ctx);
         };
@@ -666,4 +678,54 @@ function wrapWithPolicy(
       return Reflect.get(target, prop, receiver);
     },
   });
+}
+
+async function evaluateWorkspaceToolRule(
+  rule: PermissionRule | undefined,
+  call: PendingToolCall,
+  cwd: string,
+): Promise<PermissionDecision | null> {
+  if (!rule?.workspace) return evaluateToolRule(rule, call);
+  if (!(await pathsStayInWorkspace(rule, call, cwd))) return null;
+  const { workspace: _workspace, ...unscopedRule } = rule;
+  return evaluateToolRule(unscopedRule, call);
+}
+
+async function pathsStayInWorkspace(
+  rule: PermissionRule,
+  call: PendingToolCall,
+  cwd: string,
+): Promise<boolean> {
+  const scope = rule.workspace;
+  if (!scope) return true;
+  const input = isRecord(call.input) ? call.input : {};
+  let workspace: string;
+  try {
+    workspace = await realpath(cwd);
+  } catch {
+    return false;
+  }
+  for (const pathInput of scope.pathInputs) {
+    const value = input[pathInput.key];
+    if (value === undefined && pathInput.defaultToWorkspace) continue;
+    if (typeof value !== 'string') return false;
+    try {
+      const target = await realpath(resolve(cwd, value));
+      const fromWorkspace = relative(workspace, target);
+      if (
+        fromWorkspace === '..' ||
+        fromWorkspace.startsWith(`..${sep}`) ||
+        isAbsolute(fromWorkspace)
+      ) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

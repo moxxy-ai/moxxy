@@ -121,32 +121,15 @@ export function pickSlogan(): string {
 }
 
 /**
- * Pool of concrete example prompts surfaced on the boot screen as
- * "type something like this" starters. Spans coding, automation,
- * webhooks, scheduler, memory, and skills — the moxxy capability axes —
- * so any two-pick rotation hints at the breadth of what's possible.
+ * Core-only example prompts surfaced on the first screen. Every suggestion
+ * must work in a plain developer-alpha install; optional extensions are
+ * discovered after the first useful run, never advertised before it.
  */
 export const EXAMPLES: ReadonlyArray<string> = [
-  // Coding / repo
   'explain how this codebase fits together',
+  'find where authentication is implemented',
+  'review my uncommitted changes',
   'fix the failing tests in src/',
-  'draft a PR description for my current branch',
-  'review my last commit',
-  'summarize what changed in the last 7 commits',
-  // Automation / scheduler
-  'schedule a daily summary at 9am and ping me on Telegram',
-  'remind me at 8am to run standup',
-  'every Friday run the dependency audit and email me the result',
-  // Webhooks / integrations
-  'set up a webhook for new GitHub issues and triage each one',
-  'ping me on Telegram when CI fails on main',
-  'alert me whenever a Stripe charge fails',
-  // Memory / skills
-  'remember that I prefer terse responses',
-  'create a skill for my morning standup workflow',
-  // Research / web
-  'summarize today\'s top Hacker News stories',
-  'find the docs page for moxxy webhooks and quote the key bits',
 ];
 
 let cachedExamples: ReadonlyArray<string> | null = null;

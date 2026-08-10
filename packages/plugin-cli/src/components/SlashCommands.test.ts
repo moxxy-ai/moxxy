@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { matchSlash, type SlashCommand } from './SlashCommands.js';
+import {
+  BUILTIN_SLASH_COMMANDS,
+  matchSlash,
+  type SlashCommand,
+} from './SlashCommands.js';
 
 // Fixed fixture so the ranking assertions don't depend on the live builtin list.
 const FIXTURE: ReadonlyArray<SlashCommand> = [
@@ -53,5 +57,14 @@ describe('matchSlash', () => {
 
   it('returns [] when nothing matches the needle', () => {
     expect(matchSlash('/zzz', FIXTURE)).toEqual([]);
+  });
+
+  it('keeps the bare menu focused while advanced commands remain searchable', () => {
+    expect(names(matchSlash('/', BUILTIN_SLASH_COMMANDS))).toEqual([
+      'runs',
+      'model',
+      'extensions',
+    ]);
+    expect(names(matchSlash('/mode', BUILTIN_SLASH_COMMANDS))).toEqual(['mode', 'model']);
   });
 });

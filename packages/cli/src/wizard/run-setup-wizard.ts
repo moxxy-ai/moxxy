@@ -103,7 +103,7 @@ function authKind(
 }
 
 function bail(): never {
-  cancel('Setup cancelled. Run `moxxy init` again when you are ready.');
+  cancel('Setup cancelled. Run `moxxy` again when you are ready.');
   process.exit(1);
 }
 
@@ -121,6 +121,10 @@ function toOptions(
       ? { value: c.id, label: c.label }
       : { value: c.id, label: c.label, hint };
   });
+}
+
+function connectionLabel(choices: ReadonlyArray<SetupChoice>, id: string): string {
+  return choices.find((choice) => choice.id === id)?.label ?? id;
 }
 
 export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<string> {
@@ -142,7 +146,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     'What this will do',
   );
 
-  // Step 1 — providers
+  // Step 1 — model connection
   const providerOptions = opts.providers
     .filter((p) => !p.disabled)
     .map((p) => {
@@ -152,16 +156,17 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
         : { value: p.id, label: p.label, hint };
     });
   if (providerOptions.length === 0) {
-    cancel('No selectable providers are registered. Install a provider plugin and try again.');
+    cancel('No model connections are available. Run `moxxy doctor` for details.');
     process.exit(1);
   }
 
   const providerRaw = await select({
-    message: 'Step 1 — Which provider do you want to use?',
+    message: 'Step 1 — Which model account do you want to connect?',
     options: providerOptions,
     initialValue: providerOptions[0]!.value,
   });
   const provider = guard(providerRaw);
+  const selectedConnectionLabel = connectionLabel(opts.providers, provider);
 
   // Ensure the provider is available (install + enable a catalog-only one) BEFORE
   // collecting credentials, so its real models + auth kind are known. A bundled
@@ -171,10 +176,10 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   let providerKind = authKind(opts.authKinds, provider);
   if (opts.controller.ensureProvider) {
     const prep = spinner();
-    prep.start(`Preparing ${provider}`);
+    prep.start(`Preparing ${selectedConnectionLabel}`);
     try {
       const resolved = await opts.controller.ensureProvider(provider);
-      prep.stop(`${colors.bold('✓')} ${provider} ready`);
+      prep.stop(`${colors.bold('✓')} ${selectedConnectionLabel} ready`);
       if (resolved) {
         modelChoices = resolved.models;
         providerKind = resolved.authKind;
@@ -246,10 +251,9 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   } else {
     note(
       [
-        `Model      ${colors.bold(model ?? 'provider default')}`,
-        `Runtime    ${colors.bold(mode)}`,
-        `Memory     ${colors.bold(embedder)}`,
-        colors.dim('Change these later with `moxxy init --advanced`.'),
+        `Connected  ${colors.bold(selectedConnectionLabel)}`,
+        `Model      ${colors.bold(model ?? 'recommended default')}`,
+        colors.dim('Safe local defaults are ready. Advanced controls remain optional.'),
       ].join('\n'),
       'Recommended defaults',
     );
@@ -310,13 +314,17 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   // OAuth flow is interactive and can't be reduced to a fire-and-forget write
   // here), so this stage only needs to persist the API key and the selections.
   const persist = spinner();
-  persist.start('Writing config and storing keys');
+  persist.start(opts.advanced ? 'Writing config and storing keys' : 'Saving model connection');
   if (providerKind !== 'oauth') {
     const key = apiKeys[provider];
     if (key) await opts.controller.saveApiKey(provider, key);
   }
   const configPath = await opts.controller.writeConfig(selections);
-  persist.stop(`Wrote ${colors.bold(configPath)}`);
+  persist.stop(
+    opts.advanced
+      ? `Wrote ${colors.bold(configPath)}`
+      : `${colors.bold('✓')} Model connection saved`,
+  );
 
   // Install any optional plugins the user picked (best-effort; the controller
   // reports per-plugin outcomes).

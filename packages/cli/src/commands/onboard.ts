@@ -147,7 +147,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
   intro(colors.bold('moxxy onboard'));
   const activeProvider = provider ?? (await loadActiveProvider());
   if (provider) {
-    log.info(`Provider already configured: ${colors.bold(provider)} ${colors.dim('(--reinit to change)')}`);
+    log.info(`Model connection ready: ${colors.bold(provider)} ${colors.dim('(--reinit to change)')}`);
   }
 
   if (!advanced && !preset) {
@@ -200,7 +200,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     // Terminal-only: nothing to install or keep alive; the TUI self-hosts.
     outro(
       `You're set. ${colors.bold('moxxy')} starts the TUI` +
-        (activeProvider ? colors.dim(` (provider: ${activeProvider})`) : '') +
+        (activeProvider ? colors.dim(` (${activeProvider} connected)`) : '') +
         '.',
     );
     return 0;
@@ -221,7 +221,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
       s.stop('Install failed.');
       log.error(err instanceof Error ? err.message : String(err));
       process.stderr.write(
-        colors.dim(`  Retry with: moxxy plugins install ${picked.entry.id}\n`),
+        colors.dim(`  Retry with: moxxy extensions install ${picked.entry.id}\n`),
       );
       return 1;
     }
@@ -244,7 +244,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
       const def = session.channels.get(channelName);
       if (!def) {
         log.error(
-          `channel "${channelName}" did not register after install — check \`moxxy plugins list\`.`,
+          `channel "${channelName}" did not register after install — check \`moxxy extensions list\`.`,
         );
         return 'missing';
       }

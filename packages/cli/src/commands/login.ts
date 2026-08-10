@@ -134,7 +134,7 @@ export async function runLoginProvider(
   if (def.auth?.kind !== 'oauth') {
     process.stderr.write(
       `${colors.red(`${providerName} uses API-key auth — no \`moxxy login\` flow.`)}\n` +
-        `Run \`moxxy init\` to store its key in the vault.\n`,
+        `Run \`moxxy onboard\` to store its key in the vault.\n`,
     );
     return 2;
   }

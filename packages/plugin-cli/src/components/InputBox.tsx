@@ -11,7 +11,7 @@ export interface InputBoxProps extends PromptInputProps {
   readonly modeBadge?: string;
   /**
    * Auto-approve mode active. Paints the entire input chrome yellow
-   * (border + an inset `YOLO` tab on the top edge) so the user can
+   * (border + an inset `AUTO-APPROVE` tab on the top edge) so the user can
    * never forget tool calls are being auto-allowed.
    */
   readonly yolo?: boolean;
@@ -24,7 +24,7 @@ export interface InputBoxProps extends PromptInputProps {
   readonly voicePhase?: VoicePhase;
 }
 
-const YOLO_LABEL = ' YOLO ';
+const YOLO_LABEL = ' AUTO-APPROVE ';
 const VOICE_REC_LABEL = ' ● REC ';
 const VOICE_TRANSCRIBE_LABEL = ' TRANSCRIBING ';
 /** How many border dashes to keep between the label and the top-right
@@ -36,7 +36,7 @@ const RIGHT_PAD = 1;
  * Bordered wrapper around `PromptInput`. The rounded border lives here
  * (PromptInput stays borderless). When `yolo` is true, the standard
  * top edge is replaced with a hand-drawn row containing an inverse-
- * yellow `YOLO` tab embedded in the border, mirroring the reference
+ * yellow auto-approve tab embedded in the border, mirroring the reference
  * design where the tab character-overlaps the border line.
  *
  * Voice phase takes priority over the standard border when the user is

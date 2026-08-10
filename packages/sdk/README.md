@@ -168,6 +168,14 @@ import { definePlugin, defineTool, z } from '@moxxy/sdk';
 
 export default definePlugin({
   name: '@acme/moxxy-plugin-weather',
+  clientChrome: [
+    {
+      id: 'weather-ready',
+      slot: 'status.trailing',
+      label: 'Weather ready',
+      tone: 'positive',
+    },
+  ],
   tools: [
     defineTool({
       name: 'get_weather',
@@ -186,6 +194,23 @@ export default definePlugin({
   ],
 });
 ```
+
+`clientChrome` is intentionally data-only. Plugins may contribute short items
+to `status.leading` or `status.trailing`; clients sanitize, prioritize,
+truncate, and render them responsively. Arbitrary React/Ink injection is not
+part of the contract. Use view-specs for rich interactive content in a run.
+
+A read-only tool may opt out of approval only inside the active workspace:
+
+```ts
+permission: {
+  action: 'allow',
+  workspace: { pathInputs: [{ key: 'file_path' }] },
+}
+```
+
+Core resolves real paths before applying this rule, so a symlink that points
+outside the workspace still falls through to the normal permission resolver.
 
 A provider plugin:
 

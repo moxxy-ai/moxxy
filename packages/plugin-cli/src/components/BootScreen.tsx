@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
+import path from 'node:path';
 import { pickExamples, pickSlogan, selectLogo } from '../logo-data.js';
 import { Colors, Glyphs } from '../theme.js';
 import { LogoLine } from './LogoLine.js';
+import { terminalSafeText } from './terminal-text.js';
 
 /**
  * A single boot-progress event. Mirrors `BootStep` from
@@ -58,11 +60,11 @@ export interface BootScreenProps {
    * failing step's label surfaces above the message.
    */
   readonly error?: { readonly failedStep?: BootEventId; readonly message: string };
+  /** Project directory the ready session is scoped to. */
+  readonly workspace?: string;
 }
 
-// Number of example prompts to surface on the boot screen. Two keeps
-// the panel tight while still hinting at breadth (the pool in
-// `logo-data.ts` spans coding, automation, webhooks, memory, …).
+// Number of core developer tasks to surface on the ready screen.
 const READY_EXAMPLE_COUNT = 2;
 
 /**
@@ -75,7 +77,7 @@ const READY_EXAMPLE_COUNT = 2;
  * Stays mounted until the InteractiveSession flips to `phase === 'ready'`,
  * at which point the parent swaps in the steady-state layout.
  */
-export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error }) => {
+export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error, workspace }) => {
   void startedAt;
   const slogan = useMemo(() => pickSlogan(), []);
   // `pickExamples` is itself process-cached, so re-renders never
@@ -110,12 +112,23 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
           <Text color={Colors.danger}>{error.message}</Text>
           <Box marginTop={1}>
             <Text dimColor>Run </Text>
-            <Text>moxxy init</Text>
-            <Text dimColor> in another terminal, then relaunch.</Text>
+            <Text>moxxy doctor --check-keys</Text>
+            <Text dimColor> in another terminal, then retry.</Text>
           </Box>
         </Box>
       ) : ready ? (
         <Box flexDirection="column" alignItems="flex-start" marginTop={2}>
+          {workspace ? (
+            <Box flexDirection="column" marginBottom={1}>
+              <Box>
+                <Text color={Colors.active}>{Glyphs.filled}</Text>
+                <Text bold>{` ${workspaceLabel(workspace)}`}</Text>
+                <Text dimColor> workspace ready</Text>
+              </Box>
+              <Text dimColor>{`  ${terminalSafeText(workspace, 120)}`}</Text>
+            </Box>
+          ) : null}
+          <Text dimColor>Try a task</Text>
           {examples.map((example, i) => (
             <Box key={i}>
               <Text dimColor>{'›  '}</Text>
@@ -127,3 +140,9 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
     </Box>
   );
 };
+
+export function workspaceLabel(workspace: string): string {
+  const normalized = workspace.trim();
+  if (!normalized) return 'current project';
+  return terminalSafeText(path.basename(path.resolve(normalized)) || normalized, 40);
+}

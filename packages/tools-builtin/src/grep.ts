@@ -129,7 +129,11 @@ export const grepTool = defineTool({
     caseInsensitive: z.boolean().optional().default(false),
     maxMatches: z.number().int().positive().max(10_000).optional().default(500),
   }),
-  permission: { action: 'prompt' },
+  permission: {
+    action: 'allow',
+    workspace: { pathInputs: [{ key: 'cwd', defaultToWorkspace: true }] },
+    reason: 'search files inside the active workspace',
+  },
   compact: {
     verb: 'Searching for',
     noun: { one: 'pattern', other: 'patterns' },
@@ -277,4 +281,3 @@ async function walk(
     }
   }
 }
-

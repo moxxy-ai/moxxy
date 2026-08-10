@@ -57,8 +57,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // the session id is unchanged.
   const handleSwitchSession = useCallback(
     async (target: SessionSwitchTarget): Promise<void> => {
-      if (!switchSession) throw new Error('switching sessions is not available');
-      if (switchingRef.current) throw new Error('a session switch is already in progress');
+      if (!switchSession) throw new Error('switching runs is not available');
+      if (switchingRef.current) throw new Error('a run switch is already in progress');
       switchingRef.current = true;
       try {
         const next = await switchSession(target);
@@ -73,10 +73,10 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         setInitialPrompt(target.kind === 'collab' && target.goal ? target.goal : null);
         setSwitchNotice(
           target.kind === 'new'
-            ? 'started a new session — your previous conversation stays saved'
+            ? 'started a new run — your previous run stays saved'
             : target.kind === 'collab'
-              ? '👥 collaboration — an architect will propose a team for you to approve (Esc leaves it running; /sessions to return to chat)'
-              : 'switched session',
+              ? '👥 collaboration — an architect will propose a team for you to approve (Esc leaves it running; /runs returns to your work)'
+              : 'switched run',
         );
         setSession(next);
       } finally {
@@ -137,6 +137,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         <BootScreen
           events={bootEvents}
           startedAt={startedAt}
+          {...(session ? { workspace: session.cwd } : {})}
           {...(bootError ? { error: bootError } : {})}
         />
         {session ? (
@@ -150,7 +151,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           <DisabledBootInput
             placeholder={
               bootError
-                ? 'Bootstrap failed — quit and run `moxxy init`'
+                ? 'Start failed — run `moxxy doctor --check-keys`'
                 : 'Initializing…'
             }
           />
@@ -211,7 +212,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
             ready
               ? buildBootPlaceholder(voice.ready)
               : bootError
-                ? 'Bootstrap failed — quit and run `moxxy init`'
+                ? 'Start failed — run `moxxy doctor --check-keys`'
                 : 'Initializing…'
           }
           onSubmit={(text) => {
@@ -242,6 +243,6 @@ const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) =
 
 function buildBootPlaceholder(voiceReady: boolean): string {
   return voiceReady
-    ? 'type a prompt to begin · / for commands · Ctrl+R voice'
-    : 'type a prompt to begin · / for commands';
+    ? 'ask about this workspace…  / commands  ·  Ctrl+R voice'
+    : 'ask about this workspace…  / commands';
 }

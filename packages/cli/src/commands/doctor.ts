@@ -159,7 +159,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     (name): name is string => typeof name === 'string' && name.length > 0,
   )));
   if (providerNames.length === 0) {
-    checks.push({ id: 'providers', status: 'warn', message: 'no provider configured — run moxxy init' });
+    checks.push({ id: 'providers', status: 'warn', message: 'no model connection — run moxxy to connect one' });
   }
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
@@ -222,7 +222,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     checks.push({
       id: 'memory',
       status: 'warn',
-      message: 'memory plugin not installed — long-term memory off (moxxy plugins install @moxxy/plugin-memory)',
+      message: 'memory extension not installed — long-term memory off (moxxy extensions install @moxxy/plugin-memory)',
     });
   } else {
     const memDir = path.join(os.homedir(), '.moxxy', 'memory');

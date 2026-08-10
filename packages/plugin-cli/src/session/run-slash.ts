@@ -6,6 +6,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { isSelectableMode } from '@moxxy/sdk';
 import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
+import { BUILTIN_SLASH_COMMANDS } from '../components/SlashCommands.js';
 import type { Overlay, Picker } from './types.js';
 import { formatTokensShort } from './helpers.js';
 import { buildSessionPickerOptions } from './sessions-picker.js';
@@ -81,6 +82,43 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     return;
   }
 
+  if (key === 'help') {
+    const helpArg = args.trim().toLowerCase();
+    if (helpArg === '') {
+      deps.setSystemNotice(
+        [
+          'Everyday commands',
+          '/new         start a fresh run',
+          '/runs        continue another run',
+          '/model       change the model connection',
+          '/extensions  manage optional capabilities',
+          '/exit        leave moxxy',
+          '',
+          'Type `/help advanced` for runtime and operator commands.',
+        ].join('\n'),
+      );
+      return;
+    }
+    if (helpArg === 'advanced') {
+      const registered = deps.session.commands.listForChannel('tui').map((command) => ({
+        name: command.name,
+        description: command.description,
+      }));
+      const merged = [...registered, ...BUILTIN_SLASH_COMMANDS];
+      const seen = new Set<string>();
+      const lines = merged
+        .filter((command) => {
+          if (seen.has(command.name)) return false;
+          seen.add(command.name);
+          return true;
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((command) => `/${command.name.padEnd(14)} ${command.description}`);
+      deps.setSystemNotice(['Advanced commands', ...lines].join('\n'));
+      return;
+    }
+  }
+
   const registered = deps.session.commands.get(name);
   if (registered) {
     void (async () => {
@@ -146,6 +184,7 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return;
     case 'model':
       return openModelPicker(deps);
+    case 'runs':
     case 'sessions':
     case 'switch':
       return openSessionsPicker(deps);
@@ -154,6 +193,7 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case 'mode':
     case 'loop':
       return openModePicker(deps, args);
+    case 'extensions':
     case 'plugins':
       return openPluginsPicker(deps);
     case 'settings':
@@ -178,14 +218,14 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return startGoal(deps, args);
     case 'collab':
       return startCollab(deps, args);
-    case 'yolo':
     case 'auto-approve':
+    case 'yolo':
       deps.setYolo((y) => {
         const next = !y;
         deps.setSystemNotice(
           next
-            ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
-            : 'yolo mode OFF — tool prompts will resume',
+            ? '⚠ auto-approve ON — every tool call is allowed for the rest of this run'
+            : 'auto-approve OFF — action approvals will resume',
         );
         return next;
       });
@@ -312,8 +352,7 @@ export interface OpenSessionsPickerDeps {
 export function openSessionsPicker(deps: OpenSessionsPickerDeps): void {
   if (!deps.canSwitchSession) {
     deps.setSystemNotice(
-      'switching sessions is only available when this TUI hosts the session. ' +
-        "You're attached to a running `moxxy serve` — run `moxxy resume` in a separate terminal to open another.",
+      'switching runs is unavailable in this attached TUI — use `moxxy resume` in another terminal',
     );
     return;
   }
@@ -323,14 +362,14 @@ export function openSessionsPicker(deps: OpenSessionsPickerDeps): void {
       const options = buildSessionPickerOptions(metas, deps.session.id);
       deps.setPicker({
         kind: 'sessions',
-        title: 'Switch session',
+        title: 'Runs',
         options,
         searchable: true,
-        searchPlaceholder: 'filter sessions…',
+        searchPlaceholder: 'find a run…',
       });
     } catch (err) {
       deps.setSystemNotice(
-        `failed to list sessions: ${err instanceof Error ? err.message : String(err)}`,
+        `failed to list runs: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   })();
@@ -370,7 +409,7 @@ export interface OpenSettingsPickerDeps {
 export function openPluginSetupEntry(deps: SlashDeps, arg = ''): void {
   const admin = deps.session.pluginsAdmin;
   if (!admin?.setupSpec || !deps.openPluginSetup) {
-    deps.setSystemNotice('plugin setup is not available on this session — run `moxxy init` instead');
+    deps.setSystemNotice('extension setup is not available on this run — use `moxxy onboard --advanced`');
     return;
   }
   const target = arg.trim();
@@ -481,47 +520,19 @@ export interface OpenPluginsPickerDeps {
   setSystemNotice: (msg: string | null) => void;
 }
 
-/** Human labels for the per-category default tabs (the swap axis). */
-const CATEGORY_LABELS: Record<string, string> = {
-  provider: 'Providers',
-  mode: 'Modes',
-  compactor: 'Compactors',
-  cacheStrategy: 'Cache',
-  embedder: 'Embedders',
-  transcriber: 'Transcribers',
-  synthesizer: 'Synthesizers',
-  workflowExecutor: 'Workflows',
-  viewRenderer: 'Renderers',
-  tunnelProvider: 'Tunnels',
-  isolator: 'Isolators',
-  eventStore: 'Storage',
-  reflector: 'Learning loop',
-  channel: 'Channels',
-};
-
 function shortPluginName(name: string): string {
   return name.replace(/^@moxxy\/(?:plugin-|mode-|compactor-|cache-strategy-)?/, '');
 }
 
 /**
- * `/plugins` — a tabbed picker aligned with the unified `plugins:` manifest's
- * two axes:
- *   - **per-category default tabs** (Providers / Modes / …) — the SWAP axis. Each
- *     lists that category's registered contributions with the active one badged
- *     `current` and the protected floor badged `core`; selecting swaps the
- *     default (`set_default`, persisted + live-applied). Only categories with
- *     something to swap (≥2 contributions) get a tab.
- *   - a **Packages** tab — the ENABLE/DISABLE axis. Loaded packages (with a
- *     `core` badge on the kernel ones that can't be disabled) + disabled ones;
- *     selecting toggles enable/disable.
- *   - an **Installable** tab — the curated catalog of not-yet-installed plugins.
- *
- * Degrades gracefully when `session.pluginsAdmin` is absent (a RemoteSession).
+ * Product-facing extension manager. Runtime swap axes stay in advanced CLI
+ * configuration; this surface shows only capabilities the user installed and
+ * the curated catalog they can add next.
  */
 export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   const admin = deps.session.pluginsAdmin;
   if (!admin) {
-    deps.setSystemNotice('plugin management is not available on this session');
+    deps.setSystemNotice('extension management is unavailable here — run `moxxy extensions`');
     return;
   }
   const loaded = admin.loaded();
@@ -532,86 +543,57 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
 
   const tabs: ListPickerTab[] = [];
 
-  // 1. Swap axis — one tab per category with something to swap.
-  for (const cat of admin.categories()) {
-    if (cat.items.length < 2) continue; // nothing to swap (just the floor)
-    tabs.push({
-      id: `cat:${cat.category}`,
-      label: CATEGORY_LABELS[cat.category] ?? cat.category,
-      options: cat.items.map((item) => ({
-        id: `${cat.category}::${item.name}::setdefault`,
-        label: item.name,
-        description: item.isDefault
-          ? 'current default'
-          : item.name === cat.floor
-            ? 'core default — swap, don’t remove'
-            : 'select to make this the default',
-        current: item.isDefault,
-        ...(item.isDefault
-          ? { badge: 'current' as const, badgeColor: 'green' as const }
-          : item.name === cat.floor
-            ? { badge: 'core' as const, badgeColor: 'gray' as const }
-            : {}),
-      })),
-    });
-  }
-
-  // 2. Enable/disable axis — every loaded package, badged by source: a kernel
-  // `core` package (can't disable), an on-demand `installed` one (from
-  // ~/.moxxy/plugins), or a `built-in` (bundled into the binary).
+  // Installed extensions only. Core and bundled runtime packages are an
+  // implementation detail and never compete with user-added capabilities.
   const pkgOptions: ListPickerOption[] = [];
-  for (const p of [...loaded].sort((a, b) => a.name.localeCompare(b.name))) {
-    const isCore = core.has(p.name);
-    const badge = isCore ? 'core' : p.installed ? 'installed' : 'built-in';
-    const badgeColor = isCore ? 'cyan' : p.installed ? 'yellow' : 'green';
+  for (const p of loaded.filter((item) => item.installed && !core.has(item.name)).sort((a, b) => a.name.localeCompare(b.name))) {
     pkgOptions.push({
-      // Kernel packages can't be disabled — a `::core` selection just explains why.
-      id: isCore ? `${p.name}::core` : `${p.name}::disable`,
+      id: `${p.name}::disable`,
       label: shortPluginName(p.name),
-      description: `${p.kinds && p.kinds.length ? p.kinds.join(', ') : 'plugin'} · @${p.version}`,
-      badge,
-      badgeColor,
+      description: 'enabled · select to disable',
+      badge: 'on',
+      badgeColor: 'green',
     });
   }
-  for (const name of [...disabled].sort()) {
+  for (const name of [...disabled].filter((item) => !core.has(item)).sort()) {
     pkgOptions.push({
       id: `${name}::enable`,
       label: shortPluginName(name),
-      description: `${name} · disabled`,
+      description: 'disabled · select to enable',
       badge: 'off',
       badgeColor: 'gray',
     });
   }
   if (pkgOptions.length > 0) {
-    tabs.push({ id: 'packages', label: 'Packages', options: pkgOptions });
+    tabs.push({ id: 'installed', label: 'Installed', options: pkgOptions });
   }
 
-  // 3. Installable catalog (not-yet-installed).
+  // Curated catalog of capabilities not present on this machine.
   const installable = catalog.filter((e) => !installed.has(e.packageName));
   if (installable.length > 0) {
     tabs.push({
       id: 'installable',
-      label: 'Installable',
+      label: 'Available',
       options: installable.map((e) => ({
         id: `${e.id}::install`,
         label: e.label,
-        description: e.packageName,
-        badge: 'not installed',
+        description: e.kind ? `adds ${e.kind}` : 'optional capability',
+        badge: 'add',
         badgeColor: 'yellow' as const,
       })),
     });
   }
 
   if (tabs.length === 0) {
-    deps.setSystemNotice('no plugins to show');
+    deps.setSystemNotice('no extensions are installed or available');
     return;
   }
   deps.setPicker({
     kind: 'plugins',
-    title: 'Plugins',
+    title: 'Extensions',
     tabs,
     searchable: true,
-    searchPlaceholder: 'filter plugins',
+    searchPlaceholder: 'find an extension…',
   });
 }
 

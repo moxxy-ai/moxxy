@@ -3,8 +3,6 @@ import { Box } from 'ink';
 import { useApp } from 'ink';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { isSelectableMode } from '@moxxy/sdk';
-import { setCategoryDefault } from '@moxxy/config';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
@@ -91,7 +89,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // block shows its verb-summary line + the latest call preview.
   const [expandToolOutputs, setExpandToolOutputs] = useState(false);
   const [yolo, setYolo] = useState(false);
-  const { mcpStatus, refreshMcpStatus } = useMcpStatus(session);
+  const { refreshMcpStatus } = useMcpStatus(session);
   // Mid-session model override. When the user picks a model via /model,
   // this takes precedence over the prop passed in at mount time.
   const [activeModelOverride, setActiveModelOverride] = useState<string | null>(null);
@@ -187,33 +185,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
-
-  // Shift+Tab (and /mode) advance to the next registered mode, wrapping
-  // around. Mirrors the model/loop picker's persistence so the choice
-  // survives across sessions. setSystemNotice forces the re-render that
-  // refreshes the footer's mode label.
-  const cycleMode = React.useCallback(() => {
-    // Only cycle user-selectable modes — special modes (e.g. collaborative,
-    // entered via /collab) are hidden from the Shift+Tab cycle the same way they
-    // are from the /mode picker. See ModeDef.special / isSelectableMode.
-    const modes = session.modes.list().filter(isSelectableMode);
-    if (modes.length === 0) return;
-    let current: string;
-    try {
-      current = session.modes.getActive().name;
-    } catch {
-      current = '';
-    }
-    const idx = modes.findIndex((m) => m.name === current);
-    const next = modes[(idx + 1) % modes.length]!;
-    try {
-      session.modes.setActive(next.name);
-      void setCategoryDefault('mode', next.name).catch(() => undefined);
-      setSystemNotice(`mode → ${next.name}`);
-    } catch {
-      /* registry empty or name vanished — leave the active mode as-is */
-    }
-  }, [session]);
+  const sessionInfo = session.getInfo();
 
   const slashSuggestions = React.useMemo(() => buildSlashSuggestions(session), [session]);
 
@@ -522,15 +494,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueMessages={turn.queueRef.current}
         priorityMessage={turn.priorityMessage}
         commandHotkeys={commandHotkeys}
-        onCycleMode={cycleMode}
         externalInsert={voice.externalInsert}
         onPermissionDecide={(perm, decision) => {
           permissions.setPendingPermissions((prev) => prev.slice(1));
-          if (decision.mode === 'allow_always') {
-            void session.permissions
-              .addAllow({ name: perm.call.name, reason: 'allow_always via TUI dialog' })
-              .catch(() => undefined);
-          }
           perm.resolve(decision);
         }}
         onApprovalDecide={(decision) => {
@@ -558,15 +524,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
           turn.busy && !pendingPermission && !pendingApproval ? turn.busyStartedAt : null
         }
         queueCount={turn.queueCount}
-        modeName={modeName}
         modeBadge={modeBadge}
-        provider={providerName}
-        model={activeModel}
-        mcp={mcpStatus}
-        contextUsed={contextUsed}
-        {...(contextWindow ? { contextWindow } : {})}
-        {...(version ? { version } : {})}
-        {...(updateAvailable ? { updateLatest: updateAvailable.latest } : {})}
+        workspace={session.cwd}
+        governance={sessionInfo.governance ?? null}
+        chromeItems={sessionInfo.clientChrome ?? []}
       />
     </Box>
   );

@@ -192,7 +192,7 @@ export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive 
           throw new MoxxyError({
             code: 'PLUGIN_NOT_INSTALLED',
             message: `${category} '${name}' is not installed.`,
-            hint: `Install ${provider.packageName} (install_plugin, or \`moxxy plugins install ${provider.id}\`), then retry.`,
+            hint: `Install ${provider.packageName} (install_plugin, or \`moxxy extensions install ${provider.id}\`), then retry.`,
             context: { category, contribution: name, package: provider.packageName },
           });
         }
