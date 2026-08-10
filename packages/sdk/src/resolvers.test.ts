@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateToolRule } from './resolvers.js';
+import { createDeferredPermissionResolver, evaluateToolRule } from './resolvers.js';
 import type { PendingToolCall, PermissionRule } from './permission.js';
 
 function call(name: string, input: unknown = {}): PendingToolCall {
@@ -41,5 +41,32 @@ describe('evaluateToolRule', () => {
     };
     expect(evaluateToolRule(rule, call('write', { path: '/tmp/ok.txt' }))).not.toBeNull();
     expect(evaluateToolRule(rule, call('write', { path: '/etc/passwd' }))).toBeNull();
+  });
+
+  it('defers workspace-scoped rules to the filesystem-aware core evaluator', () => {
+    const rule: PermissionRule = {
+      action: 'allow',
+      workspace: { pathInputs: [{ key: 'file_path' }] },
+    };
+    expect(evaluateToolRule(rule, call('Read', { file_path: 'README.md' }))).toBeNull();
+  });
+});
+
+describe('createDeferredPermissionResolver scoped session grants', () => {
+  it('remembers only the matching consequence, not every call from the tool', async () => {
+    let prompts = 0;
+    const resolver = createDeferredPermissionResolver({
+      prompt: async () => {
+        prompts += 1;
+        return { mode: 'allow_session', sessionScope: { inputKeys: ['file_path'] } };
+      },
+    });
+    const ctx = { sessionId: 's' };
+
+    await resolver.check(call('Write', { file_path: 'one.ts', content: 'a' }), ctx);
+    await resolver.check(call('Write', { file_path: 'one.ts', content: 'b' }), ctx);
+    await resolver.check(call('Write', { file_path: 'two.ts', content: 'b' }), ctx);
+
+    expect(prompts).toBe(2);
   });
 });

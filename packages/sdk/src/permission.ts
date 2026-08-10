@@ -5,11 +5,24 @@ export type PermissionMode = 'allow' | 'allow_session' | 'allow_always' | 'deny'
 export interface PermissionDecision {
   readonly mode: PermissionMode;
   readonly reason?: string;
+  /** Narrow an `allow_session` grant to calls with matching input values. */
+  readonly sessionScope?: { readonly inputKeys: ReadonlyArray<string> };
 }
 
 export interface PermissionRule {
   readonly action: 'allow' | 'deny' | 'prompt';
   readonly pattern?: { name?: string | RegExp; inputMatches?: Record<string, string | RegExp> };
+  /**
+   * Apply this rule only when every declared path resolves inside the active
+   * workspace. Core validates the real paths, including symlink targets.
+   */
+  readonly workspace?: {
+    readonly pathInputs: ReadonlyArray<{
+      readonly key: string;
+      /** Missing input means the workspace root itself. */
+      readonly defaultToWorkspace?: boolean;
+    }>;
+  };
   readonly reason?: string;
 }
 

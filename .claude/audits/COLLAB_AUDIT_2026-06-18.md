@@ -150,7 +150,7 @@ Implemented + tested:
 - **Vision seed:** roles are first-class (architect can assemble a real PM/designer/dev/
   QA/writer team; no more force-overwrite).
 
-## 7. Roadmap (deferred — logged to TECH_DEBT)
+## 7. Roadmap (deferred — logged to archived backlog)
 
 - **S2 — Dynamic roles, properly:** a role-profile registry `{systemPrompt, tool/skill
   allow-list, deliverable-kind}` (swappable-block pattern), per-role model right-sizing.

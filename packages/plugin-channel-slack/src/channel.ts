@@ -318,7 +318,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
     // — that's what mirrorForeignTurn filters on (#8).
     const lease = this.turns.begin(newTurnId());
     if (!lease) {
-      // Politely decline; v1 has no per-thread concurrency (see TECH_DEBT).
+      // Politely decline; v1 intentionally serializes work per channel.
       try {
         await this.client.postMessage({
           channel: ctx.channel,

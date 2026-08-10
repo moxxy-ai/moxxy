@@ -89,7 +89,8 @@ export function App(): JSX.Element {
   // does not silently reset the list to its first entry.
   const [automationsKind, setAutomationsKind] = useAutomationsKind();
   const [channelId, setChannelId] = useChannelSelection();
-  const [settingsTab, setSettingsTab] = useSettingsTab();
+  const [extensionsTab, setExtensionsTab] = useSettingsTab('extensions');
+  const [settingsTab, setSettingsTab] = useSettingsTab('settings');
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Local flag that flips the moment the user clicks "Open my
@@ -334,7 +335,16 @@ export function App(): JSX.Element {
         <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
       )}
       {view === 'channels' && <ChannelsIndex selected={channelId} onSelect={setChannelId} />}
-      {view === 'settings' && <SettingsIndex tab={settingsTab} onPick={setSettingsTab} />}
+      {view === 'extensions' && (
+        <SettingsIndex
+          tab={extensionsTab}
+          onPick={setExtensionsTab}
+          scope="extensions"
+        />
+      )}
+      {view === 'settings' && (
+        <SettingsIndex tab={settingsTab} onPick={setSettingsTab} scope="settings" />
+      )}
       {view === 'chat' && (
         <>
           <ChatSurface
@@ -357,7 +367,12 @@ export function App(): JSX.Element {
       )}
       {view === 'settings' && (
         <main className="field">
-          <SettingsPanel tab={settingsTab} />
+          <SettingsPanel tab={settingsTab} scope="settings" />
+        </main>
+      )}
+      {view === 'extensions' && (
+        <main className="field">
+          <SettingsPanel tab={extensionsTab} scope="extensions" />
         </main>
       )}
       {view === 'apps' && (

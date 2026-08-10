@@ -1,126 +1,69 @@
 ---
 title: Quickstart
-description: From zero to a running moxxy session in five minutes.
+description: Install moxxy, connect a model account, and complete a first task.
 ---
 
 ## 1. Install
 
-```sh
-pnpm add -g @moxxy/cli
-# or run ad-hoc:
-pnpm dlx @moxxy/cli --help
-```
-
-## 2. Pick a provider
-
-`moxxy` supports four providers out of the box (plus runtime-registered
-OpenAI-compatible vendors via `@moxxy/plugin-provider-admin`). Pick one:
+Moxxy requires Node.js 20.10 or newer.
 
 ```sh
-# Anthropic — API key
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# OpenAI — API key
-export OPENAI_API_KEY=sk-...
-
-# ChatGPT Pro/Plus (Codex backend) — OAuth, no key needed
-moxxy login openai-codex
-
-# Claude Pro/Max — OAuth, no key needed
-moxxy login claude-code
+npm install -g @moxxy/cli
 ```
 
-`moxxy init` walks through the same choices interactively and stores keys
-encrypted in the vault. After init you can reference vault entries from
-`moxxy.config.ts` via `${vault:NAME}`:
+## 2. Connect a model account
 
-```ts
-// moxxy.config.ts
-import { defineConfig } from '@moxxy/config';
-
-export default defineConfig({
-  provider: {
-    name: 'anthropic',
-    model: 'claude-sonnet-5',
-    config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
-  },
-});
-```
-
-## 3. One-shot prompt
+Run onboarding inside the project you want moxxy to understand:
 
 ```sh
-moxxy -p "list TypeScript files in src/" --allow-tools Read,Glob
+cd your-project
+moxxy onboard
 ```
 
-## 4. Interactive
+Choose an API provider, ChatGPT account, or existing Claude Code subscription
+and authenticate. Keys are stored in the encrypted local vault. Moxxy selects
+the recommended model, runtime, and local memory index automatically.
+
+No configuration file is required.
+
+## 3. Start working
 
 ```sh
-moxxy                # Ink-based TUI (default channel)
-moxxy resume         # picker for a previous session
+moxxy
 ```
 
-## 5. Pair the Telegram bot
+Start with a read-only task:
 
-The pairing direction was inverted in a recent release: the bot now
-issues the code, you paste it into the terminal.
+> Explain the request path through this repository and point me to the main files.
+
+Then ask for a small change. Moxxy will show consequential tool calls and ask
+for approval before executing them.
+
+For a single response without the interactive UI:
 
 ```sh
-# In a moxxy project, open a pairing window:
-moxxy channels telegram pair
-# → "Waiting for /start from a Telegram chat…"
+moxxy -p "summarize the README in three bullets"
 ```
 
-1. Open Telegram, find your bot, send `/start`.
-2. The bot DMs you a 6-digit code.
-3. Paste the code into the moxxy terminal. The chat id is persisted to
-   the vault; next start the bot auto-authorizes it.
+Resume an earlier run with `moxxy resume`.
 
-Then run the bot foreground (`moxxy telegram`) or as a background
-service (`moxxy service install telegram`). See the
-[Telegram channel guide](./guides/telegram-channel.md).
+## Add capabilities later
 
-## 6. Save a memory
-
-In the TUI:
-
-> me: I prefer terse responses without bullet points. Remember that.
-
-The agent calls `memory_save`. Next session it can `memory_recall` and
-find your preference. Curate with `moxxy memory list|show|revert`.
-
-## 7. Author a skill
-
-Add a Markdown file under `~/.moxxy/skills/` or `./.moxxy/skills/`:
-
-```md
----
-name: deploy-to-staging
-description: Push the current branch and trigger a staging deploy.
-triggers: ["deploy to staging", "push to staging"]
-allowed-tools: [Bash]
----
-1. Confirm the branch is clean with `git status`.
-2. Run `git push origin HEAD:staging --force-with-lease`.
-3. Tail the deploy log with `kubectl logs -f deploy/staging-app`.
+```sh
+moxxy extensions list
+moxxy onboard --advanced
+moxxy help advanced
 ```
 
-Restart moxxy (or call `reload_skills` mid-session). Next time you say
-"deploy to staging" the agent runs your three steps. The agent can also
-write skills for itself — see [Authoring a skill](./guides/authoring-a-skill.md).
+Advanced onboarding adds channels, background services, and runtime choices.
+It is optional and should come after the first useful local run.
 
-## Where things live
+## If setup fails
 
-```
-~/.moxxy/
-  config.ts            user-level overrides (merged under project moxxy.config.ts)
-  permissions.json     user-level allow/deny rules
-  vault.json           AES-256-GCM encrypted secrets
-  vault.key            cached master key (mode 0600; alt to OS keychain)
-  skills/              user-scope skill files
-  memory/              journal-based long-term memory + MEMORY.md index
-  sessions/            event-log dumps for replay
-  schedules.json       scheduler entries
-  mcp.json             MCP server catalog
-  services/<id>.log    background-service stdout/stderr
-```
+Run `moxxy doctor --check-keys`. When opening an issue, include the OS, Node
+version, install method, selected model connection, failing step, and sanitized
+output. Never include a key or OAuth token.
+
+Next: [Developer alpha](./developer-alpha.md),
+[Permissions](./guides/permissions.md), or
+[Authoring a skill](./guides/authoring-a-skill.md).

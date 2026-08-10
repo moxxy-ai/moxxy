@@ -122,11 +122,21 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // subscribes to never reaches the point of running a turn. Throws
   // PolicyLoadError, which the caller reports rather than degrading past.
   const policy = await loadPolicyBundles(config.policy?.bundles ?? []);
+  const systemManaged = sources.some((source) => source.scope === 'system');
+  const governance =
+    systemManaged || policy.sources.length > 0
+      ? {
+          managed: true as const,
+          label: policy.sources[0]?.id ?? 'organization policy',
+          ...(policy.sources.some((source) => source.staleReason) ? { stale: true } : {}),
+        }
+      : undefined;
 
   const session = await buildSession({
     cwd: opts.cwd,
     config,
     bundledRules: { allow: policy.allow, deny: policy.deny },
+    ...(governance ? { governance } : {}),
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
     sessionId: opts.sessionId,

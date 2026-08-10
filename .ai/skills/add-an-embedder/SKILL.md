@@ -19,9 +19,9 @@ Checklist:
   `packages/cli/tsup.config.ts` `external` before adding a native/huge dep.
 - Key resolution like providers: vault first, then env (add-a-provider skill).
 
-Consumer to know about: `plugin-memory` (TF-IDF/vector recall) still uses its
-own `EmbeddingIndex` cache — TECH_DEBT.md P3 #6; if you touch its recall path
-anyway, fold in `CachedEmbeddingProvider`.
+Consumer to know about: `plugin-memory` (TF-IDF/vector recall) has its own
+`EmbeddingIndex` cache. If you change that recall path, prefer converging on
+`CachedEmbeddingProvider` instead of creating a third cache contract.
 
 Test: deterministic vectors via a fake fetch / tiny fixture; assert cache
 hits skip the upstream call (`sdk/src/embedding-cache.ts` tests show the

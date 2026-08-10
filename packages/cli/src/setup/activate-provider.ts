@@ -180,7 +180,7 @@ function noProviderError(candidates: ReadonlyArray<string>, lastErr: unknown): M
     code: 'PROVIDER_NOT_CONFIGURED',
     message: `No working provider credentials. Tried: ${candidates.join(', ')}.`,
     hint:
-      'Run `moxxy init` in an interactive terminal, set the relevant API-key env var, ' +
+      'Run `moxxy onboard` in an interactive terminal, set the relevant API-key env var, ' +
       'or store the key in the vault. For OAuth providers, run `moxxy login <provider>`.',
     context: { tried: candidates.join(','), last_error: errMsg },
     cause: lastErr,

@@ -253,7 +253,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
       : baseHints;
 
   return (
-    <Modal title={request.title} hints={hints}>
+    <Modal title={`02 ACT · ${request.title}`} hints={hints}>
       {rendered.length > 0 && rendered[0]?.text !== '' ? (
         <Box flexDirection="column" marginBottom={1}>
           {hiddenBefore > 0 ? (

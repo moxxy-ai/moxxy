@@ -91,6 +91,7 @@ export type {
   SessionLogReader,
   SessionLike,
   SessionInfo,
+  GovernanceInfo,
   ProviderInfo,
   ToolInfo,
   SkillInfo,
@@ -113,6 +114,13 @@ export type {
   ProviderSetupView,
   ProviderConnectIo,
 } from './session-like.js';
+
+export type {
+  ClientChromeSlot,
+  ClientChromeTone,
+  ClientChromeContribution,
+  ClientChromeItem,
+} from './client-chrome.js';
 
 export type {
   ClientSession,

@@ -1,57 +1,45 @@
 ---
 title: Introduction
-description: moxxy — a block-based agentic loop framework for TypeScript.
+description: moxxy is a local AI agent for developers, with optional extensions and governed workstation controls.
 ---
 
-**moxxy** is a TypeScript framework for building agentic modes where every block — provider, mode, tool, compactor, channel — is swappable. Skills (Markdown + frontmatter) and plugins (npm packages) compose around a tiny, deterministic core.
+**moxxy** is a local AI agent for software work. Connect a model account,
+launch it in a project, and start with sensible defaults. It understands the
+workspace, persists runs locally, and asks before consequential actions.
 
-## Why
+Moxxy is currently a **developer alpha**. The primary path is personal use by a
+developer; governed workstation profiles are available as a design-partner
+preview.
 
-Existing agent frameworks lock you into one LLM provider, one loop topology, one frontend, one set of opinions about how the agent should behave. moxxy starts from a typed contract — `@moxxy/sdk` — and lets you plug everything else in.
-
-- Providers are plugins (`@moxxy/plugin-provider-anthropic`, `@moxxy/plugin-provider-openai`, `@moxxy/plugin-provider-openai-codex` for the ChatGPT-OAuth backend).
-- Modes are plugins (`@moxxy/mode-default`, `@moxxy/mode-goal`, `@moxxy/mode-deep-research`).
-- The CLI / TUI / Telegram bot / HTTP server are all `Channel` implementations.
-- Skills are prompt-only Markdown files the agent can author for itself.
-
-## A 30-second tour
+## Use
 
 ```sh
-pnpm add @moxxy/cli              # or use the binary directly: pnpm dlx moxxy
-moxxy --help
-
-# One-shot, headless:
-ANTHROPIC_API_KEY=sk-... moxxy -p "list TS files in cwd" --allow-tools Read,Glob
-
-# Interactive TUI:
+npm install -g @moxxy/cli
+cd your-project
+moxxy onboard
 moxxy
-
-# Telegram channel: send /start to your bot in Telegram first,
-# then paste the 6-digit code the bot DMs you into the moxxy terminal:
-moxxy channels telegram pair
-
-# Install channels as background OS units (launchd / systemd --user):
-moxxy service install telegram
-moxxy service install scheduler
 ```
 
-Or embed the SDK directly:
+Onboarding asks for one model connection and authentication. It does not ask
+you to configure the runtime architecture. Continue with the
+[Quickstart](./quickstart.md).
 
-```ts
-import { Session, runTurn, autoAllowResolver } from '@moxxy/core';
-import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
-import { builtinToolsPlugin } from '@moxxy/tools-builtin';
-import { defaultModePlugin } from '@moxxy/mode-default';
+## Extend
 
-const session = new Session({ cwd: process.cwd(), permissionResolver: autoAllowResolver });
-session.pluginHost.registerStatic(anthropicPlugin);
-session.pluginHost.registerStatic(builtinToolsPlugin);
-session.pluginHost.registerStatic(defaultModePlugin);
-session.providers.setActive('anthropic');
+The core works without optional packages. When you need another capability,
+use `moxxy extensions` or add a Markdown skill. Extension authors get the typed,
+zero-runtime-dependency `@moxxy/sdk` contract.
 
-for await (const event of runTurn(session, 'list TS files')) {
-  if (event.type === 'assistant_chunk') process.stdout.write(event.delta);
-}
-```
+Advanced documentation still describes providers, modes, tools, compactors,
+cache strategies, embedders, isolators, and channels. Those are author and
+operator concepts, not first-run decisions.
 
-See [Quickstart](./quickstart.md) for a full setup, or [Architecture](./architecture.md) for how the pieces fit together.
+## Govern
+
+An organization can apply approved model connections, extensions, tool policy,
+network constraints, and audit export to the same local workstation
+experience. See the security and deployment guides before treating this alpha
+as a managed environment.
+
+Read [Developer alpha](./developer-alpha.md) for supported paths, limitations,
+and the feedback format.

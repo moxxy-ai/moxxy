@@ -11,6 +11,6 @@ describe('buildPromptPlaceholder', () => {
   });
 
   it('keeps the queue hint focused while a turn is busy', () => {
-    expect(buildPromptPlaceholder(true, true)).toContain('type to queue a message');
+    expect(buildPromptPlaceholder(true, true)).toContain('add a follow-up');
   });
 });

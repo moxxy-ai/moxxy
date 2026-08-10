@@ -1,5 +1,5 @@
 import type { ParsedArgv } from '../argv.js';
-import { bootSessionWithConfig, hasBoolFlag } from '../argv-helpers.js';
+import { bootSessionWithConfig, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import { colors } from '../colors.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
@@ -63,8 +63,9 @@ function buildHelp(session: Session | null): string {
 
 export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0];
+  const wantsHelp = helpRequested(argv) || sub === 'help' || sub === '--help' || sub === '-h';
 
-  if (!sub || sub === 'help' || sub === '--help' || sub === '-h') {
+  if (!sub || wantsHelp) {
     // Best-effort: list OAuth providers known to the current install. If
     // boot fails for any reason fall back to a generic help body.
     let session: Session | null = null;
@@ -82,12 +83,12 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
       } finally {
         await closeSession(s, persistence, audit);
       }
-      return sub ? 0 : 2;
+      return wantsHelp ? 0 : 2;
     } catch {
       // ignore — fall through to a generic help body
     }
     process.stdout.write(buildHelp(session));
-    return sub ? 0 : 2;
+    return wantsHelp ? 0 : 2;
   }
 
   if (sub === 'status') return await loginStatus(argv);
@@ -134,7 +135,7 @@ export async function runLoginProvider(
   if (def.auth?.kind !== 'oauth') {
     process.stderr.write(
       `${colors.red(`${providerName} uses API-key auth — no \`moxxy login\` flow.`)}\n` +
-        `Run \`moxxy init\` to store its key in the vault.\n`,
+        `Run \`moxxy onboard\` to store its key in the vault.\n`,
     );
     return 2;
   }

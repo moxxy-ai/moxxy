@@ -19,8 +19,8 @@ export interface SlackPermissionLogger {
  * executed. An empty list denies everything (effectively read-only, since no
  * side-effecting tool can run without a clicker).
  *
- * (Autonomous allow-list safety is a known trade-off; see TECH_DEBT — v1 has no
- * Slack-button approval flow.)
+ * Autonomous allow-list safety is an explicit v1 trade-off: there is no
+ * Slack-button approval flow.
  */
 export function buildSlackPermissionResolver(opts: {
   allowedTools: ReadonlyArray<string>;

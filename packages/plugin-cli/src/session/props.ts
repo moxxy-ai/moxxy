@@ -83,6 +83,12 @@ export interface InteractiveSessionProps {
    */
   readonly updateAvailable?: { readonly latest: string };
   /**
+   * Show the branded workspace welcome before the first prompt. The CLI sets
+   * this only when no meaningful saved run exists; subsequent fresh runs land
+   * directly in the lightweight work surface.
+   */
+  readonly firstRun?: boolean;
+  /**
    * Skip the splash screen and land directly in the chat view. Used by
    * `moxxy resume` so the seeded event log is visible immediately
    * without the user having to type a first prompt.

@@ -68,17 +68,17 @@ const infoCmd: CommandDef = {
 
 const clearCmd: CommandDef = {
   name: 'clear',
-  description: 'Clear the chat scrollback (event log stays intact in resumed sessions)',
+  description: 'Clear the visible conversation without deleting the saved run',
   handler: () => ({ kind: 'session-action', action: 'clear', notice: 'scrollback cleared' }),
 };
 
 const newCmd: CommandDef = {
   name: 'new',
-  description: 'Start a fresh session (drops conversation history; keeps provider/loop)',
+  description: 'Start a fresh run in this workspace',
   handler: () => ({
     kind: 'session-action',
     action: 'new',
-    notice: 'new session — conversation history cleared',
+    notice: 'fresh run — previous conversation cleared',
   }),
 };
 
@@ -91,14 +91,14 @@ const compactCmd: CommandDef = {
 
 const exitCmd: CommandDef = {
   name: 'exit',
-  description: 'Quit the current channel',
+  description: 'Leave moxxy',
   aliases: ['quit', 'q'],
   handler: () => ({ kind: 'session-action', action: 'exit' }),
 };
 
 const helpCmd: CommandDef = {
   name: 'help',
-  description: 'List every command available in this channel',
+  description: 'Show the commands available here',
   argumentHint: '[command]',
   handler: ({ session, channel, args }) => {
     const s = session as SessionShape;

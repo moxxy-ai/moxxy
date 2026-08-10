@@ -21,6 +21,7 @@ import type { AuditSinkDef } from './audit.js';
 import type { AuditExporterDef } from './audit-export.js';
 import type { SecretProviderDef } from './secret-provider.js';
 import type { ReflectorDef } from './reflector.js';
+import type { ClientChromeContribution } from './client-chrome.js';
 
 export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor' | 'event-store' | 'reflector';
 
@@ -28,6 +29,12 @@ export interface PluginSpec {
   readonly name: string;
   readonly version?: string;
   readonly tools?: ReadonlyArray<ToolDef>;
+  /**
+   * Bounded, UI-neutral additions to persistent client chrome. A plugin can
+   * add short status items but cannot inject React/Ink or replace client
+   * layout. This keeps TUI, desktop, and remote clients visually coherent.
+   */
+  readonly clientChrome?: ReadonlyArray<ClientChromeContribution>;
   readonly providers?: ReadonlyArray<ProviderDef>;
   readonly modes?: ReadonlyArray<ModeDef>;
   readonly compactors?: ReadonlyArray<CompactorDef>;

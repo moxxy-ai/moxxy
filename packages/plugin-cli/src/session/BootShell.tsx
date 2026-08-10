@@ -26,6 +26,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   model,
   version,
   updateAvailable,
+  firstRun = false,
   resumed,
   switchSession,
 }) => {
@@ -57,8 +58,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // the session id is unchanged.
   const handleSwitchSession = useCallback(
     async (target: SessionSwitchTarget): Promise<void> => {
-      if (!switchSession) throw new Error('switching sessions is not available');
-      if (switchingRef.current) throw new Error('a session switch is already in progress');
+      if (!switchSession) throw new Error('switching runs is not available');
+      if (switchingRef.current) throw new Error('a run switch is already in progress');
       switchingRef.current = true;
       try {
         const next = await switchSession(target);
@@ -73,10 +74,10 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         setInitialPrompt(target.kind === 'collab' && target.goal ? target.goal : null);
         setSwitchNotice(
           target.kind === 'new'
-            ? 'started a new session — your previous conversation stays saved'
+            ? 'started a new run — your previous run stays saved'
             : target.kind === 'collab'
-              ? '👥 collaboration — an architect will propose a team for you to approve (Esc leaves it running; /sessions to return to chat)'
-              : 'switched session',
+              ? '👥 collaboration — an architect will propose a team for you to approve (Esc leaves it running; /runs returns to your work)'
+              : 'switched run',
         );
         setSession(next);
       } finally {
@@ -125,19 +126,19 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
     };
   }, [eagerSession, bootstrap]);
 
-  // Splash phase: render the BootScreen until the user submits the
-  // first prompt. The input unlocks the moment a session resolves; the
-  // submission flips us into the chat view AND becomes the first turn.
-  // Resumed sessions (and sessions reached via the /sessions switcher)
-  // skip the splash entirely — the user wants to land back in their
-  // conversation without re-typing anything.
-  if (!session || (initialPrompt == null && !resumed && !landedViaSwitch)) {
+  // Boot progress is always visible while setup is running. The branded
+  // ready state, however, is a one-time welcome: later fresh runs land in the
+  // work surface immediately. Resumed/switched runs always show their history.
+  const showWelcome = firstRun && initialPrompt == null && !resumed && !landedViaSwitch;
+  if (!session || showWelcome) {
     return (
       <Box flexDirection="column">
         <BootScreen
           events={bootEvents}
           startedAt={startedAt}
+          {...(session ? { workspace: session.cwd } : {})}
           {...(bootError ? { error: bootError } : {})}
+          welcome={firstRun}
         />
         {session ? (
           <BootInputArea
@@ -150,7 +151,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
           <DisabledBootInput
             placeholder={
               bootError
-                ? 'Bootstrap failed — quit and run `moxxy init`'
+                ? 'Start failed — run `moxxy doctor --check-keys`'
                 : 'Initializing…'
             }
           />
@@ -201,7 +202,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
 
   return (
     <Box flexDirection="column">
-      <Box marginTop={2}>
+      <Box marginTop={1}>
         <InputBox
           disabled={!ready}
           voicePhase={voice.phase}
@@ -211,7 +212,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
             ready
               ? buildBootPlaceholder(voice.ready)
               : bootError
-                ? 'Bootstrap failed — quit and run `moxxy init`'
+                ? 'Start failed — run `moxxy doctor --check-keys`'
                 : 'Initializing…'
           }
           onSubmit={(text) => {
@@ -231,7 +232,7 @@ const BootInputArea: React.FC<BootInputAreaProps> = ({ session, ready, bootError
 
 const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) => (
   <>
-    <Box marginTop={2}>
+    <Box marginTop={1}>
       <InputBox disabled placeholder={placeholder} onSubmit={() => undefined} />
     </Box>
     <Box>
@@ -242,6 +243,6 @@ const DisabledBootInput: React.FC<{ placeholder: string }> = ({ placeholder }) =
 
 function buildBootPlaceholder(voiceReady: boolean): string {
   return voiceReady
-    ? 'type a prompt to begin · / for commands · Ctrl+R voice'
-    : 'type a prompt to begin · / for commands';
+    ? 'ask about this workspace…  / commands  ·  Ctrl+R voice'
+    : 'ask about this workspace…  / commands';
 }

@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { looksLikeMoxxyRunner, readSocketHolderPid } from './run-tui.js';
+import {
+  looksLikeMoxxyRunner,
+  readSocketHolderPid,
+  shouldShowFirstRunWelcome,
+} from './run-tui.js';
+
+describe('first-run welcome', () => {
+  it('shows only before the first meaningful run', () => {
+    expect(shouldShowFirstRunWelcome([], false)).toBe(true);
+    expect(shouldShowFirstRunWelcome([{ eventCount: 0 }], false)).toBe(true);
+    expect(shouldShowFirstRunWelcome([{ eventCount: 1 }], false)).toBe(false);
+    expect(shouldShowFirstRunWelcome([], true)).toBe(false);
+  });
+});
 
 describe('looksLikeMoxxyRunner (kill guard)', () => {
   it('refuses non-positive / non-integer PIDs', async () => {

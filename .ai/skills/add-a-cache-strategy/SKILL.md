@@ -26,5 +26,5 @@ Test: assert breakpoint stability across repeated `plan()` calls with the same
 log, and that adding a volatile tail message does NOT move the tail breakpoint
 (`cache-strategy-stable-prefix/src/*.test.ts` has the pattern).
 
-Background on the token-efficiency direction (elision, recall, lazy tools):
-TECH_DEBT.md + `~/.claude/plans/i-d-like-to-improve-reflective-bear.md`.
+Background on the token-efficiency direction lives in the context model in
+`AGENTS.md` and the stable-prefix implementation tests.

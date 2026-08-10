@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runSlash, type SlashDeps } from './run-slash.js';
+import {
+  isProductExtensionPackage,
+  runSlash,
+  type SlashDeps,
+} from './run-slash.js';
 
 // run-slash.ts imports clearUsageStats/readSessionIndex from @moxxy/core and
 // setCategoryDefault from @moxxy/config; stub them so /goal's mode-default
@@ -176,11 +180,11 @@ describe('runSlash dispatch safety', () => {
   });
 });
 
-describe('runSlash /sessions', () => {
-  it('degrades to a notice when the host cannot switch sessions', () => {
+describe('runSlash /runs', () => {
+  it('degrades to a notice when the host cannot switch runs', () => {
     const notices: Array<string | null> = [];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       canSwitchSession: false,
       setSystemNotice: (n) => notices.push(n),
@@ -188,10 +192,10 @@ describe('runSlash /sessions', () => {
     } as unknown as SlashDeps);
     // No async index read / picker open on the degrade path.
     expect(pickers).toEqual([]);
-    expect(notices.some((n) => typeof n === 'string' && /only available/.test(n))).toBe(true);
+    expect(notices.some((n) => typeof n === 'string' && /unavailable/.test(n))).toBe(true);
   });
 
-  it('opens a sessions picker (with a new-session entry) when switching is available', async () => {
+  it('opens a Runs picker with a new-run entry when switching is available', async () => {
     sessionIndex.value = [
       {
         id: 'sess-current',
@@ -215,7 +219,7 @@ describe('runSlash /sessions', () => {
       },
     ];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       session: { id: 'sess-current', commands: { get: () => undefined } },
       canSwitchSession: true,
@@ -226,13 +230,80 @@ describe('runSlash /sessions', () => {
     expect(pickers).toHaveLength(1);
     const picker = pickers[0] as {
       kind: string;
+      title: string;
       options: Array<{ id: string; current?: boolean }>;
     };
     expect(picker.kind).toBe('sessions');
-    // "+ New session" first, then the two persisted ones; current marked.
+    expect(picker.title).toBe('Runs');
+    // "+ New run" first, then the two persisted ones; current marked.
     expect(picker.options[0]!.id).toBe('__new__');
     expect(picker.options.find((o) => o.id === 'sess-current')!.current).toBe(true);
     expect(picker.options.map((o) => o.id)).toContain('sess-other');
+  });
+});
+
+describe('runSlash progressive help', () => {
+  it('shows only available everyday concepts until advanced help is requested', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/help', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined, listForChannel: () => [] },
+        pluginsAdmin: {},
+      },
+      canSwitchSession: true,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(notices[0]).toContain('/runs');
+    expect(notices[0]).toContain('/extensions');
+    expect(notices[0]).not.toMatch(/^\/mode\s/m);
+  });
+
+  it('does not advertise controls an attached fixed runner cannot execute', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/help', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined, listForChannel: () => [] },
+      },
+      canSwitchSession: false,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(notices[0]).not.toMatch(/^\/runs\s/m);
+    expect(notices[0]).not.toMatch(/^\/extensions\s/m);
+    expect(notices[0]).not.toMatch(/^\/new\s/m);
+    expect(notices[0]).toContain('shared run');
+    expect(notices[0]).toContain('moxxy resume');
+  });
+
+  it('does not clear an attached runner when /new cannot create a separate run', () => {
+    const notices: Array<string | null> = [];
+    let handlerCalled = false;
+    runSlash('/new', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: {
+          get: () => ({
+            name: 'new',
+            description: 'Start a fresh run',
+            handler: () => {
+              handlerCalled = true;
+              return { kind: 'session-action', action: 'new' };
+            },
+          }),
+        },
+      },
+      canSwitchSession: false,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(handlerCalled).toBe(false);
+    expect(notices[0]).toContain('separate run');
   });
 });
 
@@ -269,6 +340,17 @@ describe('runSlash /speak', () => {
       setSystemNotice: (n) => notices.push(n),
     } as unknown as SlashDeps);
     expect(notices.some((n) => typeof n === 'string' && /not available/.test(n))).toBe(true);
+  });
+});
+
+describe('extension product surface', () => {
+  it('keeps model connection packages in /model instead of /extensions', () => {
+    expect(isProductExtensionPackage('@moxxy/plugin-provider-openai')).toBe(false);
+    expect(
+      isProductExtensionPackage('@vendor/models', [{ category: 'provider' }]),
+    ).toBe(false);
+    expect(isProductExtensionPackage('@moxxy/plugin-browser')).toBe(true);
+    expect(isProductExtensionPackage('@moxxy/mode-goal')).toBe(true);
   });
 });
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
@@ -18,10 +19,9 @@ import type { View } from './views';
  * active item's 2px commanded strap runs the full row height and passes UNDER
  * that band's seam (see `.rail-item[data-active]::after` in styles.css).
  *
- * Destinations are grouped by what they are, not alphabetically: the four
- * places work happens, then Channels (how work reaches you), then Settings and
- * the account at the foot. Labels are ONE word wherever the language allows —
- * a tooltip is a label, not a sentence.
+ * The default rail is intentionally small: Runs, Extensions, and Settings.
+ * Collaboration, automation, apps, channels, mobile, and voice stay available
+ * behind More without presenting a fresh user with the whole framework.
  *
  * Icon-only is the default because the rail is permanent chrome and 52px is the
  * point — but an icon-only rail is unreadable on first contact, and a tooltip
@@ -48,10 +48,15 @@ const DESTINATIONS: ReadonlyArray<Destination & { readonly id: View }> = [
   // chat store, and renaming the id but not the module would be less coherent,
   // not more. "Runs" is the user-facing name for what it shows.
   { id: 'chat', icon: 'chat', label: 'Runs' },
+  { id: 'extensions', icon: 'plug', label: 'Extensions' },
+];
+
+const OPTIONAL_DESTINATIONS: ReadonlyArray<Destination & { readonly id: View }> = [
   { id: 'collaborate', icon: 'agent', label: 'Collaborate' },
   { id: 'automations', icon: 'workflow', label: 'Automations' },
   { id: 'apps', icon: 'grid', label: 'Apps' },
   { id: 'channels', icon: 'broadcast', label: 'Channels' },
+  { id: 'mobile', icon: 'smartphone', label: 'Mobile' },
 ];
 
 export function AppRail({
@@ -66,7 +71,10 @@ export function AppRail({
   readonly disabledReason?: string;
 }): JSX.Element {
   const expanded = useRailExpanded();
+  const [moreOpen, setMoreOpen] = useState(false);
   const isDisabled = (id: View): boolean => disabledViews?.includes(id) ?? false;
+  const optionalViewActive = OPTIONAL_DESTINATIONS.some((destination) => destination.id === view);
+  const showOptional = moreOpen || optionalViewActive;
   return (
     <nav className="app-rail" data-expanded={expanded} aria-label="Main">
       <span className="app-rail__mark">
@@ -108,30 +116,39 @@ export function AppRail({
           onClick={() => onView(d.id)}
         />
       ))}
+      <RailItem
+        destination={{ id: 'more', icon: 'more', label: 'More' }}
+        active={optionalViewActive}
+        expanded={expanded}
+        disabled={false}
+        onClick={() => setMoreOpen((open) => !open)}
+      />
+      {showOptional &&
+        OPTIONAL_DESTINATIONS.map((d) => (
+          <RailItem
+            key={d.id}
+            destination={d}
+            active={view === d.id}
+            expanded={expanded}
+            disabled={isDisabled(d.id)}
+            disabledReason={disabledReason}
+            onClick={() => onView(d.id)}
+          />
+        ))}
+      {showOptional && (
+        <RailItem
+          destination={{ id: 'voice', icon: 'speaker', label: 'Voice' }}
+          active={false}
+          expanded={expanded}
+          disabled={isDisabled('chat')}
+          disabledReason={disabledReason}
+          onClick={() => {
+            onView('chat');
+            requestVoiceCall();
+          }}
+        />
+      )}
       <span className="app-rail__spacer" />
-      {/* Voice is a MODE of the current run, not a pane of its own, so it opens
-       *  the call on whatever session is live and never renders as `active`. It
-       *  used to be reachable only from a speaker icon in the composer's action
-       *  row, where it read as a text-to-speech toggle. */}
-      <RailItem
-        destination={{ id: 'voice', icon: 'speaker', label: 'Voice' }}
-        active={false}
-        expanded={expanded}
-        disabled={isDisabled('chat')}
-        disabledReason={disabledReason}
-        onClick={() => {
-          onView('chat');
-          requestVoiceCall();
-        }}
-      />
-      <RailItem
-        destination={{ id: 'mobile', icon: 'smartphone', label: 'Mobile' }}
-        active={view === 'mobile'}
-        expanded={expanded}
-        disabled={isDisabled('mobile')}
-        disabledReason={disabledReason}
-        onClick={() => onView('mobile')}
-      />
       <RailItem
         destination={{
           id: 'settings',
