@@ -10,7 +10,13 @@ import {
   restoreSessionEvents,
   type Logger,
 } from '@moxxy/core';
-import { MoxxyError, type MoxxyEvent, type PermissionResolver, type SessionId } from '@moxxy/sdk';
+import {
+  MoxxyError,
+  type GovernanceInfo,
+  type MoxxyEvent,
+  type PermissionResolver,
+  type SessionId,
+} from '@moxxy/sdk';
 import type { MoxxyConfig, PolicyBundleRule } from '@moxxy/config';
 
 export interface BuildSessionArgs {
@@ -30,6 +36,7 @@ export interface BuildSessionArgs {
    */
   readonly sessionId?: string;
   readonly logger: Logger;
+  readonly governance?: GovernanceInfo;
   /**
    * Vault-backed secret resolver, surfaced to every tool handler as
    * `ctx.getSecret(name)`. The caller wires this to the session vault's
@@ -82,8 +89,8 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
         code: 'CONFIG_INVALID',
         message: `Failed to resume session "${args.resumeSessionId}".`,
         hint:
-          `The persisted session may be missing or corrupted. Run \`moxxy sessions list\` to ` +
-          `see available sessions, or start a fresh one without --resume.`,
+          `The saved run may be missing or corrupted. Run \`moxxy runs list\` to ` +
+          `see available runs, or start a fresh one without --resume.`,
         context: { session_id: args.resumeSessionId },
         cause: err,
       });
@@ -116,6 +123,7 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
   return new Session({
     cwd: args.cwd,
     logger: args.logger,
+    ...(args.governance ? { governance: args.governance } : {}),
     permissionEngine,
     permissionResolver: args.resolver ?? denyByDefaultResolver,
     hookTimeoutMs: args.config.hookTimeoutMs,

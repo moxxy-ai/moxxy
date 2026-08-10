@@ -1,5 +1,21 @@
 # @moxxy/desktop-host
 
+## 0.14.13
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/core@0.37.0
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/mode-collaborative@0.37.0
+  - @moxxy/plugin-scheduler@0.37.0
+  - @moxxy/plugin-stt-whisper-codex@0.37.0
+  - @moxxy/plugin-vault@0.37.0
+  - @moxxy/plugin-webhooks@0.37.0
+  - @moxxy/runner@0.2.47
+  - @moxxy/workspace-registry@0.2.30
+
 ## 0.14.12
 
 ### Patch Changes

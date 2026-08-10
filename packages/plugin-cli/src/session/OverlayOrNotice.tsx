@@ -14,6 +14,7 @@ import { deriveMcpServers } from './helpers.js';
 import type { ChannelDef } from '@moxxy/sdk';
 import type { Overlay } from './types.js';
 import type { VaultLike } from './props.js';
+import { terminalSafeText } from '../components/terminal-text.js';
 
 interface OverlayOrNoticeProps {
   overlay: Overlay;
@@ -145,7 +146,8 @@ function classifyVoiceNotice(notice: string): VoiceNoticeStyle | null {
 }
 
 export const SystemNotice: React.FC<{ notice: string }> = ({ notice }) => {
-  const voice = classifyVoiceNotice(notice);
+  const safeNotice = terminalSafeText(notice, 4_000, { multiline: true });
+  const voice = classifyVoiceNotice(safeNotice);
   if (voice) {
     const lines = voice.body.split('\n');
     const [first, ...rest] = lines;
@@ -173,11 +175,40 @@ export const SystemNotice: React.FC<{ notice: string }> = ({ notice }) => {
       </Box>
     );
   }
+  const tone = noticeTone(safeNotice);
+  const accent =
+    tone === 'danger' ? Colors.danger : tone === 'positive' ? Colors.active : Colors.chrome;
   return (
-    <Box marginTop={1} marginBottom={1} flexDirection="column">
-      {notice.split('\n').map((line, i) => (
-        <Text key={i}>{line}</Text>
-      ))}
+    <Box marginTop={1} marginBottom={1}>
+      <Text color={accent}>│ </Text>
+      <Box flexDirection="column">
+        {safeNotice.split('\n').map((line, i) => (
+          <Text key={i} bold={i === 0 && line.length > 0}>
+            {line || ' '}
+          </Text>
+        ))}
+      </Box>
     </Box>
   );
 };
+
+export function noticeTone(notice: string): 'neutral' | 'positive' | 'danger' {
+  const lower = notice.toLowerCase();
+  if (
+    lower.includes('failed') ||
+    lower.includes('error') ||
+    lower.includes('denied') ||
+    lower.includes('unavailable')
+  ) {
+    return 'danger';
+  }
+  if (
+    notice.includes('✓') ||
+    lower.startsWith('started ') ||
+    lower.startsWith('switched ') ||
+    lower.includes(' connected')
+  ) {
+    return 'positive';
+  }
+  return 'neutral';
+}

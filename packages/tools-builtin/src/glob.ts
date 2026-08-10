@@ -12,7 +12,11 @@ export const globTool = defineTool({
     cwd: z.string().optional(),
     max: z.number().int().positive().max(5000).optional().default(1000),
   }),
-  permission: { action: 'prompt' },
+  permission: {
+    action: 'allow',
+    workspace: { pathInputs: [{ key: 'cwd', defaultToWorkspace: true }] },
+    reason: 'list files inside the active workspace',
+  },
   compact: {
     verb: 'Listing',
     noun: { one: 'glob', other: 'globs' },
@@ -75,14 +79,21 @@ async function* fsGlob(
   signal: AbortSignal,
 ): AsyncIterable<string> {
   const regex = globToRegExp(pattern);
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(baseDir);
+  } catch {
+    return;
+  }
   // Track resolved dir paths we've already descended into so a self- or
   // cross-symlink cycle doesn't loop forever.
   const visited = new Set<string>();
-  yield* walk(baseDir, regex, baseDir, signal, visited, 0);
+  yield* walk(baseDir, realRoot, regex, baseDir, signal, visited, 0);
 }
 
 async function* walk(
   root: string,
+  realRoot: string,
   regex: RegExp,
   cursor: string,
   signal: AbortSignal,
@@ -103,6 +114,7 @@ async function* walk(
   } catch {
     return;
   }
+  if (!isWithin(realRoot, realCursor)) return;
   if (visited.has(realCursor)) return;
   visited.add(realCursor);
 
@@ -131,12 +143,27 @@ async function* walk(
       }
     }
     if (isDir) {
-      yield* walk(root, regex, full, signal, visited, depth + 1);
+      yield* walk(root, realRoot, regex, full, signal, visited, depth + 1);
     }
     if (isFile) {
+      let realFile: string;
+      try {
+        realFile = await fs.realpath(full);
+      } catch {
+        continue;
+      }
+      if (!isWithin(realRoot, realFile)) continue;
       const relative = path.relative(root, full);
       if (regex.test(relative)) yield full;
     }
   }
 }
 
+function isWithin(root: string, target: string): boolean {
+  const fromRoot = path.relative(root, target);
+  return (
+    fromRoot !== '..' &&
+    !fromRoot.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(fromRoot)
+  );
+}

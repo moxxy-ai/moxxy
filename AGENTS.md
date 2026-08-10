@@ -1,6 +1,11 @@
 # AGENTS.md — Guide for AI agents working in this repo
 
-You are working in the **moxxy** monorepo: a TypeScript framework for block-based, modular agentic loops. Every block — provider, loop strategy, tool, compactor, channel, skill, even the CLI — is swappable. Skills can synthesize new skills mid-session.
+You are working in the **moxxy** monorepo: a local AI agent for developers that
+is simple to start, safe to use, and ready to operate under organizational
+policy. Its runtime is a TypeScript framework for modular agentic loops, but
+that architecture is progressively disclosed rather than exposed in the
+default product experience. Read `PRODUCT.md` before changing user-facing
+flows, vocabulary, or navigation.
 
 If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.ai/agents/` that matches your task.
 
@@ -152,31 +157,6 @@ requirement automatically.
 - **Use `defineX(spec): XDef` factories.** They `Object.freeze` the spec and (for `definePlugin`) stamp `__moxxy: 'plugin'` and a default `version`.
 - **Add a changeset to EVERY PR — CI enforces it.** Run `pnpm changeset` (or hand-write `.changeset/<name>.md`) and pick the bump for `@moxxy/cli` / `@moxxy/sdk` / `@moxxy/desktop`. No changeset → no version bump → nothing ships. The `Changeset present` CI job fails any PR without one. For a change that releases nothing (docs / CI / tests), say so on purpose with `pnpm changeset --empty`. See [Releasing](#releasing-changesets).
 
-### Tech debt is a standing job — own it like a CTO
-
-`TECH_DEBT.md` is a **living journal**, not an archive. You are expected to actively keep
-it valid and to chip away at it as you work — treat reducing debt as part of every task,
-not a separate chore someone else does.
-
-- **Read it before non-trivial work.** Whenever you start something more than a one-line
-  edit, skim `TECH_DEBT.md` first. If your task touches an area with an open item, prefer
-  to resolve that item as part of the work.
-- **Every change retires at least one item.** Each time you ship a change, pick one entry
-  off the ledger and close it (or knock out a quick win nearby). Remove resolved entries —
-  don't let them rot — and move the one-liner into the "Resolved ledger" so the journal
-  keeps a record.
-- **Write new debt down the moment you see it.** If you introduce a shortcut, notice a
-  duplication, or spot a gap, add it to the appropriate P1/P2/P3 section with concrete
-  `file:line` evidence and a severity. Debt you can't fix now still gets recorded now.
-- **Bigger implementations trigger a re-audit.** For any sizeable feature or refactor,
-  re-audit the subsystem you touched and refresh the relevant `TECH_DEBT.md` items — verify
-  the open ones are still accurate, mark what your work resolved, and add what it exposed.
-  The goal is that the file is always trustworthy and up to date.
-- **Make the CTO call on pacing.** Always carve out time for a quick win or two; periodically
-  *propose* a bigger debt-reduction effort to the user when the payoff justifies it (e.g. the
-  desktop dual-persistence unification or the runner/thin-client retype). Balance shipping
-  features against keeping the codebase healthy — and say so explicitly when you defer.
-
 ### Don't
 
 - **Don't add a dependency without justification.** The framework is intended to be light. Built-ins use only Node stdlib + `zod` + `ulid` + `jiti`. Plugin authors can add their own — but core/SDK stays minimal.
@@ -184,7 +164,7 @@ not a separate chore someone else does.
 - **Don't mutate the event log.** Append-only. Compaction adds a `compaction` event with `replacedRange`; selectors honor it. Selectors must stay pure folds.
 - **Don't introduce features that need importing a plugin from core.** Use lifecycle hooks, or pass services via closure (see `buildSynthesizeSkillPlugin(session)` for the pattern).
 - **Don't bypass the permission engine.** Tool handlers trust that their input has already been gated by `dispatchToolCall` + `PermissionEngine` + the active `PermissionResolver`. Don't add ad-hoc "is this safe" checks inside handlers.
-- **Don't write multi-paragraph docstrings or planning files.** Comments only when the WHY is non-obvious; prefer well-named identifiers + tests.
+- **Don't write multi-paragraph docstrings or disposable planning files.** Durable product contracts and user documentation are welcome; code comments belong only where the WHY is non-obvious.
 - **Don't `--no-verify` git commits or bypass dep-cruiser.** Fix the underlying issue.
 
 ---

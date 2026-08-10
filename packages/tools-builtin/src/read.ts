@@ -10,7 +10,11 @@ export const readTool = defineTool({
     offset: z.number().int().nonnegative().optional().describe('Line offset (0-based).'),
     limit: z.number().int().positive().max(5000).optional().describe('Max lines to return.'),
   }),
-  permission: { action: 'prompt' },
+  permission: {
+    action: 'allow',
+    workspace: { pathInputs: [{ key: 'file_path' }] },
+    reason: 'read inside the active workspace',
+  },
   compact: {
     verb: 'Reading',
     noun: { one: 'file', other: 'files' },

@@ -168,7 +168,7 @@ function runPickerInstall(
   const admin = deps.session.pluginsAdmin;
   const install = admin?.install?.bind(admin);
   if (!install) {
-    deps.setSystemNotice(`to install: run \`moxxy plugins install ${target}\``);
+    deps.setSystemNotice(`to install: run \`moxxy extensions install ${target}\``);
     return;
   }
   if (deps.installInFlightRef?.current) {
@@ -277,7 +277,7 @@ async function runPostInstallFollowUp(
     }
     deps.setSystemNotice(
       `✓ installed ${res.installed} — ${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: ` +
-        `"${res.needsSetup.title}" — run \`moxxy init\` (or /setup ${pkg}) to configure it.`,
+        `"${res.needsSetup.title}" — run \`moxxy onboard --advanced\` (or /setup ${pkg}) to configure it.`,
     );
   }
   onSuccess?.();
@@ -352,14 +352,14 @@ function handleInstallConsent(
       const admin = deps.session.pluginsAdmin;
       if (!admin) {
         deps.setSystemNotice(
-          `can't disable ${picker.packageName} from this session — run \`moxxy plugins disable ${picker.packageName}\``,
+          `can't disable ${picker.packageName} here — run \`moxxy extensions disable ${picker.packageName}\``,
         );
         return;
       }
       await admin.setEnabled(picker.packageName, false);
       deps.setSystemNotice(
         `✗ disabled ${picker.packageName} — it stays installed but contributes nothing. ` +
-          `Re-enable it with \`moxxy plugins enable ${picker.packageName}\` or /plugins.`,
+          `Re-enable it with \`moxxy extensions enable ${picker.packageName}\` or /extensions.`,
       );
     } catch (err) {
       deps.setSystemNotice(
@@ -411,21 +411,21 @@ function handleInstallConfirm(
 function handleSessionSelected(id: string, deps: PickerHandlerDeps): void {
   const requestSwitch = deps.requestSessionSwitch;
   if (!requestSwitch) {
-    deps.setSystemNotice('switching sessions is not available on this session');
+    deps.setSystemNotice('switching runs is unavailable here');
     return;
   }
   if (id === deps.session.id) {
-    deps.setSystemNotice("you're already in that session");
+    deps.setSystemNotice("you're already in that run");
     return;
   }
   const target: SessionSwitchTarget =
     id === NEW_SESSION_OPTION_ID ? { kind: 'new' } : { kind: 'resume', id };
-  deps.setSystemNotice(id === NEW_SESSION_OPTION_ID ? 'starting a new session…' : 'switching…');
+  deps.setSystemNotice(id === NEW_SESSION_OPTION_ID ? 'starting a new run…' : 'switching runs…');
   // On success the view re-mounts onto the new session (this strip is gone); on
   // failure the current session stays and we surface the error here.
   void requestSwitch(target).catch((err: unknown) => {
     deps.setSystemNotice(
-      `failed to switch session: ${err instanceof Error ? err.message : String(err)}`,
+      `failed to switch runs: ${err instanceof Error ? err.message : String(err)}`,
     );
   });
 }
@@ -454,7 +454,7 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   if (action === 'setdefault') {
     // id is `<category>::<contribution>::setdefault`; `name` holds the rest.
     if (!admin) {
-      deps.setSystemNotice('plugin management is not available on this session');
+      deps.setSystemNotice('extension management is unavailable here');
       return;
     }
     const split = name.indexOf('::');
@@ -487,7 +487,7 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   }
   if (action !== 'enable' && action !== 'disable') return;
   if (!admin) {
-    deps.setSystemNotice('plugin management is not available on this session');
+    deps.setSystemNotice('extension management is unavailable here');
     return;
   }
   const enable = action === 'enable';
@@ -497,7 +497,7 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
       deps.setSystemNotice(`${enable ? '✓ enabled' : '✗ disabled'} ${name}`);
     } catch (err) {
       deps.setSystemNotice(
-        `plugin ${action} failed: ${err instanceof Error ? err.message : String(err)}`,
+        `extension ${action} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       // Re-open with refreshed loaded/disabled state so the toggle is visible.
@@ -614,7 +614,7 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
     const cmd =
       providerId === 'openai-codex'
         ? 'moxxy login openai-codex'
-        : `moxxy init   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
+        : `moxxy onboard   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
     deps.setSystemNotice(
       `${providerId} isn't connected. Run \`${cmd}\` then restart moxxy.\n` +
         `Alternatively set the ${providerId.toUpperCase()}_API_KEY env var before launching.`,

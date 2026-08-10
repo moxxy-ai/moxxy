@@ -1,10 +1,17 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import { Border } from '../theme.js';
+import { terminalSafeText } from './terminal-text.js';
 
 export interface ModalTab {
   readonly id: string;
   readonly label: string;
+}
+
+export interface ModalTabSummary {
+  readonly label: string;
+  readonly index: number;
+  readonly total: number;
 }
 
 export interface ModalProps {
@@ -73,11 +80,11 @@ export const Modal: React.FC<ModalProps> = ({
       const idx = tabs.findIndex((t) => t.id === activeTabId);
       const start = idx >= 0 ? idx : 0;
       if (key.leftArrow) {
-        const next = tabs[(start - 1 + tabs.length) % tabs.length]!;
-        onTabChange!(next.id);
+        const next = tabs[(start - 1 + tabs.length) % tabs.length];
+        if (next && onTabChange) onTabChange(next.id);
       } else if (key.rightArrow) {
-        const next = tabs[(start + 1) % tabs.length]!;
-        onTabChange!(next.id);
+        const next = tabs[(start + 1) % tabs.length];
+        if (next && onTabChange) onTabChange(next.id);
       }
     },
     { isActive: !!(onClose || tabsNavigable) },
@@ -117,52 +124,60 @@ export const Modal: React.FC<ModalProps> = ({
 
 const ACTIVE_TAB_BG = 'white';       // inverse pill marking the current tab
 const ACTIVE_TAB_FG = 'black';
-const INACTIVE_TAB_FG = 'white';
 
 /**
  * Clean heading row carrying the title and optional tabs as plain text on
  * the terminal background — no filled band (which rendered as dark "bars" on
  * many terminals). A `marginTop` separates it from the top border.
  *
- * Tabs render inline after the title:
- * - Active tab → inverse white pill (white bg, black bold) so the current
- *   view reads at a glance.
- * - Inactive tab → plain text, separated by a few spaces.
+ * A provider/model picker can have many tabs. Rendering all of them wraps the
+ * header on an ordinary 80-column terminal, so the header shows one compact
+ * switch: current tab + position. Arrow hints make the full set navigable.
  */
 const HeaderBand: React.FC<{
   title: string;
   tabs: ReadonlyArray<ModalTab> | undefined;
   activeTabId: string | undefined;
 }> = ({ title, tabs, activeTabId }) => {
-  const tabNodes: React.ReactNode[] = [];
-  if (tabs && tabs.length > 0) {
-    tabs.forEach((tab, i) => {
-      if (i > 0) tabNodes.push(<Text key={`gap-${tab.id}`}>{'   '}</Text>);
-      const focused = tab.id === activeTabId;
-      tabNodes.push(
-        focused ? (
-          <Text key={tab.id} backgroundColor={ACTIVE_TAB_BG} color={ACTIVE_TAB_FG} bold>
-            {` ${tab.label} `}
-          </Text>
-        ) : (
-          <Text key={tab.id} color={INACTIVE_TAB_FG}>
-            {tab.label}
-          </Text>
-        ),
-      );
-    });
-  }
+  const { stdout } = useStdout();
+  const columns = stdout?.columns ?? 80;
+  const maxTabLabel = Math.max(8, Math.min(34, columns - title.length - 18));
+  const summary = summarizeModalTabs(tabs ?? [], activeTabId, maxTabLabel);
 
   return (
-    <Box width="100%" paddingX={1} marginTop={1}>
+    <Box width="100%" paddingX={1} marginTop={1} justifyContent="space-between">
       <Text color="white" bold>
         {title}
       </Text>
-      {tabNodes.length > 0 ? <Text>{'     '}</Text> : null}
-      {tabNodes}
+      {summary ? (
+        <Box>
+          <Text dimColor>{'‹ '}</Text>
+          <Text backgroundColor={ACTIVE_TAB_BG} color={ACTIVE_TAB_FG} bold>
+            {` ${summary.label} `}
+          </Text>
+          <Text dimColor>{` ›  ${summary.index}/${summary.total}`}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 };
+
+export function summarizeModalTabs(
+  tabs: ReadonlyArray<ModalTab>,
+  activeTabId: string | undefined,
+  maxLabel: number,
+): ModalTabSummary | null {
+  if (tabs.length === 0) return null;
+  const activeIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+  const resolvedIndex = activeIndex >= 0 ? activeIndex : 0;
+  const activeTab = tabs[resolvedIndex];
+  if (!activeTab) return null;
+  return {
+    label: terminalSafeText(activeTab.label, maxLabel),
+    index: resolvedIndex + 1,
+    total: tabs.length,
+  };
+}
 
 function composeHints({
   hints,
@@ -175,7 +190,7 @@ function composeHints({
 }): string | null {
   const parts: string[] = [];
   if (hints) parts.push(hints);
-  if (tabsNavigable) parts.push('←/→ tabs');
+  if (tabsNavigable) parts.push('←/→ switch');
   if (hasClose) parts.push('Esc close');
   if (parts.length === 0) return null;
   return parts.join(' · ');

@@ -18,13 +18,11 @@ export interface AppHotkeysOptions {
   readonly onShowShortcuts: () => void;
 }
 
-/** Rail destinations in rail order, so ⌘1…⌘5 match what the eye sees. */
+/** Primary rail destinations in rail order. Optional capabilities stay in More. */
 const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
   { view: 'chat', label: 'Runs' },
-  { view: 'collaborate', label: 'Collaborate' },
-  { view: 'automations', label: 'Automations' },
-  { view: 'apps', label: 'Apps' },
-  { view: 'channels', label: 'Channels' },
+  { view: 'extensions', label: 'Extensions' },
+  { view: 'settings', label: 'Settings' },
 ];
 
 /**

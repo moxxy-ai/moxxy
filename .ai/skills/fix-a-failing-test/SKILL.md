@@ -32,5 +32,5 @@ Conventions:
 - Network/port tests bind port 0 (ephemeral) — never a fixed port (EADDRINUSE
   flake, fixed in PR #123). Follow that in new tests.
 - Desktop self-update suite: `pnpm --filter @moxxy/desktop-host test app-update`.
-- If a fix touches a package without tests for that path, add one — audit
-  waves repeatedly found zero-coverage regressions (see TECH_DEBT.md).
+- If a fix touches a package without tests for that path, add one. A regression
+  fix is incomplete until the failing behavior is pinned.

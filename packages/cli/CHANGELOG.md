@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.37.0
+
+### Minor Changes
+
+- 78938f8: Introduce the developer-alpha product contract and personal golden path, redesign the TUI around a one-time workspace welcome, contextual work status, consequence-first approvals, responsive Runs, Models, and product-facing Extensions, progressively disclose CLI and TUI commands by capability, auto-allow real-path-safe reads inside the workspace, and add bounded data-only client chrome slots for extensions.
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+
 ## 0.36.1
 
 ### Patch Changes
@@ -573,7 +584,7 @@
   touch a built-in provider's item (picker-written model/enabled prefs
   survive). Clean-slate per repo convention: re-add custom vendors via
   `provider_add` or the desktop sheet — no migration shim.
-- 720c955: Dead-code cleanup: remove the deprecated `resolveSafe` alias from tools-builtin (no callers remained — use `resolvePath`), and retire/re-point stale TECH_DEBT entries (the CDP screencast sidecar handlers were already deleted in #212; the piped-shell fallback and terminal-sizing constraint notes now point at `packages/plugin-terminal` / `TerminalPane.tsx` where that code actually lives).
+- 720c955: Dead-code cleanup: remove the deprecated `resolveSafe` alias from tools-builtin (no callers remained — use `resolvePath`), and retire/re-point stale archived backlog entries (the CDP screencast sidecar handlers were already deleted in #212; the piped-shell fallback and terminal-sizing constraint notes now point at `packages/plugin-terminal` / `TerminalPane.tsx` where that code actually lives).
 - 2a35357: refactor(sdk): surface the shared abort-backoff primitives (`sleepWithAbort`, `nextBackoffMs`) directly on the barrel (they were already exported, but buried in the mode-helpers block) and migrate the ad-hoc retry sleeps onto them: the runner's initial-connect retry + SIGTERM grace waits and the desktop supervisor's restart wait / socket poll / kill grace. All schedules and abort semantics preserved — no behavior change.
 - 6f0e6fb: Signed plugin-registry v1, client side: Ed25519-verified `index.json` fetch with a re-verified 1h cache at `~/.moxxy/registry-cache.json` and hardcoded-catalog fallback on any failure (never throws into the install path). Catalog installs that resolve through a signed entry install the signature-covered exact version (pin precedence: user `--version` > signed index > cliVersion lockstep > latest), and `install_plugin` warns when the registered capability surface is wider than the signed manifest. Dormant until a maintainer key is baked into `REGISTRY_PUBLIC_KEY` (empty = disabled, exactly like the desktop update key).
 - b2a5fba: Aggregate skill usage into `~/.moxxy/skills/.meta/usage.json` and surface it.
@@ -1481,7 +1492,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
 
 - 50a5b38: Quality sweep — split Node-only `@moxxy/sdk` helpers behind a `./server` subpath (browser/RN boundary)
 
-  Purely structural, behavior-preserving (`t2-sdk-server-subpath`, retires TECH_DEBT #13):
+  Purely structural, behavior-preserving (`t2-sdk-server-subpath`, retires archived backlog #13):
 
   - New `@moxxy/sdk/server` subpath export. The Node-runtime VALUE helpers that
     statically reach `node:*` builtins — `spawnCliTunnel`/`isCliTunnelAvailable`
@@ -1622,7 +1633,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
 - ff73468: Quality sweep, wave 5 (safe longtail — coverage + mechanical consistency/perf)
 
   The additive/mechanical slice of the audit's low-severity long-tail; subjective
-  nitpicks and anything behavior-risky were deferred (tracked in `TECH_DEBT.md`).
+  nitpicks and anything behavior-risky were deferred (tracked in `archived backlog`).
   Behavior-preserving except the small fixes noted, each covered by a test.
 
   - **Coverage:** focused unit tests for previously-untested pure logic —
@@ -1656,7 +1667,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
     consolidated duplicated `<NAME>_API_KEY` slug + config up-walk helpers.
 
   Risky/voluminous Tier-3 (god-file decomposition, the long-tail review/test-gap/
-  consistency/perf clusters) remains tracked in `TECH_DEBT.md` as the standing
+  consistency/perf clusters) remains tracked in `archived backlog` as the standing
   journal.
 
 - Updated dependencies [091ef41]
@@ -1805,7 +1816,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
   per-instance mutexes + atomic writes to the file-backed stores that lacked them.
 
   Larger/riskier items (the O(n²) chat-model fold rewrite, a generic JSON store,
-  god-file splits, and the long-tail findings) are tracked in `TECH_DEBT.md` for
+  god-file splits, and the long-tail findings) are tracked in `archived backlog` for
   focused follow-up PRs rather than bundled here.
 
 - Updated dependencies [89ad994]

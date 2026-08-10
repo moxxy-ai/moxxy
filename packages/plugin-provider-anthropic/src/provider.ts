@@ -64,7 +64,7 @@ export interface AnthropicProviderConfig {
 }
 
 // Hardcoded model catalog. Deriving it from the Models API is a larger change
-// (auth + caching) — deliberately deferred (TECH_DEBT P3 #8).
+// (auth + caching), so the built-in catalog remains explicit.
 // Values verified against the current Anthropic model catalog (2026-07): fable-5,
 // opus-5 and sonnet-5 carry a 1M context window with a 128k streaming ceiling;
 // haiku-4-5 is 200k/64k and is listed under its alias, matching the Claude Code

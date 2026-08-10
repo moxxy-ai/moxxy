@@ -88,9 +88,10 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
   { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
 ];
 
-type Tab = (typeof TAB_DESCRIPTORS)[number]['id'];
+export type SettingsTab = (typeof TAB_DESCRIPTORS)[number]['id'];
+export type SettingsScope = 'all' | 'extensions' | 'settings';
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
+const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
   id,
   label,
 }));
@@ -103,24 +104,32 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = TAB_DESCRIPTORS.map(({ i
  * would I look for this", which is the only question a settings nav has to
  * answer.
  */
-const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<Tab> }> = [
+const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<SettingsTab> }> = [
   { label: 'agent', ids: ['providers'] },
   { label: 'extend', ids: ['mcp', 'skills'] },
   { label: 'trust', ids: ['vault'] },
   { label: 'app', ids: ['preferences'] },
 ];
 
+function groupsFor(scope: SettingsScope): typeof GROUPS {
+  if (scope === 'extensions') return GROUPS.slice(0, 2);
+  if (scope === 'settings') return GROUPS.slice(2);
+  return GROUPS;
+}
+
 /** The Settings index column: the sections, grouped. */
 export function SettingsIndex({
   tab,
   onPick,
+  scope = 'all',
 }: {
-  readonly tab: Tab;
-  readonly onPick: (tab: Tab) => void;
+  readonly tab: SettingsTab;
+  readonly onPick: (tab: SettingsTab) => void;
+  readonly scope?: SettingsScope;
 }): JSX.Element | null {
   return (
-    <IndexColumn title="settings">
-      {GROUPS.map((group) => (
+    <IndexColumn title={scope === 'extensions' ? 'extensions' : 'settings'}>
+      {groupsFor(scope).map((group) => (
         <div key={group.label}>
           <div className="index-group">
             <span className="index-group__label">{group.label}</span>
@@ -165,8 +174,10 @@ export function SettingsIndex({
 
 /** Which settings section is open. Owned by the shell so the index column and
  *  the pane agree, and so it survives leaving the destination and coming back. */
-export function useSettingsTab(): readonly [Tab, (t: Tab) => void] {
-  const [tab, setTab] = useState<Tab>('providers');
+export function useSettingsTab(
+  scope: SettingsScope = 'all',
+): readonly [SettingsTab, (t: SettingsTab) => void] {
+  const [tab, setTab] = useState<SettingsTab>(scope === 'settings' ? 'vault' : 'providers');
   return [tab, setTab];
 }
 
@@ -183,7 +194,13 @@ export function useSettingsTab(): readonly [Tab, (t: Tab) => void] {
  * header: a settings nav that collapses into a dropdown on a narrow window is a
  * nav that hides itself exactly when there is least room to explore.
  */
-export function SettingsPanel({ tab }: { readonly tab: Tab }): JSX.Element {
+export function SettingsPanel({
+  tab,
+  scope = 'all',
+}: {
+  readonly tab: SettingsTab;
+  readonly scope?: SettingsScope;
+}): JSX.Element {
   const s = useSettings();
   const [query, setQuery] = useState('');
   // Clearing the filter used to ride on the segmented control's onChange, which
@@ -203,7 +220,7 @@ export function SettingsPanel({ tab }: { readonly tab: Tab }): JSX.Element {
 
   return (
     <>
-      <InstrumentBar crumbs={['Settings', active.label]} />
+      <InstrumentBar crumbs={[scope === 'extensions' ? 'Extensions' : 'Settings', active.label]} />
       <div
         style={{
           flex: 1,

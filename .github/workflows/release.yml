@@ -251,7 +251,7 @@ jobs:
           # 2022, so it fails with "Could not find any Visual Studio
           # installation to use". windows-2022 carries VS2022, which node-gyp
           # detects. Revisit when node-gyp is upgraded to a VS2026-aware
-          # release (see TECH_DEBT) and this can return to windows-latest.
+          # release; once upstream binaries are compatible this can return to windows-latest.
           - os: windows-2022
             artifact: exe
           - os: ubuntu-latest
@@ -291,7 +291,7 @@ jobs:
       # tried (#204) and REVERTED — @electron/rebuild@3.6.1 (electron-builder 25)
       # declares node-gyp@^9 and HANGS at "preparing node-pty" when driven with
       # node-gyp 11, deadlocking the rebuild on all three legs. Modernising node-gyp
-      # needs a matching @electron/rebuild/electron-builder bump (see TECH_DEBT).
+      # needs a matching @electron/rebuild/electron-builder bump.
       - name: Setup Python (node-gyp needs distutils)
         uses: actions/setup-python@v5
         with:

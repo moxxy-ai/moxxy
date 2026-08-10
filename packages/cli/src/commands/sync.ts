@@ -140,7 +140,7 @@ export async function runSyncCommand(argv: ParsedArgv): Promise<number> {
     }
   }
   if (failed > 0) return 1;
-  process.stdout.write(colors.dim('run `moxxy plugins reload` (or restart) to load them\n'));
+  process.stdout.write(colors.dim('run `moxxy extensions reload` (or restart) to load them\n'));
   return 0;
 }
 

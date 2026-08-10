@@ -16,8 +16,8 @@ import { playAudio, type AudioPlaybackOptions, type PlayAudioResult } from '../a
 /** Guidance shown when `/speak` (or auto-speak) has no synthesizer to voice. */
 export const READ_ALOUD_NO_SYNTH_HINT =
   'Install a text-to-speech backend:\n' +
-  '  moxxy plugins install tts-local   (offline)\n' +
-  '  moxxy plugins install tts-openai';
+  '  moxxy extensions install tts-local   (offline)\n' +
+  '  moxxy extensions install tts-openai';
 
 const NO_SYNTH_NOTICE = `read-aloud: no active text-to-speech backend.\n${READ_ALOUD_NO_SYNTH_HINT}`;
 

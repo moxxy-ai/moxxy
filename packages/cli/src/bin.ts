@@ -12,6 +12,7 @@ import { colors } from './colors.js';
 import { cliVersion } from './version.js';
 import { formatErrorForCli } from './error-formatter.js';
 import { installProcessGuards } from './process-guards.js';
+import { wrapHelpText } from './commands/help-format.js';
 
 type CommandHandler = (argv: ParsedArgv) => Promise<number>;
 
@@ -21,7 +22,40 @@ type CommandHandler = (argv: ParsedArgv) => Promise<number>;
  * `moxxy channels` listing aesthetic — no rails, no clack glyphs,
  * mono palette only.
  */
-const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyArray<readonly [string, string]> }> = [
+type HelpSection = {
+  readonly title: string;
+  readonly rows: ReadonlyArray<readonly [string, string]>;
+};
+
+const CORE_SECTIONS: ReadonlyArray<HelpSection> = [
+  {
+    title: 'START',
+    rows: [
+      ['moxxy', 'connect a model if needed, then work with the current project'],
+      ['moxxy -p "…"', 'ask one question and print the answer'],
+      ['moxxy resume', 'continue an earlier run'],
+    ],
+  },
+  {
+    title: 'ESSENTIALS',
+    rows: [
+      ['extensions', 'find, install, enable, or remove optional capabilities'],
+      ['doctor [--check-keys]', 'check model connections and local setup'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI'],
+      ['help advanced', 'show channels, automation, policy, and operator commands'],
+    ],
+  },
+  {
+    title: 'FLAGS',
+    rows: [
+      ['--model <id>', 'use a different model for this run'],
+      ['--allow-tools, --allow-all', 'permission shortcuts for non-interactive runs'],
+      ['--help, --version', 'show help or the installed version'],
+    ],
+  },
+];
+
+const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'USAGE',
     rows: [
@@ -32,50 +66,50 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
     ],
   },
   {
-    title: 'SETUP',
+    title: 'CONNECT',
     rows: [
-      ['onboard', 'guided setup: provider → messaging channel → pairing → background service'],
-      ['init', 'interactive first-time setup (provider keys → vault)'],
-      ['provision', 'headless setup: install + configure a provider (flags or --spec -)'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
-      ['login status|logout', 'inspect / remove stored OAuth credentials'],
-      ['doctor [--check-keys]', 'diagnose config, vault, providers, channels, memory'],
-      ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
+      ['login <action>', 'inspect or remove stored OAuth credentials'],
+      ['onboard --advanced', 'add channels or background services after the first run'],
+      ['provision', 'headless model setup for scripts and managed machines'],
+      ['init', 're-run the recommended interactive model setup'],
     ],
   },
   {
-    title: 'RUN',
+    title: 'WORKSPACE',
     rows: [
-      ['tui', 'start the Ink TUI channel'],
-      ['resume [-s <id>|<id>]', 'resume a persisted session (interactive picker if no id)'],
-      ['channels', 'list registered channels + their subcommands'],
-      ['channels start|stop <name>', 'run a channel detached on its own runner (or stop it)'],
-      ['channels status [name]', 'list the detached channels currently running'],
-      ['channels rotate-token <name>', "rotate a channel's persisted pairing secret (clients re-pair)"],
-      ['channels <name>', 'start a channel by name in the foreground (same as `moxxy <name>`)'],
-      ['channels <name> <sub>', 'invoke a channel-defined subcommand'],
-      ['serve [--except <list>]', 'run every channel + background daemon in ONE process'],
+      ['resume [-s <id>|<id>]', 'continue a saved run (interactive picker if no id)'],
+      ['runs <action>', 'inspect or remove saved runs (`sessions` remains an alias)'],
+      ['extensions <action>', 'manage optional capabilities (`plugins` remains an alias)'],
+      ['skills <action>', 'manage project and user skill files'],
+      ['mcp <action>', 'manage Model Context Protocol servers'],
+      ['memory <action>', 'curate long-term memory'],
     ],
   },
   {
-    title: 'MANAGE',
+    title: 'GOVERN',
     rows: [
-      ['sessions list|delete', 'list / remove persisted sessions'],
-      ['skills list|new|audit', 'manage skill files'],
-      ['plugins list|search|install|remove|enable|disable|reload|new', 'find, install + manage plugins'],
-      ['self-update status|rollback', 'inspect / roll back self-update transactions'],
-      ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
-      ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
+      ['policy', 'show what the agent may do here and who decided it'],
+      ['perms <action>', 'view or edit the permission policy'],
+      ['receipt <turnId>', 'verify one run: actor, tools, denials, policy, and cost'],
+      ['security <action>', 'inspect extension isolation state'],
+      ['config <action>', 'read or edit the moxxy config (user or project scope)'],
       ['config trust|untrust', 'approve an executable project config so it may run'],
-      ['profile list|<name>', 'print a deployment baseline for the system config scope'],
-      ['sync [--check]', 'reconcile installed plugins with the config manifest'],
-      ['receipt <turnId>', 'verified account of one run: actor, tools, denials, policy, cost'],
-      ['policy', 'what the agent may do here, and who decided it'],
-      ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
-      ['security audit|isolators|status', 'inspect plugin-security isolation state'],
-      ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
-      ['schedule list|add|remove|run|daemon', 'manage time-driven prompts (cron / heartbeat)'],
-      ['service list|install|uninstall|start|stop|logs', 'run channels + scheduler as a background OS unit'],
+      ['profile [name]', 'print a managed deployment baseline'],
+    ],
+  },
+  {
+    title: 'OPERATE',
+    rows: [
+      ['channels <action>', 'manage registered chat and web surfaces'],
+      ['serve [--except <list>]', 'run channels and background daemons in one process'],
+      ['schedule <action>', 'manage time-driven prompts (cron / heartbeat)'],
+      ['service <action>', 'run channels + scheduler as a background OS unit'],
+      ['sync [--check]', 'reconcile installed extensions with the config manifest'],
+      ['doctor [--check-keys]', 'diagnose config, vault, model connections, and channels'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
+      ['self-update status|rollback', 'inspect or roll back agent-applied updates'],
+      ['tui [--standalone]', 'start an isolated TUI instead of attaching to a runner'],
     ],
   },
   {
@@ -128,8 +162,9 @@ function banner(): string {
   return renderLogo(undefined, { center: true });
 }
 
-function renderHelp(): string {
+function renderHelp(advanced = false): string {
   const width = process.stdout.columns ?? 80;
+  const sections = advanced ? ADVANCED_SECTIONS : CORE_SECTIONS;
 
   // Center the slogan + version "crown" to the terminal, matching the
   // bootscreen. Pad off the VISIBLE length (raw strings) — the ANSI codes
@@ -145,7 +180,7 @@ function renderHelp(): string {
   // Width of the widest rendered "    cmd  desc" row across every section —
   // the dividers extend to this so they all line up, capped to the terminal.
   const rowWidth = Math.max(
-    ...SECTIONS.map((s) => {
+    ...sections.map((s) => {
       const colWidth = Math.max(...s.rows.map(([cmd]) => cmd.length));
       return Math.max(...s.rows.map(([, desc]) => ROW_INDENT + colWidth + 2 + desc.length));
     }),
@@ -163,27 +198,48 @@ function renderHelp(): string {
   out.push(header);
   out.push('');
 
-  SECTIONS.forEach((section, i) => {
+  sections.forEach((section, i) => {
     // Per-section column width so short commands (moxxy, init, tui) sit
     // tight against their descriptions instead of floating off a global max.
     const colWidth = Math.max(...section.rows.map(([cmd]) => cmd.length));
     out.push(rule(section.title.toLowerCase()));
     for (const [cmd, desc] of section.rows) {
       const padded = cmd.padEnd(colWidth, ' ');
-      out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(desc)}`);
+      const prefixWidth = ROW_INDENT + colWidth + 2;
+      const descriptionWidth = width - prefixWidth;
+      if (descriptionWidth >= 24) {
+        const lines = wrapHelpText(desc, descriptionWidth);
+        out.push(
+          `${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(lines[0] ?? '')}`,
+        );
+        for (const line of lines.slice(1)) {
+          out.push(`${' '.repeat(prefixWidth)}${colors.dim(line)}`);
+        }
+      } else {
+        out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(cmd)}`);
+        const lines = wrapHelpText(desc, Math.max(20, width - ROW_INDENT - 2));
+        for (const line of lines) {
+          out.push(`${' '.repeat(ROW_INDENT + 2)}${colors.dim(line)}`);
+        }
+      }
     }
-    if (i < SECTIONS.length - 1) out.push('');
+    if (i < sections.length - 1) out.push('');
   });
 
+  if (advanced) {
+    out.push('');
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
+    );
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
+    );
+  }
   out.push('');
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
-  );
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
-  );
-  out.push('');
-  out.push(`${colors.dim('Run')} ${colors.bold('moxxy onboard')} ${colors.dim('to get started.')}`);
+  out.push(`${colors.dim('Run')} ${colors.bold('moxxy')} ${colors.dim('in a project to get started.')}`);
+  if (!advanced) {
+    out.push(`${colors.dim('Run')} ${colors.bold('moxxy help advanced')} ${colors.dim('for every operator command.')}`);
+  }
   out.push(`${colors.dim('See')} ${colors.bold('moxxy <command> --help')} ${colors.dim('for per-command details.')}`);
 
   return out.join('\n') + '\n';
@@ -206,8 +262,8 @@ function renderHelp(): string {
  * KNOWN_COMMANDS set to drift out of sync.
  */
 const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
-  help: async () => async () => {
-    process.stdout.write(banner() + renderHelp());
+  help: async () => async (argv) => {
+    process.stdout.write(banner() + renderHelp(argv.positional[0] === 'advanced'));
     return 0;
   },
   version: async () => async () => {
@@ -239,9 +295,11 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
   collab: async () => (await import('./commands/collab.js')).runCollabCommand,
   sessions: async () => (await import('./commands/sessions.js')).runSessionsCommand,
+  runs: async () => (await import('./commands/sessions.js')).runSessionsCommand,
   security: async () => (await import('./commands/security.js')).runSecurityCommand,
   skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
   plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
+  extensions: async () => (await import('./commands/plugins.js')).runPluginsCommand,
   channels: async () => (await import('./commands/channels.js')).runChannelsCommand,
   profile: async () => (await import('./commands/profile.js')).runProfileCommand,
   sync: async () => (await import('./commands/sync.js')).runSyncCommand,
@@ -343,8 +401,8 @@ async function main(): Promise<number> {
   if (hint) {
     process.stderr.write(
       colors.red(`channel not installed: ${argv.command}`) +
-        `\ninstall it with: ${colors.bold(`moxxy plugins install ${hint.id}`)}` +
-        `\n(or from the TUI: /plugins → Installable → ${hint.label})\n`,
+        `\ninstall it with: ${colors.bold(`moxxy extensions install ${hint.id}`)}` +
+        `\n(or from the TUI: /extensions → Available → ${hint.label})\n`,
     );
     return 2;
   }

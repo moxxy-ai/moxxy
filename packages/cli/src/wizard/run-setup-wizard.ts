@@ -79,6 +79,8 @@ export interface RunSetupWizardOptions {
   readonly authKinds?: Record<string, ProviderAuthKind>;
   /** Optional extra plugins the user may install during setup (skippable step). */
   readonly availablePlugins?: ReadonlyArray<SetupChoice>;
+  /** Expose runtime choices and YAML review instead of using product defaults. */
+  readonly advanced?: boolean;
 }
 
 interface Selections {
@@ -101,7 +103,7 @@ function authKind(
 }
 
 function bail(): never {
-  cancel('Setup cancelled. Run `moxxy init` again when you are ready.');
+  cancel('Setup cancelled. Run `moxxy` again when you are ready.');
   process.exit(1);
 }
 
@@ -121,21 +123,30 @@ function toOptions(
   });
 }
 
+function connectionLabel(choices: ReadonlyArray<SetupChoice>, id: string): string {
+  return choices.find((choice) => choice.id === id)?.label ?? id;
+}
+
 export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<string> {
   const version = opts.version ? colors.dim(` v${opts.version}`) : '';
-  intro(`${colors.bold('moxxy')}${version} ${colors.dim('— first-time setup')}`);
+  intro(`${colors.bold('moxxy')}${version} ${colors.dim('— developer alpha setup')}`);
 
   note(
-    [
-      `${colors.bold('1.')} Pick an LLM provider`,
-      `${colors.bold('2.')} Paste your API key (stored encrypted in the vault)`,
-      `${colors.bold('3.')} Choose a default model, mode, and memory embedder`,
-      `${colors.bold('4.')} Review and write your ${colors.bold('~/.moxxy/config.yaml')}`,
-    ].join('\n'),
+    opts.advanced
+      ? [
+          `${colors.bold('1.')} Connect a model account`,
+          `${colors.bold('2.')} Choose advanced runtime defaults`,
+          `${colors.bold('3.')} Review ${colors.bold('~/.moxxy/config.yaml')}`,
+        ].join('\n')
+      : [
+          `${colors.bold('1.')} Choose a model account`,
+          `${colors.bold('2.')} Sign in or add an API key`,
+          `${colors.bold('3.')} Start working — safe defaults are selected for you`,
+        ].join('\n'),
     'What this will do',
   );
 
-  // Step 1 — providers
+  // Step 1 — model connection
   const providerOptions = opts.providers
     .filter((p) => !p.disabled)
     .map((p) => {
@@ -145,16 +156,17 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
         : { value: p.id, label: p.label, hint };
     });
   if (providerOptions.length === 0) {
-    cancel('No selectable providers are registered. Install a provider plugin and try again.');
+    cancel('No model connections are available. Run `moxxy doctor` for details.');
     process.exit(1);
   }
 
   const providerRaw = await select({
-    message: 'Step 1 — Which provider do you want to use?',
+    message: 'Step 1 — Which model account do you want to connect?',
     options: providerOptions,
     initialValue: providerOptions[0]!.value,
   });
   const provider = guard(providerRaw);
+  const selectedConnectionLabel = connectionLabel(opts.providers, provider);
 
   // Ensure the provider is available (install + enable a catalog-only one) BEFORE
   // collecting credentials, so its real models + auth kind are known. A bundled
@@ -164,10 +176,10 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   let providerKind = authKind(opts.authKinds, provider);
   if (opts.controller.ensureProvider) {
     const prep = spinner();
-    prep.start(`Preparing ${provider}`);
+    prep.start(`Preparing ${selectedConnectionLabel}`);
     try {
       const resolved = await opts.controller.ensureProvider(provider);
-      prep.stop(`${colors.bold('✓')} ${provider} ready`);
+      prep.stop(`${colors.bold('✓')} ${selectedConnectionLabel} ready`);
       if (resolved) {
         modelChoices = resolved.models;
         providerKind = resolved.authKind;
@@ -198,49 +210,61 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     apiKeys[provider] = await collectKey(provider, opts.controller);
   }
 
-  // Step 3 — model (from the resolved provider's real models)
-  let model: string | null = null;
-  if (modelChoices.length > 0) {
+  // Product defaults keep the personal path to provider + authentication.
+  // Advanced setup retains every runtime choice for authors and operators.
+  let model = modelChoices[0]?.id ?? null;
+  let mode = opts.modes[0]?.id ?? 'default';
+  let embedder = opts.embedders[0]?.id ?? 'tfidf';
+  let securityEnabled = false;
+
+  if (opts.advanced && modelChoices.length > 0) {
     const modelRaw = await select({
       message: `Step 3 — Default model for ${colors.bold(provider)}`,
       options: toOptions(modelChoices),
-      initialValue: modelChoices[0]!.id,
+      initialValue: model,
     });
     model = guard(modelRaw);
   }
 
-  // Step 4 — mode
-  const modeRaw = await select({
-    message: 'Step 4 — Mode',
-    options: toOptions(opts.modes),
-    initialValue: opts.modes[0]?.id ?? 'default',
-  });
-  const mode = guard(modeRaw);
+  if (opts.advanced) {
+    const modeRaw = await select({
+      message: 'Step 4 — Runtime mode',
+      options: toOptions(opts.modes),
+      initialValue: mode,
+    });
+    mode = guard(modeRaw);
 
-  // Step 5 — embedder
-  const embedderRaw = await select({
-    message: 'Step 5 — Memory embedder',
-    options: toOptions(opts.embedders),
-    initialValue: opts.embedders[0]?.id ?? 'tfidf',
-  });
-  const embedder = guard(embedderRaw);
+    const embedderRaw = await select({
+      message: 'Step 5 — Memory index',
+      options: toOptions(opts.embedders),
+      initialValue: embedder,
+    });
+    embedder = guard(embedderRaw);
 
-  // Step 6 — plugin-security opt-in. Default off — declared
-  // capabilities on individual tools remain advisory unless the user
-  // turns this on. See `@moxxy/plugin-security` for what enabling buys.
-  const securityRaw = await confirm({
-    message:
-      'Step 6 — Enable plugin-security? ' +
-      colors.dim('(per-tool capability isolation; off by default)'),
-    initialValue: false,
-  });
-  const securityEnabled = guard(securityRaw);
+    const securityRaw = await confirm({
+      message:
+        'Step 6 — Enable extension isolation? ' +
+        colors.dim('(per-tool capability isolation; off by default)'),
+      initialValue: false,
+    });
+    securityEnabled = guard(securityRaw);
+  } else {
+    note(
+      [
+        `Connected  ${colors.bold(selectedConnectionLabel)}`,
+        `Model      ${colors.bold(model ?? 'recommended default')}`,
+        colors.dim('Safe local defaults are ready. Advanced controls remain optional.'),
+      ].join('\n'),
+      'Recommended defaults',
+    );
+  }
 
   // Step 7 — optional extra plugins. Skippable: offer a multiselect of
   // installable plugins (telegram, browser, …); chosen ones are installed +
   // enabled at persist time. Only shown when the host wired a catalog + handler.
   let extraPlugins: ReadonlyArray<string> = [];
   if (
+    opts.advanced &&
     opts.availablePlugins &&
     opts.availablePlugins.length > 0 &&
     opts.controller.installPlugins
@@ -275,28 +299,32 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     ...(securityEnabled ? { security: { enabled: true, isolator: 'inproc' } } : {}),
   };
 
-  // Step 8 — review (preview of the unified tree written to ~/.moxxy/config.yaml)
-  const yaml = renderYaml(selections);
-  note(yaml, 'Step 8 — Review (~/.moxxy/config.yaml)');
+  if (opts.advanced) {
+    const yaml = renderYaml(selections);
+    note(yaml, 'Step 8 — Review (~/.moxxy/config.yaml)');
 
-  const confirmedRaw = await confirm({
-    message: 'Save config and store keys in the vault?',
-    initialValue: true,
-  });
-  const confirmed = guard(confirmedRaw);
-  if (!confirmed) bail();
+    const confirmedRaw = await confirm({
+      message: 'Save config and store keys in the vault?',
+      initialValue: true,
+    });
+    if (!guard(confirmedRaw)) bail();
+  }
 
   // Persist. An OAuth provider's tokens were stored inline in step 2 (the
   // OAuth flow is interactive and can't be reduced to a fire-and-forget write
   // here), so this stage only needs to persist the API key and the selections.
   const persist = spinner();
-  persist.start('Writing config and storing keys');
+  persist.start(opts.advanced ? 'Writing config and storing keys' : 'Saving model connection');
   if (providerKind !== 'oauth') {
     const key = apiKeys[provider];
     if (key) await opts.controller.saveApiKey(provider, key);
   }
   const configPath = await opts.controller.writeConfig(selections);
-  persist.stop(`Wrote ${colors.bold(configPath)}`);
+  persist.stop(
+    opts.advanced
+      ? `Wrote ${colors.bold(configPath)}`
+      : `${colors.bold('✓')} Model connection saved`,
+  );
 
   // Install any optional plugins the user picked (best-effort; the controller
   // reports per-plugin outcomes).
@@ -314,8 +342,9 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   }
 
   outro(
-    `${colors.bold('✓')} Setup complete. Try ${colors.bold('moxxy -p "hello"')} to verify, ` +
-      `or just run ${colors.bold('moxxy')} for the interactive TUI.`,
+    opts.advanced
+      ? `${colors.bold('✓')} Advanced setup complete. Run ${colors.bold('moxxy')} to start.`
+      : `${colors.bold('✓')} Ready. Run ${colors.bold('moxxy')} in a project and ask your first question.`,
   );
   return configPath;
 }

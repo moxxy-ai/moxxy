@@ -1,5 +1,28 @@
 # @moxxy/desktop
 
+## 0.37.0
+
+### Minor Changes
+
+- 78938f8: Introduce the developer-alpha product contract and personal golden path, redesign the TUI around a one-time workspace welcome, contextual work status, consequence-first approvals, responsive Runs, Models, and product-facing Extensions, progressively disclose CLI and TUI commands by capability, auto-allow real-path-safe reads inside the workspace, and add bounded data-only client chrome slots for extensions.
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/cli@0.37.0
+  - @moxxy/sdk@0.37.0
+  - @moxxy/chat-model@0.4.4
+  - @moxxy/client-core@0.13.22
+  - @moxxy/client-platform-web@0.1.61
+  - @moxxy/desktop-host@0.14.13
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/ipc-server-ws@0.1.60
+  - @moxxy/plugin-channel-mobile@0.37.0
+  - @moxxy/plugin-stt-whisper-codex@0.37.0
+  - @moxxy/plugin-vault@0.37.0
+  - @moxxy/runner@0.2.47
+  - @moxxy/workflows-builder@0.1.44
+
 ## 0.36.1
 
 ### Patch Changes
@@ -2191,7 +2214,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
 - ff73468: Quality sweep, wave 5 (safe longtail — coverage + mechanical consistency/perf)
 
   The additive/mechanical slice of the audit's low-severity long-tail; subjective
-  nitpicks and anything behavior-risky were deferred (tracked in `TECH_DEBT.md`).
+  nitpicks and anything behavior-risky were deferred (tracked in `archived backlog`).
   Behavior-preserving except the small fixes noted, each covered by a test.
 
   - **Coverage:** focused unit tests for previously-untested pure logic —
@@ -2228,7 +2251,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
     consolidated duplicated `<NAME>_API_KEY` slug + config up-walk helpers.
 
   Risky/voluminous Tier-3 (god-file decomposition, the long-tail review/test-gap/
-  consistency/perf clusters) remains tracked in `TECH_DEBT.md` as the standing
+  consistency/perf clusters) remains tracked in `archived backlog` as the standing
   journal.
 
 - Updated dependencies [091ef41]
@@ -2405,7 +2428,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
   per-instance mutexes + atomic writes to the file-backed stores that lacked them.
 
   Larger/riskier items (the O(n²) chat-model fold rewrite, a generic JSON store,
-  god-file splits, and the long-tail findings) are tracked in `TECH_DEBT.md` for
+  god-file splits, and the long-tail findings) are tracked in `archived backlog` for
   focused follow-up PRs rather than bundled here.
 
 - Updated dependencies [89ad994]

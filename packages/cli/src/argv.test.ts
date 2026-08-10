@@ -65,6 +65,14 @@ describe('parseArgv', () => {
     });
   });
 
+  it('onboarding boolean flags leave later positionals intact', () => {
+    expect(parseArgv(['onboard', '--advanced', 'terminal'])).toMatchObject({
+      command: 'onboard',
+      flags: { advanced: true },
+      positional: ['terminal'],
+    });
+  });
+
   it('value flags still consume their argument', () => {
     expect(parseArgv(['tui', '--model', 'gpt-5'])).toMatchObject({
       command: 'tui',

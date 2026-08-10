@@ -1,4 +1,4 @@
-import { bootSessionWithConfig } from '../argv-helpers.js';
+import { bootSessionWithConfig, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import { canonicalKey } from '../provider-keys.js';
 import type { ParsedArgv } from '../argv.js';
@@ -19,11 +19,25 @@ import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
 import type { ProviderAuthKind, SetupSelections } from '@moxxy/plugin-cli';
 import type { ProviderDef } from '@moxxy/sdk';
+import { formatHelp } from './help-format.js';
+
+const HELP = formatHelp({
+  title: 'moxxy init',
+  tagline: 'connect a model account and choose sensible local defaults',
+  sections: [
+    {
+      title: 'FLAGS',
+      rows: [
+        ['--advanced', 'choose model, runtime mode, memory index, isolation, and extensions'],
+      ],
+    },
+  ],
+});
 
 /**
  * Interactive first-time setup. Renders a @clack/prompts vertical stepper
- * that walks the user through provider selection, credential entry, model +
- * loop + embedder picks, and emits a moxxy.config.yaml.
+ * that connects one model account and selects safe defaults. `--advanced`
+ * exposes model, runtime, memory, isolation, extension, and YAML choices.
  *
  * The wizard is fully provider-agnostic — it reads each registered
  * provider's `ProviderDef.auth` descriptor to decide whether to prompt for
@@ -32,7 +46,12 @@ import type { ProviderDef } from '@moxxy/sdk';
  * enough to make it appear here; no CLI-side branch table.
  */
 export async function runInitCommand(argv: ParsedArgv): Promise<number> {
+  if (helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
   const interactive = Boolean(process.stdin.isTTY);
+  const advanced = hasBoolFlag(argv, 'advanced');
 
   // `skipProviderActivation` is critical here: without it, the activation
   // loop calls `vault.get()` for every candidate provider, which opens the
@@ -59,7 +78,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     if (!interactive) {
       return await runHeadlessInit(session, vault);
     }
-    return await runInteractiveInit(session, vault, config);
+    return await runInteractiveInit(session, vault, config, advanced);
   } finally {
     await closeSession(session, persistence, audit);
   }
@@ -69,6 +88,7 @@ async function runInteractiveInit(
   session: import('@moxxy/core').Session,
   vault: import('@moxxy/plugin-vault').VaultStore,
   config: MoxxyConfig,
+  advanced: boolean,
 ): Promise<number> {
   // Logo first, so the whole flow reads as one screen: the (first-run only)
   // vault passphrase step and the wizard's `intro()` both render beneath it.
@@ -214,7 +234,8 @@ async function runInteractiveInit(
     embedders,
     controller,
     authKinds,
-    availablePlugins,
+    advanced,
+    ...(advanced ? { availablePlugins } : {}),
     ...(cliVersion() ? { version: cliVersion()! } : {}),
   });
 
@@ -222,14 +243,16 @@ async function runInteractiveInit(
   // plugin that hooks into init gets its configuration walk — required steps
   // left incomplete DISABLE that package until configured. Runs after the
   // wizard so freshly-installed extras are included; re-runs prefill.
-  try {
-    await runPluginSetupSteps({ vault, cwd: process.cwd() });
-  } catch (err) {
-    process.stderr.write(
-      `plugin setup steps failed (config unchanged for the rest): ${
-        err instanceof Error ? err.message : String(err)
-      }\n`,
-    );
+  if (advanced) {
+    try {
+      await runPluginSetupSteps({ vault, cwd: process.cwd() });
+    } catch (err) {
+      process.stderr.write(
+        `extension setup steps failed (config unchanged for the rest): ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+    }
   }
 
   return 0;

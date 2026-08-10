@@ -67,7 +67,7 @@ export async function runPluginSetupSteps(opts: PluginSetupStepsOptions): Promis
       await setPluginEnabled(packageName, false);
       log.warn(
         `${packageName} left DISABLED — its required setup is incomplete. ` +
-          `Re-run \`moxxy init\` (or \`moxxy plugins enable ${packageName}\` after configuring by hand).`,
+          `Re-run \`moxxy onboard --advanced\` (or \`moxxy extensions enable ${packageName}\` after configuring by hand).`,
       );
     }
   }

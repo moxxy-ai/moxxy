@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.37.0
+
+### Minor Changes
+
+- 78938f8: Introduce the developer-alpha product contract and personal golden path, redesign the TUI around a one-time workspace welcome, contextual work status, consequence-first approvals, responsive Runs, Models, and product-facing Extensions, progressively disclose CLI and TUI commands by capability, auto-allow real-path-safe reads inside the workspace, and add bounded data-only client chrome slots for extensions.
+
 ## 0.36.1
 
 ## 0.36.0
@@ -32,7 +38,7 @@
 
   Opus 4.8 is retired, so offering it meant a picker entry that cannot serve a request. `claude-opus-5` takes its place in both the Anthropic API catalog and the Claude Code subscription catalog, and becomes the Anthropic plugin's recommended `defaultModel`. `claude-sonnet-5` is added alongside `claude-sonnet-4-6` rather than replacing it, because 4.6 is not retired and is still the default. `claude-fable-5` was already listed in both and is unchanged.
 
-  The new row copies the opus line's shape (1M context, 128k output, tools, images, documents, adaptive thinking, hosted web search) rather than being verified against the Models API, because the catalog is still hardcoded (TECH_DEBT P3 #8).
+  The new row copies the opus line's shape (1M context, 128k output, tools, images, documents, adaptive thinking, hosted web search) rather than being verified against the Models API, because the catalog is still hardcoded (archived backlog P3 #8).
 
   Removing 4.8 surfaced that the Claude Code catalog is enforced rather than advisory: a test passing a model outside it never reached the CLI at all. Tests that enumerate real catalog models were updated with it. One deliberately keeps `claude-opus-4-8` as its example of an unlisted id, which is now more accurate than before.
 
@@ -740,7 +746,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
 
 - 50a5b38: Quality sweep — split Node-only `@moxxy/sdk` helpers behind a `./server` subpath (browser/RN boundary)
 
-  Purely structural, behavior-preserving (`t2-sdk-server-subpath`, retires TECH_DEBT #13):
+  Purely structural, behavior-preserving (`t2-sdk-server-subpath`, retires archived backlog #13):
 
   - New `@moxxy/sdk/server` subpath export. The Node-runtime VALUE helpers that
     statically reach `node:*` builtins — `spawnCliTunnel`/`isCliTunnelAvailable`
@@ -832,7 +838,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
     consolidated duplicated `<NAME>_API_KEY` slug + config up-walk helpers.
 
   Risky/voluminous Tier-3 (god-file decomposition, the long-tail review/test-gap/
-  consistency/perf clusters) remains tracked in `TECH_DEBT.md` as the standing
+  consistency/perf clusters) remains tracked in `archived backlog` as the standing
   journal.
 
 ## 0.14.1
@@ -933,7 +939,7 @@ eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
   per-instance mutexes + atomic writes to the file-backed stores that lacked them.
 
   Larger/riskier items (the O(n²) chat-model fold rewrite, a generic JSON store,
-  god-file splits, and the long-tail findings) are tracked in `TECH_DEBT.md` for
+  god-file splits, and the long-tail findings) are tracked in `archived backlog` for
   focused follow-up PRs rather than bundled here.
 
 ## 0.12.0

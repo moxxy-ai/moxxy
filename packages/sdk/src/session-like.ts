@@ -8,6 +8,7 @@ import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
+import type { ClientChromeItem } from './client-chrome.js';
 
 /**
  * Options accepted by `SessionLike.runTurn`. Defined here (rather than in
@@ -100,6 +101,15 @@ export interface CommandInfo {
   readonly pendingNotice?: string;
 }
 
+/** Product-facing summary of organization policy active for a session. */
+export interface GovernanceInfo {
+  readonly managed: true;
+  /** Signed bundle id when available, otherwise a neutral organization label. */
+  readonly label: string;
+  /** A verified cached bundle is in force because its remote source was unavailable. */
+  readonly stale?: boolean;
+}
+
 /**
  * A wire-friendly snapshot of a session's registries - everything a channel
  * needs to *render* (status line, pickers, slash suggestions) without
@@ -111,6 +121,10 @@ export interface CommandInfo {
 export interface SessionInfo {
   readonly sessionId: SessionId;
   readonly cwd: string;
+  /** Present only when a system profile or signed policy bundle governs the run. */
+  readonly governance?: GovernanceInfo;
+  /** Bounded status-slot items contributed by loaded plugins. */
+  readonly clientChrome?: ReadonlyArray<ClientChromeItem>;
   readonly activeProvider: string | null;
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly activeMode: string | null;

@@ -29,25 +29,41 @@ beforeEach(() => {
 
 afterEach(() => __setApiOverride(null));
 
-const DESTINATIONS = [
+const CORE_DESTINATIONS = [
   ['chat', 'Runs'],
+  ['extensions', 'Extensions'],
+  ['settings', 'Settings'],
+] as const;
+
+const OPTIONAL_DESTINATIONS = [
   ['collaborate', 'Collaborate'],
   ['automations', 'Automations'],
   ['apps', 'Apps'],
   ['channels', 'Channels'],
-  ['settings', 'Settings'],
+  ['mobile', 'Mobile'],
 ] as const;
 
+const DESTINATIONS = [...CORE_DESTINATIONS, ...OPTIONAL_DESTINATIONS] as const;
+
 describe('AppRail', () => {
-  it('carries every destination, each with an accessible name while icon-only', () => {
+  it('starts with the personal product surface and keeps optional capabilities behind More', () => {
     render(<AppRail view="chat" onView={vi.fn()} />);
-    for (const [id, label] of DESTINATIONS) {
+    for (const [id, label] of CORE_DESTINATIONS) {
       const item = screen.getByTestId(`nav-${id}`);
       // The name is in the tree even when no text is painted, so a screen-reader
       // user never depends on the rail being expanded.
       expect(item, `nav-${id} missing`).toBeTruthy();
       expect(item.textContent).toContain(label);
     }
+    for (const [id] of OPTIONAL_DESTINATIONS) {
+      expect(screen.queryByTestId(`nav-${id}`)).toBeNull();
+    }
+
+    fireEvent.click(screen.getByTestId('nav-more'));
+    for (const [id, label] of OPTIONAL_DESTINATIONS) {
+      expect(screen.getByTestId(`nav-${id}`)).toHaveTextContent(label);
+    }
+    expect(screen.getByTestId('nav-voice')).toHaveTextContent('Voice');
   });
 
   it('marks exactly one destination active, and it is the current view', () => {
@@ -62,6 +78,7 @@ describe('AppRail', () => {
   it('navigates on click', () => {
     const onView = vi.fn();
     render(<AppRail view="chat" onView={onView} />);
+    fireEvent.click(screen.getByTestId('nav-more'));
     fireEvent.click(screen.getByTestId('nav-channels'));
     expect(onView).toHaveBeenCalledWith('channels');
   });
@@ -76,6 +93,7 @@ describe('AppRail', () => {
         disabledReason="Moxxy is still loading this session"
       />,
     );
+    fireEvent.click(screen.getByTestId('nav-more'));
     const locked = screen.getByTestId('nav-automations');
     expect(locked).toBeDisabled();
     expect(locked).toHaveAttribute('data-tip', 'Moxxy is still loading this session');
@@ -85,6 +103,7 @@ describe('AppRail', () => {
 
   it('labels destinations with data-tip, never the native title attribute', () => {
     render(<AppRail view="chat" onView={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('nav-more'));
     for (const [id, label] of DESTINATIONS) {
       const item = screen.getByTestId(`nav-${id}`);
       // `title` is the bug being prevented: the OS tooltip takes over a second

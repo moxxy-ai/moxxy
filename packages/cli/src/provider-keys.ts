@@ -117,7 +117,7 @@ export async function resolveProviderApiKey(
       throw new MoxxyError({
         code: 'AUTH_NO_CREDENTIALS',
         message: `No ${canonical} provided at the prompt.`,
-        hint: `Set ${canonical} as an environment variable, or run \`moxxy init\` to store it in the vault.`,
+        hint: `Set ${canonical} as an environment variable, or run \`moxxy onboard\` to store it in the vault.`,
         context: { provider: providerName, env_var: canonical },
       });
     }
@@ -137,7 +137,7 @@ export async function resolveProviderApiKey(
     message: `No API key found for provider '${providerName}'.`,
     hint:
       `Set the ${canonical} environment variable, store it in the vault, or ` +
-      `run \`moxxy init\` in an interactive terminal to be prompted.`,
+      `run \`moxxy onboard\` in an interactive terminal to be prompted.`,
     context: { provider: providerName, env_var: canonical },
   });
 }

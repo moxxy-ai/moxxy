@@ -22,13 +22,13 @@ function meta(over: Partial<SessionMeta> & { id: string }): SessionMeta {
 describe('buildSessionPickerOptions', () => {
   const NOW = Date.parse('2026-06-25T12:00:30.000Z');
 
-  it('always leads with a "new session" entry', () => {
+  it('always leads with a "new run" entry', () => {
     const opts = buildSessionPickerOptions([], 'none', NOW);
     expect(opts[0]!.id).toBe(NEW_SESSION_OPTION_ID);
     expect(opts).toHaveLength(1);
   });
 
-  it('marks the active session current with an "active" badge', () => {
+  it('marks the active run current', () => {
     const opts = buildSessionPickerOptions(
       [meta({ id: 'a' }), meta({ id: 'b' })],
       'b',
@@ -37,12 +37,12 @@ describe('buildSessionPickerOptions', () => {
     const a = opts.find((o) => o.id === 'a')!;
     const b = opts.find((o) => o.id === 'b')!;
     expect(b.current).toBe(true);
-    expect(b.badge).toBe('active');
+    expect(b.badge).toBe('current');
     expect(a.current).toBeUndefined();
     expect(a.badge).toBeUndefined();
   });
 
-  it('uses the first prompt as the title and shows last-active + event count + model', () => {
+  it('uses the first prompt as the title and shows time + workspace only', () => {
     const opts = buildSessionPickerOptions(
       [meta({ id: 'a', firstPrompt: 'fix the login bug', eventCount: 7, model: 'gpt-test' })],
       'other',
@@ -50,8 +50,9 @@ describe('buildSessionPickerOptions', () => {
     );
     const a = opts.find((o) => o.id === 'a')!;
     expect(a.label).toBe('fix the login bug');
-    expect(a.description).toContain('7 ev');
-    expect(a.description).toContain('gpt-test');
+    expect(a.description).not.toContain('7 ev');
+    expect(a.description).not.toContain('gpt-test');
+    expect(a.description).toContain('repo');
     expect(a.description).toContain('ago');
   });
 
@@ -84,7 +85,7 @@ describe('buildSessionPickerOptions', () => {
     expect(opts.find((o) => o.id === 'empty-other')).toBeUndefined();
     const active = opts.find((o) => o.id === 'empty-active')!;
     expect(active).toBeDefined();
-    expect(active.label).toBe('(empty session)');
+    expect(active.label).toBe('(empty run)');
   });
 
   it('preserves the input order (newest-first as readSessionIndex returns)', () => {

@@ -12,6 +12,8 @@ export interface SlashCommand {
   /** Usage hint for args, e.g. `set <key> <value>` — shown as ghost text. */
   readonly argumentHint?: string;
   readonly aliases?: ReadonlyArray<string>;
+  /** Advanced commands remain searchable but stay out of the bare `/` menu. */
+  readonly visibility?: 'essential' | 'advanced';
 }
 
 /**
@@ -25,57 +27,74 @@ export interface SlashCommand {
  * `@moxxy/plugin-commands` and are inherited by every channel.
  */
 export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
-  { name: 'tools', description: 'List the tools the active session can call' },
-  { name: 'skills', description: 'List the discovered skills' },
-  { name: 'agents', description: 'Inspect spawned subagents and their activity' },
+  {
+    name: 'runs',
+    description: 'Continue another run or start a new one',
+    aliases: ['sessions', 'switch'],
+    visibility: 'essential',
+  },
+  {
+    name: 'model',
+    description: 'Change the model connection for this run',
+    visibility: 'essential',
+  },
+  {
+    name: 'extensions',
+    description: 'Manage optional capabilities',
+    aliases: ['plugins'],
+    visibility: 'essential',
+  },
+  { name: 'tools', description: 'List the tools the active run can call', visibility: 'advanced' },
+  { name: 'skills', description: 'List the discovered skills', visibility: 'advanced' },
+  { name: 'agents', description: 'Inspect subagents and their activity', visibility: 'advanced' },
   {
     name: 'usage',
-    description: 'Token usage: this session + saved per-model totals across sessions',
+    description: 'Token usage for this run and saved model totals',
     argumentHint: '[clear]',
+    visibility: 'advanced',
   },
-  { name: 'model', description: 'Switch provider + model — opens a picker' },
   {
     name: 'mode',
     description: 'Switch mode (default / goal / research)',
     argumentHint: '[mode]',
     aliases: ['loop'],
+    visibility: 'advanced',
   },
-  {
-    name: 'sessions',
-    description: 'Switch between your conversations — opens a picker (+ new session)',
-    aliases: ['switch'],
-  },
-  { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
-  { name: 'plugins', description: 'Plug / unplug & install plugins — opens a tabbed picker' },
-  { name: 'settings', description: 'Curated config panel: reasoning, caching, elision, theme… (alias /config)' },
-  { name: 'setup', description: 'Configure an installed plugin\u2019s declared setup step (/setup [package])' },
+  { name: 'mcp', description: 'Manage MCP servers', visibility: 'advanced' },
+  { name: 'settings', description: 'Advanced runtime and presentation settings', visibility: 'advanced' },
+  { name: 'setup', description: 'Configure an installed extension', visibility: 'advanced' },
   {
     name: 'channels',
     description: 'Run Slack / Telegram bots on their own runner — configure, start, stop',
+    visibility: 'advanced',
   },
   {
     name: 'goal',
     description: 'Work autonomously until the objective is delivered (switches mode + auto-approves; Esc stops)',
     argumentHint: '<objective>',
+    visibility: 'advanced',
   },
   {
     name: 'collab',
     description: 'Run a team of agents on a goal — architect proposes a roster (you approve), then they build in parallel',
     argumentHint: '<goal>',
+    visibility: 'advanced',
   },
   {
     name: 'speak',
     description: 'Read replies aloud via the active TTS voice — bare speaks the last reply, on/off auto-speaks, stop halts',
     argumentHint: '[on|off|stop]',
     aliases: ['say'],
+    visibility: 'advanced',
   },
   {
-    name: 'yolo',
-    description: 'Toggle auto-approve mode — every tool call allowed without asking',
-    aliases: ['auto-approve'],
+    name: 'auto-approve',
+    description: 'Allow every tool call for this run without asking',
+    aliases: ['yolo'],
+    visibility: 'advanced',
   },
-  { name: 'queue', description: 'Show messages queued while the current turn is running' },
-  { name: 'clear-queue', description: 'Drop all queued messages' },
+  { name: 'queue', description: 'Show queued follow-ups', visibility: 'advanced' },
+  { name: 'clear-queue', description: 'Drop all queued follow-ups', visibility: 'advanced' },
 ];
 
 /**
@@ -92,7 +111,9 @@ export function matchSlash(
 ): SlashCommand[] {
   if (!query.startsWith('/')) return [];
   const needle = query.slice(1).toLowerCase();
-  if (needle === '') return [...commands].slice(0, limit);
+  if (needle === '') {
+    return commands.filter((command) => command.visibility !== 'advanced').slice(0, limit);
+  }
   const exact: SlashCommand[] = [];
   const prefix: SlashCommand[] = [];
   const alias: SlashCommand[] = [];

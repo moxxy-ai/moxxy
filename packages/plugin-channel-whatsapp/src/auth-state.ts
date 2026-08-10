@@ -10,7 +10,7 @@ import * as path from 'node:path';
  * it (the vault is an encrypted, tagged, human-curated secret store, not a
  * high-write key-value backend); instead the state lives in a dedicated
  * directory under the moxxy home with tight modes (dir 0700, files 0600).
- * TRADE-OFF (recorded in TECH_DEBT + the PR): unlike vault entries, these files
+ * TRADE-OFF: unlike vault entries, these files
  * are NOT encrypted at rest — anyone with file access to the moxxy home can
  * hijack the linked WhatsApp session. The {@link WhatsAppAuthStorage} interface
  * exists precisely so an encrypted backend can be swapped in later without

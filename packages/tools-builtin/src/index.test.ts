@@ -310,6 +310,18 @@ describe('globTool symlinks', () => {
     const fileOut = (await globTool.handler({ pattern: 'flink.txt' }, baseCtx())) as string;
     expect(fileOut).toContain('flink.txt');
   });
+
+  it('does not follow a symlink outside the workspace root', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-tools-outside-'));
+    try {
+      await fs.writeFile(path.join(outside, 'private.txt'), 'secret');
+      await fs.symlink(outside, path.join(tmp, 'outside'), 'dir');
+      const out = (await globTool.handler({ pattern: '**/*.txt' }, baseCtx())) as string;
+      expect(out).not.toContain('private.txt');
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('globTool', () => {
