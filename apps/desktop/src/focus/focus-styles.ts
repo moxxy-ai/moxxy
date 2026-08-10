@@ -524,7 +524,10 @@ export const style = {
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 8px 0 22px',
+    // Moxxy overlaps the panel by 18px. A 28px inset leaves a deliberate
+    // 10px breathing space before the first useful control, without a dead
+    // brand column or a decorative separator.
+    padding: '0 8px 0 28px',
     position: 'relative',
     overflow: 'hidden',
     // Whole panel is the drag region; the brand button + action
@@ -537,17 +540,9 @@ export const style = {
     height: 56,
     flex: '0 0 auto',
   },
-  activeDivider: {
-    width: 1,
-    height: 26,
-    background: 'var(--focus-divider)',
-    margin: '0 6px',
-    flexShrink: 0,
-  },
   activeActions: {
     display: 'flex',
     gap: 2,
-    marginLeft: 'auto',
     position: 'relative',
     zIndex: 1,
     ...noDrag,
