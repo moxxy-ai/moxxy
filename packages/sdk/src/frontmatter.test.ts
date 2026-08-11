@@ -138,4 +138,10 @@ describe('renderFrontmatter', () => {
     // historical behavior).
     expect(parsed.body).toBe('\nbody content\n');
   });
+
+  it('round-trips quoted strings containing quotes and backslashes', () => {
+    const fm = { description: 'open "C:\\Program Files\\moxxy"' };
+    const parsed = parseFrontmatterFile(`${renderFrontmatter(fm)}\nbody`);
+    expect(parsed.frontmatter).toEqual(fm);
+  });
 });

@@ -76,14 +76,14 @@ describe('renderUnit (systemd)', () => {
     expect(out).toContain('Environment=LEVEL=info');
   });
 
-  it('quotes only ExecStart args that contain whitespace or quotes', () => {
+  it('quotes and escapes ExecStart args with whitespace, quotes, or backslashes', () => {
     const spec: ServiceSpec = {
       id: 'x',
       description: 'd',
-      execArgs: ['plain', 'two words', 'has"quote'],
+      execArgs: ['plain', 'two words', 'has"quote', 'c:\\path'],
     };
     const out = renderUnit(spec, ctx);
-    expect(out).toContain('plain "two words" "has\\"quote"');
+    expect(out).toContain('plain "two words" "has\\"quote" "c:\\\\path"');
   });
 
   it('quotes Environment= values containing whitespace/quotes/backslashes', () => {

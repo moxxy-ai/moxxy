@@ -138,7 +138,9 @@ function normalizeResultUrl(rawHref: string): string | null {
   } catch {
     return null;
   }
-  const redirected = parsed.hostname.endsWith('duckduckgo.com') && parsed.pathname === '/l/'
+  const isDuckDuckGo =
+    parsed.hostname === 'duckduckgo.com' || parsed.hostname.endsWith('.duckduckgo.com');
+  const redirected = isDuckDuckGo && parsed.pathname === '/l/'
     ? parsed.searchParams.get('uddg')
     : null;
   if (redirected) {

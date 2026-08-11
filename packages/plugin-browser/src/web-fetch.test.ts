@@ -31,6 +31,21 @@ describe('htmlToPlainText', () => {
     expect(text).not.toContain('color:red');
   });
 
+  it('does not synthesize executable tags across removed element boundaries', () => {
+    const html = '<scr<script>hidden()</script>ipt>visible</script><p>after</p>';
+    const text = htmlToPlainText(html);
+    expect(text).toContain('visible');
+    expect(text).toContain('after');
+    expect(text).not.toContain('hidden');
+    expect(text).not.toContain('<script');
+  });
+
+  it('drops unterminated script/style/comment tails', () => {
+    expect(htmlToPlainText('<p>safe</p><!-- hidden')).toBe('safe');
+    expect(htmlToPlainText('<p>safe</p><script>hidden')).toBe('safe');
+    expect(htmlToMarkdown('<p>safe</p><style>hidden')).toBe('safe');
+  });
+
   it('decodes HTML entities', () => {
     expect(htmlToPlainText('<p>a&amp;b &lt; c &gt; d &quot;e&quot;</p>')).toBe('a&b < c > d "e"');
   });

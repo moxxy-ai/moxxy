@@ -39,6 +39,12 @@ describe('markdownToTelegramHtml', () => {
     expect(out).toContain('<a href="https://example.com">docs</a>');
   });
 
+  it('escapes a link target exactly once', () => {
+    const out = markdownToTelegramHtml('[search](https://example.com/?a=1&b=%3Ctwo%3E)');
+    expect(out).toContain('href="https://example.com/?a=1&amp;b=%3Ctwo%3E"');
+    expect(out).not.toContain('&amp;amp;');
+  });
+
   it('allows http, mailto, and tel scheme links', () => {
     expect(markdownToTelegramHtml('[a](http://x.com)')).toContain('<a href="http://x.com">');
     expect(markdownToTelegramHtml('[m](mailto:a@b.com)')).toContain('<a href="mailto:a@b.com">');
