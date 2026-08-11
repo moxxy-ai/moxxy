@@ -34,6 +34,7 @@ import type {
   DesksOverview,
   RunTurnArgs,
   RunTurnResult,
+  RunTurnVisibility,
   SessionsOverview,
 } from '@moxxy/desktop-ipc-contract';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
@@ -110,7 +111,14 @@ export class MobileSessionHost {
   private readonly workspaceId: string;
   private readonly askTimeoutMs: number;
   private readonly logErr: ((err: unknown) => void) | undefined;
-  private readonly turns = new Map<string, AbortController>();
+  private readonly turns = new Map<
+    string,
+    {
+      readonly controller: AbortController;
+      readonly visibility: RunTurnVisibility;
+      readonly workspaceId: string;
+    }
+  >();
   private readonly pendingAsks = new Map<
     string,
     { resolve: (r: AskResponse) => void; timer: ReturnType<typeof setTimeout> | null }
@@ -184,9 +192,12 @@ export class MobileSessionHost {
       return renamed;
     });
     this.bus.handle('session.info', async () => this.session.getInfo());
+    this.bus.handle('session.activeTurn', async (args) => ({
+      turnId: this.activeForegroundTurnId(args?.workspaceId ?? this.selectedSessionId),
+    }));
     this.bus.handle('session.runTurn', async (args) => this.runTurn(args));
     this.bus.handle('session.abortTurn', async ({ turnId }) => {
-      this.turns.get(turnId)?.abort();
+      this.turns.get(turnId)?.controller.abort();
     });
     this.bus.handle('session.setAutoApprove', async ({ enabled }) => {
       this.autoApprove = enabled;
@@ -355,7 +366,7 @@ export class MobileSessionHost {
   /** Abort all in-flight turns and deny + clear all parked asks (clearing their
    *  timeout timers). Shared by `dispose()` and `onAllClientsDisconnected()`. */
   private abortAndDrain(): void {
-    for (const controller of this.turns.values()) controller.abort();
+    for (const turn of this.turns.values()) turn.controller.abort();
     this.turns.clear();
     // Deny parked asks so the runner never hangs on an unanswerable prompt.
     for (const { resolve, timer } of this.pendingAsks.values()) {
@@ -443,7 +454,7 @@ export class MobileSessionHost {
   }
 
   private async resetCurrentSession(): Promise<void> {
-    for (const controller of this.turns.values()) controller.abort();
+    for (const turn of this.turns.values()) turn.controller.abort();
     // Reset auto-approve to the safe default so a fresh session never silently
     // inherits the previous one's auto-allow (desktop SessionDriver parity).
     this.autoApprove = false;
@@ -456,7 +467,11 @@ export class MobileSessionHost {
     await this.selectRuntimeTarget(targetWorkspaceId);
     const turnId = randomUUID();
     const controller = new AbortController();
-    this.turns.set(turnId, controller);
+    this.turns.set(turnId, {
+      controller,
+      visibility: args.visibility ?? 'foreground',
+      workspaceId: targetWorkspaceId,
+    });
     // Drain the iterator in the background — events already flow via
     // log.subscribe; we only need the completion signal.
     void (async () => {
@@ -487,6 +502,14 @@ export class MobileSessionHost {
       this.logErr?.(err);
     });
     return { turnId };
+  }
+
+  private activeForegroundTurnId(workspaceId: string): string | null {
+    let active: string | null = null;
+    for (const [turnId, turn] of this.turns) {
+      if (turn.visibility === 'foreground' && turn.workspaceId === workspaceId) active = turnId;
+    }
+    return active;
   }
 
   private async selectRuntimeTarget(sessionId: string): Promise<void> {

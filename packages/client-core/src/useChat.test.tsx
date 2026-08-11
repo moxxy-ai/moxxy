@@ -89,6 +89,7 @@ describe('useChat history backfill on runner connect', () => {
     const history = [userPrompt('Create the PDF.', 1, turnId), toolRequest(turnId, 2)];
     const invoke = (async (cmd: string) => {
       if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      if (cmd === 'session.activeTurn') return { turnId };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });
@@ -114,6 +115,7 @@ describe('useChat history backfill on runner connect', () => {
         loadCalls += 1;
         return { events: history, prevCursor: null };
       }
+      if (cmd === 'session.activeTurn') return { turnId: null };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });
@@ -145,6 +147,26 @@ describe('useChat history backfill on runner connect', () => {
     expect(result.current.activeTurnId).toBeNull();
   });
 
+  it('does not restore an orphaned turn when the connected runner reports no active work', async () => {
+    const id = ws();
+    const turnId = 'turn-left-open-before-runner-restart';
+    const history = [userPrompt('Old unfinished task', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      if (cmd === 'session.activeTurn') return { turnId: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
   it('re-loads history once the workspace runner reaches connected', async () => {
     const id = ws();
     // The runner is "not connected" until the test flips this — chat.loadHistory
@@ -157,6 +179,7 @@ describe('useChat history backfill on runner connect', () => {
         loadCalls += 1;
         return state.connected ? { events: [userPrompt('hello')], prevCursor: null } : null;
       }
+      if (cmd === 'session.activeTurn') return { turnId: null };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });
@@ -193,6 +216,7 @@ describe('useChat history backfill on runner connect', () => {
         loadCalls += 1;
         return { events: history, prevCursor: null };
       }
+      if (cmd === 'session.activeTurn') return { turnId: null };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });

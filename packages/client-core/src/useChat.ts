@@ -129,7 +129,8 @@ export function ChatStoreBridge(): null {
     );
     const offStarted = api().subscribe(
       'runner.turn.started',
-      ({ workspaceId, turnId }: { workspaceId: string; turnId: string }) => {
+      ({ workspaceId, turnId, visibility }) => {
+        if (visibility === 'background') return;
         chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
       },
     );
@@ -233,9 +234,11 @@ export function useChat(workspaceId: string | null): UseChat {
     let cancelled = false;
     void chatStore
       .loadInitial(workspaceId)
-      .then(() => {
+      .then(async () => {
         if (cancelled || !runnerConnected) return;
-        return chatStore.refreshLatest(workspaceId);
+        const live = await api().invoke('session.activeTurn', { workspaceId });
+        if (cancelled) return;
+        await chatStore.refreshLatest(workspaceId, live.turnId);
       })
       .catch(() => undefined);
     return () => {

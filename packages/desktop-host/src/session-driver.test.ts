@@ -206,7 +206,7 @@ describe('SessionDriver approval-gate survival', () => {
     expect(turnId).toBeTruthy();
     expect(sent).toContainEqual({
       channel: 'runner.turn.started',
-      payload: { workspaceId: 'ws', turnId },
+      payload: { workspaceId: 'ws', turnId, visibility: 'foreground' },
     });
 
     await waitFor(() =>
@@ -455,6 +455,70 @@ describe('SessionDriver inline attachments', () => {
 
     expect(receivedPrompt).toBe('Przeanalizuj obraz');
     expect(receivedOpts?.attachments).toEqual(inlineAttachments);
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver foreground turn status', () => {
+  it('reports a real foreground turn only while its pump is alive', async () => {
+    let release: (() => void) | null = null;
+    const { remote } = fakeRemote({
+      runTurn: async function* runTurn() {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-live-status');
+    const runTurn = driver.runTurn.bind(driver) as unknown as (
+      prompt: string,
+      model?: string,
+      attachments?: ReadonlyArray<{ path: string; name: string }>,
+      inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
+      visibility?: 'foreground' | 'background',
+    ) => Promise<{ turnId: string }>;
+    const status = driver as unknown as { activeForegroundTurnId: () => string | null };
+
+    const { turnId } = await runTurn('foreground task', undefined, undefined, undefined, 'foreground');
+    expect(status.activeForegroundTurnId()).toBe(turnId);
+
+    assertDefined(release, 'parked foreground turn release');
+    release();
+    await waitFor(() => sent.some((frame) => frame.channel === 'runner.turn.complete'));
+    expect(status.activeForegroundTurnId()).toBeNull();
+    driver.dispose();
+  });
+
+  it('does not expose a background settings task as the active chat turn', async () => {
+    const { remote } = fakeRemote({
+      runTurn: async function* runTurn() {
+        await new Promise<void>(() => undefined);
+      },
+    });
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-background-status');
+    const runTurn = driver.runTurn.bind(driver) as unknown as (
+      prompt: string,
+      model?: string,
+      attachments?: ReadonlyArray<{ path: string; name: string }>,
+      inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
+      visibility?: 'foreground' | 'background',
+    ) => Promise<{ turnId: string }>;
+    const status = driver as unknown as { activeForegroundTurnId: () => string | null };
+
+    const { turnId } = await runTurn(
+      'hidden settings task',
+      undefined,
+      undefined,
+      undefined,
+      'background',
+    );
+    expect(status.activeForegroundTurnId()).toBeNull();
+    expect(sent).toContainEqual({
+      channel: 'runner.turn.started',
+      payload: { workspaceId: 'ws-background-status', turnId, visibility: 'background' },
+    });
     driver.dispose();
   });
 });
