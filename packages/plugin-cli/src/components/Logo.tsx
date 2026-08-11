@@ -31,7 +31,11 @@ export const Logo: React.FC<{
     : selectLogo(width).lines;
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box
+      flexDirection="column"
+      marginBottom={1}
+      {...(compact ? { width: '100%', alignItems: 'center' as const } : {})}
+    >
       {lines.map((line, i) => (
         <LogoLine key={i} text={line} />
       ))}

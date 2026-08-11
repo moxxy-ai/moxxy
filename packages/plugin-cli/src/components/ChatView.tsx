@@ -120,9 +120,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     <>
       <Static key={clearGenerationRef.current} items={settledRef.current}>
         {(block) => {
-          const blockWidth = isAuthoredPrompt(block) ? viewportWidth : transcriptWidth;
+          const authoredPrompt = isAuthoredPrompt(block);
+          const blockWidth = authoredPrompt ? viewportWidth : transcriptWidth;
           return (
-            <Box key={block.id} flexDirection="column" width={blockWidth} paddingLeft={1}>
+            <Box
+              key={block.id}
+              flexDirection="column"
+              width={blockWidth}
+              paddingLeft={authoredPrompt ? 0 : 1}
+            >
               <BlockLine
                 block={block}
                 expandToolOutputs={!!expandToolOutputs}
@@ -136,9 +142,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
       {hideLive ? null : (
         <Box flexDirection="column" width={viewportWidth}>
           {liveBlocks.map((block) => {
-            const blockWidth = isAuthoredPrompt(block) ? viewportWidth : transcriptWidth;
+            const authoredPrompt = isAuthoredPrompt(block);
+            const blockWidth = authoredPrompt ? viewportWidth : transcriptWidth;
             return (
-              <Box key={block.id} flexDirection="column" width={blockWidth} paddingLeft={1}>
+              <Box
+                key={block.id}
+                flexDirection="column"
+                width={blockWidth}
+                paddingLeft={authoredPrompt ? 0 : 1}
+              >
                 <BlockLine
                   block={block}
                   expandToolOutputs={!!expandToolOutputs}
