@@ -23,7 +23,7 @@ import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testi
 import { __setApiOverride, configurePlatform } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { asTurnId, assertDefined } from '@moxxy/sdk';
+import { asToolCallId, asTurnId, assertDefined } from '@moxxy/sdk';
 import {
   FOCUS_PET_LAYOUT,
   type AskRequest,
@@ -1438,6 +1438,56 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       expect(screen.getByText(/response from the main window/i)).toBeTruthy();
     });
+  });
+
+  it('recovers a main-chat task that started before Focus mounted', async () => {
+    const turnId = asTurnId('turn-started-in-main-before-focus');
+    const spy = installFakeApi({
+      historyEvents: [
+        event(1, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId,
+          text: 'Generate the PDF from the main chat',
+        }),
+        event(2, {
+          type: 'tool_call_requested',
+          source: 'model',
+          turnId,
+          callId: asToolCallId('call-main-before-focus'),
+          name: 'Write',
+          input: { file_path: 'report.pdf' },
+        }),
+      ],
+    });
+    render(<FocusWidget />);
+
+    const status = await screen.findByRole('status', { name: /current task/i });
+    expect(status).toHaveTextContent('Generate the PDF from the main chat');
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    expect(await screen.findByText('thinking…')).toBeTruthy();
+
+    act(() => {
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(3, {
+          type: 'assistant_message',
+          source: 'model',
+          turnId,
+          content: 'The PDF is ready.',
+          stopReason: 'end_turn',
+        }),
+      });
+      spy.emit('runner.turn.complete', {
+        workspaceId: 'ws-test',
+        turnId,
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText('thinking…')).toBeNull());
   });
 
   it('renders the latest assistant message as Markdown, not raw text', async () => {

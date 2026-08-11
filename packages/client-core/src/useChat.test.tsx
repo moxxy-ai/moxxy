@@ -21,16 +21,45 @@ function ws(): string {
   return `ws-usechat-${wsSeq}`;
 }
 
-function userPrompt(text: string, seq = 1): MoxxyEvent {
+function userPrompt(text: string, seq = 1, turnId = 'T1'): MoxxyEvent {
   return {
     id: `e-${text}`,
     seq,
     ts: 1,
-    turnId: 'T1',
+    turnId,
     sessionId: 'S',
     source: 'user',
     type: 'user_prompt',
     text,
+  } as unknown as MoxxyEvent;
+}
+
+function toolRequest(turnId: string, seq: number): MoxxyEvent {
+  return {
+    id: `e-tool-${turnId}`,
+    seq,
+    ts: seq,
+    turnId,
+    sessionId: 'S',
+    source: 'model',
+    type: 'tool_call_requested',
+    callId: `call-${turnId}`,
+    name: 'write_file',
+    input: { path: 'report.pdf' },
+  } as unknown as MoxxyEvent;
+}
+
+function assistantMessage(turnId: string, seq: number): MoxxyEvent {
+  return {
+    id: `e-answer-${turnId}`,
+    seq,
+    ts: seq,
+    turnId,
+    sessionId: 'S',
+    source: 'model',
+    type: 'assistant_message',
+    content: 'Done.',
+    stopReason: 'end_turn',
   } as unknown as MoxxyEvent;
 }
 
@@ -54,6 +83,68 @@ afterEach(() => {
 });
 
 describe('useChat history backfill on runner connect', () => {
+  it('restores an active turn when an already-connected surface missed its start push', async () => {
+    const id = ws();
+    const turnId = 'turn-started-before-focus-opened';
+    const history = [userPrompt('Create the PDF.', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(2);
+      expect(result.current.sending).toBe(true);
+      expect(result.current.activeTurnId).toBe(turnId);
+    });
+  });
+
+  it('does not restore a completed turn from an already-connected live history', async () => {
+    const id = ws();
+    const turnId = 'turn-completed-before-focus-opened';
+    const history = [userPrompt('Create the PDF.', 1, turnId), assistantMessage(turnId, 2)];
+    let loadCalls = 0;
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') {
+        loadCalls += 1;
+        return { events: history, prevCursor: null };
+      }
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(loadCalls).toBeGreaterThanOrEqual(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
+  it('does not infer a running turn from a disconnected stale disk page', async () => {
+    const id = ws();
+    const turnId = 'turn-left-open-before-crash';
+    const history = [userPrompt('Old unfinished task', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
   it('re-loads history once the workspace runner reaches connected', async () => {
     const id = ws();
     // The runner is "not connected" until the test flips this — chat.loadHistory
