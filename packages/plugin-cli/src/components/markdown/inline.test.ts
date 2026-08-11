@@ -21,6 +21,12 @@ describe('formatLinkHint', () => {
       ' ↗ ycombinator.com',
     );
   });
+
+  it('prints the literal destination when OSC hyperlinks are unavailable', () => {
+    expect(formatLinkHint('https://example.com/post', 7, 72, false)).toBe(
+      ' ↗ https://example.com/post',
+    );
+  });
 });
 
 describe('terminalHyperlinkParts', () => {
@@ -34,6 +40,13 @@ describe('terminalHyperlinkParts', () => {
   it('keeps the complete Warp hyperlink payload in one terminal string', () => {
     expect(terminalHyperlinkText('Example', 'https://example.com/post', true)).toBe(
       '\u001B]8;;https://example.com/post\u001B\\Example\u001B]8;;\u001B\\',
+    );
+  });
+
+  it('can wrap the visible host hint in the same destination', () => {
+    const hint = formatLinkHint('https://example.com/post', 7, 72, true);
+    expect(terminalHyperlinkText(hint, 'https://example.com/post', true)).toBe(
+      '\u001B]8;;https://example.com/post\u001B\\ ↗ example.com\u001B]8;;\u001B\\',
     );
   });
 

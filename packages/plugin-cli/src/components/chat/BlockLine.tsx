@@ -8,6 +8,7 @@ import { SubagentScopeView } from './SubagentScopeView.js';
 import { SubagentGroupView } from './SubagentGroupView.js';
 import { CollabScopeView } from './CollabScopeView.js';
 import { ShimmerText } from './ShimmerText.js';
+import { ActivityDot, type ActivityDotState } from './ActivityDot.js';
 import {
   blocksEquivalent,
   countToolCalls,
@@ -108,12 +109,20 @@ const SkillScopeView: React.FC<{
   );
   const hasDetails = childToolCount > 0;
   const showChildren = hasDetails && (!scope.closed || runningTools || expandToolOutputs);
-  const marker = presentation.active ? '◇' : hasDetails ? (showChildren ? '▾' : '▸') : '•';
-  const activityText = `${presentation.active ? 'Using' : 'Used'} ${presentation.label}`;
+  const failed = scope.children.some(hasFailedTool);
+  const dotState: ActivityDotState = scope.loading
+    ? 'neutral'
+    : presentation.active
+      ? 'active'
+      : failed
+        ? 'error'
+        : 'success';
+  const activityText = `${scope.loading ? 'Loading' : presentation.active ? 'Using' : failed ? 'Failed' : 'Used'} ${presentation.label}`;
   return (
     <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
-        <Text dimColor>{`${marker} `}</Text>
+        <ActivityDot state={dotState} />
+        <Text> </Text>
         <ShimmerText text={activityText} active={presentation.active} />
         {presentation.meta ? <Text dimColor>{` · ${presentation.meta}`}</Text> : null}
         {scope.closed && hasDetails ? (
@@ -154,4 +163,21 @@ function hasRunningTool(block: Block): boolean {
   if (block.kind === 'live-tools') return block.calls.some((call) => call.outcome === null);
   if (block.kind === 'skill-scope') return block.children.some(hasRunningTool);
   return false;
+}
+
+function hasFailedTool(block: Block): boolean {
+  if (block.kind === 'tool-call') {
+    if (!block.outcome) return false;
+    return block.outcome.type === 'denied' || !block.outcome.ok;
+  }
+  if (block.kind === 'live-tools') return block.calls.some((call) => hasFailedOutcome(call.outcome));
+  if (block.kind === 'skill-scope') return block.children.some(hasFailedTool);
+  return false;
+}
+
+function hasFailedOutcome(
+  outcome: Extract<Block, { kind: 'live-tools' }>['calls'][number]['outcome'],
+): boolean {
+  if (!outcome) return false;
+  return outcome.type === 'denied' || !outcome.ok;
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors } from '../../theme.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
+import { ActivityDot } from './ActivityDot.js';
 import {
   buildCompactSummary,
   truncate,
@@ -59,7 +60,8 @@ export const LiveToolBlock: React.FC<{
     >
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
-        <Text dimColor>{`${showDetails ? '▾' : '▸'} `}</Text>
+        <ActivityDot state={errorCount > 0 && !inFlight ? 'error' : inFlight ? 'active' : 'success'} />
+        <Text> </Text>
         <Text bold>Tools</Text>
         <Text dimColor>{' · '}</Text>
         <Text dimColor>{summary}</Text>

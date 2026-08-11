@@ -1,6 +1,12 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { LOGO_MIN_WIDTH, pickSlogan, selectLogo } from '../logo-data.js';
+import {
+  COMPACT_LOGO_LINES,
+  COMPACT_LOGO_WIDTH,
+  pickSlogan,
+  selectLogo,
+  WORDMARK_MIN_WIDTH,
+} from '../logo-data.js';
 import { LogoLine } from './LogoLine.js';
 
 /**
@@ -20,8 +26,9 @@ export const Logo: React.FC<{
   // every keystroke; we want one pick per session/mount.
   const pickedSlogan = useMemo(() => pickSlogan(), []);
   const slogan = sloganOverride ?? pickedSlogan;
-  const logoWidth = compact ? Math.min(width, LOGO_MIN_WIDTH - 1) : width;
-  const { lines } = selectLogo(logoWidth);
+  const lines = compact && width >= Math.max(WORDMARK_MIN_WIDTH, COMPACT_LOGO_WIDTH + 2)
+    ? COMPACT_LOGO_LINES
+    : selectLogo(width).lines;
 
   return (
     <Box flexDirection="column" marginBottom={1}>

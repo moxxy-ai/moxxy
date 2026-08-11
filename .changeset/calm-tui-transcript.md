@@ -2,4 +2,4 @@
 "@moxxy/cli": patch
 ---
 
-Redesign the TUI transcript, stable streaming state, clickable links, reading column, persistent model/context status, live activity, tool details, mode switching, and slash-command discovery for a calmer developer-alpha experience.
+Redesign the TUI transcript, compact boot mark, multiline composer, resilient clickable links, reading column, persistent model/context status, semantic live activity, tool details, mode switching, and slash-command discovery for a calmer developer-alpha experience.

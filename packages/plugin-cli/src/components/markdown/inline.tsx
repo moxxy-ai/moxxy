@@ -47,11 +47,14 @@ const InlineToken: React.FC<{ tok: InlineTok }> = ({ tok }) => {
 
 const LinkToken: React.FC<{ label: string; url: string }> = ({ label, url }) => {
   const visibleLabel = terminalSafeText(label, 512);
-  const link = terminalHyperlinkText(visibleLabel, url);
+  const enabled = terminalHyperlinksEnabled();
+  const link = terminalHyperlinkText(visibleLabel, url, enabled);
+  const hint = formatLinkHint(url, visibleLabel.length, undefined, enabled);
+  const linkedHint = hint ? terminalHyperlinkText(hint, url, enabled) : '';
   return (
     <>
       <Text underline color="blue">{link}</Text>
-      <Text dimColor>{formatLinkHint(url, visibleLabel.length)}</Text>
+      <Text dimColor>{linkedHint}</Text>
     </>
   );
 };
@@ -90,10 +93,15 @@ export function terminalHyperlinkText(label: string, url: string, enabled?: bool
   return `${hyperlink.open}${label}${hyperlink.close}`;
 }
 
-function terminalHyperlinksEnabled(): boolean {
+export function terminalHyperlinksEnabled(): boolean {
   if (process.env.FORCE_HYPERLINK === '0') return false;
   if (process.env.FORCE_HYPERLINK === '1') return true;
-  return process.stdout.isTTY === true && process.env.TERM !== 'dumb';
+  if (process.env.TERM === 'dumb') return false;
+  // Warp can place commands in a block/PTY bridge where Node's isTTY signal is
+  // occasionally absent even though OSC 8 is supported. TERM_PROGRAM is the
+  // more authoritative capability signal for that host.
+  if (process.env.TERM_PROGRAM === 'WarpTerminal') return true;
+  return process.stdout.isTTY === true;
 }
 
 function safeTerminalLinkUrl(url: string): string | null {
@@ -113,7 +121,15 @@ export function formatLinkHint(
   url: string,
   labelLength = 0,
   availableWidth = Math.min(108, process.stdout.columns ?? 80) - 8,
+  hyperlinkEnabled = true,
 ): string {
+  // Never render a blue label with no reachable destination. Pipes, captured
+  // output and terminals without OSC 8 support get the literal destination;
+  // capable terminals keep the compact host hint and the label owns the URL.
+  if (!hyperlinkEnabled) {
+    const safeUrl = safeTerminalLinkUrl(url);
+    return safeUrl ? ` ↗ ${safeUrl}` : ' ↗';
+  }
   let hint = ' ↗';
   try {
     const parsed = new URL(url);

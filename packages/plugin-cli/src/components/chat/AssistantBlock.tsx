@@ -1,8 +1,8 @@
 import React, { memo } from 'react';
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 import { Markdown } from '../Markdown.js';
-import { Colors, Glyphs } from '../../theme.js';
 import { blockGap } from './density.js';
+import { ActivityDot } from './ActivityDot.js';
 
 /**
  * The assistant reads like a document, not a chat bubble. A single brand
@@ -16,7 +16,7 @@ export const AssistantBlock: React.FC<{ content: string }> = memo(function Assis
   if (!content.trim()) return null;
   return (
     <Box flexDirection="row" marginTop={blockGap()}>
-      <Text color={Colors.busy}>{Glyphs.filled}</Text>
+      <ActivityDot state="neutral" />
       <Box flexDirection="column" flexGrow={1} flexShrink={1} marginLeft={1}>
         <Markdown content={content} firstBlockTight />
       </Box>

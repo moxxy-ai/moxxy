@@ -5,6 +5,7 @@ import { Colors, Glyphs } from '../../theme.js';
 import { wrapLogicalLine } from '../prompt/BufferLines.js';
 import { blockGap } from './density.js';
 import { AssistantBlock } from './AssistantBlock.js';
+import { ActivityDot } from './ActivityDot.js';
 
 export const EventLine: React.FC<{
   event: MoxxyEvent;
@@ -92,7 +93,8 @@ export const EventLine: React.FC<{
     case 'skill_created':
       return (
         <Box marginTop={blockGap()}>
-          <Text dimColor>{Glyphs.filled} </Text>
+          <ActivityDot state="success" />
+          <Text> </Text>
           <Text bold>skill created</Text>
           <Text dimColor>  {event.name}</Text>
         </Box>
@@ -113,7 +115,8 @@ export const EventLine: React.FC<{
     case 'error':
       return (
         <Box marginTop={blockGap()}>
-          <Text color={Colors.danger}>{Glyphs.filled} </Text>
+          <ActivityDot state="error" />
+          <Text> </Text>
           <Text color={Colors.danger}>error: </Text>
           <Text>{event.message}</Text>
         </Box>
@@ -121,7 +124,8 @@ export const EventLine: React.FC<{
     case 'abort':
       return (
         <Box marginTop={blockGap()}>
-          <Text color={Colors.busy}>⏹ aborted: {event.reason}</Text>
+          <ActivityDot state="error" />
+          <Text color={Colors.danger}> aborted: {event.reason}</Text>
         </Box>
       );
     default:

@@ -4,6 +4,7 @@ import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, t
 import { Colors } from '../../theme.js';
 import { formatToolActivity, isFileDiffResult, oneLine, stringify, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
+import { ActivityDot } from './ActivityDot.js';
 
 export const ToolCallBlock: React.FC<{
   request: ToolCallRequestedEvent;
@@ -47,12 +48,8 @@ export const ToolCallBlock: React.FC<{
     >
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
-        <Text
-          color={status === 'err' ? Colors.danger : status === 'ok' ? Colors.active : undefined}
-          dimColor={status === 'pending'}
-        >
-          {status === 'err' ? '✗' : status === 'ok' ? '✓' : toolGlyph(request.name)}{' '}
-        </Text>
+        <ActivityDot state={status === 'err' ? 'error' : status === 'ok' ? 'success' : 'active'} />
+        <Text> </Text>
         <Text dimColor>{detail}</Text>
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
         {!nested && status === 'ok' ? (
@@ -67,14 +64,6 @@ export const ToolCallBlock: React.FC<{
     </Box>
   );
 };
-
-export function toolGlyph(name: string): string {
-  const normalized = name.toLowerCase();
-  if (normalized === 'read' || normalized === 'glob') return '▱';
-  if (normalized === 'grep' || normalized.includes('search')) return '⌕';
-  if (normalized === 'bash' || normalized.includes('command')) return '›';
-  return '◇';
-}
 
 const OutcomeText: React.FC<{
   outcome: ToolResultEvent | { type: 'denied'; reason: string };
