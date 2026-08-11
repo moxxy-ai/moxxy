@@ -53,7 +53,7 @@
     }
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@moxxy/sdk": "workspace:*",
     "zod": "catalog:"
   },

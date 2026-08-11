@@ -12,6 +12,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
+    "audit:security": "node scripts/security-audit.mjs",
     "test": "turbo run test && pnpm run test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:watch": "turbo run test:watch --concurrency=1",
@@ -21,11 +22,11 @@
   "devDependencies": {
     "@moxxy/config": "workspace:*",
     "@types/node": "catalog:",
-    "dependency-cruiser": "^16.0.0",
+    "dependency-cruiser": "^18.2.0",
     "eslint": "^9.18.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "catalog:",
-    "turbo": "^2.5.0",
+    "turbo": "^2.10.9",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -61,8 +62,48 @@
       "node-pty"
     ],
     "supportedArchitectures": {
-      "os": ["current"],
-      "cpu": ["x64", "arm64"]
+      "os": [
+        "current"
+      ],
+      "cpu": [
+        "x64",
+        "arm64"
+      ]
+    },
+    "overrides": {
+      "@hono/node-server": "2.1.0",
+      "body-parser": "2.3.0",
+      "brace-expansion@<2": "1.1.18",
+      "brace-expansion@>=2 <3": "2.1.4",
+      "brace-expansion@>=3 <6": "5.0.9",
+      "esbuild@<=0.24.2": "0.25.12",
+      "esbuild@>=0.27.3 <0.28.1": "0.28.1",
+      "electron-builder-squirrel-windows": "26.15.3",
+      "fast-uri@>=3 <4": "3.1.5",
+      "fast-xml-parser@<5.7.0": "5.7.0",
+      "form-data@>=4 <4.0.6": "4.0.6",
+      "hono": "4.13.1",
+      "ip-address": "10.5.0",
+      "joi@<17.13.4": "17.13.4",
+      "js-yaml@>=3 <4": "3.15.1",
+      "js-yaml@>=4 <5": "4.3.1",
+      "music-metadata@<11.12.3": "11.12.3",
+      "nanoid@<3.3.17": "3.3.17",
+      "postcss": "8.5.26",
+      "pdfjs-dist@>=5.6.83 <6.2.108": "6.2.108",
+      "protobufjs@>=7 <8": "7.6.5",
+      "qs@>=6 <6.15.2": "6.15.2",
+      "sharp": "0.35.3",
+      "shell-quote": "1.10.0",
+      "socket.io-parser@>=4 <4.2.7": "4.2.7",
+      "svgo@>=4 <4.0.2": "4.0.2",
+      "tar": "7.5.22",
+      "undici@>=6 <7": "6.28.0",
+      "uuid@<11.1.1": "11.1.1",
+      "yaml@>=2 <2.8.3": "2.8.3"
+    },
+    "patchedDependencies": {
+      "image-size@1.2.1": "patches/image-size@1.2.1.patch"
     }
   },
   "license": "MIT"

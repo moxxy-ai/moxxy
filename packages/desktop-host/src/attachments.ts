@@ -28,7 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
-import { parseOfficeAsync } from 'officeparser';
+import { parseOffice } from 'officeparser';
 import { extractPdfText } from './pdf-text.js';
 
 /** Image extensions we forward as inline base64 with a real mediaType. */
@@ -233,8 +233,9 @@ function legacyDocToText(buf: Buffer): string | null {
  *  throw. NOT for PDFs — those go through {@link extractPdf}. */
 async function extractText(buf: Buffer, name: string): Promise<string | null> {
   try {
-    const text = await parseOfficeAsync(buf, { outputErrorToConsole: false });
-    return typeof text === 'string' && text.trim().length > 0 ? text : null;
+    const ast = await parseOffice(buf, { outputErrorToConsole: false });
+    const { value: text } = await ast.to('text');
+    return text.trim().length > 0 ? text : null;
   } catch (e) {
     console.warn(`[attachments] could not extract text from ${name}: ${(e as Error).message}`);
     return null;
