@@ -11,10 +11,6 @@ export interface ExtractOptions {
   selector?: string;
 }
 
-const COMMENT_RE = /<!--[\s\S]*?-->/g;
-const SCRIPT_RE = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
-const STYLE_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
-
 /**
  * Hard ceiling on the HTML fed to the regex extractors. web_fetch caps the raw
  * body at up to 20MB (maxBytes), but the lazy `[\s\S]*?` passes here run
@@ -39,13 +35,10 @@ function capInput(html: string): string {
  * Collapses whitespace. Decodes the common HTML entities.
  */
 export function htmlToPlainText(html: string, opts: ExtractOptions = {}): string {
-  let body = sliceBySelector(capInput(html), opts.selector);
-  body = body.replace(COMMENT_RE, '');
-  body = body.replace(SCRIPT_RE, '');
-  body = body.replace(STYLE_RE, '');
+  let body = removeNonContent(sliceBySelector(capInput(html), opts.selector));
   body = body.replace(/<br\b[^>]*>/gi, '\n');
   body = body.replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n');
-  body = body.replace(/<[^>]+>/g, '');
+  body = stripMarkupTags(body);
   body = decodeEntities(body);
   return collapseWhitespace(body);
 }
@@ -55,10 +48,7 @@ export function htmlToPlainText(html: string, opts: ExtractOptions = {}): string
  * paragraphs. Falls through to plain-text rules for unknown structure.
  */
 export function htmlToMarkdown(html: string, opts: ExtractOptions = {}): string {
-  let body = sliceBySelector(capInput(html), opts.selector);
-  body = body.replace(COMMENT_RE, '');
-  body = body.replace(SCRIPT_RE, '');
-  body = body.replace(STYLE_RE, '');
+  let body = removeNonContent(sliceBySelector(capInput(html), opts.selector));
 
   // headings
   body = body.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, lvl: string, inner: string) =>
@@ -91,7 +81,7 @@ export function htmlToMarkdown(html: string, opts: ExtractOptions = {}): string 
   // line breaks
   body = body.replace(/<br\b[^>]*>/gi, '\n');
   body = body.replace(/<\/?p\b[^>]*>/gi, '\n\n');
-  body = body.replace(/<[^>]+>/g, '');
+  body = stripMarkupTags(body);
   body = decodeEntities(body);
   return collapseWhitespace(body);
 }
@@ -107,7 +97,85 @@ function collapseWhitespace(s: string): string {
 }
 
 function stripTags(s: string): string {
-  return s.replace(/<[^>]+>/g, '');
+  return stripMarkupTags(s);
+}
+
+/** Remove comments plus script/style elements in one left-to-right pass.
+ *  Regex replacement can join two fragments into a fresh opening tag; this
+ *  scanner only recognizes tags that existed in the original input. */
+function removeNonContent(html: string): string {
+  const lower = html.toLowerCase();
+  const out: string[] = [];
+  let copiedUntil = 0;
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    const start = lower.indexOf('<', cursor);
+    if (start === -1) break;
+
+    let end = -1;
+    if (lower.startsWith('<!--', start)) {
+      const close = lower.indexOf('-->', start + 4);
+      end = close === -1 ? html.length : close + 3;
+    } else if (isOpeningTag(lower, start, 'script')) {
+      end = endOfElement(lower, start, 'script');
+    } else if (isOpeningTag(lower, start, 'style')) {
+      end = endOfElement(lower, start, 'style');
+    }
+
+    if (end === -1) {
+      cursor = start + 1;
+      continue;
+    }
+    out.push(html.slice(copiedUntil, start));
+    copiedUntil = end;
+    cursor = end;
+  }
+
+  out.push(html.slice(copiedUntil));
+  return out.join('');
+}
+
+function isOpeningTag(lower: string, start: number, tag: string): boolean {
+  if (!lower.startsWith(`<${tag}`, start)) return false;
+  const boundary = lower[start + tag.length + 1];
+  return boundary === undefined || boundary === '>' || boundary === '/' || /\s/.test(boundary);
+}
+
+function endOfElement(lower: string, start: number, tag: string): number {
+  const openEnd = lower.indexOf('>', start + tag.length + 1);
+  if (openEnd === -1) return lower.length;
+  const closeToken = `</${tag}`;
+  let close = lower.indexOf(closeToken, openEnd + 1);
+  while (close !== -1) {
+    const boundary = lower[close + closeToken.length];
+    if (boundary === undefined || boundary === '>' || /\s/.test(boundary)) {
+      const closeEnd = lower.indexOf('>', close + closeToken.length);
+      return closeEnd === -1 ? lower.length : closeEnd + 1;
+    }
+    close = lower.indexOf(closeToken, close + closeToken.length);
+  }
+  return lower.length;
+}
+
+/** Strip markup without repeated replacements that can synthesize new tags. */
+function stripMarkupTags(input: string): string {
+  const out: string[] = [];
+  let cursor = 0;
+  while (cursor < input.length) {
+    if (input[cursor] !== '<') {
+      out.push(input[cursor] ?? '');
+      cursor += 1;
+      continue;
+    }
+    const end = input.indexOf('>', cursor + 1);
+    if (end === -1) {
+      out.push(input.slice(cursor));
+      break;
+    }
+    cursor = end + 1;
+  }
+  return out.join('');
 }
 
 function decodeEntities(s: string): string {

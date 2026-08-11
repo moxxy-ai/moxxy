@@ -55,6 +55,15 @@ export function markdownToTelegramHtml(md: string): string {
     return ` INLINE${inlines.length - 1} `;
   });
 
+  // Pull link destinations out before HTML escaping. The visible label stays
+  // in the Markdown pipeline, while the raw target is validated and escaped
+  // exactly once when the final anchor is emitted.
+  const linkTargets: string[] = [];
+  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, text, url) => {
+    linkTargets.push(String(url));
+    return `[${String(text)}](LINKTARGET${linkTargets.length - 1})`;
+  });
+
   // Now safe to escape HTML special chars in everything else.
   working = escapeHtml(working);
 
@@ -97,15 +106,11 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/(^|[\s(,.!?:;])\*([^*\n]+)\*(?=$|[\s),.!?:;])/g, (_m, pre, body) => `${pre}<i>${String(body)}</i>`);
   working = working.replace(/(^|[\s(,.!?:;])_([^_\n]+)_(?=$|[\s),.!?:;])/g, (_m, pre, body) => `${pre}<i>${String(body)}</i>`);
 
-  // Links [text](url) — strip url tracking params if needed later;
-  // for now just emit. URLs may contain `&` which is already escaped
-  // to `&amp;` by escapeHtml above; that's valid inside href.
-  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
-    // The url got HTML-escaped earlier; restore enough that the link
-    // actually points where it should. Only `&amp;` → `&` is needed
-    // for the typical case; `<>` shouldn't appear in a URL but unescape
-    // them defensively.
-    const cleanUrl = String(url).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  // Links [text](url). Targets were removed before escaping, so they cannot
+  // be double-decoded and are escaped once at this attribute boundary.
+  working = working.replace(/\[([^\]]+)\]\(LINKTARGET(\d+)\)/g, (_match, text, index) => {
+    const cleanUrl = linkTargets[Number(index)];
+    if (cleanUrl === undefined) return String(text);
     // The anchor target comes from arbitrary model output (and, via prompt
     // injection, untrusted data the model echoes). Don't rely on Telegram's
     // server-side parser as the sole sanitizer: emit a clickable <a> only for
@@ -113,7 +118,7 @@ export function markdownToTelegramHtml(md: string): string {
     // else — `javascript:`, `data:`, `file:`, `tg://` deep links — is left as
     // the original `[text](url)` text (already HTML-escaped upstream) so it
     // can't navigate the client.
-    if (!isAllowedUrl(cleanUrl)) return String(m);
+    if (!isAllowedUrl(cleanUrl)) return `[${String(text)}](${escapeHtml(cleanUrl)})`;
     return `<a href="${escapeAttr(cleanUrl)}">${String(text)}</a>`;
   });
 

@@ -34,14 +34,32 @@ export function composeFrame(snap: RenderedFrame): string {
  *  (`&#39;`, `&#x27;`) are handled too, since escaped user/code content can
  *  carry them and they'd otherwise leak literally into the fallback message. */
 export function stripHtml(html: string): string {
-  return html
-    .replace(/<\/?[a-z][^>]*>/gi, '')
+  return stripTags(html)
     .replace(/&#(\d+);/g, (_, dec: string) => safeFromCodePoint(parseInt(dec, 10)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => safeFromCodePoint(parseInt(hex, 16)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, '&');
+}
+
+function stripTags(html: string): string {
+  const out: string[] = [];
+  let cursor = 0;
+  while (cursor < html.length) {
+    if (html[cursor] !== '<') {
+      out.push(html[cursor] ?? '');
+      cursor += 1;
+      continue;
+    }
+    const end = html.indexOf('>', cursor + 1);
+    if (end === -1) {
+      out.push(html.slice(cursor));
+      break;
+    }
+    cursor = end + 1;
+  }
+  return out.join('');
 }
 
 /** Decode a numeric entity's code point, leaving an out-of-range/invalid value
