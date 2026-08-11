@@ -23,7 +23,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -338,15 +339,10 @@ const MAX_READ_WHOLE_BYTES = 64 * 1024 * 1024; // 64 MB
 
 /** Read at most `max` bytes from the head of a file via a bounded handle, so an
  *  oversized file never fully loads into memory. Mirrors workspace-fs's readHead. */
-async function readHead(absPath: string, max: number): Promise<Buffer> {
-  const handle = await open(absPath, 'r');
-  try {
-    const buf = Buffer.alloc(max);
-    const { bytesRead } = await handle.read(buf, 0, max, 0);
-    return buf.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
+async function readHead(handle: FileHandle, max: number): Promise<Buffer> {
+  const buf = Buffer.alloc(max);
+  const { bytesRead } = await handle.read(buf, 0, max, 0);
+  return buf.subarray(0, bytesRead);
 }
 
 export async function buildAttachments(
@@ -355,12 +351,14 @@ export async function buildAttachments(
   const out: UserPromptAttachment[] = [];
   for (const f of files) {
     const ext = path.extname(f.path).toLowerCase();
+    let handle: FileHandle | null = null;
     try {
       // Size-gate BEFORE reading the whole file: a huge picked file (a
       // multi-GB log/video) must not be fully loaded — then base64'd at ~1.33x
       // — into the main process before any per-type cap can apply. Stat first
       // and route oversized text/code to the bounded head-excerpt fallback.
-      const size = (await stat(f.path)).size;
+      handle = await open(f.path, 'r');
+      const size = (await handle.stat()).size;
       const mediaType = IMAGE_MEDIA_TYPES[ext];
 
       if (size > MAX_READ_WHOLE_BYTES) {
@@ -371,7 +369,7 @@ export async function buildAttachments(
         // Peek the head only. If it's binary (PDF/Office/legacy doc) we can't
         // extract from a partial buffer without loading the whole thing, so
         // skip with a warning; readable text gets a head excerpt + read-on-demand.
-        const head = await readHead(f.path, HEAD_EXCERPT_BYTES);
+        const head = await readHead(handle, HEAD_EXCERPT_BYTES);
         if (isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext) || isLegacyDoc(head, ext) || head.includes(0)) {
           console.warn(
             `[attachments] skipping ${f.name}: ${size} bytes exceeds the ${MAX_READ_WHOLE_BYTES}-byte read cap`,
@@ -382,7 +380,7 @@ export async function buildAttachments(
         continue;
       }
 
-      const buf = await readFile(f.path);
+      const buf = await handle.readFile();
 
       // 1. Image → base64 the model can see.
       if (mediaType) {
@@ -441,6 +439,8 @@ export async function buildAttachments(
       }
     } catch {
       // Unreadable (gone / permission) → drop it rather than fail the turn.
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   }
   return out;
@@ -461,10 +461,12 @@ export async function previewImageAttachment(
   const mediaType = IMAGE_MEDIA_TYPES[path.extname(absPath).toLowerCase()];
   if (!mediaType) return null;
 
+  let handle: FileHandle | null = null;
   try {
-    const size = (await stat(absPath)).size;
+    handle = await open(absPath, 'r');
+    const size = (await handle.stat()).size;
     if (size > MAX_IMAGE_BYTES) return null;
-    const buf = await readFile(absPath);
+    const buf = await handle.readFile();
     if (buf.byteLength > MAX_IMAGE_BYTES) return null;
     return {
       kind: 'image',
@@ -475,6 +477,8 @@ export async function previewImageAttachment(
     };
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -496,11 +500,11 @@ async function largeFileFallback(
 ): Promise<UserPromptAttachment> {
   let readablePath = sourcePath;
   if (!readablePath) {
-    await mkdir(ATTACHMENT_TMP_DIR, { recursive: true });
-    void pruneOldAttachments();
+    const attachmentTmpDir = await getAttachmentTmpDir();
+    void pruneOldAttachments(attachmentTmpDir);
     const safe = path.basename(name).replace(/[^\w.-]+/g, '_') || 'attachment';
-    readablePath = path.join(ATTACHMENT_TMP_DIR, `${randomUUID()}-${safe}.txt`);
-    await writeFile(readablePath, fullText, 'utf8');
+    readablePath = path.join(attachmentTmpDir, `${randomUUID()}-${safe}.txt`);
+    await writeFile(readablePath, fullText, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
   }
   const head = fullText.slice(0, HEAD_EXCERPT_BYTES);
   const kb = Math.max(1, Math.round(totalBytes / 1024));
@@ -521,8 +525,19 @@ const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
   'image/bmp': 'bmp',
 };
 
-/** Where pasted/dropped image blobs land before a turn reads them. */
-const ATTACHMENT_TMP_DIR = path.join(os.tmpdir(), 'moxxy-attachments');
+/** Per-process private temp directory. `mkdtemp` makes the path unpredictable;
+ *  owner-only permissions keep another local user from planting symlinks. */
+let attachmentTmpDirPromise: Promise<string> | null = null;
+
+async function getAttachmentTmpDir(): Promise<string> {
+  attachmentTmpDirPromise ??= mkdtemp(path.join(os.tmpdir(), 'moxxy-attachments-')).then(
+    async (dir) => {
+      await chmod(dir, 0o700);
+      return dir;
+    },
+  );
+  return await attachmentTmpDirPromise;
+}
 /** Sweep temp attachments older than this so pastes don't accumulate. */
 const ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -547,23 +562,23 @@ export async function persistImageBlob(
       `Image is too large to attach (max ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} MB).`,
     );
   }
-  await mkdir(ATTACHMENT_TMP_DIR, { recursive: true });
-  void pruneOldAttachments();
-  const filePath = path.join(ATTACHMENT_TMP_DIR, `${randomUUID()}.${ext}`);
-  await writeFile(filePath, buf);
+  const attachmentTmpDir = await getAttachmentTmpDir();
+  void pruneOldAttachments(attachmentTmpDir);
+  const filePath = path.join(attachmentTmpDir, `${randomUUID()}.${ext}`);
+  await writeFile(filePath, buf, { flag: 'wx', mode: 0o600 });
   const display = name && name.trim().length > 0 ? name : `pasted-image.${ext}`;
   return { path: filePath, name: display };
 }
 
 /** Best-effort sweep of stale temp attachments. Never throws — a failed
  *  prune just means the next save tries again. */
-async function pruneOldAttachments(): Promise<void> {
+async function pruneOldAttachments(attachmentTmpDir: string): Promise<void> {
   try {
     const now = Date.now();
-    const entries = await readdir(ATTACHMENT_TMP_DIR);
+    const entries = await readdir(attachmentTmpDir);
     await Promise.all(
       entries.map(async (entry) => {
-        const full = path.join(ATTACHMENT_TMP_DIR, entry);
+        const full = path.join(attachmentTmpDir, entry);
         try {
           const info = await stat(full);
           if (now - info.mtimeMs > ATTACHMENT_TTL_MS) await unlink(full);

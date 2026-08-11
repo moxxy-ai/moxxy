@@ -34,10 +34,13 @@ export function ensureDesktopVaultKey(): void {
   const keyPath = moxxyPath('vault.key');
   const vaultPath = moxxyPath('vault.json');
   // Don't touch an existing vault — only seed a truly fresh setup.
-  if (existsSync(keyPath) || existsSync(vaultPath)) return;
+  if (existsSync(vaultPath)) return;
   try {
     mkdirSync(path.dirname(keyPath), { recursive: true });
-    writeFileSync(keyPath, `${randomBytes(KEY_BYTES).toString('base64')}\n`, { mode: 0o600 });
+    writeFileSync(keyPath, `${randomBytes(KEY_BYTES).toString('base64')}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
   } catch {
     // Best effort — if we can't write, the vault falls back to its prompt
     // behaviour (unchanged), so this never makes things worse.
