@@ -382,24 +382,38 @@ class ChatStore {
   }
 
   /** Best-effort recovery for thin clients that missed non-persisted lifecycle
-   *  pushes while backgrounded/reconnecting. Pull the latest authoritative window,
-   *  append any tail events we missed, and clear the active turn if the
-   *  authoritative log now shows that same turn reached a terminal row. */
-  async refreshLatest(workspaceId: string): Promise<void> {
+   * pushes while backgrounded/reconnecting. History remains authoritative for
+   * transcript rows; `liveTurnId` is authoritative for runtime liveness. */
+  async refreshLatest(workspaceId: string, liveTurnId: string | null): Promise<void> {
     const slot = this.ensure(workspaceId);
     if (!this.persistence) return;
-    const activeTurnId = slot.rt.activeTurnId;
+    const previousTurnId = slot.rt.activeTurnId;
     const epoch = slot.resetEpoch;
     const runner = await this.collectRunnerInitial(workspaceId);
     if (slot.resetEpoch !== epoch || !runner) return;
 
     let changed = this.appendFreshTail(slot, runner.events);
-    if (activeTurnId && terminalEventForTurn(runner.events, activeTurnId)) {
-      changed = applyAction(slot.rt, { type: 'turn_complete', turnId: activeTurnId, error: null }) || changed;
+    const previousTerminal = previousTurnId
+      ? terminalEventForTurn(runner.events, previousTurnId)
+      : null;
+    if (previousTurnId && previousTerminal) {
+      changed =
+        applyAction(slot.rt, {
+          type: 'turn_complete',
+          turnId: previousTurnId,
+          error: null,
+        }) || changed;
     }
-    const openTurnId = latestOpenTurnId(runner.events);
-    if (!slot.rt.activeTurnId && openTurnId) {
-      changed = applyAction(slot.rt, { type: 'send_started', turnId: openTurnId }) || changed;
+
+    const liveTerminal = liveTurnId ? terminalEventForTurn(runner.events, liveTurnId) : null;
+    const desiredTurnId = liveTerminal ? null : liveTurnId;
+    if (slot.rt.activeTurnId !== desiredTurnId) {
+      if (slot.rt.activeTurnId !== null) {
+        changed = applyAction(slot.rt, { type: 'turn_reconciled_idle' }) || changed;
+      }
+      if (desiredTurnId !== null) {
+        changed = applyAction(slot.rt, { type: 'send_started', turnId: desiredTurnId }) || changed;
+      }
     }
     if (!changed) return;
     if (this.activeId === workspaceId) slot.lastSeenRev = slot.rt.rev;
@@ -638,20 +652,6 @@ function terminalEventForTurn(events: ReadonlyArray<MoxxyEvent>, turnId: string)
     if (event.type === 'assistant_message') return event.stopReason === 'tool_use' ? null : event;
     if (event.type === 'abort') return event;
     if (event.type === 'error') return event.kind === 'fatal' ? event : null;
-  }
-  return null;
-}
-
-function latestOpenTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
-  const turnId = latestTurnId(events);
-  if (!turnId) return null;
-  return terminalEventForTurn(events, turnId) ? null : turnId;
-}
-
-function latestTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const turnId = events[index]?.turnId;
-    if (typeof turnId === 'string' && turnId.length > 0) return turnId;
   }
   return null;
 }

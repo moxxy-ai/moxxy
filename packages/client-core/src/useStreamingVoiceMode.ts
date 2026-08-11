@@ -79,7 +79,11 @@ export function useStreamingVoiceMode(
       for (const chunk of chunks) queue.enqueue(chunk);
     };
     const offStarted = api().subscribe('runner.turn.started', (payload) => {
-      if (payload.workspaceId !== workspaceId || chatStore.isHidden(payload.turnId)) return;
+      if (
+        payload.workspaceId !== workspaceId
+        || payload.visibility === 'background'
+        || chatStore.isHidden(payload.turnId)
+      ) return;
       if (turnIdRef.current !== null && turnIdRef.current !== payload.turnId) queue.cancel();
       segmenterRef.current.reset();
       turnIdRef.current = payload.turnId;

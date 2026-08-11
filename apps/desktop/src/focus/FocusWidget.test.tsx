@@ -67,6 +67,7 @@ interface IpcSpy {
 
 interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
+  readonly activeTurnId?: string | null;
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
   readonly horizontalAnchor?: 'left' | 'right';
@@ -111,6 +112,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const invokes: Array<{ channel: string; args: unknown }> = [];
   const subs = new Map<string, Set<(payload: unknown) => void>>();
   const historyEvents = options.historyEvents ?? [];
+  const activeTurnId = options.activeTurnId ?? null;
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
   const horizontalAnchor = options.horizontalAnchor ?? 'right';
@@ -139,6 +141,9 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       }
       if (channel === 'chat.loadHistory') {
         return Promise.resolve({ events: historyEvents, prevCursor: null });
+      }
+      if (channel === 'session.activeTurn') {
+        return Promise.resolve({ turnId: activeTurnId });
       }
       if (channel === 'focus.resize') {
         return Promise.resolve({ horizontalAnchor });
@@ -1443,6 +1448,7 @@ describe('FocusWidget bidirectional sync', () => {
   it('recovers a main-chat task that started before Focus mounted', async () => {
     const turnId = asTurnId('turn-started-in-main-before-focus');
     const spy = installFakeApi({
+      activeTurnId: turnId,
       historyEvents: [
         event(1, {
           type: 'user_prompt',
@@ -1571,7 +1577,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('shows an inactive assistant preview bubble and opens mini-text when the pet is clicked', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 't-preview' });
     render(<FocusWidget />);
 
     spy.emit('runner.turn.started', {
@@ -1922,7 +1928,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('lets the user hide and restore task bubbles without ending the turn', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-hide-task' });
     render(<FocusWidget />);
 
     act(() => {
@@ -1963,7 +1969,10 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps the inactive restore control inward when Focus is docked on the left', async () => {
-    const spy = installFakeApi({ horizontalAnchor: 'left' });
+    const spy = installFakeApi({
+      activeTurnId: 'turn-left-restore',
+      horizontalAnchor: 'left',
+    });
     render(<FocusWidget />);
 
     act(() => {
@@ -1995,7 +2004,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps the active restore arrow above Moxxy and outside the action bar', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-active-restore' });
     render(<FocusWidget />);
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -2101,7 +2110,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps required user decisions visible while ordinary task bubbles are hidden', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-hidden-task-ask' });
     render(<FocusWidget />);
 
     act(() => {

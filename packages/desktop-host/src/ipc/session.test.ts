@@ -221,10 +221,51 @@ describe('session.runTurn handler', () => {
         undefined,
         undefined,
         inlineAttachments,
+        undefined,
       );
     } finally {
       drivers.delete('ws-inline');
     }
+  });
+});
+
+describe('session.activeTurn handler', () => {
+  it('reports only the foreground turn owned by the targeted live driver', async () => {
+    const activeForegroundTurnId = vi.fn().mockReturnValue('turn-live');
+    drivers.set('ws-live', { activeForegroundTurnId } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'ws-live',
+      get: () => null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const activeTurnHandler = handlers.get('session.activeTurn');
+      assertDefined(activeTurnHandler, 'session.activeTurn handler');
+      await expect(activeTurnHandler({ workspaceId: 'ws-live' })).resolves.toEqual({
+        turnId: 'turn-live',
+      });
+    } finally {
+      drivers.delete('ws-live');
+    }
+  });
+
+  it('returns idle when a restarted workspace has no live driver turn', async () => {
+    const pool = {
+      activeWorkspaceId: () => 'ws-idle',
+      get: () => null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const activeTurnHandler = handlers.get('session.activeTurn');
+    assertDefined(activeTurnHandler, 'session.activeTurn handler');
+    await expect(activeTurnHandler({ workspaceId: 'ws-idle' })).resolves.toEqual({
+      turnId: null,
+    });
   });
 });
 

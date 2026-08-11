@@ -11,9 +11,15 @@ export interface PromptAttachment {
   readonly name: string;
 }
 
+/** Whether a runner turn belongs to the visible conversation or is an
+ * implementation task owned by a transient surface such as Settings. */
+export type RunTurnVisibility = 'foreground' | 'background';
+
 export interface RunTurnArgs {
   prompt: string;
   model?: string;
+  /** Defaults to `foreground`. Background turns never drive chat/Focus busy UI. */
+  visibility?: RunTurnVisibility;
   attachments?: ReadonlyArray<PromptAttachment>;
   /**
    * Inline attachments for REMOTE clients (the mobile app) that cannot
@@ -28,4 +34,10 @@ export interface RunTurnArgs {
 
 export interface RunTurnResult {
   turnId: string;
+}
+
+/** Authoritative live foreground-turn snapshot from the current driver.
+ * Persisted history is deliberately not consulted for this value. */
+export interface ActiveTurnSnapshot {
+  turnId: string | null;
 }

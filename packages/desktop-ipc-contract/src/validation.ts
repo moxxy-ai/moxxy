@@ -251,6 +251,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: optionalWorkspace,
     prompt: z.string().max(1_000_000),
     model: z.string().min(1).max(256).optional(),
+    visibility: z.enum(['foreground', 'background']).optional(),
     attachments: z
       .array(
         z.object({
@@ -301,6 +302,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       })
       .optional(),
   }),
+  'session.activeTurn': z.object({ workspaceId: optionalWorkspace }).optional(),
   'session.previewAttachment': z
     .object({
       workspaceId: optionalWorkspace,

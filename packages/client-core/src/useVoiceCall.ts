@@ -507,7 +507,7 @@ export function useVoiceCall({
   useEffect(() => {
     if (!state.active) return;
     const offStarted = api().subscribe('runner.turn.started', (payload) => {
-      if (payload.workspaceId !== workspaceId) return;
+      if (payload.workspaceId !== workspaceId || payload.visibility === 'background') return;
       const alreadyOurs = currentTurnIdRef.current === payload.turnId;
       currentTurnIdRef.current = payload.turnId;
       const pendingFeedbackTranscript = pendingFeedbackTranscriptRef.current;
