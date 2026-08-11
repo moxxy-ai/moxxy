@@ -111,12 +111,7 @@ export function nextSelectableMode(session: Session): ModeDef | null {
   return modes[(currentIndex + 1 + modes.length) % modes.length] ?? null;
 }
 
-/**
- * Presentation badge for the active mode, if it declares one. Sourced from
- * the serializable `getInfo()` snapshot rather than `modes.getActive().badge`
- * so it also resolves over the thin-client transport (a `RemoteSession`'s
- * mode objects are name-only stubs). `null` when no badge / no active mode.
- */
+/** Safety tone for elevated modes, sourced from the transport-safe snapshot. */
 export function getModeBadge(session: Session): ModeBadge | null {
   try {
     return session.getInfo().activeModeBadge;

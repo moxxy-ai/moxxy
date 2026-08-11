@@ -21,6 +21,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 
 @moxxy/tools-builtin              Read/Edit/Write/Bash/Grep/Glob + recall + Sleep
 @moxxy/mode-default               "default" mode — Claude Code-style ReAct loop (registered by the CLI; first registered mode auto-activates)
+@moxxy/mode-plan                  "plan" mode — read-only analysis + structured, revisable execution plan
 @moxxy/mode-goal                  "goal" mode — autonomous auto-approve loop; works across turns until goal_complete
 @moxxy/mode-deep-research         "research" mode — multi-query fan-out + synthesis
 @moxxy/compactor-segments         DEFAULT compactor: sub-session records (one per finished turn) folded into chapters; adds `session_recall`

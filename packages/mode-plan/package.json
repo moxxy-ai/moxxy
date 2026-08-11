@@ -1,0 +1,64 @@
+{
+  "name": "@moxxy/mode-plan",
+  "version": "0.37.0",
+  "description": "Read-only planning mode for turning a request into a complete, revisable implementation plan before execution.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "mode",
+    "planning"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/mode-plan"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "mode"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

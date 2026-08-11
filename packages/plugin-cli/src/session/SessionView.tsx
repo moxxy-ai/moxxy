@@ -555,24 +555,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
         onPasteText={images.handlePasteText}
       />
       <StatusLine
-        busyStartedAt={
-          turn.busy && !pendingPermission && !pendingApproval ? turn.busyStartedAt : null
-        }
-        busyLabel={
-          stream.streamingDelta.trim()
-            ? 'Writing'
-            : stream.reasoningDelta.trim()
-              ? 'Thinking'
-              : 'Working'
-        }
-        queueCount={turn.queueCount}
         modeBadge={modeBadge}
         modeName={modeName}
         modelName={activeModel}
         contextUsed={contextUsed}
         contextWindow={contextWindow}
         governance={sessionInfo.governance ?? null}
-        chromeItems={sessionInfo.clientChrome ?? []}
       />
     </Box>
   );

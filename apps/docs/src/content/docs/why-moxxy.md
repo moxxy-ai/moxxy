@@ -147,7 +147,7 @@ Honesty about the table stakes, as of July 2026:
 ## What is genuinely distinctive
 
 - **The loop itself is swappable.** Modes are plugins
-  (`@moxxy/mode-default`, `@moxxy/mode-goal`,
+  (`@moxxy/mode-default`, `@moxxy/mode-plan`, `@moxxy/mode-goal`,
   `@moxxy/mode-deep-research`) registered like any other block. The
   alternatives let you configure or hook their loop; none lets you
   replace it.

@@ -3,10 +3,11 @@ title: '@moxxy/plugin-memory'
 description: Long-term journal memory with TF-IDF or vector recall + short-term selectors.
 ---
 
-`@moxxy/plugin-memory` is moxxy's persistent memory layer. Each memory
+`@moxxy/plugin-memory` is moxxy's cross-session persistent memory layer. Each memory
 is one Markdown file with YAML frontmatter under `~/.moxxy/memory/`,
-indexed by `MEMORY.md`. Short-term selectors fold the session's event
-log into context-friendly summaries.
+indexed by `MEMORY.md`. Exact conversation history and the default
+sub-session records remain in the session log; they are recalled with
+`recall` and `session_recall`, not duplicated into this journal.
 
 ## Install
 
