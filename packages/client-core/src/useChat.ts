@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
@@ -221,30 +221,26 @@ export function useChat(workspaceId: string | null): UseChat {
     workspaceId ? connectionStore.get(workspaceId)?.phase.phase === 'connected' : false,
   );
 
-  // Load the most-recent window immediately. Depending on startup timing this is
-  // served either from the host's validated JSONL or the connected runner's live
-  // log. Keep `runnerConnected` in the dependencies for the older/no-host-cache
-  // path: a null first result remains retryable when the runner attaches.
+  // Load the most-recent window immediately. A connected surface then reconciles
+  // that cache-first page with the runner's live tail. This is required even
+  // when the runner was already connected before this hook mounted: secondary
+  // windows (Focus Mode) may have missed the ephemeral turn-start push while
+  // they were closed, and only the live log can restore that active turn safely.
+  // When disconnected we keep the cache-first page read-only — an old on-disk
+  // log may end mid-turn after a crash and must not manufacture a stuck spinner.
   useEffect(() => {
-    if (workspaceId) void chatStore.loadInitial(workspaceId);
-  }, [workspaceId, runnerConnected]);
-
-  // The startup page is a stale-while-revalidate snapshot. On a genuine
-  // disconnected → connected edge, pull the live tail to recover anything that
-  // landed after the disk read (or while this thin client was offline). Do not
-  // do the extra read when a workspace is already connected on first mount.
-  const previousConnection = useRef({ workspaceId, connected: runnerConnected });
-  useEffect(() => {
-    const previous = previousConnection.current;
-    previousConnection.current = { workspaceId, connected: runnerConnected };
-    if (
-      workspaceId &&
-      previous.workspaceId === workspaceId &&
-      !previous.connected &&
-      runnerConnected
-    ) {
-      void chatStore.refreshLatest(workspaceId);
-    }
+    if (!workspaceId) return;
+    let cancelled = false;
+    void chatStore
+      .loadInitial(workspaceId)
+      .then(() => {
+        if (cancelled || !runnerConnected) return;
+        return chatStore.refreshLatest(workspaceId);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, runnerConnected]);
 
   const loadOlder = useCallback((): void => {
