@@ -59,6 +59,7 @@ export interface BuiltinRequirementDecision {
 export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequirementDecision>> = {
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
   '@moxxy/mode-default': { hardRequirements: false, reason: 'default mode has no plugin dependency' },
+  '@moxxy/mode-plan': { hardRequirements: false, reason: 'read-only planner owns a mode-local plan_complete contract' },
   '@moxxy/mode-goal': { hardRequirements: false, reason: 'mode ships its own goal_complete/goal_abandon tools; no hard plugin dependency' },
   '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'research mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
   '@moxxy/mode-collaborative': { hardRequirements: false, reason: 'coordinator spawns separate agent processes; needs @moxxy/plugin-collab at runtime, surfaced if absent' },

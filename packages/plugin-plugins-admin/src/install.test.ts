@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -144,6 +152,46 @@ describe('installPluginPackage / removePluginPackage honor a pre-aborted signal'
       /aborted before start/,
     );
     expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('repairs stale desktop seed tarballs before npm starts', async () => {
+    const pluginsDir = userPluginsDir();
+    const installed = path.join(
+      pluginsDir,
+      'node_modules',
+      '@moxxy',
+      'plugin-provider-anthropic',
+    );
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(
+      path.join(installed, 'package.json'),
+      JSON.stringify({ name: '@moxxy/plugin-provider-anthropic', version: '0.31.0' }),
+    );
+    writeFileSync(
+      path.join(pluginsDir, 'package.json'),
+      JSON.stringify({
+        name: 'moxxy-user-plugins',
+        version: '0.0.0',
+        private: true,
+        dependencies: {
+          '@moxxy/plugin-provider-anthropic':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-provider-anthropic.tgz',
+          '@moxxy/plugin-missing':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-missing.tgz',
+          '@example/custom': 'file:../custom-plugin',
+        },
+      }),
+    );
+
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', signal: AbortSignal.abort() }),
+    ).rejects.toThrow(/aborted before start/);
+
+    const manifest = JSON.parse(readFileSync(path.join(pluginsDir, 'package.json'), 'utf8'));
+    expect(manifest.dependencies).toEqual({
+      '@moxxy/plugin-provider-anthropic': '0.31.0',
+      '@example/custom': 'file:../custom-plugin',
+    });
   });
 });
 

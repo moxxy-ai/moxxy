@@ -45,12 +45,12 @@ const BlockNode: React.FC<{ block: Block; suppressTopMargin?: boolean }> = ({
 }) => {
   switch (block.kind) {
     case 'heading': {
-      const color = block.level === 1 ? 'cyan' : block.level === 2 ? 'magenta' : 'yellow';
       const mt = suppressTopMargin ? 0 : block.level <= 2 ? 1 : 0;
       return (
         <Box marginTop={mt}>
-          <Text bold color={color}>{'#'.repeat(block.level)} </Text>
-          <Text bold color={color}>{block.text}</Text>
+          <Text bold>
+            <InlineText text={block.text} />
+          </Text>
         </Box>
       );
     }
@@ -65,8 +65,10 @@ const BlockNode: React.FC<{ block: Block; suppressTopMargin?: boolean }> = ({
         <Box flexDirection="column">
           {block.items.map((item, i) => (
             <Box key={i}>
-              <Text dimColor>{block.ordered ? `${i + 1}. ` : '• '}</Text>
-              <InlineText text={item} />
+              <Text>
+                <Text dimColor>{block.ordered ? `${i + 1}. ` : '• '}</Text>
+                <InlineText text={item} />
+              </Text>
             </Box>
           ))}
         </Box>

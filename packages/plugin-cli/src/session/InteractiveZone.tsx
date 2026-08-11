@@ -42,6 +42,8 @@ interface InteractiveZoneProps {
   /** Ctrl+<letter> hotkeys plumbed into the input editor (Ink's useInput
    *  can't see these once PromptInput holds stdin). */
   commandHotkeys: Record<string, () => void>;
+  /** Cycle the active run mode from the prompt with Shift+Tab. */
+  onShiftTab: () => void;
   externalInsert?: ExternalInsert;
   onPermissionDecide: (perm: PendingPermission, decision: import('@moxxy/sdk').PermissionDecision) => void;
   onApprovalDecide: (decision: import('@moxxy/sdk').ApprovalDecision) => void;
@@ -77,6 +79,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   queueMessages,
   priorityMessage,
   commandHotkeys,
+  onShiftTab,
   externalInsert,
   onPermissionDecide,
   onApprovalDecide,
@@ -165,6 +168,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
         placeholder={buildPromptPlaceholder(busy, voiceReady)}
         onPasteText={onPasteText}
         commandHotkeys={commandHotkeys}
+        onShiftTab={onShiftTab}
         externalInsert={externalInsert}
       />
     </Box>

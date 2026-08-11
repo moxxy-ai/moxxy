@@ -1,4 +1,9 @@
-import type { ClientSession as Session, ModeBadge } from '@moxxy/sdk';
+import {
+  isSelectableMode,
+  type ClientSession as Session,
+  type ModeBadge,
+  type ModeDef,
+} from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
   type SlashCommand,
@@ -34,6 +39,13 @@ export interface SlashSuggestionCapabilities {
   readonly canManageExtensions: boolean;
 }
 
+const TUI_INTERNAL_COMMANDS = new Set([
+  'collab_say',
+  'collab_direct',
+  'collab_pause',
+  'collab_resume',
+]);
+
 export function buildSlashSuggestions(
   session: Session,
   capabilities: SlashSuggestionCapabilities,
@@ -49,7 +61,6 @@ export function buildSlashSuggestions(
       description: c.description,
       ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
       ...(c.aliases ? { aliases: c.aliases } : {}),
-      visibility: essentialOrder.has(c.name) ? 'essential' : 'advanced',
     }));
   const seen = new Set(fromRegistry.map((c) => c.name));
   const tuiLocal = BUILTIN_SLASH_COMMANDS.filter(
@@ -63,8 +74,10 @@ export function buildSlashSuggestions(
 }
 
 function commandAvailable(name: string, capabilities: SlashSuggestionCapabilities): boolean {
+  if (TUI_INTERNAL_COMMANDS.has(name)) return false;
   if (name === 'new') return capabilities.canSwitchRuns;
   if (name === 'runs') return capabilities.canSwitchRuns;
+  if (name === 'collab') return capabilities.canSwitchRuns;
   if (name === 'extensions') return capabilities.canManageExtensions;
   return true;
 }
@@ -89,12 +102,16 @@ export function getModeName(session: Session): string {
   }
 }
 
-/**
- * Presentation badge for the active mode, if it declares one. Sourced from
- * the serializable `getInfo()` snapshot rather than `modes.getActive().badge`
- * so it also resolves over the thin-client transport (a `RemoteSession`'s
- * mode objects are name-only stubs). `null` when no badge / no active mode.
- */
+/** Next user-selectable mode in registry order, wrapping at the end. */
+export function nextSelectableMode(session: Session): ModeDef | null {
+  const modes = session.modes.list().filter(isSelectableMode);
+  if (modes.length < 2) return null;
+  const current = getModeName(session);
+  const currentIndex = modes.findIndex((candidate) => candidate.name === current);
+  return modes[(currentIndex + 1 + modes.length) % modes.length] ?? null;
+}
+
+/** Safety tone for elevated modes, sourced from the transport-safe snapshot. */
 export function getModeBadge(session: Session): ModeBadge | null {
   try {
     return session.getInfo().activeModeBadge;

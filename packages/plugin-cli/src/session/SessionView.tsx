@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box } from 'ink';
 import { useApp } from 'ink';
-import type { UserPromptAttachment } from '@moxxy/sdk';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { setCategoryDefault } from '@moxxy/config';
+import {
+  type ClientSession as Session,
+  type UserPromptAttachment,
+} from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
-import { RunFrameHeader, StatusLine } from '../components/StatusLine.js';
-import { RunStageStatus, deriveRunStage } from '../components/RunStageRail.js';
+import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
@@ -13,6 +15,7 @@ import {
   clearTerminalScreen,
   getModeBadge,
   getModeName,
+  nextSelectableMode,
   resolveActiveDescriptor,
   resolveActiveModel,
   resolveContextWindow,
@@ -129,6 +132,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setSystemNotice,
   });
 
+  const cycleMode = (): void => {
+    if (turn.busyRef.current) {
+      setSystemNotice('finish the current response before changing mode');
+      return;
+    }
+    const next = nextSelectableMode(session);
+    if (!next) {
+      setSystemNotice(`mode · ${getModeName(session)} · no other mode available`);
+      return;
+    }
+    try {
+      session.modes.setActive(next.name);
+      setSystemNotice(`mode → ${next.name}`);
+      if (!next.transient) void setCategoryDefault('mode', next.name).catch(() => undefined);
+    } catch (err) {
+      setSystemNotice(
+        `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
   // Hotkeys that need to reach inside PromptInput. Routed through
   // parse-input.ts since Ink's useInput stops firing once the editor
   // owns the stdin stream (data-mode flowing vs. readable-mode read()).
@@ -151,15 +175,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
       );
     },
     [tuiKeys.toggleTools]: () => {
-      setExpandToolOutputs((e) => {
-        const next = !e;
-        setSystemNotice(
-          next
-            ? 'tool blocks expanded — Ctrl+O again to collapse'
-            : 'tool blocks collapsed — Ctrl+O again to expand',
-        );
-        return next;
-      });
+      // Static transcript rows are committed to terminal scrollback. An
+      // explicit details toggle therefore performs one intentional redraw so
+      // already-settled tool/skill rows can actually expand and collapse.
+      clearTerminalScreen();
+      setExpandToolOutputs((expanded) => !expanded);
     },
     r: voice.toggleVoiceInput,
   };
@@ -187,12 +207,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
   const sessionInfo = session.getInfo();
-  const runStage = deriveRunStage(
-    stream.events,
-    turn.busy,
-    pendingPermission != null || pendingApproval != null,
-  );
-
   const slashSuggestions = React.useMemo(
     () =>
       buildSlashSuggestions(session, {
@@ -426,11 +440,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   return (
     <Box flexDirection="column">
-      <RunFrameHeader workspace={session.cwd} governance={sessionInfo.governance ?? null} />
       <ChatView
         events={stream.events}
-        streamingDelta={stream.streamingDelta}
-        reasoningDelta={stream.reasoningDelta}
         expandToolOutputs={expandToolOutputs}
         compactTools={compactTools}
         hideLive={
@@ -440,9 +451,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
           pendingApproval != null
         }
       />
-      {turn.busy || pendingPermission != null || pendingApproval != null ? (
-        <RunStageStatus stage={runStage} inset />
-      ) : null}
       <OverlayOrNotice
         overlay={overlay}
         systemNotice={systemNotice}
@@ -520,6 +528,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueMessages={turn.queueRef.current}
         priorityMessage={turn.priorityMessage}
         commandHotkeys={commandHotkeys}
+        onShiftTab={cycleMode}
         externalInsert={voice.externalInsert}
         onPermissionDecide={(perm, decision) => {
           permissions.setPendingPermissions((prev) => prev.slice(1));
@@ -546,14 +555,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
         onPasteText={images.handlePasteText}
       />
       <StatusLine
-        busyStartedAt={
-          turn.busy && !pendingPermission && !pendingApproval ? turn.busyStartedAt : null
-        }
-        queueCount={turn.queueCount}
         modeBadge={modeBadge}
-        workspace={session.cwd}
+        modeName={modeName}
+        modelName={activeModel}
+        contextUsed={contextUsed}
+        contextWindow={contextWindow}
         governance={sessionInfo.governance ?? null}
-        chromeItems={sessionInfo.clientChrome ?? []}
       />
     </Box>
   );

@@ -95,13 +95,17 @@ export const BootScreen: React.FC<BootScreenProps> = ({
     ? STEPS.find((s) => s.id === error.failedStep) ?? null
     : null;
   const ready = !error && STEPS.every((s) => seen.has(s.id));
+  // Branding belongs to the transient boot/empty state. Keep it visible on
+  // every startup while the runtime prepares, then retain it only for the
+  // first-run welcome so returning users land straight in their transcript.
+  const showLogo = !error && (!ready || welcome);
 
   return (
     <Box flexDirection="column" width="100%">
-      {welcome && !error ? (
+      {showLogo ? (
         <Logo
           compact
-          slogan="Your model. This workspace. Actions in view."
+          slogan="Your model. This workspace. Ready to work."
         />
       ) : null}
       <Box

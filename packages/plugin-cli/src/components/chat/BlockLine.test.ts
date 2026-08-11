@@ -36,13 +36,26 @@ function scope(overrides: Partial<Pick<SkillScopeBlock, 'loading' | 'closed'>> =
 describe('skillActivityPresentation', () => {
   it('shimmers only while load_skill is pending', () => {
     expect(skillActivityPresentation(scope({ loading: true }))).toEqual({
-      label: 'Loading skill web-research…',
+      label: 'web-research',
       meta: null,
       active: true,
     });
     expect(skillActivityPresentation(scope())).toEqual({
-      label: 'Loaded skill web-research',
+      label: 'web-research',
       meta: null,
+      active: false,
+    });
+  });
+
+  it('keeps the top-level skill active while its child scope is working', () => {
+    expect(skillActivityPresentation(scope(), 2, true)).toEqual({
+      label: 'web-research',
+      meta: '2 tools',
+      active: true,
+    });
+    expect(skillActivityPresentation(scope({ closed: true }), 2, false)).toEqual({
+      label: 'web-research',
+      meta: '2 tools',
       active: false,
     });
   });
@@ -50,11 +63,11 @@ describe('skillActivityPresentation', () => {
   it('omits zero tools and pluralizes non-zero tool counts', () => {
     expect(skillActivityPresentation(scope(), 0).meta).toBeNull();
     expect(skillActivityPresentation(scope(), 1)).toMatchObject({
-      label: 'Using skill web-research',
+      label: 'web-research',
       meta: '1 tool',
     });
     expect(skillActivityPresentation(scope({ closed: true }), 2)).toEqual({
-      label: 'Used skill web-research',
+      label: 'web-research',
       meta: '2 tools',
       active: false,
     });

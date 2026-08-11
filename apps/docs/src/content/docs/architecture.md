@@ -10,6 +10,7 @@ description: The shape of moxxy — sdk, core, plugins, channels.
 @moxxy/core            <— runtime: event log, registries, plugin host, permissions
 @moxxy/tools-builtin   <— Read/Edit/Write/Bash/Grep/Glob
 @moxxy/mode-default    <— default Claude Code-style mode
+@moxxy/mode-plan       <— read-only analysis → revisable execution plan
 @moxxy/mode-goal          <— autonomous auto-approve loop (runs until goal_complete)
 @moxxy/mode-deep-research <— fan-out research mode (plan → parallel subagents → cited synthesis)
 @moxxy/plugin-provider-anthropic  <— LLM provider
@@ -30,6 +31,14 @@ apps/desktop           <— Electron desktop app (@moxxy/desktop-host main proce
 ## State model
 
 Every interaction appends to an immutable event log. Derived state (projected message history, pending tool calls, loaded plugins, …) is a pure fold over the log via selectors.
+
+Long sessions do not keep the whole transcript in every provider
+request. The default `segments` compactor turns completed turns into
+bounded sub-session records, then folds older records into chapters.
+Recent turns stay verbatim; `session_recall` finds a relevant record and
+`recall({ turnId })` restores its exact events from the immutable log.
+The user still sees one continuous session even though the provider sees
+a small working set of recent and recalled episodes.
 
 This shape gives you replay-debugging for free: dump a session log to JSON, feed it back through `replay()`, and you get the exact same derived state.
 

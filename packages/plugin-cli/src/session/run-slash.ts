@@ -83,38 +83,14 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
 
   if (key === 'help') {
     const helpArg = args.trim().toLowerCase();
-    if (helpArg === '') {
-      const everyday = [
-        'Everyday commands',
-        ...(deps.canSwitchSession ? ['/new         start a fresh run'] : []),
-        ...(deps.canSwitchSession ? ['/runs        continue another run'] : []),
-        '/model       change the model connection',
-        ...(deps.session.pluginsAdmin
-          ? ['/extensions  manage optional capabilities']
-          : []),
-        '/exit        leave moxxy',
-        '',
-        'Type `/help advanced` for runtime and operator commands.',
-      ];
-      if (!deps.canSwitchSession || !deps.session.pluginsAdmin) {
-        everyday.push(
-          '',
-          'This window follows one shared run.',
-          'Another run: `moxxy resume`',
-          'Extensions: `moxxy extensions`',
-        );
-      }
-      deps.setSystemNotice(everyday.join('\n'));
-      return;
-    }
-    if (helpArg === 'advanced') {
+    if (helpArg === '' || helpArg === 'advanced') {
       const lines = [...buildSlashSuggestions(deps.session, {
         canSwitchRuns: deps.canSwitchSession ?? false,
         canManageExtensions: Boolean(deps.session.pluginsAdmin),
       })]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((command) => `/${command.name.padEnd(14)} ${command.description}`);
-      deps.setSystemNotice(['Advanced commands', ...lines].join('\n'));
+      deps.setSystemNotice(['Commands', ...lines, '', 'Type / and keep typing to filter.'].join('\n'));
       return;
     }
   }
@@ -129,32 +105,7 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     return;
   }
 
-  const registered = deps.session.commands.get(name);
-  if (registered) {
-    void (async () => {
-      try {
-        if (registered.pendingNotice) deps.setSystemNotice(registered.pendingNotice);
-        const result = await registered.handler({
-          channel: 'tui',
-          sessionId: deps.session.id,
-          args,
-          session: deps.session,
-        });
-        if (result.kind === 'text') {
-          deps.setSystemNotice(result.text);
-        } else if (result.kind === 'session-action') {
-          deps.performSessionAction(result.action, result.notice);
-        } else if (result.kind === 'error') {
-          deps.setSystemNotice(`error: ${result.message}`);
-        }
-      } catch (err) {
-        deps.setSystemNotice(
-          `command /${name} failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    })();
-    return;
-  }
+  if (runRegisteredCommand(name, args, deps)) return;
 
   // Channel-local commands the registry can't host because their
   // handlers mutate React state or open Ink overlays. Match against the
@@ -244,6 +195,39 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       deps.setSystemNotice(`unknown command: ${cmd}   (try /help)`);
       return;
   }
+}
+
+function runRegisteredCommand(
+  name: string,
+  args: string,
+  deps: SlashDeps,
+  textOverride?: string,
+): boolean {
+  const registered = deps.session.commands.get(name);
+  if (!registered) return false;
+  void (async () => {
+    try {
+      if (registered.pendingNotice) deps.setSystemNotice(registered.pendingNotice);
+      const result = await registered.handler({
+        channel: 'tui',
+        sessionId: deps.session.id,
+        args,
+        session: deps.session,
+      });
+      if (result.kind === 'text') {
+        deps.setSystemNotice(textOverride ?? result.text);
+      } else if (result.kind === 'session-action') {
+        deps.performSessionAction(result.action, result.notice);
+      } else if (result.kind === 'error') {
+        deps.setSystemNotice(`error: ${result.message}`);
+      }
+    } catch (err) {
+      deps.setSystemNotice(
+        `command /${name} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
+  return true;
 }
 
 function handleQueue(deps: SlashDeps): void {
@@ -680,12 +664,48 @@ function startGoal(deps: SlashDeps, arg: string): void {
  * `/collab <goal>` spawns a fresh coordinator and auto-submits the goal — an
  * architect designs the plan + proposes a roster (the usual review/launch/cancel
  * approval), then the team runs and its live status renders as the `◆ collab`
- * block. Bare `/collab` attaches to a running collaboration to view it. Step in
- * with /collab_say, /collab_direct, /collab_pause, /collab_resume. Return to your
- * chat anytime with /sessions — the collaboration keeps running.
+ * block. Bare `/collab` attaches to a running collaboration to view it. Human
+ * controls are namespaced under this one entry point (`/collab say`, `direct`,
+ * `pause`, `resume`); the legacy registered commands remain available to older
+ * clients. Return to the original chat with `/runs` while the team keeps going.
  */
 function startCollab(deps: SlashDeps, arg: string): void {
-  const objective = arg.trim();
+  const input = arg.trim();
+  const [head = '', ...tail] = input.split(/\s+/);
+  const action = head.toLowerCase();
+  const actionArgs = tail.join(' ');
+
+  if (action === 'help') {
+    deps.setSystemNotice(collabEntryHelp());
+    return;
+  }
+  if (action === 'say') {
+    if (!actionArgs.includes(' ')) {
+      deps.setSystemNotice('usage: /collab say <agent|all> <message>');
+      return;
+    }
+    return runCollabControl(deps, 'collab_say', actionArgs);
+  }
+  if (action === 'direct') {
+    if (!actionArgs) {
+      deps.setSystemNotice('usage: /collab direct <message>');
+      return;
+    }
+    return runCollabControl(deps, 'collab_direct', actionArgs);
+  }
+  if (action === 'pause') {
+    return runCollabControl(
+      deps,
+      'collab_pause',
+      '',
+      'Team paused. Use /collab resume to continue.',
+    );
+  }
+  if (action === 'resume') {
+    return runCollabControl(deps, 'collab_resume', '');
+  }
+
+  const objective = action === 'start' ? actionArgs : input;
   // The coordinator runner needs the collaborative mode package on disk —
   // when it isn't loaded here it won't be there either. Offer the install.
   if (!deps.session.modes.list().some((m) => m.name === 'collaborative')) {
@@ -701,6 +721,33 @@ function startCollab(deps: SlashDeps, arg: string): void {
   }
   deps.setSystemNotice(null);
   deps.requestCollab(objective || undefined);
+}
+
+function runCollabControl(
+  deps: SlashDeps,
+  command: 'collab_say' | 'collab_direct' | 'collab_pause' | 'collab_resume',
+  args: string,
+  textOverride?: string,
+): void {
+  if (runRegisteredCommand(command, args, deps, textOverride)) return;
+  deps.setSystemNotice(
+    'collaboration controls are unavailable in this session — open /collab from a local TUI',
+  );
+}
+
+function collabEntryHelp(): string {
+  return [
+    'Collaborate',
+    'Open a dedicated, reviewed agent team without filling your regular chat.',
+    '',
+    '/collab <goal>                    start a team',
+    '/collab                           open or rejoin the team view',
+    '/collab say <agent|all> <message> message the team',
+    '/collab direct <message>          change its direction',
+    '/collab pause | resume            control execution',
+    '',
+    'The architect proposes the roster before work begins. Use /runs to return here.',
+  ].join('\n');
 }
 
 export function openModePicker(deps: SlashDeps, arg = ''): void {

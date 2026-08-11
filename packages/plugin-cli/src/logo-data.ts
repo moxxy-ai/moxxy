@@ -49,6 +49,36 @@ export const LOGO_WIDTH = LOGO_ART_RAW.reduce((m, l) => Math.max(m, l.length), 0
 export const LOGO_LINES: ReadonlyArray<string> = LOGO_ART_RAW.map((l) => l.padEnd(LOGO_WIDTH));
 
 /**
+ * A half-height rendition of the same interlaced mark for the TUI boot screen.
+ * It keeps the recognizable weave without spending most of a normal terminal
+ * viewport on branding. Unlike the wordmark fallback, this is still the moxxy
+ * mark users see in the full banner.
+ */
+const COMPACT_LOGO_ART_RAW: ReadonlyArray<string> = [
+  '             -%@@@@',
+  '      :*%@@+=%@@@+%@@@@@@@%*:',
+  '      @@%=%@@@= :-------:*@%=@@',
+  '      @@@@*              +@@@@%+',
+  '   =++@@@@*              ++=@@@@*',
+  '    *@@@@=+              *@@@@++=',
+  '     -%@@@@-             *@@@@',
+  '      @@+=%*:-------: =@@@%=%@@',
+  '       :*%@@@@@@@%+@@@@%=+@@%*:',
+  '              @@@@@@%-',
+];
+
+/** Widest compact-mark row; rows are padded so the weave never shears. */
+export const COMPACT_LOGO_WIDTH = COMPACT_LOGO_ART_RAW.reduce(
+  (max, line) => Math.max(max, line.length),
+  0,
+);
+
+/** Compact moxxy mark used only by the transient TUI boot/empty state. */
+export const COMPACT_LOGO_LINES: ReadonlyArray<string> = COMPACT_LOGO_ART_RAW.map((line) =>
+  line.padEnd(COMPACT_LOGO_WIDTH),
+);
+
+/**
  * Block-letter `MOXXY` wordmark shown when the terminal is too narrow for the
  * mark (see `selectLogo`). Stored right-trimmed; `WORDMARK_LINES` pads to
  * `WORDMARK_WIDTH`.

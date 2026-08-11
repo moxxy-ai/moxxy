@@ -3,8 +3,10 @@ import { moxxyPath } from '@moxxy/sdk/server';
 import {
   createPluginLoader,
   discoverPlugins,
+  PluginCycleError,
   PluginRequirementError,
   readPackageMoxxyRequirements,
+  toposortPluginManifests,
   type Logger,
   type PluginSkipRecord,
   type Session,
@@ -86,7 +88,16 @@ export async function registerPlugins(
       logger,
       extraPaths: [userPluginsDir, userPluginsNodeModules],
     });
-    for (const manifest of manifests) {
+    let orderedManifests = manifests;
+    try {
+      orderedManifests = toposortPluginManifests(manifests);
+    } catch (err) {
+      if (!(err instanceof PluginCycleError)) throw err;
+      logger.warn('auto-discovery: plugin requirement cycle; using discovery order', {
+        cycle: err.cycle,
+      });
+    }
+    for (const manifest of orderedManifests) {
       if (registered.has(manifest.packageName)) continue;
       if (config.plugins?.packages?.[manifest.packageName]?.enabled === false) {
         logger.info('skipping disabled plugin', { plugin: manifest.packageName });

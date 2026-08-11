@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { parseBlocks } from './parse-blocks.js';
 
+describe('parseBlocks — paragraph breaks', () => {
+  it('preserves explicit Markdown hard breaks but joins soft wraps', () => {
+    expect(parseBlocks('first line  \nsecond line\nsoft continuation')).toContainEqual({
+      kind: 'paragraph',
+      text: 'first line\nsecond line soft continuation',
+    });
+  });
+});
+
 describe('parseBlocks — GFM tables', () => {
   it('recognizes a single-column table (`|---|`)', () => {
     const md = ['| Item |', '|------|', '| a |', '| b |'].join('\n');

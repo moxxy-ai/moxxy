@@ -56,6 +56,16 @@ const MAX_STDERR_BYTES = 8 * 1024;
 // guarantee cancellation. Mirrors the SIGTERM→SIGKILL escalation used in
 // runner-supervisor / isolator-subprocess.
 const SIGKILL_GRACE_MS = 2_000;
+const FIRST_PARTY_PACKAGE_NAME = /^@moxxy\/[a-z0-9][a-z0-9._-]*$/i;
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
+const TRANSIENT_SEED_TARBALL = /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i;
+const pluginWorkspaceManifestSchema = z.object({
+  dependencies: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
+const installedPackageManifestSchema = z.object({
+  name: z.string(),
+  version: z.string(),
+}).passthrough();
 
 export interface InstallPluginDeps {
   /**
@@ -159,6 +169,7 @@ export async function installPluginPackage(
   const dir = userPluginsDir();
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
+    await repairTransientSeedDependencies(dir);
     const { exitCode, stderr } = await runNpm(
       ['install', '--prefix', dir, ...npmFlags(opts.allowScripts), '--save', spec],
       opts.signal,
@@ -245,6 +256,7 @@ export async function removePluginPackage(
   const dir = userPluginsDir();
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
+    await repairTransientSeedDependencies(dir);
     const { exitCode, stderr } = await runNpm(
       ['uninstall', '--prefix', dir, ...NPM_INSTALL_FLAGS, '--save', spec],
       opts.signal,
@@ -450,6 +462,93 @@ async function ensurePackageJson(dir: string): Promise<void> {
     };
     await writeFileAtomic(pkgPath, JSON.stringify(stub, null, 2) + '\n');
   }
+}
+
+/**
+ * Repair dependency entries produced by early desktop plugin seeds. npm saved
+ * their build-time tarball paths into the copied user manifest, but those temp
+ * directories no longer exist by the time a later install runs. Resolve only
+ * that exact first-party generated shape to the package version already on
+ * disk; remove an orphaned generated entry so it cannot poison unrelated npm
+ * operations. User-authored file dependencies are deliberately untouched.
+ *
+ * The caller holds {@link pluginsDirMutex}, so the read-modify-write cannot
+ * race another install. Persistence is atomic and corrupt manifests fail
+ * loudly instead of being replaced with an empty workspace.
+ */
+export async function repairTransientSeedDependencies(
+  dir: string,
+): Promise<{ readonly replaced: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }> {
+  const manifestPath = path.join(dir, 'package.json');
+  let raw: string;
+  try {
+    raw = await fs.readFile(manifestPath, 'utf8');
+  } catch (error) {
+    if (isMissingFileError(error)) return { replaced: [], removed: [] };
+    throw error;
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Invalid plugin workspace manifest ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const parsed = pluginWorkspaceManifestSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new Error(`Invalid plugin workspace manifest ${manifestPath}: ${parsed.error.message}`);
+  }
+
+  const manifest = parsed.data;
+  const dependencies = manifest.dependencies ?? {};
+  const normalized = { ...dependencies };
+  const replaced: string[] = [];
+  const removed: string[] = [];
+  for (const [name, value] of Object.entries(dependencies)) {
+    if (typeof value !== 'string' || !isTransientSeedSpec(name, value)) continue;
+    const installedVersion = await readInstalledPackageVersion(dir, name);
+    if (installedVersion) {
+      normalized[name] = installedVersion;
+      replaced.push(name);
+    } else {
+      delete normalized[name];
+      removed.push(name);
+    }
+  }
+  if (replaced.length === 0 && removed.length === 0) return { replaced, removed };
+
+  manifest.dependencies = normalized;
+  await writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { replaced, removed };
+}
+
+function isTransientSeedSpec(name: string, spec: string): boolean {
+  return (
+    FIRST_PARTY_PACKAGE_NAME.test(name) &&
+    spec.startsWith('file:') &&
+    TRANSIENT_SEED_TARBALL.test(spec.slice('file:'.length))
+  );
+}
+
+async function readInstalledPackageVersion(dir: string, expectedName: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(
+      path.join(dir, 'node_modules', expectedName, 'package.json'),
+      'utf8',
+    );
+    const parsed = installedPackageManifestSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success || parsed.data.name !== expectedName) return null;
+    return EXACT_VERSION.test(parsed.data.version) ? parsed.data.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return error.code === 'ENOENT';
 }
 
 /** The npm executable, resolved per-platform (Windows ships `npm.cmd`). */
