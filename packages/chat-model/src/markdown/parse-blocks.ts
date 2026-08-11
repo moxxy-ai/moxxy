@@ -56,32 +56,24 @@ export function parseBlocks(src: string): Block[] {
     }
 
     // ATX heading
-    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    const heading = parseHeading(line);
     if (heading) {
-      const hashes = heading[1];
-      assertDefined(hashes, 'heading hash group is captured when the heading matches');
-      const text = heading[2];
-      assertDefined(text, 'heading text group is captured when the heading matches');
-      const level = Math.min(6, Math.max(1, hashes.length)) as 1 | 2 | 3 | 4 | 5 | 6;
-      blocks.push({ kind: 'heading', level, text: text.trim() });
+      blocks.push({ kind: 'heading', level: heading.level, text: heading.text });
       i++;
       continue;
     }
 
     // List (bullet or numbered) — consume consecutive list lines
-    if (/^\s*[-*+]\s+/.test(line) || /^\s*\d+\.\s+/.test(line)) {
-      const ordered = /^\s*\d+\.\s+/.test(line);
+    const firstItem = parseListItem(line);
+    if (firstItem) {
+      const ordered = firstItem.ordered;
       const items: string[] = [];
       while (i < lines.length) {
         const cur = lines[i];
         assertDefined(cur, 'line index within bounds');
-        const m = ordered
-          ? /^\s*\d+\.\s+(.*)$/.exec(cur)
-          : /^\s*[-*+]\s+(.*)$/.exec(cur);
-        if (!m) break;
-        const item = m[1];
-        assertDefined(item, 'list item capture group is present when the item matches');
-        items.push(item.trim());
+        const item = parseListItem(cur);
+        if (!item || item.ordered !== ordered) break;
+        items.push(item.text);
         i++;
       }
       blocks.push({ kind: 'list', ordered, items });
@@ -103,9 +95,8 @@ export function parseBlocks(src: string): Block[] {
       if (next.trim() === '') break;
       if (
         /^```/.test(next) ||
-        /^#{1,6}\s+/.test(next) ||
-        /^\s*[-*+]\s+/.test(next) ||
-        /^\s*\d+\.\s+/.test(next)
+        parseHeading(next) !== null ||
+        parseListItem(next) !== null
       ) {
         break;
       }
@@ -124,13 +115,48 @@ export function parseBlocks(src: string): Block[] {
   return blocks;
 }
 
+function parseHeading(line: string): { readonly level: 1 | 2 | 3 | 4 | 5 | 6; readonly text: string } | null {
+  let hashes = 0;
+  while (hashes < line.length && line[hashes] === '#') hashes += 1;
+  if (hashes < 1 || hashes > 6 || !isWhitespace(line[hashes])) return null;
+  let textStart = hashes;
+  while (textStart < line.length && isWhitespace(line[textStart])) textStart += 1;
+  return { level: hashes as 1 | 2 | 3 | 4 | 5 | 6, text: line.slice(textStart).trim() };
+}
+
+function parseListItem(line: string): { readonly ordered: boolean; readonly text: string } | null {
+  let cursor = 0;
+  while (cursor < line.length && isWhitespace(line[cursor])) cursor += 1;
+  let ordered = false;
+  if (line[cursor] === '-' || line[cursor] === '*' || line[cursor] === '+') {
+    cursor += 1;
+  } else {
+    const digitsStart = cursor;
+    while (cursor < line.length && isDigit(line[cursor])) cursor += 1;
+    if (cursor === digitsStart || line[cursor] !== '.') return null;
+    ordered = true;
+    cursor += 1;
+  }
+  if (!isWhitespace(line[cursor])) return null;
+  while (cursor < line.length && isWhitespace(line[cursor])) cursor += 1;
+  return { ordered, text: line.slice(cursor).trim() };
+}
+
+function isWhitespace(char: string | undefined): boolean {
+  return char !== undefined && /\s/u.test(char);
+}
+
+function isDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= '0' && char <= '9';
+}
+
 /** Soft Markdown line breaks become spaces; two trailing spaces are an
  * explicit hard break and must remain a newline for terminal/DOM renderers. */
 function joinParagraphLines(lines: ReadonlyArray<string>): string {
   let text = '';
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
-    const hardBreak = / {2,}$/.test(line);
+    const hardBreak = line.endsWith('  ');
     text += line.trimEnd();
     if (index < lines.length - 1) text += hardBreak ? '\n' : ' ';
   }

@@ -83,7 +83,7 @@ export class OpenAiSynthesizer implements Synthesizer {
   constructor(opts: OpenAiSynthesizerOptions = {}) {
     this.explicitKey = opts.apiKey;
     this.getSecret = opts.getSecret;
-    this.baseURL = (opts.baseURL ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
+    this.baseURL = trimTrailingSlashes(opts.baseURL ?? 'https://api.openai.com/v1');
     this.model = opts.model ?? 'gpt-4o-mini-tts';
     this.voice = opts.voice ?? 'alloy';
     this.format = opts.format ?? 'mp3';
@@ -196,6 +196,12 @@ export class OpenAiSynthesizer implements Synthesizer {
     this.key = resolved;
     return resolved;
   }
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 /** Map a `SynthesizeOptions.rate` multiplier onto OpenAI's `speed`, clamped to

@@ -50,9 +50,9 @@ function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
       continuationOpen = false;
       continue;
     }
-    const m = /^(?:\d+[.)]|[-*•])\s*(.+)$/.exec(line);
-    if (m) {
-      items.push(m[1]!.trim());
+    const item = parseListItem(line);
+    if (item !== null) {
+      items.push(item);
       continuationOpen = true;
       continue;
     }
@@ -69,4 +69,22 @@ function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
     }
   }
   return items;
+}
+
+function parseListItem(line: string): string | null {
+  let cursor = 0;
+  if (line[0] === '-' || line[0] === '*' || line[0] === '•') {
+    cursor = 1;
+  } else {
+    while (isAsciiDigit(line[cursor])) cursor += 1;
+    if (cursor === 0 || (line[cursor] !== '.' && line[cursor] !== ')')) return null;
+    cursor += 1;
+  }
+  while (cursor < line.length && /\s/u.test(line[cursor] ?? '')) cursor += 1;
+  const item = line.slice(cursor).trim();
+  return item.length > 0 ? item : null;
+}
+
+function isAsciiDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= '0' && char <= '9';
 }

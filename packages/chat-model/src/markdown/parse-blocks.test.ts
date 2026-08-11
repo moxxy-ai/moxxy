@@ -8,6 +8,11 @@ describe('parseBlocks — paragraph breaks', () => {
       text: 'first line\nsecond line soft continuation',
     });
   });
+
+  it('handles a long non-list prefix as a plain paragraph', () => {
+    const input = `${' '.repeat(50_000)}${'1'.repeat(50_000)}x`;
+    expect(parseBlocks(input)).toEqual([{ kind: 'paragraph', text: input }]);
+  });
 });
 
 describe('parseBlocks — GFM tables', () => {

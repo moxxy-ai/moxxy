@@ -34,6 +34,11 @@ describe('markdownToTelegramHtml', () => {
     expect(out).toContain('**not bold**');
   });
 
+  it('leaves a long unterminated fence literal', () => {
+    const input = `\`\`\`${'a'.repeat(50_000)}`;
+    expect(markdownToTelegramHtml(input)).toBe(input);
+  });
+
   it('converts links to <a href="...">', () => {
     const out = markdownToTelegramHtml('See [docs](https://example.com).');
     expect(out).toContain('<a href="https://example.com">docs</a>');

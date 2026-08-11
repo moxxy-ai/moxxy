@@ -71,7 +71,7 @@ export class BlueBubblesClient implements BlueBubblesClientLike {
   constructor(opts: BlueBubblesClientOptions) {
     this.opts = opts;
     // Normalize the base URL once (strip a trailing slash) so path joins are clean.
-    this.base = opts.serverUrl.trim().replace(/\/+$/, '');
+    this.base = trimTrailingSlashes(opts.serverUrl.trim());
   }
 
   async ping(): Promise<void> {
@@ -157,6 +157,12 @@ export class BlueBubblesClient implements BlueBubblesClientLike {
     url.searchParams.set('password', this.opts.password);
     return url.toString();
   }
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 /** Read the sent message's permanent guid from the send response, if present. */

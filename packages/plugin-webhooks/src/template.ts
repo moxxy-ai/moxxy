@@ -38,8 +38,6 @@ export interface TemplateContext {
   readonly firedAt: Date;
 }
 
-const PLACEHOLDER_RE = /\{(body_json|body|method|path|trigger_name|fired_at|header\.[^}]+)\}/g;
-
 /** Unguessable per-render nonce so payload text can't forge the closing fence. */
 function makeFenceNonce(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -63,8 +61,21 @@ export function renderPrompt(ctx: TemplateContext): string {
   const bodyStr = ctx.body.toString('utf8');
   const nonce = makeFenceNonce();
   let bodyJson: string | null = null;
-  return ctx.trigger.prompt.replace(PLACEHOLDER_RE, (_, token: string) => {
-    if (token === 'body') return fenceUntrusted(bodyStr, nonce);
+  const output: string[] = [];
+  const prompt = ctx.trigger.prompt;
+  let cursor = 0;
+  while (cursor < prompt.length) {
+    const open = prompt.indexOf('{', cursor);
+    if (open === -1) break;
+    const close = prompt.indexOf('}', open + 1);
+    if (close === -1) break;
+    const token = prompt.slice(open + 1, close);
+    if (!isPlaceholder(token)) {
+      output.push(prompt.slice(cursor, close + 1));
+      cursor = close + 1;
+      continue;
+    }
+    output.push(prompt.slice(cursor, open));
     if (token === 'body_json') {
       if (bodyJson === null) {
         try {
@@ -73,20 +84,31 @@ export function renderPrompt(ctx: TemplateContext): string {
           bodyJson = bodyStr;
         }
       }
-      return fenceUntrusted(bodyJson, nonce);
+      output.push(fenceUntrusted(bodyJson, nonce));
+      cursor = close + 1;
+      continue;
     }
-    if (token === 'method') return ctx.method;
+    if (token === 'body') output.push(fenceUntrusted(bodyStr, nonce));
+    else if (token === 'method') output.push(ctx.method);
     // The path's query string is fully sender-controlled, so fence it as
     // untrusted data — it must not be able to inject operator instructions.
-    if (token === 'path') return fenceUntrusted(ctx.path, nonce);
-    if (token === 'trigger_name') return ctx.trigger.name;
-    if (token === 'fired_at') return ctx.firedAt.toISOString();
-    if (token.startsWith('header.')) {
+    else if (token === 'path') output.push(fenceUntrusted(ctx.path, nonce));
+    else if (token === 'trigger_name') output.push(ctx.trigger.name);
+    else if (token === 'fired_at') output.push(ctx.firedAt.toISOString());
+    else if (token.startsWith('header.')) {
       const name = token.slice('header.'.length).toLowerCase();
       const v = ctx.headers[name];
       const raw = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : '';
-      return fenceUntrusted(raw, nonce);
+      output.push(fenceUntrusted(raw, nonce));
     }
-    return `{${token}}`;
-  });
+    cursor = close + 1;
+  }
+  output.push(prompt.slice(cursor));
+  return output.join('');
+}
+
+function isPlaceholder(token: string): boolean {
+  return token === 'body_json' || token === 'body' || token === 'method' || token === 'path' ||
+    token === 'trigger_name' || token === 'fired_at' ||
+    (token.startsWith('header.') && token.length > 'header.'.length);
 }

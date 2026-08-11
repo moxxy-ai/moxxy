@@ -171,8 +171,14 @@ export function clerkFrontendApiHost(publishableKey?: string | null): string | n
   // The encoded value is the host with a trailing `$` delimiter. Guard that
   // what we decoded is a plain dotted hostname so a corrupt key can't smuggle
   // arbitrary CSP source tokens (spaces, schemes, paths) into the header.
-  const host = decoded.replace(/\$+$/, '');
+  const host = trimTrailing(decoded, '$');
   return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(host) ? host : null;
+}
+
+function trimTrailing(value: string, char: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === char) end -= 1;
+  return value.slice(0, end);
 }
 
 /**
