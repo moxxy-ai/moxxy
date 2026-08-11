@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.28.0"
+    "undici": "^8.10.0"
   },
   "peerDependencies": {
     "playwright": "^1.40.0"
