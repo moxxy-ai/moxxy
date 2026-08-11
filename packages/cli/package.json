@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.26.0",
+    "undici": "^6.28.0",
     "zod": "catalog:"
   },
   "optionalDependencies": {

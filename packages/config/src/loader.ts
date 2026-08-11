@@ -1,6 +1,5 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { moxxyHome } from '@moxxy/sdk/server';
 import { mergeConfigs } from './merge.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
@@ -217,14 +216,9 @@ async function loadOne(filePath: string): Promise<MoxxyConfig> {
     raw = yamlMod.parse(yamlText);
     if (raw === null || raw === undefined) raw = {};
   } else {
-    let mod: unknown;
-    if (ext === '.ts' || ext === '.tsx') {
-      const jiti = await getJiti(path.dirname(filePath));
-      if (!jiti) throw new Error(`Cannot load ${filePath}: jiti is required for .ts configs.`);
-      mod = jiti(filePath);
-    } else {
-      mod = await importJsConfig(filePath);
-    }
+    const jiti = await getJiti(path.dirname(filePath));
+    if (!jiti) throw new Error(`Cannot load executable config ${filePath}: jiti is required.`);
+    const mod = jiti(filePath);
     raw = extractDefault(mod);
     if (!raw) {
       throw new Error(`Config file ${filePath} must default-export the result of defineConfig().`);
@@ -269,7 +263,10 @@ async function getJiti(cwd: string): Promise<((id: string) => unknown) | null> {
       (mod as { createJiti?: JitiFactory; default?: JitiFactory }).createJiti ??
       (mod as { default?: JitiFactory }).default;
     if (!factory) return null;
-    const instance = factory(cwd, { interopDefault: true });
+    // Configs are intentionally reloadable in long-lived desktop/runner
+    // processes. Keep the compiled-source cache, but never retain evaluated
+    // modules: a file edit must be visible on the next load.
+    const instance = factory(cwd, { interopDefault: false, moduleCache: false });
     cachedJiti.set(cwd, instance);
     while (cachedJiti.size > MAX_CACHED_JITI) {
       const oldest = cachedJiti.keys().next().value;
@@ -280,27 +277,6 @@ async function getJiti(cwd: string): Promise<((id: string) => unknown) | null> {
   } catch {
     return null;
   }
-}
-
-// The ESM module registry never evicts an entry once imported and offers no
-// eviction API: every DISTINCT specifier is retained for the process lifetime
-// along with its whole module graph. A naive `?v=${Date.now()}` cache-buster on
-// every load therefore leaks one module per reload in the exact long-lived
-// hosts (desktop/runner) this loader targets. Instead: import each JS config by
-// its plain file URL the FIRST time (one registry entry, GC-stable), and only
-// append a cache-buster when re-loading a path we've already imported — using a
-// monotonic counter so same-millisecond reloads are still guaranteed unique
-// (Date.now()'s 1ms resolution would otherwise return the stale cached module).
-const importedJsConfigs = new Set<string>();
-let importReloadCounter = 0;
-
-async function importJsConfig(filePath: string): Promise<unknown> {
-  const base = pathToFileURL(filePath).href;
-  if (importedJsConfigs.has(base)) {
-    return import(`${base}?v=${Date.now()}-${++importReloadCounter}`);
-  }
-  importedJsConfigs.add(base);
-  return import(base);
 }
 
 function extractDefault(mod: unknown): unknown {

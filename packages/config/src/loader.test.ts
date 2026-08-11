@@ -77,10 +77,9 @@ describe('loadConfig', () => {
   });
 
   it('reloads a rewritten .mjs config freshly even on rapid successive loads', async () => {
-    // The first import is plain (single module-registry entry, no per-load
-    // cache-buster → no leak); subsequent reloads append a monotonic-counter
-    // buster so back-to-back reloads in the same millisecond can't return the
-    // stale cached module. Use .mjs so it goes through importJsConfig, not jiti.
+    // Executable configs use jiti without its runtime module cache, so
+    // back-to-back loads see the rewritten file without leaking cache-busted
+    // entries into Node's permanent ESM module registry.
     const file = path.join(tmp, 'moxxy.config.mjs');
     await fs.writeFile(file, `export default { plugins: { mode: { default: 'default' } } };`);
     const first = await loadConfig({ cwd: tmp, skipUser: true, trustPrompt: approve });

@@ -77,7 +77,7 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "discord.js": "^14.16.0"
+    "discord.js": "^14.27.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
