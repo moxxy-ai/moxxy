@@ -359,4 +359,8 @@ describe('uniqueId', () => {
     expect(first.id).toBe('my_step');
     expect(uniqueId(s, 'my step')).toBe('my_step_2');
   });
+
+  it('slugifies a long invalid run without changing its boundary semantics', () => {
+    expect(uniqueId(emptyState(), `${'!'.repeat(50_000)}A`)).toBe('a');
+  });
 });

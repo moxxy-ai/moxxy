@@ -40,6 +40,10 @@ describe('parseQueries', () => {
     expect(parseQueries('No queries here.')).toEqual([]);
   });
 
+  it('rejects a long unterminated numeric marker without backtracking', () => {
+    expect(parseQueries(`QUERIES:\n${'1'.repeat(50_000)}x`)).toEqual([]);
+  });
+
   it('joins a wrapped continuation onto the prior item instead of truncating it', () => {
     // Worst case: the planner wraps a long query across two lines. The
     // continuation must be re-joined, not dropped — a truncated half-question

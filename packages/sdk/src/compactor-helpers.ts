@@ -134,7 +134,7 @@ export function resolveModelContext(
   // example `claude-sonnet-4-6[1m]`). Prefer the matching base descriptor over
   // the unrelated models[0] fallback; only strip a terminal bracket suffix so
   // genuinely distinct dated/vendor ids are never conflated accidentally.
-  const baseId = ctx.model.replace(/\[[^\]]+\]$/, '');
+  const baseId = stripContextVariant(ctx.model);
   const variant = baseId !== ctx.model
     ? ctx.provider.models.find((model) => model.id === baseId)
     : undefined;
@@ -151,6 +151,13 @@ export function resolveModelContext(
     warnModelFallbackOnce(ctx.provider.name, ctx.model, descriptor.id, contextWindow);
   }
   return { contextWindow, reserveForOutput: descriptor?.maxOutputTokens ?? 0 };
+}
+
+function stripContextVariant(model: string): string {
+  if (!model.endsWith(']')) return model;
+  const priorClose = model.lastIndexOf(']', model.length - 2);
+  const open = model.indexOf('[', priorClose + 1);
+  return open === -1 || open === model.length - 2 ? model : model.slice(0, open);
 }
 
 // One-shot guard for the unlisted-model fallback warning above, keyed on the

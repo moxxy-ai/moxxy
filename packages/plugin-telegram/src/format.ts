@@ -38,15 +38,15 @@ export function markdownToTelegramHtml(md: string): string {
   // Pull fenced code blocks out FIRST so their contents skip inline
   // markdown processing. Replace each with a placeholder, render the
   // rest, then splice them back.
-  const fences: string[] = [];
-  let working = md.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, body) => {
+  const extracted = extractFences(md);
+  const fences = extracted.fences.map(({ lang, body }) => {
     const html =
-      `<pre><code${lang ? ` class="language-${escapeHtml(String(lang))}"` : ''}>` +
-      escapeHtml(String(body)).replace(/\n+$/, '') +
+      `<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>` +
+      escapeHtml(trimTrailingNewlines(body)) +
       '</code></pre>';
-    fences.push(html);
-    return ` FENCE${fences.length - 1} `;
+    return html;
   });
+  let working = extracted.working;
 
   // Pull inline code spans out next, same reason.
   const inlines: string[] = [];
@@ -127,6 +127,45 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/ FENCE(\d+) /g, (_, i) => fences[Number(i)] ?? '');
 
   return working;
+}
+
+function extractFences(md: string): {
+  readonly working: string;
+  readonly fences: ReadonlyArray<{ readonly lang: string; readonly body: string }>;
+} {
+  const output: string[] = [];
+  const fences: Array<{ lang: string; body: string }> = [];
+  let cursor = 0;
+  while (cursor < md.length) {
+    const start = md.indexOf('```', cursor);
+    if (start === -1) break;
+    let bodyStart = start + 3;
+    while (bodyStart < md.length && isFenceLanguageChar(md[bodyStart])) bodyStart += 1;
+    const lang = md.slice(start + 3, bodyStart);
+    if (md[bodyStart] === '\n') bodyStart += 1;
+    const close = md.indexOf('```', bodyStart);
+    if (close === -1) break;
+    output.push(md.slice(cursor, start), ` FENCE${fences.length} `);
+    fences.push({ lang, body: md.slice(bodyStart, close) });
+    cursor = close + 3;
+  }
+  output.push(md.slice(cursor));
+  return { working: output.join(''), fences };
+}
+
+function isFenceLanguageChar(char: string | undefined): boolean {
+  return char !== undefined && (
+    (char >= 'a' && char <= 'z') ||
+    (char >= 'A' && char <= 'Z') ||
+    (char >= '0' && char <= '9') ||
+    char === '_' || char === '+' || char === '-'
+  );
+}
+
+function trimTrailingNewlines(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '\n') end -= 1;
+  return value.slice(0, end);
 }
 
 /**
