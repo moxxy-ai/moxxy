@@ -353,6 +353,10 @@ async function brokerWriteFile(
   }
   const real = await realpathInScope(filePath, caps, cwd, 'write', 'broker:fs.writeFile');
   await fs.mkdir(path.dirname(real), { recursive: true });
+  // This is the capability broker's explicit arbitrary-path write primitive,
+  // not creation of a predictable temp file. `real` has just been canonicalized
+  // and re-checked against the tool's declared fs.write roots above.
+  // lgtm[js/insecure-temporary-file]
   await fs.writeFile(real, data, 'utf8');
 }
 

@@ -1,4 +1,4 @@
-import { mkdir, open, readFile } from 'node:fs/promises';
+import { mkdir, open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { launchdService } from './launchd.js';
@@ -121,7 +121,7 @@ export async function readServiceLog(spec: Pick<ServiceSpec, 'id'>, lines: numbe
     const want = Math.min(MAX_TAIL_BYTES, Math.max(safeLines * TAIL_BYTES_PER_LINE, TAIL_BYTES_PER_LINE));
     if (size <= want) {
       // Small file (or the whole file fits under the cap): read it all.
-      const text = await readFile(logPath, 'utf8').catch(() => '');
+      const text = await handle.readFile({ encoding: 'utf8' }).catch(() => '');
       const all = text.split('\n');
       return all.slice(Math.max(0, all.length - safeLines)).join('\n');
     }

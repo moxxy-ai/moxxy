@@ -177,9 +177,9 @@ export class UserModelStore {
    * provider request.
    */
   async load(): Promise<UserModel | null> {
-    let mtimeMs: number;
+    let handle: import('node:fs/promises').FileHandle;
     try {
-      mtimeMs = (await fs.stat(this.path)).mtimeMs;
+      handle = await fs.open(this.path, 'r');
     } catch (err) {
       if (isEnoent(err)) {
         this.cached = null;
@@ -187,10 +187,15 @@ export class UserModelStore {
       }
       throw err;
     }
-    if (this.cached && this.cached.mtimeMs === mtimeMs) return this.cached.model;
-    const model = parseUserModel(await fs.readFile(this.path, 'utf8'));
-    this.cached = { mtimeMs, model };
-    return model;
+    try {
+      const mtimeMs = (await handle.stat()).mtimeMs;
+      if (this.cached && this.cached.mtimeMs === mtimeMs) return this.cached.model;
+      const model = parseUserModel(await handle.readFile({ encoding: 'utf8' }));
+      this.cached = { mtimeMs, model };
+      return model;
+    } finally {
+      await handle.close();
+    }
   }
 
   /** Raw file text (or `null` when absent) — used by the CLI viewer. */

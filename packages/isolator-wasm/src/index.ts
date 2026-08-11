@@ -859,18 +859,23 @@ async function fetchWasmBytes(url: string, signal: AbortSignal): Promise<Uint8Ar
     // Cap by the on-disk size BEFORE reading so a multi-gigabyte local `.wasm`
     // can't force an unbounded `readFile` allocation (parity with the remote
     // streamed cap; local paths previously skipped the limit entirely).
-    let size: number;
+    let handle: import('node:fs/promises').FileHandle;
     try {
-      size = statSync(filePath).size;
+      handle = await fs.open(filePath, 'r');
     } catch (e) {
-      throw new Error(`[security:wasm] cannot stat module '${filePath}': ${(e as Error).message}`);
+      throw new Error(`[security:wasm] cannot open module '${filePath}': ${(e as Error).message}`);
     }
-    if (size > MAX_OUTPUT_BYTES) {
-      throw new Error(
-        `[security:wasm] module at ${filePath} is ${size} bytes (> ${MAX_OUTPUT_BYTES} limit)`,
-      );
+    try {
+      const size = (await handle.stat()).size;
+      if (size > MAX_OUTPUT_BYTES) {
+        throw new Error(
+          `[security:wasm] module at ${filePath} is ${size} bytes (> ${MAX_OUTPUT_BYTES} limit)`,
+        );
+      }
+      return new Uint8Array(await handle.readFile());
+    } finally {
+      await handle.close();
     }
-    return new Uint8Array(await fs.readFile(filePath));
   }
   if (!url.startsWith('https:')) {
     throw new Error(
