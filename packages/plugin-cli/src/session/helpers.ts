@@ -39,6 +39,13 @@ export interface SlashSuggestionCapabilities {
   readonly canManageExtensions: boolean;
 }
 
+const TUI_INTERNAL_COMMANDS = new Set([
+  'collab_say',
+  'collab_direct',
+  'collab_pause',
+  'collab_resume',
+]);
+
 export function buildSlashSuggestions(
   session: Session,
   capabilities: SlashSuggestionCapabilities,
@@ -67,8 +74,10 @@ export function buildSlashSuggestions(
 }
 
 function commandAvailable(name: string, capabilities: SlashSuggestionCapabilities): boolean {
+  if (TUI_INTERNAL_COMMANDS.has(name)) return false;
   if (name === 'new') return capabilities.canSwitchRuns;
   if (name === 'runs') return capabilities.canSwitchRuns;
+  if (name === 'collab') return capabilities.canSwitchRuns;
   if (name === 'extensions') return capabilities.canManageExtensions;
   return true;
 }

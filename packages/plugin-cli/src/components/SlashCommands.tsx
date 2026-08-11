@@ -67,8 +67,8 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   },
   {
     name: 'collab',
-    description: 'Run a team of agents on a goal — architect proposes a roster (you approve), then they build in parallel',
-    argumentHint: '<goal>',
+    description: 'Open Collaborate — start or rejoin a reviewed agent team',
+    argumentHint: '[goal | command]',
   },
   {
     name: 'speak',

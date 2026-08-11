@@ -20,6 +20,7 @@ describe('buildSlashSuggestions', () => {
     });
     expect(attached.map((command) => command.name)).not.toContain('runs');
     expect(attached.map((command) => command.name)).not.toContain('extensions');
+    expect(attached.map((command) => command.name)).not.toContain('collab');
 
     const local = buildSlashSuggestions(session, {
       canSwitchRuns: true,
@@ -33,6 +34,27 @@ describe('buildSlashSuggestions', () => {
       'help',
       'exit',
     ]);
+  });
+
+  it('keeps collaboration behind one TUI entry point', () => {
+    const collabSession = {
+      commands: {
+        listForChannel: () => [
+          { name: 'collab_say', description: 'Message an agent' },
+          { name: 'collab_direct', description: 'Direct the team' },
+          { name: 'collab_pause', description: 'Pause the team' },
+          { name: 'collab_resume', description: 'Resume the team' },
+        ],
+      },
+    } as unknown as ClientSession;
+
+    const suggestions = buildSlashSuggestions(collabSession, {
+      canSwitchRuns: true,
+      canManageExtensions: true,
+    });
+    const names = suggestions.map((command) => command.name);
+    expect(names.filter((name) => name === 'collab')).toHaveLength(1);
+    expect(names.filter((name) => name.startsWith('collab_'))).toEqual([]);
   });
 });
 

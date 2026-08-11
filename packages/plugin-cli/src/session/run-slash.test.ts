@@ -118,6 +118,84 @@ describe('runSlash /goal', () => {
   });
 });
 
+describe('runSlash /collab', () => {
+  function collabDeps() {
+    const calls = {
+      switched: [] as Array<string | undefined>,
+      commands: [] as Array<{ name: string; args: string }>,
+      notices: [] as Array<string | null>,
+    };
+    const controlNames = new Set([
+      'collab_say',
+      'collab_direct',
+      'collab_pause',
+      'collab_resume',
+    ]);
+    const deps = {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: {
+          get: (name: string) =>
+            controlNames.has(name)
+              ? {
+                  name,
+                  description: 'collaboration control',
+                  handler: ({ args }: { args: string }) => {
+                    calls.commands.push({ name, args });
+                    return { kind: 'text' as const, text: `${name} complete` };
+                  },
+                }
+              : undefined,
+        },
+        modes: {
+          list: () => [{ name: 'default' }, { name: 'collaborative' }],
+        },
+      },
+      requestCollab: (goal?: string) => calls.switched.push(goal),
+      setSystemNotice: (notice: string | null) => calls.notices.push(notice),
+    } as unknown as SlashDeps;
+    return { deps, calls };
+  }
+
+  it('opens the team view when bare and starts a goal without exposing a second command', () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab', deps);
+    runSlash('/collab improve the release flow', deps);
+    runSlash('/collab start audit the API', deps);
+
+    expect(calls.switched).toEqual([undefined, 'improve the release flow', 'audit the API']);
+  });
+
+  it('routes team controls through the single /collab namespace', async () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab say all check the failing test', deps);
+    runSlash('/collab direct prioritize correctness', deps);
+    runSlash('/collab pause', deps);
+    runSlash('/collab resume', deps);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(calls.switched).toEqual([]);
+    expect(calls.commands).toEqual([
+      { name: 'collab_say', args: 'all check the failing test' },
+      { name: 'collab_direct', args: 'prioritize correctness' },
+      { name: 'collab_pause', args: '' },
+      { name: 'collab_resume', args: '' },
+    ]);
+    expect(calls.notices).toContain('Team paused. Use /collab resume to continue.');
+  });
+
+  it('shows a compact entry guide without switching sessions', () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab help', deps);
+
+    expect(calls.switched).toEqual([]);
+    expect(calls.notices[0]).toContain('/collab <goal>');
+    expect(calls.notices[0]).toContain('/collab pause | resume');
+    expect(calls.notices[0]).not.toContain('/collab_pause');
+  });
+});
+
 describe('runSlash /mode — transient modes are never persisted as the default', () => {
   function modeDeps() {
     const calls = { setActive: [] as string[] };
