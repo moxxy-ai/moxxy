@@ -131,6 +131,10 @@ jobs:
         run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
 
       - name: Dependency invariants
+        # dependency-cruiser 18 is a development-only analyzer and requires
+        # Node >=22.12. The Node 20 leg still verifies the shipped CLI/runtime;
+        # the invariant itself is checked independently on Node 22 and 24.
+        if: matrix.node != '20.x'
         run: pnpm check:deps
 
       - name: Smoke — CLI help loads
