@@ -9,6 +9,7 @@ import {
   moxxyHome,
   moxxyPath,
   pruneStaleTempFiles,
+  writeBoundedDataCacheAtomic,
   writeBoundedNetworkCacheAtomicSync,
   writeFileAtomic,
   writeFileAtomicSync,
@@ -97,6 +98,16 @@ describe('network cache writers', () => {
       'exceeds 4 bytes',
     );
     writeBoundedNetworkCacheAtomicSync(target, '1234', { maxBytes: 4 });
+    expect(await readFile(target, 'utf8')).toBe('1234');
+  });
+
+  it('bounds asynchronous data-only cache content before writing it', async () => {
+    const target = join(dir, 'queue.json');
+    await expect(writeBoundedDataCacheAtomic(target, '12345', { maxBytes: 4 })).rejects.toThrow(
+      'exceeds 4 bytes',
+    );
+    await expect(readFile(target)).rejects.toThrow();
+    await writeBoundedDataCacheAtomic(target, '1234', { maxBytes: 4 });
     expect(await readFile(target, 'utf8')).toBe('1234');
   });
 });

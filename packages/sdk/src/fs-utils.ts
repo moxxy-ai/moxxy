@@ -115,7 +115,26 @@ export async function writeSignedNetworkCacheAtomic(
   await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
     // The remote-controlled fields are intentionally persisted only after the
     // Ed25519 check above. CodeQL cannot model this cryptographic sanitizer.
-    // lgtm[js/http-to-file-access]
+    // codeql[js/http-to-file-access]
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
+}
+
+/**
+ * Persist bounded, data-only content without teaching the generic atomic
+ * writer that every HTTP-derived write is safe. This narrow boundary is for
+ * queues/caches whose readers parse the file strictly as data, never as code.
+ */
+export async function writeBoundedDataCacheAtomic(
+  target: string,
+  data: string | Uint8Array,
+  opts: BoundedNetworkCacheOptions,
+): Promise<void> {
+  assertBoundedDataSize(data, opts);
+  await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
+    // The byte cap and data-only reader contract above are the sanitizer;
+    // CodeQL cannot infer that the persisted bytes are never executed.
+    // codeql[js/http-to-file-access]
     await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
   });
 }
@@ -170,6 +189,19 @@ export function writeBoundedNetworkCacheAtomicSync(
   data: string | Uint8Array,
   opts: BoundedNetworkCacheOptions,
 ): void {
+  assertBoundedDataSize(data, opts);
+  commitAtomicSync(target, opts, (tmp) => {
+    // This API is deliberately restricted to bounded data caches. The target
+    // remains caller-owned and content is never loaded as code.
+    // codeql[js/http-to-file-access]
+    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
+}
+
+function assertBoundedDataSize(
+  data: string | Uint8Array,
+  opts: BoundedNetworkCacheOptions,
+): void {
   if (!Number.isSafeInteger(opts.maxBytes) || opts.maxBytes <= 0) {
     throw new Error('maxBytes must be a positive safe integer');
   }
@@ -177,12 +209,6 @@ export function writeBoundedNetworkCacheAtomicSync(
   if (size > opts.maxBytes) {
     throw new Error(`network cache payload exceeds ${opts.maxBytes} bytes`);
   }
-  commitAtomicSync(target, opts, (tmp) => {
-    // This API is deliberately restricted to bounded data caches. The target
-    // remains caller-owned and content is never loaded as code.
-    // lgtm[js/http-to-file-access]
-    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
-  });
 }
 
 /**

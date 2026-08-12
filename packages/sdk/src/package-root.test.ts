@@ -47,6 +47,7 @@ describe('@moxxy/sdk package root', () => {
     'writeFileAtomic',
     'writeFileAtomicSync',
     'writeSignedNetworkCacheAtomic',
+    'writeBoundedDataCacheAtomic',
     'writeBoundedNetworkCacheAtomicSync',
     'moxxyHome',
     'moxxyPath',
