@@ -46,6 +46,10 @@ interface ComposerProps {
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
+  /** While a voice conversation is open the rail owns the microphone, so the
+   *  composer hides its one-shot dictation chip and the button that would
+   *  start a second conversation. Typing, attachments and Send stay. */
+  readonly voiceModeActive?: boolean;
   readonly onOpenVoiceCall: () => void;
   readonly onSend: (
     prompt: string,
@@ -84,6 +88,7 @@ export function Composer({
   compacting,
   activeTurnId,
   workspaceId,
+  voiceModeActive = false,
   onOpenVoiceCall,
   onSend,
   onAbort,
@@ -107,6 +112,15 @@ export function Composer({
   // repeated voice clicks don't stack timers and so it can't fire setState
   // after the composer unmounts (workspace switch).
   const noTranscriberTimer = useRef<number | undefined>(undefined);
+
+  // Voice Mode takes the microphone for the whole conversation, so a one-shot
+  // dictation that happens to be running has to let go first — two capture
+  // leases on one device is how you get a recording that never resolves.
+  const cancelDictation = voice.cancel;
+  const dictating = voice.phase === 'recording' || voice.phase === 'transcribing';
+  useEffect(() => {
+    if (voiceModeActive && dictating) cancelDictation();
+  }, [voiceModeActive, dictating, cancelDictation]);
 
   /** Stable callback for the attachment hooks to refocus the textarea. */
   const focusInput = useCallback(() => taRef.current?.focus(), []);
@@ -452,6 +466,7 @@ export function Composer({
           style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
         />
         <div className="cmdbar__acts">
+          {!voiceModeActive && (
           <ToolChip
             label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
             showLabel={voice.phase !== 'idle'}
@@ -472,10 +487,13 @@ export function Composer({
               <span>{voice.phase === 'recording' ? 'Listening…' : 'Transcribing…'}</span>
             )}
           </ToolChip>
-          <VoiceModeButton
-            disabled={!ready || compacting || inFlight}
-            onOpen={onOpenVoiceCall}
-          />
+          )}
+          {!voiceModeActive && (
+            <VoiceModeButton
+              disabled={!ready || compacting || inFlight}
+              onOpen={onOpenVoiceCall}
+            />
+          )}
           {inFlight ? (
             <button
               type="button"

@@ -17,9 +17,10 @@
  *   - The chrome is ACHROMATIC. Panel greys carry a blue-green bias (anodised
  *     aluminium under bench light), never a neutral grey and never a warm cream.
  *   - Colour appears on DATA, and each hue means exactly one thing:
- *     `primary` (magenta) = commanded by the human, `green` = nominal,
- *     `amber` = needs attention, `red` = failed, `reference` (cyan) = reference
- *     data. A hue is information here, so nothing else may borrow it.
+ *     `primary` (the brand's Signal orange) = commanded by the human,
+ *     `green` = nominal, `amber` = needs attention, `red` = failed,
+ *     `reference` (cyan) = reference data. A hue is information here, so
+ *     nothing else may borrow it.
  *   - Structure comes from hairlines (`cardBorder`), not from elevation. There
  *     are no gradients: a gradient reads as decoration, and this palette spends
  *     its whole colour budget on meaning.
@@ -51,39 +52,46 @@ export const tokens = {
     sidebarBg: '#e7eaeb',
     sidebarBgHover: '#dde2e3',
     /* The active row carries the commanded wash. */
-    sidebarBgActive: '#fbeaf2',
+    sidebarBgActive: '#ffefeb',
     sidebarText: '#0b0f12',
     sidebarTextDim: '#66757e',
     sidebarBorder: '#dfe4e6',
     /* Commanded — the ONE accent, and it is not decoration: it marks what the
      * human ordered (their turn in the trace, the send action, the active rail
-     * item, focus). On paper the accent must be DEEP enough to carry a white
-     * label, which is why this is the mulberry stop and not flat magenta. */
-    primary: '#c21e6b',
-    primaryStrong: '#9d1355',
-    primarySoft: '#fbeaf2',
+     * item, focus). This is the brand's Signal (`assets/brand/README.md`), the
+     * mark's second strand, so the app and the site accent on the same hue.
+     *
+     * On paper the accent must be DEEP enough to carry a white label, so this
+     * is Signal's hue at full saturation taken down to the stop where white
+     * clears 4.5:1 — not flat `#FF4A1E`, which carries white at only 3.36:1.
+     * Saturation is held at 100% so it still reads as the brand orange rather
+     * than drifting to brick. */
+    primary: '#d62a00',
+    primaryStrong: '#b32300',
+    primarySoft: '#ffefeb',
     /* Text/icon colour that sits ON a commanded fill. Not `#fff` at the call
      * site: the dark theme's accent is light and needs an ink label instead,
      * and a hard-coded white would silently fail there. */
     onPrimary: '#ffffff',
     /* Filled actions use their own stop. The data accent can stay luminous in
      * dark mode, while a button keeps a calm, high-contrast white label. */
-    action: '#c21e6b',
-    actionHover: '#9d1355',
+    action: '#d62a00',
+    actionHover: '#b32300',
     onAction: '#ffffff',
-    send: '#c21e6b',
+    send: '#d62a00',
     /* One accent means the secondary stays inside it rather than introducing a
      * second brand hue that would compete with the semantic set. */
-    accent: '#c21e6b',
-    accentStrong: '#9d1355',
+    accent: '#d62a00',
+    accentStrong: '#b32300',
     /* Semantic and categorical hues. These are information, not brand: a
      * workflow step kind is identified by its hue, and green/amber/red mean
      * nominal/attention/failure exactly as they do on an instrument panel. */
     purple: '#575e8c',
     green: '#0e7a5a',
     amber: '#9a6208',
-    /* `pink` was never categorical; it stays an alias of the accent. */
-    pink: '#c21e6b',
+    /* `pink` was never categorical; it stays an alias of the accent, and the
+     * accent is now Signal. The key is kept so call sites need no sweep. */
+    pink: '#d62a00',
     red: '#c0303a',
     /* Reference data: links, cited paths, telemetry that is neither a state nor
      * a command. The fifth and last hue in the system. */
@@ -208,10 +216,10 @@ export type ThemeTokens = Widen<Tokens>;
  * surface), so the columns keep registering against each other.
  *
  * The accent does NOT survive the flip unchanged, and that is the one thing to
- * know about this palette: light's commanded stop is deep because it must carry
- * a white label on paper, and the same mulberry on near-black is nearly
- * invisible. On ink the accent lifts to luminous magenta — which then cannot
- * carry white either, so `onPrimary` flips to ink. Same reason the brand ships
+ * know about this palette: light's commanded stop is a deepened Signal because
+ * it must carry a white label on paper, and that same deep orange on near-black
+ * is muddy. On ink the accent lifts to the brand's Signal exactly — which then
+ * cannot carry white, so `onPrimary` flips to ink. Same reason the brand ships
  * a `-dark` mark rather than recolouring the light one with a CSS filter.
  *
  * Shape-frozen against {@link tokens} (identical keys throughout) — mobile's
@@ -231,25 +239,29 @@ export const darkTokens: ThemeTokens = {
     textDim: '#77868f',
     sidebarBg: '#0b0f12',
     sidebarBgHover: '#161c22',
-    sidebarBgActive: '#24101b' /* the commanded wash, at ink lightness */,
+    sidebarBgActive: '#2b130d' /* the commanded wash, at ink lightness */,
     sidebarText: '#e4ebef',
     sidebarTextDim: '#77868f',
     sidebarBorder: '#212a31',
-    /* Luminous on ink, and therefore ink-labelled — see the note above. */
-    primary: '#f4408f',
-    primaryStrong: '#ff63a8',
-    primarySoft: '#24101b',
+    /* On ink the accent is the brand's Signal EXACTLY — `#FF4A1E` clears every
+     * gate on a dark ground (5.73:1 against the panel), which is the half of
+     * the brand's "holds contrast on a white page and a dark terminal" that
+     * needs no adjustment. `primaryStrong` is the brand's own Signal Lift.
+     * Ink-labelled, as every luminous accent here is — see the note above. */
+    primary: '#ff4a1e',
+    primaryStrong: '#ff8a3d',
+    primarySoft: '#2b130d',
     onPrimary: '#0b0f12',
-    action: '#c21e6b',
-    actionHover: '#d12673',
+    action: '#d62a00',
+    actionHover: '#e02c00',
     onAction: '#ffffff',
-    send: '#f4408f',
-    accent: '#f4408f',
-    accentStrong: '#ff63a8',
+    send: '#ff4a1e',
+    accent: '#ff4a1e',
+    accentStrong: '#ff8a3d',
     purple: '#8e9ac8',
     green: '#3fbf8f',
     amber: '#e8a33d',
-    pink: '#f4408f',
+    pink: '#ff4a1e',
     red: '#f2545b',
     reference: '#4fc3d9',
     overlay: 'rgba(4, 6, 8, 0.68)',

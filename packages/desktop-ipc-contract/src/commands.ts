@@ -31,7 +31,12 @@ import type {
   ReasoningEffort,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
-import type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
+import type {
+  ActiveTurnSnapshot,
+  PromptAttachment,
+  RunTurnArgs,
+  RunTurnResult,
+} from './chat.js';
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
@@ -247,6 +252,9 @@ export interface IpcCommands {
   'session.runTurn': (
     args: RunTurnArgs & { workspaceId?: string },
   ) => Promise<RunTurnResult>;
+  /** Live foreground work owned by the current driver. Persisted history is
+   * intentionally excluded so a crashed turn cannot resurrect as running. */
+  'session.activeTurn': (args?: { workspaceId?: string }) => Promise<ActiveTurnSnapshot>;
   /** Abort the named turn. Best-effort. */
   'session.abortTurn': (args: {
     workspaceId?: string;

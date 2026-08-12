@@ -19,7 +19,7 @@ import type { RemoteSession } from '@moxxy/runner';
 import { asTurnId } from '@moxxy/sdk';
 import type { RunTurnOptions, UserPromptAttachment } from '@moxxy/sdk';
 
-import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
+import type { IpcEvents, RunTurnVisibility } from '@moxxy/desktop-ipc-contract';
 import { openAsk, cancelAsksFor } from './ask-broker.js';
 import { buildAttachments } from './attachments.js';
 import { sendEvent } from './send-event.js';
@@ -28,6 +28,7 @@ import { wsEventBus } from './event-bus.js';
 interface ActiveTurn {
   controller: AbortController;
   pump: Promise<void>;
+  visibility: RunTurnVisibility;
 }
 
 export class SessionDriver {
@@ -186,6 +187,7 @@ export class SessionDriver {
     model?: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
     inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
+    visibility: RunTurnVisibility = 'foreground',
   ): Promise<{ turnId: string }> {
     const id = randomUUID();
     const controller = new AbortController();
@@ -235,12 +237,24 @@ export class SessionDriver {
       }
     });
 
-    this.turns.set(id, { controller, pump });
+    this.turns.set(id, { controller, pump, visibility });
     this.send('runner.turn.started', {
       workspaceId: this.workspaceId,
       turnId: id,
+      visibility,
     });
     return { turnId: id };
+  }
+
+  /** The visible conversation's current live turn. The persisted event log is
+   * deliberately not consulted: this map is recreated with the driver, so an
+   * interrupted pre-restart turn cannot be mistaken for running work. */
+  activeForegroundTurnId(): string | null {
+    let active: string | null = null;
+    for (const [turnId, turn] of this.turns) {
+      if (turn.visibility === 'foreground') active = turnId;
+    }
+    return active;
   }
 
   abortTurn(turnId: string): void {

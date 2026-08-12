@@ -9,7 +9,9 @@
  * (a citation is neither a state nor a command, so it may not have the accent).
  */
 
+import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 
@@ -161,7 +163,47 @@ const components: Components = {
   ),
 };
 
-export function MarkdownBody({
+/**
+ * The parse itself, isolated behind its own memo boundary.
+ *
+ * react-markdown re-parses whatever it is handed on EVERY render, so throttling
+ * the string alone changes nothing — the parent still re-renders on every delta
+ * and the parse runs again with identical input. Cutting the subtree here is
+ * what turns an unchanged string into no work at all.
+ */
+const MarkdownContent = memo(function MarkdownContent({
+  text,
+  cost,
+}: {
+  readonly text: string;
+  /** Written on every real parse; the throttle upstream reads it to decide how
+   *  long to wait before asking for the next one. A ref, so handing it down
+   *  costs nothing and never defeats the memo. */
+  readonly cost: MutableRefObject<number>;
+}) {
+  const started = performance.now();
+  useLayoutEffect(() => {
+    cost.current = performance.now() - started;
+  });
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
+/**
+ * Rendered Markdown for one message.
+ *
+ * MEMOISED, and that matters more than it looks: react-markdown re-parses from
+ * scratch on every render, while a streaming turn re-renders the transcript on
+ * every delta. Unmemoised, every visible message in the conversation re-parsed
+ * on every delta — not just the one being written — which a CPU profile of a
+ * live turn showed as the heaviest app-level cost in the renderer. The props
+ * are a string and a boolean, so the default shallow comparison is exactly
+ * right.
+ */
+export const MarkdownBody = memo(function MarkdownBody({
   text,
   streaming = false,
 }: {
@@ -171,6 +213,8 @@ export function MarkdownBody({
    *  a new line. */
   readonly streaming?: boolean;
 }): JSX.Element {
+  const parseCost = useRef(0);
+  const parsed = useStreamingMarkdownText(text, streaming, parseCost);
   return (
     // `prose` is the app's ONE proportional voice: the chrome face is the
     // default everywhere else, and rendered Markdown is the only long-form text
@@ -187,9 +231,7 @@ export function MarkdownBody({
         maxWidth: '70ch',
       }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
+      <MarkdownContent text={parsed} cost={parseCost} />
     </div>
   );
-}
+});

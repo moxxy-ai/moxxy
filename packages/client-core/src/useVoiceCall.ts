@@ -22,6 +22,10 @@ import {
   type VoiceToolActivity,
 } from './voice-feedback-scheduler.js';
 import { useVoiceRecorder } from './useVoiceRecorder.js';
+import {
+  categorizeVoiceOperation,
+  type VoiceActiveOperation,
+} from './voice-operations.js';
 
 export interface VoiceWaitingToneSource {
   readonly audioUrl: string;
@@ -32,7 +36,6 @@ export interface VoiceCallChat {
   readonly activeTurnId: string | null;
   readonly error: string | null;
   readonly send: (prompt: string) => Promise<void>;
-  readonly abort: () => Promise<void>;
 }
 
 export interface UseVoiceCallOptions {
@@ -47,6 +50,7 @@ export interface UseVoiceCall {
   readonly active: boolean;
   readonly phase: VoiceCallPhase;
   readonly activity: VoiceToolActivity | null;
+  readonly activeOperations: ReadonlyArray<VoiceActiveOperation>;
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
   readonly waitingSoundEnabled: boolean;
@@ -66,7 +70,7 @@ export interface UseVoiceCall {
   readonly finishUtterance: () => void;
   /** Discard a no-speech capture and immediately arm a fresh one. */
   readonly restartListening: () => void;
-  /** Interrupt current spoken output while preserving the live user capture. */
+  /** Interrupt spoken output while preserving the live user capture and runner turn. */
   readonly bargeIn: () => void;
 }
 
@@ -111,6 +115,7 @@ export function useVoiceCall({
   const [inputAnalyser, setInputAnalyser] = useState<unknown | null>(null);
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
   const [activity, setActivity] = useState<VoiceToolActivity | null>(null);
+  const [activeOperations, setActiveOperations] = useState<ReadonlyArray<VoiceActiveOperation>>([]);
   const [waitingSoundEnabled, setWaitingSoundEnabled] = useState(readWaitingSoundPreference);
   const [localPiperInstallRequired, setLocalPiperInstallRequired] = useState(false);
   const [localPiperInstalling, setLocalPiperInstalling] = useState(false);
@@ -121,12 +126,15 @@ export function useVoiceCall({
   const completionTargetRef = useRef<number | null>(null);
   const currentTurnIdRef = useRef<string | null>(null);
   const activeToolActivitiesRef = useRef(new Map<string, VoiceToolActivity>());
-  const toolNamesByCallRef = useRef(new Map<string, string>());
+  const activeOperationsRef = useRef(new Map<string, VoiceActiveOperation>());
+  const operationOrdinalRef = useRef(0);
+  const toolRequestsByCallRef = useRef(new Map<string, { readonly name: string; readonly input: unknown }>());
   const feedbackTurnActiveRef = useRef(false);
   const waitingToneHandleRef = useRef<AudioClipHandle | null>(null);
   const waitingToneGenerationRef = useRef(0);
   const previousInputRequiredRef = useRef(false);
-  const interruptedTurnIdsRef = useRef(new Set<string>());
+  const audioSuppressedTurnIdRef = useRef<string | null>(null);
+  const pendingFeedbackTranscriptRef = useRef<string | null>(null);
   const bargeInTransitionRef = useRef(false);
   const chatRef = useRef(chat);
   chatRef.current = chat;
@@ -181,23 +189,33 @@ export function useVoiceCall({
   const previousSpeechPhaseRef = useRef(speech.phase);
 
   const onTranscript = useCallback((text: string): void => {
+    const currentChat = chatRef.current;
+    const queuesBehindActiveTurn = currentChat.sending || currentChat.activeTurnId !== null;
     // Set synchronously before React commits phase updates. Without this gate,
     // an immediately-resolving transcriber can briefly expose recorder=idle
     // while the machine still renders listening and accidentally open a second
     // microphone capture before transcript-ready commits.
     turnCycleRef.current = true;
-    turnObservedRef.current = false;
+    turnObservedRef.current = queuesBehindActiveTurn;
     completionTargetRef.current = completedTurnCountRef.current + 1;
-    currentTurnIdRef.current = null;
-    activeToolActivitiesRef.current.clear();
-    setActivity(null);
-    feedback.attachTranscript(text);
-    feedbackTurnActiveRef.current = true;
+    if (queuesBehindActiveTurn) {
+      pendingFeedbackTranscriptRef.current = text;
+    } else {
+      currentTurnIdRef.current = null;
+      activeToolActivitiesRef.current.clear();
+      activeOperationsRef.current.clear();
+      operationOrdinalRef.current = 0;
+      setActiveOperations([]);
+      setActivity(null);
+      feedback.attachTranscript(text);
+      feedbackTurnActiveRef.current = true;
+    }
     setLastTranscript(text);
     dispatch({ type: 'transcript-ready' });
     setTurnRequestPending(true);
-    void chatRef.current.send(text)
+    void currentChat.send(text)
       .catch((error: unknown) => {
+        pendingFeedbackTranscriptRef.current = null;
         feedback.endTurn();
         feedbackTurnActiveRef.current = false;
         dispatch({ type: 'failed', reason: toErrorMessage(error) });
@@ -224,12 +242,16 @@ export function useVoiceCall({
     completionTargetRef.current = null;
     currentTurnIdRef.current = null;
     activeToolActivitiesRef.current.clear();
+    activeOperationsRef.current.clear();
+    operationOrdinalRef.current = 0;
+    setActiveOperations([]);
     setActivity(null);
-    toolNamesByCallRef.current.clear();
+    toolRequestsByCallRef.current.clear();
     feedbackTurnActiveRef.current = false;
     previousInputRequiredRef.current = false;
     previousSpeechPhaseRef.current = 'idle';
-    interruptedTurnIdsRef.current.clear();
+    audioSuppressedTurnIdRef.current = null;
+    pendingFeedbackTranscriptRef.current = null;
     bargeInTransitionRef.current = false;
     setLocalPiperInstallRequired(false);
     setLocalPiperInstalling(false);
@@ -364,22 +386,12 @@ export function useVoiceCall({
 
     voice.markUtteranceStart();
     bargeInTransitionRef.current = true;
-    const streamedTurnId = speechRef.current.interruptCurrentTurn();
-    const interruptedTurnId = streamedTurnId
+    audioSuppressedTurnIdRef.current = speechRef.current.interruptCurrentTurn()
       ?? currentTurnIdRef.current
       ?? chatRef.current.activeTurnId;
-    if (interruptedTurnId !== null) interruptedTurnIdsRef.current.add(interruptedTurnId);
     feedback.endTurn();
     feedbackTurnActiveRef.current = false;
-    turnCycleRef.current = false;
-    turnObservedRef.current = false;
-    completionTargetRef.current = null;
-    currentTurnIdRef.current = null;
-    activeToolActivitiesRef.current.clear();
-    toolNamesByCallRef.current.clear();
-    setActivity(null);
     dispatch({ type: 'barge-in' });
-    void chatRef.current.abort();
   }, [feedback, state.active, state.microphoneMuted, state.phase, voice]);
 
   // Normal listening and interruptible Piper playback share one capture. The
@@ -481,6 +493,7 @@ export function useVoiceCall({
     if (!state.active) return;
     if (inputRequired === previousInputRequiredRef.current) return;
     previousInputRequiredRef.current = inputRequired;
+    if (audioSuppressedTurnIdRef.current !== null) return;
     if (inputRequired) {
       voice.cancel();
       feedback.inputRequired();
@@ -494,18 +507,40 @@ export function useVoiceCall({
   useEffect(() => {
     if (!state.active) return;
     const offStarted = api().subscribe('runner.turn.started', (payload) => {
-      if (payload.workspaceId !== workspaceId) return;
-      if (interruptedTurnIdsRef.current.has(payload.turnId)) return;
+      if (payload.workspaceId !== workspaceId || payload.visibility === 'background') return;
+      const alreadyOurs = currentTurnIdRef.current === payload.turnId;
       currentTurnIdRef.current = payload.turnId;
+      const pendingFeedbackTranscript = pendingFeedbackTranscriptRef.current;
+      if (
+        pendingFeedbackTranscript !== null
+        && audioSuppressedTurnIdRef.current !== payload.turnId
+      ) {
+        pendingFeedbackTranscriptRef.current = null;
+        feedback.attachTranscript(pendingFeedbackTranscript);
+        feedbackTurnActiveRef.current = true;
+      }
+      // A turn can also begin from the text composer, which stays available
+      // for the whole conversation now that Voice Mode is a rail rather than a
+      // takeover. Treat it exactly like a spoken one: stop listening, follow
+      // the work, and let the answer be read back. `turnCycleRef` marks a turn
+      // this hook started itself, so this only fires for the other kind.
+      if (alreadyOurs || turnCycleRef.current) return;
+      turnCycleRef.current = true;
+      turnObservedRef.current = true;
+      completionTargetRef.current = completedTurnCountRef.current + 1;
+      voice.cancel();
+      dispatch({ type: 'turn-started' });
     });
     const offEvent = api().subscribe('runner.event', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
       const event: MoxxyEvent = payload.event;
-      if (interruptedTurnIdsRef.current.has(event.turnId)) return;
       if (currentTurnIdRef.current !== null && event.turnId !== currentTurnIdRef.current) return;
       if (event.type === 'user_prompt') {
         currentTurnIdRef.current ??= event.turnId;
-        if (!feedbackTurnActiveRef.current) {
+        if (
+          audioSuppressedTurnIdRef.current !== event.turnId
+          && !feedbackTurnActiveRef.current
+        ) {
           feedback.beginTurn(event.text);
           feedbackTurnActiveRef.current = true;
         }
@@ -513,36 +548,57 @@ export function useVoiceCall({
       }
       if (event.type === 'tool_call_approved') {
         currentTurnIdRef.current ??= event.turnId;
-        const toolName = toolNamesByCallRef.current.get(event.callId) ?? 'unknown';
+        const request = toolRequestsByCallRef.current.get(event.callId);
+        const toolName = request?.name ?? 'unknown';
         const nextActivity = categorizeVoiceToolActivity(toolName);
         activeToolActivitiesRef.current.set(event.callId, nextActivity);
+        if (!activeOperationsRef.current.has(event.callId)) {
+          activeOperationsRef.current.set(event.callId, {
+            callId: event.callId,
+            kind: categorizeVoiceOperation(toolName, request?.input),
+            ordinal: operationOrdinalRef.current,
+          });
+          operationOrdinalRef.current += 1;
+          setActiveOperations([...activeOperationsRef.current.values()]);
+        }
         setActivity(nextActivity);
-        feedback.toolApproved(event.callId, toolName);
-        dispatch({ type: 'tool-started' });
+        if (audioSuppressedTurnIdRef.current !== event.turnId) {
+          feedback.toolApproved(event.callId, toolName);
+          dispatch({ type: 'tool-started' });
+        }
         return;
       }
       if (event.type === 'tool_call_requested') {
         currentTurnIdRef.current ??= event.turnId;
-        toolNamesByCallRef.current.set(event.callId, event.name);
+        toolRequestsByCallRef.current.set(event.callId, { name: event.name, input: event.input });
         return;
       }
       if (event.type === 'tool_result') {
         activeToolActivitiesRef.current.delete(event.callId);
+        activeOperationsRef.current.delete(event.callId);
+        setActiveOperations([...activeOperationsRef.current.values()]);
         setActivity([...activeToolActivitiesRef.current.values()].at(-1) ?? null);
-        feedback.toolResult(event.callId, event.ok);
-        toolNamesByCallRef.current.delete(event.callId);
+        if (audioSuppressedTurnIdRef.current !== event.turnId) {
+          feedback.toolResult(event.callId, event.ok);
+        }
+        toolRequestsByCallRef.current.delete(event.callId);
       }
     });
     const offComplete = api().subscribe('runner.turn.complete', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
-      if (interruptedTurnIdsRef.current.delete(payload.turnId)) return;
       if (currentTurnIdRef.current !== null && payload.turnId !== currentTurnIdRef.current) return;
+      if (audioSuppressedTurnIdRef.current === payload.turnId) {
+        audioSuppressedTurnIdRef.current = null;
+      }
       feedback.endTurn();
       feedbackTurnActiveRef.current = false;
       currentTurnIdRef.current = null;
       activeToolActivitiesRef.current.clear();
+      activeOperationsRef.current.clear();
+      operationOrdinalRef.current = 0;
+      setActiveOperations([]);
       setActivity(null);
-      toolNamesByCallRef.current.clear();
+      toolRequestsByCallRef.current.clear();
     });
     return () => {
       offStarted();
@@ -652,6 +708,7 @@ export function useVoiceCall({
       ? 'arming'
       : state.phase,
     activity,
+    activeOperations,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
     waitingSoundEnabled,

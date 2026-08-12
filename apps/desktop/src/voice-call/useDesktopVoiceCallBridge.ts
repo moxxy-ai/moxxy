@@ -8,6 +8,7 @@ import {
   type DesktopVoiceCallCommand,
   type DesktopVoiceCallSnapshot,
   type DesktopVoiceCallSurface,
+  type DesktopVoiceQueuedTurn,
 } from './desktop-voice-call-bridge';
 
 interface AudioSpectrumAnalyser {
@@ -20,10 +21,18 @@ interface UseDesktopVoiceCallBridgeOptions {
   readonly workspaceId: string;
   readonly localCall: UseVoiceCall;
   readonly port?: DesktopVoiceCallBridgePort | null;
+  readonly queuedTurns?: ReadonlyArray<DesktopVoiceQueuedTurn>;
+  readonly dropQueuedTurn?: (id: string) => void;
+}
+
+export interface DesktopVoiceCallBridgeResult extends UseVoiceCall {
+  readonly remoteQueuedTurns: ReadonlyArray<DesktopVoiceQueuedTurn>;
+  readonly dropRemoteQueuedTurn: (id: string) => void;
 }
 
 const SNAPSHOT_REQUEST_RETRY_MS = 250;
 const MAX_SNAPSHOT_REQUEST_ATTEMPTS = 8;
+const EMPTY_QUEUED_TURNS: ReadonlyArray<DesktopVoiceQueuedTurn> = Object.freeze([]);
 
 function isAudioSpectrumAnalyser(value: unknown): value is AudioSpectrumAnalyser {
   if (typeof value !== 'object' || value === null) return false;
@@ -33,7 +42,10 @@ function isAudioSpectrumAnalyser(value: unknown): value is AudioSpectrumAnalyser
     && typeof candidate.getByteFrequencyData === 'function';
 }
 
-function snapshotFrom(call: UseVoiceCall): DesktopVoiceCallSnapshot {
+function snapshotFrom(
+  call: UseVoiceCall,
+  queuedTurns: ReadonlyArray<DesktopVoiceQueuedTurn>,
+): DesktopVoiceCallSnapshot {
   return {
     active: call.active,
     phase: call.phase,
@@ -43,6 +55,10 @@ function snapshotFrom(call: UseVoiceCall): DesktopVoiceCallSnapshot {
     waitingSoundEnabled: call.waitingSoundEnabled,
     localPiperInstallRequired: call.localPiperInstallRequired,
     localPiperInstalling: call.localPiperInstalling,
+    queuedTurns: queuedTurns.slice(0, 32).map((turn) => ({
+      id: turn.id.slice(0, 128),
+      prompt: turn.prompt.slice(0, 4_096),
+    })),
   };
 }
 
@@ -80,7 +96,9 @@ export function useDesktopVoiceCallBridge({
   workspaceId,
   localCall,
   port,
-}: UseDesktopVoiceCallBridgeOptions): UseVoiceCall {
+  queuedTurns = EMPTY_QUEUED_TURNS,
+  dropQueuedTurn,
+}: UseDesktopVoiceCallBridgeOptions): DesktopVoiceCallBridgeResult {
   const bridgePortRef = useRef<DesktopVoiceCallBridgePort | null>(null);
   const [remoteSnapshot, setRemoteSnapshot] = useState<DesktopVoiceCallSnapshot | null>(null);
   const [remoteAudioSource, setRemoteAudioSource] = useState<
@@ -89,15 +107,19 @@ export function useDesktopVoiceCallBridge({
   const microphoneSpectrum = useRef(new RemoteAudioSpectrum());
   const assistantSpectrum = useRef(new RemoteAudioSpectrum());
   const localCallRef = useRef(localCall);
+  const queuedTurnsRef = useRef(queuedTurns);
+  const dropQueuedTurnRef = useRef(dropQueuedTurn);
   const publishSpectrumRef = useRef<(() => void) | null>(null);
   localCallRef.current = localCall;
+  queuedTurnsRef.current = queuedTurns;
+  dropQueuedTurnRef.current = dropQueuedTurn;
 
   const publishSnapshot = useCallback((): void => {
     bridgePortRef.current?.post({
       type: 'snapshot',
       source: 'main',
       workspaceId,
-      snapshot: snapshotFrom(localCallRef.current),
+      snapshot: snapshotFrom(localCallRef.current, queuedTurnsRef.current),
     });
   }, [workspaceId]);
 
@@ -138,6 +160,8 @@ export function useDesktopVoiceCallBridge({
           publishSpectrumRef.current?.();
         } else if (message.type === 'command') {
           runOwnerCommand(localCallRef.current, message.command);
+        } else if (message.type === 'queue-drop') {
+          dropQueuedTurnRef.current?.(message.queueId);
         }
         return;
       }
@@ -187,6 +211,7 @@ export function useDesktopVoiceCallBridge({
     localCall.localPiperInstalling,
     localCall.phase,
     localCall.waitingSoundEnabled,
+    queuedTurns,
     publishSnapshot,
     surface,
   ]);
@@ -248,20 +273,45 @@ export function useDesktopVoiceCallBridge({
   const sendCommand = useCallback((command: DesktopVoiceCallCommand): void => {
     bridgePortRef.current?.post({ type: 'command', source: 'focus', workspaceId, command });
   }, [workspaceId]);
+  const dropRemoteQueuedTurn = useCallback((id: string): void => {
+    setRemoteSnapshot((snapshot) => {
+      if (!snapshot) return snapshot;
+      return {
+        ...snapshot,
+        queuedTurns: snapshot.queuedTurns.filter((turn) => turn.id !== id),
+      };
+    });
+    bridgePortRef.current?.post({
+      type: 'queue-drop',
+      source: 'focus',
+      workspaceId,
+      queueId: id,
+    });
+  }, [workspaceId]);
 
   const remoteActive = surface === 'focus' && remoteSnapshot?.active === true;
-  return useMemo(() => {
-    if (surface !== 'focus' || !remoteSnapshot) return localCall;
+  return useMemo<DesktopVoiceCallBridgeResult>(() => {
+    if (surface !== 'focus' || !remoteSnapshot) {
+      return {
+        ...localCall,
+        remoteQueuedTurns: EMPTY_QUEUED_TURNS,
+        dropRemoteQueuedTurn: () => undefined,
+      };
+    }
     if (!remoteActive) {
       return {
         ...localCall,
         ...remoteSnapshot,
         open: () => sendCommand('open'),
+        remoteQueuedTurns: remoteSnapshot.queuedTurns,
+        dropRemoteQueuedTurn,
       };
     }
     return {
       ...localCall,
       ...remoteSnapshot,
+      remoteQueuedTurns: remoteSnapshot.queuedTurns,
+      dropRemoteQueuedTurn,
       lastTranscript: null,
       inputAnalyser: remoteAudioSource === 'microphone' ? microphoneSpectrum.current : null,
       outputAnalyser: remoteAudioSource === 'assistant' ? assistantSpectrum.current : null,
@@ -275,5 +325,13 @@ export function useDesktopVoiceCallBridge({
       restartListening: () => undefined,
       bargeIn: () => undefined,
     };
-  }, [localCall, remoteActive, remoteAudioSource, remoteSnapshot, sendCommand, surface]);
+  }, [
+    dropRemoteQueuedTurn,
+    localCall,
+    remoteActive,
+    remoteAudioSource,
+    remoteSnapshot,
+    sendCommand,
+    surface,
+  ]);
 }
