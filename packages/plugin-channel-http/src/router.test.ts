@@ -197,6 +197,39 @@ describe('handleTurnAudio', () => {
     expect(res._status).toBe(415);
   });
 
+  it('returns a stable 413 response without exposing request-stream errors', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const req = new Readable({
+      read() {
+        this.destroy(new Error('SECRET /srv/internal/audio-reader.ts'));
+      },
+    }) as unknown as IncomingMessage;
+    Object.assign(req, {
+      method: 'POST',
+      url: '/v1/turn/audio',
+      headers: { 'content-type': 'audio/ogg', authorization: 'Bearer x' },
+      socket: new Socket(),
+    });
+    const res = makeResponse();
+
+    await handleTurnAudio(req, res, ctx(session));
+
+    expect(res._status).toBe(413);
+    expect(JSON.parse(res._body)).toEqual({
+      error: 'payload_too_large',
+      message: 'audio payload exceeds the allowed size',
+    });
+    expect(res._body).not.toContain('SECRET');
+    expect(res._body).not.toContain('audio-reader.ts');
+  });
+
   it('returns 400 on empty body', async () => {
     const session = new Session({ cwd: '/tmp', silent: true });
     session.transcribers.register(
@@ -529,6 +562,30 @@ describe('error shaping — internal errors not echoed verbatim', () => {
     expect(body.message).not.toContain('sk-leak');
     // Full detail still reaches the server-side log.
     expect(warn).toHaveBeenCalledWith('http turn failed', expect.objectContaining({ err: expect.stringContaining('SECRET') }));
+  });
+
+  it('streaming 400 bad_request returns the same stable parser-safe response', async () => {
+    const session = { runTurn: () => (async function* () {})() } as unknown as ClientSession;
+    const res = makeResponse();
+
+    await handleTurnStream(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/turn/stream',
+        headers: { authorization: 'Bearer x' },
+        body: '{"prompt":"unterminated',
+      }),
+      res,
+      { session, authToken: 'x', logger: silentLogger },
+    );
+
+    expect(res._status).toBe(400);
+    expect(JSON.parse(res._body)).toEqual({
+      error: 'bad_request',
+      message: 'invalid request body',
+    });
+    expect(res._body).not.toContain('unterminated');
+    expect(res._body).not.toContain('JSON');
   });
 });
 
