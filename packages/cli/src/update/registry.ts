@@ -10,6 +10,16 @@
 const REGISTRY = 'https://registry.npmjs.org';
 const DEFAULT_PKG = '@moxxy/cli';
 const DEFAULT_TIMEOUT_MS = 4000;
+const STABLE_SEMVER_RE = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
+
+function normalizeStableSemver(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = STABLE_SEMVER_RE.exec(value);
+  if (!match) return null;
+  const [, major, minor, patch] = match;
+  if (major === undefined || minor === undefined || patch === undefined) return null;
+  return `${Number(major)}.${Number(minor)}.${Number(patch)}`;
+}
 
 export interface FetchLatestOpts {
   /** Override the fetch implementation (tests inject a stub). */
@@ -41,7 +51,7 @@ export async function fetchLatest(
     });
     if (!res.ok) return null;
     const json = (await res.json()) as { version?: unknown };
-    return typeof json.version === 'string' ? json.version : null;
+    return normalizeStableSemver(json.version);
   } catch {
     return null;
   } finally {

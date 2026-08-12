@@ -485,6 +485,28 @@ describe('handleTurn — concurrency cap', () => {
 });
 
 describe('error shaping — internal errors not echoed verbatim', () => {
+  it('400 bad_request returns a stable message, not parser or schema internals', async () => {
+    const session = { runTurn: () => (async function* () {})() } as unknown as ClientSession;
+    const res = makeResponse();
+    await handleTurn(
+      makeIncoming({
+        method: 'POST',
+        url: '/v1/turn',
+        headers: { authorization: 'Bearer x' },
+        body: '{"prompt":"unterminated',
+      }),
+      res,
+      { session, authToken: 'x', logger: silentLogger },
+    );
+    expect(res._status).toBe(400);
+    expect(JSON.parse(res._body)).toEqual({
+      error: 'bad_request',
+      message: 'invalid request body',
+    });
+    expect(res._body).not.toContain('unterminated');
+    expect(res._body).not.toContain('JSON');
+  });
+
   it('500 turn_failed returns a generic message, not the raw provider error', async () => {
     const session = {
       runTurn: () =>

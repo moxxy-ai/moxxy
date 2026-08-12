@@ -62,18 +62,24 @@ function hasPath(obj: unknown, segments: ReadonlyArray<string>): boolean {
   return true;
 }
 
-/** Remove a dot-path, pruning objects that become empty. */
-function deletePath(obj: Record<string, unknown>, segments: ReadonlyArray<string>): void {
+/** Return a copy without one dot-path, pruning objects that become empty. */
+function withoutPath(
+  obj: Readonly<Record<string, unknown>>,
+  segments: ReadonlyArray<string>,
+): Record<string, unknown> {
   const [head, ...rest] = segments;
-  if (head === undefined) return;
-  if (rest.length === 0) {
-    delete obj[head];
-    return;
-  }
-  const child = obj[head];
-  if (child === null || typeof child !== 'object' || Array.isArray(child)) return;
-  deletePath(child as Record<string, unknown>, rest);
-  if (Object.keys(child as Record<string, unknown>).length === 0) delete obj[head];
+  if (head === undefined) return { ...obj };
+  return Object.fromEntries(
+    Object.entries(obj).flatMap(([key, value]) => {
+      if (key !== head) return [[key, value]];
+      if (rest.length === 0) return [];
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return [[key, value]];
+      }
+      const child = withoutPath(value as Readonly<Record<string, unknown>>, rest);
+      return Object.keys(child).length === 0 ? [] : [[key, child]];
+    }),
+  );
 }
 
 export interface LockedOverride {
@@ -102,14 +108,14 @@ export function stripLockedKeys(
   scope: string,
 ): { readonly config: MoxxyConfig; readonly overrides: ReadonlyArray<LockedOverride> } {
   if (locked.length === 0) return { config, overrides: [] };
-  const clone = structuredClone(config) as Record<string, unknown>;
+  let clone = structuredClone(config) as Record<string, unknown>;
   const overrides: LockedOverride[] = [];
   for (const key of locked) {
     const segments = key.split('.').filter((s) => s.length > 0);
     if (segments.length === 0) continue;
     if (!hasPath(clone, segments)) continue;
     overrides.push({ key, scope });
-    deletePath(clone, segments);
+    clone = withoutPath(clone, segments);
   }
   return { config: clone as MoxxyConfig, overrides };
 }
