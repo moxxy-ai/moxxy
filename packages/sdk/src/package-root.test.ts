@@ -46,6 +46,8 @@ describe('@moxxy/sdk package root', () => {
   const NODE_ONLY_VALUE_EXPORTS = [
     'writeFileAtomic',
     'writeFileAtomicSync',
+    'writeSignedNetworkCacheAtomic',
+    'writeBoundedNetworkCacheAtomicSync',
     'moxxyHome',
     'moxxyPath',
     'readRequestBody',

@@ -18,6 +18,8 @@
 export {
   writeFileAtomic,
   writeFileAtomicSync,
+  writeSignedNetworkCacheAtomic,
+  writeBoundedNetworkCacheAtomicSync,
   moxxyHome,
   moxxyPath,
   ensurePrivateDir,

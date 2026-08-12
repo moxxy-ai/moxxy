@@ -2,11 +2,21 @@ import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { writeSignedNetworkCacheAtomic } from '@moxxy/sdk/server';
 import type { PolicyBundle, PolicyBundleRule } from './policy-bundle.js';
 import { verifyPolicyBundle } from './policy-bundle.js';
 import type { PolicyBundleRef } from './schema.js';
 
 const FETCH_TIMEOUT_MS = 10_000;
+
+type FetchBundleResult =
+  | {
+      readonly kind: 'verified';
+      readonly bundle: PolicyBundle;
+      readonly bytes: Uint8Array;
+      readonly sig: string;
+    }
+  | { readonly kind: 'unavailable'; readonly reason: string };
 
 export interface PolicySourceRecord {
   readonly id: string;
@@ -80,18 +90,24 @@ export async function loadPolicyBundles(
     const cachePath = cacheFileFor(cacheDir, ref.url);
     const remote = await fetchBundle(ref, opts);
 
-    let bundle: PolicyBundle | undefined = remote.bundle;
+    let bundle: PolicyBundle | undefined;
     let from: 'remote' | 'cache' = 'remote';
     let staleReason: string | undefined;
 
-    if (bundle) {
-      await writeCache(cachePath, remote.bytes!, remote.sig!);
+    if (remote.kind === 'verified') {
+      bundle = remote.bundle;
+      await writeSignedNetworkCacheAtomic(
+        cachePath,
+        remote.bytes,
+        remote.sig,
+        ref.publicKey,
+      ).catch(() => undefined);
     } else {
       // The cached bytes are re-verified against the configured key on every
       // read, so a cache an attacker can write is worth no more than one they
       // cannot: tampering fails the signature and the bundle is discarded.
       const cached = await readVerifiedCache(cachePath, ref);
-      if (!cached) throw new PolicyLoadError(ref.url, remote.reason ?? 'unavailable');
+      if (!cached) throw new PolicyLoadError(ref.url, remote.reason);
       bundle = cached;
       from = 'cache';
       staleReason = remote.reason;
@@ -114,9 +130,9 @@ export async function loadPolicyBundles(
 async function fetchBundle(
   ref: PolicyBundleRef,
   opts: LoadPolicyOptions,
-): Promise<{ bundle?: PolicyBundle; bytes?: Uint8Array; sig?: string; reason?: string }> {
+): Promise<FetchBundleResult> {
   const fetchImpl = opts.fetch ?? (globalThis.fetch as unknown as FetchLike | undefined);
-  if (!fetchImpl) return { reason: 'no fetch implementation available' };
+  if (!fetchImpl) return { kind: 'unavailable', reason: 'no fetch implementation available' };
 
   const deadline = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   let bytes: Uint8Array;
@@ -127,13 +143,15 @@ async function fetchBundle(
       fetchImpl(`${ref.url}.sig`, { signal: deadline }),
     ]);
     if (!bodyRes.ok || !sigRes.ok) {
-      return { reason: `http ${bodyRes.status} / sig ${sigRes.status}` };
+      return { kind: 'unavailable', reason: `http ${bodyRes.status} / sig ${sigRes.status}` };
     }
     bytes = new Uint8Array(await bodyRes.arrayBuffer());
     sig = (await sigRes.text()).trim();
   } catch (err) {
-    if (deadline.aborted) return { reason: `fetch exceeded ${FETCH_TIMEOUT_MS}ms` };
-    return { reason: err instanceof Error ? err.message : String(err) };
+    if (deadline.aborted) {
+      return { kind: 'unavailable', reason: `fetch exceeded ${FETCH_TIMEOUT_MS}ms` };
+    }
+    return { kind: 'unavailable', reason: err instanceof Error ? err.message : String(err) };
   }
 
   const result = verifyPolicyBundle(bytes, sig, ref.publicKey, ref.id);
@@ -143,12 +161,7 @@ async function fetchBundle(
     // policy forever by serving garbage.
     throw new PolicyLoadError(ref.url, `${result.failure}: ${result.detail ?? ''}`.trim());
   }
-  return { bundle: result.bundle, bytes, sig };
-}
-
-async function writeCache(cachePath: string, bytes: Uint8Array, sig: string): Promise<void> {
-  const payload = JSON.stringify({ bytes: Buffer.from(bytes).toString('base64'), sig });
-  await fs.writeFile(cachePath, payload, { mode: 0o600 }).catch(() => undefined);
+  return { kind: 'verified', bundle: result.bundle, bytes, sig };
 }
 
 async function readVerifiedCache(
@@ -157,13 +170,17 @@ async function readVerifiedCache(
 ): Promise<PolicyBundle | undefined> {
   try {
     const raw = JSON.parse(await fs.readFile(cachePath, 'utf8')) as {
+      payloadB64?: string;
+      signature?: string;
       bytes?: string;
       sig?: string;
     };
-    if (typeof raw.bytes !== 'string' || typeof raw.sig !== 'string') return undefined;
+    const payloadB64 = raw.payloadB64 ?? raw.bytes;
+    const signature = raw.signature ?? raw.sig;
+    if (typeof payloadB64 !== 'string' || typeof signature !== 'string') return undefined;
     const result = verifyPolicyBundle(
-      new Uint8Array(Buffer.from(raw.bytes, 'base64')),
-      raw.sig,
+      new Uint8Array(Buffer.from(payloadB64, 'base64')),
+      signature,
       ref.publicKey,
       ref.id,
     );

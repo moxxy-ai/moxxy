@@ -4,8 +4,7 @@ import { spawn } from 'node:child_process';
  * Open a URL in the user's default browser. Platform-specific:
  *   macOS  → `open <url>`
  *   Linux  → `xdg-open <url>`
- *   Win32  → `cmd /c start "" "<url>"` (the URL DOUBLE-QUOTED + args passed
- *           verbatim — see {@link browserOpenCommand})
+ *   Win32  → `explorer.exe <url>`
  *
  * Returns once the helper process is spawned — it does NOT wait for the
  * browser itself, since the user's flow continues asynchronously via
@@ -13,14 +12,11 @@ import { spawn } from 'node:child_process';
  * so the caller can print it for the user to paste manually.
  */
 export async function openInBrowser(url: string): Promise<void> {
-  const { cmd, args, verbatim } = browserOpenCommand(url);
+  const { cmd, args } = browserOpenCommand(url);
   await new Promise<void>((resolve, reject) => {
     const child = spawn(cmd, args, {
       stdio: 'ignore',
       detached: true,
-      // Windows only: keep cmd.exe from re-quoting our already-quoted URL,
-      // which would otherwise break the `&` escaping (see below).
-      ...(verbatim ? { windowsVerbatimArguments: true } : {}),
     });
     // Settle exactly once. An early spawn `error` rejects AND clears the pending
     // 50ms timer (else it would fire a stray resolve later and hold a live timer
@@ -56,28 +52,25 @@ export async function openInBrowser(url: string): Promise<void> {
 
 /**
  * Resolve the platform's "open this URL in the default browser" command.
- * Exported + `platform`-parameterized so the Windows quoting can be unit-tested
+ * Exported + `platform`-parameterized so each platform can be unit-tested
  * without actually spawning a browser.
  *
- * Windows is the tricky one: `&` (and `|`, `<`, `>`, `^`) in a URL are cmd.exe
- * command separators. `cmd /c start "" http://a?x=1&y=2` truncates the URL at
- * the first `&`, so an OAuth authorize URL loses redirect_uri / code_challenge /
- * state and the provider rejects the request ("authorization error"). Wrapping
- * the URL in double quotes makes cmd treat it as one literal token; passing the
- * args verbatim (`windowsVerbatimArguments`) stops Node from re-quoting and
- * undoing that. The empty `""` is the required `start` window-title placeholder.
+ * Windows deliberately launches Explorer directly rather than interpolating a
+ * library-provided OAuth URL into `cmd.exe /c start`. `spawn` passes the URL as
+ * one argv entry, so `&`, `|`, `<`, `>` and `^` remain URL data rather than
+ * shell metacharacters.
  */
 export function browserOpenCommand(
   url: string,
   platform: NodeJS.Platform = process.platform,
-): { cmd: string; args: string[]; verbatim?: boolean } {
+): { cmd: string; args: string[] } {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`refusing to open non-http OAuth URL: ${parsed.protocol}`);
+  }
   if (platform === 'darwin') return { cmd: 'open', args: [url] };
   if (platform === 'win32') {
-    return {
-      cmd: process.env.ComSpec || 'cmd.exe',
-      args: ['/c', 'start', '""', `"${url}"`],
-      verbatim: true,
-    };
+    return { cmd: 'explorer.exe', args: [url] };
   }
   // Linux + everything else assumes a Freedesktop-compliant `xdg-open`.
   return { cmd: 'xdg-open', args: [url] };

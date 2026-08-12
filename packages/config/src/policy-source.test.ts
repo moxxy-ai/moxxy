@@ -98,6 +98,28 @@ describe('loadPolicyBundles', () => {
     expect(offline.sources[0]?.staleReason).toContain('503');
   });
 
+  it('keeps a verified pre-0.38 policy cache usable during an offline upgrade', async () => {
+    const bytes = body('r1');
+    const signature = k.sign(bytes);
+    await loadPolicyBundles([ref], {
+      cacheDir,
+      fetch: serving({ [URL_A]: { bytes, sig: signature } }),
+    });
+    const [file] = await fs.readdir(cacheDir);
+    if (file === undefined) throw new Error('expected a policy cache file');
+    await fs.writeFile(
+      path.join(cacheDir, file),
+      JSON.stringify({ bytes: Buffer.from(bytes).toString('base64'), sig: signature }),
+    );
+
+    const offline = await loadPolicyBundles([ref], {
+      cacheDir,
+      fetch: serving({ [URL_A]: null }),
+    });
+    expect(offline.sources[0]?.from).toBe('cache');
+    expect(offline.deny).toEqual([{ name: 'Bash' }]);
+  });
+
   it('discards a cache that was edited on disk', async () => {
     const bytes = body('r1');
     await loadPolicyBundles([ref], {
@@ -108,9 +130,10 @@ describe('loadPolicyBundles', () => {
     // Rewrite the cached rules while keeping the signature that covered the
     // originals. A local edit must be worth nothing.
     const [file] = await fs.readdir(cacheDir);
-    const cached = JSON.parse(await fs.readFile(path.join(cacheDir, file!), 'utf8'));
-    cached.bytes = Buffer.from(body('r1', [])).toString('base64');
-    await fs.writeFile(path.join(cacheDir, file!), JSON.stringify(cached));
+    if (file === undefined) throw new Error('expected a policy cache file');
+    const cached = JSON.parse(await fs.readFile(path.join(cacheDir, file), 'utf8'));
+    cached.payloadB64 = Buffer.from(body('r1', [])).toString('base64');
+    await fs.writeFile(path.join(cacheDir, file), JSON.stringify(cached));
 
     await expect(
       loadPolicyBundles([ref], { cacheDir, fetch: serving({ [URL_A]: null }) }),
