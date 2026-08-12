@@ -1,5 +1,31 @@
 # @moxxy/desktop
 
+## 0.37.1
+
+### Patch Changes
+
+- 4d89d64: Harden temporary files and remove filesystem race windows from runtime reads.
+- e80b9d6: Replace vulnerable regular-expression parsers with bounded linear-time input scanners.
+- 5e4ca9f: Patch vulnerable dependencies, enable continuous security scanning, and harden Metro image parsing.
+- Updated dependencies [4d89d64]
+- Updated dependencies [945202d]
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/cli@0.37.1
+  - @moxxy/sdk@0.37.1
+  - @moxxy/chat-model@0.4.5
+  - @moxxy/client-core@0.13.23
+  - @moxxy/client-platform-web@0.1.62
+  - @moxxy/desktop-host@0.14.14
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/ipc-server-ws@0.1.61
+  - @moxxy/plugin-channel-mobile@0.37.1
+  - @moxxy/plugin-stt-whisper-codex@0.37.1
+  - @moxxy/plugin-vault@0.37.1
+  - @moxxy/runner@0.2.48
+  - @moxxy/workflows-builder@0.1.45
+
 ## 0.37.0
 
 ### Minor Changes
