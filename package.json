@@ -23,7 +23,7 @@
     "@moxxy/config": "workspace:*",
     "@types/node": "catalog:",
     "dependency-cruiser": "^18.2.0",
-    "eslint": "^9.18.0",
+    "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "catalog:",
     "turbo": "^2.10.9",
