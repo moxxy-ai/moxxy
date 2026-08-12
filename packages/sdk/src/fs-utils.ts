@@ -115,8 +115,7 @@ export async function writeSignedNetworkCacheAtomic(
   await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
     // The remote-controlled fields are intentionally persisted only after the
     // Ed25519 check above. CodeQL cannot model this cryptographic sanitizer.
-    // codeql[js/http-to-file-access]
-    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' }); // codeql[js/http-to-file-access]
   });
 }
 
@@ -134,8 +133,7 @@ export async function writeBoundedDataCacheAtomic(
   await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
     // The byte cap and data-only reader contract above are the sanitizer;
     // CodeQL cannot infer that the persisted bytes are never executed.
-    // codeql[js/http-to-file-access]
-    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' }); // codeql[js/http-to-file-access]
   });
 }
 
@@ -193,8 +191,7 @@ export function writeBoundedNetworkCacheAtomicSync(
   commitAtomicSync(target, opts, (tmp) => {
     // This API is deliberately restricted to bounded data caches. The target
     // remains caller-owned and content is never loaded as code.
-    // codeql[js/http-to-file-access]
-    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' }); // codeql[js/http-to-file-access]
   });
 }
 
