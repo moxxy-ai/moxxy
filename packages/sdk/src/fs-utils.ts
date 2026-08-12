@@ -115,7 +115,6 @@ export async function writeSignedNetworkCacheAtomic(
   await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
     // The remote-controlled fields are intentionally persisted only after the
     // Ed25519 check above. CodeQL cannot model this cryptographic sanitizer.
-    // lgtm
     await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
   });
 }
@@ -134,7 +133,6 @@ export async function writeBoundedDataCacheAtomic(
   await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
     // The byte cap and data-only reader contract above are the sanitizer;
     // CodeQL cannot infer that the persisted bytes are never executed.
-    // lgtm
     await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
   });
 }
