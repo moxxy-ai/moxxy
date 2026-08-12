@@ -64,7 +64,7 @@ describe('view-store', () => {
     // viewId, never coalesced). The browser must not leak one ViewDoc per render.
     let s = initialNav;
     for (let i = 0; i < 500; i++) s = applyView(s, frame(`v${i}`));
-    expect(Object.keys(s.cache).length).toBeLessThanOrEqual(64);
+    expect(s.cache.size).toBeLessThanOrEqual(64);
     expect(s.order.length).toBeLessThanOrEqual(64);
     // The current (newest) view is always still present and navigable.
     expect(currentEntry(s)?.viewId).toBe('v499');
@@ -89,7 +89,7 @@ describe('view-store', () => {
     // cap: it must remain on the stack AND in cache (recency is what's retained).
     let s = applyView(initialNav, frame('r', 'recent'));
     for (let i = 0; i < 10; i++) s = applyView(s, frame(`y${i}`));
-    expect(s.cache['recent']).toBeDefined();
+    expect(s.cache.get('recent')).toBeDefined();
     let back = s;
     while (canGoBack(back)) back = goBack(back);
     expect(currentEntry(back)?.key).toBe('recent');
@@ -99,8 +99,16 @@ describe('view-store', () => {
     let s = initialNav;
     for (let i = 0; i < 200; i++) s = applyView(s, frame(`v${i}`));
     // order and cache must be the SAME key set (no dangling refs either way).
-    expect(new Set(s.order)).toEqual(new Set(Object.keys(s.cache)));
+    expect(new Set(s.order)).toEqual(new Set(s.cache.keys()));
     // and every history key must be cached (Back integrity).
-    for (const key of s.history) expect(s.cache[key]).toBeDefined();
+    for (const key of s.history) expect(s.cache.get(key)).toBeDefined();
+  });
+
+  it('treats hostile object-property names as inert view names', () => {
+    let s = applyView(initialNav, frame('v1', '__proto__'));
+    s = applyView(s, frame('v2', 'constructor'));
+    expect(s.cache.get('__proto__')?.viewId).toBe('v1');
+    expect(s.cache.get('constructor')?.viewId).toBe('v2');
+    expect(Object.prototype).not.toHaveProperty('viewId');
   });
 });

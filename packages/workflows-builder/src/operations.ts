@@ -76,13 +76,23 @@ function defaultNode(id: string, kind: StepKind, x: number, y: number): BuilderN
  * forbidden characters past one path but not the other.
  */
 export function slugifyId(base: string): string {
-  return (
-    base
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 60) || 'step'
-  );
+  let slug = '';
+  let invalidRun = false;
+  for (const char of base.toLowerCase()) {
+    const allowed = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '_' || char === '-';
+    if (allowed) {
+      slug += char;
+      invalidRun = false;
+    } else if (!invalidRun) {
+      slug += '_';
+      invalidRun = true;
+    }
+  }
+  let start = 0;
+  let end = slug.length;
+  while (start < end && slug[start] === '_') start += 1;
+  while (end > start && slug[end - 1] === '_') end -= 1;
+  return slug.slice(start, end).slice(0, 60) || 'step';
 }
 
 /** Generate a unique slug-like id from a desired base. */

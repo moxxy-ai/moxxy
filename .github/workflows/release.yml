@@ -74,7 +74,7 @@ jobs:
       desktop-version: ${{ steps.cut.outputs.version }}
       desktop-sha: ${{ steps.cut.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Versioning + publishing live on `development`; `main` is advanced from
           # it below. fetch-depth 0 so the version-bump and tombstone-bump pushes
@@ -83,13 +83,13 @@ jobs:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.30.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
           cache: pnpm
@@ -134,7 +134,7 @@ jobs:
       # to create the per-package GitHub releases.
       - name: Publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
         with:
           publish: node scripts/safe-publish.mjs
         env:
@@ -219,7 +219,7 @@ jobs:
       # guard scans (and every desktop job builds from) precisely what will
       # ship under the desktop-v tag. The tag itself doesn't exist yet (it is
       # pushed only after the builds succeed), which is why this is a sha.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
       # A pk_live_ Clerk key must never live in the repo (only the public
@@ -262,18 +262,18 @@ jobs:
       # the desktop-v<version> tag that desktop-release will push at this same
       # sha — never main's HEAD, which may have moved on. (The tag can't be
       # used here: it intentionally doesn't exist until the builds succeed.)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.30.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
           cache: pnpm
@@ -293,7 +293,7 @@ jobs:
       # node-gyp 11, deadlocking the rebuild on all three legs. Modernising node-gyp
       # needs a matching @electron/rebuild/electron-builder bump.
       - name: Setup Python (node-gyp needs distutils)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
 
@@ -344,7 +344,7 @@ jobs:
 
       - name: Upload app update bundle
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-update-bundle
           path: |
@@ -442,7 +442,7 @@ jobs:
 
       - name: Upload signing status
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-signing-status
           path: ${{ runner.temp }}/signing-status/signing-status.txt
@@ -471,7 +471,7 @@ jobs:
           pnpm --filter @moxxy/desktop exec electron-builder --publish never $EXTRA
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.artifact }}
           path: |
@@ -490,7 +490,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all installers
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           merge-multiple: true
@@ -588,7 +588,7 @@ jobs:
       # releases already break "latest" — see stager.ts), and the badge should
       # stay on the npm/product releases. Publishing the draft keeps this flag.
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: desktop-v${{ needs.version-publish.outputs.desktop-version }}
           files: artifacts/*

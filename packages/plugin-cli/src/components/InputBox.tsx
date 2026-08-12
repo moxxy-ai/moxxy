@@ -53,15 +53,7 @@ export const InputBox: React.FC<InputBoxProps> = ({ model, modeBadge, yolo, voic
   }
   return (
     <Box flexDirection="column" width="100%">
-      <Box
-        flexDirection="column"
-        width="100%"
-        borderStyle={Border.style}
-        borderColor={Border.color}
-        borderDimColor={Border.dim}
-      >
-        <PromptInput {...input} />
-      </Box>
+      <PromptInput {...input} surface />
       {model || modeBadge ? <BottomBadge model={model} modeBadge={modeBadge} /> : null}
     </Box>
   );

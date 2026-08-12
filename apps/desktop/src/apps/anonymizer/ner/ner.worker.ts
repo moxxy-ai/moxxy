@@ -93,6 +93,10 @@ function getNer(): Promise<NerFn> {
 }
 
 ctx.onmessage = (e: MessageEvent): void => {
+  // Dedicated-worker messages use an empty origin in Chromium. Reject any
+  // non-empty origin that does not match this worker's own origin so this stays
+  // safe if the transport is ever reused by a broader MessageEvent source.
+  if (e.origin !== '' && e.origin !== self.location.origin) return;
   const msg = e.data as { type?: string; id?: number; text?: string };
   if (msg?.type !== 'infer' || typeof msg.text !== 'string') return;
   const text = msg.text;

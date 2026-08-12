@@ -23,6 +23,15 @@ describe('fetchLatest', () => {
     ).resolves.toBeNull();
   });
 
+  it('rejects non-semver and prerelease dist tags before they reach the cache', async () => {
+    await expect(
+      fetchLatest('@moxxy/cli', { fetchImpl: jsonResponse(200, { version: '../../payload' }) }),
+    ).resolves.toBeNull();
+    await expect(
+      fetchLatest('@moxxy/cli', { fetchImpl: jsonResponse(200, { version: '1.2.3-beta.1' }) }),
+    ).resolves.toBeNull();
+  });
+
   it('returns null for a 404 (and never reads the body)', async () => {
     const json = vi.fn(async () => ({ version: 'should-not-be-read' }));
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 404, json })) as unknown as typeof fetch;

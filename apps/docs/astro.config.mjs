@@ -8,9 +8,13 @@ export default defineConfig({
       title: 'moxxy',
       description: 'A local AI agent for developers: simple to start, extensible when needed, ready to govern.',
       tagline: 'Your local agent. Simple to start. Ready to govern.',
-      social: {
-        github: 'https://github.com/moxxy-ai/moxxy',
-      },
+      social: [
+        {
+          icon: 'github',
+          label: 'GitHub',
+          href: 'https://github.com/moxxy-ai/moxxy',
+        },
+      ],
       sidebar: [
         {
           label: 'Getting started',
@@ -39,11 +43,11 @@ export default defineConfig({
         },
         {
           label: 'Guides',
-          autogenerate: { directory: 'guides' },
+          items: [{ autogenerate: { directory: 'guides' } }],
         },
         {
           label: 'Packages',
-          autogenerate: { directory: 'packages' },
+          items: [{ autogenerate: { directory: 'packages' } }],
         },
       ],
     }),

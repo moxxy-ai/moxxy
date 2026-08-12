@@ -8,7 +8,7 @@
  * disk just because someone passed `../../etc/passwd` as `path`.
  */
 
-import { readFile as fsReadFile, open, readdir, realpath, stat } from 'node:fs/promises';
+import { open, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 /** Cap a single "Open" read so a giant log can't stream MBs into the renderer. */
@@ -156,77 +156,76 @@ export async function readFile(
   const root = await realpath(cwd).catch(() => path.resolve(cwd));
   const abs = await resolveInside(root, relPath);
   const rel = path.relative(root, abs) || path.basename(abs);
-  const info = await stat(abs).catch(() => null);
   const base = { path: rel, truncated: false, text: false as boolean };
-  if (!info || !info.isFile()) {
+  const handle = await open(abs, 'r').catch(() => null);
+  if (!handle) {
     return { ...base, kind: 'text', content: '', byteLength: 0, text: true };
   }
-  const byteLength = info.size;
-  const ext = path.extname(abs).toLowerCase();
-
-  // Images, PDFs, audio, and video: inline as base64 so the viewer can render
-  // them with local Blob URLs. Nothing here grants a remote media origin.
-  const imageType = IMAGE_MEDIA_TYPES[ext];
-  const mediaType = MEDIA_TYPES[ext];
-  if (imageType || mediaType || ext === '.pdf') {
-    if (byteLength > INLINE_MAX_BYTES && !opts.force) {
-      return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
+  try {
+    const info = await handle.stat().catch(() => null);
+    if (!info || !info.isFile()) {
+      return { ...base, kind: 'text', content: '', byteLength: 0, text: true };
     }
-    const buf = await fsReadFile(abs);
+    const byteLength = info.size;
+    const ext = path.extname(abs).toLowerCase();
+
+    // Images, PDFs, audio, and video: inline as base64 so the viewer can render
+    // them with local Blob URLs. Nothing here grants a remote media origin.
+    const imageType = IMAGE_MEDIA_TYPES[ext];
+    const mediaType = MEDIA_TYPES[ext];
+    if (imageType || mediaType || ext === '.pdf') {
+      if (byteLength > INLINE_MAX_BYTES && !opts.force) {
+        return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
+      }
+      const buf = await handle.readFile();
+      return {
+        ...base,
+        kind: imageType ? 'image' : mediaType ? 'media' : 'pdf',
+        content: '',
+        byteLength,
+        mediaType: imageType ?? mediaType ?? 'application/pdf',
+        base64: buf.toString('base64'),
+      };
+    }
+
+    // Office / OpenDocument (zip containers): the raw bytes are NUL-heavy binary,
+    // so the generic binary gate would only offer to show garbage. Instead pull
+    // the document's plain text via the offline parser and show THAT. Falls
+    // through to a clear "no preview" confirm if nothing extractable is found.
+    if (OFFICE_EXTENSIONS.has(ext)) {
+      if (byteLength > INLINE_MAX_BYTES && !opts.force) {
+        return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
+      }
+      const buf = await handle.readFile();
+      const { parseBufferToText } = await import('./attachments.js');
+      const text = await parseBufferToText(buf, path.basename(abs));
+      if (text && text.trim().length > 0) {
+        const truncated = Buffer.byteLength(text, 'utf8') > MAX_READ_BYTES;
+        const shown = truncated ? text.slice(0, MAX_READ_BYTES) : text;
+        return { ...base, kind: 'text', content: shown, truncated, text: true, byteLength };
+      }
+      // No extractable text (e.g. an image-only PDF or empty doc) — let the user
+      // know rather than dumping zip bytes into a <pre>.
+      return { ...base, kind: 'confirm', reason: 'binary', content: '', byteLength };
+    }
+
+    // Read only the head window through the already-validated handle, so a
+    // multi-GB file never loads whole and a path swap cannot change the file.
+    const head = Buffer.alloc(MAX_READ_BYTES);
+    const { bytesRead } = await handle.read(head, 0, MAX_READ_BYTES, 0);
+    const slice = head.subarray(0, bytesRead);
+    const looksBinary = slice.includes(0);
+    if (!opts.force && (looksBinary || byteLength > CONFIRM_BYTES)) {
+      return { ...base, kind: 'confirm', reason: looksBinary ? 'binary' : 'large', content: '', byteLength };
+    }
     return {
       ...base,
-      kind: imageType ? 'image' : mediaType ? 'media' : 'pdf',
-      content: '',
+      kind: 'text',
+      content: slice.toString('utf8'),
+      truncated: byteLength > slice.length,
+      text: true,
       byteLength,
-      mediaType: imageType ?? mediaType ?? 'application/pdf',
-      base64: buf.toString('base64'),
     };
-  }
-
-  // Office / OpenDocument (zip containers): the raw bytes are NUL-heavy binary,
-  // so the generic binary gate would only offer to show garbage. Instead pull
-  // the document's plain text via the offline parser and show THAT. Falls
-  // through to a clear "no preview" confirm if nothing extractable is found.
-  if (OFFICE_EXTENSIONS.has(ext)) {
-    if (byteLength > INLINE_MAX_BYTES && !opts.force) {
-      return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
-    }
-    const buf = await fsReadFile(abs);
-    const { parseBufferToText } = await import('./attachments.js');
-    const text = await parseBufferToText(buf, path.basename(abs));
-    if (text && text.trim().length > 0) {
-      const truncated = Buffer.byteLength(text, 'utf8') > MAX_READ_BYTES;
-      const shown = truncated ? text.slice(0, MAX_READ_BYTES) : text;
-      return { ...base, kind: 'text', content: shown, truncated, text: true, byteLength };
-    }
-    // No extractable text (e.g. an image-only PDF or empty doc) — let the user
-    // know rather than dumping zip bytes into a <pre>.
-    return { ...base, kind: 'confirm', reason: 'binary', content: '', byteLength };
-  }
-
-  // Read only the head window via a handle, so a multi-GB file never loads whole.
-  const slice = await readHead(abs, MAX_READ_BYTES);
-  const looksBinary = slice.includes(0);
-  if (!opts.force && (looksBinary || byteLength > CONFIRM_BYTES)) {
-    return { ...base, kind: 'confirm', reason: looksBinary ? 'binary' : 'large', content: '', byteLength };
-  }
-  return {
-    ...base,
-    kind: 'text',
-    content: slice.toString('utf8'),
-    truncated: byteLength > slice.length,
-    text: true,
-    byteLength,
-  };
-}
-
-/** Read at most `max` bytes from the start of a file without loading the rest. */
-async function readHead(abs: string, max: number): Promise<Buffer> {
-  const handle = await open(abs, 'r');
-  try {
-    const buf = Buffer.alloc(max);
-    const { bytesRead } = await handle.read(buf, 0, max, 0);
-    return buf.subarray(0, bytesRead);
   } finally {
     await handle.close();
   }

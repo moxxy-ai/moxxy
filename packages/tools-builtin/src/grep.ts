@@ -238,17 +238,17 @@ async function walk(
     // Skip oversized files before reading so a giant log / db / media blob can't
     // be slurped into the heap. Bounds the per-file working set (result clamping
     // only bounds the OUTPUT).
-    try {
-      const st = await fs.stat(full);
-      if (st.size > MAX_FILE_BYTES) continue;
-    } catch {
-      continue;
-    }
+    let handle: import('node:fs/promises').FileHandle | null = null;
     let content: string;
     try {
-      content = await fs.readFile(full, 'utf8');
+      handle = await fs.open(full, 'r');
+      const st = await handle.stat();
+      if (st.size > MAX_FILE_BYTES) continue;
+      content = await handle.readFile({ encoding: 'utf8' });
     } catch {
       continue;
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
     // Skip binaries (NUL byte in the prefix) — scanning binary-as-utf8 yields
     // useless matches and mojibake. Normal text files are unaffected, so match

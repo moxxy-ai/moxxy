@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/core",
-  "version": "0.37.0",
+  "version": "0.37.2",
   "description": "The moxxy runtime as a programmatic library: the agentic Session + runTurn loop, the event log, the plugin host, every block registry (providers, tools, modes, compactors, cache strategies, channels, …), session persistence, and the permission engine. Pair with @moxxy/sdk to build and embed moxxy agents in your own code.",
   "keywords": [
     "moxxy",
@@ -48,7 +48,7 @@
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
     "jiti": "^2.4.2",
-    "ulid": "^2.3.0",
+    "ulid": "^3.0.2",
     "zod": "catalog:"
   },
   "devDependencies": {

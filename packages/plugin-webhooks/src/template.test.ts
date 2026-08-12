@@ -152,4 +152,17 @@ describe('renderPrompt', () => {
     });
     expect(out).toBe('static {unknown} text');
   });
+
+  it('leaves a long unterminated placeholder intact', () => {
+    const prompt = `{header.${'x'.repeat(50_000)}`;
+    const out = renderPrompt({
+      trigger: mkTrigger(prompt),
+      headers: {},
+      body: Buffer.from(''),
+      method: 'POST',
+      path: '/',
+      firedAt: new Date(0),
+    });
+    expect(out).toBe(prompt);
+  });
 });

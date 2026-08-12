@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, open } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from '@moxxy/sdk';
@@ -45,17 +45,21 @@ export async function isLocalPiperInstalled(home = moxxyHome()): Promise<boolean
     'plugin-tts-local',
   );
   const manifestPath = path.join(packageDirectory, 'package.json');
+  let handle: import('node:fs/promises').FileHandle | null = null;
   try {
-    const metadata = await stat(manifestPath);
+    handle = await open(manifestPath, 'r');
+    const metadata = await handle.stat();
     if (!metadata.isFile() || metadata.size > MAX_MANIFEST_BYTES) return false;
     const parsed = localPiperManifestSchema.safeParse(
-      JSON.parse(await readFile(manifestPath, 'utf8')),
+      JSON.parse(await handle.readFile({ encoding: 'utf8' })),
     );
     if (!parsed.success) return false;
     await access(path.join(packageDirectory, 'dist', 'index.js'));
     return true;
   } catch {
     return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 

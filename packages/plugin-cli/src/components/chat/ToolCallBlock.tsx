@@ -4,11 +4,7 @@ import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, t
 import { Colors } from '../../theme.js';
 import { formatToolActivity, isFileDiffResult, oneLine, stringify, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
-import { ShimmerText } from './ShimmerText.js';
-
-/** Cap displayed identifier length so an oversized MCP/skill name
- *  doesn't blow the header off the right edge of the terminal. */
-const NAME_DISPLAY_MAX = 48;
+import { ActivityDot } from './ActivityDot.js';
 
 export const ToolCallBlock: React.FC<{
   request: ToolCallRequestedEvent;
@@ -23,7 +19,11 @@ export const ToolCallBlock: React.FC<{
   if (isFileDiffResult(outcome)) {
     const display = (outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
-      return <FileDiffView display={display} expanded={expanded} />;
+      return (
+        <Box paddingLeft={nested ? 0 : 2}>
+          <FileDiffView display={display} expanded={expanded} showToggle={!nested} />
+        </Box>
+      );
     }
   }
   const status: 'pending' | 'ok' | 'err' =
@@ -34,23 +34,30 @@ export const ToolCallBlock: React.FC<{
         : outcome.ok
           ? 'ok'
           : 'err';
-  const detail = truncate(formatToolActivity(request.name, request.input, status === 'pending'), NAME_DISPLAY_MAX + 70);
+  const columns = process.stdout.columns ?? 80;
+  const transcriptColumns = Math.min(108, columns);
+  const detail = truncate(
+    formatToolActivity(request.name, request.input, status === 'pending'),
+    Math.max(24, transcriptColumns - (nested ? 8 : 4)),
+  );
   return (
-    <Box flexDirection="column" marginTop={nested ? 0 : 1}>
+    <Box
+      flexDirection="column"
+      marginTop={nested ? 0 : 1}
+      paddingLeft={nested ? 0 : 2}
+    >
       <Box>
         {nested ? <Text dimColor>└ </Text> : null}
-        <Text
-          color={status === 'err' ? Colors.danger : status === 'ok' ? Colors.active : undefined}
-          dimColor={status === 'pending'}
-        >
-          {status === 'err' ? '✗' : status === 'ok' ? '✓' : toolGlyph(request.name)}{' '}
-        </Text>
-        <ShimmerText text={detail} active={status === 'pending'} />
+        <ActivityDot state={status === 'err' ? 'error' : status === 'ok' ? 'success' : 'active'} />
+        <Text> </Text>
+        <Text dimColor>{detail}</Text>
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
+        {!nested && status === 'ok' ? (
+          <Text dimColor>{` · Ctrl+O ${expanded ? 'collapse' : 'result'}`}</Text>
+        ) : null}
       </Box>
       {outcome && (expanded || status === 'err') ? (
-        <Box marginLeft={nested ? 2 : 0}>
-          <Text dimColor>{nested ? '  ' : '  └ '}</Text>
+        <Box marginLeft={nested ? 4 : 2}>
           <OutcomeText outcome={outcome} />
         </Box>
       ) : null}
@@ -58,27 +65,20 @@ export const ToolCallBlock: React.FC<{
   );
 };
 
-export function toolGlyph(name: string): string {
-  const normalized = name.toLowerCase();
-  if (normalized === 'read' || normalized === 'glob') return '▱';
-  if (normalized === 'grep' || normalized.includes('search')) return '⌕';
-  if (normalized === 'bash' || normalized.includes('command')) return '›';
-  return '◇';
-}
-
 const OutcomeText: React.FC<{
   outcome: ToolResultEvent | { type: 'denied'; reason: string };
 }> = ({ outcome }) => {
   if (outcome.type === 'denied') {
-    return <Text color={Colors.danger}>denied: {outcome.reason}</Text>;
+    return <Text color={Colors.danger}>Result · denied: {outcome.reason}</Text>;
   }
   if (!outcome.ok) {
     return (
       <Text color={Colors.danger}>
-        {outcome.error?.kind ?? 'error'}: {outcome.error?.message}
+        Result · {outcome.error?.kind ?? 'error'}: {outcome.error?.message}
       </Text>
     );
   }
   const preview = oneLine(stringify(outcome.output));
-  return <Text dimColor>{truncate(preview, 100)}</Text>;
+  const maxWidth = Math.max(24, Math.min(108, process.stdout.columns ?? 80) - 12);
+  return <Text dimColor>{`Result · ${truncate(preview, maxWidth)}`}</Text>;
 };

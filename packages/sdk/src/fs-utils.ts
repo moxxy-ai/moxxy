@@ -3,12 +3,29 @@ import { chmodSync, mkdirSync, promises as fsp, renameSync, rmSync, writeFileSyn
 import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { verifyEd25519 } from './signature.js';
 
 export interface WriteFileAtomicOptions {
   /** Mode for the final file, e.g. `0o600` for secrets. Enforced past umask. */
   readonly mode?: number;
   /** Encoding when `data` is a string. Defaults to `'utf8'`. Ignored for bytes. */
   readonly encoding?: BufferEncoding;
+}
+
+export interface SignedNetworkCacheOptions extends WriteFileAtomicOptions {
+  /** Local observation time used only for cache freshness decisions. */
+  readonly writtenAtMs?: number;
+}
+
+export interface SignedNetworkCacheEnvelope {
+  readonly payloadB64: string;
+  readonly signature: string;
+  readonly writtenAtMs?: number;
+}
+
+export interface BoundedNetworkCacheOptions extends WriteFileAtomicOptions {
+  /** Hard cap for untrusted cache content, measured as encoded bytes. */
+  readonly maxBytes: number;
 }
 
 /**
@@ -23,6 +40,7 @@ export interface WriteFileAtomicOptions {
 export const PRIVATE_DIR_MODE = 0o700;
 /** Owner-only file. */
 export const PRIVATE_FILE_MODE = 0o600;
+const MAX_SIGNED_NETWORK_CACHE_BYTES = 8 * 1024 * 1024;
 
 /**
  * Crash-atomic file write: write a unique sibling temp file, then `rename` it
@@ -40,10 +58,20 @@ export async function writeFileAtomic(
   data: string | Uint8Array,
   opts: WriteFileAtomicOptions = {},
 ): Promise<void> {
+  await commitAtomic(target, opts, async (tmp) => {
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
+}
+
+async function commitAtomic(
+  target: string,
+  opts: WriteFileAtomicOptions,
+  writeTemp: (tmp: string) => Promise<void>,
+): Promise<void> {
   await mkdir(dirname(target), { recursive: true });
   const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    await writeTemp(tmp);
     // chmod explicitly: writeFile's mode option is masked by umask, but a
     // 0o600 secret file must be exactly 0o600 regardless of the host umask.
     if (opts.mode != null) await chmod(tmp, opts.mode);
@@ -52,6 +80,61 @@ export async function writeFileAtomic(
     await rm(tmp, { force: true }).catch(() => {});
     throw err;
   }
+}
+
+/**
+ * Persist an authenticated network payload as a data-only cache envelope.
+ * Verification happens again at the filesystem boundary so callers cannot
+ * accidentally cache bytes that were parsed but never authenticated.
+ */
+export async function writeSignedNetworkCacheAtomic(
+  target: string,
+  payload: Uint8Array,
+  signatureB64: string,
+  publicKeyPem: string,
+  opts: SignedNetworkCacheOptions = {},
+): Promise<void> {
+  if (payload.byteLength > MAX_SIGNED_NETWORK_CACHE_BYTES) {
+    throw new Error(`signed network cache payload exceeds ${MAX_SIGNED_NETWORK_CACHE_BYTES} bytes`);
+  }
+  if (
+    opts.writtenAtMs !== undefined &&
+    (!Number.isSafeInteger(opts.writtenAtMs) || opts.writtenAtMs < 0)
+  ) {
+    throw new Error('writtenAtMs must be a non-negative safe integer');
+  }
+  if (!verifyEd25519(payload, signatureB64, publicKeyPem)) {
+    throw new Error('refusing to cache a network payload with an invalid signature');
+  }
+  const envelope: SignedNetworkCacheEnvelope = {
+    payloadB64: Buffer.from(payload).toString('base64'),
+    signature: signatureB64,
+    ...(opts.writtenAtMs === undefined ? {} : { writtenAtMs: opts.writtenAtMs }),
+  };
+  const data = JSON.stringify(envelope);
+  await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
+    // The remote-controlled fields are intentionally persisted only after the
+    // Ed25519 check above. CodeQL cannot model this cryptographic sanitizer.
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
+}
+
+/**
+ * Persist bounded, data-only content without teaching the generic atomic
+ * writer that every HTTP-derived write is safe. This narrow boundary is for
+ * queues/caches whose readers parse the file strictly as data, never as code.
+ */
+export async function writeBoundedDataCacheAtomic(
+  target: string,
+  data: string | Uint8Array,
+  opts: BoundedNetworkCacheOptions,
+): Promise<void> {
+  assertBoundedDataSize(data, opts);
+  await commitAtomic(target, { ...opts, mode: opts.mode ?? PRIVATE_FILE_MODE }, async (tmp) => {
+    // The byte cap and data-only reader contract above are the sanitizer;
+    // CodeQL cannot infer that the persisted bytes are never executed.
+    await writeFile(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
 }
 
 /**
@@ -66,10 +149,20 @@ export function writeFileAtomicSync(
   data: string | Uint8Array,
   opts: WriteFileAtomicOptions = {},
 ): void {
+  commitAtomicSync(target, opts, (tmp) => {
+    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+  });
+}
+
+function commitAtomicSync(
+  target: string,
+  opts: WriteFileAtomicOptions,
+  writeTemp: (tmp: string) => void,
+): void {
   mkdirSync(dirname(target), { recursive: true });
   const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    writeTemp(tmp);
     // chmod explicitly: writeFileSync's mode option is masked by umask, but a
     // 0o600 secret file must be exactly 0o600 regardless of the host umask.
     if (opts.mode != null) chmodSync(tmp, opts.mode);
@@ -81,6 +174,37 @@ export function writeFileAtomicSync(
       /* best-effort cleanup */
     }
     throw err;
+  }
+}
+
+/**
+ * Persist bounded, data-only network metadata that has no detached signature
+ * (for example an npm dist-tag response). Readers must still validate shape;
+ * the size cap prevents an unauthenticated response from filling local state.
+ */
+export function writeBoundedNetworkCacheAtomicSync(
+  target: string,
+  data: string | Uint8Array,
+  opts: BoundedNetworkCacheOptions,
+): void {
+  assertBoundedDataSize(data, opts);
+  commitAtomicSync(target, opts, (tmp) => {
+    // This API is deliberately restricted to bounded data caches. The target
+    // remains caller-owned and content is never loaded as code.
+    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' }); // codeql[js/http-to-file-access]
+  });
+}
+
+function assertBoundedDataSize(
+  data: string | Uint8Array,
+  opts: BoundedNetworkCacheOptions,
+): void {
+  if (!Number.isSafeInteger(opts.maxBytes) || opts.maxBytes <= 0) {
+    throw new Error('maxBytes must be a positive safe integer');
+  }
+  const size = typeof data === 'string' ? Buffer.byteLength(data, opts.encoding ?? 'utf8') : data.byteLength;
+  if (size > opts.maxBytes) {
+    throw new Error(`network cache payload exceeds ${opts.maxBytes} bytes`);
   }
 }
 

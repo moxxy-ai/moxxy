@@ -181,8 +181,8 @@ describe('fetchSignedRegistry', () => {
     expect(res.entries.map((e) => e.id)).toEqual(['telegram', 'virtual-office']);
     expect(res.entries[0]?.version).toBe('0.26.0');
     const cached = JSON.parse(readFileSync(cachePath(), 'utf8'));
-    expect(cached.sig).toBe(sig);
-    expect(Buffer.from(cached.indexB64, 'base64')).toEqual(Buffer.from(bytes));
+    expect(cached.signature).toBe(sig);
+    expect(Buffer.from(cached.payloadB64, 'base64')).toEqual(Buffer.from(bytes));
   });
 
   it('a fresh cache is reused without a network fetch, and re-verified on read', async () => {
@@ -203,6 +203,28 @@ describe('fetchSignedRegistry', () => {
     });
     expect(res.source).toBe('cache');
     expect(res.entries[0]?.id).toBe('telegram');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('reuses a verified cache written by the pre-0.38 envelope', async () => {
+    const { bytes, sig } = signedIndex();
+    const now = 1_000_000;
+    writeFileSync(
+      cachePath(),
+      JSON.stringify({
+        fetchedAtMs: now,
+        indexB64: Buffer.from(bytes).toString('base64'),
+        sig,
+      }),
+    );
+    const fetchImpl = vi.fn();
+    const res = await fetchSignedRegistry({
+      fetch: fetchImpl,
+      cacheDir,
+      publicKeyPem,
+      now: () => now + 1,
+    });
+    expect(res.source).toBe('cache');
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -239,7 +261,7 @@ describe('fetchSignedRegistry', () => {
     // while keeping the original signature and a fresh timestamp.
     const cached = JSON.parse(readFileSync(cachePath(), 'utf8'));
     const evil = { ...VALID_INDEX, entries: [] };
-    cached.indexB64 = Buffer.from(JSON.stringify(evil), 'utf8').toString('base64');
+    cached.payloadB64 = Buffer.from(JSON.stringify(evil), 'utf8').toString('base64');
     writeFileSync(cachePath(), JSON.stringify(cached));
     const fetchImpl = vi.fn(fetchServing(bytes, sig));
     const res = await fetchSignedRegistry({

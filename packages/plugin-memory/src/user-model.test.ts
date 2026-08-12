@@ -19,6 +19,18 @@ let tmp: string;
 const newStore = () => new UserModelStore(tmp);
 const modelPath = () => path.join(tmp, 'user-model.md');
 
+async function fileHandlePrototype(): Promise<
+  Pick<Awaited<ReturnType<typeof fs.open>>, 'readFile'>
+> {
+  const handle = await fs.open(modelPath(), 'r');
+  const prototype = Object.getPrototypeOf(handle) as Pick<
+    Awaited<ReturnType<typeof fs.open>>,
+    'readFile'
+  >;
+  await handle.close();
+  return prototype;
+}
+
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-um-'));
 });
@@ -123,7 +135,7 @@ describe('UserModelStore.load (mtime cache)', () => {
   it('reads the file once, then serves an unchanged file from cache (no re-read)', async () => {
     const store = newStore();
     await store.update('identity', 'first', 'replace');
-    const spy = vi.spyOn(fs, 'readFile');
+    const spy = vi.spyOn(await fileHandlePrototype(), 'readFile');
     await store.load();
     await store.load();
     await store.load();
@@ -264,7 +276,7 @@ describe('UserModelStore.injectInto', () => {
   it('returns the request unchanged when parsing/reading throws', async () => {
     const store = newStore();
     await store.update('identity', 'A', 'replace');
-    vi.spyOn(fs, 'readFile').mockRejectedValueOnce(new Error('disk on fire'));
+    vi.spyOn(await fileHandlePrototype(), 'readFile').mockRejectedValueOnce(new Error('disk on fire'));
     expect(await store.injectInto(req('BASE'))).toBeUndefined();
   });
 });

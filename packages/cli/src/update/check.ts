@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 
-import { moxxyPath, writeFileAtomicSync } from '@moxxy/sdk/server';
+import { moxxyPath, writeBoundedNetworkCacheAtomicSync } from '@moxxy/sdk/server';
 
 import { fetchLatest, type FetchLatestOpts } from './registry.js';
 
@@ -23,6 +23,7 @@ export interface CliUpdateCheck {
 
 /** How long a cached latest-version answer is trusted before a refetch. */
 export const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const MAX_UPDATE_CACHE_BYTES = 1024;
 
 const PKG = '@moxxy/cli';
 
@@ -76,7 +77,9 @@ function writeCache(file: string, value: CacheShape): void {
   try {
     // Shared crash-atomic helper (pid+uuid tmp → renameSync): two in-process
     // writers to the same cache file never collide on the temp path.
-    writeFileAtomicSync(file, JSON.stringify(value, null, 2));
+    writeBoundedNetworkCacheAtomicSync(file, JSON.stringify(value, null, 2), {
+      maxBytes: MAX_UPDATE_CACHE_BYTES,
+    });
   } catch {
     /* best effort — caching is an optimization, never a hard requirement */
   }

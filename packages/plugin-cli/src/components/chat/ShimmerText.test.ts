@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shimmerSlices } from './ShimmerText.js';
+import { shimmerBandSlices, shimmerSlices } from './ShimmerText.js';
 
 describe('shimmerSlices', () => {
   it('preserves the full text while the glow crosses it', () => {
@@ -14,5 +14,12 @@ describe('shimmerSlices', () => {
     expect(shimmerSlices('', 0)).toEqual({ before: '', glow: '', after: '' });
     const short = shimmerSlices('ok', 5, 20);
     expect(short.before + short.glow + short.after).toBe('ok');
+  });
+
+  it('preserves the moving window across the gray-black-gray band', () => {
+    const band = shimmerBandSlices('abcdefghi');
+    expect(band).toEqual({ leading: 'abc', core: 'def', trailing: 'ghi' });
+    expect(band.leading + band.core + band.trailing).toBe('abcdefghi');
+    expect(shimmerBandSlices('x')).toEqual({ leading: '', core: 'x', trailing: '' });
   });
 });

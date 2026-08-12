@@ -88,7 +88,7 @@ describe('mobile app build config', () => {
     expect(bridge).toMatch(/for activity in activities\(forSessionId:[\s\S]*await activity\.end/);
   });
 
-  it('keeps mobile active turns recoverable from runner history after missed lifecycle pushes', () => {
+  it('reconciles mobile active turns with the live runner after missed lifecycle pushes', () => {
     const gatewayStore = readFileSync(mobileGatewayStorePath, 'utf8');
 
     expect(gatewayStore).toContain('ACTIVE_TURN_RECOVERY_INITIAL_MS');
@@ -97,7 +97,10 @@ describe('mobile app build config', () => {
     expect(gatewayStore).toMatch(/if\s*\(\s*coreChat\.activeTurnId\s*\)/);
     expect(gatewayStore).toMatch(/setTimeout\(\s*\(\)\s*=>[\s\S]*ACTIVE_TURN_RECOVERY_INITIAL_MS/);
     expect(gatewayStore).toMatch(/setInterval\(\s*refresh\s*,\s*ACTIVE_TURN_RECOVERY_INTERVAL_MS\s*\)/);
-    expect(gatewayStore).toMatch(/chatStore\s*\.\s*refreshLatest\(\s*workspaceId\s*\)/);
+    expect(gatewayStore).toContain("invoke('session.activeTurn', { workspaceId })");
+    expect(gatewayStore).toMatch(
+      /chatStore\s*\.\s*refreshLatest\(\s*workspaceId\s*,\s*live\.turnId\s*\)/,
+    );
     expect(gatewayStore).toContain("AppState.addEventListener('change'");
   });
 });

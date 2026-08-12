@@ -1,190 +1,92 @@
 import React, { useEffect, useState } from 'react';
-import path from 'node:path';
 import { Box, Text } from 'ink';
-import type { ClientChromeItem, GovernanceInfo, ModeBadge } from '@moxxy/sdk';
-import { formatElapsed } from '@moxxy/chat-model';
-import { Colors, Glyphs, badgeBackground, badgeMarker } from '../theme.js';
-import { Spinner } from './Spinner.js';
-import { MOTION_ENABLED } from './motion.js';
+import type { GovernanceInfo, ModeBadge } from '@moxxy/sdk';
+import { formatTokensK } from '@moxxy/chat-model';
+import { Colors, Glyphs } from '../theme.js';
 import { terminalSafeText } from './terminal-text.js';
 
 export interface StatusLineProps {
-  readonly busyStartedAt?: number | null;
-  readonly queueCount?: number;
-  /** Safety-critical badge for a special/autonomous run. */
+  /** Optional safety tone for an elevated mode; it still occupies only the mode slot. */
   readonly modeBadge?: ModeBadge | null;
-  /** Current project directory; the default chrome is workspace-first. */
-  readonly workspace: string;
-  /** Organization policy in force, mirrored through SessionInfo. */
+  /** Active run behavior. Always visible; Shift+Tab cycles it. */
+  readonly modeName: string;
+  /** Active provider model. Always visible in the persistent status edge. */
+  readonly modelName: string;
+  /** Estimated tokens currently occupying the active context window. */
+  readonly contextUsed: number;
+  /** Model context limit when known. */
+  readonly contextWindow?: number | null;
+  /** Governed workspaces keep their safety state visible; local is implicit. */
   readonly governance?: GovernanceInfo | null;
-  /** Bounded, UI-neutral status items from loaded plugins. */
-  readonly chromeItems?: ReadonlyArray<ClientChromeItem>;
 }
 
-export const RunFrameHeader: React.FC<{
-  readonly workspace: string;
-  readonly governance?: GovernanceInfo | null;
-}> = ({ workspace, governance }) => {
-  const columns = useTerminalColumns();
-  const visibleWorkspace = terminalSafeText(workspaceName(workspace), columns < 58 ? 16 : 32);
-  return (
-    <Box justifyContent="space-between" width="100%" paddingX={1}>
-      <Box>
-        <Text color={Colors.busy}>{Glyphs.filled}</Text>
-        <Text bold>{' moxxy'}</Text>
-        <Text dimColor>{` ${Glyphs.midDot} `}</Text>
-        <Text>{visibleWorkspace}</Text>
-      </Box>
-      <Text color={governance?.stale ? Colors.busy : governance ? Colors.active : undefined} bold>
-        {governance ? (governance.stale ? 'MANAGED!' : 'MANAGED') : 'LOCAL'}
-      </Text>
-    </Box>
-  );
-};
-
 /**
- * Bottom edge of the product frame: run state + workspace on the left,
- * extension slots + policy on the right. Runtime architecture (provider,
- * compactor, MCP) remains available from explicit detail panels.
+ * Quiet bottom edge of the product frame. Activity belongs in the transcript;
+ * this persistent line carries only the active execution contract.
  */
 export const StatusLine: React.FC<StatusLineProps> = ({
-  busyStartedAt,
-  queueCount = 0,
   modeBadge,
-  workspace,
+  modeName,
+  modelName,
+  contextUsed,
+  contextWindow,
   governance,
-  chromeItems = [],
 }) => {
   const columns = useTerminalColumns();
   const tiny = columns < 58;
-  const chromeFits = columns >= (governance ? 120 : 72);
-  const showPolicyLabel = columns >= 80;
-  const showPersonalPolicy = columns >= 58;
-  const itemLimit = columns >= 140 ? 2 : 1;
-  const leadingItems = chromeFits
-    ? selectChromeItems(chromeItems, 'status.leading', itemLimit)
-    : [];
-  const trailingItems = chromeFits
-    ? selectChromeItems(chromeItems, 'status.trailing', itemLimit)
-    : [];
-  const visibleWorkspace = tiny
-    ? terminalSafeText(workspaceName(workspace), 14)
-    : workspaceName(workspace);
+  const visibleModel = terminalSafeText(
+    modelName || 'no model',
+    tiny ? 10 : columns < 100 ? 18 : 28,
+  );
+  const visibleMode = terminalSafeText(modeBadge?.label ?? (modeName || 'default'), tiny ? 9 : 18);
+  const context = formatContextRemaining(contextUsed, contextWindow, columns >= 110);
   return (
     <Box justifyContent="space-between" width="100%">
       <Box>
-        {modeBadge ? (
-          <>
-            <ModeBadgePill badge={modeBadge} />
-            <Text> </Text>
-          </>
-        ) : null}
-        <ChromeItems items={leadingItems} />
-        {leadingItems.length > 0 ? <Text> </Text> : null}
-        {busyStartedAt != null ? (
-          <BusyMarker startedAt={busyStartedAt} />
-        ) : (
-          <>
-            <Text color={Colors.active}>{Glyphs.filled}</Text>
-            <Text bold> Ready</Text>
-          </>
-        )}
-        <Text dimColor>{`  ${Glyphs.midDot}  ${tiny ? '' : 'workspace '}`}</Text>
-        <Text bold>{visibleWorkspace}</Text>
-        {queueCount > 0 ? <Text dimColor>{`  ${Glyphs.contextUp} ${queueCount} queued`}</Text> : null}
-      </Box>
-      <Box>
-        <ChromeItems items={trailingItems} />
-        {trailingItems.length > 0 ? <Text>  </Text> : null}
-        {governance ? (
-          <>
-            {showPolicyLabel ? <Text dimColor>{`policy ${Glyphs.midDot} `}</Text> : null}
-            <GovernanceBadge governance={governance} compact={columns < 120} />
-          </>
-        ) : showPersonalPolicy ? (
-          <>
-            <Text dimColor>{`policy ${Glyphs.midDot} `}</Text>
-            <Text>personal</Text>
-          </>
-        ) : null}
-      </Box>
-    </Box>
-  );
-};
-
-export function workspaceName(workspace: string): string {
-  const trimmed = workspace.trim();
-  if (!trimmed) return 'workspace';
-  return terminalSafeText(path.basename(path.resolve(trimmed)) || 'workspace', 32);
-}
-
-export function selectChromeItems(
-  items: ReadonlyArray<ClientChromeItem>,
-  slot: ClientChromeItem['slot'],
-  limit: number,
-): ReadonlyArray<ClientChromeItem> {
-  return items
-    .filter((item) => item.slot === slot)
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id))
-    .slice(0, Math.max(0, limit));
-}
-
-const ChromeItems: React.FC<{ items: ReadonlyArray<ClientChromeItem> }> = ({ items }) => (
-  <>
-    {items.map((item, index) => (
-      <React.Fragment key={item.id}>
-        {index > 0 ? <Text dimColor>{` ${Glyphs.midDot} `}</Text> : null}
         <Text
+          bold
           color={
-            item.tone === 'attention'
+            modeBadge?.tone === 'attention'
               ? Colors.busy
-              : item.tone === 'positive'
+              : modeBadge
                 ? Colors.active
                 : undefined
           }
-          dimColor={item.tone === 'neutral'}
         >
-          {item.label.slice(0, 24)}
+          {visibleMode}
         </Text>
-      </React.Fragment>
-    ))}
-  </>
-);
-
-const GovernanceBadge: React.FC<{ governance: GovernanceInfo; compact: boolean }> = ({
-  governance,
-  compact,
-}) => (
-  <Text backgroundColor={governance.stale ? Colors.busy : Colors.chrome} color="black" bold>
-    {compact
-      ? governance.stale
-        ? ' MANAGED! '
-        : ' MANAGED '
-      : ` MANAGED${governance.stale ? '!' : ''} · ${terminalSafeText(governance.label, 28)} `}
-  </Text>
-);
-
-const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (
-  <Text backgroundColor={badgeBackground(badge.tone)} color="black" bold>
-    {` ${badgeMarker(badge.tone)}${badge.label} RUN `}
-  </Text>
-);
-
-const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!MOTION_ENABLED) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return (
-    <Box>
-      <Spinner color={Colors.busy} />
-      <Text color={Colors.busy} bold>{' Working'}</Text>
-      <Text dimColor>{`  ${formatElapsed(now - startedAt)}`}</Text>
+        {governance ? (
+          <>
+            <Text dimColor>{` ${Glyphs.midDot} `}</Text>
+            <Text color={governance.stale ? Colors.busy : Colors.active} bold>
+              {governance.stale ? 'MANAGED!' : 'MANAGED'}
+            </Text>
+            <Text dimColor>
+              {` ${Glyphs.midDot} ${terminalSafeText(governance.label, tiny ? 10 : 24)}`}
+            </Text>
+          </>
+        ) : null}
+      </Box>
+      <Box>
+        <Text>{visibleModel}</Text>
+        <Text dimColor>{` ${Glyphs.midDot} ${context}`}</Text>
+      </Box>
     </Box>
   );
 };
+
+export function formatContextRemaining(
+  used: number,
+  window: number | null | undefined,
+  detailed = false,
+): string {
+  if (window == null || !Number.isFinite(window) || window <= 0) return 'ctx —';
+  const boundedUsed = Number.isFinite(used) ? Math.max(0, used) : 0;
+  const remaining = Math.max(0, window - boundedUsed);
+  const percent = Math.max(0, Math.min(100, Math.round((remaining / window) * 100)));
+  if (!detailed) return `ctx ${percent}% left`;
+  return `ctx ${formatTokensK(Math.round(remaining)) ?? '0'} left`;
+}
 
 function useTerminalColumns(): number {
   const [columns, setColumns] = useState(() => process.stdout.columns ?? 80);

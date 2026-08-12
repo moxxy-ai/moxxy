@@ -212,47 +212,52 @@ export class VaultStore {
    */
   private async syncFromDisk(): Promise<void> {
     if (!this.file) return;
-    let st: { mtimeMs: number; size: number };
+    let handle: import('node:fs/promises').FileHandle;
     try {
-      st = await fs.stat(this.filePath);
+      handle = await fs.open(this.filePath, 'r');
     } catch (err) {
       if (isEnoent(err)) return; // deleted out from under us — keep memory
       throw err;
     }
-    // Fast path: skip the read+merge only when the stat fingerprint is
-    // unchanged AND it has aged past the filesystem's mtime granularity. On
-    // coarse-mtime filesystems (HFS+, older ext) two writes inside the same
-    // ~1-2s tick that also produce an identical byte length share a
-    // (mtime,size) fingerprint, so a recent match might hide a sibling write.
-    // The merge is idempotent and cheap, so when in doubt we re-read.
-    if (
-      this.lastSynced &&
-      st.mtimeMs === this.lastSynced.mtimeMs &&
-      st.size === this.lastSynced.size &&
-      Date.now() - st.mtimeMs > MTIME_GRANULARITY_MS
-    ) {
-      return;
-    }
-    let parsedRaw: unknown;
     try {
-      parsedRaw = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
-    } catch {
-      return;
+      const st = await handle.stat();
+      // Fast path: skip the read+merge only when the stat fingerprint is
+      // unchanged AND it has aged past the filesystem's mtime granularity. On
+      // coarse-mtime filesystems (HFS+, older ext) two writes inside the same
+      // ~1-2s tick that also produce an identical byte length share a
+      // (mtime,size) fingerprint, so a recent match might hide a sibling write.
+      // The merge is idempotent and cheap, so when in doubt we re-read.
+      if (
+        this.lastSynced &&
+        st.mtimeMs === this.lastSynced.mtimeMs &&
+        st.size === this.lastSynced.size &&
+        Date.now() - st.mtimeMs > MTIME_GRANULARITY_MS
+      ) {
+        return;
+      }
+      let parsedRaw: unknown;
+      try {
+        parsedRaw = JSON.parse(await handle.readFile({ encoding: 'utf8' }));
+      } catch {
+        return;
+      }
+      if (!isPlainObject(parsedRaw)) return;
+      const parsed = parsedRaw as Partial<VaultFile>;
+      if (
+        parsed.version !== 1 ||
+        parsed.kdf !== 'scrypt' ||
+        parsed.salt !== this.file.salt ||
+        !validateVaultFile(parsed)
+      ) {
+        return;
+      }
+      this.file = { ...this.file, entries: mergeEntries(this.file.entries, parsed.entries) };
+      // Fingerprint from BEFORE the read: if a write landed in between, the
+      // next sync simply re-reads — never the other way around.
+      this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
+    } finally {
+      await handle.close();
     }
-    if (!isPlainObject(parsedRaw)) return;
-    const parsed = parsedRaw as Partial<VaultFile>;
-    if (
-      parsed.version !== 1 ||
-      parsed.kdf !== 'scrypt' ||
-      parsed.salt !== this.file.salt ||
-      !validateVaultFile(parsed)
-    ) {
-      return;
-    }
-    this.file = { ...this.file, entries: mergeEntries(this.file.entries, parsed.entries) };
-    // Fingerprint from BEFORE the read: if a write landed in between, the
-    // next sync simply re-reads — never the other way around.
-    this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
   }
 
   /**

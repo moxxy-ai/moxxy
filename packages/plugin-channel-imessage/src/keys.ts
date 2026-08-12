@@ -42,12 +42,23 @@ export const IMESSAGE_OWNER_HANDLES_KEY = 'imessage_owner_handles';
 /** E.164 shape: `+` then 7–15 digits, no leading zero. */
 export const E164_RE = /^\+[1-9]\d{6,14}$/;
 
-/** Pragmatic email shape (Apple-ID handles). Deliberately loose but anchored. */
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Pragmatic email matcher (Apple-ID handles), implemented as a linear scan. */
+export const EMAIL_RE = Object.freeze({ test: isEmail });
 
 /** Whether a normalized string is a plausible iMessage handle. */
 export function isHandle(value: string): boolean {
   return E164_RE.test(value) || EMAIL_RE.test(value);
+}
+
+function isEmail(value: string): boolean {
+  const at = value.indexOf('@');
+  if (at <= 0 || at !== value.lastIndexOf('@')) return false;
+  const dot = value.indexOf('.', at + 1);
+  if (dot <= at + 1 || dot === value.length - 1) return false;
+  for (const char of value) {
+    if (/\s/u.test(char)) return false;
+  }
+  return true;
 }
 
 /**

@@ -1,5 +1,33 @@
 # @moxxy/plugin-cli
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/channel-kit@0.37.2
+  - @moxxy/chat-model@0.4.6
+  - @moxxy/config@0.37.2
+  - @moxxy/core@0.37.2
+  - @moxxy/plugin-mcp@0.37.2
+  - @moxxy/plugin-plugins-admin@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/channel-kit@0.37.1
+  - @moxxy/chat-model@0.4.5
+  - @moxxy/config@0.37.1
+  - @moxxy/core@0.37.1
+  - @moxxy/plugin-mcp@0.37.1
+  - @moxxy/plugin-plugins-admin@0.37.1
+
 ## 0.37.0
 
 ### Patch Changes

@@ -1,5 +1,105 @@
 # @moxxy/desktop
 
+## 0.38.0
+
+### Minor Changes
+
+- 9e26bd8: Voice Mode no longer replaces the conversation. Starting one now adds a 58px presence rail between the ask sheet and the composer, and leaves the header, the full transcript and the text composer exactly where they were — so a voice conversation is the same conversation with a microphone open: you can scroll back, search, open a tool result, and type. A message sent from the composer during a call runs as an ordinary turn and its answer is read back.
+
+  The rail carries the shared `MoxxyMark` between two fans of radio arcs that travel outward only while a voice is actually carrying, hairline-separated sections, and one operation at a time — the oldest still running, held in place while newer tools come and go, with the rest counted as `+N active` and a quiet "No tools running" holding the slot's shape when there is nothing to report. Microphone, waiting sound and ending the call stay reachable throughout, as do the Local Piper install prompt and the retry after a failure. The mark breathes with the voice through a single CSS custom property driving a scale and an opacity, so the animation is composited rather than painted and there is no canvas in the main window at all.
+
+  The full-screen surface it replaces is deleted, along with its particle hologram, sprite cache and orbit. Focus Mode is untouched.
+
+- 9757ae4: Move the commanded accent from magenta to the brand's Signal orange, so the app
+  accents on the same hue as the mark, the site and the rest of the branding
+  (`assets/brand/README.md`). Everything the accent touches follows: the send
+  action, the human's turn in the trace, the active rail item, focus rings, the
+  sidebar's active wash, filled buttons, the terminal cursor, and the second
+  strand of the mark on both pre-React splash screens.
+
+  On ink the accent is Signal exactly — `#FF4A1E` clears every contrast gate on a
+  dark ground. On paper it cannot be: `#FF4A1E` carries a white label at only
+  3.36:1 and sits at 2.78:1 against the panel ground, under the 4.5 and 3.0 floors
+  the palette is held to. Light therefore uses Signal's hue at full saturation,
+  deepened to the stop where white clears 4.5:1. That asymmetry is not new — it is
+  the rule the palette already documented for magenta, now carried over: the paper
+  accent is deep and white-labelled, the ink accent is luminous and ink-labelled.
+
+  The semantic hues are untouched. `green`, `amber`, `red` and `reference` still
+  mean nominal, attention, failure and reference data, and still carry their own
+  contrast floors.
+
+### Patch Changes
+
+- 0546070: Tighten the Focus Mode action bar by integrating its controls directly beside the Moxxy mark.
+- baa584b: Make Mini Chat compact, cancellable, and functionally consistent with the main transcript.
+- 3fcde74: Draw Focus Mode with the same in-app Moxxy mark the rest of the window uses. The floating widget rendered a raster mascot, the mini-text header scaled down the packaged app icon, and the pre-mount boot tile rendered a typed `m` glyph in a colour outside the palette. All three now render `MoxxyMark`, so the floating widget and the main window cannot drift apart. The app icon at `public/logo.png` is unchanged and stays the product's icon.
+- 06d247c: Show a stop control while Focus Mode is dictating. The microphone button kept
+  drawing a microphone once capture was live, so a control that would END the
+  recording looked exactly like one that would start it, and the only hint that a
+  second press was needed lived in the accessible name. It now switches to the
+  stop glyph and reads as pressed for as long as it is listening, matching the
+  voice mode button beside it. The transcribing state keeps its own indicator.
+- e812ebe: Make Mini Chat Voice Mode statuses speak in the first person, surface queued messages with removable chips, and expose a stop control for the current task.
+- 861548a: Mirror Voice Mode follow-ups queued in the main renderer into Focus Mini Chat so they stay visible and removable before execution.
+- 1bbbbaf: Polish Focus Mode voice feedback with shared radio waves, a full-width Signal-orange visualizer, a clockwise corner loader, and a visible Mini Chat listening state.
+- f4126b0: Keep generating and displaying the complete assistant response when the user speaks over Voice Mode. Barge-in now stops only Piper playback, preserves live tool activity, and queues the transcribed follow-up for the next turn; explicit Stop remains the hard-abort action.
+- 9efe2ea: Two fixes underneath Voice Mode, both found by profiling the running app rather than a harness.
+
+  **Markdown re-parsing.** Rendered Markdown re-parses in full on every render, and a streaming turn re-renders the transcript on every delta, so every visible message in the conversation was re-parsing on every delta. `MarkdownBody` is now memoised and the parse sits behind its own memo boundary, so an unchanged message costs nothing. The message that IS growing is re-parsed on an interval derived from how long its previous parse actually took, which holds parsing at about a fifth of the renderer whatever the answer's length or structure.
+
+  **Audio.** Piper streams a sentence at a time and each clip built and closed its own `AudioContext`, tearing the audio device down and reopening it between every sentence. One context is now kept warm for the session, released and rebuilt when the output device changes — detached rather than closed, so the sentence playing right now finishes on the device it started on. Closing the context per clip had also been what released the clip's `<audio>` element; that is now explicit on every finish path, so a long conversation no longer leaves a decoded sentence per element waiting on the collector.
+
+- 62042eb: Reconcile chat and Focus activity with live foreground turns after runner restarts.
+- 48d0292: Keep Voice Mode status, active work and controls visible in narrow desktop chat layouts.
+- aaaaf02: Restore active task status when Focus Mode joins a turn already running in the main chat.
+- Updated dependencies [e18e120]
+- Updated dependencies [84dd2c5]
+- Updated dependencies [9efe2ea]
+- Updated dependencies [62042eb]
+- Updated dependencies [9757ae4]
+  - @moxxy/cli@0.37.2
+  - @moxxy/sdk@0.37.2
+  - @moxxy/client-platform-web@0.1.63
+  - @moxxy/design-tokens@0.5.0
+  - @moxxy/desktop-ui@0.3.1
+  - @moxxy/chat-model@0.4.6
+  - @moxxy/client-core@0.13.24
+  - @moxxy/desktop-host@0.14.15
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/ipc-server-ws@0.1.62
+  - @moxxy/plugin-channel-mobile@0.37.2
+  - @moxxy/plugin-stt-whisper-codex@0.37.2
+  - @moxxy/plugin-vault@0.37.2
+  - @moxxy/runner@0.2.49
+  - @moxxy/workflows-builder@0.1.46
+
+## 0.37.1
+
+### Patch Changes
+
+- 4d89d64: Harden temporary files and remove filesystem race windows from runtime reads.
+- e80b9d6: Replace vulnerable regular-expression parsers with bounded linear-time input scanners.
+- 5e4ca9f: Patch vulnerable dependencies, enable continuous security scanning, and harden Metro image parsing.
+- Updated dependencies [4d89d64]
+- Updated dependencies [945202d]
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/cli@0.37.1
+  - @moxxy/sdk@0.37.1
+  - @moxxy/chat-model@0.4.5
+  - @moxxy/client-core@0.13.23
+  - @moxxy/client-platform-web@0.1.62
+  - @moxxy/desktop-host@0.14.14
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/ipc-server-ws@0.1.61
+  - @moxxy/plugin-channel-mobile@0.37.1
+  - @moxxy/plugin-stt-whisper-codex@0.37.1
+  - @moxxy/plugin-vault@0.37.1
+  - @moxxy/runner@0.2.48
+  - @moxxy/workflows-builder@0.1.45
+
 ## 0.37.0
 
 ### Minor Changes

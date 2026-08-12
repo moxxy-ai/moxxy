@@ -9,6 +9,7 @@ import type { VoiceCallPhase } from '@moxxy/client-core';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusPetAvatar } from './FocusPetAvatar';
+import { FOCUS_PET_LAYOUT } from '@moxxy/desktop-ipc-contract';
 import {
   FocusBubbleRestoreButton,
   FocusPetBubble,
@@ -46,8 +47,11 @@ export function Inactive({
   readonly onHideBubble: () => void;
   readonly onShowBubble: () => void;
 }): JSX.Element {
+  const petWidth = voiceModeActive
+    ? FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth
+    : FOCUS_PET_LAYOUT.collapsedWidth;
   const pet = (
-    <div style={style.focusPetDock}>
+    <div style={{ ...style.focusPetDock, width: petWidth }}>
       <button
         type="button"
         {...gestureProps}
@@ -56,6 +60,7 @@ export function Inactive({
           : 'Moxxy, click to expand'}
         style={{
           ...style.inactiveButton,
+          width: petWidth,
           cursor: dragging ? 'grabbing' : 'grab',
         }}
       >
@@ -63,6 +68,7 @@ export function Inactive({
           phase={voiceModePhase}
           microphoneMuted={voiceModeMuted}
           voiceModeActive={voiceModeActive}
+          showRadioWaves={voiceModeActive}
           inputAnalyser={inputAnalyser}
           outputAnalyser={outputAnalyser}
         />
@@ -74,6 +80,7 @@ export function Inactive({
     <div
       style={{
         ...style.focusPetRestoreRoot,
+        width: petWidth + 36,
         flexDirection: horizontalAnchor === 'right' ? 'row' : 'row-reverse',
       }}
     >

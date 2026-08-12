@@ -38,21 +38,30 @@ export function markdownToTelegramHtml(md: string): string {
   // Pull fenced code blocks out FIRST so their contents skip inline
   // markdown processing. Replace each with a placeholder, render the
   // rest, then splice them back.
-  const fences: string[] = [];
-  let working = md.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, body) => {
+  const extracted = extractFences(md);
+  const fences = extracted.fences.map(({ lang, body }) => {
     const html =
-      `<pre><code${lang ? ` class="language-${escapeHtml(String(lang))}"` : ''}>` +
-      escapeHtml(String(body)).replace(/\n+$/, '') +
+      `<pre><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>` +
+      escapeHtml(trimTrailingNewlines(body)) +
       '</code></pre>';
-    fences.push(html);
-    return ` FENCE${fences.length - 1} `;
+    return html;
   });
+  let working = extracted.working;
 
   // Pull inline code spans out next, same reason.
   const inlines: string[] = [];
   working = working.replace(/`([^`\n]+)`/g, (_, body) => {
     inlines.push(`<code>${escapeHtml(String(body))}</code>`);
     return ` INLINE${inlines.length - 1} `;
+  });
+
+  // Pull link destinations out before HTML escaping. The visible label stays
+  // in the Markdown pipeline, while the raw target is validated and escaped
+  // exactly once when the final anchor is emitted.
+  const linkTargets: string[] = [];
+  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, text, url) => {
+    linkTargets.push(String(url));
+    return `[${String(text)}](LINKTARGET${linkTargets.length - 1})`;
   });
 
   // Now safe to escape HTML special chars in everything else.
@@ -97,15 +106,11 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/(^|[\s(,.!?:;])\*([^*\n]+)\*(?=$|[\s),.!?:;])/g, (_m, pre, body) => `${pre}<i>${String(body)}</i>`);
   working = working.replace(/(^|[\s(,.!?:;])_([^_\n]+)_(?=$|[\s),.!?:;])/g, (_m, pre, body) => `${pre}<i>${String(body)}</i>`);
 
-  // Links [text](url) — strip url tracking params if needed later;
-  // for now just emit. URLs may contain `&` which is already escaped
-  // to `&amp;` by escapeHtml above; that's valid inside href.
-  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
-    // The url got HTML-escaped earlier; restore enough that the link
-    // actually points where it should. Only `&amp;` → `&` is needed
-    // for the typical case; `<>` shouldn't appear in a URL but unescape
-    // them defensively.
-    const cleanUrl = String(url).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  // Links [text](url). Targets were removed before escaping, so they cannot
+  // be double-decoded and are escaped once at this attribute boundary.
+  working = working.replace(/\[([^\]]+)\]\(LINKTARGET(\d+)\)/g, (_match, text, index) => {
+    const cleanUrl = linkTargets[Number(index)];
+    if (cleanUrl === undefined) return String(text);
     // The anchor target comes from arbitrary model output (and, via prompt
     // injection, untrusted data the model echoes). Don't rely on Telegram's
     // server-side parser as the sole sanitizer: emit a clickable <a> only for
@@ -113,7 +118,7 @@ export function markdownToTelegramHtml(md: string): string {
     // else — `javascript:`, `data:`, `file:`, `tg://` deep links — is left as
     // the original `[text](url)` text (already HTML-escaped upstream) so it
     // can't navigate the client.
-    if (!isAllowedUrl(cleanUrl)) return String(m);
+    if (!isAllowedUrl(cleanUrl)) return `[${String(text)}](${escapeHtml(cleanUrl)})`;
     return `<a href="${escapeAttr(cleanUrl)}">${String(text)}</a>`;
   });
 
@@ -122,6 +127,45 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/ FENCE(\d+) /g, (_, i) => fences[Number(i)] ?? '');
 
   return working;
+}
+
+function extractFences(md: string): {
+  readonly working: string;
+  readonly fences: ReadonlyArray<{ readonly lang: string; readonly body: string }>;
+} {
+  const output: string[] = [];
+  const fences: Array<{ lang: string; body: string }> = [];
+  let cursor = 0;
+  while (cursor < md.length) {
+    const start = md.indexOf('```', cursor);
+    if (start === -1) break;
+    let bodyStart = start + 3;
+    while (bodyStart < md.length && isFenceLanguageChar(md[bodyStart])) bodyStart += 1;
+    const lang = md.slice(start + 3, bodyStart);
+    if (md[bodyStart] === '\n') bodyStart += 1;
+    const close = md.indexOf('```', bodyStart);
+    if (close === -1) break;
+    output.push(md.slice(cursor, start), ` FENCE${fences.length} `);
+    fences.push({ lang, body: md.slice(bodyStart, close) });
+    cursor = close + 3;
+  }
+  output.push(md.slice(cursor));
+  return { working: output.join(''), fences };
+}
+
+function isFenceLanguageChar(char: string | undefined): boolean {
+  return char !== undefined && (
+    (char >= 'a' && char <= 'z') ||
+    (char >= 'A' && char <= 'Z') ||
+    (char >= '0' && char <= '9') ||
+    char === '_' || char === '+' || char === '-'
+  );
+}
+
+function trimTrailingNewlines(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '\n') end -= 1;
+  return value.slice(0, end);
 }
 
 /**

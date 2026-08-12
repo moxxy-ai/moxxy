@@ -37,13 +37,10 @@ export const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
   'cdn-lfs.huggingface.co',
 ];
 
-/** Compile bare hostnames into exact-or-subdomain matchers. The hostname is
- *  regex-escaped so a `.` can never act as a wildcard. */
-function compileHosts(hosts: readonly string[]): RegExp[] {
-  return hosts.map((h) => {
-    const escaped = h.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(^|\\.)${escaped}$`);
-  });
+/** Exact host or a real DNS subdomain — never a suffix lookalike. */
+function hostMatches(hostname: string, allowedHost: string): boolean {
+  const allowed = allowedHost.toLowerCase();
+  return hostname === allowed || hostname.endsWith(`.${allowed}`);
 }
 
 /** Whether `url` is a fetch target we may reach: `https:` on an allow-listed
@@ -59,7 +56,8 @@ export function isAllowedAssetUrl(
     return false;
   }
   if (u.protocol !== 'https:') return false;
-  return compileHosts(allowedHosts).some((re) => re.test(u.hostname));
+  const hostname = u.hostname.toLowerCase();
+  return allowedHosts.some((allowedHost) => hostMatches(hostname, allowedHost));
 }
 
 /** Default hard ceiling on a single downloaded asset (1 GiB). Bounds a

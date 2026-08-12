@@ -25,6 +25,11 @@ describe('renderTemplate', () => {
     expect(renderTemplate('x{{ steps.missing.output }}y', scope)).toBe('xy');
     expect(renderTemplate('x{{ inputs.nope }}y', scope)).toBe('xy');
   });
+
+  it('leaves a long unterminated reference intact', () => {
+    const input = `{{${' '.repeat(50_000)}`;
+    expect(renderTemplate(input, scope)).toBe(input);
+  });
 });
 
 describe('renderArgs', () => {

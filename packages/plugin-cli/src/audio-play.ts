@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
-import { writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -288,9 +288,9 @@ export async function playAudio(
   const selection = await selectAudioPlayer(platform, opts.mimeType, isAvailable);
   if (!selection.ok) return { ok: false, reason: selection.reason };
 
-  let file: string;
+  let scratch: { readonly dir: string; readonly file: string };
   try {
-    file = await writeTempAudio(audio, opts.mimeType, opts.tmpDir);
+    scratch = await writeTempAudio(audio, opts.mimeType, opts.tmpDir);
   } catch (err) {
     return { ok: false, reason: 'failed', error: errMessage(err) };
   }
@@ -298,13 +298,13 @@ export async function playAudio(
   try {
     return await spawnPlayer(
       selection.command,
-      selection.buildArgs(file),
+      selection.buildArgs(scratch.file),
       spawnImpl,
       opts.signal,
       opts.timeoutMs ?? DEFAULT_PLAYBACK_TIMEOUT_MS,
     );
   } finally {
-    void rm(file, { force: true }).catch(() => undefined);
+    void rm(scratch.dir, { force: true, recursive: true }).catch(() => undefined);
   }
 }
 
@@ -372,12 +372,17 @@ async function writeTempAudio(
   audio: Uint8Array,
   mimeType: string,
   tmpDir?: string,
-): Promise<string> {
-  const dir = tmpDir ?? os.tmpdir();
-  const suffix = Math.random().toString(36).slice(2, 10);
-  const file = path.join(dir, `moxxy-speak-${process.pid}-${Date.now()}-${suffix}.${extForMime(mimeType)}`);
-  await writeFile(file, Buffer.from(audio));
-  return file;
+): Promise<{ readonly dir: string; readonly file: string }> {
+  const parent = tmpDir ?? os.tmpdir();
+  const dir = await mkdtemp(path.join(parent, 'moxxy-speak-'));
+  const file = path.join(dir, `audio.${extForMime(mimeType)}`);
+  try {
+    await writeFile(file, Buffer.from(audio), { flag: 'wx', mode: 0o600 });
+    return { dir, file };
+  } catch (err) {
+    await rm(dir, { force: true, recursive: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 /** Map an audio mime type to a file extension (players sniff by content, but a

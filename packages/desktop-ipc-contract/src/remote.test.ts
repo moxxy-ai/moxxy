@@ -19,6 +19,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'desks.list',
       'desks.setActive',
       'session.info',
+      'session.activeTurn',
       'session.runTurn',
       'session.abortTurn',
       'session.setProvider',

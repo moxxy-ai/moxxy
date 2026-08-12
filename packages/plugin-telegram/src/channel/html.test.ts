@@ -6,6 +6,10 @@ describe('stripHtml', () => {
     expect(stripHtml('<b>bold</b> and <code>code</code>')).toBe('bold and code');
   });
 
+  it('does not create a fresh tag when adjacent markup is removed', () => {
+    expect(stripHtml('<scr<script>hidden</script>ipt>visible</script>')).toBe('hiddenipt>visible');
+  });
+
   it('decodes the four named entities', () => {
     expect(stripHtml('a &lt; b &gt; c &amp; d &quot;e&quot;')).toBe('a < b > c & d "e"');
   });

@@ -268,7 +268,12 @@ export {
   resolveProviderTools,
   type ResolvedProviderTools,
 } from './provider-tool-utils.js';
-export type { WriteFileAtomicOptions } from './fs-utils.js';
+export type {
+  BoundedNetworkCacheOptions,
+  SignedNetworkCacheEnvelope,
+  SignedNetworkCacheOptions,
+  WriteFileAtomicOptions,
+} from './fs-utils.js';
 export type {
   EgressProxySettings,
   EgressStatus,

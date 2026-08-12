@@ -89,4 +89,17 @@ describe('stripLockedKeys', () => {
     const user = { maxIterations: 5 } as MoxxyConfig;
     expect(() => stripLockedKeys(user, ['a.b.c', 'maxIterations.deep'], 'user')).not.toThrow();
   });
+
+  it('handles prototype-shaped locked paths without changing object prototypes', () => {
+    const user = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"name":"mine"}}') as MoxxyConfig;
+    const { config, overrides } = stripLockedKeys(user, ['__proto__.polluted', 'constructor.name'], 'user');
+    expect(overrides).toEqual([
+      { key: '__proto__.polluted', scope: 'user' },
+      { key: 'constructor.name', scope: 'user' },
+    ]);
+    expect(Object.prototype).not.toHaveProperty('polluted');
+    expect(Object.prototype).not.toHaveProperty('name', 'mine');
+    expect(Object.prototype.hasOwnProperty.call(config, '__proto__')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(config, 'constructor')).toBe(false);
+  });
 });

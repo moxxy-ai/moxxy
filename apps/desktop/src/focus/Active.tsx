@@ -109,14 +109,22 @@ export function Active({
           source={audioVisualization.source}
         />
       )}
-      <div style={style.activeDivider} aria-hidden />
       <div data-testid="focus-active-actions" style={style.activeActions}>
         {hasTranscriber && !voiceModeActive && (
           <ActionButton
             onClick={onToggleMic}
             aria-label={recording ? 'Stop recording' : 'Record voice'}
+            active={recording}
+            pressed={recording}
+            title={recording ? 'Listening — press to stop' : undefined}
           >
-            {transcribing ? <Dot delay={0} /> : <MicIcon />}
+            {/* A microphone while already listening reads as "press to start",
+                which is the opposite of what a press now does. Once capture is
+                live the control shows what it will do, exactly as the voice
+                mode button beside it does. */}
+            {transcribing && <Dot delay={0} />}
+            {!transcribing && recording && <Icon name="stop" size={16} />}
+            {!transcribing && !recording && <MicIcon />}
           </ActionButton>
         )}
         {voiceModeAvailable && !voiceModeActive && (

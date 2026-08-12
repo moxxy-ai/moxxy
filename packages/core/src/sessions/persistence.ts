@@ -1027,8 +1027,10 @@ async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; log
   for (const key of metaCache.keys()) if (!live.has(key)) metaCache.delete(key);
   const parsedFiles = await mapWithConcurrency(files, READ_INDEX_CONCURRENCY, async (d) => {
     const file = path.join(dir, d.name);
+    let handle: import('node:fs/promises').FileHandle | null = null;
     try {
-      const stat = await fs.stat(file);
+      handle = await fs.open(file, 'r');
+      const stat = await handle.stat();
       const cached = metaCache.get(file);
       const parsed =
         cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size
@@ -1037,12 +1039,14 @@ async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; log
       if (parsed) {
         return { meta: parsed, canonical: d.name === `${parsed.id}.json` };
       }
-      const raw = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+      const raw = JSON.parse(await handle.readFile({ encoding: 'utf8' })) as unknown;
       if (!isSessionMeta(raw)) return null;
       metaCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, meta: raw });
       return { meta: raw, canonical: d.name === `${raw.id}.json` };
     } catch {
       return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   });
   const deduped = new Map<string, ParsedMetaFile>();

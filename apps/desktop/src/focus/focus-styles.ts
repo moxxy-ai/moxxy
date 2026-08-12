@@ -20,12 +20,6 @@ import {
 export const drag = { WebkitAppRegion: 'drag' as const };
 export const noDrag = { WebkitAppRegion: 'no-drag' as const };
 
-// ---- Logo asset ----------------------------------------------------------
-// Uses the logo served from public/. Fallback to a typed glyph if the
-// image fails to load (offline / dist mis-copy) — see LogoMark.
-
-export const ASSET_LOGO = './logo.png';
-
 // ---- Panel tokens --------------------------------------------------------
 
 const PANEL_BG = 'var(--focus-panel-bg)';
@@ -93,20 +87,33 @@ export const style = {
     width: '100%',
     height: '100%',
     position: 'relative',
-    display: 'grid',
-    placeItems: 'center',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     isolation: 'isolate',
     pointerEvents: 'none',
   },
+  focusPetCore: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    display: 'grid',
+    placeItems: 'center',
+    flex: '1 1 auto',
+  },
+  focusPetCoreWithWaves: {
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    flex: `0 0 ${FOCUS_PET_LAYOUT.collapsedWidth}px`,
+  },
   focusPetGlow: {
     position: 'absolute',
-    inset: '23% 2% 3%',
+    // Centred on the mark. The old inset hung the glow low and left because
+    // the retired mascot stood on the bottom of the tile.
+    inset: 0,
     zIndex: -1,
     borderRadius: '50%',
     background:
-      'radial-gradient(ellipse at 52% 58%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 68%)',
-    opacity: 0.48,
-    transform: 'scale(0.92)',
+      'radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--color-primary) 30%, transparent), transparent 66%)',
     pointerEvents: 'none',
   },
   focusPetMotionLayer: {
@@ -114,14 +121,17 @@ export const style = {
     height: '100%',
     display: 'grid',
     placeItems: 'center',
-    transformOrigin: '50% 82%',
+    // The nudge pivots through the mark's own centre; the retired mascot
+    // pivoted near its feet.
+    transformOrigin: '50% 50%',
   },
-  focusPetCanvas: {
+  focusPetMark: {
     width: '100%',
     height: '100%',
-    display: 'block',
-    objectFit: 'contain',
-    imageRendering: 'pixelated',
+    display: 'grid',
+    placeItems: 'center',
+    // The pulse is written by useVoicePulse; the stylesheet below reads it.
+    willChange: 'transform',
   },
   visuallyHidden: {
     position: 'absolute',
@@ -241,7 +251,7 @@ export const style = {
     color: 'var(--focus-muted)',
     fontWeight: 650,
   },
-  focusTaskSpinner: {
+  focusTaskLoader: {
     position: 'absolute',
     right: 18,
     top: 16,
@@ -249,8 +259,7 @@ export const style = {
     height: 22,
     boxSizing: 'border-box',
     border: '3px solid color-mix(in srgb, var(--color-primary) 22%, transparent)',
-    borderTopColor: 'var(--color-primary)',
-    borderRadius: 'var(--radius-pill)',
+    borderRadius: 'var(--radius-block)',
     pointerEvents: 'none',
   },
   focusBubbleHideButton: {
@@ -527,7 +536,10 @@ export const style = {
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 8px 0 22px',
+    // Moxxy overlaps the panel by 18px. A 28px inset leaves a deliberate
+    // 10px breathing space before the first useful control, without a dead
+    // brand column or a decorative separator.
+    padding: '0 8px 0 28px',
     position: 'relative',
     overflow: 'hidden',
     // Whole panel is the drag region; the brand button + action
@@ -540,17 +552,9 @@ export const style = {
     height: 56,
     flex: '0 0 auto',
   },
-  activeDivider: {
-    width: 1,
-    height: 26,
-    background: 'var(--focus-divider)',
-    margin: '0 6px',
-    flexShrink: 0,
-  },
   activeActions: {
     display: 'flex',
     gap: 2,
-    marginLeft: 'auto',
     position: 'relative',
     zIndex: 1,
     ...noDrag,
@@ -623,13 +627,18 @@ export const style = {
     color: 'var(--focus-muted)',
     ...noDrag,
   },
+  miniVoiceState: {
+    color: 'var(--color-primary)',
+    fontSize: 'var(--type-label)',
+    fontWeight: 800,
+    letterSpacing: '0.045em',
+  },
   panelBody: {
     flex: 1,
-    padding: '12px 14px',
-    // Reads top-down like a transcript; the latest message scrolls and
-    // MiniText auto-scrolls it to the bottom as the answer streams in.
-    display: 'block',
-    overflowY: 'auto',
+    padding: '8px 10px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
     minHeight: 0,
     fontSize: 'var(--type-ui)',
     color: 'var(--focus-text)',
@@ -637,39 +646,23 @@ export const style = {
     WebkitUserSelect: 'text',
     ...noDrag,
   },
-  focusLatestTurn: {
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 14,
-  },
-  focusAssistantReply: {
-    width: '100%',
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 5,
-    color: 'var(--focus-text)',
-  },
-  focusMessageLabel: {
-    color: 'var(--color-primary-strong)',
-    fontSize: 'var(--type-label)',
-    fontWeight: 760,
-    letterSpacing: '0.035em',
-  },
   focusQueuedTurns: {
     display: 'flex',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    maxHeight: 58,
-    overflowY: 'auto',
+    flexWrap: 'nowrap',
+    gap: 5,
+    maxWidth: '100%',
+    minHeight: 28,
+    overflowX: 'auto',
+    overflowY: 'hidden',
     ...noDrag,
   },
-  lineRow: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
+  focusTransientStatus: {
+    flex: '0 0 auto',
+    padding: '3px 8px',
+    color: 'var(--color-primary-strong)',
+    fontSize: 'var(--type-meta)',
+    fontWeight: 700,
   },
   composerDock: {
     display: 'flex',
@@ -813,34 +806,44 @@ export const style = {
     border: '1px solid var(--color-card-border-strong)',
     cursor: 'not-allowed',
   },
+  stop: {
+    width: 34,
+    height: 34,
+    border: '1px solid color-mix(in srgb, var(--color-red) 72%, transparent)',
+    borderRadius: 'var(--radius-block)',
+    background: 'color-mix(in srgb, var(--color-red) 18%, var(--focus-input-bg))',
+    color: 'var(--color-red)',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
 } satisfies Record<string, React.CSSProperties>;
 
 // ---- Keyframes + theme vars ----------------------------------------------
-// Injected once on module load so the spinner-dot animation resolves
+// Injected once on module load so Focus motion and theme tokens resolve
 // regardless of which stage mounts first. The focus document loads
-// its own bundle and does NOT import the app's styles.css (that would set a
-// non-transparent body background and break the floating window), so the
-// handful of CSS custom properties MarkdownBody reads are mirrored here, plus
-// focus-specific surface tokens. Values track src/styles.css' light/dark
-// palette while keeping this standalone window transparent.
+// its own bundle. It imports the shared transcript styles, then restores the
+// transparent document background in focus-document.css. The tokens below
+// provide the Focus-specific surface palette.
 
 /**
- * The focus window is its own transparent BrowserWindow, so it cannot inherit
- * `styles.css`. These two constants are the whole palette it needs: the handful
- * of shared `--color-*` properties MarkdownBody reads, plus the `--focus-*`
- * surface tokens that only exist here. Values track the Harness palette in
+ * The focus window is its own transparent BrowserWindow. These constants
+ * overlay the shared palette with the `--focus-*` surface tokens used only
+ * here. Values track the Harness palette in
  * @moxxy/design-tokens; the `--focus-*` alphas are ink-tinted with the panel's
  * own blue-green ink (11, 15, 18) rather than a slate borrowed from Tailwind.
  */
 const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
       --color-text-muted: #4a5a64;
       --color-text-dim: #66757e;
-      --color-primary: #c21e6b;
-      --color-primary-strong: #9d1355;
-      --color-primary-soft: #fbeaf2;
+      --color-primary: #d62a00;
+      --color-primary-strong: #b32300;
+      --color-primary-soft: #ffefeb;
       --color-on-primary: #ffffff;
-      --color-action: #c21e6b;
-      --color-action-hover: #9d1355;
+      --color-action: #d62a00;
+      --color-action-hover: #b32300;
       --color-on-action: #ffffff;
       --color-surface: #ffffff;
       --color-red: #c0303a;
@@ -887,12 +890,12 @@ const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
 const FOCUS_DARK_VARS = `      --color-text: #e4ebef;
       --color-text-muted: #93a2ab;
       --color-text-dim: #77868f;
-      --color-primary: #f4408f;
-      --color-primary-strong: #ff63a8;
-      --color-primary-soft: #24101b;
+      --color-primary: #ff4a1e;
+      --color-primary-strong: #ff8a3d;
+      --color-primary-soft: #2b130d;
       --color-on-primary: #0b0f12;
-      --color-action: #c21e6b;
-      --color-action-hover: #d12673;
+      --color-action: #d62a00;
+      --color-action-hover: #e02c00;
       --color-on-action: #ffffff;
       --color-surface: #1c242a;
       --color-red: #f2545b;
@@ -974,8 +977,9 @@ ${FOCUS_DARK_VARS}
       0%, 100% { transform: scale(0.72); opacity: 0.45; }
       50% { transform: scale(1); opacity: 1; }
     }
-    @keyframes focus-task-spin {
-      to { transform: rotate(360deg); }
+    @keyframes focus-task-corner {
+      0%, 18% { opacity: 1; }
+      30%, 100% { opacity: 0.16; }
     }
     @keyframes focus-bubble-enter {
       from { transform: translateY(5px) scale(0.985); opacity: 0; }
@@ -984,8 +988,42 @@ ${FOCUS_DARK_VARS}
     .focus-pet-bubble {
       animation: focus-bubble-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
     }
-    .focus-task-spinner {
-      animation: focus-task-spin 920ms linear infinite;
+    .focus-task-loader i {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      box-sizing: border-box;
+      border-color: var(--color-primary);
+      opacity: 0.16;
+      animation: focus-task-corner 1.2s ease-in-out infinite;
+    }
+    .focus-task-loader i[data-corner="top-left"] {
+      top: -3px;
+      left: -3px;
+      border-top: 3px solid var(--color-primary);
+      border-left: 3px solid var(--color-primary);
+      animation-delay: 0ms;
+    }
+    .focus-task-loader i[data-corner="top-right"] {
+      top: -3px;
+      right: -3px;
+      border-top: 3px solid var(--color-primary);
+      border-right: 3px solid var(--color-primary);
+      animation-delay: 300ms;
+    }
+    .focus-task-loader i[data-corner="bottom-right"] {
+      right: -3px;
+      bottom: -3px;
+      border-right: 3px solid var(--color-primary);
+      border-bottom: 3px solid var(--color-primary);
+      animation-delay: 600ms;
+    }
+    .focus-task-loader i[data-corner="bottom-left"] {
+      bottom: -3px;
+      left: -3px;
+      border-bottom: 3px solid var(--color-primary);
+      border-left: 3px solid var(--color-primary);
+      animation-delay: 900ms;
     }
     .focus-bubble-hide-button:hover,
     .focus-bubble-restore-button:hover {
@@ -1008,38 +1046,45 @@ ${FOCUS_DARK_VARS}
       background: var(--color-red) !important;
       box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
     }
-    .focus-pet-canvas {
-      opacity: 0;
-      filter: drop-shadow(0 8px 9px rgba(9, 10, 18, 0.32));
-      transition: opacity 160ms ease, filter 200ms ease;
+    /* The floating twin of the Voice Mode mark: same shape, same accent bloom,
+       scaled to a widget and standing still. --voice-pulse comes from
+       useVoicePulse fifteen times a second.
+
+       The bloom radius is FIXED on purpose. Driving it from the pulse meant
+       re-rasterising a blurred SVG on every frame, in an always-on-top window,
+       because a CSS filter is not a compositor property. Only scale moves. */
+    .focus-pet-mark {
+      color: var(--focus-text);
+      transform: scale(calc(1 + var(--voice-pulse, 0) * 0.06));
+      filter:
+        drop-shadow(0 0 5px color-mix(in srgb, var(--color-primary) 62%, transparent))
+        drop-shadow(0 5px 8px rgba(9, 10, 18, 0.34));
+      will-change: transform;
     }
-    .focus-pet-canvas[data-avatar-state="ready"] {
-      opacity: 1;
-    }
+    /* Breathes with the voice through the same pulse the mark uses; the phase
+       rules below still set the floor for each state. */
     .focus-pet-glow {
-      transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+      opacity: calc(0.32 + var(--voice-pulse, 0) * 0.5);
+      transform: scale(calc(0.9 + var(--voice-pulse, 0) * 0.16));
+      transition: opacity 220ms ease, transform 220ms ease;
+      will-change: opacity, transform;
     }
     .focus-pet--speaking .focus-pet-glow {
-      opacity: 0.78 !important;
-      transform: scale(1.05) !important;
       filter: saturate(1.16);
     }
-    .focus-pet--thinking .focus-pet-glow,
-    .focus-pet--working .focus-pet-glow,
-    .focus-pet--synthesizing .focus-pet-glow {
-      opacity: 0.62 !important;
-      transform: scale(1.01) !important;
-    }
     .focus-pet--waiting-for-input .focus-pet-glow {
-      opacity: 0.82 !important;
       filter: hue-rotate(22deg) saturate(1.2);
     }
-    .focus-pet--error .focus-pet-canvas {
-      filter: saturate(0.58) sepia(0.12) drop-shadow(0 7px 8px rgba(100, 20, 34, 0.32));
+    /* The mark takes its second strand from --color-primary, so a failed call
+       recolours it by re-pointing that one property rather than filtering. */
+    .focus-pet--error .focus-pet-mark {
+      --color-primary: var(--color-red);
+      filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-red) 55%, transparent))
+        drop-shadow(0 5px 8px rgba(100, 20, 34, 0.3));
     }
-    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-canvas {
-      filter: saturate(0.58) drop-shadow(0 8px 9px rgba(9, 10, 18, 0.28));
-      opacity: 0.76;
+    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-mark {
+      filter: saturate(0.55) drop-shadow(0 5px 8px rgba(9, 10, 18, 0.28));
+      opacity: 0.72;
     }
     @keyframes focus-voice-live {
       0%, 100% { transform: scale(0.86); opacity: 0.62; }
@@ -1050,13 +1095,15 @@ ${FOCUS_DARK_VARS}
       .focus-voice-live[data-phase="speaking"] {
         animation: none;
       }
-      .focus-pet-canvas,
       .focus-pet-glow {
         transition: none;
       }
       .focus-pet-bubble,
-      .focus-task-spinner {
+      .focus-task-loader i {
         animation: none;
+      }
+      .focus-task-loader i {
+        opacity: 0.72;
       }
     }
   `;

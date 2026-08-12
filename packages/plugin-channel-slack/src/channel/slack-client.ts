@@ -44,7 +44,7 @@ export class SlackClient {
 
   constructor(opts: SlackClientOptions) {
     this.token = opts.token;
-    this.baseUrl = (opts.baseUrl ?? SLACK_API_BASE).replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(opts.baseUrl ?? SLACK_API_BASE);
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
@@ -120,4 +120,10 @@ export class SlackClient {
     const messages = json['messages'];
     return Array.isArray(messages) ? (messages as Array<Record<string, unknown>>) : [];
   }
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }

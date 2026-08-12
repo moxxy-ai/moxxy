@@ -44,8 +44,8 @@ describe('buildMobileSessionActionRows', () => {
 
 describe('encodeSessionCommandArgs', () => {
   it('quotes command arguments the same way for mobile action forms', () => {
-    expect(encodeSessionCommandArgs(['alpha beta', 'plain', 'needs"quote'])).toBe(
-      '"alpha beta" plain "needs\\"quote"',
+    expect(encodeSessionCommandArgs(['alpha beta', 'plain', 'needs"quote', 'c:\\path'])).toBe(
+      '"alpha beta" plain "needs\\"quote" "c:\\\\path"',
     );
   });
 

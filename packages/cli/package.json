@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.37.0",
+  "version": "0.37.2",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.26.0",
+    "undici": "^6.28.0",
     "zod": "catalog:"
   },
   "optionalDependencies": {
@@ -75,6 +75,7 @@
     "@moxxy/isolator-worker": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/mode-default": "workspace:*",
+    "@moxxy/mode-plan": "workspace:*",
     "@moxxy/plugin-channel-mobile": "workspace:*",
     "@moxxy/plugin-cli": "workspace:*",
     "@moxxy/plugin-collab": "workspace:*",

@@ -72,7 +72,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { verifyEd25519, z, type CapabilitySpec } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeSignedNetworkCacheAtomic } from '@moxxy/sdk/server';
 import { INSTALLABLE_PLUGIN_CATALOG, resolveCatalogEntry, type PluginCatalogEntry } from './catalog.js';
 import { NPM_NAME_RE } from './shared.js';
 import { REGISTRY_PUBLIC_KEY } from './registry-key.js';
@@ -152,11 +152,26 @@ const registryIndexSchema = z.object({
   entries: z.array(registryEntrySchema).max(5000),
 });
 
-const cacheFileSchema = z.object({
-  fetchedAtMs: z.number().int().nonnegative(),
-  indexB64: z.string().min(1),
-  sig: z.string().min(1),
-});
+const cacheFileSchema = z.union([
+  z.object({
+    writtenAtMs: z.number().int().nonnegative(),
+    payloadB64: z.string().min(1),
+    signature: z.string().min(1),
+  }),
+  // Read the pre-0.38 cache shape during a rolling upgrade. New writes always
+  // use the shared signed-cache envelope above.
+  z
+    .object({
+      fetchedAtMs: z.number().int().nonnegative(),
+      indexB64: z.string().min(1),
+      sig: z.string().min(1),
+    })
+    .transform((legacy) => ({
+      writtenAtMs: legacy.fetchedAtMs,
+      payloadB64: legacy.indexB64,
+      signature: legacy.sig,
+    })),
+]);
 
 /** One signed, pinned installable plugin. Structurally a superset of
  *  {@link PluginCatalogEntry} plus the exact `version` pin. */
@@ -353,12 +368,9 @@ export async function fetchSignedRegistry(
 
   // 4. Cache best-effort (bytes + sig, so the read path re-verifies).
   try {
-    const cacheBody: z.infer<typeof cacheFileSchema> = {
-      fetchedAtMs: now(),
-      indexB64: Buffer.from(bytes).toString('base64'),
-      sig,
-    };
-    await writeFileAtomic(cachePath, JSON.stringify(cacheBody));
+    await writeSignedNetworkCacheAtomic(cachePath, bytes, sig, publicKeyPem, {
+      writtenAtMs: now(),
+    });
   } catch {
     // A read-only home dir must not break installs.
   }
@@ -394,12 +406,12 @@ async function readVerifiedCache(
   }
   const parsed = cacheFileSchema.safeParse(raw);
   if (!parsed.success) return undefined;
-  const bytes = Buffer.from(parsed.data.indexB64, 'base64');
+  const bytes = Buffer.from(parsed.data.payloadB64, 'base64');
   // Tampered cache = bytes that no longer verify → discarded, remote re-fetch.
-  if (!verifyRegistryIndex(bytes, parsed.data.sig, publicKeyPem)) return undefined;
+  if (!verifyRegistryIndex(bytes, parsed.data.signature, publicKeyPem)) return undefined;
   const index = parseRegistryIndex(bytes);
   if (!index) return undefined;
-  return { fetchedAtMs: parsed.data.fetchedAtMs, index };
+  return { fetchedAtMs: parsed.data.writtenAtMs, index };
 }
 
 // ---------------------------------------------------------------------------

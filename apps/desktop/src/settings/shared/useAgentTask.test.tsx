@@ -94,7 +94,11 @@ describe('useAgentTask', () => {
     const run = spy.invokes.find((i) => i.channel === 'session.runTurn');
     expect(run).toBeTruthy();
     assertDefined(run, 'session.runTurn invoke');
-    expect(run.args).toEqual({ workspaceId: 'ws-test', prompt: 'PROMPT' });
+    expect(run.args).toEqual({
+      workspaceId: 'ws-test',
+      prompt: 'PROMPT',
+      visibility: 'background',
+    });
     expect(hide).toHaveBeenCalledWith('t-1');
     expect(result.current.phase).toBe('streaming');
 

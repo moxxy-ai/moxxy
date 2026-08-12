@@ -1,6 +1,6 @@
 import { readdir, readFile, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeBoundedDataCacheAtomic } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 
 /**
@@ -31,6 +31,8 @@ export interface QueuedDelivery {
   readonly enqueuedAt: number;
 }
 
+const MAX_QUEUED_DELIVERY_BYTES = 8 * 1024 * 1024;
+
 export function defaultWebhookQueueDir(): string {
   return moxxyPath('webhooks', 'queue');
 }
@@ -59,7 +61,11 @@ export class WebhookDeliveryQueue {
       deliveryId: rec.deliveryId,
       enqueuedAt: rec.enqueuedAt ?? Date.now(),
     };
-    await writeFileAtomic(path.join(this.dir, `${id}.json`), JSON.stringify(record));
+    await writeBoundedDataCacheAtomic(
+      path.join(this.dir, `${id}.json`),
+      JSON.stringify(record),
+      { maxBytes: MAX_QUEUED_DELIVERY_BYTES },
+    );
     return id;
   }
 

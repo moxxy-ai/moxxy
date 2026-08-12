@@ -24,10 +24,15 @@ export function verifyEd25519(
   signatureB64: string,
   publicKeyPem: string,
 ): boolean {
-  if (!publicKeyPem || !signatureB64) return false;
+  // An Ed25519 signature is exactly 64 bytes (88 base64 characters including
+  // padding). Reject absurd input before decoding so an unauthenticated `.sig`
+  // response cannot force a large allocation at the verification boundary.
+  if (!publicKeyPem || !signatureB64 || signatureB64.length > 128) return false;
   try {
     const key = createPublicKey(publicKeyPem);
-    return cryptoVerify(null, Buffer.from(bytes), key, Buffer.from(signatureB64, 'base64'));
+    const signature = Buffer.from(signatureB64, 'base64');
+    if (signature.byteLength !== 64) return false;
+    return cryptoVerify(null, Buffer.from(bytes), key, signature);
   } catch {
     return false;
   }

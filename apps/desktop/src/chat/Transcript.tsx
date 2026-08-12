@@ -17,6 +17,7 @@ import { StreamingReasoning } from './blocks/StreamingReasoning';
 import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
+import { visibleTranscriptNodes } from './transcript-nodes';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -165,7 +166,9 @@ export function Transcript({
     compactRef.current = compactTools;
   }
   const nodes = useMemo(
-    () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools)),
+    () => groupToolNodes(visibleTranscriptNodes(
+      buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
+    )),
     [events, extensions, compactTools],
   );
   const foldVersion = foldRef.current?.version ?? events.length;

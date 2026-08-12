@@ -153,8 +153,12 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     const refresh = () => {
       if (cancelled || inFlight) return;
       inFlight = true;
-      void chatStore
-        .refreshLatest(workspaceId)
+      void api()
+        .invoke('session.activeTurn', { workspaceId })
+        .then((live) => {
+          if (cancelled) return;
+          return chatStore.refreshLatest(workspaceId, live.turnId);
+        })
         .catch(() => undefined)
         .finally(() => {
           inFlight = false;

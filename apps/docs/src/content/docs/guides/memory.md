@@ -3,9 +3,23 @@ title: Memory
 description: Long-term journal memory, short-term selectors, and manual curation.
 ---
 
-`@moxxy/plugin-memory` is moxxy's long-term memory layer. It stores one
-Markdown file per memory under `~/.moxxy/memory/` plus a `MEMORY.md`
-index. Short-term memory is a fold over the current session's event log.
+`@moxxy/plugin-memory` is moxxy's cross-session, long-term memory layer.
+It stores one Markdown file per durable fact, preference, decision, or
+lesson under `~/.moxxy/memory/` plus a `MEMORY.md` index. Conversation
+history stays in the session log; it is not copied into long-term memory.
+
+## Three layers, three jobs
+
+| Layer | Stores | Retrieval |
+|---|---|---|
+| Event log | Every exact event in the current logical session | `recall({ turnId, seq, callId })` |
+| Session episodes | One dense record per completed turn, with older records folded into chapters | `session_recall({ query })`, then exact `recall` |
+| Long-term memory | Curated knowledge useful in future sessions | `memory_recall({ query })` |
+
+This keeps very long sessions reliable without treating every message
+as permanent knowledge. The provider receives a bounded working set:
+recent turns, compact episode records, and only the exact older material
+it recalls. The immutable log remains the source of truth.
 
 ## How memories get saved
 
@@ -60,10 +74,20 @@ plugin runs this periodically. See `packages/plugin-memory/src/consolidate.ts`.
 
 ## Short-term memory
 
-`recentExchanges(log, n)` and `summarizeSession(log)` (also exported)
-fold the session's event log into context-window-friendly summaries.
-The compactor uses similar primitives to drop old turns when the
-budget hits the threshold.
+The default `segments` compactor treats each substantial completed turn
+as a sub-session: user request, actions, outcome, facts, and open work.
+It keeps the recent tail verbatim, bounds the record index, and folds
+old records into chapters before the context window fills.
+
+Nothing is deleted. `session_recall` searches those records offline;
+`recall({ turnId })` retrieves the exact original turn when detail is
+needed. `recentExchanges(log, n)` and `summarizeSession(log)` remain
+available as lower-level folds for plugins.
+
+Do not auto-save every exchange with `memory_save`. Raw conversational
+turns contain temporary instructions, superseded decisions, tool noise,
+and sometimes secrets. Promote only durable knowledge to long-term
+memory, with provenance and an explicit update path when it changes.
 
 ## Types
 

@@ -1,5 +1,29 @@
 # @moxxy/cli
 
+## 0.37.2
+
+### Patch Changes
+
+- e18e120: Return stable HTTP error bodies without exposing parser or request-stream internals.
+- 84dd2c5: Harden network caches, browser launching, managed configuration, HTTP errors, and client view state against unsafe input.
+- 62042eb: Reconcile chat and Focus activity with live foreground turns after runner restarts.
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- 4d89d64: Harden temporary files and remove filesystem race windows from runtime reads.
+- 945202d: Redesign the TUI transcript, compact boot mark, multiline composer, resilient clickable links, reading column, quiet mode/managed-profile/model/context footer, semantic live activity, tool details, mode switching, and slash-command discovery for a calmer developer-alpha experience; add a built-in read-only `plan` mode with revisable plans and deliberate handoff to `default` or `goal`; consolidate collaboration controls behind one `/collab` entry point, repair stale desktop seed manifests before extension installs, and load discovered extensions in dependency order.
+- e80b9d6: Replace vulnerable regular-expression parsers with bounded linear-time input scanners.
+- abd9482: Harden HTML, URL, command argument, and frontmatter sanitization across user-facing runtimes.
+- 5e4ca9f: Patch vulnerable dependencies, enable continuous security scanning, and harden Metro image parsing.
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+
 ## 0.37.0
 
 ### Minor Changes

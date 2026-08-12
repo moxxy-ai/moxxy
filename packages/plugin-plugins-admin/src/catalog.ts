@@ -395,9 +395,10 @@ export function buildInstallSpec(input: {
 }
 
 export function applyGitRef(spec: string, ref: string): string {
-  const trimmed = ref.replace(/^#/, '');
+  const trimmed = ref.startsWith('#') ? ref.slice(1) : ref;
   if (trimmed.length === 0) return spec;
-  return spec.replace(/#.*$/, '') + `#${trimmed}`;
+  const fragment = spec.indexOf('#');
+  return (fragment === -1 ? spec : spec.slice(0, fragment)) + `#${trimmed}`;
 }
 
 function isGitLikeSpec(spec: string): boolean {

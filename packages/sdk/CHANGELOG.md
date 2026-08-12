@@ -1,5 +1,19 @@
 # @moxxy/sdk
 
+## 0.37.2
+
+### Patch Changes
+
+- 84dd2c5: Harden network caches, browser launching, managed configuration, HTTP errors, and client view state against unsafe input.
+
+## 0.37.1
+
+### Patch Changes
+
+- e80b9d6: Replace vulnerable regular-expression parsers with bounded linear-time input scanners.
+- abd9482: Harden HTML, URL, command argument, and frontmatter sanitization across user-facing runtimes.
+- 5e4ca9f: Patch vulnerable dependencies, enable continuous security scanning, and harden Metro image parsing.
+
 ## 0.37.0
 
 ### Minor Changes

@@ -31,6 +31,8 @@ const work = mkdtempSync(path.join(tmpdir(), 'moxxy-slim-smoke-'));
 const prefix = path.join(work, 'npmprefix');
 const home = path.join(work, 'home');
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', ...opts });
 
@@ -51,7 +53,7 @@ const env = { ...process.env, MOXXY_HOME: home };
 const before = run(moxxy, ['plugins', 'list'], { env });
 for (const p of pkgs) {
   const scoped = p.startsWith('plugin-') || p.startsWith('mode-') ? `@moxxy/${p}` : p;
-  if (new RegExp(`^\\s+${scoped.replace('/', '\\/')}\\s+@`, 'm').test(before)) {
+  if (new RegExp(`^\\s+${escapeRegExp(scoped)}\\s+@`, 'm').test(before)) {
     throw new Error(`${scoped} is still bundled (listed as loaded on a fresh boot)`);
   }
 }
@@ -62,7 +64,7 @@ for (const p of pkgs) {
   run(moxxy, ['plugins', 'install', path.join(work, `${p}.tgz`)], { env });
   const after = run(moxxy, ['plugins', 'list'], { env });
   const scoped = `@moxxy/${p}`;
-  if (!new RegExp(`^\\s+${scoped.replace('/', '\\/')}\\s+@`, 'm').test(after)) {
+  if (!new RegExp(`^\\s+${escapeRegExp(scoped)}\\s+@`, 'm').test(after)) {
     throw new Error(`${scoped} did not load after install — check dist/ was built before packing`);
   }
   console.log(`${scoped}: installed + discovered ✓`);

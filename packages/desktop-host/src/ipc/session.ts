@@ -55,7 +55,14 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const session = await waitForRemoteSession(pool, args?.workspaceId);
     return session ? session.getInfo() : null;
   });
-  handle('session.runTurn', async ({ workspaceId, prompt, model, attachments, inlineAttachments }) => {
+  handle('session.runTurn', async ({
+    workspaceId,
+    prompt,
+    model,
+    attachments,
+    inlineAttachments,
+    visibility,
+  }) => {
     // requireSession:false — the turn is dispatched through the driver, not the
     // RemoteSession directly, so we only need the id + supervisor (for cwd).
     const { workspaceId: id, supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
@@ -76,8 +83,11 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     }
     if (model !== undefined) setSessionModel(id, model);
     const selectedModel = model ?? getSessionModel(id) ?? undefined;
-    return driver.runTurn(prompt, selectedModel, safe, inlineAttachments);
+    return driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility);
   });
+  handle('session.activeTurn', async (args) => ({
+    turnId: resolveDriver(pool, args?.workspaceId)?.activeForegroundTurnId() ?? null,
+  }));
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
     // Active-workspace fallback lives in resolveDriver, not inline here.
     resolveDriver(pool, workspaceId)?.abortTurn(turnId);

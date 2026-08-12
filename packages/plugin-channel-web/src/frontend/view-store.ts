@@ -17,13 +17,13 @@ export interface ViewEntry {
 }
 
 export interface NavState {
-  readonly cache: Readonly<Record<string, ViewEntry>>;
+  readonly cache: ReadonlyMap<string, ViewEntry>;
   readonly history: ReadonlyArray<string>;
   /** Cache insertion order (oldest first), used to LRU-evict so the map stays bounded. */
   readonly order: ReadonlyArray<string>;
 }
 
-export const initialNav: NavState = { cache: {}, history: [], order: [] };
+export const initialNav: NavState = { cache: new Map(), history: [], order: [] };
 
 /**
  * Cap on the navigable history depth. Each UNNAMED view (keyed by its
@@ -52,7 +52,8 @@ export interface ViewFrameLike {
 /** Cache a freshly-arrived view and make it current. */
 export function applyView(state: NavState, frame: ViewFrameLike): NavState {
   const key = frame.name ?? frame.viewId;
-  const cache: Record<string, ViewEntry> = { ...state.cache, [key]: { key, viewId: frame.viewId, doc: frame.doc } };
+  const cache = new Map(state.cache);
+  cache.set(key, { key, viewId: frame.viewId, doc: frame.doc });
   const top = state.history[state.history.length - 1];
   const history = top === key ? state.history.slice() : [...state.history, key];
   // Refresh recency: move (or add) key to the tail of the insertion order.
@@ -74,7 +75,7 @@ function prune(state: NavState): NavState {
     history = history.slice(history.length - MAX_HISTORY);
   }
   const live = new Set(history);
-  const cache: Record<string, ViewEntry> = { ...state.cache };
+  const cache = new Map(state.cache);
   const order = [...state.order];
   // Walk oldest→newest, dropping evictable (non-history) keys until within cap.
   for (let i = 0; i < order.length && order.length > MAX_CACHED_VIEWS; ) {
@@ -85,7 +86,7 @@ function prune(state: NavState): NavState {
       continue;
     }
     order.splice(i, 1);
-    delete cache[key];
+    cache.delete(key);
   }
   return { cache, history, order };
 }
@@ -95,7 +96,7 @@ function prune(state: NavState): NavState {
  * target isn't cached (caller should request it from the agent instead).
  */
 export function navigateTo(state: NavState, name: string): NavState | null {
-  if (!state.cache[name]) return null;
+  if (!state.cache.has(name)) return null;
   const top = state.history[state.history.length - 1];
   if (top === name) return state;
   // Cap history depth so repeated back-and-forth navigation can't grow it
@@ -113,7 +114,7 @@ export function goBack(state: NavState): NavState {
 
 export function currentEntry(state: NavState): ViewEntry | null {
   const key = state.history[state.history.length - 1];
-  return key ? state.cache[key] ?? null : null;
+  return key ? state.cache.get(key) ?? null : null;
 }
 
 export function canGoBack(state: NavState): boolean {

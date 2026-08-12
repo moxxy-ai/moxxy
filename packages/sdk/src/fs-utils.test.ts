@@ -1,3 +1,4 @@
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,8 +9,11 @@ import {
   moxxyHome,
   moxxyPath,
   pruneStaleTempFiles,
+  writeBoundedDataCacheAtomic,
+  writeBoundedNetworkCacheAtomicSync,
   writeFileAtomic,
   writeFileAtomicSync,
+  writeSignedNetworkCacheAtomic,
 } from './fs-utils.js';
 
 describe('writeFileAtomic', () => {
@@ -46,6 +50,65 @@ describe('writeFileAtomic', () => {
     await writeFileAtomic(target, bytes);
     const read = await readFile(target);
     expect(Array.from(read)).toEqual([0, 1, 2, 255]);
+  });
+});
+
+describe('network cache writers', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'moxxy-net-cache-'));
+  });
+
+  it('writes a signed payload only after verifying it at the file boundary', async () => {
+    const pair = generateKeyPairSync('ed25519');
+    const payload = Buffer.from('{"version":1}');
+    const signature = sign(null, payload, pair.privateKey).toString('base64');
+    const target = join(dir, 'signed.json');
+    await writeSignedNetworkCacheAtomic(
+      target,
+      payload,
+      signature,
+      pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      { writtenAtMs: 123 },
+    );
+    expect(JSON.parse(await readFile(target, 'utf8'))).toEqual({
+      payloadB64: payload.toString('base64'),
+      signature,
+      writtenAtMs: 123,
+    });
+  });
+
+  it('refuses an invalid signed payload without creating a cache file', async () => {
+    const pair = generateKeyPairSync('ed25519');
+    const target = join(dir, 'invalid.json');
+    await expect(
+      writeSignedNetworkCacheAtomic(
+        target,
+        Buffer.from('payload'),
+        Buffer.alloc(64).toString('base64'),
+        pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      ),
+    ).rejects.toThrow('invalid signature');
+    await expect(readFile(target)).rejects.toThrow();
+  });
+
+  it('bounds unsigned network metadata before writing it', async () => {
+    const target = join(dir, 'metadata.json');
+    expect(() => writeBoundedNetworkCacheAtomicSync(target, '12345', { maxBytes: 4 })).toThrow(
+      'exceeds 4 bytes',
+    );
+    writeBoundedNetworkCacheAtomicSync(target, '1234', { maxBytes: 4 });
+    expect(await readFile(target, 'utf8')).toBe('1234');
+  });
+
+  it('bounds asynchronous data-only cache content before writing it', async () => {
+    const target = join(dir, 'queue.json');
+    await expect(writeBoundedDataCacheAtomic(target, '12345', { maxBytes: 4 })).rejects.toThrow(
+      'exceeds 4 bytes',
+    );
+    await expect(readFile(target)).rejects.toThrow();
+    await writeBoundedDataCacheAtomic(target, '1234', { maxBytes: 4 });
+    expect(await readFile(target, 'utf8')).toBe('1234');
   });
 });
 

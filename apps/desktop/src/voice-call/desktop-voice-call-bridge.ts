@@ -5,6 +5,11 @@ export const DESKTOP_VOICE_CALL_CHANNEL = 'moxxy.desktop.voice-call.v1';
 
 export type DesktopVoiceCallSurface = 'main' | 'focus';
 
+export interface DesktopVoiceQueuedTurn {
+  readonly id: string;
+  readonly prompt: string;
+}
+
 export interface DesktopVoiceCallSnapshot {
   readonly active: boolean;
   readonly phase: VoiceCallPhase;
@@ -14,6 +19,7 @@ export interface DesktopVoiceCallSnapshot {
   readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
+  readonly queuedTurns: ReadonlyArray<DesktopVoiceQueuedTurn>;
 }
 
 export type DesktopVoiceCallCommand =
@@ -42,6 +48,12 @@ export type DesktopVoiceCallBridgeMessage =
       readonly source: 'main';
       readonly workspaceId: string;
       readonly snapshot: DesktopVoiceCallSnapshot;
+    }
+  | {
+      readonly type: 'queue-drop';
+      readonly source: 'focus';
+      readonly workspaceId: string;
+      readonly queueId: string;
     }
   | {
       readonly type: 'spectrum';
@@ -85,6 +97,10 @@ const activitySchema = z.enum([
   'application',
   'generic',
 ]);
+const queuedTurnSchema = z.object({
+  id: z.string().min(1).max(128),
+  prompt: z.string().max(4_096),
+}).strict();
 const snapshotSchema = z.object({
   active: z.boolean(),
   phase: phaseSchema,
@@ -94,6 +110,7 @@ const snapshotSchema = z.object({
   waitingSoundEnabled: z.boolean(),
   localPiperInstallRequired: z.boolean(),
   localPiperInstalling: z.boolean(),
+  queuedTurns: z.array(queuedTurnSchema).max(32).default([]),
 }).strict();
 function isUint8ArrayView(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value)
@@ -127,6 +144,12 @@ const messageSchema = z.discriminatedUnion('type', [
     source: z.literal('main'),
     workspaceId: workspaceIdSchema,
     snapshot: snapshotSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('queue-drop'),
+    source: z.literal('focus'),
+    workspaceId: workspaceIdSchema,
+    queueId: z.string().min(1).max(128),
   }).strict(),
   z.object({
     type: z.literal('spectrum'),
