@@ -1,5 +1,15 @@
 # @moxxy/cli
 
+## 0.37.2
+
+### Patch Changes
+
+- e18e120: Return stable HTTP error bodies without exposing parser or request-stream internals.
+- 84dd2c5: Harden network caches, browser launching, managed configuration, HTTP errors, and client view state against unsafe input.
+- 62042eb: Reconcile chat and Focus activity with live foreground turns after runner restarts.
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+
 ## 0.37.1
 
 ### Patch Changes

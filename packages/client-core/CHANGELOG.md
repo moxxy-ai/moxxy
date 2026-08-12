@@ -1,5 +1,15 @@
 # @moxxy/client-core
 
+## 0.13.24
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/chat-model@0.4.6
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/workflows-builder@0.1.46
+
 ## 0.13.23
 
 ### Patch Changes

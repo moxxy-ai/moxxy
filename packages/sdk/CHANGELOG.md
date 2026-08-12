@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.37.2
+
+### Patch Changes
+
+- 84dd2c5: Harden network caches, browser launching, managed configuration, HTTP errors, and client view state against unsafe input.
+
 ## 0.37.1
 
 ### Patch Changes
