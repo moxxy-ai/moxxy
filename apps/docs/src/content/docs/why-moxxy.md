@@ -1,15 +1,13 @@
 ---
 title: Why moxxy
-description: moxxy vs OpenClaw, pi, and Hermes — the security-serious, fully swappable personal agent.
+description: How moxxy's local-first, permission-gated developer experience compares with other agents.
 ---
 
-**moxxy is the security-serious, fully swappable personal agent.** Every
-block is a registry-backed plugin you can replace: providers, the agent
-loop itself (modes), compactors, cache strategies, embedders,
-transcribers, isolators, channels. One runner owns the live session, and
-many surfaces — TUI, desktop, Telegram, HTTP, mobile — attach to it
-concurrently. And security is designed in rather than bolted on:
-permission-gated and vault-protected by default, isolatable on demand.
+**moxxy is a local, permission-gated agent for developers.** The default path
+is intentionally small: connect a model, open a project, and start working.
+Its registry-backed runtime remains replaceable for authors and governed
+operators, but that flexibility is progressively disclosed instead of becoming
+first-run configuration.
 
 This page positions moxxy against three popular alternatives. Every
 factual claim about another project is dated and linked to its source.
@@ -149,7 +147,7 @@ Honesty about the table stakes, as of July 2026:
 ## What is genuinely distinctive
 
 - **The loop itself is swappable.** Modes are plugins
-  (`@moxxy/mode-default`, `@moxxy/mode-goal`,
+  (`@moxxy/mode-default`, `@moxxy/mode-plan`, `@moxxy/mode-goal`,
   `@moxxy/mode-deep-research`) registered like any other block. The
   alternatives let you configure or hook their loop; none lets you
   replace it.

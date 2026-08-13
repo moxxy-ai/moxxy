@@ -1,5 +1,439 @@
 # @moxxy/desktop
 
+## 0.38.0
+
+### Minor Changes
+
+- 9e26bd8: Voice Mode no longer replaces the conversation. Starting one now adds a 58px presence rail between the ask sheet and the composer, and leaves the header, the full transcript and the text composer exactly where they were — so a voice conversation is the same conversation with a microphone open: you can scroll back, search, open a tool result, and type. A message sent from the composer during a call runs as an ordinary turn and its answer is read back.
+
+  The rail carries the shared `MoxxyMark` between two fans of radio arcs that travel outward only while a voice is actually carrying, hairline-separated sections, and one operation at a time — the oldest still running, held in place while newer tools come and go, with the rest counted as `+N active` and a quiet "No tools running" holding the slot's shape when there is nothing to report. Microphone, waiting sound and ending the call stay reachable throughout, as do the Local Piper install prompt and the retry after a failure. The mark breathes with the voice through a single CSS custom property driving a scale and an opacity, so the animation is composited rather than painted and there is no canvas in the main window at all.
+
+  The full-screen surface it replaces is deleted, along with its particle hologram, sprite cache and orbit. Focus Mode is untouched.
+
+- 9757ae4: Move the commanded accent from magenta to the brand's Signal orange, so the app
+  accents on the same hue as the mark, the site and the rest of the branding
+  (`assets/brand/README.md`). Everything the accent touches follows: the send
+  action, the human's turn in the trace, the active rail item, focus rings, the
+  sidebar's active wash, filled buttons, the terminal cursor, and the second
+  strand of the mark on both pre-React splash screens.
+
+  On ink the accent is Signal exactly — `#FF4A1E` clears every contrast gate on a
+  dark ground. On paper it cannot be: `#FF4A1E` carries a white label at only
+  3.36:1 and sits at 2.78:1 against the panel ground, under the 4.5 and 3.0 floors
+  the palette is held to. Light therefore uses Signal's hue at full saturation,
+  deepened to the stop where white clears 4.5:1. That asymmetry is not new — it is
+  the rule the palette already documented for magenta, now carried over: the paper
+  accent is deep and white-labelled, the ink accent is luminous and ink-labelled.
+
+  The semantic hues are untouched. `green`, `amber`, `red` and `reference` still
+  mean nominal, attention, failure and reference data, and still carry their own
+  contrast floors.
+
+### Patch Changes
+
+- 0546070: Tighten the Focus Mode action bar by integrating its controls directly beside the Moxxy mark.
+- baa584b: Make Mini Chat compact, cancellable, and functionally consistent with the main transcript.
+- 3fcde74: Draw Focus Mode with the same in-app Moxxy mark the rest of the window uses. The floating widget rendered a raster mascot, the mini-text header scaled down the packaged app icon, and the pre-mount boot tile rendered a typed `m` glyph in a colour outside the palette. All three now render `MoxxyMark`, so the floating widget and the main window cannot drift apart. The app icon at `public/logo.png` is unchanged and stays the product's icon.
+- 06d247c: Show a stop control while Focus Mode is dictating. The microphone button kept
+  drawing a microphone once capture was live, so a control that would END the
+  recording looked exactly like one that would start it, and the only hint that a
+  second press was needed lived in the accessible name. It now switches to the
+  stop glyph and reads as pressed for as long as it is listening, matching the
+  voice mode button beside it. The transcribing state keeps its own indicator.
+- e812ebe: Make Mini Chat Voice Mode statuses speak in the first person, surface queued messages with removable chips, and expose a stop control for the current task.
+- 861548a: Mirror Voice Mode follow-ups queued in the main renderer into Focus Mini Chat so they stay visible and removable before execution.
+- 1bbbbaf: Polish Focus Mode voice feedback with shared radio waves, a full-width Signal-orange visualizer, a clockwise corner loader, and a visible Mini Chat listening state.
+- f4126b0: Keep generating and displaying the complete assistant response when the user speaks over Voice Mode. Barge-in now stops only Piper playback, preserves live tool activity, and queues the transcribed follow-up for the next turn; explicit Stop remains the hard-abort action.
+- 9efe2ea: Two fixes underneath Voice Mode, both found by profiling the running app rather than a harness.
+
+  **Markdown re-parsing.** Rendered Markdown re-parses in full on every render, and a streaming turn re-renders the transcript on every delta, so every visible message in the conversation was re-parsing on every delta. `MarkdownBody` is now memoised and the parse sits behind its own memo boundary, so an unchanged message costs nothing. The message that IS growing is re-parsed on an interval derived from how long its previous parse actually took, which holds parsing at about a fifth of the renderer whatever the answer's length or structure.
+
+  **Audio.** Piper streams a sentence at a time and each clip built and closed its own `AudioContext`, tearing the audio device down and reopening it between every sentence. One context is now kept warm for the session, released and rebuilt when the output device changes — detached rather than closed, so the sentence playing right now finishes on the device it started on. Closing the context per clip had also been what released the clip's `<audio>` element; that is now explicit on every finish path, so a long conversation no longer leaves a decoded sentence per element waiting on the collector.
+
+- 62042eb: Reconcile chat and Focus activity with live foreground turns after runner restarts.
+- 48d0292: Keep Voice Mode status, active work and controls visible in narrow desktop chat layouts.
+- aaaaf02: Restore active task status when Focus Mode joins a turn already running in the main chat.
+- Updated dependencies [e18e120]
+- Updated dependencies [84dd2c5]
+- Updated dependencies [9efe2ea]
+- Updated dependencies [62042eb]
+- Updated dependencies [9757ae4]
+  - @moxxy/cli@0.37.2
+  - @moxxy/sdk@0.37.2
+  - @moxxy/client-platform-web@0.1.63
+  - @moxxy/design-tokens@0.5.0
+  - @moxxy/desktop-ui@0.3.1
+  - @moxxy/chat-model@0.4.6
+  - @moxxy/client-core@0.13.24
+  - @moxxy/desktop-host@0.14.15
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/ipc-server-ws@0.1.62
+  - @moxxy/plugin-channel-mobile@0.37.2
+  - @moxxy/plugin-stt-whisper-codex@0.37.2
+  - @moxxy/plugin-vault@0.37.2
+  - @moxxy/runner@0.2.49
+  - @moxxy/workflows-builder@0.1.46
+
+## 0.37.1
+
+### Patch Changes
+
+- 4d89d64: Harden temporary files and remove filesystem race windows from runtime reads.
+- e80b9d6: Replace vulnerable regular-expression parsers with bounded linear-time input scanners.
+- 5e4ca9f: Patch vulnerable dependencies, enable continuous security scanning, and harden Metro image parsing.
+- Updated dependencies [4d89d64]
+- Updated dependencies [945202d]
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/cli@0.37.1
+  - @moxxy/sdk@0.37.1
+  - @moxxy/chat-model@0.4.5
+  - @moxxy/client-core@0.13.23
+  - @moxxy/client-platform-web@0.1.62
+  - @moxxy/desktop-host@0.14.14
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/ipc-server-ws@0.1.61
+  - @moxxy/plugin-channel-mobile@0.37.1
+  - @moxxy/plugin-stt-whisper-codex@0.37.1
+  - @moxxy/plugin-vault@0.37.1
+  - @moxxy/runner@0.2.48
+  - @moxxy/workflows-builder@0.1.45
+
+## 0.37.0
+
+### Minor Changes
+
+- 78938f8: Introduce the developer-alpha product contract and personal golden path, redesign the TUI around a one-time workspace welcome, contextual work status, consequence-first approvals, responsive Runs, Models, and product-facing Extensions, progressively disclose CLI and TUI commands by capability, auto-allow real-path-safe reads inside the workspace, and add bounded data-only client chrome slots for extensions.
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/cli@0.37.0
+  - @moxxy/sdk@0.37.0
+  - @moxxy/chat-model@0.4.4
+  - @moxxy/client-core@0.13.22
+  - @moxxy/client-platform-web@0.1.61
+  - @moxxy/desktop-host@0.14.13
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/ipc-server-ws@0.1.60
+  - @moxxy/plugin-channel-mobile@0.37.0
+  - @moxxy/plugin-stt-whisper-codex@0.37.0
+  - @moxxy/plugin-vault@0.37.0
+  - @moxxy/runner@0.2.47
+  - @moxxy/workflows-builder@0.1.44
+
+## 0.36.1
+
+### Patch Changes
+
+- Updated dependencies [9d343c0]
+  - @moxxy/cli@0.36.1
+  - @moxxy/runner@0.2.46
+  - @moxxy/desktop-host@0.14.12
+  - @moxxy/ipc-server-ws@0.1.59
+  - @moxxy/plugin-channel-mobile@0.36.1
+  - @moxxy/sdk@0.36.1
+  - @moxxy/plugin-stt-whisper-codex@0.36.1
+  - @moxxy/plugin-vault@0.36.1
+  - @moxxy/chat-model@0.4.3
+  - @moxxy/client-core@0.13.21
+  - @moxxy/client-platform-web@0.1.60
+  - @moxxy/desktop-ipc-contract@0.14.17
+  - @moxxy/workflows-builder@0.1.43
+
+## 0.36.0
+
+### Minor Changes
+
+- bc7844e: Bound a session's context by policy instead of by how long it has been running, and give the desktop a real keymap.
+
+  A new default compactor (`segments`) records every finished turn as one dense sub-session record (Asked / Did / Outcome / Facts / Open) that replaces the turn's raw events in context. Once the index of records passes its cap the oldest fold into a chapter, so the index is bounded too. Nothing is lost: the event log keeps every original event, the new `session_recall` tool searches the records, and `recall({ turnId })` restores one sub-session verbatim. `summarize-old-turns` stays registered as the protected floor and is selectable via `plugins.compactor.default`.
+
+  SDK: compaction ranges now supersede any earlier range they fully contain (`activeCompactionRanges`), which is what lets a compactor re-compact its own summaries; projection and the token estimate share that one decision. `summarizeWithProvider` is extracted so compactors don't each re-implement the summarize-or-degrade-but-never-on-abort contract.
+
+  Desktop: one registry-backed keymap with a single window dispatcher: ⌘K palette, ⌘L composer, ⌘F search, ⌘. interrupt, ⌘N session, ⌘⌥↑/↓ session switching, ⌘B sidebar, ⌘J workbench, ⌘1-5 destinations, ⌘, settings, ⌘/ for the shortcut sheet, which renders from the live registry so it cannot drift from what is bound.
+
+  Also fixes a pre-existing name drift: the CLI's compactor floor and built-in default referred to `summarize`, but the def is named `summarize-old-turns`, so neither ever matched.
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/cli@0.36.0
+  - @moxxy/sdk@0.36.0
+  - @moxxy/chat-model@0.4.2
+  - @moxxy/client-core@0.13.20
+  - @moxxy/client-platform-web@0.1.59
+  - @moxxy/desktop-host@0.14.11
+  - @moxxy/desktop-ipc-contract@0.14.16
+  - @moxxy/ipc-server-ws@0.1.58
+  - @moxxy/plugin-channel-mobile@0.36.0
+  - @moxxy/plugin-stt-whisper-codex@0.36.0
+  - @moxxy/plugin-vault@0.36.0
+  - @moxxy/runner@0.2.45
+  - @moxxy/workflows-builder@0.1.42
+
+## 0.35.0
+
+### Minor Changes
+
+- f67df0b: Open persisted chats before runners connect, reconcile live history in the background, make onboarding completion and optional provider recovery skippable without blocking IPC, isolate runner sockets per profile, separate workspace groups with colour chips and nested guide rails, align staged attachments, unify compact Voice Mode controls and filled-button contrast, make dialogs viewport-safe with a responsive model picker, refine the MoxxyAI wordmark, repair Local Piper installs affected by transient plugin-seed manifests, and add language-aware file/diff highlighting with richer Markdown, Office, PDF, audio, and video previews.
+
+## 0.34.1
+
+### Patch Changes
+
+- Updated dependencies [051f405]
+  - @moxxy/cli@0.35.4
+  - @moxxy/sdk@0.35.4
+  - @moxxy/plugin-channel-mobile@0.35.4
+  - @moxxy/plugin-stt-whisper-codex@0.35.4
+  - @moxxy/plugin-vault@0.35.4
+  - @moxxy/chat-model@0.4.1
+  - @moxxy/client-core@0.13.19
+  - @moxxy/client-platform-web@0.1.58
+  - @moxxy/desktop-host@0.14.10
+  - @moxxy/desktop-ipc-contract@0.14.15
+  - @moxxy/ipc-server-ws@0.1.57
+  - @moxxy/runner@0.2.44
+  - @moxxy/workflows-builder@0.1.41
+
+## 0.34.0
+
+### Minor Changes
+
+- c49ab14: Redesign the desktop around one navigation rail, an instrument bar and a trace.
+
+  The app had its navigation split across two organs — a segmented pill in the
+  main-pane header and a list at the foot of the sidebar — so the same kind of
+  decision lived in two places and the header never said where you were. It now has
+  one 52px app rail, a contextual index column beside it, a field with an instrument
+  bar that identifies the run and carries its telemetry, and a tabbed workbench.
+
+  - **Tokens.** A new palette (achromatic panel greys, colour only on data, one
+    accent that means "the human commanded this"), a mono chrome face with a
+    proportional face for prose, and the scales the package never had: spacing,
+    type, frame heights, motion. Gradients are gone.
+  - **Telemetry** (context window, token count, model, mode) moves out of chips
+    inside the composer and into permanent chrome, where the numbers that make you
+    intervene in an unattended run belong.
+  - **The transcript becomes a trace**: every entry hangs off one timeline in a
+    fixed gutter, tool calls group into numbered steps with measured durations, and
+    a blocking approval docks above the command bar instead of floating over the
+    scroll.
+  - **Automations and Channels become destinations.** Workflows, schedules and
+    webhooks left the Apps grab-bag; Mobile became one channel among the rest.
+
+  Also fixes, found while building it: the focus window's dark palette had drifted
+  in one of its three hand-maintained copies, so a system-dark user with no stored
+  theme preference got the light accent on a dark panel; and the renderer fetched
+  its webfonts from a CDN, which meant a cold offline boot rendered in a silent
+  fallback face. Both are gone, and with them the two CSP allowances the font CDN
+  needed.
+
+### Patch Changes
+
+- Updated dependencies [c49ab14]
+  - @moxxy/design-tokens@0.4.0
+  - @moxxy/desktop-ui@0.3.0
+  - @moxxy/chat-model@0.4.0
+  - @moxxy/desktop-host@0.14.9
+  - @moxxy/client-core@0.13.18
+  - @moxxy/client-platform-web@0.1.57
+  - @moxxy/cli@0.35.3
+  - @moxxy/sdk@0.35.3
+  - @moxxy/plugin-channel-mobile@0.35.3
+  - @moxxy/plugin-stt-whisper-codex@0.35.3
+  - @moxxy/plugin-vault@0.35.3
+  - @moxxy/desktop-ipc-contract@0.14.14
+  - @moxxy/ipc-server-ws@0.1.56
+  - @moxxy/runner@0.2.43
+  - @moxxy/workflows-builder@0.1.40
+
+## 0.33.2
+
+### Patch Changes
+
+- @moxxy/plugin-stt-whisper-codex@0.35.2
+- @moxxy/desktop-host@0.14.8
+- @moxxy/cli@0.35.2
+- @moxxy/sdk@0.35.2
+- @moxxy/plugin-channel-mobile@0.35.2
+- @moxxy/plugin-vault@0.35.2
+- @moxxy/chat-model@0.3.28
+- @moxxy/client-core@0.13.17
+- @moxxy/client-platform-web@0.1.56
+- @moxxy/desktop-ipc-contract@0.14.13
+- @moxxy/ipc-server-ws@0.1.55
+- @moxxy/runner@0.2.42
+- @moxxy/workflows-builder@0.1.39
+
+## 0.33.1
+
+### Patch Changes
+
+- @moxxy/plugin-stt-whisper-codex@0.35.1
+- @moxxy/desktop-host@0.14.7
+- @moxxy/cli@0.35.1
+- @moxxy/sdk@0.35.1
+- @moxxy/plugin-channel-mobile@0.35.1
+- @moxxy/plugin-vault@0.35.1
+- @moxxy/chat-model@0.3.27
+- @moxxy/client-core@0.13.16
+- @moxxy/client-platform-web@0.1.55
+- @moxxy/desktop-ipc-contract@0.14.12
+- @moxxy/ipc-server-ws@0.1.54
+- @moxxy/runner@0.2.41
+- @moxxy/workflows-builder@0.1.38
+
+## 0.33.0
+
+### Minor Changes
+
+- 5164d4b: Retune the desktop and mobile palette to the woven brand.
+
+  The muted blue the palette landed on carries nothing of the mark: the brand is
+  Ink (`#0B0D12`) plus Signal (`#FF4A1E`) on paper, so every accent in the app
+  read cool around a warm mark.
+
+  `@moxxy/design-tokens` is the source of truth for the desktop CSS variables and
+  the mobile Tailwind config, so the change lands in one place and reaches every
+  component that reads a variable. Signal becomes the primary, send and focus
+  colour; the secondary moves into Signal's family; the canvas goes neutral so
+  nothing fights Signal's warmth; and the text ramp becomes Ink.
+
+  Interactive fills take Signal's DEEP stop (`#C4310F`), not the flat mark
+  colour: white on flat Signal is 3.36:1, and a CTA label is the one place that
+  cannot be borderline. Flat Signal lives on as the mark, the focus ring and the
+  soft washes. On dark it lifts again, to `#FF6A44`, for the same reason the mark
+  ships a `-dark` variant rather than being recoloured by CSS. The contrast suite
+  covers both themes.
+
+  Categorical and semantic hues are deliberately left alone. A workflow step kind
+  is identified by its hue and green/amber/red mean success/attention/error, so
+  collapsing them into the brand's single accent would destroy information. Only
+  the fallback moves to Signal.
+
+  Headings now take Space Grotesk, echoing the wordmark's geometric
+  construction. It joins the Google Fonts request Inter already makes, and the
+  stack falls back to Inter, so an offline launch looks exactly as it does today.
+
+  Also swept: the standalone focus window carried a second copy of the palette,
+  and a handful of components had the old hexes inline, including the pink glows
+  and plan badges the previous retone left behind. The voice spectrogram keeps
+  its blue-violet-pink ramp: that is a data gradient, not a brand accent.
+
+- 34cca59: Chat: a user turn now reads left-to-right like every other block, with an
+  avatar, a "You" label and an accent left rule instead of right-aligned text.
+  Right alignment only said whose turn it was while the turn was short: a pasted
+  prompt wrapped into a ragged-left column the eye had to re-find on every line.
+
+  Tray: the macOS menu bar gets the one-colour mark as a template image at 22px
+  and @2x, so AppKit tints it for the light and dark bar and for the menu-open
+  state. Windows and Linux keep the colour icon, since their tray chrome is not
+  ours to tint against.
+
+### Patch Changes
+
+- Updated dependencies [5164d4b]
+- Updated dependencies [34cca59]
+  - @moxxy/design-tokens@0.3.0
+  - @moxxy/desktop-ui@0.2.0
+
+## 0.32.1
+
+### Patch Changes
+
+- ca8a468: Fix the blank desktop window, and drop the chat bubble for plain text.
+
+  **Blank window.** The packaged app serves its renderer from a loopback HTTPS server at `https://desktop.moxxy.ai:<port>`, because a Clerk production key rejects any Origin that is not a `moxxy.ai` host. Resolving that name was left to a public DNS A-record pointing at 127.0.0.1, so every installed copy depended on one record staying alive. It stopped resolving, and every app opened to an empty window with only `ERR_NAME_NOT_RESOLVED` in a log nobody reads.
+
+  Chromium now maps that one hostname to loopback itself, set in the bootstrap prologue (before the network stack initialises, and inside the immutable floor so a bad hot-update cannot remove the rule the app needs to load its own UI). The app no longer needs DNS to start, which also means it opens offline, on a filtered corporate resolver, and cannot be pointed elsewhere by whoever controls the zone. A test keeps the duplicated hostname literal in step with `DESKTOP_APP_HOST`.
+
+  **Chat bubble.** A user prompt rendered as a gradient-filled rounded bubble with white ink, a text-shadow and a drop shadow, all to keep one short line readable against itself. Right alignment already says whose turn it is, so it is now just text.
+
+- Updated dependencies [57f0810]
+- Updated dependencies [148812c]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/cli@0.35.0
+  - @moxxy/chat-model@0.3.26
+  - @moxxy/client-core@0.13.15
+  - @moxxy/client-platform-web@0.1.54
+  - @moxxy/desktop-host@0.14.6
+  - @moxxy/desktop-ipc-contract@0.14.11
+  - @moxxy/ipc-server-ws@0.1.53
+  - @moxxy/plugin-channel-mobile@0.35.0
+  - @moxxy/plugin-stt-whisper-codex@0.35.0
+  - @moxxy/plugin-vault@0.35.0
+  - @moxxy/runner@0.2.40
+  - @moxxy/workflows-builder@0.1.37
+
+## 0.32.0
+
+### Minor Changes
+
+- f57796b: New logo: two rounded squares woven through each other, replacing the pixel-art
+  mascot everywhere it was the brand mark.
+
+  The mark ships from `assets/brand/` (mark, wordmark, lockups, app icons, social
+  card, one-colour reduction, `build.sh` to regenerate every variant). On desktop
+  it is now inline SVG rather than a raster, so it inherits the surrounding text
+  colour and stays sharp at any size. Loading states turn it a quarter at a time,
+  which is a whole loop because the mark is symmetric under 90 degrees.
+
+  The TUI banner is redrawn as ASCII art of the same mark. The voice-call avatar
+  is deliberately untouched.
+
+### Patch Changes
+
+- da11bd0: Retone the desktop palette away from the candy brand, and pin contrast in CI.
+
+  The palette led with hot pink (`#ec4899`) for every CTA, send button and focus ring, bright cyan for the accent, and pink gradients. That reads as a consumer toy in a room where the app is being evaluated for a fleet. Primary becomes a deep muted blue, the accent a desaturated teal, decorative purple and pink fold into the same family, and the status hues are toned down without losing their meaning.
+
+  Dark mode no longer inherits the accents. The light primary is chosen to carry white text on a near-white surface, and that same ink is close to invisible on a near-black canvas, so each accent now has an explicit dark counterpart lifted into the readable range.
+
+  A palette change is otherwise unverifiable by CI: nothing fails when colours become unreadable. New tests compute WCAG contrast for the pairings that matter in both themes, which caught a pre-existing defect: dim text sat at 2.56:1 on white, below the 3:1 large-text floor. It is darkened to 3.36:1.
+
+  Colours are still declared in two places (the desktop stylesheet is the source of truth, design-tokens mirrors it) and the existing parity test keeps them honest.
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [8c41d00]
+- Updated dependencies [950c1bb]
+- Updated dependencies [5763f92]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [57d157c]
+- Updated dependencies [ff64a0e]
+- Updated dependencies [3b7d350]
+- Updated dependencies [9e35a56]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [5a977cc]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [779f644]
+- Updated dependencies [68f7e20]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [5763f92]
+- Updated dependencies [dfb644a]
+- Updated dependencies [06e81f8]
+- Updated dependencies [acfe644]
+- Updated dependencies [220673e]
+  - @moxxy/cli@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-stt-whisper-codex@0.34.0
+  - @moxxy/client-core@0.13.14
+  - @moxxy/desktop-host@0.14.5
+  - @moxxy/plugin-channel-mobile@0.34.0
+  - @moxxy/runner@0.2.39
+  - @moxxy/chat-model@0.3.25
+  - @moxxy/client-platform-web@0.1.53
+  - @moxxy/desktop-ipc-contract@0.14.10
+  - @moxxy/ipc-server-ws@0.1.52
+  - @moxxy/plugin-vault@0.34.0
+  - @moxxy/workflows-builder@0.1.36
+
 ## 0.31.0
 
 ### Minor Changes
@@ -1880,7 +2314,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
 - ff73468: Quality sweep, wave 5 (safe longtail — coverage + mechanical consistency/perf)
 
   The additive/mechanical slice of the audit's low-severity long-tail; subjective
-  nitpicks and anything behavior-risky were deferred (tracked in `TECH_DEBT.md`).
+  nitpicks and anything behavior-risky were deferred (tracked in `archived backlog`).
   Behavior-preserving except the small fixes noted, each covered by a test.
 
   - **Coverage:** focused unit tests for previously-untested pure logic —
@@ -1917,7 +2351,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
     consolidated duplicated `<NAME>_API_KEY` slug + config up-walk helpers.
 
   Risky/voluminous Tier-3 (god-file decomposition, the long-tail review/test-gap/
-  consistency/perf clusters) remains tracked in `TECH_DEBT.md` as the standing
+  consistency/perf clusters) remains tracked in `archived backlog` as the standing
   journal.
 
 - Updated dependencies [091ef41]
@@ -2094,7 +2528,7 @@ be called before app is ready"` on load, got poisoned, and reverted to the baked
   per-instance mutexes + atomic writes to the file-backed stores that lacked them.
 
   Larger/riskier items (the O(n²) chat-model fold rewrite, a generic JSON store,
-  god-file splits, and the long-tail findings) are tracked in `TECH_DEBT.md` for
+  god-file splits, and the long-tail findings) are tracked in `archived backlog` for
   focused follow-up PRs rather than bundled here.
 
 - Updated dependencies [89ad994]

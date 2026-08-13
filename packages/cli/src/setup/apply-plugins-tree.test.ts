@@ -100,3 +100,50 @@ describe('applyPluginsTree — synthesizer default', () => {
     expect(warns).toEqual([]);
   });
 });
+
+describe('applyPluginsTree: compactor default and floor', () => {
+  const compactor = (name: string) => ({
+    name,
+    shouldCompact: () => false,
+    compact: async () => ({}) as never,
+  });
+
+  /** Registration order mirrors a real boot: the floor first, then segments. */
+  function sessionWithBothCompactors(): Session {
+    const session = makeSession();
+    session.compactors.register(compactor('summarize-old-turns'));
+    session.compactors.register(compactor('segments'));
+    return session;
+  }
+
+  it('activates sub-session compaction by default', () => {
+    const session = sessionWithBothCompactors();
+    const { logger, warns } = warnCollector();
+    applyPluginsTree(session, {} as MoxxyConfig, logger);
+    // First-registered auto-activation would have left the floor active; the
+    // built-in default is what makes long sessions bounded out of the box.
+    expect(session.compactors.getActiveName()).toBe('segments');
+    expect(warns).toEqual([]);
+  });
+
+  it('honours an explicit opt-out back to summarize-old-turns', () => {
+    const session = sessionWithBothCompactors();
+    const { logger, warns } = warnCollector();
+    const config = {
+      plugins: { compactor: { default: 'summarize-old-turns' } },
+    } as unknown as MoxxyConfig;
+    applyPluginsTree(session, config, logger);
+    expect(session.compactors.getActiveName()).toBe('summarize-old-turns');
+    expect(warns).toEqual([]);
+  });
+
+  it('keeps the floor active when only the floor is installed', () => {
+    const session = makeSession();
+    session.compactors.register(compactor('summarize-old-turns'));
+    const { logger, warns } = warnCollector();
+    applyPluginsTree(session, {} as MoxxyConfig, logger);
+    // A built-in default whose plugin isn't installed is a silent skip.
+    expect(session.compactors.getActiveName()).toBe('summarize-old-turns');
+    expect(warns).toEqual([]);
+  });
+});

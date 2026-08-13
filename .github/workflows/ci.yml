@@ -39,7 +39,7 @@ jobs:
     # release workflow (no PR), so nothing else reaches this gate.
     if: github.event_name == 'pull_request' && github.base_ref == 'development'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Need history back to the merge-base so the diff below resolves.
           fetch-depth: 0
@@ -72,16 +72,16 @@ jobs:
       MOXXY_FIXTURES: replay
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.30.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -93,7 +93,7 @@ jobs:
       # or retested across runs. The cache is content-addressed, so restoring a
       # superset is always safe — turbo only reuses entries whose hash matches.
       - name: Turbo cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .turbo
           key: turbo-${{ matrix.node }}-${{ github.sha }}
@@ -104,10 +104,20 @@ jobs:
       # turbo's graph-aware ordering AND caching — the whole repo is built
       # around it; `pnpm -r` ignored the cache entirely.
       - name: Build
-        run: pnpm build
+        run: |
+          if [ "${{ matrix.node }}" = "20.x" ]; then
+            pnpm exec turbo run build --filter='!docs'
+          else
+            pnpm build
+          fi
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: |
+          if [ "${{ matrix.node }}" = "20.x" ]; then
+            pnpm exec turbo run typecheck --filter='!docs'
+          else
+            pnpm typecheck
+          fi
 
       - name: Lint
         run: pnpm lint
@@ -121,6 +131,10 @@ jobs:
         run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
 
       - name: Dependency invariants
+        # dependency-cruiser 18 is a development-only analyzer and requires
+        # Node >=22.12. The Node 20 leg still verifies the shipped CLI/runtime;
+        # the invariant itself is checked independently on Node 22 and 24.
+        if: matrix.node != '20.x'
         run: pnpm check:deps
 
       - name: Smoke — CLI help loads
@@ -128,6 +142,33 @@ jobs:
 
       - name: Smoke — plugins list (no API calls)
         run: node packages/cli/dist/bin.js plugins list
+
+  dependency-security:
+    name: Dependency security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Reject unmitigated advisories
+        run: pnpm audit:security
+
+      - name: Verify the locally patched parsers
+        run: node --test scripts/image-size-patch.test.mjs
 
   dep-cruise-graph:
     name: Generate dependency graph
@@ -138,16 +179,16 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 10.30.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.x'
           cache: pnpm
@@ -162,7 +203,7 @@ jobs:
             > .artifacts/graph.dot || true
 
       - name: Upload graph artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dependency-graph
           path: .artifacts/graph.dot

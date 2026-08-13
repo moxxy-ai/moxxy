@@ -15,6 +15,26 @@ import type { ParsedArgv } from '../argv.js';
 import { probeSession } from '../setup.js';
 import { runChannelByName, runChannelSubcommand } from './run-channel.js';
 import { colors } from '../colors.js';
+import { formatHelp } from './help-format.js';
+
+const HELP = formatHelp({
+  title: 'moxxy channels',
+  tagline: 'inspect and operate optional chat, web, and remote surfaces',
+  sections: [
+    {
+      title: 'COMMANDS',
+      rows: [
+        ['list', 'show installed channels and whether each one is ready'],
+        ['status [name]', 'show detached channels currently running'],
+        ['start <name>', 'start one channel on a detached local runner'],
+        ['stop <name>', 'stop a detached channel'],
+        ['rotate-token <name>', 'replace a channel pairing secret'],
+        ['<name> [subcommand]', 'run a channel or one of its maintenance actions'],
+      ],
+    },
+  ],
+  footer: ['Use `moxxy channels <name> --help` for channel-specific actions.'],
+});
 
 /**
  * `moxxy channels` dispatcher.
@@ -39,6 +59,11 @@ import { colors } from '../colors.js';
  */
 export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   const [name, sub, ...rest] = argv.positional;
+
+  if (!name && helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
 
   if (!name || name === 'list') {
     return runList(argv);
@@ -79,8 +104,8 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
         if (hint) {
           printError(
             `channel not installed: ${name}\n` +
-              `  install it with: moxxy plugins install ${hint.id}\n` +
-              `  (or from the TUI: /plugins → Installable → ${hint.label})`,
+              `  install it with: moxxy extensions install ${hint.id}\n` +
+              `  (or from the TUI: /extensions → Available → ${hint.label})`,
           );
           return { code: 2 };
         }

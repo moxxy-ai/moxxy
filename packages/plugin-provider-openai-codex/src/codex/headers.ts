@@ -4,14 +4,12 @@ import type { CodexTokens } from '../types.js';
 
 /**
  * Resolve this plugin's real version from its package.json once at module load
- * rather than freezing a stale literal in two places (the UA and the plugin
- * def). The User-Agent is sent on every request to the ChatGPT backend; a
- * permanently-`0.0.0` UA defeats server-side version gating and diverges from
- * the real release. Resolves correctly when the package runs from its own dist
- * (dev, tests, third-party `~/.moxxy/plugins` installs); falls back to `0.0.0`
- * defensively — never throws on a header build. (NOTE: when inlined into the
- * single-file CLI bundle the relative resolve fails and we keep the `0.0.0`
- * fallback; a build-time constant would close that gap — see TECH_DEBT.)
+ * rather than freezing a stale literal in the plugin def. Resolves correctly
+ * when the package runs from its own dist (dev, tests, third-party
+ * `~/.moxxy/plugins` installs); falls back to `0.0.0` defensively — never
+ * throws. (NOTE: when inlined into the single-file CLI bundle the relative
+ * resolve fails and we keep the `0.0.0` fallback; a build-time constant would
+ * close that gap.)
  */
 function resolvePluginVersion(): string {
   try {
@@ -25,7 +23,16 @@ function resolvePluginVersion(): string {
 
 export const PLUGIN_VERSION = resolvePluginVersion();
 
-export const CODEX_USER_AGENT = `moxxy/${PLUGIN_VERSION} (codex)`;
+/**
+ * The Codex backend gates on `User-Agent` together with `originator` — see
+ * ORIGINATOR in `../oauth.js` for the measurement behind both. Only the
+ * `codex_cli_rs/` product token is load-bearing, not the version, so this
+ * carries a pinned literal instead of moxxy's version (which would read as a
+ * nonsense CLI release).
+ */
+const CODEX_CLI_VERSION = '0.51.0';
+
+export const CODEX_USER_AGENT = `codex_cli_rs/${CODEX_CLI_VERSION}`;
 
 export function buildCodexHeaders(tokens: CodexTokens, sessionId: string): Record<string, string> {
   const headers: Record<string, string> = {

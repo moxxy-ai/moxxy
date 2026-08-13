@@ -3,13 +3,18 @@ import { readHandler } from './read-handler.js';
 
 export const readTool = defineTool({
   name: 'Read',
+  icon: 'file',
   description: 'Read a UTF-8 text file from disk. Returns lines as `cat -n` style numbered text.',
   inputSchema: z.object({
     file_path: z.string().describe('Absolute path or path relative to cwd.'),
     offset: z.number().int().nonnegative().optional().describe('Line offset (0-based).'),
     limit: z.number().int().positive().max(5000).optional().describe('Max lines to return.'),
   }),
-  permission: { action: 'prompt' },
+  permission: {
+    action: 'allow',
+    workspace: { pathInputs: [{ key: 'file_path' }] },
+    reason: 'read inside the active workspace',
+  },
   compact: {
     verb: 'Reading',
     noun: { one: 'file', other: 'files' },

@@ -21,7 +21,11 @@ function tooDeepError(): MoxxyError {
  * Resolve every `${vault:NAME}` placeholder in a string against the vault. If
  * any referenced key is missing, throws — secret refs are not optional.
  */
-export async function resolveString(input: string, vault: VaultStore): Promise<string> {
+export async function resolveString(
+  input: string,
+  source: SecretLookup | VaultStore,
+): Promise<string> {
+  const lookup = asLookup(source);
   PLACEHOLDER_RE.lastIndex = 0;
   if (!PLACEHOLDER_RE.test(input)) return input;
   PLACEHOLDER_RE.lastIndex = 0;
@@ -31,7 +35,7 @@ export async function resolveString(input: string, vault: VaultStore): Promise<s
 
   const values = new Map<string, string>();
   for (const name of names) {
-    const value = await vault.get(name);
+    const value = await lookup(name);
     if (value === null) {
       throw new MoxxyError({
         code: 'CONFIG_INVALID',
@@ -45,9 +49,25 @@ export async function resolveString(input: string, vault: VaultStore): Promise<s
   return input.replace(PLACEHOLDER_RE, (_match, name: string) => values.get(name) ?? '');
 }
 
+/**
+ * How a `${vault:NAME}` placeholder is looked up.
+ *
+ * A FUNCTION rather than a `VaultStore` so one code path serves both the local
+ * vault and whatever external store a machine has active. Previously this took
+ * the vault directly, which meant config placeholders could only ever come from
+ * the local vault while `ctx.getSecret` in a tool went through the active
+ * SecretProvider: two ways to say `${vault:KEY}` that resolved differently.
+ */
+export type SecretLookup = (name: string) => Promise<string | null>;
+
 /** Walk an arbitrary value, resolving all vault placeholders in nested strings. */
-export async function resolveValue(value: unknown, vault: VaultStore): Promise<unknown> {
-  return resolveValueInner(value, vault, new Set());
+export async function resolveValue(value: unknown, lookup: SecretLookup | VaultStore): Promise<unknown> {
+  return resolveValueInner(value, asLookup(lookup), new Set());
+}
+
+/** Accepts a bare `VaultStore` so existing callers keep working unchanged. */
+function asLookup(source: SecretLookup | VaultStore): SecretLookup {
+  return typeof source === 'function' ? source : (name) => source.get(name);
 }
 
 // `ancestors` is the chain of objects on the path from the root to (but not
@@ -57,22 +77,22 @@ export async function resolveValue(value: unknown, vault: VaultStore): Promise<u
 // is the nesting depth, so its size doubles as the depth bound.
 async function resolveValueInner(
   value: unknown,
-  vault: VaultStore,
+  lookup: SecretLookup,
   ancestors: Set<object>,
 ): Promise<unknown> {
-  if (typeof value === 'string') return await resolveString(value, vault);
+  if (typeof value === 'string') return await resolveString(value, lookup);
   if (value && typeof value === 'object') {
     if (ancestors.has(value)) throw tooDeepError(); // reference cycle
     if (ancestors.size >= MAX_DEPTH) throw tooDeepError();
     const nextAncestors = new Set(ancestors).add(value);
     if (Array.isArray(value)) {
-      return Promise.all(value.map((v) => resolveValueInner(v, vault, nextAncestors)));
+      return Promise.all(value.map((v) => resolveValueInner(v, lookup, nextAncestors)));
     }
     // Resolve object properties concurrently (mirrors the array branch); each
     // leaf may await vault.get(), so serializing them needlessly serializes I/O.
     const pairs = await Promise.all(
       Object.entries(value as Record<string, unknown>).map(
-        async ([k, v]) => [k, await resolveValueInner(v, vault, nextAncestors)] as const,
+        async ([k, v]) => [k, await resolveValueInner(v, lookup, nextAncestors)] as const,
       ),
     );
     return Object.fromEntries(pairs);

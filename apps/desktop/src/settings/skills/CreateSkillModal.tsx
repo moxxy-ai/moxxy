@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Button, Modal, TextArea, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextArea, TextInput } from '@moxxy/desktop-ui';
 
 export function CreateSkillModal({
   initial,
@@ -59,7 +59,7 @@ Describe the inputs, the steps to take, and any constraints here.
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Filename
           </span>
           <TextInput
@@ -71,24 +71,24 @@ Describe the inputs, the steps to take, and any constraints here.
             spellCheck={false}
           />
           {!isMd ? (
-            <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
               Filename must end in .md
             </span>
           ) : (
             !safeName && (
-              <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
                 Use letters, digits, and . _ - only (no slashes, spaces, or “..”).
               </span>
             )
           )}
           {collision && (
-            <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+            <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
               A skill with this name already exists.
             </span>
           )}
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Markdown body
           </span>
           <TextArea
@@ -99,13 +99,13 @@ Describe the inputs, the steps to take, and any constraints here.
             style={{
               minHeight: 260,
               padding: '12px 14px',
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               lineHeight: 1.55,
               background: 'var(--color-main-bg)',
             }}
           />
         </label>
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
@@ -117,7 +117,7 @@ Describe the inputs, the steps to take, and any constraints here.
           >
             {busy ? 'Saving…' : 'Create skill'}
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

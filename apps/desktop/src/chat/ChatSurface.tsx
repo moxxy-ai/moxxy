@@ -7,36 +7,29 @@ import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
+import { useAgentSession } from './agent-picker/useAgentSession';
+import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
-import { SuggestedActions } from './chat-surface/SuggestedActions';
 import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
-import { deriveSuggestions } from './chat-surface/suggestions';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
-import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
-import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
+import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
+import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
+import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
-import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
+import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
-  readonly railPane: import('../shell/ContextRail').RailPane | null;
-  readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
   readonly sessionLoading: boolean;
-  readonly onView: (v: import('../shell/ViewHeader').View) => void;
-  readonly disabledViews?: ReadonlyArray<import('../shell/ViewHeader').View>;
-  readonly disabledViewReason?: string;
 }
 
 /** Stable empty reference for the searching code path (no extensions
  *  while a search filter is active). */
 const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = Object.freeze([]);
-
-/** Stable empty reference for suggestions while they're not shown. */
-const EMPTY_SUGGESTIONS: ReadonlyArray<string> = Object.freeze([]);
 
 type ChatEvent = import('@moxxy/sdk').MoxxyEvent;
 
@@ -88,12 +81,7 @@ export function filterEventsBySearch(
 export function ChatSurface({
   phase,
   workspaceId,
-  railPane,
-  onPickPane,
   sessionLoading,
-  onView,
-  disabledViews,
-  disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -107,13 +95,32 @@ export function ChatSurface({
     chat,
     inputRequired: activeAsk !== null,
   });
-  const enterFocusMode = useFocusModeToggle();
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
+  // Keyboard shortcuts owned by the shell, executed here where the state lives.
+  transcriptSearchPulse.use(() => setSearchQuery((q) => q ?? ''));
+  abortTurnPulse.use(() => {
+    if (chat.activeTurnId !== null || chat.sending) void chat.abort();
+  });
   const imagePreview = useImagePreview();
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
+  // ONE session-info fetch for the whole surface. The instrument bar's telemetry
+  // and the composer's mode menu both read it; two independent hooks meant two
+  // round-trips per refresh and two chances to disagree about the active model.
+  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending);
+  const activeSessionName =
+    activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
+  // The run's state, as the bar reports it. `awaiting` outranks `running`
+  // because a blocked run is the one thing the supervisor has to act on.
+  const runState: RunState = activeAsk
+    ? 'awaiting'
+    : chat.activeTurnId !== null || chat.sending
+      ? 'running'
+      : chat.isEmpty
+        ? 'idle'
+        : 'done';
 
   // Precompute the searchable index ONCE per events change; the per-keystroke
   // filter then just scans it (no JSON.stringify on the keystroke path).
@@ -133,68 +140,35 @@ export function ChatSurface({
     return compact;
   }, [actionCatalog]);
 
-  // Suggested-action chips are only shown when the composer is idle and the
-  // transcript is non-empty. Compute them only then, and memoize on the event
-  // log so they aren't re-derived (regex scans) on every streaming tick.
-  // Computed before any early return so the hook order stays stable.
-  const showSuggestions = ready && !chat.sending && !chat.isEmpty;
-  const suggestions = useMemo(
-    () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
-    [showSuggestions, chat.events],
-  );
-  const voiceLines = useMemo(
-    () => deriveVoiceTranscriptLines(
-      chat.events,
-      chat.streamingText,
-      voiceCall.lastTranscript,
-    ),
-    [chat.events, chat.streamingText, voiceCall.lastTranscript],
-  );
+  const voicePresentation = useVoiceModePresentation({
+    active: voiceCall.active,
+    phase: voiceCall.phase,
+    microphoneMuted: voiceCall.microphoneMuted,
+    localPiperInstallRequired: voiceCall.localPiperInstallRequired,
+    localPiperInstalling: voiceCall.localPiperInstalling,
+    activeOperations: voiceCall.activeOperations,
+    events: chat.events,
+  });
+
+  useVoiceCallRequest(voiceCall.open);
 
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
-
-  if (voiceCall.active) {
-    return (
-      <main className="col-main col-main--flat">
-        <VoiceCallSurface
-          phase={voiceCall.phase}
-          activity={voiceCall.activity}
-          microphoneMuted={voiceCall.microphoneMuted}
-          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
-          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-          localPiperInstalling={voiceCall.localPiperInstalling}
-          errorReason={voiceCall.errorReason}
-          inputAnalyser={voiceCall.inputAnalyser}
-          outputAnalyser={voiceCall.outputAnalyser}
-          lines={voiceLines}
-          onClose={voiceCall.close}
-          onEnterFocusMode={enterFocusMode}
-          onRetry={voiceCall.retry}
-          onInstallLocalPiper={voiceCall.installLocalPiper}
-          onMuteMicrophone={voiceCall.muteMicrophone}
-          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-          onToggleWaitingSound={voiceCall.toggleWaitingSound}
-        />
-        {activeAsk && <AskSheet ask={activeAsk} />}
-      </main>
-    );
-  }
 
   if (showBlockingLoading) {
     return (
       <main className="col-main col-main--flat">
         <Header
           phase={phase}
+          deskName={activeDesk?.name ?? null}
+          sessionName={activeSessionName}
+          runState={runState}
+          agent={agent}
+          agentDisabled={!ready}
           workspaceId={workspaceId}
-          railPane={railPane}
-          onPickPane={onPickPane}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledViewReason={disabledViewReason}
         />
         <div
           key={workspaceId}
@@ -213,16 +187,16 @@ export function ChatSurface({
     <main className="col-main col-main--flat">
       <Header
         phase={phase}
+        deskName={activeDesk?.name ?? null}
+        sessionName={activeSessionName}
+        runState={runState}
+        agent={agent}
+        agentDisabled={!ready}
         workspaceId={workspaceId}
-        railPane={railPane}
-        onPickPane={onPickPane}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
-        onView={onView}
-        disabledViews={disabledViews}
-        disabledViewReason={disabledViewReason}
       />
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}
@@ -248,11 +222,32 @@ export function ChatSurface({
           />
         )}
       </div>
-      {showSuggestions && (
-        <SuggestedActions suggestions={suggestions} onPick={(p) => void chat.send(p)} />
-      )}
       {activeAsk && <AskSheet ask={activeAsk} />}
+      {voiceCall.active && (
+        <div className="voice-rail-shell">
+          <VoicePresenceRail
+            phase={voiceCall.phase}
+            status={voicePresentation.status}
+            rail={voicePresentation.rail}
+            microphoneMuted={voiceCall.microphoneMuted}
+            waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+            localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+            localPiperInstalling={voiceCall.localPiperInstalling}
+            errorReason={voiceCall.errorReason}
+            inputAnalyser={voiceCall.inputAnalyser}
+            outputAnalyser={voiceCall.outputAnalyser}
+            onRetry={voiceCall.retry}
+            onInstallLocalPiper={voiceCall.installLocalPiper}
+            onMuteMicrophone={voiceCall.muteMicrophone}
+            onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+            onToggleWaitingSound={voiceCall.toggleWaitingSound}
+            onClose={voiceCall.close}
+          />
+        </div>
+      )}
       <Composer
+        agent={agent}
+        voiceModeActive={voiceCall.active}
         ready={ready}
         sending={chat.sending}
         compacting={chat.compacting}

@@ -1,5 +1,10 @@
 export { Icon, type IconName, type IconProps } from './Icon.js';
-export { Modal, ConfirmModal } from './Modal.js';
+export {
+  Modal,
+  ModalFooter,
+  ConfirmModal,
+  type ModalFooterProps,
+} from './Modal.js';
 export {
   Button,
   IconButton,
@@ -9,4 +14,5 @@ export {
   type IconButtonProps,
 } from './Button.js';
 export { TextInput, TextArea, type TextInputProps, type TextAreaProps, type FieldTone } from './TextInput.js';
+export { Select, type SelectProps } from './Select.js';
 export { Skeleton } from './Skeleton.js';

@@ -99,7 +99,7 @@ export function registerIpcHandlers(
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerVaultHandlers();
-    registerChatHandlers(pool);
+    registerChatHandlers(pool, desks);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
     registerChannelsHandlers();
     registerVoiceHandlers(pool, opts.voice);

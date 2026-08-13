@@ -206,6 +206,26 @@ describe('client bridges after transport replacement', () => {
     await waitFor(() => expect(chatStore.getChat('turn-sync').sending).toBe(false));
   });
 
+  it('does not surface a background settings turn as chat activity', async () => {
+    const bridge = fakeApi('background-turn-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('runner.turn.started', {
+        workspaceId: 'background-turn-sync',
+        turnId: 'turn-background',
+        visibility: 'background',
+      });
+    });
+
+    await act(async () => Promise.resolve());
+    expect(chatStore.getChat('background-turn-sync')).toMatchObject({
+      sending: false,
+      activeTurnId: null,
+    });
+  });
+
   it('drops permission prompts resolved by another attached client', async () => {
     const bridge = fakeApi('ask-sync');
     configureTransport(bridge.api);

@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
-import { Button, Modal, ConfirmModal, Icon } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, ConfirmModal, Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 
 interface Props {
@@ -73,14 +73,14 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
               style={{
                 width: 52,
                 height: 52,
-                borderRadius: 14,
-                background: 'linear-gradient(135deg, #f59e0b, #f472b6)',
+                borderRadius: 'var(--radius-card)',
+                background: 'var(--color-primary)',
                 color: '#fff',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 700,
-                fontSize: 18,
+                fontSize: 'var(--type-section)',
                 letterSpacing: '0.04em',
                 flexShrink: 0,
                 boxShadow: '0 10px 24px -16px rgba(244, 114, 182, 0.7)',
@@ -91,7 +91,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 style={{
-                  fontSize: 16,
+                  fontSize: 'var(--type-section)',
                   fontWeight: 700,
                   color: 'var(--color-text)',
                   whiteSpace: 'nowrap',
@@ -107,7 +107,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
                   className="mono"
                   style={{
                     marginTop: 2,
-                    fontSize: 11.5,
+                    fontSize: 'var(--type-meta)',
                     color: 'var(--color-text-dim)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -137,7 +137,7 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
               gridTemplateColumns: '110px 1fr',
               rowGap: 8,
               columnGap: 14,
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
             }}
           >
             <Detail label="Member since" value={joined ? joined.toLocaleDateString() : 'Just now'} />
@@ -150,20 +150,19 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
             )}
           </dl>
 
-          <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+          <ModalFooter>
             <Button variant="secondary" onClick={onClose}>
               Close
             </Button>
             <Button
-              variant="cta"
+              variant="danger"
               onClick={() => setConfirmSignOut(true)}
               disabled={busy}
-              style={{ background: 'var(--color-red)' }}
             >
               <Icon name="x" size={13} />
               Sign out
             </Button>
-          </footer>
+          </ModalFooter>
         </div>
       </Modal>
       {confirmSignOut && (
@@ -216,14 +215,14 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
   const isFree = tier.toLowerCase() === 'free';
   return {
     padding: '3px 10px',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     fontWeight: 700,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
-    fontSize: 10.5,
+    fontSize: 'var(--type-label)',
     background: isFree
       ? 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)'
-      : 'linear-gradient(135deg, rgba(236, 72, 153, 0.95), rgba(217, 70, 239, 0.95))',
+      : 'var(--color-primary)',
     color: isFree ? 'var(--color-text-muted)' : '#fff',
     border: isFree
       ? '1px solid color-mix(in srgb, var(--color-text-dim) 32%, transparent)'

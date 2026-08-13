@@ -8,16 +8,7 @@
  */
 
 import { useDesks } from '@moxxy/client-core';
-
-const selectStyle: React.CSSProperties = {
-  fontSize: '0.72rem',
-  padding: '2px 6px',
-  borderRadius: 7,
-  border: '1px solid var(--color-border)',
-  background: 'var(--color-bg-card)',
-  color: 'var(--color-text)',
-  maxWidth: 220,
-};
+import { Select } from '@moxxy/desktop-ui';
 
 export function TargetSessionPicker({
   value,
@@ -35,12 +26,23 @@ export function TargetSessionPicker({
   const known = value === null || desks.some((d) => d.sessions.some((s) => s.id === value));
 
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+    <label
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 'var(--space-6)',
+        fontSize: 'var(--type-label)',
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: 'var(--color-text-dim)',
+      }}
+    >
       {label}
-      <select
+      <Select
+        tone="soft"
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
-        style={selectStyle}
+        style={{ maxWidth: 220 }}
       >
         <option value="">Any session (unpinned)</option>
         {/* A binding to a since-deleted session would otherwise show blank — keep
@@ -57,7 +59,7 @@ export function TargetSessionPicker({
             ))}
           </optgroup>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

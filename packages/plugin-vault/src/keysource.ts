@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { writeFileAtomic, moxxyPath } from '@moxxy/sdk/server';
 import { deriveKeyAsync } from './crypto.js';
@@ -23,6 +24,14 @@ export interface MasterKeySource {
 
 export interface CombinedKeySourceOptions {
   readonly passphrasePrompt: () => Promise<string>;
+  /**
+   * Demand a human-chosen passphrase instead of generating a key. Off by
+   * default: a passphrase is a real increase in protection, but making it
+   * mandatory turned first run into a hard stop on any host without an OS
+   * keychain. An operator who wants the stronger posture sets
+   * `vault.requirePassphrase: true` (and can lock it from the system scope).
+   */
+  readonly requirePassphrase?: boolean;
   readonly envVar?: string;
   /**
    * Skip the OS keychain (`@napi-rs/keyring`) entirely, using only the disk
@@ -47,7 +56,9 @@ export interface CombinedKeySourceOptions {
  *   1. `MOXXY_VAULT_PASSPHRASE` env var (derive on each call — no persistence).
  *   2. OS keychain via `@napi-rs/keyring`.
  *   3. On-disk cached key at `~/.moxxy/vault.key` (mode 0600).
- *   4. Interactive passphrase prompt.
+ *   4. A randomly GENERATED key, persisted for next time.
+ *   5. Interactive passphrase prompt (only when a passphrase is required, or
+ *      when the generated key could not be persisted).
  *
  * The first successful prompt persists the derived key to BOTH the OS keychain
  * (if available) and the disk cache so subsequent runs are silent. The chosen
@@ -115,6 +126,28 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
         }
       }
 
+      // Nothing stored yet. Prefer GENERATING a key over demanding a
+      // passphrase: on a host with no OS keychain (a container, a headless
+      // Linux box) the prompt was a hard stop, and on a non-TTY it failed
+      // outright. A random 256-bit key gives the same protection against the
+      // threat this vault actually addresses, which is a key leaking through
+      // config in git, a transcript, or a log, rather than through a local
+      // attacker who can already read a 0600 file in the user's own home.
+      //
+      // Only when the key can be PERSISTED, though. A generated key we cannot
+      // store is unrecoverable, so every secret written under it would be lost
+      // on the next run; in that case the prompt is better precisely because
+      // the user can reproduce it from memory.
+      if (!opts.requirePassphrase) {
+        const generated = randomBytes(32);
+        const b64 = generated.toString('base64');
+        await persistKey(b64);
+        if (await keyIsRetrievableFrom(diskPath, b64, !opts.disableKeytar)) {
+          resolvedName = 'generated';
+          return generated;
+        }
+      }
+
       const passphrase = await opts.passphrasePrompt();
       resolvedName = 'passphrase';
       const key = await deriveKeyAsync(passphrase, salt);
@@ -125,6 +158,24 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
       await persistKey(key.toString('base64'));
     },
   };
+}
+
+/**
+ * Confirm a just-persisted key can actually be read back.
+ *
+ * `persistKey` is best-effort on both the keychain and the disk cache, so a
+ * silent failure would leave a generated key in memory only, and every secret
+ * written under it unrecoverable on the next run. Checking is the difference
+ * between "encrypted with a key we kept" and quiet data loss.
+ */
+async function keyIsRetrievableFrom(
+  diskPath: string | null,
+  expected: string,
+  useKeychain: boolean,
+): Promise<boolean> {
+  if (useKeychain && (await tryKeychainGet()) === expected) return true;
+  if (!diskPath) return false;
+  return (await tryDiskGet(diskPath)) === expected;
 }
 
 function resolveDiskPath(supplied: string | false | undefined): string | null {

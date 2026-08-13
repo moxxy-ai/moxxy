@@ -197,8 +197,12 @@ export const BUNDLED_WORKSPACE_DEPS = [
  * (`ws` rides in via the bundled `@moxxy/ipc-server-ws`). `ws` requires them
  * inside try/catch and falls back to its JS implementations, so leaving them
  * external-and-absent in the packaged app is safe and intended.
+ *
+ * `puppeteer` is officeparser's optional PDF-generation backend. Moxxy only
+ * parses Office documents, so that guarded dynamic import is never reached;
+ * keeping it external avoids shipping a browser runtime we do not use.
  */
-const EXTERNAL_NATIVE = ['@napi-rs/keyring', 'bufferutil', 'utf-8-validate'];
+const EXTERNAL_OPTIONAL = ['@napi-rs/keyring', 'bufferutil', 'utf-8-validate', 'puppeteer'];
 
 /**
  * electron-vite manages three build targets (main / preload / renderer)
@@ -234,7 +238,7 @@ export default defineConfig(({ mode }) => {
           index: path.resolve('electron/main/index.ts'),
           bootstrap: path.resolve('electron/main/bootstrap.ts'),
         },
-        external: EXTERNAL_NATIVE,
+        external: EXTERNAL_OPTIONAL,
       },
     },
   },
@@ -244,7 +248,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist-electron/preload',
       rollupOptions: {
         input: { index: path.resolve('electron/preload/index.ts') },
-        external: EXTERNAL_NATIVE,
+        external: EXTERNAL_OPTIONAL,
         // A `sandbox: true` window loads its preload as a classic
         // CommonJS script — an ESM (.mjs) preload throws "Cannot use
         // import statement outside a module" and never runs. Emit CJS.

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { formatTokensK, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
 import { Icon } from '@moxxy/desktop-ui';
-import { SubagentDetail, SUBAGENT_TILE_FG } from './SubagentView';
+import { SubagentDetail } from './SubagentView';
+import { TraceEntry } from '../trace/TraceEntry';
 
 /**
  * A fan-out of sibling subagents folded into one compact collapsible tree:
@@ -25,77 +26,46 @@ export function SubagentGroupView({
 
   const running = block.agents.filter(isRunning).length;
   const failed = block.agents.filter((a) => a.error !== null).length;
-  const accent = failed > 0 ? 'var(--color-red)' : running > 0 ? 'var(--color-primary)' : 'var(--color-green)';
 
   return (
-    <div
-      data-testid="block-subagent-group"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
-    >
-      <span
-        aria-hidden
+    <TraceEntry kind="subagent" testId="block-subagent-group">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         style={{
-          width: 34,
-          height: 34,
-          flexShrink: 0,
-          borderRadius: 10,
-          background: 'color-mix(in srgb, var(--color-purple) 14%, transparent)',
-          color: SUBAGENT_TILE_FG,
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          gap: 'var(--space-6)',
+          width: '100%',
+          textAlign: 'left',
         }}
       >
-        <Icon name="agent" size={18} />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
+        <span className="led" data-state={ledState(running, failed)} aria-hidden />
+        <span className={running > 0 ? 'activity-shimmer' : undefined} style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>
+          {headerLabel(block, running, failed)}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span
+          aria-hidden
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '2px 0',
-            width: '100%',
-            textAlign: 'left',
+            color: 'var(--color-text-dim)',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: 'transform var(--motion-shift) ease',
+            display: 'inline-flex',
           }}
         >
-          <span
-            aria-hidden
-            style={{
-              width: 7,
-              height: 7,
-              flexShrink: 0,
-              borderRadius: '50%',
-              background: accent,
-              ...(running > 0 ? { animation: 'moxxy-thinking 1.1s ease-in-out infinite' } : {}),
-            }}
-          />
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>{headerLabel(block, running, failed)}</span>
-          <span style={{ flex: 1 }} />
-          <span
-            aria-hidden
-            style={{
-              color: 'var(--color-text-dim)',
-              transform: open ? 'rotate(90deg)' : 'none',
-              transition: 'transform 120ms ease',
-              display: 'inline-flex',
-            }}
-          >
-            <Icon name="chevron-right" size={14} />
-          </span>
-        </button>
-        {open && (
-          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {block.agents.map((agent) => (
-              <AgentTreeRow key={agent.id} agent={agent} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+          <Icon name="chevron-right" size={12} />
+        </span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {block.agents.map((agent) => (
+            <AgentTreeRow key={agent.id} agent={agent} />
+          ))}
+        </div>
+      )}
+    </TraceEntry>
   );
 }
 
@@ -125,7 +95,7 @@ function AgentTreeRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element
           padding: '1px 0',
           width: '100%',
           textAlign: 'left',
-          fontSize: 11.5,
+          fontSize: 'var(--type-meta)',
         }}
       >
         <span aria-hidden style={{ color: 'var(--color-text-dim)', flexShrink: 0 }}>
@@ -141,7 +111,7 @@ function AgentTreeRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element
       </button>
       <div
         className="mono"
-        style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 11.5, paddingLeft: 0 }}
+        style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 'var(--type-meta)', paddingLeft: 0 }}
       >
         <span aria-hidden style={{ color: 'var(--color-text-dim)', flexShrink: 0 }}>
           {'  │  └'}
@@ -174,4 +144,11 @@ function headerLabel(block: SubagentGroupBlock, running: number, failed: number)
   const verb = running > 0 ? 'running' : 'finished';
   const failSuffix = failed > 0 ? ` (${failed} failed)` : '';
   return `${n} ${typeWord}${noun} ${verb}${failSuffix}`;
+}
+
+/** The batch's one state: any failure outranks any still running, which outranks
+ *  the whole fan-out having landed. */
+function ledState(running: number, failed: number): 'failed' | 'running' | 'done' {
+  if (failed > 0) return 'failed';
+  return running > 0 ? 'running' : 'done';
 }

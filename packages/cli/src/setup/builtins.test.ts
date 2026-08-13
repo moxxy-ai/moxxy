@@ -38,6 +38,7 @@ describe('builtin plugin requirement inventory', () => {
       .filter((name) => BUILTIN_REQUIREMENT_DECISIONS[name] === undefined);
 
     expect(missing).toEqual([]);
+    expect(built.entries.map((entry) => entry.name)).toContain('@moxxy/mode-plan');
     // memory(+consolidate, merged into one plugin) is no longer a builtin
     // entry — the slim wave's last unbundle.
     // stt-whisper-codex is no longer a builtin entry (slim wave) — its

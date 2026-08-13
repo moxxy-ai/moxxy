@@ -20,20 +20,30 @@ import { assertDefined } from '@moxxy/sdk';
  *  lets a test drive its lifecycle events and the play() promise. */
 class FakeAudio {
   static last: FakeAudio | undefined;
+  static live: FakeAudio[] = [];
   src: string;
   paused = false;
   loop = false;
+  loadCalls = 0;
   onended: (() => void) | null = null;
   onerror: (() => void) | null = null;
   constructor(src: string) {
     this.src = src;
     FakeAudio.last = this;
+    FakeAudio.live.push(this);
   }
   play(): Promise<void> {
     return Promise.resolve();
   }
   pause(): void {
     this.paused = true;
+  }
+  removeAttribute(name: string): void {
+    if (name === 'src') this.src = '';
+  }
+  /** Real `load()` aborts the current resource and frees the decoded audio. */
+  load(): void {
+    this.loadCalls += 1;
   }
 }
 
@@ -44,6 +54,7 @@ beforeEach(() => {
   revoked = [];
   created = [];
   FakeAudio.last = undefined;
+  FakeAudio.live = [];
   let n = 0;
   vi.stubGlobal('URL', {
     createObjectURL: vi.fn(() => {
@@ -224,6 +235,224 @@ describe('playAudioClip', () => {
     expect(onAnalyser).toHaveBeenLastCalledWith(null);
     expect(source.disconnect).toHaveBeenCalledTimes(1);
     expect(analyser.disconnect).toHaveBeenCalledTimes(1);
-    expect(close).toHaveBeenCalledTimes(1);
+    // The context outlives the clip — see the sentence-boundary test below.
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('keeps ONE audio context across clips instead of one per sentence', async () => {
+    // Piper streams a sentence at a time, so a context built and torn down per
+    // clip means opening and closing the audio device between every sentence —
+    // which is audible as a cut right where the speech should run on.
+    const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+    const close = vi.fn(async () => undefined);
+    const resume = vi.fn(async () => undefined);
+    const AudioContext = vi.fn(() => ({
+      createMediaElementSource: vi.fn(() => makeNode()),
+      createAnalyser: vi.fn(() => makeNode()),
+      destination: { kind: 'destination' },
+      state: 'suspended',
+      close,
+      resume,
+    }));
+    vi.stubGlobal('window', { AudioContext });
+    const playAudioClip = await loadPlay();
+    const onAnalyser = vi.fn();
+
+    for (let sentence = 0; sentence < 3; sentence += 1) {
+      playAudioClip(Buffer.from(`s${sentence}`).toString('base64'), 'audio/wav', { onAnalyser });
+      const audio = FakeAudio.last;
+      assertDefined(audio, 'an audio element was created');
+      audio.onended?.();
+      await Promise.resolve();
+    }
+
+    expect(AudioContext).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    // Every clip still gets its own analyser handed out and taken back.
+    expect(onAnalyser).toHaveBeenCalledTimes(6);
+    expect(onAnalyser).toHaveBeenLastCalledWith(null);
+    // A context parked by the browser has to be woken for each clip.
+    expect(resume).toHaveBeenCalledTimes(3);
+  });
+
+  it('releases the element and its decoded audio at the natural end, not just on stop()', async () => {
+    // Closing the context per clip used to tear the whole graph down. With one
+    // shared context that guarantee is gone, so every finish path has to hand
+    // back its own element — otherwise a long conversation piles up one decoded
+    // sentence per <audio> and waits on the garbage collector to notice.
+    const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+    const close = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      AudioContext: vi.fn(() => ({
+        createMediaElementSource: vi.fn(() => makeNode()),
+        createAnalyser: vi.fn(() => makeNode()),
+        destination: { kind: 'destination' },
+        state: 'running',
+        close,
+        resume: vi.fn(async () => undefined),
+      })),
+    });
+    const playAudioClip = await loadPlay();
+    const onend = vi.fn();
+
+    for (let sentence = 0; sentence < 4; sentence += 1) {
+      playAudioClip(Buffer.from(`s${sentence}`).toString('base64'), 'audio/wav', {
+        onAnalyser: vi.fn(),
+        onend,
+      });
+      const audio = FakeAudio.last;
+      assertDefined(audio, 'an audio element was created');
+      audio.onended?.();
+      await Promise.resolve();
+    }
+
+    expect(onend).toHaveBeenCalledTimes(4);
+    expect(FakeAudio.live).toHaveLength(4);
+    expect(FakeAudio.live.every((audio) => audio.paused)).toBe(true);
+    expect(FakeAudio.live.every((audio) => audio.src === '')).toBe(true);
+    expect(FakeAudio.live.every((audio) => audio.loadCalls === 1)).toBe(true);
+    // Detaching the handlers breaks element → closure → element, so nothing
+    // keeps the finished clip reachable.
+    expect(FakeAudio.live.every((audio) => audio.onended === null)).toBe(true);
+    expect(FakeAudio.live.every((audio) => audio.onerror === null)).toBe(true);
+    // Every object URL handed out was handed back.
+    expect(revoked.sort()).toEqual(created.sort());
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('retires the shared context when the audio device changes, without cutting the sentence', async () => {
+    // A shared context is bound to the device it was built on. If the user
+    // plugs in headphones mid-conversation, the next sentence has to be built
+    // on a fresh context — but tearing the old one down while it is still
+    // feeding the CURRENT sentence would cut that sentence off.
+    const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+    const closes: Array<ReturnType<typeof vi.fn>> = [];
+    const AudioContext = vi.fn(() => {
+      const close = vi.fn(async () => undefined);
+      closes.push(close);
+      return {
+        createMediaElementSource: vi.fn(() => makeNode()),
+        createAnalyser: vi.fn(() => makeNode()),
+        destination: { kind: 'destination' },
+        state: 'running',
+        close,
+        resume: vi.fn(async () => undefined),
+      };
+    });
+    const listeners = new Map<string, () => void>();
+    vi.stubGlobal('window', { AudioContext });
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        addEventListener: vi.fn((type: string, handler: () => void) => listeners.set(type, handler)),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const playAudioClip = await loadPlay();
+    const onAnalyser = vi.fn();
+
+    playAudioClip(Buffer.from('sentence one').toString('base64'), 'audio/wav', { onAnalyser });
+    expect(AudioContext).toHaveBeenCalledTimes(1);
+
+    // Headphones go in while that sentence is still playing.
+    listeners.get('devicechange')?.();
+    expect(closes[0]).not.toHaveBeenCalled();
+
+    // It finishes on the device it started on, and only then is that context let go.
+    const playing = FakeAudio.last;
+    assertDefined(playing, 'the first clip had an element');
+    playing.onended?.();
+    await Promise.resolve();
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+
+    // The next sentence is built on a new context — the new device.
+    playAudioClip(Buffer.from('sentence two').toString('base64'), 'audio/wav', { onAnalyser });
+    expect(AudioContext).toHaveBeenCalledTimes(2);
+    expect(closes[1]).not.toHaveBeenCalled();
+  });
+
+  it('retires an idle context on a device change straight away', async () => {
+    const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+    const closes: Array<ReturnType<typeof vi.fn>> = [];
+    const AudioContext = vi.fn(() => {
+      const close = vi.fn(async () => undefined);
+      closes.push(close);
+      return {
+        createMediaElementSource: vi.fn(() => makeNode()),
+        createAnalyser: vi.fn(() => makeNode()),
+        destination: { kind: 'destination' },
+        state: 'running',
+        close,
+        resume: vi.fn(async () => undefined),
+      };
+    });
+    const listeners = new Map<string, () => void>();
+    vi.stubGlobal('window', { AudioContext });
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        addEventListener: vi.fn((type: string, handler: () => void) => listeners.set(type, handler)),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const playAudioClip = await loadPlay();
+
+    playAudioClip(Buffer.from('done').toString('base64'), 'audio/wav', { onAnalyser: vi.fn() });
+    const audio = FakeAudio.last;
+    assertDefined(audio, 'a clip element was created');
+    audio.onended?.();
+    await Promise.resolve();
+
+    listeners.get('devicechange')?.();
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+  });
+
+  it('barge-in still cuts the sentence mid-clip, and the next one plays on', async () => {
+    // Sharing the context must not weaken interruption: the cut comes from
+    // pausing the element and unhooking THIS clip's nodes, never from tearing
+    // the device down. The queue stops the active clip and pumps the next one.
+    const nodes: Array<{ connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
+    const makeNode = () => {
+      const node = { connect: vi.fn(), disconnect: vi.fn() };
+      nodes.push(node);
+      return node;
+    };
+    const close = vi.fn(async () => undefined);
+    const AudioContext = vi.fn(() => ({
+      createMediaElementSource: vi.fn(() => makeNode()),
+      createAnalyser: vi.fn(() => makeNode()),
+      destination: { kind: 'destination' },
+      state: 'running',
+      close,
+      resume: vi.fn(async () => undefined),
+    }));
+    vi.stubGlobal('window', { AudioContext });
+    const playAudioClip = await loadPlay();
+    const onAnalyser = vi.fn();
+    const onend = vi.fn();
+
+    const interrupted = playAudioClip(
+      Buffer.from('half a sentence').toString('base64'),
+      'audio/wav',
+      { onAnalyser, onend },
+    );
+    const cut = FakeAudio.last;
+    assertDefined(cut, 'the interrupted clip had an element');
+
+    interrupted.stop();
+
+    expect(cut.paused).toBe(true);
+    expect(cut.src).toBe('');
+    expect(nodes).toHaveLength(2);
+    expect(nodes.every((node) => node.disconnect.mock.calls.length === 1)).toBe(true);
+    expect(onAnalyser).toHaveBeenLastCalledWith(null);
+    // stop() is the queue discarding the clip, not the turn ending.
+    expect(onend).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+
+    // The reply that follows the interruption plays on the SAME device.
+    playAudioClip(Buffer.from('the answer').toString('base64'), 'audio/wav', { onAnalyser });
+    expect(AudioContext).toHaveBeenCalledTimes(1);
+    expect(FakeAudio.last).not.toBe(cut);
+    expect(FakeAudio.last?.paused).toBe(false);
+    expect(onAnalyser).toHaveBeenLastCalledWith(nodes[3]);
   });
 });

@@ -2,11 +2,35 @@ import { collectTurn, createAllowListResolver, denyByDefaultResolver, runTurn } 
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
-import { argvToSetupOptions, hasBoolFlag, stringFlag } from '../argv-helpers.js';
+import { argvToSetupOptions, hasBoolFlag, helpRequested, stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import type { ParsedArgv } from '../argv.js';
+import { formatHelp } from './help-format.js';
+
+const HELP = formatHelp({
+  title: 'moxxy -p',
+  tagline: 'run one task and print the result without opening the TUI',
+  sections: [
+    {
+      title: 'USAGE',
+      rows: [
+        ['moxxy -p "task"', 'ask once and print plain text'],
+        ['--model <id>', 'use a different model for this invocation'],
+        ['--output-format <fmt>', 'text, json, or stream-json'],
+        ['--allow-tools <list>', 'allow only the comma-separated tools named here'],
+        ['--allow-all', 'allow every currently registered tool for this invocation'],
+      ],
+    },
+  ],
+  footer: ['Without an allow flag, consequential tools remain denied.'],
+});
 
 export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
+  if (helpRequested(argv)) {
+    process.stdout.write(HELP);
+    return 0;
+  }
+
   const prompt = stringFlag(argv, 'p') ?? stringFlag(argv, 'prompt') ?? '';
   if (!prompt) {
     printError('-p/--prompt requires a non-empty string');
@@ -35,7 +59,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
       ? createAllowListResolver(allowTools)
       : denyByDefaultResolver;
 
-  const { session, persistence } = await setupSessionWithConfig({
+  const { session, persistence, audit } = await setupSessionWithConfig({
     ...argvToSetupOptions(argv),
     resolver,
   });
@@ -77,7 +101,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     // Drain persistence (last event + final index row) then fire onShutdown
     // hooks / stop daemons so the process exits promptly. Best-effort — never
     // masks the command's exit code.
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
   return exitCode;
 }

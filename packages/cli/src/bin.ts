@@ -1,39 +1,18 @@
 #!/usr/bin/env node
-import { moxxyHome } from '@moxxy/sdk/server';
+import { ensurePrivateDir, moxxyHome, moxxyPath, pruneStaleTempFiles } from '@moxxy/sdk/server';
 import { detectCoreInstall, finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
+// Subpath, not the barrel: `@moxxy/plugin-cli` is the Ink TUI, and `--help`
+// must not evaluate a React renderer to print a tagline. logo-data.ts has no
+// imports at all.
+import { pickSlogan } from '@moxxy/plugin-cli/logo-data';
 import { parseArgv, type ParsedArgv } from './argv.js';
-import { runPromptCommand } from './commands/prompt.js';
-import { runTuiCommand } from './commands/tui.js';
-import { runSkillsCommand } from './commands/skills.js';
-import { runPluginsCommand } from './commands/plugins.js';
-import { runChannelsCommand } from './commands/channels.js';
-import { runChannelByName } from './commands/run-channel.js';
-import { runInitCommand } from './commands/init.js';
-import { runOnboardCommand } from './commands/onboard.js';
-import { runProvisionCommand } from './commands/provision.js';
-import { runPermsCommand } from './commands/perms.js';
-import { runConfigCommand } from './commands/config.js';
-import { runMemoryCommand } from './commands/memory.js';
-import { runMcpCommand } from './commands/mcp.js';
-import { runScheduleCommand } from './commands/schedule.js';
-import { runDoctorCommand } from './commands/doctor.js';
-import { runLoginCommand } from './commands/login.js';
-import { runResumeCommand } from './commands/resume.js';
-import { runServiceCommand } from './commands/service.js';
-import { runServeCommand } from './commands/serve.js';
-import { runAgentCommand } from './commands/agent.js';
-import { runCollabCommand } from './commands/collab.js';
-import { runSessionsCommand } from './commands/sessions.js';
-import { runSecurityCommand } from './commands/security.js';
-import { runSelfUpdateCommand } from './commands/self-update.js';
-import { runUpdateCommand } from './commands/update.js';
-import { probeSession } from './setup.js';
+import { applyEgressSettings } from './setup/egress.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
 import { cliVersion } from './version.js';
-import { pickSlogan } from '@moxxy/plugin-cli';
 import { formatErrorForCli } from './error-formatter.js';
 import { installProcessGuards } from './process-guards.js';
+import { wrapHelpText } from './commands/help-format.js';
 
 type CommandHandler = (argv: ParsedArgv) => Promise<number>;
 
@@ -43,7 +22,40 @@ type CommandHandler = (argv: ParsedArgv) => Promise<number>;
  * `moxxy channels` listing aesthetic — no rails, no clack glyphs,
  * mono palette only.
  */
-const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyArray<readonly [string, string]> }> = [
+type HelpSection = {
+  readonly title: string;
+  readonly rows: ReadonlyArray<readonly [string, string]>;
+};
+
+const CORE_SECTIONS: ReadonlyArray<HelpSection> = [
+  {
+    title: 'START',
+    rows: [
+      ['moxxy', 'connect a model if needed, then work with the current project'],
+      ['moxxy -p "…"', 'ask one question and print the answer'],
+      ['moxxy resume', 'continue an earlier run'],
+    ],
+  },
+  {
+    title: 'ESSENTIALS',
+    rows: [
+      ['extensions', 'find, install, enable, or remove optional capabilities'],
+      ['doctor [--check-keys]', 'check model connections and local setup'],
+      ['update [--check|--yes]', 'upgrade the moxxy CLI'],
+      ['help advanced', 'show channels, automation, policy, and operator commands'],
+    ],
+  },
+  {
+    title: 'FLAGS',
+    rows: [
+      ['--model <id>', 'use a different model for this run'],
+      ['--allow-tools, --allow-all', 'permission shortcuts for non-interactive runs'],
+      ['--help, --version', 'show help or the installed version'],
+    ],
+  },
+];
+
+const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
   {
     title: 'USAGE',
     rows: [
@@ -54,45 +66,50 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
     ],
   },
   {
-    title: 'SETUP',
+    title: 'CONNECT',
     rows: [
-      ['onboard', 'guided setup: provider → messaging channel → pairing → background service'],
-      ['init', 'interactive first-time setup (provider keys → vault)'],
-      ['provision', 'headless setup: install + configure a provider (flags or --spec -)'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
-      ['login status|logout', 'inspect / remove stored OAuth credentials'],
-      ['doctor [--check-keys]', 'diagnose config, vault, providers, channels, memory'],
+      ['login <action>', 'inspect or remove stored OAuth credentials'],
+      ['onboard --advanced', 'add channels or background services after the first run'],
+      ['provision', 'headless model setup for scripts and managed machines'],
+      ['init', 're-run the recommended interactive model setup'],
+    ],
+  },
+  {
+    title: 'WORKSPACE',
+    rows: [
+      ['resume [-s <id>|<id>]', 'continue a saved run (interactive picker if no id)'],
+      ['runs <action>', 'inspect or remove saved runs (`sessions` remains an alias)'],
+      ['extensions <action>', 'manage optional capabilities (`plugins` remains an alias)'],
+      ['skills <action>', 'manage project and user skill files'],
+      ['mcp <action>', 'manage Model Context Protocol servers'],
+      ['memory <action>', 'curate long-term memory'],
+    ],
+  },
+  {
+    title: 'GOVERN',
+    rows: [
+      ['policy', 'show what the agent may do here and who decided it'],
+      ['perms <action>', 'view or edit the permission policy'],
+      ['receipt <turnId>', 'verify one run: actor, tools, denials, policy, and cost'],
+      ['security <action>', 'inspect extension isolation state'],
+      ['config <action>', 'read or edit the moxxy config (user or project scope)'],
+      ['config trust|untrust', 'approve an executable project config so it may run'],
+      ['profile [name]', 'print a managed deployment baseline'],
+    ],
+  },
+  {
+    title: 'OPERATE',
+    rows: [
+      ['channels <action>', 'manage registered chat and web surfaces'],
+      ['serve [--except <list>]', 'run channels and background daemons in one process'],
+      ['schedule <action>', 'manage time-driven prompts (cron / heartbeat)'],
+      ['service <action>', 'run channels + scheduler as a background OS unit'],
+      ['sync [--check]', 'reconcile installed extensions with the config manifest'],
+      ['doctor [--check-keys]', 'diagnose config, vault, model connections, and channels'],
       ['update [--check|--yes]', 'upgrade the moxxy CLI to the latest published version'],
-    ],
-  },
-  {
-    title: 'RUN',
-    rows: [
-      ['tui', 'start the Ink TUI channel'],
-      ['resume [-s <id>|<id>]', 'resume a persisted session (interactive picker if no id)'],
-      ['channels', 'list registered channels + their subcommands'],
-      ['channels start|stop <name>', 'run a channel detached on its own runner (or stop it)'],
-      ['channels status [name]', 'list the detached channels currently running'],
-      ['channels rotate-token <name>', "rotate a channel's persisted pairing secret (clients re-pair)"],
-      ['channels <name>', 'start a channel by name in the foreground (same as `moxxy <name>`)'],
-      ['channels <name> <sub>', 'invoke a channel-defined subcommand'],
-      ['serve [--except <list>]', 'run every channel + background daemon in ONE process'],
-    ],
-  },
-  {
-    title: 'MANAGE',
-    rows: [
-      ['sessions list|delete', 'list / remove persisted sessions'],
-      ['skills list|new|audit', 'manage skill files'],
-      ['plugins list|search|install|remove|enable|disable|reload|new', 'find, install + manage plugins'],
-      ['self-update status|rollback', 'inspect / roll back self-update transactions'],
-      ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
-      ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
-      ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
-      ['security audit|isolators|status', 'inspect plugin-security isolation state'],
-      ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
-      ['schedule list|add|remove|run|daemon', 'manage time-driven prompts (cron / heartbeat)'],
-      ['service list|install|uninstall|start|stop|logs', 'run channels + scheduler as a background OS unit'],
+      ['self-update status|rollback', 'inspect or roll back agent-applied updates'],
+      ['tui [--standalone]', 'start an isolated TUI instead of attaching to a runner'],
     ],
   },
   {
@@ -111,6 +128,8 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['ANTHROPIC_API_KEY', 'default Anthropic provider key'],
       ['OPENAI_API_KEY', 'OpenAI provider key (and openai embeddings)'],
       ['MOXXY_HOME', 'override the ~/.moxxy data directory'],
+      ['HTTPS_PROXY | NO_PROXY', 'outbound proxy + bypass rules (see `moxxy doctor`)'],
+      ['NODE_EXTRA_CA_CERTS', 'extra CA bundle, needed when the proxy terminates TLS'],
       ['MOXXY_DEBUG=1', 'verbose error output + process diagnostics'],
       ['MOXXY_FIXTURES', 'record | replay — provider fixture mode (used by tests)'],
       ['MOXXY_VAULT_PASSPHRASE', 'headless vault passphrase (alt to keychain)'],
@@ -129,8 +148,23 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
 const ROW_INDENT = 4;
 const RULE_INDENT = 2;
 
-function renderHelp(): string {
+/**
+ * The mascot, but only where a human is looking at it.
+ *
+ * It is 31 rows of art. On a TTY that is the product's face; piped into a file,
+ * a CI log, or `grep`, it is 31 rows of noise ahead of the answer, and it
+ * garbles on a terminal without UTF-8. `NO_COLOR` is honoured as a general
+ * "keep output plain" signal, which is how the rest of the CLI reads it.
+ */
+function banner(): string {
+  if (!process.stdout.isTTY) return '';
+  if (process.env.NO_COLOR || process.env.MOXXY_NO_COLOR) return '';
+  return renderLogo(undefined, { center: true });
+}
+
+function renderHelp(advanced = false): string {
   const width = process.stdout.columns ?? 80;
+  const sections = advanced ? ADVANCED_SECTIONS : CORE_SECTIONS;
 
   // Center the slogan + version "crown" to the terminal, matching the
   // bootscreen. Pad off the VISIBLE length (raw strings) — the ANSI codes
@@ -146,7 +180,7 @@ function renderHelp(): string {
   // Width of the widest rendered "    cmd  desc" row across every section —
   // the dividers extend to this so they all line up, capped to the terminal.
   const rowWidth = Math.max(
-    ...SECTIONS.map((s) => {
+    ...sections.map((s) => {
       const colWidth = Math.max(...s.rows.map(([cmd]) => cmd.length));
       return Math.max(...s.rows.map(([, desc]) => ROW_INDENT + colWidth + 2 + desc.length));
     }),
@@ -164,27 +198,48 @@ function renderHelp(): string {
   out.push(header);
   out.push('');
 
-  SECTIONS.forEach((section, i) => {
+  sections.forEach((section, i) => {
     // Per-section column width so short commands (moxxy, init, tui) sit
     // tight against their descriptions instead of floating off a global max.
     const colWidth = Math.max(...section.rows.map(([cmd]) => cmd.length));
     out.push(rule(section.title.toLowerCase()));
     for (const [cmd, desc] of section.rows) {
       const padded = cmd.padEnd(colWidth, ' ');
-      out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(desc)}`);
+      const prefixWidth = ROW_INDENT + colWidth + 2;
+      const descriptionWidth = width - prefixWidth;
+      if (descriptionWidth >= 24) {
+        const lines = wrapHelpText(desc, descriptionWidth);
+        out.push(
+          `${' '.repeat(ROW_INDENT)}${colors.bold(padded)}  ${colors.dim(lines[0] ?? '')}`,
+        );
+        for (const line of lines.slice(1)) {
+          out.push(`${' '.repeat(prefixWidth)}${colors.dim(line)}`);
+        }
+      } else {
+        out.push(`${' '.repeat(ROW_INDENT)}${colors.bold(cmd)}`);
+        const lines = wrapHelpText(desc, Math.max(20, width - ROW_INDENT - 2));
+        for (const line of lines) {
+          out.push(`${' '.repeat(ROW_INDENT + 2)}${colors.dim(line)}`);
+        }
+      }
     }
-    if (i < SECTIONS.length - 1) out.push('');
+    if (i < sections.length - 1) out.push('');
   });
 
+  if (advanced) {
+    out.push('');
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
+    );
+    out.push(
+      `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
+    );
+  }
   out.push('');
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('Keys resolve vault → env var → interactive prompt (TTY only;')}`,
-  );
-  out.push(
-    `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
-  );
-  out.push('');
-  out.push(`${colors.dim('Run')} ${colors.bold('moxxy onboard')} ${colors.dim('to get started.')}`);
+  out.push(`${colors.dim('Run')} ${colors.bold('moxxy')} ${colors.dim('in a project to get started.')}`);
+  if (!advanced) {
+    out.push(`${colors.dim('Run')} ${colors.bold('moxxy help advanced')} ${colors.dim('for every operator command.')}`);
+  }
   out.push(`${colors.dim('See')} ${colors.bold('moxxy <command> --help')} ${colors.dim('for per-command details.')}`);
 
   return out.join('\n') + '\n';
@@ -193,51 +248,91 @@ function renderHelp(): string {
 // Single source of truth: a command name → handler dispatch table. Adding a
 // new built-in subcommand here is enough; there's no separate KNOWN_COMMANDS
 // set that can drift out of sync.
-const COMMANDS: Record<string, CommandHandler> = {
-  help: async () => {
-    process.stdout.write(renderLogo(undefined, { center: true }) + renderHelp());
+/**
+ * Command name to a LAZY loader for its module.
+ *
+ * Every handler used to be a static import, which meant `moxxy --version` in a
+ * container evaluated the module graph of all 24 commands: the whole setup
+ * path, the runner, and through the TUI channel the entire Ink runtime
+ * (react-reconciler + yoga + react). A `--cpu-prof` run confirmed `react/index.js`
+ * really did execute just to print a version string.
+ *
+ * Loading on dispatch means a command pays only for itself. Still a single
+ * source of truth for "what commands exist", so there is no separate
+ * KNOWN_COMMANDS set to drift out of sync.
+ */
+const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
+  help: async () => async (argv) => {
+    process.stdout.write(banner() + renderHelp(argv.positional[0] === 'advanced'));
     return 0;
   },
-  version: async () => {
+  version: async () => async () => {
     const v = cliVersion() ?? '0.0.0';
     const width = process.stdout.columns ?? 80;
     const line = `moxxy ${v}`;
     const pad = ' '.repeat(Math.max(0, Math.floor((width - line.length) / 2)));
-    process.stdout.write(
-      renderLogo(undefined, { center: true }) + pad + line + '\n',
-    );
+    process.stdout.write(banner() + pad + line + '\n');
     return 0;
   },
-  init: runInitCommand,
-  onboard: runOnboardCommand,
-  provision: runProvisionCommand,
-  login: runLoginCommand,
-  perms: runPermsCommand,
-  config: runConfigCommand,
-  memory: runMemoryCommand,
-  mcp: runMcpCommand,
-  schedule: runScheduleCommand,
-  doctor: runDoctorCommand,
-  update: runUpdateCommand,
-  prompt: runPromptCommand,
-  tui: runTuiCommand,
-  resume: runResumeCommand,
-  service: runServiceCommand,
-  serve: runServeCommand,
+  init: async () => (await import('./commands/init.js')).runInitCommand,
+  onboard: async () => (await import('./commands/onboard.js')).runOnboardCommand,
+  provision: async () => (await import('./commands/provision.js')).runProvisionCommand,
+  login: async () => (await import('./commands/login.js')).runLoginCommand,
+  perms: async () => (await import('./commands/perms.js')).runPermsCommand,
+  config: async () => (await import('./commands/config.js')).runConfigCommand,
+  memory: async () => (await import('./commands/memory.js')).runMemoryCommand,
+  mcp: async () => (await import('./commands/mcp.js')).runMcpCommand,
+  schedule: async () => (await import('./commands/schedule.js')).runScheduleCommand,
+  doctor: async () => (await import('./commands/doctor.js')).runDoctorCommand,
+  update: async () => (await import('./commands/update.js')).runUpdateCommand,
+  prompt: async () => (await import('./commands/prompt.js')).runPromptCommand,
+  tui: async () => (await import('./commands/tui.js')).runTuiCommand,
+  resume: async () => (await import('./commands/resume.js')).runResumeCommand,
+  service: async () => (await import('./commands/service.js')).runServiceCommand,
+  serve: async () => (await import('./commands/serve.js')).runServeCommand,
   // Internal: a collaboration peer runner spawned by `collaborative` mode.
-  agent: runAgentCommand,
+  agent: async () => (await import('./commands/agent.js')).runAgentCommand,
   // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
-  collab: runCollabCommand,
-  sessions: runSessionsCommand,
-  security: runSecurityCommand,
-  skills: runSkillsCommand,
-  plugins: runPluginsCommand,
-  channels: runChannelsCommand,
-  'self-update': runSelfUpdateCommand,
+  collab: async () => (await import('./commands/collab.js')).runCollabCommand,
+  sessions: async () => (await import('./commands/sessions.js')).runSessionsCommand,
+  runs: async () => (await import('./commands/sessions.js')).runSessionsCommand,
+  security: async () => (await import('./commands/security.js')).runSecurityCommand,
+  skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
+  plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
+  extensions: async () => (await import('./commands/plugins.js')).runPluginsCommand,
+  channels: async () => (await import('./commands/channels.js')).runChannelsCommand,
+  profile: async () => (await import('./commands/profile.js')).runProfileCommand,
+  sync: async () => (await import('./commands/sync.js')).runSyncCommand,
+  receipt: async () => (await import('./commands/receipt.js')).runReceiptCommand,
+  policy: async () => (await import('./commands/policy.js')).runPolicyCommand,
+  'self-update': async () => (await import('./commands/self-update.js')).runSelfUpdateCommand,
 };
 
 async function main(): Promise<number> {
   const argv = parseArgv(process.argv.slice(2));
+
+  // `~/.moxxy` is the trust boundary for everything the agent persists:
+  // transcripts, the permission policy, the vault, cached credentials. A 0700
+  // home means no other local account can traverse in, which protects the state
+  // files whose own modes are set by dozens of independent writers. Awaited
+  // (one mkdir + at most one chmod) so the boundary is in place before any
+  // command writes; `ensurePrivateDir` never throws on a chmod it cannot apply.
+  await ensurePrivateDir(moxxyHome()).catch(() => {
+    /* an unwritable home surfaces later, with a message about what failed */
+  });
+
+  // Abandoned atomic-write temp files (the process was killed between write and
+  // rename) accumulate for the life of the install. Detached: pruning month-old
+  // litter must never add latency to startup.
+  void pruneStaleTempFiles([moxxyHome(), moxxyPath('sessions')]).catch(() => {});
+
+  // Route outbound requests through the environment's proxy before any command
+  // can reach the network. Config can override this later (session setup
+  // re-applies once it is loaded); doing the env-only pass here covers the
+  // commands that never load a config but still fetch, such as `update` and
+  // `plugins search`. A no-op when no proxy is set, and `undici` is only
+  // imported when there is one.
+  await applyEgressSettings();
 
   // Reaching this point means the (possibly overlaid) core code imported
   // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
@@ -258,8 +353,8 @@ async function main(): Promise<number> {
     }
   });
 
-  const handler = COMMANDS[argv.command];
-  if (handler) return handler(argv);
+  const load = COMMANDS[argv.command];
+  if (load) return (await load())(argv);
 
   // Not a built-in. See if it names a registered channel — skip the
   // API-key prompt so a typo doesn't accidentally boot the provider.
@@ -277,6 +372,7 @@ async function main(): Promise<number> {
     // the provider. Activating it can hang or throw on hosts without a
     // configured key, which would mask the real "unknown command"
     // feedback.
+    const { probeSession } = await import('./setup.js');
     isChannel = await probeSession(
       {
         cwd: process.cwd(),
@@ -293,6 +389,7 @@ async function main(): Promise<number> {
   if (isChannel) {
     // Outside the try: any error from running the channel propagates
     // normally and is surfaced by the top-level .catch in main().then().
+    const { runChannelByName } = await import('./commands/run-channel.js');
     return await runChannelByName(argv.command, argv);
   }
 
@@ -304,15 +401,13 @@ async function main(): Promise<number> {
   if (hint) {
     process.stderr.write(
       colors.red(`channel not installed: ${argv.command}`) +
-        `\ninstall it with: ${colors.bold(`moxxy plugins install ${hint.id}`)}` +
-        `\n(or from the TUI: /plugins → Installable → ${hint.label})\n`,
+        `\ninstall it with: ${colors.bold(`moxxy extensions install ${hint.id}`)}` +
+        `\n(or from the TUI: /extensions → Available → ${hint.label})\n`,
     );
     return 2;
   }
 
-  process.stderr.write(
-    colors.red(`unknown command: ${argv.command}`) + '\n' + renderHelp(),
-  );
+  process.stderr.write(colors.red(`unknown command: ${argv.command}`) + '\n' + renderHelp());
   return 2;
 }
 

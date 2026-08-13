@@ -395,7 +395,11 @@ describe('subprocess hardening', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-abrt-'));
     const marker = path.join(dir, 'marker');
     try {
-      const iso = createSubprocessIsolator();
+      // Generous grace: the assertion is that a cooperative handler GETS to
+      // flush before the kill, not that 150 ms of wall clock is enough on a
+      // machine running the whole suite in parallel. With the default a child
+      // can spend the entire window just waiting to be scheduled.
+      const iso = createSubprocessIsolator({ abortGraceMs: 5_000 });
       const ctrl = new AbortController();
       const p = iso.run(
         baseCall('flushOnAbort', { marker }, {

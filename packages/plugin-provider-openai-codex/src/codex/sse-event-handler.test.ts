@@ -88,3 +88,102 @@ describe('handleSseEvent — hostile-stream bounds', () => {
     expect(pending.size).toBeLessThanOrEqual(1024);
   });
 });
+
+describe('handleSseEvent — in-band failures', () => {
+  // Verbatim frame the backend sends when it sheds load; it arrives inside a
+  // 200 SSE stream, so the HTTP-status classifier never sees it.
+  const overloaded = {
+    type: 'error',
+    error: {
+      type: 'service_unavailable_error',
+      code: 'server_is_overloaded',
+      message: 'Our servers are currently overloaded. Please try again later.',
+    },
+  } satisfies ResponsesSseEvent;
+
+  it('marks a server_is_overloaded error retryable so the turn survives a blip', () => {
+    const out = run(overloaded, false);
+    expect(out.terminal).toBe(true);
+    expect(out.events?.[0]).toEqual({
+      type: 'error',
+      message: 'Our servers are currently overloaded. Please try again later.',
+      retryable: true,
+    });
+  });
+
+  it('reads the failure out of response.failed, where it nests under response.error', () => {
+    const out = run(
+      {
+        type: 'response.failed',
+        response: {
+          status: 'failed',
+          error: { code: 'server_is_overloaded', message: 'Our servers are currently overloaded.' },
+        },
+      },
+      false,
+    );
+    expect(out.events?.[0]).toEqual({
+      type: 'error',
+      message: 'Our servers are currently overloaded.',
+      retryable: true,
+    });
+  });
+
+  it('retries the gateway internal fault, which arrives with no code and no type', () => {
+    const message =
+      'An error occurred while processing your request. You can retry your request, or contact us ' +
+      'through our help center at help.openai.com if the error persists. Please include the request ' +
+      'ID 1a3a7285-4738-42de-acb6-385fb334c4a5 in your message.';
+    const out = run(
+      {
+        type: 'response.failed',
+        response: { status: 'failed', error: { code: undefined, message } },
+      },
+      false,
+    );
+    expect(out.events?.[0]).toEqual({ type: 'error', message, retryable: true });
+  });
+
+  it('treats an explicit null code as unclassified, not as a code that failed to match', () => {
+    const out = run(
+      {
+        type: 'error',
+        // The wire shape: JSON `null`, which the declared `code?: string` hides.
+        error: { code: null, message: 'Please try again later.' } as unknown as {
+          code?: string;
+          message?: string;
+        },
+      },
+      false,
+    );
+    expect(out.events?.[0]).toMatchObject({ retryable: true });
+  });
+
+  it('keeps an unclassified failure fatal when its message claims nothing transient', () => {
+    const out = run(
+      { type: 'error', error: { message: 'Your prompt was rejected by content policy.' } },
+      false,
+    );
+    expect(out.events?.[0]).toMatchObject({ retryable: false });
+  });
+
+  it('keeps quota exhaustion fatal — retrying cannot clear it', () => {
+    const out = run(
+      {
+        type: 'error',
+        error: { type: 'usage_limit_error', code: 'usage_limit_reached', message: 'Limit reached.' },
+      },
+      false,
+    );
+    expect(out.events?.[0]).toMatchObject({ type: 'error', retryable: false });
+  });
+
+  it('keeps an unrecognised failure fatal rather than guessing', () => {
+    const out = run({ type: 'response.failed' }, false);
+    expect(out.events?.[0]).toEqual({
+      type: 'error',
+      message: 'Codex stream failed: response.failed',
+      retryable: false,
+    });
+  });
+});

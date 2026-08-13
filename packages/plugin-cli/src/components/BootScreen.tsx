@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { pickExamples, pickSlogan, selectLogo } from '../logo-data.js';
-import { Colors, Glyphs } from '../theme.js';
-import { LogoLine } from './LogoLine.js';
+import path from 'node:path';
+import { pickExamples } from '../logo-data.js';
+import { Border, Colors, Glyphs } from '../theme.js';
+import { terminalSafeText } from './terminal-text.js';
+import { Logo } from './Logo.js';
 
 /**
  * A single boot-progress event. Mirrors `BootStep` from
@@ -58,31 +60,34 @@ export interface BootScreenProps {
    * failing step's label surfaces above the message.
    */
   readonly error?: { readonly failedStep?: BootEventId; readonly message: string };
+  /** Project directory the ready session is scoped to. */
+  readonly workspace?: string;
+  /** Whether this boot is the user's first meaningful local run. */
+  readonly welcome?: boolean;
 }
 
-// Number of example prompts to surface on the boot screen. Two keeps
-// the panel tight while still hinting at breadth (the pool in
-// `logo-data.ts` spans coding, automation, webhooks, memory, …).
+// Number of core developer tasks to surface on the ready screen.
 const READY_EXAMPLE_COUNT = 2;
 
 /**
- * Full-screen boot panel: centered logo + slogan, with the live
- * checklist replaced by terse output:
- *   - during boot: nothing (just logo + slogan)
- *   - on error: red error block + the failing step
- *   - on ready: one short suggestion with the command token in white
+ * Workspace-first boot panel. The product shell is already visible while the
+ * runtime starts, then fills with the ready workspace and useful first tasks.
+ * Internal boot architecture stays hidden unless it fails.
  *
  * Stays mounted until the InteractiveSession flips to `phase === 'ready'`,
  * at which point the parent swaps in the steady-state layout.
  */
-export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error }) => {
+export const BootScreen: React.FC<BootScreenProps> = ({
+  events,
+  startedAt,
+  error,
+  workspace,
+  welcome = false,
+}) => {
   void startedAt;
-  const slogan = useMemo(() => pickSlogan(), []);
   // `pickExamples` is itself process-cached, so re-renders never
   // shuffle the picks; the useMemo is for clarity.
   const examples = useMemo(() => pickExamples(READY_EXAMPLE_COUNT), []);
-  const width = process.stdout.columns ?? 80;
-  const { lines } = selectLogo(width);
 
   const seen = new Map<BootEventId, BootEvent>();
   for (const e of events) seen.set(e.id, e);
@@ -90,40 +95,79 @@ export const BootScreen: React.FC<BootScreenProps> = ({ events, startedAt, error
     ? STEPS.find((s) => s.id === error.failedStep) ?? null
     : null;
   const ready = !error && STEPS.every((s) => seen.has(s.id));
+  // Branding belongs to the transient boot/empty state. Keep it visible on
+  // every startup while the runtime prepares, then retain it only for the
+  // first-run welcome so returning users land straight in their transcript.
+  const showLogo = !error && (!ready || welcome);
 
   return (
-    <Box flexDirection="column" alignItems="center" width="100%" marginTop={1}>
-      <Box flexDirection="column" alignItems="center">
-        {lines.map((line, i) => (
-          <LogoLine key={i} text={line} />
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor italic>{slogan}</Text>
-      </Box>
-
-      {error ? (
-        <Box flexDirection="column" marginTop={2} alignItems="center">
-          <Text color={Colors.danger}>
-            {Glyphs.filled} {failedStep?.label ?? 'boot failed'}
-          </Text>
-          <Text color={Colors.danger}>{error.message}</Text>
-          <Box marginTop={1}>
-            <Text dimColor>Run </Text>
-            <Text>moxxy init</Text>
-            <Text dimColor> in another terminal, then relaunch.</Text>
-          </Box>
-        </Box>
-      ) : ready ? (
-        <Box flexDirection="column" alignItems="flex-start" marginTop={2}>
-          {examples.map((example, i) => (
-            <Box key={i}>
-              <Text dimColor>{'›  '}</Text>
-              <Text>{example}</Text>
-            </Box>
-          ))}
-        </Box>
+    <Box flexDirection="column" width="100%">
+      {showLogo ? (
+        <Logo
+          compact
+          slogan="Your model. This workspace. Ready to work."
+        />
       ) : null}
+      <Box
+        flexDirection="column"
+        width="100%"
+        borderStyle={Border.style}
+        borderColor={Border.color}
+        borderDimColor={Border.dim}
+      >
+        <Box justifyContent="space-between" paddingX={1}>
+          <Box>
+            <Text color={error ? Colors.danger : Colors.busy}>{Glyphs.filled}</Text>
+            <Text bold>{ready && workspace ? ` ${workspaceLabel(workspace)}` : ' moxxy'}</Text>
+            <Text dimColor>{ready ? ' · workspace ready' : ' · preparing workspace'}</Text>
+          </Box>
+          <Text color={error ? Colors.danger : ready ? Colors.active : Colors.busy} bold>
+            {error ? 'START FAILED' : ready ? 'LOCAL' : 'STARTING'}
+          </Text>
+        </Box>
+
+        <Box flexDirection="column" paddingX={1} marginTop={1}>
+          {error ? (
+            <>
+              <Text color={Colors.danger} bold>
+                {failedStep?.label ?? 'Could not start this run'}
+              </Text>
+              <Text color={Colors.danger}>{error.message}</Text>
+              <Box marginTop={1}>
+                <Text dimColor>Run </Text>
+                <Text>moxxy doctor --check-keys</Text>
+                <Text dimColor> in another terminal, then retry.</Text>
+              </Box>
+            </>
+          ) : ready ? (
+            <>
+              <Text>
+                Start with a real task. Moxxy inspects first; actions stay reviewable.
+              </Text>
+              <Box marginTop={1}>
+                <Text dimColor>Try one</Text>
+              </Box>
+              {examples.map((example, index) => (
+                <Box key={index}>
+                  <Text color={Colors.busy}>{`${Glyphs.prompt}  `}</Text>
+                  <Text>{example}</Text>
+                </Box>
+              ))}
+            </>
+          ) : (
+            <Box>
+              <Text color={Colors.busy}>{Glyphs.pending}</Text>
+              <Text dimColor>{' Preparing your workspace…'}</Text>
+            </Box>
+          )}
+        </Box>
+      </Box>
     </Box>
   );
 };
+
+export function workspaceLabel(workspace: string): string {
+  const normalized = workspace.trim();
+  if (!normalized) return 'current project';
+  return terminalSafeText(path.basename(path.resolve(normalized)) || normalized, 40);
+}

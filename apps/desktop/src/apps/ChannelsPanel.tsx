@@ -16,91 +16,47 @@ import { Button, Icon, Skeleton, TextInput } from '@moxxy/desktop-ui';
 import type { ChannelDescriptor, ChannelEntry } from '@moxxy/desktop-ipc-contract';
 import { QrCode } from '../components/QrCode';
 
-export function ChannelsPanel(): JSX.Element {
-  const channels = useChannels();
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 24px 0' }}>
-        <Button variant="chip" onClick={() => void channels.refresh()} style={{ borderRadius: 9 }}>
-          <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          padding: '1.5rem 2rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-        }}
-      >
-        {channels.error && (
-          <p
-            role="alert"
-            style={{
-              margin: 0,
-              padding: '0.45rem 0.65rem',
-              border: '1px solid var(--color-pink)',
-              background: 'color-mix(in oklab, var(--color-pink) 12%, transparent)',
-              borderRadius: 'var(--radius-block)',
-              fontSize: '0.85rem',
-            }}
-          >
-            {channels.error}
-          </p>
-        )}
-        {channels.loading && channels.list.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <Skeleton.Card />
-            <Skeleton.Card />
-          </div>
-        ) : (
-          channels.list.map((entry) => (
-            <ChannelCard
-              key={entry.descriptor.id}
-              entry={entry}
-              onSaveConfig={channels.saveConfig}
-              onStart={channels.start}
-              onStop={channels.stop}
-            />
-          ))
-        )}
-      </div>
-    </>
-  );
+/** The one state a channel reports, in the order that matters to a reader:
+ *  broken first, then live, then ready, then untouched. Shared with the index
+ *  column so a channel's LED means the same thing in the list and on its page. */
+export function ledState(entry: ChannelEntry): 'failed' | 'running' | 'done' | undefined {
+  if (entry.status.error) return 'failed';
+  if (entry.status.running) return entry.status.connected === false ? undefined : 'running';
+  if (entry.status.configured) return 'done';
+  return undefined;
 }
 
-/** Status dot color: green running · red errored · grey configured-idle · faint
- *  when not yet configured. */
-function statusColor(entry: ChannelEntry): string {
-  if (entry.status.running) return 'var(--color-green)';
-  if (entry.status.error) return 'var(--color-pink)';
-  if (entry.status.configured) return 'var(--color-text-dim)';
-  return 'var(--color-border)';
+export function statusLabel(entry: ChannelEntry): string {
+  if (entry.status.error) return 'stopped · error';
+  if (entry.status.running) return entry.status.connected === false ? 'pairing' : 'running';
+  if (entry.status.configured) return 'configured';
+  return 'not configured';
 }
 
-function statusLabel(entry: ChannelEntry): string {
-  if (entry.status.running) return 'Running';
-  if (entry.status.error) return 'Stopped (error)';
-  if (entry.status.configured) return 'Configured';
-  return 'Not configured';
+/** The subset of `useChannels()` a page acts through. Named as the hook names
+ *  them so the surface can pass the hook itself. */
+export interface ChannelHandlers {
+  readonly saveConfig: (id: string, values: Record<string, string>) => Promise<void>;
+  readonly start: (id: string) => Promise<void>;
+  readonly stop: (id: string) => Promise<void>;
 }
 
-function ChannelCard({
-  entry,
-  onSaveConfig,
-  onStart,
-  onStop,
-}: {
-  readonly entry: ChannelEntry;
-  readonly onSaveConfig: (id: string, values: Record<string, string>) => Promise<void>;
-  readonly onStart: (id: string) => Promise<void>;
-  readonly onStop: (id: string) => Promise<void>;
-}): JSX.Element {
+export interface ChannelPageState {
+  readonly configuring: boolean;
+  readonly toggleConfiguring: () => void;
+  readonly values: Record<string, string>;
+  readonly setField: (name: string, v: string) => void;
+  readonly busy: boolean;
+  readonly save: () => Promise<void>;
+  readonly toggleRun: () => Promise<void>;
+}
+
+/**
+ * One channel's editing state, owned ABOVE the page so the surface can put the
+ * page's actions in the instrument bar while the form stays in the pane. Both
+ * halves need `configuring`, and the two must never disagree about it.
+ */
+export function useChannelPage(entry: ChannelEntry, handlers: ChannelHandlers): ChannelPageState {
   const { descriptor, status } = entry;
   // Open the config form by default when nothing is stored yet.
   const [configuring, setConfiguring] = useState(!status.configured);
@@ -112,7 +68,7 @@ function ChannelCard({
   const save = async (): Promise<void> => {
     setBusy(true);
     try {
-      await onSaveConfig(descriptor.id, values);
+      await handlers.saveConfig(descriptor.id, values);
       setValues({}); // don't retain secrets in renderer memory
       setConfiguring(false);
     } catch {
@@ -125,8 +81,8 @@ function ChannelCard({
   const toggleRun = async (): Promise<void> => {
     setBusy(true);
     try {
-      if (status.running) await onStop(descriptor.id);
-      else await onStart(descriptor.id);
+      if (status.running) await handlers.stop(descriptor.id);
+      else await handlers.start(descriptor.id);
     } catch {
       /* error surfaced via the hook's error state */
     } finally {
@@ -134,106 +90,117 @@ function ChannelCard({
     }
   };
 
+  return {
+    configuring,
+    toggleConfiguring: () => setConfiguring((v) => !v),
+    values,
+    setField,
+    busy,
+    save,
+    toggleRun,
+  };
+}
+
+/** The channel's controls, rendered into the instrument bar by the surface. */
+export function ChannelActions({
+  entry,
+  state,
+}: {
+  readonly entry: ChannelEntry;
+  readonly state: ChannelPageState;
+}): JSX.Element {
+  const { descriptor, status } = entry;
+  return (
+    <>
+      <Button
+        variant="secondary"
+        onClick={state.toggleConfiguring}
+        data-testid={`channel-configure-${descriptor.id}`}
+      >
+        {state.configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
+      </Button>
+      <Button
+        variant={status.running ? 'secondary' : 'cta'}
+        onClick={() => void state.toggleRun()}
+        disabled={state.busy || (!status.running && !status.configured)}
+        data-testid={`channel-toggle-${descriptor.id}`}
+      >
+        <Icon name={status.running ? 'stop' : 'spark'} size={12} />
+        {status.running ? 'Stop' : 'Start'}
+      </Button>
+    </>
+  );
+}
+
+export function ChannelPage({
+  entry,
+  state,
+}: {
+  readonly entry: ChannelEntry;
+  readonly state: ChannelPageState;
+}): JSX.Element {
+  const { descriptor, status } = entry;
+  const { configuring, values, setField, busy, save } = state;
+
   return (
     <div
       data-testid={`channel-row-${descriptor.id}`}
-      style={{
-        padding: '0.85rem 1rem',
-        background: 'var(--color-bg-card)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-block)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.6rem',
-      }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-20)' }}
     >
-      {/* Header: icon · name + status · run/configure controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-        <Icon name="chat" size={18} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{descriptor.name}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <span
-                aria-hidden
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: statusColor(entry),
-                }}
-              />
-              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
-                {statusLabel(entry)}
-              </span>
-            </span>
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
-            {descriptor.description}
-          </div>
+      {/* The page IS the channel, so its name is the page's head, not a card's.
+          This was a bordered panel wrapping a bordered panel wrapping the fields
+          — three nested boxes for one form. */}
+      <header style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)' }}>
+          <span style={{ fontSize: 'var(--type-section)', fontWeight: 600, letterSpacing: '-0.01em' }}>
+            {descriptor.name}
+          </span>
+          <span className="led" data-state={ledState(entry)} aria-hidden />
+          <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
+            {statusLabel(entry)}
+          </span>
         </div>
-        <Button
-          variant="chip"
-          onClick={() => setConfiguring((v) => !v)}
-          style={{ borderRadius: 9 }}
-          data-testid={`channel-configure-${descriptor.id}`}
+        <p
+          className="prose"
+          style={{ margin: 0, maxWidth: '62ch', fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}
         >
-          {configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
-        </Button>
-        <Button
-          variant={status.running ? 'secondary' : 'cta'}
-          onClick={() => void toggleRun()}
-          disabled={busy || (!status.running && !status.configured)}
-          style={{ borderRadius: 9 }}
-          data-testid={`channel-toggle-${descriptor.id}`}
-        >
-          <Icon name={status.running ? 'stop' : 'spark'} size={14} />
-          {status.running ? 'Stop' : 'Start'}
-        </Button>
-      </div>
+          {descriptor.description}
+        </p>
+      </header>
 
-      {/* Config form */}
       {configuring && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-            padding: '10px 12px',
-            background: 'var(--color-card-bg)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
-          }}
-        >
-          {descriptor.configFields.map((f) => (
-            <label key={f.name} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                {f.label}
-                {f.required ? '' : ' (optional)'}
-              </span>
-              <TextInput
-                type={f.type === 'password' ? 'password' : 'text'}
-                value={values[f.name] ?? ''}
-                onChange={(e) => setField(f.name, e.target.value)}
-                placeholder={
-                  f.placeholder ?? (status.configured ? 'Stored — leave blank to keep' : '')
-                }
-                style={{ width: '100%', fontSize: 13, borderRadius: 9 }}
-              />
-              {f.help && (
-                <span style={{ fontSize: '0.7rem', color: 'var(--color-text-dim)' }}>{f.help}</span>
-              )}
-            </label>
-          ))}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button
-              variant="cta"
-              onClick={() => void save()}
-              disabled={busy || Object.values(values).every((v) => !v.trim())}
-              style={{ borderRadius: 9, padding: '7px 14px', fontSize: 12.5 }}
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </Button>
+        <div>
+          <div className="section-head">setup</div>
+          <div className="form">
+            {descriptor.configFields.map((f) => (
+              <label key={f.name} className="form__field">
+                <span className="form__label">
+                  {f.label}
+                  {f.required ? '' : <small>optional</small>}
+                </span>
+                <TextInput
+                  tone="soft"
+                  mono={f.type === 'password'}
+                  type={f.type === 'password' ? 'password' : 'text'}
+                  value={values[f.name] ?? ''}
+                  onChange={(e) => setField(f.name, e.target.value)}
+                  placeholder={
+                    f.placeholder ?? (status.configured ? 'Stored — leave blank to keep' : '')
+                  }
+                  style={{ width: '100%' }}
+                />
+                {f.help && <span className="form__hint">{f.help}</span>}
+              </label>
+            ))}
+            <div className="form__acts">
+              <Button
+                variant="cta"
+                onClick={() => void save()}
+                disabled={busy || Object.values(values).every((v) => !v.trim())}
+              >
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -248,7 +215,7 @@ function ChannelCard({
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            fontSize: '0.78rem',
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-green)',
           }}
         >
@@ -260,7 +227,7 @@ function ChannelCard({
       ) : (
         status.running &&
         descriptor.runHint && (
-          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
             {descriptor.runHint}
           </div>
         )
@@ -269,7 +236,7 @@ function ChannelCard({
         <div
           role="alert"
           className="mono"
-          style={{ fontSize: '0.72rem', color: 'var(--color-pink)', whiteSpace: 'pre-wrap' }}
+          style={{ fontSize: 'var(--type-meta)', color: 'var(--color-pink)', whiteSpace: 'pre-wrap' }}
         >
           {status.error}
         </div>
@@ -297,7 +264,7 @@ function ConnectStep({
           style={{
             margin: 0,
             paddingLeft: '1.1rem',
-            fontSize: '0.78rem',
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-text-dim)',
           }}
         >
@@ -313,7 +280,7 @@ function ConnectStep({
   // 'qr' and 'url' both render a runtime value; until it resolves, show a hint.
   if (!url) {
     return (
-      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+      <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
         {connect.kind === 'qr'
           ? 'Connecting — the link will appear here once the bot is reachable…'
           : 'Opening the proxy tunnel — the Request URL will appear here…'}
@@ -343,7 +310,7 @@ function ConnectStep({
 
 function ConnectTitle({ children }: { readonly children: string }): JSX.Element {
   return (
-    <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text)' }}>
+    <span style={{ fontSize: 'var(--type-meta)', fontWeight: 600, color: 'var(--color-text)' }}>
       {children}
     </span>
   );
@@ -370,7 +337,7 @@ function ConnectUrlRow({
         padding: '6px 8px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 9,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       <span
@@ -379,7 +346,7 @@ function ConnectUrlRow({
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: '0.72rem',
+          fontSize: 'var(--type-meta)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
@@ -391,7 +358,7 @@ function ConnectUrlRow({
         <Button
           variant="chip"
           onClick={() => void api().invoke('onboarding.openExternal', { url })}
-          style={{ borderRadius: 9 }}
+          style={{ borderRadius: 'var(--radius-block)' }}
           data-testid="channel-connect-open"
         >
           <Icon name="globe" size={14} />
@@ -405,7 +372,7 @@ function ConnectUrlRow({
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        style={{ borderRadius: 9 }}
+        style={{ borderRadius: 'var(--radius-block)' }}
       >
         <Icon name={copied ? 'check' : 'copy'} size={14} />
         {copied ? 'Copied' : 'Copy'}

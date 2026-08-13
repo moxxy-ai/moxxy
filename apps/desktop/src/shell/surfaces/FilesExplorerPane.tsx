@@ -101,7 +101,7 @@ export function FilesExplorerPane({
             title={selected.label}
             style={{
               padding: '6px 10px',
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text-muted)',
               borderBottom: '1px solid var(--color-card-border)',
               whiteSpace: 'nowrap',

@@ -72,16 +72,32 @@ export function resolveActiveSessionShell({
   }
 
   return {
-    needsInitialSplash: true,
-    phase: { phase: 'idle' },
+    // The host can already serve desk metadata + persisted chat history while
+    // the selected runner is still being prepared. Keep the shell visible and
+    // model the missing first snapshot as an ordinary loading phase.
+    needsInitialSplash: false,
+    phase: SELECTED_SESSION_LOADING_PHASE,
     connected: false,
-    sessionLoading: false,
+    sessionLoading: true,
   };
+}
+
+export function shouldShowBlockingConnectionScreen(
+  shell: ActiveSessionShell,
+  hasEverConnected: boolean,
+): boolean {
+  return !shell.connected && !hasEverConnected && !shell.sessionLoading;
 }
 
 export function shouldShowProviderRecovery(
   phase: ConnectionPhase,
   sessionLoading: boolean,
+  dismissed = false,
 ): boolean {
-  return phase.phase === 'connected' && phase.activeProvider === null && !sessionLoading;
+  return (
+    !dismissed &&
+    phase.phase === 'connected' &&
+    phase.activeProvider === null &&
+    !sessionLoading
+  );
 }

@@ -26,9 +26,11 @@ page link to it; the rest are summarized here.
 | Package | What it is |
 |---|---|
 | [`@moxxy/mode-default`](/packages/mode-default/) | Claude Code-style ReAct loop; the default mode. |
+| [`@moxxy/mode-plan`](/packages/mode-plan/) | Read-only analysis + structured, revisable execution plans. |
 | [`@moxxy/mode-goal`](/packages/mode-goal/) | Autonomous auto-approve loop; runs across turns until `goal_complete`. |
 | [`@moxxy/mode-deep-research`](/packages/mode-deep-research/) | Multi-query fan-out + cited synthesis. |
-| `@moxxy/compactor-summarize` | Default summarize-old-turns context compactor. |
+| `@moxxy/compactor-segments` | Default sub-session compactor: bounded episode records + `session_recall`. |
+| `@moxxy/compactor-summarize` | Protected summarize-old-turns fallback compactor. |
 | `@moxxy/cache-strategy-stable-prefix` | Default prompt-cache strategy (deterministic stable-prefix breakpoints). |
 
 ## Providers

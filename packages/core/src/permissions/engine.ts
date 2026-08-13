@@ -1,6 +1,7 @@
 import { createMutex, type Mutex, type PendingToolCall, type PermissionDecision } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { PRIVATE_FILE_MODE, writeFileAtomic } from '@moxxy/sdk/server';
 import { promises as fs } from 'node:fs';
+import { posix } from 'node:path';
 import { z } from 'zod';
 
 /**
@@ -26,20 +27,37 @@ export interface PolicyRule {
    * because a glob is a whole-name convention, not an author-supplied regex.)
    */
   readonly inputMatches?: Record<string, string>;
+  /**
+   * Field name to path PREFIX. Anchored and path-aware, unlike
+   * {@link inputMatches}: `{ path: '/srv/app' }` matches `/srv/app/x` but not
+   * `/srv/apple` and not `/tmp/srv/app`.
+   *
+   * Exists because the unanchored regex above is a trap for whoever writes an
+   * organisation's policy. The obvious `{ Read: { path: '/etc' } }` reads like
+   * "under /etc" and actually means "contains /etc anywhere", which as a DENY
+   * rule over-blocks and as an ALLOW rule grants far more than intended. Paths
+   * are normalised before comparison, so `..` cannot walk out of the prefix.
+   */
+  readonly inputPathPrefix?: Record<string, string>;
+  /**
+   * Field name to a glob, anchored whole-value. `*` matches within a path
+   * segment, `**` across segments, `?` one character.
+   */
+  readonly inputGlob?: Record<string, string>;
   readonly reason?: string;
 }
 
+const policyRuleSchema = z.object({
+  name: z.string(),
+  inputMatches: z.record(z.string(), z.string()).optional(),
+  inputPathPrefix: z.record(z.string(), z.string()).optional(),
+  inputGlob: z.record(z.string(), z.string()).optional(),
+  reason: z.string().optional(),
+});
+
 export const permissionPolicySchema = z.object({
-  allow: z.array(z.object({
-    name: z.string(),
-    inputMatches: z.record(z.string(), z.string()).optional(),
-    reason: z.string().optional(),
-  })).default([]),
-  deny: z.array(z.object({
-    name: z.string(),
-    inputMatches: z.record(z.string(), z.string()).optional(),
-    reason: z.string().optional(),
-  })).default([]),
+  allow: z.array(policyRuleSchema).default([]),
+  deny: z.array(policyRuleSchema).default([]),
 });
 
 export type PermissionPolicy = z.infer<typeof permissionPolicySchema>;
@@ -115,10 +133,55 @@ export class PermissionEngine {
     }
   }
 
+  /**
+   * Rules from CONFIG, which the mutators never touch and `save()` never
+   * writes. When they come from the system scope (with the path in `locked:`)
+   * they are the operator's policy, and the point is that a user cannot get rid
+   * of them: not by editing `~/.moxxy/permissions.json`, not by answering
+   * "allow always", not by deleting the file.
+   */
+  private immutable: PermissionPolicy = emptyPolicy;
+
+  /**
+   * Install the config-supplied layer. Separate from `policy` because the two
+   * have different owners and different lifetimes: this one is re-derived from
+   * config on every boot, the other is a user file the agent writes to.
+   */
+  setImmutableRules(rules: PermissionPolicy): void {
+    this.immutable = rules;
+  }
+
+  /** The config-supplied layer currently in force. */
+  getImmutableRules(): PermissionPolicy {
+    return this.immutable;
+  }
+
+  /**
+   * Decision order, and each step is load-bearing:
+   *   1. immutable deny:  the operator's policy wins over everything.
+   *   2. file deny:       the user's own standing denials.
+   *   3. immutable allow: an operator-granted exception.
+   *   4. file allow:      "allow always" answers.
+   *
+   * Deny always precedes allow within a layer, and the immutable layer always
+   * precedes the file. Checking the file first would let an "allow always"
+   * answer, which the agent itself can provoke, silently defeat a rule the
+   * operator pushed.
+   */
   check(call: PendingToolCall): PermissionDecision | null {
+    for (const rule of this.immutable.deny) {
+      if (matchRule(rule, call, 'deny')) {
+        return { mode: 'deny', reason: rule.reason ?? `Denied by managed policy: ${rule.name}` };
+      }
+    }
     for (const rule of this.policy.deny) {
       if (matchRule(rule, call, 'deny')) {
         return { mode: 'deny', reason: rule.reason ?? `Denied by policy: ${rule.name}` };
+      }
+    }
+    for (const rule of this.immutable.allow) {
+      if (matchRule(rule, call, 'allow')) {
+        return { mode: 'allow', reason: rule.reason ?? `Allowed by managed policy: ${rule.name}` };
       }
     }
     for (const rule of this.policy.allow) {
@@ -173,7 +236,11 @@ export class PermissionEngine {
 
   private async persist(): Promise<void> {
     if (!this.policyPath) return;
-    await writeFileAtomic(this.policyPath, JSON.stringify(this.policy, null, 2));
+    // The policy IS the security control. Owner-only: another local account
+    // must not be able to read which tools this user has standing grants for.
+    await writeFileAtomic(this.policyPath, JSON.stringify(this.policy, null, 2), {
+      mode: PRIVATE_FILE_MODE,
+    });
   }
 
   get policySnapshot(): PermissionPolicy {
@@ -230,7 +297,92 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
       if (!re.test(candidate)) return false;
     }
   }
+  if (rule.inputPathPrefix) {
+    const input = call.input as Record<string, unknown> | null;
+    if (!input || typeof input !== 'object') return false;
+    for (const [k, prefix] of Object.entries(rule.inputPathPrefix)) {
+      if (!pathHasPrefix(stringifyCandidate(input[k]), prefix)) return false;
+    }
+  }
+  if (rule.inputGlob) {
+    const input = call.input as Record<string, unknown> | null;
+    if (!input || typeof input !== 'object') return false;
+    for (const [k, glob] of Object.entries(rule.inputGlob)) {
+      const re = compileGlob(glob);
+      if (re === null) {
+        // An uncompilable glob fails the same way a bad regex does: a deny
+        // still denies, an allow does not grant.
+        if (intent === 'deny') continue;
+        return false;
+      }
+      if (!re.test(stringifyCandidate(input[k]))) return false;
+    }
+  }
   return true;
+}
+
+/**
+ * Whether `candidate` sits at or under `prefix`, comparing path SEGMENTS.
+ *
+ * `/srv/app` must cover `/srv/app` and `/srv/app/x` but never `/srv/apple`, and
+ * `..` must not walk out: `path.normalize` collapses the traversal before the
+ * comparison, so `/srv/app/../../etc/passwd` is rejected. A relative candidate
+ * is resolved against nothing, so it can only match a relative prefix, which is
+ * the conservative reading.
+ */
+function pathHasPrefix(candidate: string, prefix: string): boolean {
+  if (prefix.length === 0) return false;
+  const c = normalizePath(candidate);
+  const p = normalizePath(prefix);
+  if (c === p) return true;
+  return c.startsWith(p.endsWith('/') ? p : `${p}/`);
+}
+
+function normalizePath(value: string): string {
+  // posix semantics on every platform: policies are written once and shipped to
+  // a fleet, so a rule must not mean different things on Windows.
+  const normalized = posix.normalize(value.replace(/\\/g, '/'));
+  return normalized.length > 1 && normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+}
+
+/**
+ * Anchored glob to RegExp. `**` crosses path separators, `*` does not, `?` is
+ * one non-separator character. Everything else is escaped, so a glob can never
+ * smuggle in regex syntax.
+ */
+const globCache = new Map<string, RegExp | null>();
+
+function compileGlob(glob: string): RegExp | null {
+  const cached = globCache.get(glob);
+  if (cached !== undefined) return cached;
+  let out = '';
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i]!;
+    if (ch === '*') {
+      if (glob[i + 1] === '*') {
+        out += '.*';
+        i++;
+      } else {
+        out += '[^/]*';
+      }
+    } else if (ch === '?') {
+      out += '[^/]';
+    } else {
+      out += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  let compiled: RegExp | null;
+  try {
+    compiled = new RegExp(`^${out}$`);
+  } catch {
+    compiled = null;
+  }
+  if (globCache.size >= MAX_REGEX_CACHE) {
+    const oldest = globCache.keys().next().value;
+    if (oldest !== undefined) globCache.delete(oldest);
+  }
+  globCache.set(glob, compiled);
+  return compiled;
 }
 
 /**

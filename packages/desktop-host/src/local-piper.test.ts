@@ -69,10 +69,12 @@ describe('Local Piper package probe', () => {
 describe('Local Piper installer', () => {
   it('installs, enables and selects only the fixed Local Piper contribution', async () => {
     const run = vi.fn(async () => undefined);
-    const install = createLocalPiperInstaller(run);
+    const repairManifest = vi.fn(async () => undefined);
+    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
 
     await install();
 
+    expect(repairManifest).toHaveBeenCalledTimes(1);
     expect(run.mock.calls).toEqual([
       [['plugins', 'install', LOCAL_PIPER_PACKAGE]],
       [['plugins', 'enable', LOCAL_PIPER_PACKAGE]],
@@ -86,7 +88,8 @@ describe('Local Piper installer', () => {
       release = resolve;
     });
     const run = vi.fn(async () => gate);
-    const install = createLocalPiperInstaller(run);
+    const repairManifest = vi.fn(async () => undefined);
+    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
 
     const first = install();
     const second = install();
@@ -95,6 +98,23 @@ describe('Local Piper installer', () => {
 
     release?.();
     await Promise.all([first, second]);
+    expect(repairManifest).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it('repairs the plugin ledger before npm install and stops on repair failure', async () => {
+    const calls: string[] = [];
+    const run = vi.fn(async () => {
+      calls.push('install');
+    });
+    const repairManifest = vi.fn(async () => {
+      calls.push('repair');
+      throw new Error('manifest could not be repaired');
+    });
+    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
+
+    await expect(install()).rejects.toThrow('manifest could not be repaired');
+    expect(calls).toEqual(['repair']);
+    expect(run).not.toHaveBeenCalled();
   });
 });

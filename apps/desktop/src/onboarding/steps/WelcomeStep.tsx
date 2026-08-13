@@ -4,8 +4,8 @@
  * ONBOARDING_STEPS); no gating logic of its own.
  */
 
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { Icon } from '@moxxy/desktop-ui';
-import { asset } from '@/lib/asset';
 import { PrimaryButton } from '../chrome';
 
 export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.Element {
@@ -13,22 +13,16 @@ export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.El
     <div
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18 }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden
-        className="moxxy-avatar-loader"
-        style={{ width: 220, height: 'auto', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={220} className="moxxy-avatar-loader" />
       <div>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>
+        <h2 style={{ margin: 0, fontSize: 'var(--type-display)', fontWeight: 700 }}>
           Hi, I&rsquo;m <span style={{ color: 'var(--color-primary-strong)' }}>Moxxy</span>.
         </h2>
         <p
           style={{
             margin: '8px 0 0',
             color: 'var(--color-text-muted)',
-            fontSize: 14,
+            fontSize: 'var(--type-ui)',
             lineHeight: 1.6,
           }}
         >

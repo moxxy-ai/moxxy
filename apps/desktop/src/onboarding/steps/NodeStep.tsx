@@ -49,10 +49,10 @@ export function NodeStep({
               style={{
                 margin: 0,
                 padding: 10,
-                background: '#0f172a',
+                background: '#0b0d12',
                 color: '#e2e8f0',
-                borderRadius: 10,
-                fontSize: 11,
+                borderRadius: 'var(--radius-block)',
+                fontSize: 'var(--type-meta)',
                 maxHeight: 180,
                 overflow: 'auto',
                 whiteSpace: 'pre-wrap',
@@ -68,14 +68,14 @@ export function NodeStep({
             padding: '16px 18px',
             background: 'var(--color-card-bg)',
             border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
+            borderRadius: 'var(--radius-card)',
             display: 'flex',
             flexDirection: 'column',
             gap: 12,
           }}
         >
           {error && (
-            <div role="alert" style={{ fontSize: 12.5, color: 'var(--color-red)' }}>
+            <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
               {error}
             </div>
           )}

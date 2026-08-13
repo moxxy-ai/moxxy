@@ -147,7 +147,7 @@ export function OAuthSignIn({
 
       {phase === 'done' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--color-green, #16a34a)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-green, #16a34a)' }}>
             Signed in to {provider}.
           </p>
           <Button onClick={() => void start()}>Re-link {provider}</Button>
@@ -156,7 +156,7 @@ export function OAuthSignIn({
 
       {(phase === 'running' || phase === 'error') && prompt && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label style={{ fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          <label style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
             {prompt.question}
           </label>
           {offersBrowser && (
@@ -190,7 +190,7 @@ export function OAuthSignIn({
 
       {phase === 'running' && !prompt && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <p style={{ margin: 0, flex: 1, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          <p style={{ margin: 0, flex: 1, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
             Opening your browser — complete the sign-in there…
           </p>
           <Button onClick={() => void cancel()}>Cancel sign-in</Button>
@@ -199,7 +199,7 @@ export function OAuthSignIn({
 
       {error && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <p role="alert" style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
           {phase === 'error' && (
@@ -214,10 +214,10 @@ export function OAuthSignIn({
           style={{
             margin: 0,
             padding: 10,
-            background: '#0f172a',
+            background: '#0b0d12',
             color: '#e2e8f0',
-            borderRadius: 10,
-            fontSize: 11,
+            borderRadius: 'var(--radius-block)',
+            fontSize: 'var(--type-meta)',
             maxHeight: 140,
             overflow: 'auto',
             whiteSpace: 'pre-wrap',

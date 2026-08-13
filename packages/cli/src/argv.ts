@@ -28,6 +28,14 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'stop',
   'status',
   'background',
+  'allow-scripts',
+  'list',
+  'check',
+  'json',
+  'dry-run',
+  'advanced',
+  'no-service',
+  'reinit',
 ]);
 
 /**

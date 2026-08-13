@@ -1,5 +1,110 @@
 # @moxxy/workspace-registry
 
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/core@0.37.2
+  - @moxxy/desktop-ipc-contract@0.14.20
+
+## 0.2.31
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/core@0.37.1
+  - @moxxy/desktop-ipc-contract@0.14.19
+
+## 0.2.30
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/core@0.37.0
+  - @moxxy/desktop-ipc-contract@0.14.18
+
+## 0.2.29
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+- @moxxy/core@0.36.1
+- @moxxy/desktop-ipc-contract@0.14.17
+
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/core@0.36.0
+  - @moxxy/desktop-ipc-contract@0.14.16
+
+## 0.2.27
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/core@0.35.4
+- @moxxy/desktop-ipc-contract@0.14.15
+
+## 0.2.26
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/core@0.35.3
+- @moxxy/desktop-ipc-contract@0.14.14
+
+## 0.2.25
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/core@0.35.2
+- @moxxy/desktop-ipc-contract@0.14.13
+
+## 0.2.24
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/core@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+
+## 0.2.23
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/core@0.35.0
+  - @moxxy/desktop-ipc-contract@0.14.11
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/core@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/desktop-ipc-contract@0.14.10
+
 ## 0.2.21
 
 ### Patch Changes

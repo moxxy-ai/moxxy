@@ -12,13 +12,15 @@ import {
   resolveCatalogEntry,
   resolveCatalogPackageName,
   resolveInstallSource,
+  isInstallPolicy,
+  type InstallPolicy,
   searchInstallablePlugins,
   setCategoryDefault,
   setPluginEnabled,
   undeclaredToolsWarning,
   type InstallCapabilityReport,
 } from '@moxxy/plugin-plugins-admin';
-import { isFirstPartyPackage } from '@moxxy/sdk';
+import { hostCredentialName, isFirstPartyPackage } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { argvToSetupOptions, bootSession, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { probeSession } from '../setup.js';
@@ -29,36 +31,43 @@ import { colors } from '../colors.js';
 import { cliVersion } from '../version.js';
 import { formatHelp } from './help-format.js';
 
-const HELP = formatHelp({
-  title: 'moxxy plugins',
-  tagline: 'install, enable/disable, and manage plugins',
-  sections: [
-    {
-      title: 'COMMANDS',
-      rows: [
-        ['list', 'list loaded + disabled plugins and the install catalog'],
-        ['search <query>', 'search npm + catalog for installable plugins'],
-        [
-          'install <spec> [--version v] [--ref r] [--yes]',
-          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting)',
-        ],
-        ['remove <pkg>', 'uninstall a plugin package'],
-        ['enable <pkg>', 'enable (plug in) a plugin'],
-        ['disable <pkg>', 'disable (unplug) a plugin — kept installed'],
-        ['defaults', 'show each category’s active default + swappable options'],
-        ['set-default <category> <name>', 'swap a category default (e.g. provider openai)'],
-        ['open <id>', 'show how to open a UI plugin'],
-        ['reload', 'rescan discovery roots and hot-reload'],
-        ['new <name> [--here]', 'scaffold a new user-scope plugin'],
-      ],
-    },
+const COMMAND_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ['list', 'list loaded + disabled extensions and the install catalog'],
+  ['search <query>', 'search npm + catalog for installable extensions'],
+  [
+    'install <spec> [--version v] [--ref r] [--yes] [--allow-scripts]',
+    'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting; --allow-scripts: permit the package’s npm install hooks to run, needed only by native modules, off by default)',
   ],
-});
+  ['remove <pkg>', 'uninstall an extension package'],
+  ['enable <pkg>', 'enable an installed extension'],
+  ['disable <pkg>', 'disable an extension but keep it installed'],
+  ['open <id>', 'show how to open a UI extension'],
+  ['new <name> [--here]', 'scaffold a new user-scope extension'],
+  ['defaults', 'advanced: show each runtime category’s active default + options'],
+  ['set-default <category> <name>', 'advanced: change a runtime category default'],
+  ['reload', 'advanced: rescan discovery roots and hot-reload'],
+];
+
+function helpFor(command: string): string {
+  const extensions = command === 'extensions';
+  return formatHelp({
+    title: extensions ? 'moxxy extensions' : 'moxxy plugins',
+    tagline: extensions
+      ? 'add, remove, enable, or inspect optional capabilities'
+      : 'author-level extension package and runtime management',
+    sections: [
+      {
+        title: 'COMMANDS',
+        rows: COMMAND_ROWS,
+      },
+    ],
+  });
+}
 
 export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0] ?? 'list';
   if (sub === 'help' || helpRequested(argv)) {
-    process.stdout.write(HELP);
+    process.stdout.write(helpFor(argv.command));
     return 0;
   }
   switch (sub) {
@@ -87,7 +96,7 @@ export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
     case 'open':
       return runOpen(argv);
     default:
-      printError(`unknown 'plugins' subcommand: ${sub}\n${HELP}`);
+      printError(`unknown '${argv.command}' subcommand: ${sub}\n${helpFor(argv.command)}`);
       return 2;
   }
 }
@@ -117,7 +126,7 @@ async function runList(argv: ParsedArgv): Promise<number> {
   if (disabled.size > 0) {
     process.stdout.write(colors.bold('\nDisabled\n'));
     for (const name of disabled) {
-      process.stdout.write(`  ${name.padEnd(nameCol)}  ${colors.dim('(enable with: moxxy plugins enable ' + name + ')')}\n`);
+      process.stdout.write(`  ${name.padEnd(nameCol)}  ${colors.dim('(enable with: moxxy extensions enable ' + name + ')')}\n`);
     }
   }
   if (INSTALLABLE_PLUGIN_CATALOG.length > 0) {
@@ -133,13 +142,13 @@ async function runList(argv: ParsedArgv): Promise<number> {
 async function runSearch(argv: ParsedArgv): Promise<number> {
   const query = argv.positional.slice(1).join(' ').trim();
   if (!query) {
-    printError('plugins search requires a query, e.g. `moxxy plugins search notion`');
+    printError('extensions search requires a query, e.g. `moxxy extensions search notion`');
     return 2;
   }
   try {
     const results = await searchInstallablePlugins(query);
     if (results.length === 0) {
-      process.stdout.write(colors.dim(`no plugins found for "${query}"\n`));
+      process.stdout.write(colors.dim(`no extensions found for "${query}"\n`));
       return 0;
     }
     const nameCol = Math.max(8, ...results.map((r) => r.name.length));
@@ -150,7 +159,7 @@ async function runSearch(argv: ParsedArgv): Promise<number> {
           (r.description ? `  ${colors.dim(r.description)}\n` : ''),
       );
     }
-    process.stdout.write(colors.dim('\ninstall with: moxxy plugins install <name>\n'));
+    process.stdout.write(colors.dim('\ninstall with: moxxy extensions install <name>\n'));
     return 0;
   } catch (err) {
     printError(errorMessage(err));
@@ -172,7 +181,7 @@ async function runReload(argv: ParsedArgv): Promise<number> {
 async function runInstall(argv: ParsedArgv): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins install requires a catalog id, npm package, GitHub spec, or path');
+    printError('extensions install requires a catalog id, npm package, GitHub spec, or path');
     return 2;
   }
   const version = stringFlag(argv, 'version');
@@ -183,10 +192,16 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
   // maintainer key is unprovisioned) — a signed entry contributes its exact,
   // signature-covered version as the pin. Pin precedence:
   // user --version > signed index > cliVersion lockstep > latest.
+  // Config decides both the source (an internal mirror) and the policy. Read
+  // through a probe so the system scope's pin applies, not just the env var.
+  const policyCfg = await readInstallConfig(argv);
   const resolved =
     version || ref
       ? undefined
-      : await resolveInstallSource(target);
+      : await resolveInstallSource(target, {
+          ...(policyCfg.registryUrl ? { url: policyCfg.registryUrl } : {}),
+          ...(policyCfg.token ? { token: policyCfg.token } : {}),
+        });
   const spec =
     resolved?.spec ??
     buildInstallSpec({
@@ -199,10 +214,23 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     // Bare first-party specs pin to the CLI version (co-published via the
     // fixed changeset group); a pin that 404s retries latest with a warning.
     // Explicit --version/--ref specs pass through untouched.
+    // Lifecycle scripts are banned by default (see NPM_INSTALL_FLAGS). Only an
+    // explicit human `--allow-scripts` lifts that, and only for this one
+    // install. Needed by native modules that fetch/compile a binding at
+    // install time (node-pty, onnxruntime-node behind the transformers
+    // embedder), which otherwise degrade to their documented fallbacks.
+    const allowScripts = argv.flags['allow-scripts'] === true;
+    if (allowScripts) {
+      process.stderr.write(
+        colors.dim(`--allow-scripts: ${spec} may execute install hooks with your privileges\n`),
+      );
+    }
     const result = await installPluginPackagePinned({
       packageName: spec,
+      ...(policyCfg.policy ? { policy: policyCfg.policy } : {}),
       ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
       ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      ...(allowScripts ? { allowScripts } : {}),
       onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
     });
     if (resolved?.origin === 'signed' && resolved.pinnedVersion) {
@@ -213,7 +241,7 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     process.stdout.write(
       `installed ${resolved?.packageName ?? entry?.packageName ?? spec}\n` +
         `source: ${result.installed}\nplugins dir: ${result.dir}\n` +
-        colors.dim('run `moxxy plugins reload` (or restart) to load it\n'),
+        colors.dim('run `moxxy extensions reload` (or restart) to load it\n'),
     );
     return await reviewInstallCapabilities(argv, entry?.packageName ?? packageNameFromSpec(spec));
   } catch (err) {
@@ -231,7 +259,7 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
  *
  * The consent is post-hoc by design: npm lifecycle scripts have already run
  * by the time we can inspect anything, so what consent actually governs is
- * whether the plugin participates in sessions from here on.
+ * whether the extension participates in runs from here on.
  */
 async function reviewInstallCapabilities(
   argv: ParsedArgv,
@@ -264,10 +292,10 @@ async function reviewInstallCapabilities(
   if (!tty) {
     await setPluginEnabled(packageName, false);
     process.stdout.write(
-      `${packageName} is a third-party plugin and was left ${colors.bold('DISABLED')} ` +
+      `${packageName} is a third-party extension and was left ${colors.bold('DISABLED')} ` +
         '(no TTY to ask for consent).\n' +
         'Re-run with --yes to accept its capability surface, or enable it later with ' +
-        `\`moxxy plugins enable ${packageName}\`.\n`,
+        `\`moxxy extensions enable ${packageName}\`.\n`,
     );
     return 0;
   }
@@ -280,7 +308,7 @@ async function reviewInstallCapabilities(
     await setPluginEnabled(packageName, false);
     process.stdout.write(
       `disabled ${packageName} — it stays installed but contributes nothing.\n` +
-        colors.dim(`re-enable it anytime with \`moxxy plugins enable ${packageName}\`\n`),
+        colors.dim(`re-enable it anytime with \`moxxy extensions enable ${packageName}\`\n`),
     );
     return 0;
   }
@@ -379,7 +407,7 @@ function renderCapabilityReview(
 async function runRemove(argv: ParsedArgv): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins remove requires a plugin id or package name');
+    printError('extensions remove requires an extension id or package name');
     return 2;
   }
   const packageName = resolveCatalogPackageName(target);
@@ -397,14 +425,14 @@ async function runRemove(argv: ParsedArgv): Promise<number> {
 async function runToggle(argv: ParsedArgv, enabled: boolean): Promise<number> {
   const target = argv.positional[1];
   if (!target) {
-    printError(`plugins ${enabled ? 'enable' : 'disable'} requires a plugin id or package name`);
+    printError(`extensions ${enabled ? 'enable' : 'disable'} requires an extension id or package name`);
     return 2;
   }
   const packageName = resolveCatalogPackageName(target);
   if (!enabled && isCriticalPackage(packageName)) {
     printError(
       `${packageName} is a core module and cannot be disabled. ` +
-        'Swap the relevant category default instead (e.g. `moxxy plugins set-default mode <other>`).',
+        'Swap the relevant category default instead (e.g. `moxxy extensions set-default mode <other>`).',
     );
     return 2;
   }
@@ -412,7 +440,7 @@ async function runToggle(argv: ParsedArgv, enabled: boolean): Promise<number> {
     await setPluginEnabled(packageName, enabled);
     process.stdout.write(
       `${enabled ? 'enabled' : 'disabled'} ${packageName}\n` +
-        colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
+        colors.dim('applies to new runs; a running TUI applies it immediately via /extensions\n'),
     );
     return 0;
   } catch (err) {
@@ -454,14 +482,14 @@ async function runSetDefault(argv: ParsedArgv): Promise<number> {
   const category = argv.positional[1];
   const name = argv.positional[2];
   if (!category || !name) {
-    printError('plugins set-default requires <category> <name> (e.g. provider openai)');
+    printError('extensions set-default requires <category> <name> (e.g. provider openai)');
     return 2;
   }
   try {
     await setCategoryDefault(category, name);
     process.stdout.write(
       `set ${category} default to ${name}\n` +
-        colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
+        colors.dim('applies to new runs; a running TUI applies it immediately via /extensions\n'),
     );
     return 0;
   } catch (err) {
@@ -473,7 +501,7 @@ async function runSetDefault(argv: ParsedArgv): Promise<number> {
 function runOpen(argv: ParsedArgv): number {
   const target = argv.positional[1];
   if (!target) {
-    printError('plugins open requires a plugin id or package name');
+    printError('extensions open requires an extension id or package name');
     return 2;
   }
   const entry = resolveCatalogEntry(target);
@@ -499,4 +527,47 @@ function stringFlag(argv: ParsedArgv, name: string): string | undefined {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The install-source and install-policy settings in force.
+ *
+ * Read through a probe rather than from the environment, so a pin in the SYSTEM
+ * config scope actually binds: `MOXXY_REGISTRY_URL` alone is a variable a user
+ * can unset, which makes it useless as a control.
+ */
+async function readInstallConfig(
+  argv: ParsedArgv,
+): Promise<{ policy?: InstallPolicy; registryUrl?: string; token?: string }> {
+  try {
+    return await probeSession(
+      argvToSetupOptions(argv, {
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      }),
+      async ({ config, session }) => {
+        const registryUrl = config.plugins?.registryUrl;
+        // An internal mirror usually sits behind auth. The credential is a
+        // named secret under a host convention, resolved through whatever
+        // SecretProvider the machine has active, so this needs no notion of
+        // where secrets actually live.
+        const secretName = registryUrl ? hostCredentialName(registryUrl) : null;
+        const token = secretName
+          ? await session.resolveSecret?.(secretName).catch(() => null)
+          : null;
+        return {
+          ...(isInstallPolicy(config.plugins?.installPolicy)
+            ? { policy: config.plugins.installPolicy }
+            : {}),
+          ...(registryUrl ? { registryUrl } : {}),
+          ...(token ? { token } : {}),
+        };
+      },
+    );
+  } catch {
+    // A probe failure must not silently DROP a restriction, so fail closed on
+    // the policy while leaving the source at its default.
+    return { policy: 'denied' };
+  }
 }

@@ -42,11 +42,56 @@ export type {
 
 export type { EventLogReader } from './log.js';
 
+// Identity. The type + pure helpers ride the main barrel; the OS resolver needs
+// `node:os` and is exported from `@moxxy/sdk/server`.
+export type { Principal } from './principal.js';
+export { samePrincipal, formatPrincipal } from './principal.js';
+
+export { verifyEd25519 } from './signature.js';
+
+export { TOOL_ICONS, isToolIcon, type ToolIcon } from './tool-icon.js';
+
+export type {
+  AuditExporterDef,
+  AuditExportBatch,
+  AuditExportContext,
+  AuditExportResource,
+} from './audit-export.js';
+export { defineAuditExporter } from './audit-export.js';
+
+// Audit trail: the tamper-evident receipt, distinct from the event log.
+export type {
+  AuditAction,
+  AuditRecord,
+  AuditSinkDef,
+  AuditSinkScope,
+  AuditSinkSession,
+  UnchainedAuditRecord,
+} from './audit.js';
+export { defineAuditSink, auditActionOf } from './audit.js';
+
+// Where a named secret comes from (external store instead of the local vault).
+export type {
+  SecretProviderDef,
+  SecretProviderScope,
+  SecretProviderSession,
+} from './secret-provider.js';
+export { defineSecretProvider, hostCredentialName } from './secret-provider.js';
+
+// Secret redaction for anything leaving the process.
+export {
+  isSecretKey,
+  redactSecrets,
+  redactSecretText,
+  REDACTED_PLACEHOLDER,
+} from './redact.js';
+
 export type {
   RunTurnOptions,
   SessionLogReader,
   SessionLike,
   SessionInfo,
+  GovernanceInfo,
   ProviderInfo,
   ToolInfo,
   SkillInfo,
@@ -69,6 +114,13 @@ export type {
   ProviderSetupView,
   ProviderConnectIo,
 } from './session-like.js';
+
+export type {
+  ClientChromeSlot,
+  ClientChromeTone,
+  ClientChromeContribution,
+  ClientChromeItem,
+} from './client-chrome.js';
 
 export type {
   ClientSession,
@@ -217,7 +269,17 @@ export {
   resolveProviderTools,
   type ResolvedProviderTools,
 } from './provider-tool-utils.js';
-export type { WriteFileAtomicOptions } from './fs-utils.js';
+export type {
+  BoundedNetworkCacheOptions,
+  SignedNetworkCacheEnvelope,
+  SignedNetworkCacheOptions,
+  WriteFileAtomicOptions,
+} from './fs-utils.js';
+export type {
+  EgressProxySettings,
+  EgressStatus,
+  InstallEgressProxyOptions,
+} from './egress.js';
 export type { ChannelRunStatus } from './channel-status.js';
 export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';
 export { createMutex, type Mutex } from './mutex.js';
@@ -310,6 +372,18 @@ export {
   type ManualCompactionInput,
   type ManualCompactionResult,
 } from './compactor-helpers.js';
+export {
+  activeCompactionRanges,
+  makeCompactionLookup,
+  type CompactionRange,
+} from './compaction-state.js';
+export {
+  summarizeWithProvider,
+  truncateMiddle,
+  isAbort,
+  abortError,
+  type ProviderSummaryOptions,
+} from './compactor-summary.js';
 export {
   runElisionIfNeeded,
   resolveElisionSettings,

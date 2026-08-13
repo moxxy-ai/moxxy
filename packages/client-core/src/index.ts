@@ -19,6 +19,7 @@ export * from './speech-playback-queue.js';
 export * from './voice-activity.js';
 export * from './voice-call-machine.js';
 export * from './voice-feedback-scheduler.js';
+export * from './voice-operations.js';
 
 // Chat model + stores.
 export * from './chatModel.js';

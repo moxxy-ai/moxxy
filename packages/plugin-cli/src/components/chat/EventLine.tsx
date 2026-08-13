@@ -2,22 +2,24 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
-import { truncate } from '@moxxy/chat-model';
+import { wrapLogicalLine } from '../prompt/BufferLines.js';
+import { blockGap } from './density.js';
 import { AssistantBlock } from './AssistantBlock.js';
+import { ActivityDot } from './ActivityDot.js';
 
-export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolean }> = ({
-  event,
-  expandToolOutputs,
-}) => {
+export const EventLine: React.FC<{
+  event: MoxxyEvent;
+  expandToolOutputs?: boolean;
+  availableWidth?: number;
+}> = ({ event, expandToolOutputs, availableWidth }) => {
   switch (event.type) {
-    case 'user_prompt':
+    case 'user_prompt': {
       if (event.origin) {
         return (
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={blockGap()}>
             <Box>
               <Text dimColor>{`${Glyphs.filled} ${formatTriggerOrigin(event.origin)} · `}</Text>
               <Text>{event.origin.name}</Text>
-              {!expandToolOutputs ? <Text dimColor>{'  ›'}</Text> : null}
             </Box>
             {expandToolOutputs ? (
               <Box marginLeft={2}>
@@ -32,40 +34,26 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // bar, so they don't dominate the transcript.
       if (event.source && event.source !== 'user') {
         return (
-          <Box marginTop={1}>
+          <Box marginTop={blockGap()}>
             <Text dimColor>{`${Glyphs.midDot} ${event.text}`}</Text>
           </Box>
         );
       }
-      // Highlighted echo bar: bold prompt glyph + the user text, then a
-      // dim horizontal rule under it. Matches the Grok-style "pinned
-      // user prompt" treatment without needing a full bordered box.
-      //
-      // Layout note: glyph and body live in separate flex columns (same
-      // pattern as AssistantBlock). A naked `<Box><Text>› </Text><Text bold>…
-      // </Text></Box>` lets Ink's default `flexShrink: 1` on `<Text>`
-      // squash the prompt glyph's trailing space at narrow widths and
-      // mis-indent wrapped continuation lines.
-      //
-      // Display normalization: collapse runs of blank lines in the body
-      // to a single line break. Pasted prose often carries paragraph
-      // breaks (`\n\n+`); rendering them verbatim leaves an empty row
-      // mid-bar that looks like a layout bug. The actual `event.text`
-      // and what the model receives are untouched — this only tightens
-      // the echo render.
+      // Keep authored prompts visually distinct from agent output without
+      // reintroducing YOU/MOXXY labels. The prompt is terminal chrome rather
+      // than prose, so its band spans the viewport while answers retain their
+      // narrower reading column.
+      const promptWidth = Math.max(24, availableWidth ?? (process.stdout.columns ?? 80) - 1);
+      const blankPromptRow = ' '.repeat(promptWidth);
+      const promptRows = formatUserPromptRows(event.text, promptWidth);
       return (
-        <Box flexDirection="column" marginTop={1}>
-          <Box flexDirection="row">
-            <Box flexDirection="column" marginRight={1} flexShrink={0}>
-              <Text>{Glyphs.prompt}</Text>
-            </Box>
-            <Box flexDirection="column" flexGrow={1}>
-              <Text bold>{collapseBlankLines(event.text)}</Text>
-            </Box>
-          </Box>
-          <Text dimColor>{'─'.repeat(Math.min(60, event.text.length + 2))}</Text>
+        <Box flexDirection="column" marginTop={blockGap()}>
+          <Text bold color="white" backgroundColor={Colors.chrome}>
+            {[blankPromptRow, ...promptRows, blankPromptRow].join('\n')}
+          </Text>
         </Box>
       );
+    }
     case 'assistant_message':
       return <AssistantBlock content={event.content} />;
     case 'reasoning_message': {
@@ -73,8 +61,8 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // expanded — show a static withheld marker.
       if (event.redacted) {
         return (
-          <Box marginTop={1}>
-            <Text dimColor>{`${Glyphs.pending} reasoning withheld`}</Text>
+          <Box marginTop={blockGap()}>
+            <Text dimColor>{'◇ Thinking · details withheld'}</Text>
           </Box>
         );
       }
@@ -84,18 +72,17 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // since Ink has no native collapse affordance.
       if (expandToolOutputs) {
         return (
-          <Box flexDirection="column" marginTop={1}>
-            <Text dimColor>{`${Glyphs.pending} thinking`}</Text>
+          <Box flexDirection="column" marginTop={blockGap()} paddingLeft={2}>
+            <Text dimColor>▾ Thinking</Text>
             <Box marginLeft={2}>
               <Text dimColor>{content}</Text>
             </Box>
           </Box>
         );
       }
-      const firstLine = content.split('\n').find((l) => l.trim()) ?? '';
       return (
-        <Box marginTop={1}>
-          <Text dimColor>{`${Glyphs.pending} thinking · ${truncate(firstLine, 100)}`}</Text>
+        <Box marginTop={blockGap()} paddingLeft={2}>
+          <Text dimColor>▸ Thinking</Text>
         </Box>
       );
     }
@@ -105,8 +92,9 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       return null;
     case 'skill_created':
       return (
-        <Box marginTop={1}>
-          <Text dimColor>{Glyphs.filled} </Text>
+        <Box marginTop={blockGap()}>
+          <ActivityDot state="success" />
+          <Text> </Text>
           <Text bold>skill created</Text>
           <Text dimColor>  {event.name}</Text>
         </Box>
@@ -119,29 +107,42 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       );
     case 'compaction':
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text dimColor>⤺ </Text>
           <Text dimColor>{formatCompactionEvent(event)}</Text>
         </Box>
       );
     case 'error':
       return (
-        <Box marginTop={1}>
-          <Text color={Colors.danger}>{Glyphs.filled} </Text>
+        <Box marginTop={blockGap()}>
+          <ActivityDot state="error" />
+          <Text> </Text>
           <Text color={Colors.danger}>error: </Text>
           <Text>{event.message}</Text>
         </Box>
       );
     case 'abort':
       return (
-        <Box marginTop={1}>
-          <Text color={Colors.busy}>⏹ aborted: {event.reason}</Text>
+        <Box marginTop={blockGap()}>
+          <ActivityDot state="error" />
+          <Text color={Colors.danger}> aborted: {event.reason}</Text>
         </Box>
       );
     default:
       return null;
   }
 };
+
+export function formatUserPromptRows(text: string, width: number): ReadonlyArray<string> {
+  const rowWidth = Math.max(8, width);
+  const contentWidth = Math.max(1, rowWidth - 4); // two-column horizontal padding
+  const visualRows = text.trim().split('\n').flatMap((line) => wrapLogicalLine(line, contentWidth));
+  return visualRows.map((row) => {
+    const content = row.text.trimEnd();
+    const prefix = '  ';
+    return `${prefix}${content}${' '.repeat(Math.max(2, rowWidth - prefix.length - content.length))}`;
+  });
+}
 
 const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
   webhook: 'Webhook received',
@@ -152,17 +153,6 @@ const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
 
 export function formatTriggerOrigin(origin: TriggerOrigin): string {
   return TRIGGER_VERBS[origin.kind];
-}
-
-/**
- * Display-only newline normalization for the user-prompt echo bar.
- * Drops blank lines (two or more newlines, optionally containing only
- * whitespace, collapse to a single `\n`) while preserving the user's
- * intentional single-line breaks. Leading/trailing whitespace is
- * trimmed so a stray paste-end blank doesn't push the rule down a row.
- */
-export function collapseBlankLines(text: string): string {
-  return text.replace(/\n[ \t]*\n+/g, '\n').replace(/^\s+|\s+$/g, '');
 }
 
 export function formatCompactionEvent(event: Extract<MoxxyEvent, { type: 'compaction' }>): string {

@@ -3,6 +3,7 @@ import { Button, Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
 import { chatStore, useChat } from '@moxxy/client-core';
 import type { ContextUsage } from '@moxxy/client-core';
+import { ContextMeter } from '@/shell/instrument/ContextMeter';
 
 /** Compact token formatter — 1.2k / 3.40M / 812. */
 function fmt(n: number): string {
@@ -95,11 +96,11 @@ export function UsagePanel({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Section title="Context window">
         {f != null ? (
           <>
-            <Bar frac={f} color={fillColor(f)} />
+            <ContextMeter fraction={f} />
             <Meta>
               <strong style={{ color: fillColor(f) }}>{pct(f)}</strong>
               {`  ·  ${fmt(usage.contextTokens ?? 0)} / ${fmt(usage.contextWindow ?? 0)} tokens`}
@@ -126,7 +127,7 @@ export function UsagePanel({
               alignItems: 'center',
               justifyContent: 'space-between',
               marginTop: 4,
-              fontSize: 12,
+              fontSize: 'var(--type-row)',
               color: 'var(--color-text-muted)',
             }}
           >
@@ -145,13 +146,22 @@ export function UsagePanel({
         </CollapsibleSection>
       )}
 
-      <footer style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+      <footer
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          marginTop: 2,
+          paddingTop: 12,
+          borderTop: '1px solid var(--color-card-border)',
+        }}
+      >
         {note && (
           <p
             role="status"
             style={{
               margin: 0,
-              fontSize: 12.5,
+              fontSize: 'var(--type-row)',
               color: note.kind === 'error' ? 'var(--color-red)' : 'var(--color-green)',
             }}
           >
@@ -159,7 +169,7 @@ export function UsagePanel({
           </p>
         )}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)', lineHeight: 1.4 }}>
+          <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', lineHeight: 1.4 }}>
             Summarises older turns to free up the window. Takes effect on your next message.
           </span>
           <Button
@@ -189,9 +199,20 @@ function Section({
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 'var(--type-label)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          {title}
+        </h3>
         {subtitle && (
-          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>
+          <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
             {subtitle}
           </span>
         )}
@@ -247,7 +268,7 @@ function CollapsibleSection({
             aria-hidden
             style={{
               display: 'inline-block',
-              fontSize: 9,
+              fontSize: 'var(--type-label)',
               color: 'var(--color-text-dim)',
               transform: open ? 'rotate(90deg)' : 'none',
               transition: 'transform 160ms ease',
@@ -255,10 +276,21 @@ function CollapsibleSection({
           >
             ▶
           </span>
-          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+          <h3
+          style={{
+            margin: 0,
+            fontSize: 'var(--type-label)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          {title}
+        </h3>
         </span>
         {subtitle && (
-          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>
+          <span style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
             {subtitle}
           </span>
         )}
@@ -278,7 +310,7 @@ function Bar({ frac, color }: { readonly frac: number; readonly color: string })
     <div
       style={{
         height: 8,
-        borderRadius: 999,
+        borderRadius: 'var(--radius-pill)',
         background: 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)',
         overflow: 'hidden',
       }}
@@ -287,7 +319,7 @@ function Bar({ frac, color }: { readonly frac: number; readonly color: string })
         style={{
           width: `${Math.max(0, Math.min(1, frac)) * 100}%`,
           height: '100%',
-          borderRadius: 999,
+          borderRadius: 'var(--radius-pill)',
           background: color,
           transition: 'width 240ms ease',
         }}
@@ -309,7 +341,7 @@ function CompRow({
 }): JSX.Element {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: 86, flexShrink: 0, fontSize: 12, color: 'var(--color-text-muted)' }}>
+      <span style={{ width: 86, flexShrink: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
         {label}
       </span>
       <div style={{ flex: 1 }}>
@@ -317,7 +349,7 @@ function CompRow({
       </div>
       <span
         className="mono"
-        style={{ width: 76, flexShrink: 0, textAlign: 'right', fontSize: 11, color: 'var(--color-text-dim)' }}
+        style={{ width: 76, flexShrink: 0, textAlign: 'right', fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}
       >
         {pct(frac)} · {fmt(value)}
       </span>
@@ -355,7 +387,7 @@ function Sparkline({ series }: { readonly series: ReadonlyArray<number> }): JSX.
       <span
         style={{
           flexShrink: 0,
-          fontSize: 11,
+          fontSize: 'var(--type-meta)',
           fontWeight: 600,
           color: growing ? 'var(--color-amber)' : 'var(--color-green)',
         }}
@@ -367,9 +399,9 @@ function Sparkline({ series }: { readonly series: ReadonlyArray<number> }): JSX.
 }
 
 function Meta({ children }: { readonly children: React.ReactNode }): JSX.Element {
-  return <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{children}</div>;
+  return <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>{children}</div>;
 }
 
 function Dim({ children }: { readonly children: React.ReactNode }): JSX.Element {
-  return <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-dim)' }}>{children}</p>;
+  return <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{children}</p>;
 }

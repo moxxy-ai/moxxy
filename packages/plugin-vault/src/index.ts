@@ -17,6 +17,7 @@ export { VaultStore, VaultPassphraseError } from './store.js';
 export type { VaultEntry, VaultEntryInfo, VaultStoreOptions } from './store.js';
 export { createCombinedKeySource, createStaticKeySource, type MasterKeySource } from './keysource.js';
 export { resolveString, resolveValue, containsPlaceholder } from './placeholder.js';
+export type { SecretLookup } from './placeholder.js';
 export { deriveKey, deriveKeyAsync, encrypt, decrypt, generateSalt, randomCode } from './crypto.js';
 
 export interface BuildVaultPluginOptions {
@@ -25,6 +26,9 @@ export interface BuildVaultPluginOptions {
   readonly passphrasePrompt?: () => Promise<string>;
   readonly envVar?: string;
   readonly disableKeytar?: boolean;
+  /** Demand a human-chosen passphrase instead of generating a key. Off by
+   *  default; see `CombinedKeySourceOptions.requirePassphrase`. */
+  readonly requirePassphrase?: boolean;
 }
 
 export function defaultVaultPath(): string {
@@ -39,6 +43,7 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
       passphrasePrompt: opts.passphrasePrompt ?? defaultPrompt,
       envVar: opts.envVar,
       disableKeytar: opts.disableKeytar,
+      ...(opts.requirePassphrase ? { requirePassphrase: true } : {}),
     });
   const vault = new VaultStore({ filePath, keySource });
 

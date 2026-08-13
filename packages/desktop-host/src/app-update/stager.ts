@@ -544,7 +544,11 @@ async function stageOne(
     // can never load the override ("Cannot use import statement outside a
     // module"). Skip if the bundle already carries its own package.json.
     const pkgJsonPath = path.join(incoming, 'package.json');
-    if (!existsSync(pkgJsonPath)) writeFileSync(pkgJsonPath, ESM_MARKER_PACKAGE_JSON);
+    try {
+      writeFileSync(pkgJsonPath, ESM_MARKER_PACKAGE_JSON, { flag: 'wx' });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
 
     // Defense in depth: re-verify the signed per-file hashes against what
     // actually landed on disk, so a payload/manifest mismatch (e.g. a build

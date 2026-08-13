@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { assertDefined } from '@/lib/assert';
 import { api } from '@moxxy/client-core';
 import { useAppUpdate } from '@moxxy/client-core';
+import { Button } from '@moxxy/desktop-ui';
 
 export function UpdateBanner(): JSX.Element | null {
   const { check, state, progress, error, stagedVersion, runUpdate, runShellUpdate, relaunch } =
@@ -38,9 +39,9 @@ export function UpdateBanner(): JSX.Element | null {
           Dashboard update <strong>v{check?.latestVersion}</strong> available
           {check?.notes ? ` — ${check.notes}` : ''}
         </span>
-        <button type="button" style={primaryBtn} onClick={() => void runUpdate()}>
+        <Button variant="cta" style={primaryBtn} onClick={() => void runUpdate()}>
           Update
-        </button>
+        </Button>
       </>
     );
   } else if (state === 'updating') {
@@ -55,9 +56,9 @@ export function UpdateBanner(): JSX.Element | null {
         <span>
           Updated to <strong>v{stagedVersion}</strong>. Relaunch to apply.
         </span>
-        <button type="button" style={primaryBtn} onClick={relaunch}>
+        <Button variant="cta" style={primaryBtn} onClick={relaunch}>
           Relaunch
-        </button>
+        </Button>
       </>
     );
   } else {
@@ -71,12 +72,12 @@ export function UpdateBanner(): JSX.Element | null {
             ? `Version ${check?.latestVersion ?? ''} updates the bundled runner — a full app update will be installed.`
             : 'A new version needs a full app update.'}
         </span>
-        <button type="button" style={primaryBtn} onClick={() => void runShellUpdate()}>
+        <Button variant="cta" style={primaryBtn} onClick={() => void runShellUpdate()}>
           Update app
-        </button>
+        </Button>
         {error && check?.releaseUrl && (
-          <button
-            type="button"
+          <Button
+            variant="cta"
             style={primaryBtn}
             onClick={() => {
               const url = check?.releaseUrl;
@@ -85,7 +86,7 @@ export function UpdateBanner(): JSX.Element | null {
             }}
           >
             Get it manually
-          </button>
+          </Button>
         )}
       </>
     );
@@ -121,27 +122,22 @@ const wrap: React.CSSProperties = {
   padding: '8px 12px',
   background: 'var(--color-card-bg)',
   border: '1px solid var(--color-card-border)',
-  borderRadius: 12,
-  boxShadow: '0 18px 36px -18px rgba(15, 23, 42, 0.3)',
-  fontSize: 13,
+  borderRadius: 'var(--radius-card)',
+  boxShadow: 'var(--color-card-shadow)',
+  fontSize: 'var(--type-ui)',
   color: 'var(--color-text)',
   maxWidth: '80vw',
 };
 
 const primaryBtn: React.CSSProperties = {
-  padding: '5px 12px',
-  fontSize: 12.5,
+  padding: '0 12px',
+  fontSize: 'var(--type-row)',
   fontWeight: 600,
-  borderRadius: 8,
-  color: '#fff',
-  background: 'var(--color-primary)',
-  cursor: 'pointer',
-  border: 'none',
 };
 
 const dismissBtn: React.CSSProperties = {
   padding: '2px 6px',
-  fontSize: 12,
+  fontSize: 'var(--type-row)',
   color: 'var(--color-text-dim)',
   background: 'transparent',
   border: 'none',

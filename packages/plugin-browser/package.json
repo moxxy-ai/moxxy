@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.33.0",
+  "version": "0.37.2",
   "description": "Web capabilities for moxxy: search, fetch, and a shared native/Playwright browser computer-use session.",
   "keywords": [
     "moxxy",
@@ -70,7 +70,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.26.0",
+    "undici": "^6.28.0",
     "zod": "catalog:"
   },
   "peerDependencies": {

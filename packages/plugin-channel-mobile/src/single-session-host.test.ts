@@ -211,6 +211,38 @@ describe('MobileSessionHost', () => {
     expect(done.some((e) => e.payload.turnId === turnId && e.payload.error === null)).toBe(true);
   });
 
+  it('reports only live foreground work through session.activeTurn', async () => {
+    const releases = new Map<string, () => void>();
+    const runTurn = vi.fn((prompt: string) =>
+      (async function* () {
+        await new Promise<void>((resolve) => releases.set(prompt, resolve));
+      })(),
+    );
+    const bus = new FakeBus();
+    const { session } = fakeSession({ runTurn });
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+
+    expect(await bus.invoke('session.activeTurn')).toEqual({ turnId: null });
+    const foreground = (await bus.invoke('session.runTurn', {
+      prompt: 'visible',
+    })) as { turnId: string };
+    expect(await bus.invoke('session.activeTurn')).toEqual({ turnId: foreground.turnId });
+
+    await bus.invoke('session.runTurn', {
+      prompt: 'hidden',
+      visibility: 'background',
+    });
+    expect(await bus.invoke('session.activeTurn')).toEqual({ turnId: foreground.turnId });
+
+    releases.get('visible')?.();
+    releases.get('hidden')?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await bus.invoke('session.activeTurn')).toEqual({ turnId: null });
+    host.dispose();
+  });
+
   it('runs a turn for the selected registry session', async () => {
     const home = process.env.MOXXY_HOME;
     assertDefined(home, 'MOXXY_HOME set in test setup');

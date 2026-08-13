@@ -3,6 +3,7 @@ import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-con
 import {
   resolveActiveSessionShell,
   shouldShowProviderRecovery,
+  shouldShowBlockingConnectionScreen,
   type LastConnectedSession,
 } from './app-readiness';
 
@@ -22,6 +23,20 @@ const snapshot = (phase: ConnectionPhase): ConnectionSnapshot => ({
 });
 
 describe('resolveActiveSessionShell', () => {
+  it('opens the shell while the first runner snapshot is still pending', () => {
+    const state = resolveActiveSessionShell({
+      activeWorkspaceId: 'session-a',
+      snapshot: null,
+      lastConnected: null,
+    });
+
+    expect(state.needsInitialSplash).toBe(false);
+    expect(state.connected).toBe(false);
+    expect(state.sessionLoading).toBe(true);
+    expect(state.phase.phase).toBe('reconnecting');
+    expect(shouldShowBlockingConnectionScreen(state, false)).toBe(false);
+  });
+
   it('does not reuse a previous session connected phase while a newly selected session has no snapshot yet', () => {
     const state = resolveActiveSessionShell({
       activeWorkspaceId: 'session-b',
@@ -116,6 +131,7 @@ describe('resolveActiveSessionShell', () => {
     expect(state.connected).toBe(false);
     expect(state.sessionLoading).toBe(false);
     expect(state.phase.phase).toBe('failed');
+    expect(shouldShowBlockingConnectionScreen(state, false)).toBe(true);
   });
 
   it('does not show provider recovery while the selected cold-start session is still loading', () => {
@@ -128,6 +144,22 @@ describe('resolveActiveSessionShell', () => {
           activeProvider: null,
           activeMode: 'default',
         },
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it('lets an explicitly skipped provider recovery reveal the shell', () => {
+    expect(
+      shouldShowProviderRecovery(
+        {
+          phase: 'connected',
+          socket: '/tmp/skipped-provider.sock',
+          sessionId: 'skipped-provider-session',
+          activeProvider: null,
+          activeMode: 'default',
+        },
+        false,
         true,
       ),
     ).toBe(false);

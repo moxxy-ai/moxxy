@@ -13,6 +13,7 @@ import type {
   PendingToolCall,
   PermissionResolver,
   PermissionsClientView,
+  Principal,
   ProvidersClientView,
   RequirementsClientView,
   RunTurnOptions,
@@ -31,6 +32,7 @@ import type {
   TurnId,
 } from '@moxxy/sdk';
 import { sleepWithAbort } from '@moxxy/sdk';
+import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { JsonRpcPeer } from './jsonrpc.js';
 import {
   makeProvidersView,
@@ -134,6 +136,13 @@ export interface RemoteSessionOptions {
    * ignores the option and replays in full, which is still correct.
    */
   readonly replay?: AttachReplay;
+  /**
+   * Identity this client acts on behalf of (protocol v11). Defaults to the
+   * local OS account, which is exactly what the 0600 unix socket already
+   * proves. A surface that authenticates its users (an HTTP or chat channel)
+   * passes the subject it verified instead.
+   */
+  readonly principal?: Principal;
   /** Inject a transport (tests). Defaults to a unix-socket connection. */
   readonly transport?: Transport;
   /**
@@ -353,13 +362,25 @@ export class RemoteSession implements ClientSession {
     return new Set(this.info?.readyProviders ?? []);
   }
 
-  /** Handshake. Resolves once history has been replayed into the mirror. */
-  async attach(role: string, sinceSeq: number, replay?: AttachReplay): Promise<void> {
+  /**
+   * Handshake. Resolves once history has been replayed into the mirror.
+   *
+   * `principal` (v11) is the identity this client acts on behalf of; the runner
+   * stamps it onto the events this connection causes. A pre-v11 runner ignores
+   * the key, so passing it is always safe.
+   */
+  async attach(
+    role: string,
+    sinceSeq: number,
+    replay?: AttachReplay,
+    principal?: Principal,
+  ): Promise<void> {
     const result = await this.peer.request<AttachResult>(RunnerMethod.Attach, {
       protocolVersion: RUNNER_PROTOCOL_VERSION,
       role,
       sinceSeq,
       ...(replay ? { replay } : {}),
+      ...(principal ? { principal } : {}),
     });
     this.info = result.info;
     // Record the server's protocol so version-gated methods can degrade
@@ -624,7 +645,16 @@ export async function connectRemoteSession(
     (await connectWithRetry(socketPath, opts.connectRetries ?? 5));
   const session = new RemoteSession(transport);
   try {
-    await session.attach(opts.role ?? 'client', opts.sinceSeq ?? 0, opts.replay);
+    // Default the identity to the local OS account: a thin client over the
+    // 0600 unix socket is by construction the same local user as the runner, so
+    // asserting it is a statement of fact rather than a claim to be verified.
+    // A caller with a stronger issuer (an authenticated channel) passes its own.
+    await session.attach(
+      opts.role ?? 'client',
+      opts.sinceSeq ?? 0,
+      opts.replay,
+      opts.principal ?? resolveOsPrincipal(),
+    );
     return session;
   } catch (err) {
     await maybeRecoverFromMismatch(err, socketPath, opts);

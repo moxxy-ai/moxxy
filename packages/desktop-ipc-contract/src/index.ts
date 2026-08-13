@@ -97,7 +97,13 @@ export type {
 export type { DeskSession, Desk, DesksOverview, SessionsOverview } from './desks.js';
 
 // ---------- Chat -----------------------------------------------------------
-export type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
+export type {
+  PromptAttachment,
+  RunTurnArgs,
+  RunTurnResult,
+  RunTurnVisibility,
+  ActiveTurnSnapshot,
+} from './chat.js';
 
 // ---------- Native desktop browser ---------------------------------------
 export type {

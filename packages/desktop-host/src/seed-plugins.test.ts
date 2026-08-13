@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { seedPluginsFromResources } from './seed-plugins.js';
+import {
+  repairSeededPluginManifest,
+  seedPluginsFromResources,
+} from './seed-plugins.js';
 
 let tmp: string;
 let resources: string;
@@ -18,7 +21,9 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
-async function makeSeed(pkgs: Record<string, { version: string; extra?: string }>) {
+async function makeSeed(
+  pkgs: Record<string, { version: string; extra?: string; dependencySpec?: string }>,
+) {
   const modules = path.join(resources, 'plugins-seed', 'node_modules');
   const deps: Record<string, string> = {};
   for (const [name, spec] of Object.entries(pkgs)) {
@@ -29,7 +34,7 @@ async function makeSeed(pkgs: Record<string, { version: string; extra?: string }
       JSON.stringify({ name, version: spec.version }),
     );
     await fs.writeFile(path.join(dir, 'dist', 'index.js'), spec.extra ?? 'export default {}');
-    deps[name] = spec.version;
+    deps[name] = spec.dependencySpec ?? spec.version;
   }
   await fs.writeFile(
     path.join(resources, 'plugins-seed', 'package.json'),
@@ -89,6 +94,48 @@ describe('seedPluginsFromResources', () => {
     expect(pkg.dependencies['@moxxy/mode-goal']).toBe('2.0.0');
   });
 
+  it('normalizes transient build tarballs to durable exact versions', async () => {
+    await makeSeed({
+      '@moxxy/mode-goal': {
+        version: '1.2.3',
+        dependencySpec: 'file:../../tmp/moxxy-seed-tars-old/mode-goal.tgz',
+      },
+    });
+
+    await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+    const pkg = JSON.parse(
+      await fs.readFile(path.join(home, 'plugins', 'package.json'), 'utf8'),
+    );
+    expect(pkg.dependencies['@moxxy/mode-goal']).toBe('1.2.3');
+  });
+
+  it('preserves an existing installed version while repairing an old seeded spec', async () => {
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0' } });
+    const existing = path.join(home, 'plugins', 'node_modules', '@moxxy', 'mode-goal');
+    await fs.mkdir(existing, { recursive: true });
+    await fs.writeFile(
+      path.join(existing, 'package.json'),
+      JSON.stringify({ name: '@moxxy/mode-goal', version: '9.9.9' }),
+    );
+    await fs.writeFile(
+      path.join(home, 'plugins', 'package.json'),
+      JSON.stringify({
+        name: 'moxxy-user-plugins',
+        dependencies: {
+          '@moxxy/mode-goal': 'file:../../tmp/moxxy-seed-tars-old/mode-goal.tgz',
+        },
+      }),
+    );
+
+    await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+    const pkg = JSON.parse(
+      await fs.readFile(path.join(home, 'plugins', 'package.json'), 'utf8'),
+    );
+    expect(pkg.dependencies['@moxxy/mode-goal']).toBe('9.9.9');
+  });
+
   it('skips npm bookkeeping entries (.bin, .package-lock.json)', async () => {
     await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0' } });
     const modules = path.join(resources, 'plugins-seed', 'node_modules');
@@ -96,5 +143,44 @@ describe('seedPluginsFromResources', () => {
     await fs.writeFile(path.join(modules, '.package-lock.json'), '{}');
     const res = await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
     expect(res.copied).toEqual(['@moxxy/mode-goal']);
+  });
+});
+
+describe('repairSeededPluginManifest', () => {
+  it('repairs only generated first-party tarball specs and removes dead entries', async () => {
+    const pluginsDir = path.join(home, 'plugins');
+    const installed = path.join(
+      pluginsDir,
+      'node_modules',
+      '@moxxy',
+      'plugin-provider-anthropic',
+    );
+    await fs.mkdir(installed, { recursive: true });
+    await fs.writeFile(
+      path.join(installed, 'package.json'),
+      JSON.stringify({ name: '@moxxy/plugin-provider-anthropic', version: '3.4.5' }),
+    );
+    await fs.writeFile(
+      path.join(pluginsDir, 'package.json'),
+      JSON.stringify({
+        name: 'moxxy-user-plugins',
+        dependencies: {
+          '@moxxy/plugin-provider-anthropic':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-provider-anthropic.tgz',
+          '@moxxy/plugin-missing':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-missing.tgz',
+          '@example/custom': 'file:../custom-plugin',
+        },
+      }),
+    );
+
+    const repaired = await repairSeededPluginManifest(pluginsDir);
+
+    expect(repaired.replaced).toEqual(['@moxxy/plugin-provider-anthropic']);
+    expect(repaired.removed).toEqual(['@moxxy/plugin-missing']);
+    const pkg = JSON.parse(await fs.readFile(path.join(pluginsDir, 'package.json'), 'utf8'));
+    expect(pkg.dependencies['@moxxy/plugin-provider-anthropic']).toBe('3.4.5');
+    expect(pkg.dependencies['@moxxy/plugin-missing']).toBeUndefined();
+    expect(pkg.dependencies['@example/custom']).toBe('file:../custom-plugin');
   });
 });

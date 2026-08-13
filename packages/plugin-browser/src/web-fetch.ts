@@ -100,6 +100,7 @@ function createPinnedDispatcher(addresses: ReadonlyArray<string>): Agent {
 
 export const webFetchTool = defineTool({
   name: 'web_fetch',
+  icon: 'globe',
   description:
     'Fetch a URL over HTTP(S) and return the page content. HTML is post-processed to readable text (or markdown). Use for simple GETs; if the page needs JS execution, clicks, or form fills, use browser_session instead.',
   inputSchema: z.object({

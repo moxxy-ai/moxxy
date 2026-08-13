@@ -1,5 +1,136 @@
 # @moxxy/plugin-provider-openai-codex
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/plugin-browser@0.37.2
+  - @moxxy/plugin-oauth@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/plugin-browser@0.37.1
+  - @moxxy/plugin-oauth@0.37.1
+
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/plugin-browser@0.37.0
+  - @moxxy/plugin-oauth@0.37.0
+
+## 0.36.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+- @moxxy/plugin-browser@0.36.1
+- @moxxy/plugin-oauth@0.36.1
+
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/plugin-browser@0.36.0
+  - @moxxy/plugin-oauth@0.36.0
+
+## 0.35.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/plugin-browser@0.35.4
+- @moxxy/plugin-oauth@0.35.4
+
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/plugin-browser@0.35.3
+- @moxxy/plugin-oauth@0.35.3
+
+## 0.35.2
+
+### Patch Changes
+
+- a94ca74: Retry the Codex gateway's untyped internal fault instead of killing the turn.
+
+  "An error occurred while processing your request ... Please include the request
+  ID <uuid>" arrives in-band with `code: null` and no `type`, so the code/type
+  allowlists added for the overload fix matched nothing and the turn ended fatal
+  after a run's worth of tool calls (seen four times in local session logs). An
+  unclassified failure is now judged by its message, which in this case literally
+  says the request can be retried. Any failure that does carry a `code` or `type`
+  keeps the old verdict, so quota and validation errors stay fatal.
+
+  - @moxxy/sdk@0.35.2
+  - @moxxy/plugin-browser@0.35.2
+  - @moxxy/plugin-oauth@0.35.2
+
+## 0.35.1
+
+### Patch Changes
+
+- 507698b: Fix Codex turns dying on "Our servers are currently overloaded".
+
+  The ChatGPT Codex backend gates on `originator` together with `User-Agent`.
+  Identifying as `moxxy` got throttled with in-band `server_is_overloaded` and
+  `server_error` failures: measured on one account with identical payloads sent
+  back to back, the official pair succeeded 6/6 where `moxxy` managed 2/6, and a
+  25-request sample failed 23 times. Both headers now name the official CLI;
+  matching only one of the two is not enough.
+
+  Transient in-band failures are also retryable now. The backend reports capacity
+  and internal faults inside a 200 SSE stream, so they never reached the HTTP
+  status classifier and a blip ended the turn with no retry. Quota and validation
+  failures stay fatal. Also fixes the failure message being dropped on a
+  `response.failed` frame, which nests its error under `response.error` rather
+  than the sibling `error` field the handler was reading.
+
+  - @moxxy/sdk@0.35.1
+  - @moxxy/plugin-browser@0.35.1
+  - @moxxy/plugin-oauth@0.35.1
+
+## 0.35.0
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/plugin-browser@0.35.0
+  - @moxxy/plugin-oauth@0.35.0
+
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-browser@0.34.0
+  - @moxxy/plugin-oauth@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

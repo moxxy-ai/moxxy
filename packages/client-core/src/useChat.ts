@@ -129,7 +129,8 @@ export function ChatStoreBridge(): null {
     );
     const offStarted = api().subscribe(
       'runner.turn.started',
-      ({ workspaceId, turnId }: { workspaceId: string; turnId: string }) => {
+      ({ workspaceId, turnId, visibility }) => {
+        if (visibility === 'background') return;
         chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
       },
     );
@@ -214,24 +215,35 @@ export function useChat(workspaceId: string | null): UseChat {
     workspaceId ? chatStore.getChat(workspaceId) : EMPTY_SNAPSHOT,
   );
 
-  // Whether this workspace's runner has reached the `connected` phase. The
-  // history pull (`chat.loadHistory`) only succeeds once a runner is attached —
-  // before that the IPC returns null.
+  // Whether this workspace's runner has reached the `connected` phase. History
+  // can load from the host's validated JSONL before this flips; the transition
+  // is still important because it triggers a live-tail reconciliation.
   const runnerConnected = useSyncExternalStore(connectionStore.subscribe, () =>
     workspaceId ? connectionStore.get(workspaceId)?.phase.phase === 'connected' : false,
   );
 
-  // Load the most-recent window from the runner the first time this workspace is
-  // observed AND again once its runner reaches `connected`. The first open
-  // usually races the runner spawn: `chat.loadHistory` returns null (no attached
-  // runner yet), so `loadInitial` leaves the slot unloaded for a retry. The
-  // runner attaches with `replay:'none'`, so nothing pushes history in — without
-  // this re-run on connect the transcript stays empty until the user re-opens
-  // the workspace (the "first click shows empty, second click loads" bug).
-  // Idempotent: `loadInitial` bails once a load has succeeded (`slot.loaded`),
-  // so a later reconnect never re-pages.
+  // Load the most-recent window immediately. A connected surface then reconciles
+  // that cache-first page with the runner's live tail. This is required even
+  // when the runner was already connected before this hook mounted: secondary
+  // windows (Focus Mode) may have missed the ephemeral turn-start push while
+  // they were closed, and only the live log can restore that active turn safely.
+  // When disconnected we keep the cache-first page read-only — an old on-disk
+  // log may end mid-turn after a crash and must not manufacture a stuck spinner.
   useEffect(() => {
-    if (workspaceId) void chatStore.loadInitial(workspaceId);
+    if (!workspaceId) return;
+    let cancelled = false;
+    void chatStore
+      .loadInitial(workspaceId)
+      .then(async () => {
+        if (cancelled || !runnerConnected) return;
+        const live = await api().invoke('session.activeTurn', { workspaceId });
+        if (cancelled) return;
+        await chatStore.refreshLatest(workspaceId, live.turnId);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, runnerConnected]);
 
   const loadOlder = useCallback((): void => {

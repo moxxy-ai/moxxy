@@ -4,6 +4,7 @@ import type {
   EventId,
   EmittedEvent,
   MoxxyEvent,
+  Principal,
   SessionId,
   TurnId,
 } from '@moxxy/sdk';
@@ -17,11 +18,16 @@ export function materializeEvent(
   partial: EmittedEvent,
   seq: number,
   now: () => number = Date.now,
+  principal?: Principal,
 ): MoxxyEvent {
   const base: Pick<EventBase, 'id' | 'seq' | 'ts'> = {
     id: newEventId(),
     seq,
     ts: partial.ts ?? now(),
   };
-  return { ...partial, ...base } as MoxxyEvent;
+  // An emitter that already named an actor keeps it: a channel serving several
+  // users on one session attributes per event, and must win over the log's
+  // session-wide default.
+  const actor = partial.actor ?? principal;
+  return { ...partial, ...base, ...(actor ? { actor } : {}) } as MoxxyEvent;
 }

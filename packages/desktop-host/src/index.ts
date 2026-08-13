@@ -28,7 +28,12 @@ export { ElectronCommandBus } from './bus/electron-bus.js';
 export { EventBus, wsEventBus } from './event-bus.js';
 export { type UpdateConfig } from './ipc/update.js';
 export { preferredCliEntry } from './cli-resolver.js';
-export { seedPluginsFromResources, type SeedPluginsResult } from './seed-plugins.js';
+export {
+  repairSeededPluginManifest,
+  seedPluginsFromResources,
+  type SeedManifestRepairResult,
+  type SeedPluginsResult,
+} from './seed-plugins.js';
 export { activateManagedNode } from './node-manager.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {

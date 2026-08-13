@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
+import { blockGap } from './density.js';
 import { EventLine } from './EventLine.js';
 import { LiveToolBlock } from './LiveToolBlock.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
@@ -7,6 +8,7 @@ import { SubagentScopeView } from './SubagentScopeView.js';
 import { SubagentGroupView } from './SubagentGroupView.js';
 import { CollabScopeView } from './CollabScopeView.js';
 import { ShimmerText } from './ShimmerText.js';
+import { ActivityDot, type ActivityDotState } from './ActivityDot.js';
 import {
   blocksEquivalent,
   countToolCalls,
@@ -26,12 +28,26 @@ export interface BlockLineProps {
   readonly renderVersion: number;
   /** Child of a skill/activity group: use a compact branch guide and no blank row. */
   readonly nested?: boolean;
+  /** Width available to viewport-level transcript chrome such as user prompts. */
+  readonly availableWidth?: number;
 }
 
 export const BlockLine: React.FC<BlockLineProps> = memo(
-  function BlockLine({ block, expandToolOutputs, renderVersion, nested = false }) {
+  function BlockLine({
+    block,
+    expandToolOutputs,
+    renderVersion,
+    nested = false,
+    availableWidth,
+  }) {
     if (block.kind === 'event')
-      return <EventLine event={block.event} expandToolOutputs={expandToolOutputs} />;
+      return (
+        <EventLine
+          event={block.event}
+          expandToolOutputs={expandToolOutputs}
+          availableWidth={availableWidth}
+        />
+      );
     if (block.kind === 'tool-call') {
       return (
         <ToolCallBlock
@@ -69,6 +85,7 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
   (prev, next) => {
     if (prev.expandToolOutputs !== next.expandToolOutputs) return false;
     if (prev.nested !== next.nested) return false;
+    if (prev.availableWidth !== next.availableWidth) return false;
     if (prev.renderVersion !== next.renderVersion) return false;
     return blocksEquivalent(prev.block, next.block);
   },
@@ -84,16 +101,33 @@ const SkillScopeView: React.FC<{
   renderVersion: number;
 }> = ({ scope, expandToolOutputs, renderVersion }) => {
   const childToolCount = countToolCalls(scope.children);
-  const presentation = skillActivityPresentation(scope, childToolCount);
   const runningTools = scope.children.some(hasRunningTool);
-  const showChildren = !scope.closed || runningTools || expandToolOutputs;
+  const presentation = skillActivityPresentation(
+    scope,
+    childToolCount,
+    scope.loading || !scope.closed || runningTools,
+  );
+  const hasDetails = childToolCount > 0;
+  const showChildren = hasDetails && (!scope.closed || runningTools || expandToolOutputs);
+  const failed = scope.children.some(hasFailedTool);
+  const dotState: ActivityDotState = scope.loading
+    ? 'neutral'
+    : presentation.active
+      ? 'active'
+      : failed
+        ? 'error'
+        : 'success';
+  const activityText = `${scope.loading ? 'Loading' : presentation.active ? 'Using' : failed ? 'Failed' : 'Used'} ${presentation.label}`;
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
-        <Text dimColor>✦ </Text>
-        <ShimmerText text={presentation.label} active={presentation.active} />
+        <ActivityDot state={dotState} />
+        <Text> </Text>
+        <ShimmerText text={activityText} active={presentation.active} />
         {presentation.meta ? <Text dimColor>{` · ${presentation.meta}`}</Text> : null}
-        {!showChildren && childToolCount > 0 ? <Text dimColor>{'  ›'}</Text> : null}
+        {scope.closed && hasDetails ? (
+          <Text dimColor>{`  ·  Ctrl+O ${showChildren ? 'collapse' : 'details'}`}</Text>
+        ) : null}
       </Box>
       {showChildren ? (
         <Box flexDirection="column" marginLeft={2}>
@@ -115,15 +149,13 @@ const SkillScopeView: React.FC<{
 export function skillActivityPresentation(
   scope: SkillScopeBlock,
   childToolCount = countToolCalls(scope.children),
+  active = scope.loading,
 ): { readonly label: string; readonly meta: string | null; readonly active: boolean } {
   const name = truncate(scope.skillEvent.name, NAME_DISPLAY_MAX);
   const meta = childToolCount > 0
     ? `${childToolCount} tool${childToolCount === 1 ? '' : 's'}`
     : null;
-  if (scope.loading) return { label: `Loading skill ${name}…`, meta, active: true };
-  if (scope.closed) return { label: `Used skill ${name}`, meta, active: false };
-  if (childToolCount > 0) return { label: `Using skill ${name}`, meta, active: false };
-  return { label: `Loaded skill ${name}`, meta: null, active: false };
+  return { label: name, meta, active };
 }
 
 function hasRunningTool(block: Block): boolean {
@@ -131,4 +163,21 @@ function hasRunningTool(block: Block): boolean {
   if (block.kind === 'live-tools') return block.calls.some((call) => call.outcome === null);
   if (block.kind === 'skill-scope') return block.children.some(hasRunningTool);
   return false;
+}
+
+function hasFailedTool(block: Block): boolean {
+  if (block.kind === 'tool-call') {
+    if (!block.outcome) return false;
+    return block.outcome.type === 'denied' || !block.outcome.ok;
+  }
+  if (block.kind === 'live-tools') return block.calls.some((call) => hasFailedOutcome(call.outcome));
+  if (block.kind === 'skill-scope') return block.children.some(hasFailedTool);
+  return false;
+}
+
+function hasFailedOutcome(
+  outcome: Extract<Block, { kind: 'live-tools' }>['calls'][number]['outcome'],
+): boolean {
+  if (!outcome) return false;
+  return outcome.type === 'denied' || !outcome.ok;
 }

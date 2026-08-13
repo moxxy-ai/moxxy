@@ -1,3 +1,14 @@
+/**
+ * Exported as its own entry point (`@moxxy/plugin-provider-admin/key-name`),
+ * NOT only through the package barrel.
+ *
+ * The barrel also loads `factory.ts`, which imports
+ * `@moxxy/plugin-provider-openai` and therefore the ~1 MB `openai` SDK. The CLI
+ * needs nothing from this module but two pure name helpers, so importing them
+ * through the barrel inlined that entire SDK into the published binary. Keep
+ * this file's imports confined to the local store and `@moxxy/sdk` so the
+ * subpath stays cheap.
+ */
 import { readProvidersConfig } from './store.js';
 
 /**

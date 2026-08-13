@@ -69,11 +69,10 @@
  * index can be replayed.
  */
 
-import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { z, type CapabilitySpec } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import { verifyEd25519, z, type CapabilitySpec } from '@moxxy/sdk';
+import { moxxyPath, writeSignedNetworkCacheAtomic } from '@moxxy/sdk/server';
 import { INSTALLABLE_PLUGIN_CATALOG, resolveCatalogEntry, type PluginCatalogEntry } from './catalog.js';
 import { NPM_NAME_RE } from './shared.js';
 import { REGISTRY_PUBLIC_KEY } from './registry-key.js';
@@ -153,11 +152,26 @@ const registryIndexSchema = z.object({
   entries: z.array(registryEntrySchema).max(5000),
 });
 
-const cacheFileSchema = z.object({
-  fetchedAtMs: z.number().int().nonnegative(),
-  indexB64: z.string().min(1),
-  sig: z.string().min(1),
-});
+const cacheFileSchema = z.union([
+  z.object({
+    writtenAtMs: z.number().int().nonnegative(),
+    payloadB64: z.string().min(1),
+    signature: z.string().min(1),
+  }),
+  // Read the pre-0.38 cache shape during a rolling upgrade. New writes always
+  // use the shared signed-cache envelope above.
+  z
+    .object({
+      fetchedAtMs: z.number().int().nonnegative(),
+      indexB64: z.string().min(1),
+      sig: z.string().min(1),
+    })
+    .transform((legacy) => ({
+      writtenAtMs: legacy.fetchedAtMs,
+      payloadB64: legacy.indexB64,
+      signature: legacy.sig,
+    })),
+]);
 
 /** One signed, pinned installable plugin. Structurally a superset of
  *  {@link PluginCatalogEntry} plus the exact `version` pin. */
@@ -195,13 +209,7 @@ export function verifyRegistryIndex(
   sigB64: string,
   publicKeyPem: string,
 ): boolean {
-  if (!publicKeyPem || !sigB64) return false;
-  try {
-    const key = createPublicKey(publicKeyPem);
-    return cryptoVerify(null, Buffer.from(bytes), key, Buffer.from(sigB64, 'base64'));
-  } catch {
-    return false;
-  }
+  return verifyEd25519(bytes, sigB64, publicKeyPem);
 }
 
 /** Parse + schema-check verified index bytes. Undefined on anything off. */
@@ -226,7 +234,7 @@ export function parseRegistryIndex(bytes: Uint8Array): PluginRegistryIndex | und
  *  from search.ts's JSON-only `FetchLike`. */
 export type RegistryFetchLike = (
   url: string,
-  init?: { readonly signal?: AbortSignal },
+  init?: { readonly signal?: AbortSignal; readonly headers?: Record<string, string> },
 ) => Promise<{
   readonly ok: boolean;
   readonly status: number;
@@ -274,6 +282,16 @@ export interface FetchSignedRegistryOptions {
   readonly publicKeyPem?: string;
   /** Cancels in-flight fetches (combined with the internal 10s deadline). */
   readonly signal?: AbortSignal;
+  /**
+   * Bearer credential for an index that requires authentication, e.g. an
+   * internal mirror behind SSO. Resolved by the caller through the active
+   * SecretProvider, so this module needs no notion of where secrets live.
+   *
+   * Purely about REACHING the index. The Ed25519 verification below is
+   * unchanged and still decides whether the bytes are trusted: an authenticated
+   * mirror serving an unsigned index is refused exactly like an anonymous one.
+   */
+  readonly token?: string;
 }
 
 /**
@@ -310,9 +328,15 @@ export async function fetchSignedRegistry(
   let bytes: Uint8Array;
   let sig: string;
   try {
+    // Sent on BOTH requests: the signature lives beside the index, so a mirror
+    // that gates one gates the other, and omitting it on `.sig` would fail the
+    // fetch in a way that looks like a missing signature.
+    const init = opts.token
+      ? { signal, headers: { authorization: `Bearer ${opts.token}` } }
+      : { signal };
     const [indexRes, sigRes] = await Promise.all([
-      fetchImpl(url, { signal }),
-      fetchImpl(`${url}.sig`, { signal }),
+      fetchImpl(url, init),
+      fetchImpl(`${url}.sig`, init),
     ]);
     if (!indexRes.ok || !sigRes.ok) {
       return fallback(
@@ -344,12 +368,9 @@ export async function fetchSignedRegistry(
 
   // 4. Cache best-effort (bytes + sig, so the read path re-verifies).
   try {
-    const cacheBody: z.infer<typeof cacheFileSchema> = {
-      fetchedAtMs: now(),
-      indexB64: Buffer.from(bytes).toString('base64'),
-      sig,
-    };
-    await writeFileAtomic(cachePath, JSON.stringify(cacheBody));
+    await writeSignedNetworkCacheAtomic(cachePath, bytes, sig, publicKeyPem, {
+      writtenAtMs: now(),
+    });
   } catch {
     // A read-only home dir must not break installs.
   }
@@ -385,12 +406,12 @@ async function readVerifiedCache(
   }
   const parsed = cacheFileSchema.safeParse(raw);
   if (!parsed.success) return undefined;
-  const bytes = Buffer.from(parsed.data.indexB64, 'base64');
+  const bytes = Buffer.from(parsed.data.payloadB64, 'base64');
   // Tampered cache = bytes that no longer verify → discarded, remote re-fetch.
-  if (!verifyRegistryIndex(bytes, parsed.data.sig, publicKeyPem)) return undefined;
+  if (!verifyRegistryIndex(bytes, parsed.data.signature, publicKeyPem)) return undefined;
   const index = parseRegistryIndex(bytes);
   if (!index) return undefined;
-  return { fetchedAtMs: parsed.data.fetchedAtMs, index };
+  return { fetchedAtMs: parsed.data.writtenAtMs, index };
 }
 
 // ---------------------------------------------------------------------------

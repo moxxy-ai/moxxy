@@ -101,6 +101,7 @@ export type ChatAction =
   | { type: 'event'; event: MoxxyEvent }
   | { type: 'send_started'; turnId: string }
   | { type: 'send_failed'; message: string }
+  | { type: 'turn_reconciled_idle' }
   | { type: 'turn_complete'; turnId: string; error: string | null }
   | {
       type: 'action_result';
@@ -279,6 +280,24 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
     case 'send_failed':
       rt.sending = false;
       rt.error = action.message;
+      rt.rev += 1;
+      return true;
+    case 'turn_reconciled_idle':
+      if (
+        !rt.sending &&
+        rt.activeTurnId === null &&
+        rt.streamingText === '' &&
+        rt.streamingReasoning === ''
+      ) {
+        return false;
+      }
+      // Runtime liveness is authoritative. Do not synthesize a terminal
+      // message or error here: an interrupted pre-restart turn has no real
+      // completion event, and its persisted history must remain untouched.
+      rt.streamingText = '';
+      rt.streamingReasoning = '';
+      rt.sending = false;
+      rt.activeTurnId = null;
       rt.rev += 1;
       return true;
     case 'turn_complete': {

@@ -9,12 +9,15 @@ import {
 } from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
+import { ToolIconProvider } from './ToolIconContext';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { StreamingReasoning } from './blocks/StreamingReasoning';
+import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
+import { visibleTranscriptNodes } from './transcript-nodes';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -62,7 +65,9 @@ const MemoBlock = memo(
  *  (user → right, tool → left, assistant → stretch) is honoured; in the
  *  old flat flex container it worked for free, but each virtualised row is
  *  its own element now. */
-const ROW: React.CSSProperties = { padding: '8px 24px', display: 'flex', flexDirection: 'column' };
+// The trace gutter supplies the left inset (and the timeline that runs through
+// it), so a row must not add its own or the spine detaches from the glyphs.
+const ROW: React.CSSProperties = { display: 'flex', flexDirection: 'column' };
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;
@@ -161,7 +166,9 @@ export function Transcript({
     compactRef.current = compactTools;
   }
   const nodes = useMemo(
-    () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools)),
+    () => groupToolNodes(visibleTranscriptNodes(
+      buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
+    )),
     [events, extensions, compactTools],
   );
   const foldVersion = foldRef.current?.version ?? events.length;
@@ -221,8 +228,11 @@ export function Transcript({
   }, [nodes, workspaceId]);
 
   return (
-    // Relative wrapper so the jump-to-latest button can float over the
-    // scroller without joining the virtualised content.
+    // One catalog fetch for the whole transcript; every tool row reads the
+    // declared icon from context rather than asking for it per row.
+    <ToolIconProvider workspaceId={workspaceId}>
+    {/* Relative wrapper so the jump-to-latest button can float over the
+        scroller without joining the virtualised content. */}
     <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <Virtuoso<RenderNode>
         ref={virtuosoRef}
@@ -253,13 +263,19 @@ export function Transcript({
         )}
         components={{
           Footer: () => (
-            <div style={{ padding: '0 24px 12px' }}>
+            <div>
               {streamingText ? (
-                <StreamingAssistant text={streamingText} />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <StreamingAssistant text={streamingText} />
+                </TraceEntry>
               ) : streamingReasoning ? (
-                <StreamingReasoning text={streamingReasoning} />
+                <TraceEntry kind="reasoning" label="reasoning" live>
+                  <StreamingReasoning text={streamingReasoning} />
+                </TraceEntry>
               ) : sending ? (
-                <ThinkingIndicator />
+                <TraceEntry kind="agent" label="moxxy" live>
+                  <ThinkingIndicator />
+                </TraceEntry>
               ) : null}
             </div>
           ),
@@ -267,5 +283,6 @@ export function Transcript({
       />
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
+    </ToolIconProvider>
   );
 }

@@ -23,6 +23,19 @@ describe('parseDuckDuckGoHtml', () => {
       { title: 'Docs', url: 'https://docs.example.org/page', snippet: 'Useful docs.' },
     ]);
   });
+
+  it('does not trust a hostname that merely ends with the DuckDuckGo name', () => {
+    const html = `
+      <a class="result__a" href="https://evilduckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F">
+        Lookalike redirect
+      </a>`;
+    expect(parseDuckDuckGoHtml(html)).toEqual([
+      {
+        title: 'Lookalike redirect',
+        url: 'https://evilduckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F',
+      },
+    ]);
+  });
 });
 
 describe('web_search tool', () => {

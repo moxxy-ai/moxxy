@@ -1,4 +1,5 @@
 import type {
+  ClientChromeItem,
   MoxxyRequirement,
   Plugin,
   PluginHostHandle,
@@ -104,6 +105,35 @@ export class PluginHost implements PluginHostHandle {
       if (record.toolNames.includes(toolName)) return key;
     }
     return undefined;
+  }
+
+  /** Wire-safe client chrome, namespaced and sanitized at the host boundary. */
+  listClientChrome(): ReadonlyArray<ClientChromeItem> {
+    const items: ClientChromeItem[] = [];
+    const seen = new Set<string>();
+    for (const [key, record] of this.loaded) {
+      const source = cleanChromeText(record.manifest?.packageName ?? record.plugin.name, 80);
+      for (const contribution of record.plugin.clientChrome ?? []) {
+        const label = cleanChromeText(contribution.label, 40);
+        const id = cleanChromeText(contribution.id, 40);
+        if (!label || !id || !isChromeSlot(contribution.slot)) continue;
+        const itemId = `${cleanChromeText(key, 80)}:${id}`;
+        if (seen.has(itemId)) continue;
+        seen.add(itemId);
+        const priority = Number.isFinite(contribution.priority)
+          ? Math.max(-100, Math.min(100, contribution.priority ?? 0))
+          : 0;
+        items.push({
+          id: itemId,
+          source,
+          slot: contribution.slot,
+          label,
+          tone: isChromeTone(contribution.tone) ? contribution.tone : 'neutral',
+          priority,
+        });
+      }
+    }
+    return items.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id.localeCompare(b.id));
   }
 
   registerStatic(plugin: Plugin, opts: RegisterStaticOptions = {}): void {
@@ -383,5 +413,26 @@ function contributionKinds(r: LoadedRecord): ReadonlyArray<string> {
   if (r.agentNames.length) kinds.push('agent');
   if (r.commandNames.length) kinds.push('command');
   if (r.toolNames.length) kinds.push('tool');
+  if (r.plugin.clientChrome?.length) kinds.push('clientChrome');
   return kinds;
+}
+
+function cleanChromeText(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') return '';
+  return [...value]
+    .filter((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code >= 0x20 && !(code >= 0x7f && code <= 0x9f);
+    })
+    .join('')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function isChromeSlot(value: unknown): value is ClientChromeItem['slot'] {
+  return value === 'status.leading' || value === 'status.trailing';
+}
+
+function isChromeTone(value: unknown): value is NonNullable<ClientChromeItem['tone']> {
+  return value === 'neutral' || value === 'positive' || value === 'attention';
 }

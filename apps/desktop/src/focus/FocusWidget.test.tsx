@@ -23,12 +23,42 @@ import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testi
 import { __setApiOverride, configurePlatform } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { asTurnId, assertDefined } from '@moxxy/sdk';
-import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
-import { FocusWidget } from './FocusWidget';
+import { asToolCallId, asTurnId, assertDefined } from '@moxxy/sdk';
+import {
+  FOCUS_PET_LAYOUT,
+  type AskRequest,
+  type ThemePreference,
+} from '@moxxy/desktop-ipc-contract';
+import { FocusWidget, focusActiveWidth } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
 import { style as focusStyle } from './focus-styles';
 import { DESKTOP_VOICE_CALL_CHANNEL } from '../voice-call/desktop-voice-call-bridge';
+
+vi.mock('react-virtuoso', async () => {
+  const React = await import('react');
+  return {
+    Virtuoso: React.forwardRef(function FocusTestVirtuoso(
+      props: {
+        readonly data?: ReadonlyArray<unknown>;
+        readonly itemContent?: (index: number, item: unknown) => React.ReactNode;
+        readonly components?: { readonly Footer?: () => React.ReactNode };
+        readonly ['data-testid']?: string;
+      },
+      ref: React.Ref<unknown>,
+    ) {
+      React.useImperativeHandle(ref, () => ({ scrollToIndex: () => undefined }));
+      const Footer = props.components?.Footer;
+      return React.createElement(
+        'div',
+        { 'data-testid': props['data-testid'] ?? 'virtuoso-mock' },
+        ...(props.data ?? []).map((item, index) => (
+          React.createElement(React.Fragment, { key: index }, props.itemContent?.(index, item))
+        )),
+        Footer ? React.createElement(Footer) : null,
+      );
+    }),
+  };
+});
 
 interface IpcSpy {
   invokes: Array<{ channel: string; args: unknown }>;
@@ -37,6 +67,7 @@ interface IpcSpy {
 
 interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
+  readonly activeTurnId?: string | null;
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
   readonly horizontalAnchor?: 'left' | 'right';
@@ -81,6 +112,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const invokes: Array<{ channel: string; args: unknown }> = [];
   const subs = new Map<string, Set<(payload: unknown) => void>>();
   const historyEvents = options.historyEvents ?? [];
+  const activeTurnId = options.activeTurnId ?? null;
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
   const horizontalAnchor = options.horizontalAnchor ?? 'right';
@@ -109,6 +141,9 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       }
       if (channel === 'chat.loadHistory') {
         return Promise.resolve({ events: historyEvents, prevCursor: null });
+      }
+      if (channel === 'session.activeTurn') {
+        return Promise.resolve({ turnId: activeTurnId });
       }
       if (channel === 'focus.resize') {
         return Promise.resolve({ horizontalAnchor });
@@ -144,7 +179,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
         return Promise.resolve(hasTranscriber);
       }
       if (channel === 'session.info') {
-        return Promise.resolve({ activeSynthesizer });
+        return Promise.resolve({ activeSynthesizer, skills: [], tools: [] });
       }
       if (channel === 'voice.isLocalPiperInstalled') {
         return Promise.resolve(localPiperInstalled);
@@ -260,10 +295,31 @@ describe('FocusWidget stages', () => {
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
     expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'idle');
-    expect(screen.getByTestId('focus-pet-canvas')).toHaveAttribute(
-      'data-avatar-assets',
-      'focus',
-    );
+  });
+
+  it('draws the pet as the woven Moxxy mark, not the retired raster mascot', () => {
+    installFakeApi();
+    const { container } = render(<FocusWidget />);
+
+    const mark = screen.getByTestId('focus-pet-mark');
+    const svg = mark.querySelector('svg');
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute('viewBox')).toBe('0 0 256 256');
+    expect(svg?.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(container.querySelector('canvas')).toBeNull();
+    expect(container.querySelector('img[src*="brick-girl"]')).toBeNull();
+  });
+
+  it('drives the pet mark from the same voice pulse Voice Mode uses', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    // The mark stands still; only the pulse moves, published on the widget root
+    // as one custom property that the stylesheet turns into a scale.
+    expect(screen.getByTestId('focus-pet-mark')).toBeTruthy();
+    const pulse = Number(screen.getByTestId('focus-pet').style.getPropertyValue('--voice-pulse'));
+    expect(pulse).toBeGreaterThanOrEqual(0);
+    expect(pulse).toBeLessThanOrEqual(1);
   });
 
   it('renders the inactive pet without native button chrome', () => {
@@ -313,12 +369,46 @@ describe('FocusWidget stages', () => {
       const resize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width: number; height: number }).width >= 280 &&
-          (i.args as { width: number; height: number }).width <= 360 &&
+          (i.args as { width: number; height: number }).width === 270 &&
           (i.args as { width: number; height: number }).height === 90,
       );
       expect(resize).toBeTruthy();
     });
+  });
+
+  it('sizes the active bar from its visible controls without a dead spacer', () => {
+    expect(focusActiveWidth({
+      hasTranscriber: false,
+      voiceModeAvailable: false,
+      voiceModeActive: false,
+      voiceModePhase: 'idle',
+      voiceModeRetryAvailable: false,
+    })).toBe(144);
+    expect(focusActiveWidth({
+      hasTranscriber: true,
+      voiceModeAvailable: true,
+      voiceModeActive: false,
+      voiceModePhase: 'idle',
+      voiceModeRetryAvailable: false,
+    })).toBe(216);
+    expect(focusActiveWidth({
+      hasTranscriber: true,
+      voiceModeAvailable: true,
+      voiceModeActive: true,
+      voiceModePhase: 'speaking',
+      voiceModeRetryAvailable: false,
+    })).toBe(252);
+  });
+
+  it('places the active controls directly beside Moxxy without a separator', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    const actions = screen.getByTestId('focus-active-actions');
+
+    expect(actions.previousElementSibling).toBeNull();
+    expect(actions.style.marginLeft).not.toBe('auto');
   });
 
   it('active → mini-text shows the composer input + send', () => {
@@ -328,6 +418,46 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
     expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
+  });
+
+  it('heads mini-text with the inline brand mark, not the raster app icon', () => {
+    installFakeApi();
+    const { container } = render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    // The floating window cannot inherit styles.css, so the mark has to be
+    // inline SVG driven by the focus palette rather than a fetched raster —
+    // and it has to be the SAME mark the main window paints.
+    const mark = screen.getByRole('img', { name: 'moxxy' });
+    expect(mark.tagName.toLowerCase()).toBe('svg');
+    expect(mark.querySelectorAll('rect[rx="12"]').length).toBeGreaterThanOrEqual(3);
+    expect(mark.querySelector('[stroke="var(--color-primary)"]')).toBeTruthy();
+    expect(container.querySelector('img[src*="logo.png"]')).toBeNull();
+  });
+
+  it('keeps the active listening state visible after opening mini-text', async () => {
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => ({ stop: vi.fn(), cancel: vi.fn() }),
+      },
+    });
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'listening');
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const status = screen.getByRole('status', { name: /voice mode: i'm listening/i });
+    expect(status).toHaveAttribute('data-phase', 'listening');
+    const waves = Array.from(status.querySelectorAll('.voice-radio-waves'));
+    expect(waves).toHaveLength(2);
+    expect(waves.every((wave) => wave.getAttribute('data-active') === 'true')).toBe(true);
   });
 
   it('active → mini-text enables edge-resize via focus.resize', async () => {
@@ -401,7 +531,7 @@ describe('FocusWidget stages', () => {
   });
 
   it('adopts an active main-window call without restarting it and routes controls back', async () => {
-    installFakeApi();
+    const ipc = installFakeApi();
     const canvasContext = vi
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
       .mockReturnValue(null);
@@ -464,6 +594,20 @@ describe('FocusWidget stages', () => {
       expect(screen.getByRole('button', {
         name: /voice mode active.*click to expand/i,
       })).toBeTruthy();
+      const waves = Array.from(
+        screen.getByTestId('focus-pet').querySelectorAll('.voice-radio-waves'),
+      );
+      expect(waves).toHaveLength(2);
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'true')).toBe(true);
+      await waitFor(() => {
+        expect(ipc.invokes).toContainEqual({
+          channel: 'focus.resize',
+          args: expect.objectContaining({
+            width: FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth,
+            height: FOCUS_PET_LAYOUT.collapsedHeight,
+          }),
+        });
+      });
 
       owner.postMessage({
         type: 'snapshot',
@@ -484,7 +628,74 @@ describe('FocusWidget stages', () => {
         expect(document.querySelector('.focus-voice-live')?.getAttribute('data-phase'))
           .toBe('working');
       });
+      expect(waves.every((wave) => wave.getAttribute('data-active') === 'false')).toBe(true);
       expect(screen.queryByRole('button', { name: /end voice mode/i })).toBeNull();
+
+      act(() => ipc.emit('ask.request', permissionAsk('ask-during-collapsed-voice')));
+      await screen.findByRole('group', { name: /permission required/i });
+      await waitFor(() => {
+        expect(ipc.invokes).toContainEqual({
+          channel: 'focus.resize',
+          args: expect.objectContaining({ width: 640, height: 216 }),
+        });
+      });
+    } finally {
+      owner.close();
+      canvasContext.mockRestore();
+    }
+  });
+
+  it('shows and removes a voice follow-up queued by the main renderer', async () => {
+    installFakeApi();
+    const canvasContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    const owner = new BroadcastChannel(DESKTOP_VOICE_CALL_CHANNEL);
+    const received: unknown[] = [];
+    owner.addEventListener('message', (message: MessageEvent<unknown>) => {
+      received.push(message.data);
+    });
+
+    try {
+      render(<FocusWidget />);
+      await waitFor(() => {
+        expect(received).toContainEqual(expect.objectContaining({
+          type: 'snapshot-request',
+          workspaceId: 'ws-test',
+        }));
+      });
+      owner.postMessage({
+        type: 'snapshot',
+        source: 'main',
+        workspaceId: 'ws-test',
+        snapshot: {
+          active: true,
+          phase: 'thinking',
+          activity: null,
+          errorReason: null,
+          microphoneMuted: false,
+          waitingSoundEnabled: true,
+          localPiperInstallRequired: false,
+          localPiperInstalling: false,
+          queuedTurns: [{ id: 'q-voice-1', prompt: 'Transcribed voice follow-up' }],
+        },
+      });
+
+      await screen.findByRole('button', { name: /end voice mode/i });
+      fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+      expect(await screen.findByText('Transcribed voice follow-up')).toBeTruthy();
+      expect(screen.getByRole('status', { name: /1 queued message/i })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: /drop queued message/i }));
+      await waitFor(() => {
+        expect(received).toContainEqual({
+          type: 'queue-drop',
+          source: 'focus',
+          workspaceId: 'ws-test',
+          queueId: 'q-voice-1',
+        });
+      });
+      expect(screen.queryByText('Transcribed voice follow-up')).toBeNull();
     } finally {
       owner.close();
       canvasContext.mockRestore();
@@ -825,13 +1036,38 @@ describe('FocusWidget theme', () => {
     render(<FocusWidget />);
 
     expect(focusCss()).toContain('[data-theme="dark"]');
-    expect(focusCss()).toContain('--focus-panel-bg: #161823');
-    expect(focusCss()).toContain('--focus-preview-bg: rgba(22, 24, 35, 0.96)');
+    expect(focusCss()).toContain('--focus-panel-bg: #151b20');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(21, 27, 32, 0.96)');
+  });
+
+  it('resolves system-dark to exactly the same palette as an explicit dark theme', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const css = focusCss();
+
+    // The two dark paths used to be hand-maintained copies, and the
+    // `prefers-color-scheme` one had drifted: it omitted shared colour vars, so
+    // a system-dark user with no
+    // stored theme pref got the LIGHT accent on a dark panel. Both paths now
+    // interpolate one shared constant; assert the accent reaches both, and
+    // that the light accent appears exactly once (in the :root block).
+    const systemDark = css.slice(css.indexOf('@media (prefers-color-scheme: dark)'));
+    expect(systemDark).toContain(':root:not([data-theme])');
+    for (const decl of [
+      '--color-primary: #ff4a1e',
+      '--color-primary-strong: #ff8a3d',
+      '--color-action: #d62a00',
+      '--color-on-action: #ffffff',
+      '--color-red: #f2545b',
+    ]) {
+      expect(systemDark, `system-dark is missing ${decl}`).toContain(decl);
+    }
+    expect(css.match(/--color-primary: #d62a00/g)).toHaveLength(1);
   });
 });
 
 describe('FocusWidget bidirectional sync', () => {
-  it('shows only the latest user question, its attachment, and matching answer in mini-text', async () => {
+  it('shows the complete conversation, attachments, and answers in mini chat', async () => {
     const spy = installFakeApi({
       historyEvents: [
         event(1, {
@@ -891,14 +1127,14 @@ describe('FocusWidget bidirectional sync', () => {
     }));
     expect(screen.getByRole('dialog', { name: /question\.png/i })).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByText(/older user prompt/i)).toBeNull();
-    expect(screen.queryByText(/older assistant answer/i)).toBeNull();
+    expect(screen.getByText(/older user prompt/i)).toBeTruthy();
+    expect(screen.getByText(/older assistant answer/i)).toBeTruthy();
     expect(screen.getByTestId('focus-transcript').getAttribute('style')).toContain(
       'user-select: text',
     );
   });
 
-  it('does not present an intermediate tool-use message as the final mini-text answer', async () => {
+  it('preserves intermediate tool-use messages in the canonical mini chat timeline', async () => {
     installFakeApi({
       historyEvents: [
         event(1, {
@@ -922,7 +1158,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
     expect(await screen.findByText('Run the requested operation')).toBeTruthy();
-    expect(screen.queryByText('internal tool preamble')).toBeNull();
+    expect(screen.getByText('internal tool preamble')).toBeTruthy();
   });
 
   it('sending from mini-text invokes session.runTurn for the active workspace', async () => {
@@ -1026,11 +1262,32 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
 
     expect(spy.invokes.filter((invoke) => invoke.channel === 'session.runTurn')).toHaveLength(1);
+    expect(screen.getByRole('status', { name: /1 queued message/i })).toBeTruthy();
     expect(await screen.findByText('queued prompt')).toBeTruthy();
     const remove = screen.getByRole('button', { name: /drop queued message/i });
     fireEvent.click(remove);
     expect(screen.queryByText('queued prompt')).toBeNull();
     expect(chatStore.getQueue('ws-test')).toHaveLength(0);
+  });
+
+  it('aborts the current turn from mini-text through the canonical session action', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+
+    fireEvent.change(input, { target: { value: 'long running task' } });
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+    await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
+
+    fireEvent.click(screen.getByRole('button', { name: /stop current task/i }));
+
+    await waitFor(() => {
+      const abort = spy.invokes.find((invoke) => invoke.channel === 'session.abortTurn');
+      expect(abort?.args).toEqual({ workspaceId: 'ws-test', turnId: 't-1' });
+    });
   });
 
   it('pasting an image in mini-text stages a preview attachment and enables image-only send', async () => {
@@ -1188,6 +1445,57 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
+  it('recovers a main-chat task that started before Focus mounted', async () => {
+    const turnId = asTurnId('turn-started-in-main-before-focus');
+    const spy = installFakeApi({
+      activeTurnId: turnId,
+      historyEvents: [
+        event(1, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId,
+          text: 'Generate the PDF from the main chat',
+        }),
+        event(2, {
+          type: 'tool_call_requested',
+          source: 'model',
+          turnId,
+          callId: asToolCallId('call-main-before-focus'),
+          name: 'Write',
+          input: { file_path: 'report.pdf' },
+        }),
+      ],
+    });
+    render(<FocusWidget />);
+
+    const status = await screen.findByRole('status', { name: /current task/i });
+    expect(status).toHaveTextContent('Generate the PDF from the main chat');
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    expect(await screen.findByText('thinking…')).toBeTruthy();
+
+    act(() => {
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(3, {
+          type: 'assistant_message',
+          source: 'model',
+          turnId,
+          content: 'The PDF is ready.',
+          stopReason: 'end_turn',
+        }),
+      });
+      spy.emit('runner.turn.complete', {
+        workspaceId: 'ws-test',
+        turnId,
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText('thinking…')).toBeNull());
+  });
+
   it('renders the latest assistant message as Markdown, not raw text', async () => {
     installFakeApi();
     render(<FocusWidget />);
@@ -1229,8 +1537,47 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
+  it('renders canonical tool activity in mini chat and exposes its details', async () => {
+    installFakeApi({
+      historyEvents: [
+        event(1, {
+          type: 'user_prompt',
+          turnId: 't-tool-detail',
+          source: 'user',
+          text: 'Inspect the project',
+        } as never),
+        event(2, {
+          type: 'tool_call_requested',
+          turnId: 't-tool-detail',
+          source: 'model',
+          callId: 'call-read-1',
+          name: 'Read',
+          input: { file_path: 'src/app.ts' },
+        } as never),
+        event(3, {
+          type: 'tool_result',
+          turnId: 't-tool-detail',
+          source: 'tool',
+          callId: 'call-read-1',
+          ok: true,
+          output: 'export const ready = true;',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const activity = await screen.findByRole('button', { name: /read/i });
+    expect(activity.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(activity);
+    expect(screen.getAllByText(/src\/app\.ts/i)).not.toHaveLength(0);
+    expect(screen.getByText(/export const ready = true/i)).toBeTruthy();
+  });
+
   it('shows an inactive assistant preview bubble and opens mini-text when the pet is clicked', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 't-preview' });
     render(<FocusWidget />);
 
     spy.emit('runner.turn.started', {
@@ -1484,6 +1831,21 @@ describe('FocusWidget bidirectional sync', () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
+    const latestPreviewDimensions = (): { width: number; height: number } | undefined => {
+      const resize = spy.invokes.findLast((invoke) => {
+        if (invoke.channel !== 'focus.resize') return false;
+        const args = invoke.args as { width?: unknown; height?: unknown };
+        return (
+          typeof args.width === 'number' &&
+          typeof args.height === 'number' &&
+          args.height > 104
+        );
+      });
+      if (!resize) return undefined;
+      const args = resize.args as { width: number; height: number };
+      return { width: args.width, height: args.height };
+    };
+
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
       event: {
@@ -1502,9 +1864,12 @@ describe('FocusWidget bidirectional sync', () => {
         .toHaveTextContent(/first live chunk/i);
     });
 
-    const resizeCountAfterFirstPreview = spy.invokes.filter(
-      (i) => i.channel === 'focus.resize',
-    ).length;
+    let dimensionsAfterFirstPreview: { width: number; height: number } | undefined;
+    await waitFor(() => {
+      dimensionsAfterFirstPreview = latestPreviewDimensions();
+      expect(dimensionsAfterFirstPreview).toBeDefined();
+    });
+    assertDefined(dimensionsAfterFirstPreview, 'first inactive preview dimensions');
 
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
@@ -1524,10 +1889,7 @@ describe('FocusWidget bidirectional sync', () => {
         .toHaveTextContent(/first live chunk and second live chunk/i);
     });
 
-    const resizeCountAfterSecondPreview = spy.invokes.filter(
-      (i) => i.channel === 'focus.resize',
-    ).length;
-    expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
+    expect(latestPreviewDimensions()).toEqual(dimensionsAfterFirstPreview);
   });
 
   it('shows the active task above Moxxy and keeps the native window bottom-anchored', async () => {
@@ -1566,7 +1928,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('lets the user hide and restore task bubbles without ending the turn', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-hide-task' });
     render(<FocusWidget />);
 
     act(() => {
@@ -1607,7 +1969,10 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps the inactive restore control inward when Focus is docked on the left', async () => {
-    const spy = installFakeApi({ horizontalAnchor: 'left' });
+    const spy = installFakeApi({
+      activeTurnId: 'turn-left-restore',
+      horizontalAnchor: 'left',
+    });
     render(<FocusWidget />);
 
     act(() => {
@@ -1639,7 +2004,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps the active restore arrow above Moxxy and outside the action bar', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-active-restore' });
     render(<FocusWidget />);
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -1745,7 +2110,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('keeps required user decisions visible while ordinary task bubbles are hidden', async () => {
-    const spy = installFakeApi();
+    const spy = installFakeApi({ activeTurnId: 'turn-hidden-task-ask' });
     render(<FocusWidget />);
 
     act(() => {

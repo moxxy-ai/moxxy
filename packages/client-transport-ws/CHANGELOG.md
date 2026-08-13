@@ -1,5 +1,82 @@
 # @moxxy/client-transport-ws
 
+## 0.2.33
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.20
+- @moxxy/e2e@0.37.2
+
+## 0.2.32
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.19
+- @moxxy/e2e@0.37.1
+
+## 0.2.31
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.18
+- @moxxy/e2e@0.37.0
+
+## 0.2.30
+
+### Patch Changes
+
+- @moxxy/e2e@0.36.1
+- @moxxy/desktop-ipc-contract@0.14.17
+
+## 0.2.29
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.16
+- @moxxy/e2e@0.36.0
+
+## 0.2.28
+
+### Patch Changes
+
+- @moxxy/e2e@0.35.4
+- @moxxy/desktop-ipc-contract@0.14.15
+
+## 0.2.27
+
+### Patch Changes
+
+- @moxxy/e2e@0.35.3
+- @moxxy/desktop-ipc-contract@0.14.14
+
+## 0.2.26
+
+### Patch Changes
+
+- @moxxy/e2e@0.35.2
+- @moxxy/desktop-ipc-contract@0.14.13
+
+## 0.2.25
+
+### Patch Changes
+
+- @moxxy/e2e@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+
+## 0.2.24
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.11
+- @moxxy/e2e@0.35.0
+
+## 0.2.23
+
+### Patch Changes
+
+- @moxxy/desktop-ipc-contract@0.14.10
+- @moxxy/e2e@0.34.0
+
 ## 0.2.22
 
 ### Patch Changes

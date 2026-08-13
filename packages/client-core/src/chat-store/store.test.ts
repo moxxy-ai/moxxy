@@ -406,7 +406,7 @@ describe('chatStore history loading', () => {
       activeTurnId: turnId,
     });
 
-    await chatStore.refreshLatest(id);
+    await chatStore.refreshLatest(id, null);
 
     const snap = chatStore.getChat(id);
     expect(snap.events.map((event) => event.id)).toContain(finalAnswer.id);
@@ -434,7 +434,7 @@ describe('chatStore history loading', () => {
     chatStore.dispatch(id, { type: 'event', event: previousPrompt });
     chatStore.dispatch(id, { type: 'event', event: previousAnswer });
 
-    await chatStore.refreshLatest(id);
+    await chatStore.refreshLatest(id, missedTurn);
 
     const snap = chatStore.getChat(id);
     expect(snap.events.map((event) => event.id)).toEqual([
@@ -467,7 +467,7 @@ describe('chatStore history loading', () => {
     chatStore.dispatch(id, { type: 'send_started', turnId });
     chatStore.dispatch(id, { type: 'event', event: prompt });
 
-    await chatStore.refreshLatest(id);
+    await chatStore.refreshLatest(id, turnId);
 
     expect(chatStore.getChat(id)).toMatchObject({
       sending: true,
@@ -489,7 +489,7 @@ describe('chatStore history loading', () => {
     chatStore.dispatch(id, { type: 'send_started', turnId });
     chatStore.dispatch(id, { type: 'event', event: prompt });
 
-    await chatStore.refreshLatest(id);
+    await chatStore.refreshLatest(id, turnId);
 
     expect(chatStore.getChat(id)).toMatchObject({
       sending: true,

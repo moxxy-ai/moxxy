@@ -32,6 +32,11 @@ function ensureButtonStates(): void {
     `.${MARKER}{cursor:pointer;}`,
     `.${MARKER}:focus-visible{outline:2px solid var(--color-primary-strong,#2563eb);outline-offset:2px;}`,
     `.${MARKER}:disabled{opacity:0.55;cursor:not-allowed;}`,
+    `.${MARKER}.btn-primary,.${MARKER}.btn-cta{background:var(--color-action,var(--color-primary,#d62a00));color:var(--color-on-action,#fff);border:1px solid var(--color-action,var(--color-primary,#d62a00));}`,
+    `.${MARKER}.btn-primary:hover:not(:disabled),.${MARKER}.btn-cta:hover:not(:disabled){background:var(--color-action-hover,var(--color-primary-strong,#b32300));border-color:var(--color-action-hover,var(--color-primary-strong,#b32300));}`,
+    `.${MARKER}.btn-primary:disabled,.${MARKER}.btn-cta:disabled{opacity:1;background:var(--color-input-soft,#f1f3f4);color:var(--color-text-muted,#4a5a64);border-color:var(--color-card-border-strong,#c7cfd2);}`,
+    `.${MARKER}.btn-danger{background:var(--color-red,#dc2626);color:var(--color-on-primary,#fff);border:1px solid var(--color-red,#dc2626);}`,
+    `.${MARKER}.btn-danger:hover:not(:disabled){filter:brightness(0.9);}`,
   ].join('');
   document.head.appendChild(style);
 }
@@ -54,23 +59,27 @@ function isDev(): boolean {
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /**
-   * - `primary` — solid accent fill (the modal-footer confirm look)
-   * - `cta` — gradient call-to-action (`btn-cta`)
+   * - `primary` — solid action fill (the modal-footer confirm look)
+   * - `cta` — solid call-to-action (`btn-cta`)
    * - `secondary` — bordered/ghost-outline ("Cancel"/"Close"/"Back")
    * - `chip` — small bordered pill
    * - `ghost` — borderless, transparent
    * - `danger` — solid red destructive fill
    */
   readonly variant?: ButtonVariant;
-  /** `sm` (default) = `8px 14px`/13px; `lg` = the larger onboarding size. */
+  /** `sm` (default) = the 26px control; `lg` = the 30px row height, for a
+   *  button that anchors a whole step or an empty state rather than a bar. */
   readonly size?: ButtonSize;
 }
 
 const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties }> = {
-  primary: { style: { background: 'var(--color-primary-strong)', color: '#fff', border: 'none' } },
+  primary: {
+    className: 'btn-primary',
+    style: {},
+  },
   cta: {
     className: 'btn-cta',
-    style: { background: 'var(--grad-cta)', color: '#fff', border: 'none' },
+    style: {},
   },
   secondary: {
     className: 'btn-outline',
@@ -86,26 +95,35 @@ const VARIANT: Record<ButtonVariant, { className?: string; style: CSSProperties 
       background: 'var(--color-surface)',
       color: 'var(--color-text-muted)',
       border: '1px solid var(--color-card-border)',
-      fontSize: 12.5,
-      padding: '6px 12px',
+      fontSize: 'var(--type-label)',
+      padding: '0 var(--space-6)',
     },
   },
   ghost: {
     className: 'btn-ghost',
     style: { background: 'transparent', color: 'var(--color-text-muted)', border: 'none' },
   },
-  danger: { style: { background: 'var(--color-red)', color: '#fff', border: 'none' } },
+  danger: {
+    className: 'btn-danger',
+    style: {},
+  },
 };
 
+/* The control geometry, shared by every button in the app: one height, one
+ * radius, one size. A panel that hand-rolled a 38px pill next to a 28px tile is
+ * what made the old app read as assembled rather than machined — this is the
+ * instrument's control, and there is only one of it. */
 const BASE: CSSProperties = {
-  padding: '8px 14px',
-  fontSize: 13,
-  fontWeight: 600,
-  borderRadius: 10,
+  height: 'var(--frame-control)',
+  padding: '0 var(--space-8)',
+  fontSize: 'var(--type-meta)',
+  fontWeight: 500,
+  borderRadius: 'var(--radius-chip)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 6,
+  gap: 'var(--space-6)',
+  whiteSpace: 'nowrap',
 };
 
 export function Button({
@@ -119,7 +137,9 @@ export function Button({
   const v = VARIANT[variant];
   const merged: CSSProperties = {
     ...BASE,
-    ...(size === 'lg' ? { padding: '10px 18px', fontSize: 14 } : {}),
+    ...(size === 'lg'
+      ? { height: 'var(--frame-row)', padding: '0 var(--space-12)', fontSize: 'var(--type-row)' }
+      : {}),
     ...v.style,
     ...style,
   };
@@ -128,17 +148,17 @@ export function Button({
 }
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Square edge length in px (width = height). Default 28. */
+  /** Square edge length in px (width = height). Default: the 26px control. */
   readonly size?: number;
-  /** Corner radius in px. Default 8. */
+  /** Corner radius in px. Default: the 5px block. */
   readonly radius?: number;
   /** Draw a card border + surface fill (the rail's collapse affordance). */
   readonly bordered?: boolean;
 }
 
 export function IconButton({
-  size = 28,
-  radius = 8,
+  size = 26,
+  radius = 5,
   bordered = false,
   className,
   style,

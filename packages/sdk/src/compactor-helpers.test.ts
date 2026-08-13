@@ -278,7 +278,7 @@ describe('runCompactionIfNeeded', () => {
       compactor,
       model: 'claude-opus-4-7', // the listed descriptor
       contextWindow: 800_000,
-      ctxModelId: 'claude-opus-4-8', // …but the session runs an unlisted id
+      ctxModelId: 'claude-opus-4-8', // …but the session runs a retired, unlisted id
     });
     await runCompactionIfNeeded(ctx);
     // Falls back to models[0].contextWindow instead of bailing.

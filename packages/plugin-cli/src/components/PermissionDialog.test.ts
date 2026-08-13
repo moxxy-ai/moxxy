@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { previewToolInput } from './PermissionDialog.js';
+import { asToolCallId } from '@moxxy/sdk';
+import { describePermissionRequest, previewToolInput } from './PermissionDialog.js';
 
 describe('previewToolInput — redacts secret-named fields before display', () => {
   it('masks common secret keys instead of echoing them verbatim', () => {
@@ -50,5 +51,54 @@ describe('previewToolInput — redacts secret-named fields before display', () =
     let deep: Record<string, unknown> = { secret: 'x' };
     for (let i = 0; i < 10000; i += 1) deep = { nested: deep };
     expect(() => previewToolInput(deep)).not.toThrow();
+  });
+});
+
+describe('describePermissionRequest — consequence-first copy', () => {
+  const ctx = { sessionId: 's', toolDescription: 'Optional action' };
+
+  it('describes shell approval without exposing permission jargon', () => {
+    const result = describePermissionRequest(
+      {
+        callId: asToolCallId('c1'),
+        name: 'Bash',
+        input: { command: 'pnpm test', cwd: '/repo' },
+      },
+      ctx,
+      '/repo',
+    );
+    expect(result.title).toBe('Run this command?');
+    expect(result.target).toBe('pnpm test');
+    expect(result.sessionScope.inputKeys).toEqual(['command', 'cwd']);
+  });
+
+  it('makes the workspace boundary explicit for external reads', () => {
+    const result = describePermissionRequest(
+      {
+        callId: asToolCallId('c2'),
+        name: 'Read',
+        input: { file_path: '/tmp/private.txt' },
+      },
+      ctx,
+      '/repo',
+    );
+    expect(result.title).toBe('Access outside this workspace?');
+    expect(result.impact).toContain('repo');
+    expect(result.target).toBe('/tmp/private.txt');
+  });
+
+  it('scopes edit approval to the selected file', () => {
+    const result = describePermissionRequest(
+      {
+        callId: asToolCallId('c3'),
+        name: 'Edit',
+        input: { file_path: '/repo/src/app.ts' },
+      },
+      ctx,
+      '/repo',
+    );
+    expect(result.title).toBe('Change this file?');
+    expect(result.target).toBe('src/app.ts');
+    expect(result.sessionScope.inputKeys).toEqual(['file_path']);
   });
 });

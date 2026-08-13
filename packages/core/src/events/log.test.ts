@@ -513,3 +513,67 @@ describe('EventLog indexed ofType/byTurn equal the naive filter (property test)'
 });
 
 type MoxxyEventForTest = { seq: number } & Record<string, unknown>;
+
+describe('principal attribution', () => {
+  const alice = { id: 'alice@host', kind: 'human', issuer: 'os' } as const;
+
+  it('stamps the session principal onto every appended event', async () => {
+    const log = new EventLog();
+    log.setPrincipal(alice);
+    const event = await log.append({
+      type: 'user_prompt',
+      sessionId: 's' as never,
+      turnId: 't' as never,
+      source: 'user',
+      text: 'hi',
+    });
+    expect(event.actor).toEqual(alice);
+  });
+
+  // Absent must stay absent: the log is append-only and persisted, so sessions
+  // recorded before identity existed replay unattributed and must keep doing so.
+  it('leaves events unattributed when no principal is set', async () => {
+    const log = new EventLog();
+    const event = await log.append({
+      type: 'user_prompt',
+      sessionId: 's' as never,
+      turnId: 't' as never,
+      source: 'user',
+      text: 'hi',
+    });
+    expect(event.actor).toBeUndefined();
+    expect('actor' in event).toBe(false);
+  });
+
+  // A channel serving several users on one session attributes per event, and
+  // that must win over the log's session-wide default.
+  it('lets an emitter-supplied actor win over the session default', async () => {
+    const log = new EventLog();
+    log.setPrincipal(alice);
+    const bob = { id: 'bob', kind: 'human', issuer: 'oidc' } as const;
+    const event = await log.append({
+      type: 'user_prompt',
+      sessionId: 's' as never,
+      turnId: 't' as never,
+      source: 'user',
+      text: 'hi',
+      actor: bob,
+    });
+    expect(event.actor).toEqual(bob);
+  });
+
+  it('re-attribution applies to later events only', async () => {
+    const log = new EventLog();
+    log.setPrincipal(alice);
+    const first = await log.append({
+      type: 'user_prompt', sessionId: 's' as never, turnId: 't' as never, source: 'user', text: 'a',
+    });
+    log.setPrincipal(undefined);
+    const second = await log.append({
+      type: 'user_prompt', sessionId: 's' as never, turnId: 't' as never, source: 'user', text: 'b',
+    });
+    expect(first.actor).toEqual(alice);
+    expect(second.actor).toBeUndefined();
+    expect(log.getPrincipal()).toBeUndefined();
+  });
+});

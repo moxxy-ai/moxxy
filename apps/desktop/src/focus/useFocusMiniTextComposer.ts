@@ -1,12 +1,13 @@
 import {
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import { chatStore, useChat, useQueuedTurns } from '@moxxy/client-core';
+import { chatStore, useQueuedTurns, type UseChat } from '@moxxy/client-core';
 import {
   useComposerAttachments,
   type ComposerAttachment,
@@ -26,9 +27,14 @@ export interface FocusMiniTextComposer {
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
   readonly sending: boolean;
-  readonly queued: ReturnType<typeof useQueuedTurns>;
-  readonly removeQueued: (id: string) => void;
+  readonly canAbort: boolean;
+  readonly queued: ReadonlyArray<{
+    readonly key: string;
+    readonly prompt: string;
+    readonly onRemove: () => void;
+  }>;
   readonly submit: () => void;
+  readonly abort: () => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly imagePreview: ReturnType<typeof useImagePreview>;
 }
@@ -37,14 +43,19 @@ const MAX_TEXTAREA_HEIGHT = 112;
 
 export function useFocusMiniTextComposer({
   workspaceId,
+  remoteQueuedTurns,
+  onRemoveRemoteQueuedTurn,
+  chat,
 }: {
   readonly workspaceId: string | null;
+  readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
+  readonly onRemoveRemoteQueuedTurn: (id: string) => void;
+  readonly chat: UseChat;
 }): FocusMiniTextComposer {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const focusInput = useCallback(() => inputRef.current?.focus(), []);
-  const chat = useChat(workspaceId);
-  const queued = useQueuedTurns(workspaceId);
+  const localQueuedTurns = useQueuedTurns(workspaceId);
   const {
     attachments,
     removeAttachment,
@@ -67,6 +78,10 @@ export function useFocusMiniTextComposer({
     clearAttachments();
   }, [attachments, canSubmit, chat, clearAttachments, trimmedDraft]);
 
+  const abort = useCallback((): void => {
+    void chat.abort();
+  }, [chat.abort]);
+
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
@@ -84,6 +99,23 @@ export function useFocusMiniTextComposer({
   const removeQueued = useCallback((id: string): void => {
     if (workspaceId) chatStore.dropFromQueue(workspaceId, id);
   }, [workspaceId]);
+  const queued = useMemo(() => [
+    ...localQueuedTurns.map((turn) => ({
+      key: `local:${turn.id}`,
+      prompt: turn.prompt,
+      onRemove: () => removeQueued(turn.id),
+    })),
+    ...remoteQueuedTurns.map((turn) => ({
+      key: `remote:${turn.id}`,
+      prompt: turn.prompt,
+      onRemove: () => onRemoveRemoteQueuedTurn(turn.id),
+    })),
+  ], [
+    localQueuedTurns,
+    onRemoveRemoteQueuedTurn,
+    remoteQueuedTurns,
+    removeQueued,
+  ]);
 
   return {
     inputRef,
@@ -96,9 +128,10 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     canSubmit,
     sending: chat.sending,
+    canAbort: chat.activeTurnId !== null,
     queued,
-    removeQueued,
     submit,
+    abort,
     onKeyDown,
     imagePreview,
   };

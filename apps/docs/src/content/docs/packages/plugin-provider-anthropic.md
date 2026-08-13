@@ -32,7 +32,7 @@ Or via vault placeholder in `moxxy.config.ts`:
 ```ts
 provider: {
   name: 'anthropic',
-  model: 'claude-sonnet-4-6',
+  model: 'claude-sonnet-5',
   config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
 }
 ```

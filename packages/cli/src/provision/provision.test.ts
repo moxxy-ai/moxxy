@@ -38,7 +38,7 @@ describe('provision', () => {
   it('skips installing a bundled provider but configures it + stores the key', async () => {
     const eff = makeEffects({ loadedProviderNames: new Set(['anthropic']) });
     const res = await provision(
-      { provider: 'anthropic', key: 'sk-x', model: 'claude-opus-4-8' },
+      { provider: 'anthropic', key: 'sk-x', model: 'claude-opus-5' },
       eff,
     );
     expect(eff.install).not.toHaveBeenCalled();
@@ -46,7 +46,7 @@ describe('provision', () => {
     expect(eff.storeSecret).toHaveBeenCalledWith(expect.any(String), 'sk-x', ['anthropic']);
     expect(res.keyStored).toBe(true);
     expect(eff.writeConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ providerSlug: 'anthropic', providerBundled: true, model: 'claude-opus-4-8' }),
+      expect.objectContaining({ providerSlug: 'anthropic', providerBundled: true, model: 'claude-opus-5' }),
     );
   });
 
@@ -68,7 +68,7 @@ describe('provision', () => {
   });
 
   it('pins the exported Claude Code default and persists it in the provider item write', async () => {
-    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-4-6');
+    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-5');
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     const res = await provision({ provider: 'claude-code', key: 'should-ignore' }, eff);
 
@@ -76,11 +76,11 @@ describe('provision', () => {
     expect(res.keyStored).toBe(false);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
       providerSlug: 'claude-code',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
     }));
   });
 
-  it.each(['claude-fable-5', 'claude-opus-4-8'])('persists an explicit %s selection', async (model) => {
+  it.each(['claude-fable-5', 'claude-opus-5'])('persists an explicit %s selection', async (model) => {
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     await provision({ provider: 'claude-code', model }, eff);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({

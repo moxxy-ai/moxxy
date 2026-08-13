@@ -201,6 +201,12 @@ describe('IPC payload validation', () => {
   it('bounds session.runTurn prompt + attachments', () => {
     expect(() => validateIpcInput('session.runTurn', { prompt: 'hi' })).not.toThrow();
     expect(() =>
+      validateIpcInput('session.runTurn', { prompt: 'hidden', visibility: 'background' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.runTurn', { prompt: 'bad', visibility: 'internal' }),
+    ).toThrow();
+    expect(() =>
       validateIpcInput('session.runTurn', {
         prompt: '',
         attachments: [{ path: '/abs/file.txt', name: 'file.txt' }],
@@ -424,6 +430,18 @@ describe('IPC payload validation', () => {
     ).toThrow();
     // An empty workspaceId (not undefined) is rejected.
     expect(() => validateIpcInput('session.info', { workspaceId: '' })).toThrow();
+  });
+
+  it('bounds the remote-reachable session.activeTurn workspaceId', () => {
+    expect(() => validateIpcInput('session.activeTurn', undefined)).not.toThrow();
+    expect(() => validateIpcInput('session.activeTurn', {})).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.activeTurn', { workspaceId: 'ws' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.activeTurn', { workspaceId: 'w'.repeat(257) }),
+    ).toThrow();
+    expect(() => validateIpcInput('session.activeTurn', { workspaceId: '' })).toThrow();
   });
 
   it('bounds the remote-reachable sessions.list deskId', () => {

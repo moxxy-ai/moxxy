@@ -6,6 +6,7 @@ import { MAX_FILE_BYTES, resolvePath } from './util.js';
 
 export const writeTool = defineTool({
   name: 'Write',
+  icon: 'file',
   description: 'Write a UTF-8 file to disk, creating parent directories as needed. Overwrites if exists.',
   inputSchema: z.object({
     file_path: z.string(),
@@ -38,14 +39,18 @@ export const writeTool = defineTool({
     // diff (treat it as a create-style result).
     let before = '';
     let mode: 'create' | 'update' = 'create';
+    let handle: import('node:fs/promises').FileHandle | null = null;
     try {
-      const st = await fs.stat(resolved);
+      handle = await fs.open(resolved, 'r');
+      const st = await handle.stat();
       mode = 'update';
       if (st.size <= MAX_FILE_BYTES) {
-        before = await fs.readFile(resolved, 'utf8');
+        before = await handle.readFile({ encoding: 'utf8' });
       }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
     // Atomic whole-file write (tmp + rename) so a crash/abort mid-write can't
     // leave a truncated file. writeFileAtomic creates parent dirs.

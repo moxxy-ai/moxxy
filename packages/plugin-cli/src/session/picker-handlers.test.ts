@@ -35,7 +35,7 @@ function baseDeps(over: Partial<PickerHandlerDeps> = {}): PickerHandlerDeps {
   } as unknown as PickerHandlerDeps;
 }
 
-const sessionsPicker = { kind: 'sessions', title: 'Switch session', options: [] } as const;
+const sessionsPicker = { kind: 'sessions', title: 'Runs', options: [] } as const;
 
 describe('makePickerHandler — sessions branch', () => {
   it('requests a resume switch for a persisted session id', () => {
@@ -60,7 +60,7 @@ describe('makePickerHandler — sessions branch', () => {
     const handle = makePickerHandler(baseDeps({ requestSessionSwitch, setSystemNotice }));
     handle(sessionsPicker, 'sess-current');
     expect(requestSessionSwitch).not.toHaveBeenCalled();
-    expect(setSystemNotice).toHaveBeenCalledWith("you're already in that session");
+    expect(setSystemNotice).toHaveBeenCalledWith("you're already in that run");
   });
 
   it('surfaces a switch failure on the still-live session', async () => {
@@ -71,16 +71,14 @@ describe('makePickerHandler — sessions branch', () => {
     const handle = makePickerHandler(baseDeps({ requestSessionSwitch, setSystemNotice }));
     handle(sessionsPicker, 'sess-other');
     await new Promise((r) => setImmediate(r));
-    expect(setSystemNotice).toHaveBeenCalledWith('failed to switch session: boom');
+    expect(setSystemNotice).toHaveBeenCalledWith('failed to switch runs: boom');
   });
 
   it('reports gracefully when no switch capability is wired', () => {
     const setSystemNotice = vi.fn();
     const handle = makePickerHandler(baseDeps({ setSystemNotice }));
     handle(sessionsPicker, 'sess-other');
-    expect(setSystemNotice).toHaveBeenCalledWith(
-      'switching sessions is not available on this session',
-    );
+    expect(setSystemNotice).toHaveBeenCalledWith('switching runs is unavailable here');
   });
 });
 
@@ -101,10 +99,10 @@ describe('makePickerHandler — model branch, unconnected provider', () => {
         setSystemNotice,
       }),
     );
-    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    handle(modelPicker, 'anthropic::claude-opus-5');
     expect(openProviderConnect).toHaveBeenCalledWith({
       providerId: 'anthropic',
-      modelId: 'claude-opus-4-8',
+      modelId: 'claude-opus-5',
     });
     expect(setSystemNotice).not.toHaveBeenCalled();
   });
@@ -119,7 +117,7 @@ describe('makePickerHandler — model branch, unconnected provider', () => {
         setSystemNotice,
       }),
     );
-    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    handle(modelPicker, 'anthropic::claude-opus-5');
     expect(openProviderConnect).not.toHaveBeenCalled();
     expect(setSystemNotice).toHaveBeenCalledWith(
       expect.stringContaining("anthropic isn't connected"),
@@ -141,7 +139,7 @@ describe('makePickerHandler — installable-tab install', () => {
     );
     handle(pluginsPicker, 'telegram::install');
     expect(setSystemNotice).toHaveBeenCalledWith(
-      'to install: run `moxxy plugins install telegram`',
+      'to install: run `moxxy extensions install telegram`',
     );
     expect(openPluginsPicker).not.toHaveBeenCalled();
   });
@@ -381,7 +379,7 @@ describe('makePickerHandler — third-party install consent', () => {
     expect(setEnabled).toHaveBeenCalledWith('evil-tools', false);
     expect(onKeep).not.toHaveBeenCalled();
     expect(setSystemNotice).toHaveBeenCalledWith(
-      expect.stringContaining('moxxy plugins enable evil-tools'),
+      expect.stringContaining('moxxy extensions enable evil-tools'),
     );
   });
 

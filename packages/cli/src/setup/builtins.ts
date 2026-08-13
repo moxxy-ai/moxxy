@@ -59,11 +59,13 @@ export interface BuiltinRequirementDecision {
 export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequirementDecision>> = {
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
   '@moxxy/mode-default': { hardRequirements: false, reason: 'default mode has no plugin dependency' },
+  '@moxxy/mode-plan': { hardRequirements: false, reason: 'read-only planner owns a mode-local plan_complete contract' },
   '@moxxy/mode-goal': { hardRequirements: false, reason: 'mode ships its own goal_complete/goal_abandon tools; no hard plugin dependency' },
   '@moxxy/mode-deep-research': { hardRequirements: false, reason: 'research mode needs @moxxy/plugin-subagents at runtime; surfaced as fatal error if absent' },
   '@moxxy/mode-collaborative': { hardRequirements: false, reason: 'coordinator spawns separate agent processes; needs @moxxy/plugin-collab at runtime, surfaced if absent' },
   '@moxxy/plugin-collab': { hardRequirements: false, reason: 'collaboration hub + tools; inert outside a collaboration' },
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
+  '@moxxy/compactor-segments': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/cache-strategy-stable-prefix': { hardRequirements: false, reason: 'cache strategy has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },
@@ -142,6 +144,9 @@ const CATEGORY_REGISTRIES: ReadonlyArray<{
   { category: 'viewRenderer', reg: (s) => s.viewRenderers },
   { category: 'tunnelProvider', reg: (s) => s.tunnelProviders },
   { category: 'eventStore', reg: (s) => s.eventStores },
+  { category: 'auditSink', reg: (s) => s.auditSinks },
+  { category: 'auditExporter', reg: (s) => s.auditExporters },
+  { category: 'secretProvider', reg: (s) => s.secretProviders },
   { category: 'reflector', reg: (s) => s.reflectors },
 ];
 
@@ -188,7 +193,7 @@ export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive 
           throw new MoxxyError({
             code: 'PLUGIN_NOT_INSTALLED',
             message: `${category} '${name}' is not installed.`,
-            hint: `Install ${provider.packageName} (install_plugin, or \`moxxy plugins install ${provider.id}\`), then retry.`,
+            hint: `Install ${provider.packageName} (install_plugin, or \`moxxy extensions install ${provider.id}\`), then retry.`,
             context: { category, contribution: name, package: provider.packageName },
           });
         }

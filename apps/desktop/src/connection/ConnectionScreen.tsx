@@ -1,7 +1,8 @@
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { useState } from 'react';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
-import { asset } from '@/lib/asset';
 import { Splash } from '@/Splash';
+import { Button } from '@moxxy/desktop-ui';
 
 /** Result of an in-app CLI update attempt. On success the caller (App.tsx)
  *  has already kicked the supervisor retry; on failure we surface `error`
@@ -82,21 +83,16 @@ export function ConnectionScreen({
           textAlign: 'center',
         }}
       >
-        <img
-          src={asset('logo.png')}
-          alt=""
-          aria-hidden="true"
-          style={{ width: 120, height: 'auto', objectFit: 'contain' }}
-        />
+        <MoxxyMark size={120} />
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--type-section)', fontWeight: 700, letterSpacing: '-0.01em' }}>
             {friendlyTitle(phase.phase)}
           </h1>
           <p
             style={{
               margin: '6px 0 0',
               color: 'var(--color-text-muted)',
-              fontSize: 13.5,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.6,
             }}
           >
@@ -112,13 +108,9 @@ export function ConnectionScreen({
           />
         ) : (
           !terminal && (
-            <button
-              type="button"
-              onClick={onRetry}
-              style={primaryButtonStyle(false)}
-            >
+            <Button variant="cta" size="lg" onClick={onRetry} style={primaryButtonStyle()}>
               Try again
-            </button>
+            </Button>
           )
         )}
 
@@ -203,7 +195,7 @@ function ProtocolIncompatibleActions({
       <div
         role="note"
         style={{
-          fontSize: 12.5,
+          fontSize: 'var(--type-row)',
           color: 'var(--color-text-muted)',
           lineHeight: 1.6,
           maxWidth: 420,
@@ -236,21 +228,22 @@ function ProtocolIncompatibleActions({
         width: '100%',
       }}
     >
-      <button
-        type="button"
+      <Button
+        variant="cta"
+        size="lg"
         onClick={() => void runUpdate()}
         disabled={updating}
         aria-busy={updating}
-        style={primaryButtonStyle(updating)}
+        style={primaryButtonStyle()}
       >
         {updating ? 'Updating the moxxy CLI…' : 'Update CLI & reconnect'}
-      </button>
+      </Button>
 
       {status === 'error' && error && (
         <div
           role="alert"
           style={{
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             color: 'var(--color-red)',
             lineHeight: 1.6,
             maxWidth: 420,
@@ -269,8 +262,8 @@ function ProtocolIncompatibleActions({
               padding: '6px 8px',
               background: 'var(--color-card-bg)',
               border: '1px solid var(--color-card-border)',
-              borderRadius: 8,
-              fontSize: 11.5,
+              borderRadius: 'var(--radius-block)',
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-text)',
               wordBreak: 'break-all',
               textAlign: 'left',
@@ -309,19 +302,11 @@ function cliPrefixFromPath(cliPath: string | null): string | null {
   return cliPath.slice(0, m.index);
 }
 
-function primaryButtonStyle(disabled: boolean): React.CSSProperties {
+function primaryButtonStyle(): React.CSSProperties {
   return {
-    padding: '9px 20px',
-    background: disabled ? 'var(--color-card-border-strong)' : 'var(--grad-cta)',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 10,
+    padding: '0 20px',
     fontWeight: 600,
-    fontSize: 13.5,
-    cursor: disabled ? 'default' : 'pointer',
-    boxShadow: disabled
-      ? 'none'
-      : '0 10px 20px -12px color-mix(in srgb, var(--color-primary) 55%, transparent)',
+    fontSize: 'var(--type-ui)',
   };
 }
 
@@ -382,7 +367,7 @@ function TechnicalDetails({
       <summary
         style={{
           cursor: 'pointer',
-          fontSize: '0.7rem',
+          fontSize: 'var(--type-label)',
           color: 'var(--color-text-dim)',
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
@@ -395,7 +380,7 @@ function TechnicalDetails({
           marginTop: '0.6rem',
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.5rem',
+          gap: 'var(--space-8)',
         }}
       >
         <DetailRow label="phase" value={phase.phase} />
@@ -441,8 +426,8 @@ function TechnicalDetails({
               padding: '0.5rem 0.6rem',
               background: 'var(--color-card-bg)',
               border: '1px solid var(--color-card-border)',
-              borderRadius: 8,
-              fontSize: '0.7rem',
+              borderRadius: 'var(--radius-block)',
+              fontSize: 'var(--type-label)',
               color: 'var(--color-text-muted)',
               maxHeight: 240,
               overflow: 'auto',
@@ -469,8 +454,8 @@ function DetailRow({
       style={{
         display: 'grid',
         gridTemplateColumns: '70px 1fr',
-        gap: '0.5rem',
-        fontSize: '0.75rem',
+        gap: 'var(--space-8)',
+        fontSize: 'var(--type-meta)',
         alignItems: 'baseline',
       }}
     >

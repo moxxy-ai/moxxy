@@ -14,6 +14,7 @@ import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } fro
 import { pinFirstPartySpec } from './pin.js';
 import { readPluginSetup } from './setup-spec.js';
 import { checkCapabilityManifest, resolveInstallSource } from './registry.js';
+import { assertInstallAllowed, type InstallPolicy } from './install-policy.js';
 
 export type { PluginSnapshot } from './shared.js';
 
@@ -55,6 +56,16 @@ const MAX_STDERR_BYTES = 8 * 1024;
 // guarantee cancellation. Mirrors the SIGTERM→SIGKILL escalation used in
 // runner-supervisor / isolator-subprocess.
 const SIGKILL_GRACE_MS = 2_000;
+const FIRST_PARTY_PACKAGE_NAME = /^@moxxy\/[a-z0-9][a-z0-9._-]*$/i;
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
+const TRANSIENT_SEED_TARBALL = /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i;
+const pluginWorkspaceManifestSchema = z.object({
+  dependencies: z.record(z.string(), z.unknown()).optional(),
+}).passthrough();
+const installedPackageManifestSchema = z.object({
+  name: z.string(),
+  version: z.string(),
+}).passthrough();
 
 export interface InstallPluginDeps {
   /**
@@ -91,6 +102,29 @@ export interface InstallPluginPackageOptions {
   readonly packageName: string;
   /** Optional abort signal; aborting kills the npm child process. */
   readonly signal?: AbortSignal;
+  /**
+   * The machine's install policy. Defaults to `open` so nothing changes for a
+   * personal install; a managed host pins it from the system config scope.
+   */
+  readonly policy?: InstallPolicy;
+  /** Whether the signed registry vouched for this spec. Resolved by the caller,
+   *  which already consults the index for the version pin. */
+  readonly signed?: boolean;
+  /**
+   * Opt back INTO running the package's npm lifecycle scripts. Off by default
+   * (see {@link NPM_INSTALL_FLAGS}); this exists for the narrow set of packages
+   * that genuinely cannot install without one, namely native modules that fetch
+   * or compile a binding at install time (`node-pty`, `onnxruntime-node` behind
+   * `@huggingface/transformers`). Those degrade gracefully without it (the
+   * terminal falls back to a piped shell, embeddings fall back to TF-IDF), so
+   * this is a deliberate upgrade, never a default.
+   *
+   * HUMAN-ONLY by construction: `moxxy plugins install --allow-scripts` sets it.
+   * The `install_plugin` model tool deliberately does NOT expose it, because a
+   * prompt-injected model must not be able to talk its way into arbitrary code
+   * execution at install time.
+   */
+  readonly allowScripts?: boolean;
 }
 
 export interface InstallPluginPackageResult {
@@ -124,11 +158,20 @@ export async function installPluginPackage(
   opts: InstallPluginPackageOptions,
 ): Promise<InstallPluginPackageResult> {
   const spec = assertSafeNpmSpec(opts.packageName);
+  // Checked HERE, not at the CLI surface: `install_plugin` (the model tool)
+  // reaches this same function, and a policy the agent could route around by
+  // asking itself would not be a policy.
+  assertInstallAllowed({
+    policy: opts.policy ?? 'open',
+    spec,
+    signed: opts.signed ?? false,
+  });
   const dir = userPluginsDir();
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
+    await repairTransientSeedDependencies(dir);
     const { exitCode, stderr } = await runNpm(
-      ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      ['install', '--prefix', dir, ...npmFlags(opts.allowScripts), '--save', spec],
       opts.signal,
     );
     if (exitCode !== 0) {
@@ -156,6 +199,10 @@ export interface PinnedInstallOptions {
   readonly cliVersion?: string;
   /** Optional abort signal; aborting kills the npm child process. */
   readonly signal?: AbortSignal;
+  /** See {@link InstallPluginPackageOptions.allowScripts}. Human-only. */
+  readonly allowScripts?: boolean;
+  /** The machine's install policy; defaults to `open`. */
+  readonly policy?: InstallPolicy;
   /** Surfaced when an injected pin 404s and the install retries unpinned. */
   readonly onWarn?: (message: string) => void;
   /** Injectable install fn for tests; defaults to {@link installPluginPackage}. */
@@ -183,15 +230,19 @@ export async function installPluginPackagePinned(
     opts.pinnedVersion && NPM_NAME_RE.test(opts.packageName) ? opts.pinnedVersion : undefined;
   const spec = pinFirstPartySpec(opts.packageName, opts.version ?? signedPin, opts.cliVersion);
   const injectedPin = !opts.version && spec !== opts.packageName;
+  const { signal, allowScripts, policy } = opts;
+  // `signed` is derived from the pin the caller resolved: a signed registry
+  // entry is exactly what contributes `pinnedVersion`, so the two cannot drift.
+  const signed = opts.pinnedVersion !== undefined;
   try {
-    return await install({ packageName: spec, signal: opts.signal });
+    return await install({ packageName: spec, signal, allowScripts, policy, signed });
   } catch (err) {
     if (!injectedPin) throw err;
     opts.onWarn?.(
       `pinned install ${spec} failed (${err instanceof Error ? err.message : String(err)}); ` +
         `retrying latest ${opts.packageName}`,
     );
-    return await install({ packageName: opts.packageName, signal: opts.signal });
+    return await install({ packageName: opts.packageName, signal, allowScripts, policy, signed });
   }
 }
 
@@ -205,8 +256,9 @@ export async function removePluginPackage(
   const dir = userPluginsDir();
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
+    await repairTransientSeedDependencies(dir);
     const { exitCode, stderr } = await runNpm(
-      ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      ['uninstall', '--prefix', dir, ...NPM_INSTALL_FLAGS, '--save', spec],
       opts.signal,
     );
     if (exitCode !== 0) {
@@ -412,8 +464,119 @@ async function ensurePackageJson(dir: string): Promise<void> {
   }
 }
 
+/**
+ * Repair dependency entries produced by early desktop plugin seeds. npm saved
+ * their build-time tarball paths into the copied user manifest, but those temp
+ * directories no longer exist by the time a later install runs. Resolve only
+ * that exact first-party generated shape to the package version already on
+ * disk; remove an orphaned generated entry so it cannot poison unrelated npm
+ * operations. User-authored file dependencies are deliberately untouched.
+ *
+ * The caller holds {@link pluginsDirMutex}, so the read-modify-write cannot
+ * race another install. Persistence is atomic and corrupt manifests fail
+ * loudly instead of being replaced with an empty workspace.
+ */
+export async function repairTransientSeedDependencies(
+  dir: string,
+): Promise<{ readonly replaced: ReadonlyArray<string>; readonly removed: ReadonlyArray<string> }> {
+  const manifestPath = path.join(dir, 'package.json');
+  let raw: string;
+  try {
+    raw = await fs.readFile(manifestPath, 'utf8');
+  } catch (error) {
+    if (isMissingFileError(error)) return { replaced: [], removed: [] };
+    throw error;
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Invalid plugin workspace manifest ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const parsed = pluginWorkspaceManifestSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new Error(`Invalid plugin workspace manifest ${manifestPath}: ${parsed.error.message}`);
+  }
+
+  const manifest = parsed.data;
+  const dependencies = manifest.dependencies ?? {};
+  const normalized = { ...dependencies };
+  const replaced: string[] = [];
+  const removed: string[] = [];
+  for (const [name, value] of Object.entries(dependencies)) {
+    if (typeof value !== 'string' || !isTransientSeedSpec(name, value)) continue;
+    const installedVersion = await readInstalledPackageVersion(dir, name);
+    if (installedVersion) {
+      normalized[name] = installedVersion;
+      replaced.push(name);
+    } else {
+      delete normalized[name];
+      removed.push(name);
+    }
+  }
+  if (replaced.length === 0 && removed.length === 0) return { replaced, removed };
+
+  manifest.dependencies = normalized;
+  await writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { replaced, removed };
+}
+
+function isTransientSeedSpec(name: string, spec: string): boolean {
+  return (
+    FIRST_PARTY_PACKAGE_NAME.test(name) &&
+    spec.startsWith('file:') &&
+    TRANSIENT_SEED_TARBALL.test(spec.slice('file:'.length))
+  );
+}
+
+async function readInstalledPackageVersion(dir: string, expectedName: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(
+      path.join(dir, 'node_modules', expectedName, 'package.json'),
+      'utf8',
+    );
+    const parsed = installedPackageManifestSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success || parsed.data.name !== expectedName) return null;
+    return EXACT_VERSION.test(parsed.data.version) ? parsed.data.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  return error.code === 'ENOENT';
+}
+
 /** The npm executable, resolved per-platform (Windows ships `npm.cmd`). */
 const NPM_BIN = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+/**
+ * Flags shared by every npm invocation we make.
+ *
+ * `--ignore-scripts` is the load-bearing one. Without it, installing a plugin
+ * executes that package's (and every transitive dependency's) `preinstall` /
+ * `install` / `postinstall` hooks with the user's full privileges, before the
+ * package's declared capabilities have been read, outside the permission
+ * engine, outside every isolator. The signed registry pins which VERSION gets
+ * installed, but a signature over the index says nothing about what a tarball's
+ * install script does, so pinning alone does not close this.
+ *
+ * moxxy plugins are plain ESM modules and need no build step at install time.
+ * A package that genuinely cannot install without running scripts is a package
+ * to reject, not a reason to drop the flag.
+ */
+const NPM_INSTALL_FLAGS = ['--no-fund', '--no-audit', '--ignore-scripts'] as const;
+
+/** {@link NPM_INSTALL_FLAGS}, with the script ban lifted only on an explicit,
+ *  human-supplied opt-in (see `InstallPluginPackageOptions.allowScripts`). */
+function npmFlags(allowScripts: boolean | undefined): ReadonlyArray<string> {
+  if (!allowScripts) return NPM_INSTALL_FLAGS;
+  return NPM_INSTALL_FLAGS.filter((f) => f !== '--ignore-scripts');
+}
 
 function runNpm(
   args: ReadonlyArray<string>,

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { Colors } from '../theme.js';
 import { Modal, type ModalTab } from './Modal.js';
+import { terminalSafeText } from './terminal-text.js';
 
 export interface ListPickerOption {
   readonly id: string;
@@ -50,6 +51,9 @@ export interface ListPickerProps {
   readonly onCancel: () => void;
 }
 
+const EMPTY_TABS: ReadonlyArray<ListPickerTab> = [];
+const EMPTY_OPTIONS: ReadonlyArray<ListPickerOption> = [];
+
 /**
  * Generic up/down + enter picker. Used by /model, /mode, /mcp.
  *
@@ -72,17 +76,20 @@ export const ListPicker: React.FC<ListPickerProps> = ({
   onSelect,
   onCancel,
 }) => {
-  const hasTabs = !!(tabs && tabs.length > 0);
+  const tabItems = tabs ?? EMPTY_TABS;
+  const hasTabs = tabItems.length > 0;
 
   // Tabbed mode: track active tab. The initial focus prefers the
   // caller's `initialTabId`, then the tab that owns the `current`
   // option, then the first tab.
   const defaultTabId = useMemo(() => {
     if (!hasTabs) return undefined;
-    if (initialTabId && tabs!.some((t) => t.id === initialTabId)) return initialTabId;
-    const tabWithCurrent = tabs!.find((t) => t.options.some((o) => o.current));
-    return (tabWithCurrent ?? tabs![0]!).id;
-  }, [hasTabs, initialTabId, tabs]);
+    if (initialTabId && tabItems.some((tab) => tab.id === initialTabId)) return initialTabId;
+    const tabWithCurrent = tabItems.find((tab) =>
+      tab.options.some((option) => option.current),
+    );
+    return tabWithCurrent?.id ?? tabItems[0]?.id;
+  }, [hasTabs, initialTabId, tabItems]);
 
   const [activeTabId, setActiveTabId] = useState<string | undefined>(defaultTabId);
   const [query, setQuery] = useState('');
@@ -92,11 +99,14 @@ export const ListPicker: React.FC<ListPickerProps> = ({
   const [noSelectNotice, setNoSelectNotice] = useState(false);
 
   const activeTab = useMemo(
-    () => (hasTabs ? tabs!.find((t) => t.id === activeTabId) ?? tabs![0]! : null),
-    [hasTabs, tabs, activeTabId],
+    () =>
+      hasTabs
+        ? tabItems.find((tab) => tab.id === activeTabId) ?? tabItems[0] ?? null
+        : null,
+    [hasTabs, tabItems, activeTabId],
   );
 
-  const sourceOptions = activeTab ? activeTab.options : options ?? [];
+  const sourceOptions = activeTab?.options ?? options ?? EMPTY_OPTIONS;
 
   // Filter the source options by the current query. We match against
   // label, description, and group — broad enough that typing "haiku"
@@ -189,6 +199,7 @@ export const ListPicker: React.FC<ListPickerProps> = ({
 
   const { stdout } = useStdout();
   const termRows = stdout?.rows ?? 24;
+  const termColumns = stdout?.columns ?? 80;
   // Reserve rows for modal chrome (3-row header band, search box,
   // hints, borders, status line, body margins). Floor at 4 visible
   // rows so very small terminals still show something.
@@ -212,10 +223,10 @@ export const ListPicker: React.FC<ListPickerProps> = ({
       : `${cursor + 1} of ${filtered.length}` +
         (searchable && query ? ` · filtered from ${sourceOptions.length}` : '');
 
-  const hints = buildHints(searchable, hasTabs);
+  const hints = buildHints(searchable);
 
   const modalTabs: ReadonlyArray<ModalTab> | undefined = hasTabs
-    ? tabs!.map((t) => ({ id: t.id, label: t.label }))
+    ? tabItems.map((tab) => ({ id: tab.id, label: tab.label }))
     : undefined;
 
   return (
@@ -241,10 +252,11 @@ export const ListPicker: React.FC<ListPickerProps> = ({
         {moreAbove > 0 ? <Text dimColor>{`  ↑ ${moreAbove} more`}</Text> : null}
         {filtered.slice(start, end).map((opt, idx) => {
           const i = start + idx;
+          const fitted = fitPickerOption(opt, Math.max(24, termColumns - 8));
           // In flat mode, surface group headers between sections. In
           // tabbed mode tabs already partition the view, so group
           // headers would be noise.
-          const prevGroup = i > 0 ? filtered[i - 1]!.group : undefined;
+          const prevGroup = i > 0 ? filtered[i - 1]?.group : undefined;
           const showHeader = !hasTabs && opt.group != null && opt.group !== prevGroup;
           const focused = i === cursor;
           return (
@@ -256,15 +268,15 @@ export const ListPicker: React.FC<ListPickerProps> = ({
               ) : null}
               <Box>
                 <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
-                <Text {...(focused ? { bold: true } : {})}>{opt.label}</Text>
-                {opt.current ? <Text dimColor>{' (current)'}</Text> : null}
+                <Text {...(focused ? { bold: true } : {})}>{fitted.label}</Text>
+                {fitted.current ? <Text dimColor>{fitted.current}</Text> : null}
                 {opt.badge ? (
                   <Text color={opt.badgeColor === 'red' ? Colors.danger : (opt.badgeColor ?? Colors.danger)}>
                     {`  [${opt.badge}]`}
                   </Text>
                 ) : null}
-                {opt.description ? (
-                  <Text dimColor>{`  — ${opt.description}`}</Text>
+                {fitted.description ? (
+                  <Text dimColor>{`  — ${fitted.description}`}</Text>
                 ) : null}
               </Box>
             </React.Fragment>
@@ -276,6 +288,33 @@ export const ListPicker: React.FC<ListPickerProps> = ({
   );
 };
 
+export interface FittedPickerOption {
+  readonly label: string;
+  readonly current: string;
+  readonly description: string;
+}
+
+export function fitPickerOption(
+  option: ListPickerOption,
+  width: number,
+): FittedPickerOption {
+  const current = option.current && option.badge !== 'current' ? ' (current)' : '';
+  const badge = option.badge ? `  [${option.badge}]` : '';
+  const descriptionBudget = option.description
+    ? Math.max(8, Math.min(28, Math.floor(width * 0.36)))
+    : 0;
+  const description = option.description
+    ? terminalSafeText(option.description, descriptionBudget)
+    : '';
+  const descriptionWidth = description ? description.length + 4 : 0;
+  const labelBudget = Math.max(8, width - current.length - badge.length - descriptionWidth);
+  return {
+    label: terminalSafeText(option.label, labelBudget),
+    current,
+    description,
+  };
+}
+
 const SearchBar: React.FC<{ query: string; placeholder: string }> = ({ query, placeholder }) => (
   <Box marginBottom={1}>
     <Text dimColor>{'/ '}</Text>
@@ -284,11 +323,9 @@ const SearchBar: React.FC<{ query: string; placeholder: string }> = ({ query, pl
   </Box>
 );
 
-function buildHints(searchable: boolean | undefined, hasTabs: boolean): string {
-  const parts: string[] = ['↑↓ navigate', 'Enter select'];
+function buildHints(searchable: boolean | undefined): string {
+  const parts: string[] = ['↑↓ move', 'Enter select'];
   if (searchable) parts.push('type to filter');
-  if (searchable) parts.push('Ctrl+U clear');
-  if (hasTabs) parts.push('←/→ tabs');
   parts.push('Esc close');
   return parts.join(' · ');
 }

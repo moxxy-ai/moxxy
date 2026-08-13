@@ -8,6 +8,6 @@
     ".": "./index.js"
   },
   "peerDependencies": {
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.6"
   }
 }

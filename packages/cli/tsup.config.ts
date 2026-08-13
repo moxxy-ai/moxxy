@@ -47,6 +47,7 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   sourcemap: true,
+  metafile: true,
   clean: true,
   dts: false, // a binary ships no types; `tsc --noEmit` still typechecks
   shims: false, // code uses import.meta.url directly; no __dirname shims
@@ -76,6 +77,7 @@ export default defineConfig({
     };
   },
   async onSuccess() {
+    await assertNoHeavyVendorSdks();
     // bin.ts already carries the shebang; tsup preserves it. Just make it executable.
     await fs.chmod(path.resolve(here, 'dist/bin.js'), 0o755);
     // Copy builtin skill markdown next to the bin so the cli-local
@@ -88,3 +90,61 @@ export default defineConfig({
     // its own dist/public next to its module, so no dist/public copy here.)
   },
 });
+
+/**
+ * Vendor SDKs that must never reach the published binary, and the leaf subpath
+ * that keeps them out.
+ *
+ * Each of these arrived TRANSITIVELY, through a package barrel, never on
+ * purpose. Importing the string helper `providerApiKeyName` from
+ * `@moxxy/plugin-provider-admin` also loaded its factory and with it the ~1 MB
+ * `openai` SDK; reading `~/.moxxy/mcp.json` through `@moxxy/plugin-mcp`'s
+ * barrel loaded `@modelcontextprotocol/sdk` and its `ajv` dependency. Together
+ * that was 1.9 MB, a third of the binary, for two config helpers.
+ */
+const FORBIDDEN_VENDOR_SDKS: ReadonlyArray<{ readonly pkg: string; readonly useInstead: string }> = [
+  { pkg: 'openai', useInstead: '@moxxy/plugin-provider-admin/key-name' },
+  { pkg: '@modelcontextprotocol/sdk', useInstead: '@moxxy/plugin-mcp/config-io' },
+  { pkg: 'ajv', useInstead: '@moxxy/plugin-mcp/config-io' },
+];
+
+/**
+ * Fail the build when a heavy vendor SDK is back in the bundle.
+ *
+ * Asserted HERE rather than as a dependency-cruiser rule because cross-package
+ * imports in this workspace resolve to `dist/`, which that config excludes, so
+ * the edge is invisible to it and such a rule would pass forever without ever
+ * checking anything. The bundle is where this property actually exists, so this
+ * is where it gets checked.
+ */
+async function assertNoHeavyVendorSdks(): Promise<void> {
+  const metafilePath = path.resolve(here, 'dist/metafile-esm.json');
+  let raw: string;
+  try {
+    raw = await fs.readFile(metafilePath, 'utf8');
+  } catch {
+    throw new Error(
+      `bundle guard: ${metafilePath} is missing. It is produced by \`metafile: true\`; ` +
+        'do not remove that option without replacing this check.',
+    );
+  }
+  const meta = JSON.parse(raw) as { outputs: Record<string, { inputs: Record<string, unknown> }> };
+  const inputs = Object.keys(meta.outputs['dist/bin.js']?.inputs ?? {});
+
+  const offenders = FORBIDDEN_VENDOR_SDKS.filter(({ pkg }) =>
+    inputs.some((file) => file.includes(`/node_modules/${pkg}/`)),
+  );
+  if (offenders.length === 0) return;
+
+  const detail = offenders
+    .map(({ pkg, useInstead }) => {
+      const example = inputs.find((f) => f.includes(`/node_modules/${pkg}/`));
+      return `  ${pkg}\n    e.g. ${example}\n    import the leaf subpath instead: ${useInstead}`;
+    })
+    .join('\n');
+  throw new Error(
+    `bundle guard: a heavy vendor SDK is back in the moxxy binary.\n${detail}\n` +
+      'These are pulled in through a package barrel, not on purpose. Find the import with:\n' +
+      '  node -e "…" over dist/metafile-esm.json (walk the reverse import edges).',
+  );
+}

@@ -28,6 +28,31 @@ async function stageFakePackage(
   return cwd;
 }
 
+async function stageDiscoveredPackage(
+  cwd: string,
+  pkgName: string,
+  requirements?: ReadonlyArray<object>,
+): Promise<void> {
+  const pkgDir = path.join(cwd, 'node_modules', ...pkgName.split('/'));
+  await fs.mkdir(pkgDir, { recursive: true });
+  await fs.writeFile(
+    path.join(pkgDir, 'package.json'),
+    JSON.stringify({
+      name: pkgName,
+      version: '1.0.0',
+      type: 'module',
+      moxxy: {
+        plugin: { entry: './index.mjs' },
+        ...(requirements ? { requirements } : {}),
+      },
+    }),
+  );
+  await fs.writeFile(
+    path.join(pkgDir, 'index.mjs'),
+    `export default Object.freeze({ __moxxy: 'plugin', name: '${pkgName}', version: '1.0.0' });\n`,
+  );
+}
+
 describe('registerPlugins', () => {
   it('resolves builtin requirements from package.json and reports unmet ones as skips', async () => {
     const cwd = await stageFakePackage('needs-base', {
@@ -88,5 +113,32 @@ describe('registerPlugins', () => {
     );
 
     expect([...result.registered]).toEqual(['base', 'dependent']);
+  });
+
+  it('orders discovered plugins before loading a dependent package', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-register-discovered-order-'));
+    tempDirs.push(cwd);
+    const dependency = '@test/z-subagents';
+    const dependent = '@test/a-research-mode';
+    await stageDiscoveredPackage(cwd, dependent, [
+      { kind: 'plugin', name: dependency, state: 'registered' },
+    ]);
+    await stageDiscoveredPackage(cwd, dependency);
+
+    const session = new Session({ cwd, logger: silentLogger });
+    const result = await registerPlugins(
+      session,
+      {} as MoxxyConfig,
+      [],
+      cwd,
+      silentLogger,
+    );
+
+    const registered = [...result.registered];
+    expect(registered.indexOf(dependency)).toBeGreaterThanOrEqual(0);
+    expect(registered.indexOf(dependent)).toBeGreaterThan(registered.indexOf(dependency));
+    expect(session.pluginHost.list().map((plugin) => plugin.name)).toEqual(
+      expect.arrayContaining([dependency, dependent]),
+    );
   });
 });

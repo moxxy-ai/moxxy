@@ -115,7 +115,9 @@ export function encodeSessionCommandArgs(values: ReadonlyArray<string>): string 
     .map((value) => {
       const trimmed = value.trim();
       if (!trimmed) return '';
-      return /\s|"/.test(trimmed) ? `"${trimmed.replace(/"/g, '\\"')}"` : trimmed;
+      return /[\s"\\]/.test(trimmed)
+        ? `"${trimmed.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+        : trimmed;
     })
     .filter(Boolean)
     .join(' ');

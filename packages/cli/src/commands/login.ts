@@ -1,5 +1,5 @@
 import type { ParsedArgv } from '../argv.js';
-import { bootSessionWithConfig, hasBoolFlag } from '../argv-helpers.js';
+import { bootSessionWithConfig, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import { colors } from '../colors.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
@@ -63,13 +63,14 @@ function buildHelp(session: Session | null): string {
 
 export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0];
+  const wantsHelp = helpRequested(argv) || sub === 'help' || sub === '--help' || sub === '-h';
 
-  if (!sub || sub === 'help' || sub === '--help' || sub === '-h') {
+  if (!sub || wantsHelp) {
     // Best-effort: list OAuth providers known to the current install. If
     // boot fails for any reason fall back to a generic help body.
     let session: Session | null = null;
     try {
-      const { session: s, persistence } = await bootSessionWithConfig(argv, {
+      const { session: s, persistence, audit } = await bootSessionWithConfig(argv, {
         skipKeyPrompt: true,
         skipProviderActivation: true,
         tolerateNoProvider: true,
@@ -80,14 +81,14 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
       try {
         process.stdout.write(buildHelp(session));
       } finally {
-        await closeSession(s, persistence);
+        await closeSession(s, persistence, audit);
       }
-      return sub ? 0 : 2;
+      return wantsHelp ? 0 : 2;
     } catch {
       // ignore — fall through to a generic help body
     }
     process.stdout.write(buildHelp(session));
-    return sub ? 0 : 2;
+    return wantsHelp ? 0 : 2;
   }
 
   if (sub === 'status') return await loginStatus(argv);
@@ -105,7 +106,7 @@ function providerAuthConfig(
 }
 
 async function loginProvider(argv: ParsedArgv, providerName: string): Promise<number> {
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -113,7 +114,7 @@ async function loginProvider(argv: ParsedArgv, providerName: string): Promise<nu
   try {
     return await runLoginProvider(argv, providerName, session, vault, providerAuthConfig(config, providerName));
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
@@ -134,7 +135,7 @@ export async function runLoginProvider(
   if (def.auth?.kind !== 'oauth') {
     process.stderr.write(
       `${colors.red(`${providerName} uses API-key auth — no \`moxxy login\` flow.`)}\n` +
-        `Run \`moxxy init\` to store its key in the vault.\n`,
+        `Run \`moxxy onboard\` to store its key in the vault.\n`,
     );
     return 2;
   }
@@ -198,7 +199,7 @@ export async function runLoginProvider(
 }
 
 async function loginStatus(argv: ParsedArgv): Promise<number> {
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -206,7 +207,7 @@ async function loginStatus(argv: ParsedArgv): Promise<number> {
   try {
     return await runLoginStatus(argv, session, vault, config);
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
@@ -292,7 +293,7 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
     );
     return 2;
   }
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -300,7 +301,7 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
   try {
     return await runLoginLogout(providerName, session, vault, providerAuthConfig(config, providerName));
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 

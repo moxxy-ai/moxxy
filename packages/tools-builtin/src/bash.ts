@@ -114,6 +114,7 @@ function boundedSink(cap: number): {
 
 export const bashTool = defineTool({
   name: 'Bash',
+  icon: 'terminal',
   description: 'Run a shell command via /bin/sh. Respects the abort signal. Returns combined stdout/stderr with exit code.',
   inputSchema: z.object({
     command: z.string().min(1),

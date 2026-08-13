@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { asset } from '@/lib/asset';
+import { MoxxyMark } from '@/components/MoxxyMark';
 import {
   ConnectionBridge,
-  isConnected,
   useActiveAsk,
   useActiveWorkspaceId,
   useConnection,
@@ -11,44 +10,57 @@ import {
   usePrefs,
   useSessionInfoBridge,
   useComposerChatViewRequest,
+  useDesks,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
 import { useTheme } from '@/lib/useTheme';
-import { toggleSidebarCollapsed } from '@/lib/useSidebarCollapsed';
+import { useHotkeyDispatcher, ShortcutsSheet } from './hotkeys';
+import { useAppHotkeys } from './hotkeys/useAppHotkeys';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
-import type { View } from './shell/ViewHeader';
-import { ContextRail, type RailPane } from './shell/ContextRail';
+import { AppRail } from './shell/AppRail';
+import type { View } from './shell/views';
+import { Workbench, type WorkbenchTab } from './shell/Workbench';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
-import { MobilePanel } from './mobile/MobilePanel';
+import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
+import { AutomationsIndex } from './automations/AutomationsIndex';
+import {
+  ChannelsIndex,
+  ChannelsSurface,
+  useChannelSelection,
+} from './channels/ChannelsSurface';
+import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
+import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import {
   resolveActiveSessionShell,
+  shouldShowBlockingConnectionScreen,
   shouldShowProviderRecovery,
   type LastConnectedSession,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
-const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps'];
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps', 'automations'];
 const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
- * Top-level shell. Three layers of gating, in order:
+ * Top-level shell. Runner startup is non-blocking: persisted desks/history can
+ * render while the selected supervisor connects. Full-pane gates are reserved
+ * for onboarding and terminal recovery.
  *
  *   1. CLI / provider onboarding takes the whole pane while either
  *      condition is unmet.
- *   2. While the runner is connecting (any phase that isn't
- *      `connected`), the ConnectionScreen owns the pane.
- *   3. Once connected, the workspace shell renders:
- *      WorkspaceSidebar | ContextRail | <active view>.
+ *   2. A terminal first-connect failure owns the pane.
+ *   3. Otherwise the Harness frame renders:
+ *      AppRail | index column | field | workbench.
  */
 export function App(): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
@@ -59,21 +71,39 @@ export function App(): JSX.Element {
   // tabs, mode badge, agent picker — so agent-made changes (provider_add, …)
   // show up live instead of after an app restart. Mounted exactly once.
   useSessionInfoBridge();
+  // Prime the authoritative desk overview independently of runner startup. Its
+  // shared store also points connectionStore at the persisted active session,
+  // letting the shell + disk-backed transcript render before a pool snapshot.
+  useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  // Context rail starts collapsed. The context button opens a dropdown
-  // (terminal / files changed / browser); picking one sets the active pane
-  // and opens the rail. Null = collapsed.
-  const [railPane, setRailPane] = useState<RailPane | null>(null);
+  // The workbench starts collapsed — but collapsed now leaves a vertical tab
+  // strip, so it is still discoverable and one click opens the pane you want.
+  // Null = collapsed.
+  const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
+  // Each destination remembers what it was showing, so switching away and back
+  // does not silently reset the list to its first entry.
+  const [automationsKind, setAutomationsKind] = useAutomationsKind();
+  const [channelId, setChannelId] = useChannelSelection();
+  const [extensionsTab, setExtensionsTab] = useSettingsTab('extensions');
+  const [settingsTab, setSettingsTab] = useSettingsTab('settings');
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
   const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
+  // A connected runner can exist without an active provider. Recovery still
+  // offers the provider picker, but "Skip for now" must let the user reach the
+  // shell and configure it later from Settings. Scope the dismissal to one
+  // workspace and clear it after that workspace gains a provider.
+  const [dismissedProviderRecoveryFor, setDismissedProviderRecoveryFor] = useState<
+    string | null
+  >(null);
   // Capture the latest `connected` phase (keyed by the active workspace) to keep
   // the shell mounted across the brief `snapshot === undefined` gap a workspace
   // switch can produce. Gate the derive-during-render update on a STABLE SCALAR
@@ -103,29 +133,23 @@ export function App(): JSX.Element {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
 
+  const connectedProvider =
+    phase?.phase === 'connected' ? phase.activeProvider : null;
+  useEffect(() => {
+    if (!activeWorkspaceId || connectedProvider === null) return;
+    setDismissedProviderRecoveryFor((current) =>
+      current === activeWorkspaceId ? null : current,
+    );
+  }, [activeWorkspaceId, connectedProvider]);
+
   // When an app (or other off-chat surface) does "Send to chat", it stages a
   // composer draft and pulses a request to show the chat view — switch to it so
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
 
-  // When the agent drives the browser / terminal, open the matching rail
-  // pane so its work is shown to the user (once per session per pane).
-  useAgentSurfaceReveal(activeWorkspaceId, setRailPane);
-
-  // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
-  // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
-  // Cmd+B means "bold" inside inputs/textareas/contentEditable.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      if (e.key.toLowerCase() !== 'b') return;
-      if (isEditableTarget(e.target)) return;
-      e.preventDefault();
-      toggleSidebarCollapsed();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  // When the agent drives the browser / terminal, open the matching workbench
+  // tab so its work is shown to the user (once per session per tab).
+  useAgentSurfaceReveal(activeWorkspaceId, setBenchTab);
 
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
   // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
@@ -182,6 +206,18 @@ export function App(): JSX.Element {
     }
   }, [runnerTabsLocked, view]);
 
+  // One window-level dispatcher for the whole keymap; the bindings themselves
+  // live in `useAppHotkeys`, which is also what the help sheet renders from.
+  // Registered through `onView` so a shortcut can't jump to a runner-locked
+  // destination the rail itself refuses.
+  useHotkeyDispatcher();
+  useAppHotkeys({
+    setView: onView,
+    benchTab,
+    setBenchTab,
+    onShowShortcuts: () => setShortcutsOpen(true),
+  });
+
   if (prefsLoading) {
     return (
       <>
@@ -223,6 +259,7 @@ export function App(): JSX.Element {
   const connectedWithoutProvider = shouldShowProviderRecovery(
     shell.phase,
     shell.sessionLoading,
+    dismissedProviderRecoveryFor === activeWorkspaceId,
   );
 
   if (cliMissing || connectedWithoutProvider) {
@@ -232,16 +269,16 @@ export function App(): JSX.Element {
         <ChatStoreBridge />
         <Onboarding
           phase={shell.phase}
-          // Nothing to do on completion: finishing the recovery gate (CLI
-          // installed / provider added) flips the connection phase, which
-          // re-renders this gate and drops it on its own.
-          onComplete={() => undefined}
+          // A successful CLI/provider repair still drops this gate through the
+          // connection phase. The explicit callback also handles the optional
+          // provider step's "Skip for now" action.
+          onComplete={() => setDismissedProviderRecoveryFor(activeWorkspaceId)}
         />
       </>
     );
   }
 
-  if (!shell.connected && !hasEverConnected) {
+  if (shouldShowBlockingConnectionScreen(shell, hasEverConnected)) {
     // Terminal protocol-incompatible self-heal: update the bundled CLI in
     // place (host `app.updateCli`), then re-run the supervisor connect — which
     // respawns the runner from the now-newer CLI, so the client attaches
@@ -283,67 +320,88 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={onView} />
+      {/* One navigation organ. The index column beside it changes CONTENTS per
+          destination rather than being a different component per view. */}
+      <AppRail
+        view={view}
+        onView={onView}
+        disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+        disabledReason={RUNNER_LOCKED_REASON}
+      />
+      {/* One index column per destination: the rail says where you are, the
+          column says what is in here. */}
+      {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
+      {view === 'automations' && (
+        <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
+      )}
+      {view === 'channels' && <ChannelsIndex selected={channelId} onSelect={setChannelId} />}
+      {view === 'extensions' && (
+        <SettingsIndex
+          tab={extensionsTab}
+          onPick={setExtensionsTab}
+          scope="extensions"
+        />
+      )}
+      {view === 'settings' && (
+        <SettingsIndex tab={settingsTab} onPick={setSettingsTab} scope="settings" />
+      )}
       {view === 'chat' && (
         <>
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
-            railPane={railPane}
-            onPickPane={setRailPane}
             sessionLoading={shell.sessionLoading}
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
           />
-          <ContextRail
-            pane={railPane}
-            onClose={() => setRailPane(null)}
+          <Workbench
+            tab={benchTab}
+            onPick={setBenchTab}
+            onClose={() => setBenchTab(null)}
             workspaceId={activeWorkspaceId}
           />
         </>
       )}
       {view === 'collaborate' && (
-        <main className="col-main col-main--flat">
-          <CollaboratePanel
-            onView={onView}
-            workspaceId={activeWorkspaceId}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <CollaboratePanel workspaceId={activeWorkspaceId} />
         </main>
       )}
       {view === 'settings' && (
-        <main className="col-main col-main--flat">
-          <SettingsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <SettingsPanel tab={settingsTab} scope="settings" />
+        </main>
+      )}
+      {view === 'extensions' && (
+        <main className="field">
+          <SettingsPanel tab={extensionsTab} scope="extensions" />
         </main>
       )}
       {view === 'apps' && (
-        <main className="col-main col-main--flat">
-          <AppsPanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <AppsPanel />
         </main>
       )}
-      {/* Mobile is independent of the runner session (the gateway lives in the
-          main process), so it is never runner-locked — but the switcher still
-          needs the locked set so the OTHER segments disable in lockstep. */}
+      {view === 'automations' && (
+        <main className="field">
+          <AutomationsPanel kind={automationsKind} />
+        </main>
+      )}
+      {/* Channels is independent of the runner session (the gateway lives in the
+          main process), so it is never runner-locked. */}
+      {view === 'channels' && (
+        <main className="field">
+          <ChannelsSurface selected={channelId} />
+        </main>
+      )}
+      {/* Mobile pairing is a property of the INSTALL, not another chat surface to
+          configure, so it sits at the foot of the rail rather than in the channel
+          catalog. Like Channels it never depends on the runner session. */}
       {view === 'mobile' && (
-        <main className="col-main col-main--flat">
-          <MobilePanel
-            onView={onView}
-            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-            disabledViewReason={RUNNER_LOCKED_REASON}
-          />
+        <main className="field">
+          <MobilePanel />
         </main>
       )}
-      {!connected && <ReconnectBanner label={describePhase(phase)} />}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
+      {!connected && <ReconnectBanner label={describePhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
           background-agent modal is open — this fallback catches every other
@@ -353,17 +411,8 @@ export function App(): JSX.Element {
   );
 }
 
-/** True when the key event originated in a text-entry surface (so global
- *  shortcuts must not fire). Mirrors WorkflowCanvas's guard. */
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
-
 function isRunnerLockedView(view: View): boolean {
-  return view === 'collaborate' || view === 'apps';
+  return RUNNER_LOCKED_VIEWS.includes(view);
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {
@@ -432,24 +481,17 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         padding: '6px 14px 6px 6px',
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 999,
-        boxShadow: '0 18px 36px -18px rgba(15, 23, 42, 0.25)',
+        borderRadius: 'var(--radius-pill)',
+        boxShadow: 'var(--color-card-shadow)',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 10,
-        fontSize: 13,
+        fontSize: 'var(--type-ui)',
         color: 'var(--color-text-muted)',
         zIndex: 50,
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden="true"
-        className="moxxy-avatar-loader moxxy-avatar-loader--sm"
-        height={28}
-        style={{ height: 28, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={28} className="moxxy-avatar-loader moxxy-avatar-loader--sm" />
       {label}
     </div>
   );

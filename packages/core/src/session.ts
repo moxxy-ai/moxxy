@@ -1,12 +1,16 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AppContext,
   ClientSession,
   EmittedEvent,
   LoopGuardSettings,
   MoxxyEvent,
+  Principal,
   RunTurnOptions,
   SessionId,
   SessionInfo,
+  GovernanceInfo,
 } from '@moxxy/sdk';
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
@@ -35,6 +39,10 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { AuditExporterRegistry } from './registries/audit-exporters.js';
+import { AuditSinkRegistry } from './registries/audit-sinks.js';
+import { SecretProviderRegistry } from './registries/secret-providers.js';
+import { jsonlAuditSink } from './audit/jsonl-audit-sink.js';
 import { ReflectorRegistry } from './registries/reflectors.js';
 import { ServiceRegistryImpl } from './registries/services.js';
 import { jsonlEventStore } from './sessions/jsonl-event-store.js';
@@ -69,6 +77,8 @@ export interface SessionOptions {
   readonly permissionResolver?: PermissionResolver;
   readonly hookTimeoutMs?: number;
   readonly silent?: boolean;
+  /** Organization policy summary rendered by local and remote clients. */
+  readonly governance?: GovernanceInfo;
   /**
    * Optional plugin loader. When provided, `session.pluginHost.discoverAndLoad()`
    * can dynamic-import discovered plugins; without one, only static plugins
@@ -113,6 +123,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly cwd: string;
   readonly log: EventLog;
   readonly logger: Logger;
+  readonly governance?: GovernanceInfo;
   readonly tools: ToolRegistry;
   readonly providers: ProviderRegistry;
   readonly modes: ModeRegistry;
@@ -138,6 +149,19 @@ export class Session implements ClientSession, SessionRuntime {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  readonly auditSinks: AuditSinkRegistry;
+  readonly auditExporters: AuditExporterRegistry;
+  /**
+   * Resolve a named secret, through whatever SecretProvider the host wired.
+   * The same function tool handlers receive as `ctx.getSecret`; exposed here so
+   * a HOST-side caller (resolving a credential for an internal registry, say)
+   * goes through the active provider instead of reaching past it to the vault.
+   * Undefined when no resolver was supplied.
+   */
+  readonly resolveSecret?: (name: string) => Promise<string | null>;
+  /** External secret stores. No core floor: the vault is a plugin, so the
+   *  host registers it as the protected floor at boot. */
+  readonly secretProviders: SecretProviderRegistry;
   /**
    * The learning-loop block: watches finished turns and proposes memory/skill
    * improvements. NULLABLE — no core-seeded floor, so it stays empty until a
@@ -203,12 +227,14 @@ export class Session implements ClientSession, SessionRuntime {
     this.id = opts.sessionId ?? newSessionId();
     this.cwd = opts.cwd;
     this.logger = opts.logger ?? (opts.silent ? silentLogger : createLogger());
+    if (opts.governance) this.governance = Object.freeze({ ...opts.governance });
     this.log = opts.log ?? new EventLog();
     this.tools = new ToolRegistryImpl({
       logger: this.logger,
       cwd: this.cwd,
       ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
     });
+    if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
@@ -281,6 +307,14 @@ export class Session implements ClientSession, SessionRuntime {
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
     this.eventStores.register(jsonlEventStore, { protected: true });
+    this.auditSinks = new AuditSinkRegistry();
+    this.auditExporters = new AuditExporterRegistry();
+    // The hash-chained local sink is the protected floor. A discovered plugin's
+    // sink registers alongside it but never auto-activates: a sink's whole job
+    // is to send recorded actions somewhere else, so silent adoption would be
+    // an exfiltration path wearing a compliance hat.
+    this.auditSinks.register(jsonlAuditSink, { protected: true });
+    this.secretProviders = new SecretProviderRegistry();
     // Reflectors are nullable — no core floor is seeded, so reflection stays off
     // until a reflector plugin registers one. Published on the service registry
     // so a discovery-loaded driver (the reflector plugin's own hooks) can resolve
@@ -309,6 +343,7 @@ export class Session implements ClientSession, SessionRuntime {
       opts.permissionResolver ?? autoAllowResolver,
       this.permissions,
       (name) => this.tools.get(name)?.permission,
+      this.cwd,
     );
     this.dispatcher = new HookDispatcherImpl({
       logger: this.logger,
@@ -334,6 +369,9 @@ export class Session implements ClientSession, SessionRuntime {
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
+      auditSinks: this.auditSinks,
+      auditExporters: this.auditExporters,
+      secretProviders: this.secretProviders,
       reflectors: this.reflectors,
       requirements: this.requirements,
       dispatcher: this.dispatcher,
@@ -379,12 +417,33 @@ export class Session implements ClientSession, SessionRuntime {
       resolver,
       this.permissions,
       (name) => this.tools.get(name)?.permission,
+      this.cwd,
     );
   }
 
   /** Install/replace the generic approval resolver. Pass null to clear. */
   setApprovalResolver(resolver: ApprovalResolver | null): void {
     this.approvalResolver = resolver;
+  }
+
+  /**
+   * Attribute everything this session appends to `principal`.
+   *
+   * Set by whoever owns the surface and can actually vouch for the identity:
+   * the CLI resolves the OS account, an authenticated channel resolves its
+   * token's subject. Core never guesses one, because an identity core invented
+   * would be worth nothing to an auditor.
+   *
+   * Pass `undefined` to go back to unattributed, which is what a surface with
+   * no notion of a user should do rather than inventing a placeholder.
+   */
+  setPrincipal(principal: Principal | undefined): void {
+    this.log.setPrincipal(principal);
+  }
+
+  /** The identity this session currently attributes to, if any. */
+  get principal(): Principal | undefined {
+    return this.log.getPrincipal();
   }
 
   /**
@@ -471,12 +530,17 @@ export class Session implements ClientSession, SessionRuntime {
     if (!this.envSnapshot) {
       this.envSnapshot = Object.freeze({ ...process.env });
     }
+    // Read the principal per call rather than caching it with `envSnapshot`:
+    // a channel can re-attribute mid-session (a second user pairs, a token
+    // rotates) and a hook must see the identity in force NOW.
+    const actor = this.log.getPrincipal();
     return {
       sessionId: this.id,
       cwd: this.cwd,
       log: this.log.asReader(),
       env: this.envSnapshot,
       services: this.services,
+      ...(actor ? { actor } : {}),
     };
   }
 
@@ -519,6 +583,8 @@ export class Session implements ClientSession, SessionRuntime {
     return {
       sessionId: this.id,
       cwd: this.cwd,
+      ...(this.governance ? { governance: this.governance } : {}),
+      clientChrome: this.pluginHost.listClientChrome(),
       activeProvider: active,
       providers: this.providers.list().map((p) => ({
         name: p.name,
@@ -542,6 +608,7 @@ export class Session implements ClientSession, SessionRuntime {
         description: t.description,
         ...(t.compact ? { compact: t.compact } : {}),
         ...(t.capabilities ? { capabilities: t.capabilities } : {}),
+        ...(t.icon ? { icon: t.icon } : {}),
       })),
       skills: this.skills.list().map((s) => ({ id: s.id, name: s.frontmatter.name })),
       commands: this.commands.list().map((c) => ({
@@ -581,6 +648,7 @@ function wrapWithPolicy(
   inner: PermissionResolver,
   engine: PermissionEngine,
   getToolRule: (name: string) => PermissionRule | undefined,
+  cwd: string,
 ): PermissionResolver {
   // The policy-only decision: user policy (permissions.json) wins, then the
   // tool's own declared rule (so a tool marked `allow` is never blocked in
@@ -588,10 +656,10 @@ function wrapWithPolicy(
   // through to the channel resolver's prompt / deny-by-default path, while
   // `policyCheck` callers (auto-approving modes) supply their own fallback
   // so no prompt can ever fire.
-  const policyDecision = (call: PendingToolCall): PermissionDecision | null => {
+  const policyDecision = async (call: PendingToolCall): Promise<PermissionDecision | null> => {
     const policy = engine.check(call);
     if (policy) return policy;
-    return evaluateToolRule(getToolRule(call.name), call);
+    return evaluateWorkspaceToolRule(getToolRule(call.name), call, cwd);
   };
   // Use a Proxy so any extra methods on the underlying resolver
   // (`abortAll`, channel-specific helpers) remain accessible — only
@@ -600,7 +668,7 @@ function wrapWithPolicy(
     get(target, prop, receiver) {
       if (prop === 'check') {
         return async (call: PendingToolCall, ctx: PermissionContext) => {
-          const decided = policyDecision(call);
+          const decided = await policyDecision(call);
           if (decided) return decided;
           return target.check(call, ctx);
         };
@@ -611,4 +679,54 @@ function wrapWithPolicy(
       return Reflect.get(target, prop, receiver);
     },
   });
+}
+
+async function evaluateWorkspaceToolRule(
+  rule: PermissionRule | undefined,
+  call: PendingToolCall,
+  cwd: string,
+): Promise<PermissionDecision | null> {
+  if (!rule?.workspace) return evaluateToolRule(rule, call);
+  if (!(await pathsStayInWorkspace(rule, call, cwd))) return null;
+  const { workspace: _workspace, ...unscopedRule } = rule;
+  return evaluateToolRule(unscopedRule, call);
+}
+
+async function pathsStayInWorkspace(
+  rule: PermissionRule,
+  call: PendingToolCall,
+  cwd: string,
+): Promise<boolean> {
+  const scope = rule.workspace;
+  if (!scope) return true;
+  const input = isRecord(call.input) ? call.input : {};
+  let workspace: string;
+  try {
+    workspace = await realpath(cwd);
+  } catch {
+    return false;
+  }
+  for (const pathInput of scope.pathInputs) {
+    const value = input[pathInput.key];
+    if (value === undefined && pathInput.defaultToWorkspace) continue;
+    if (typeof value !== 'string') return false;
+    try {
+      const target = await realpath(resolve(cwd, value));
+      const fromWorkspace = relative(workspace, target);
+      if (
+        fromWorkspace === '..' ||
+        fromWorkspace.startsWith(`..${sep}`) ||
+        isAbsolute(fromWorkspace)
+      ) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

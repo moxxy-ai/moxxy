@@ -1,0 +1,100 @@
+/*
+ * Shared Voice Mode radio fan. The box is reserved while the call is active,
+ * so phase changes can never slide the Moxxy mark sideways.
+ */
+.voice-radio-waves {
+  position: relative;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 40px;
+  opacity: 0;
+  transition: opacity var(--motion-shift, 140ms) ease;
+  pointer-events: none;
+}
+
+.voice-radio-waves i {
+  position: absolute;
+  top: 50%;
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill, 9999px);
+  opacity: 0.45;
+}
+
+.voice-radio-waves--left i {
+  right: 0;
+  border-left-color: var(--color-primary);
+}
+
+.voice-radio-waves--right i {
+  left: 0;
+  border-right-color: var(--color-primary);
+}
+
+.voice-radio-waves i:nth-child(1) {
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  animation-delay: 0ms;
+}
+
+.voice-radio-waves i:nth-child(2) {
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  animation-delay: 300ms;
+}
+
+.voice-radio-waves i:nth-child(3) {
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  animation-delay: 600ms;
+}
+
+.voice-radio-waves--compact {
+  flex-basis: 18px;
+  width: 18px;
+  height: 24px;
+}
+
+.voice-radio-waves--compact i {
+  border-width: 1.5px;
+}
+
+.voice-radio-waves--compact i:nth-child(1) {
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+}
+
+.voice-radio-waves--compact i:nth-child(2) {
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+}
+
+.voice-radio-waves--compact i:nth-child(3) {
+  width: 18px;
+  height: 18px;
+  margin-top: -9px;
+}
+
+@keyframes voice-radio-wave {
+  from { opacity: 0.85; transform: scaleX(0.5); }
+  70% { opacity: 0.45; transform: scaleX(1); }
+  to { opacity: 0.12; transform: scaleX(1.2); }
+}
+
+.voice-radio-waves[data-active='true'] {
+  opacity: 1;
+}
+
+.voice-radio-waves[data-active='true'] i {
+  animation: voice-radio-wave 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-radio-waves[data-active='true'] i {
+    animation: none;
+  }
+}

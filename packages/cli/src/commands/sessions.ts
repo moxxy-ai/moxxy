@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { isCancel, select } from '@clack/prompts';
 import { deleteSession, readSessionIndex, type SessionMeta } from '@moxxy/core';
 import { WorkspaceRegistry } from '@moxxy/workspace-registry';
@@ -7,15 +8,15 @@ import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
 
 const HELP = formatHelp({
-  title: 'moxxy sessions',
-  tagline: 'manage persisted sessions',
+  title: 'moxxy runs',
+  tagline: 'manage saved runs',
   sections: [
     {
       title: 'COMMANDS',
       rows: [
-        ['list', 'list saved sessions, most-recent first'],
-        ['delete <id>', "remove a session's JSONL + index entry"],
-        ['delete --empty', 'remove every session with 0 events'],
+        ['list', 'list saved runs, most-recent first'],
+        ['delete <id>', 'remove a saved run'],
+        ['delete --empty', 'remove empty runs'],
       ],
     },
   ],
@@ -30,7 +31,7 @@ export async function runSessionsCommand(argv: ParsedArgv): Promise<number> {
   if (sub === 'list') {
     const all = await readSessionIndex();
     if (all.length === 0) {
-      process.stdout.write(colors.dim('(no persisted sessions)\n'));
+      process.stdout.write(colors.dim('(no saved runs)\n'));
       return 0;
     }
     process.stdout.write(formatSessions(all));
@@ -39,7 +40,7 @@ export async function runSessionsCommand(argv: ParsedArgv): Promise<number> {
   if (sub === 'delete') {
     return runDelete(argv);
   }
-  process.stderr.write(`${colors.red(`unknown 'sessions' subcommand: ${sub}`)}\n${HELP}`);
+  process.stderr.write(`${colors.red(`unknown 'runs' subcommand: ${sub}`)}\n${HELP}`);
   return 2;
 }
 
@@ -55,13 +56,13 @@ async function runDelete(argv: ParsedArgv): Promise<number> {
       await registry.removeSession(m.id);
     }
     process.stdout.write(
-      colors.dim(`removed ${targets.length} empty session${targets.length === 1 ? '' : 's'}\n`),
+      colors.dim(`removed ${targets.length} empty run${targets.length === 1 ? '' : 's'}\n`),
     );
     return 0;
   }
   const raw = argv.positional[1];
   if (!raw) {
-    process.stderr.write(colors.red('usage: moxxy sessions delete <id> | --empty\n'));
+    process.stderr.write(colors.red('usage: moxxy runs delete <id> | --empty\n'));
     return 2;
   }
   const id = resolveId(raw, all);
@@ -73,13 +74,13 @@ async function runDelete(argv: ParsedArgv): Promise<number> {
 
 const RESUME_HELP = formatHelp({
   title: 'moxxy resume',
-  tagline: 'resume a previously-persisted session',
+  tagline: 'continue a saved run',
   sections: [
     {
       title: 'USAGE',
       rows: [
-        ['moxxy resume', 'pick interactively from a numbered list'],
-        ['moxxy resume -s <id>', 'resume the named session by id'],
+        ['moxxy resume', 'pick a run interactively'],
+        ['moxxy resume -s <id>', 'continue the named run by id'],
         ['moxxy resume <id>', 'shorthand for the above'],
       ],
     },
@@ -107,20 +108,20 @@ export async function pickSessionToResume(argv: ParsedArgv): Promise<string | nu
 
   const all = await readSessionIndex();
   if (all.length === 0) {
-    process.stderr.write(colors.dim('(no persisted sessions to resume)\n'));
+    process.stderr.write(colors.dim('(no saved runs to continue)\n'));
     return null;
   }
   // @clack/prompts handles arrow-key navigation + Enter + Esc/Ctrl-C
   // cancel natively. The previous readline approach silently dropped
   // typed-number input inside terminal wrappers (Warp, Claude Code).
   const chosen = await select({
-    message: `Pick a session to resume (${all.length} saved)`,
+    message: `Pick a run (${all.length} saved)`,
     options: all.map((m) => ({
       value: m.id,
       label: m.firstPrompt
         ? `${m.firstPrompt.slice(0, 60)}${m.firstPrompt.length > 60 ? '…' : ''}`
         : '(empty)',
-      hint: `${formatAgo(m.lastActivity)} · ${m.eventCount} ev · ${m.cwd}`,
+      hint: `${formatAgo(m.lastActivity)} · ${path.basename(path.resolve(m.cwd)) || m.cwd}`,
     })),
   });
   if (isCancel(chosen) || typeof chosen !== 'string') return null;

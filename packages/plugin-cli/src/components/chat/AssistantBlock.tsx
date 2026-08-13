@@ -1,25 +1,23 @@
 import React, { memo } from 'react';
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 import { Markdown } from '../Markdown.js';
-import { Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
+import { ActivityDot } from './ActivityDot.js';
 
 /**
- * Renders an assistant turn: a white `●` bullet on the first line and
- * the body rendered through the lightweight Markdown component
- * (headings, lists, code blocks, inline emphasis + links). Indented one
- * column past the bullet so the body reads as one visual unit attached
- * to its marker. Mirrors the Claude Code convention (white = assistant).
+ * The assistant reads like a document, not a chat bubble. A single brand
+ * marker carries authorship while the Markdown owns the visual hierarchy.
+ * Keeping the marker beside the first block also makes stream -> settled
+ * transitions stable: both states begin with the same diamond.
  */
 export const AssistantBlock: React.FC<{ content: string }> = memo(function AssistantBlock({
   content,
 }) {
   if (!content.trim()) return null;
   return (
-    <Box flexDirection="row" marginTop={1}>
-      <Box flexDirection="column" marginRight={1}>
-        <Text dimColor>{Glyphs.filled}</Text>
-      </Box>
-      <Box flexDirection="column" flexGrow={1}>
+    <Box flexDirection="row" marginTop={blockGap()}>
+      <ActivityDot state="neutral" />
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} marginLeft={1}>
         <Markdown content={content} firstBlockTight />
       </Box>
     </Box>

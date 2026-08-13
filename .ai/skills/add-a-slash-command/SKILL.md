@@ -24,13 +24,13 @@ feature-scoped ones, e.g. vault's `/vault`).
 
 Rules:
 - Handlers receive the SESSION — type against the minimal structural slice you
-  need (see `SessionShape` in plugin-commands) and use optional chaining for
-  capabilities a `RemoteSession` may lack (TECH_DEBT P1 #1).
+  need (see `SessionShape` in plugin-commands) and feature-detect capabilities
+  a `RemoteSession` may lack.
 - Commands run on every surface (TUI, desktop, Telegram) — no Ink/DOM
   imports; return data, let the surface render.
 - Destructive actions must verify, not assume: `/new` calls
   `SessionLike.reset?.()` and reports failure instead of claiming success
-  (A10).
+  rather than claiming success.
 - `defineCommand` (SDK) freezes the spec — use it for new code.
 
 Test: `plugin-commands/src/commands.test.ts` pattern — fake session, assert

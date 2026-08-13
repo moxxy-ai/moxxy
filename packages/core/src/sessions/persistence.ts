@@ -20,7 +20,13 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
 import type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import {
+  ensurePrivateDir,
+  ensurePrivateFile,
+  moxxyPath,
+  PRIVATE_FILE_MODE,
+  writeFileAtomic,
+} from '@moxxy/sdk/server';
 import { createLogger, type Logger } from '../logger.js';
 import { isMoxxyEventShape } from './event-shape.js';
 
@@ -414,9 +420,11 @@ export class SessionPersistence {
   private ensureReady(): Promise<void> {
     if (!this.ready) {
       this.ready = (async () => {
-        await fs.mkdir(this.dir, { recursive: true });
-        const handle = await fs.open(this.logPath, 'a');
-        await handle.close();
+        // Owner-only: a transcript holds every prompt, every file the agent
+        // read, and every command's output. On a shared host the default
+        // 0755/0644 hands all of that to any other local account.
+        await ensurePrivateDir(this.dir);
+        await ensurePrivateFile(this.logPath);
         const existing = await readMetaSidecar(this.dir, this.id);
         const stats = await matchingSessionStatsFromLog(this.id, this.logPath);
         if (existing) {
@@ -683,7 +691,7 @@ export async function restoreEvents(
         });
       } else {
         const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
-        await writeFileAtomic(logPath, repaired);
+        await writeFileAtomic(logPath, repaired, { mode: PRIVATE_FILE_MODE });
       }
     } catch (err) {
       // Restore still succeeds — the in-memory log is repaired; only the
@@ -843,9 +851,11 @@ export async function seedSessionLog(
   } catch {
     /* no log yet → seed below */
   }
-  await fs.mkdir(dir, { recursive: true });
+  await ensurePrivateDir(dir);
   const reseq = events.map((e, i) => (e.seq === i ? e : ({ ...e, seq: i } as MoxxyEvent)));
-  await writeFileAtomic(logPath, reseq.map((e) => JSON.stringify(e) + '\n').join(''));
+  await writeFileAtomic(logPath, reseq.map((e) => JSON.stringify(e) + '\n').join(''), {
+    mode: PRIVATE_FILE_MODE,
+  });
   return true;
 }
 
@@ -952,9 +962,8 @@ export async function seedSessionMeta(
 ): Promise<void> {
   assertSafeSessionId(sessionId);
   if (await readMetaSidecar(dir, sessionId)) return;
-  await fs.mkdir(dir, { recursive: true });
-  const handle = await fs.open(path.join(dir, `${sessionId}.jsonl`), 'a');
-  await handle.close();
+  await ensurePrivateDir(dir);
+  await ensurePrivateFile(path.join(dir, `${sessionId}.jsonl`));
   const now = new Date().toISOString();
   const meta: SessionMeta = {
     version: SESSION_META_VERSION,
@@ -1018,8 +1027,10 @@ async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; log
   for (const key of metaCache.keys()) if (!live.has(key)) metaCache.delete(key);
   const parsedFiles = await mapWithConcurrency(files, READ_INDEX_CONCURRENCY, async (d) => {
     const file = path.join(dir, d.name);
+    let handle: import('node:fs/promises').FileHandle | null = null;
     try {
-      const stat = await fs.stat(file);
+      handle = await fs.open(file, 'r');
+      const stat = await handle.stat();
       const cached = metaCache.get(file);
       const parsed =
         cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size
@@ -1028,12 +1039,14 @@ async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; log
       if (parsed) {
         return { meta: parsed, canonical: d.name === `${parsed.id}.json` };
       }
-      const raw = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+      const raw = JSON.parse(await handle.readFile({ encoding: 'utf8' })) as unknown;
       if (!isSessionMeta(raw)) return null;
       metaCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, meta: raw });
       return { meta: raw, canonical: d.name === `${raw.id}.json` };
     } catch {
       return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   });
   const deduped = new Map<string, ParsedMetaFile>();
@@ -1094,7 +1107,11 @@ function firstPromptLabel(text: string): string {
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
-  await writeFileAtomic(target, JSON.stringify(value, null, 2) + '\n');
+  // Sidecars carry the session's cwd and title: same blast radius as the
+  // transcript they describe, so the same owner-only mode.
+  await writeFileAtomic(target, JSON.stringify(value, null, 2) + '\n', {
+    mode: PRIVATE_FILE_MODE,
+  });
 }
 
 function isSessionMeta(v: unknown): v is SessionMeta {

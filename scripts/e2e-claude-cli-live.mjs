@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cliBin = join(repoRoot, 'packages', 'cli', 'dist', 'bin.js');
 const executable = process.env.CLAUDE_CODE_EXECUTABLE?.trim() || 'claude';
-const model = process.env.MOXXY_CLAUDE_E2E_MODEL?.trim() || 'claude-sonnet-4-6';
+const model = process.env.MOXXY_CLAUDE_E2E_MODEL?.trim() || 'claude-sonnet-5';
 const root = mkdtempSync(join(tmpdir(), 'moxxy-claude-live-'));
 const moxxyHome = join(root, 'moxxy-home');
 mkdirSync(moxxyHome);

@@ -1,4 +1,9 @@
-import type { ClientSession as Session, ModeBadge } from '@moxxy/sdk';
+import {
+  isSelectableMode,
+  type ClientSession as Session,
+  type ModeBadge,
+  type ModeDef,
+} from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
   type SlashCommand,
@@ -29,9 +34,28 @@ export function resolveContextWindow(session: Session, activeModel: string): num
   }
 }
 
-export function buildSlashSuggestions(session: Session): ReadonlyArray<SlashCommand> {
+export interface SlashSuggestionCapabilities {
+  readonly canSwitchRuns: boolean;
+  readonly canManageExtensions: boolean;
+}
+
+const TUI_INTERNAL_COMMANDS = new Set([
+  'collab_say',
+  'collab_direct',
+  'collab_pause',
+  'collab_resume',
+]);
+
+export function buildSlashSuggestions(
+  session: Session,
+  capabilities: SlashSuggestionCapabilities,
+): ReadonlyArray<SlashCommand> {
+  const essentialOrder = new Map(
+    ['new', 'runs', 'model', 'extensions', 'help', 'exit'].map((name, index) => [name, index]),
+  );
   const fromRegistry: SlashCommand[] = session.commands
     .listForChannel('tui')
+    .filter((command) => commandAvailable(command.name, capabilities))
     .map((c: CommandDef) => ({
       name: c.name,
       description: c.description,
@@ -39,8 +63,23 @@ export function buildSlashSuggestions(session: Session): ReadonlyArray<SlashComm
       ...(c.aliases ? { aliases: c.aliases } : {}),
     }));
   const seen = new Set(fromRegistry.map((c) => c.name));
-  const tuiLocal = BUILTIN_SLASH_COMMANDS.filter((c) => !seen.has(c.name));
-  return [...fromRegistry, ...tuiLocal].sort((a, b) => a.name.localeCompare(b.name));
+  const tuiLocal = BUILTIN_SLASH_COMMANDS.filter(
+    (command) => !seen.has(command.name) && commandAvailable(command.name, capabilities),
+  );
+  return [...fromRegistry, ...tuiLocal].sort((a, b) => {
+    const aRank = essentialOrder.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = essentialOrder.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+    return aRank - bRank || a.name.localeCompare(b.name);
+  });
+}
+
+function commandAvailable(name: string, capabilities: SlashSuggestionCapabilities): boolean {
+  if (TUI_INTERNAL_COMMANDS.has(name)) return false;
+  if (name === 'new') return capabilities.canSwitchRuns;
+  if (name === 'runs') return capabilities.canSwitchRuns;
+  if (name === 'collab') return capabilities.canSwitchRuns;
+  if (name === 'extensions') return capabilities.canManageExtensions;
+  return true;
 }
 
 export function resolveActiveDescriptor(
@@ -63,12 +102,16 @@ export function getModeName(session: Session): string {
   }
 }
 
-/**
- * Presentation badge for the active mode, if it declares one. Sourced from
- * the serializable `getInfo()` snapshot rather than `modes.getActive().badge`
- * so it also resolves over the thin-client transport (a `RemoteSession`'s
- * mode objects are name-only stubs). `null` when no badge / no active mode.
- */
+/** Next user-selectable mode in registry order, wrapping at the end. */
+export function nextSelectableMode(session: Session): ModeDef | null {
+  const modes = session.modes.list().filter(isSelectableMode);
+  if (modes.length < 2) return null;
+  const current = getModeName(session);
+  const currentIndex = modes.findIndex((candidate) => candidate.name === current);
+  return modes[(currentIndex + 1 + modes.length) % modes.length] ?? null;
+}
+
+/** Safety tone for elevated modes, sourced from the transport-safe snapshot. */
 export function getModeBadge(session: Session): ModeBadge | null {
   try {
     return session.getInfo().activeModeBadge;

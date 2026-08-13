@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { EventLogReader } from './log.js';
+import type { ToolIcon } from './tool-icon.js';
 import type { PermissionRule } from './permission.js';
 import type { SessionId, ToolCallId, TurnId } from './ids.js';
 import type { SubagentSpawner } from './subagent.js';
@@ -204,6 +205,13 @@ export interface ToolDef {
   ) => ToolResultContextPolicy | undefined;
   /** Opt-in presentation hint. See `ToolCompactPresentation`. */
   readonly compact?: ToolCompactPresentation;
+  /**
+   * What this tool touches, so surfaces can show it. Without this a surface can
+   * only guess from the NAME, which works for the handful of built-ins it was
+   * written against and gives every plugin-contributed tool the same generic
+   * fallback. See {@link ToolIcon}.
+   */
+  readonly icon?: ToolIcon;
   /**
    * Optional capability declaration. Advisory unless the user enables
    * `@moxxy/plugin-security`, at which point the active `Isolator`

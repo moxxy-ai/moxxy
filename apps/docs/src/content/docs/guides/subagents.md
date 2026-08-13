@@ -23,7 +23,7 @@ dispatch_agent({
   label?,         // short label for progress events
   systemPrompt?,  // override the kind's system prompt
   model?,         // model id override
-  mode?,  // "default" (default), "goal", "research"
+  mode?,  // "default" (default), "plan", "goal", "research"
   allowedTools?,  // restrict the child to these tool names
 })
 ```

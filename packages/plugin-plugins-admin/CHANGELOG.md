@@ -1,5 +1,127 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/config@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/config@0.37.1
+
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/config@0.37.0
+
+## 0.36.1
+
+### Patch Changes
+
+- Updated dependencies [9d343c0]
+  - @moxxy/config@0.36.1
+  - @moxxy/sdk@0.36.1
+
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/config@0.36.0
+
+## 0.35.4
+
+### Patch Changes
+
+- 051f405: Trim the Claude Code subscription catalog to the four current models
+
+  The picker still offered `claude-sonnet-4-6`, `claude-opus-4-7` and `claude-opus-4-6`,
+  and pinned the default at `claude-sonnet-4-6`. The catalog is now `claude-fable-5`,
+  `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5`, with `claude-sonnet-5` as
+  the default (direct successor of the previous one). Haiku moves from the dated
+  `claude-haiku-4-5-20251001` id to the alias, and `claude-sonnet-5` gets its real
+  128k output ceiling instead of 64k.
+
+  - @moxxy/sdk@0.35.4
+  - @moxxy/config@0.35.4
+
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/config@0.35.3
+
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/config@0.35.2
+
+## 0.35.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/config@0.35.1
+
+## 0.35.0
+
+### Patch Changes
+
+- 57f0810: Refresh the Claude catalogs: `claude-opus-5` replaces the retired `claude-opus-4-8`, and `claude-sonnet-5` is added.
+
+  Opus 4.8 is retired, so offering it meant a picker entry that cannot serve a request. `claude-opus-5` takes its place in both the Anthropic API catalog and the Claude Code subscription catalog, and becomes the Anthropic plugin's recommended `defaultModel`. `claude-sonnet-5` is added alongside `claude-sonnet-4-6` rather than replacing it, because 4.6 is not retired and is still the default. `claude-fable-5` was already listed in both and is unchanged.
+
+  The new row copies the opus line's shape (1M context, 128k output, tools, images, documents, adaptive thinking, hosted web search) rather than being verified against the Models API, because the catalog is still hardcoded (archived backlog P3 #8).
+
+  Removing 4.8 surfaced that the Claude Code catalog is enforced rather than advisory: a test passing a model outside it never reached the CLI at all. Tests that enumerate real catalog models were updated with it. One deliberately keeps `claude-opus-4-8` as its example of an unlisted id, which is now more accurate than before.
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/config@0.35.0
+
+## 0.34.0
+
+### Patch Changes
+
+- e52e2ed: Add signed policy bundles and `moxxy policy`.
+
+  Permission rules could already be pushed from the system config, which works on one machine. Across a fleet every rule change became a file change on every host, and a host that missed one looked exactly like a host that got it. A bundle is a signed document published once and subscribed to by `policy.bundles`, carrying a revision that lands in the audit trail, so `moxxy receipt` proves which revision any past run executed under.
+
+  A bundle carries permission rules and nothing else. Not `registryUrl`, not a key, not a proxy, not `security.enabled`, and one carrying any of them is rejected rather than quietly stripped. It arrives over the network, so the worst case for whoever controls that host stays "they can deny things and break the fleet" instead of "they can loosen us".
+
+  Loading fails closed: a configured bundle that cannot be verified stops the session rather than running without the rules the machine is supposed to enforce. The last verified copy is cached and carries a session through an outage, re-verified against the pinned key on every read. A bad signature is never treated as unavailable, or anyone answering for the URL could pin a fleet to an old revision by serving garbage.
+
+  `moxxy policy` shows the rules in force with each rule's origin; `--check` exits 1 when a host is serving off a stale cache. The Ed25519 verifier moved to `@moxxy/sdk` as `verifyEd25519`, since policy has to bind on a machine with no plugins installed and a control you can disable by uninstalling something is not a control.
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/config@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

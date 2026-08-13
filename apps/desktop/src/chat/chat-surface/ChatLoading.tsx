@@ -19,7 +19,7 @@ export function ChatLoading({
             animation: 'moxxy-spin 0.8s linear infinite',
           }}
         />
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-dim)' }}>
+        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-dim)' }}>
           {label}
         </p>
       </div>

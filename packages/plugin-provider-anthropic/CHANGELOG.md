@@ -1,5 +1,121 @@
 # @moxxy/plugin-provider-anthropic
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/plugin-browser@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/plugin-browser@0.37.1
+
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/plugin-browser@0.37.0
+
+## 0.36.1
+
+### Patch Changes
+
+- 9d343c0: Trim the Anthropic API catalog to the four current Claude models
+
+  The picker still offered `claude-opus-4-7`, `claude-opus-4-6` and `claude-sonnet-4-6`,
+  listed Haiku under its dated id, and pinned the default at `claude-sonnet-4-6`. The
+  catalog is now `claude-fable-5`, `claude-opus-5`, `claude-sonnet-5` and
+  `claude-haiku-4-5`, which matches the Claude Code catalog and the ids Anthropic
+  documents today. `claude-sonnet-5` becomes the default (direct successor of the
+  previous one) and gets its real 128k output ceiling instead of 64k; key validation
+  and the `config_init` template move to current ids as well. Older generations are
+  still served by the API and can still be pinned in config, they are just no longer
+  offered in the picker.
+
+  - @moxxy/sdk@0.36.1
+  - @moxxy/plugin-browser@0.36.1
+
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/plugin-browser@0.36.0
+
+## 0.35.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/plugin-browser@0.35.4
+
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/plugin-browser@0.35.3
+
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/plugin-browser@0.35.2
+
+## 0.35.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/plugin-browser@0.35.1
+
+## 0.35.0
+
+### Minor Changes
+
+- 57f0810: Refresh the Claude catalogs: `claude-opus-5` replaces the retired `claude-opus-4-8`, and `claude-sonnet-5` is added.
+
+  Opus 4.8 is retired, so offering it meant a picker entry that cannot serve a request. `claude-opus-5` takes its place in both the Anthropic API catalog and the Claude Code subscription catalog, and becomes the Anthropic plugin's recommended `defaultModel`. `claude-sonnet-5` is added alongside `claude-sonnet-4-6` rather than replacing it, because 4.6 is not retired and is still the default. `claude-fable-5` was already listed in both and is unchanged.
+
+  The new row copies the opus line's shape (1M context, 128k output, tools, images, documents, adaptive thinking, hosted web search) rather than being verified against the Models API, because the catalog is still hardcoded (archived backlog P3 #8).
+
+  Removing 4.8 surfaced that the Claude Code catalog is enforced rather than advisory: a test passing a model outside it never reached the CLI at all. Tests that enumerate real catalog models were updated with it. One deliberately keeps `claude-opus-4-8` as its example of an unlisted id, which is now more accurate than before.
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/plugin-browser@0.35.0
+
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-browser@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

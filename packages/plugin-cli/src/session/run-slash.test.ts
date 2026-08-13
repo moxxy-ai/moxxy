@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runSlash, type SlashDeps } from './run-slash.js';
+import {
+  isProductExtensionPackage,
+  runSlash,
+  type SlashDeps,
+} from './run-slash.js';
 
 // run-slash.ts imports clearUsageStats/readSessionIndex from @moxxy/core and
 // setCategoryDefault from @moxxy/config; stub them so /goal's mode-default
@@ -114,6 +118,84 @@ describe('runSlash /goal', () => {
   });
 });
 
+describe('runSlash /collab', () => {
+  function collabDeps() {
+    const calls = {
+      switched: [] as Array<string | undefined>,
+      commands: [] as Array<{ name: string; args: string }>,
+      notices: [] as Array<string | null>,
+    };
+    const controlNames = new Set([
+      'collab_say',
+      'collab_direct',
+      'collab_pause',
+      'collab_resume',
+    ]);
+    const deps = {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: {
+          get: (name: string) =>
+            controlNames.has(name)
+              ? {
+                  name,
+                  description: 'collaboration control',
+                  handler: ({ args }: { args: string }) => {
+                    calls.commands.push({ name, args });
+                    return { kind: 'text' as const, text: `${name} complete` };
+                  },
+                }
+              : undefined,
+        },
+        modes: {
+          list: () => [{ name: 'default' }, { name: 'collaborative' }],
+        },
+      },
+      requestCollab: (goal?: string) => calls.switched.push(goal),
+      setSystemNotice: (notice: string | null) => calls.notices.push(notice),
+    } as unknown as SlashDeps;
+    return { deps, calls };
+  }
+
+  it('opens the team view when bare and starts a goal without exposing a second command', () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab', deps);
+    runSlash('/collab improve the release flow', deps);
+    runSlash('/collab start audit the API', deps);
+
+    expect(calls.switched).toEqual([undefined, 'improve the release flow', 'audit the API']);
+  });
+
+  it('routes team controls through the single /collab namespace', async () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab say all check the failing test', deps);
+    runSlash('/collab direct prioritize correctness', deps);
+    runSlash('/collab pause', deps);
+    runSlash('/collab resume', deps);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(calls.switched).toEqual([]);
+    expect(calls.commands).toEqual([
+      { name: 'collab_say', args: 'all check the failing test' },
+      { name: 'collab_direct', args: 'prioritize correctness' },
+      { name: 'collab_pause', args: '' },
+      { name: 'collab_resume', args: '' },
+    ]);
+    expect(calls.notices).toContain('Team paused. Use /collab resume to continue.');
+  });
+
+  it('shows a compact entry guide without switching sessions', () => {
+    const { deps, calls } = collabDeps();
+    runSlash('/collab help', deps);
+
+    expect(calls.switched).toEqual([]);
+    expect(calls.notices[0]).toContain('/collab <goal>');
+    expect(calls.notices[0]).toContain('/collab pause | resume');
+    expect(calls.notices[0]).not.toContain('/collab_pause');
+  });
+});
+
 describe('runSlash /mode — transient modes are never persisted as the default', () => {
   function modeDeps() {
     const calls = { setActive: [] as string[] };
@@ -176,11 +258,11 @@ describe('runSlash dispatch safety', () => {
   });
 });
 
-describe('runSlash /sessions', () => {
-  it('degrades to a notice when the host cannot switch sessions', () => {
+describe('runSlash /runs', () => {
+  it('degrades to a notice when the host cannot switch runs', () => {
     const notices: Array<string | null> = [];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       canSwitchSession: false,
       setSystemNotice: (n) => notices.push(n),
@@ -188,10 +270,10 @@ describe('runSlash /sessions', () => {
     } as unknown as SlashDeps);
     // No async index read / picker open on the degrade path.
     expect(pickers).toEqual([]);
-    expect(notices.some((n) => typeof n === 'string' && /only available/.test(n))).toBe(true);
+    expect(notices.some((n) => typeof n === 'string' && /unavailable/.test(n))).toBe(true);
   });
 
-  it('opens a sessions picker (with a new-session entry) when switching is available', async () => {
+  it('opens a Runs picker with a new-run entry when switching is available', async () => {
     sessionIndex.value = [
       {
         id: 'sess-current',
@@ -215,7 +297,7 @@ describe('runSlash /sessions', () => {
       },
     ];
     const pickers: unknown[] = [];
-    runSlash('/sessions', {
+    runSlash('/runs', {
       ...baseDeps(),
       session: { id: 'sess-current', commands: { get: () => undefined } },
       canSwitchSession: true,
@@ -226,13 +308,79 @@ describe('runSlash /sessions', () => {
     expect(pickers).toHaveLength(1);
     const picker = pickers[0] as {
       kind: string;
+      title: string;
       options: Array<{ id: string; current?: boolean }>;
     };
     expect(picker.kind).toBe('sessions');
-    // "+ New session" first, then the two persisted ones; current marked.
+    expect(picker.title).toBe('Runs');
+    // "+ New run" first, then the two persisted ones; current marked.
     expect(picker.options[0]!.id).toBe('__new__');
     expect(picker.options.find((o) => o.id === 'sess-current')!.current).toBe(true);
     expect(picker.options.map((o) => o.id)).toContain('sess-other');
+  });
+});
+
+describe('runSlash command help', () => {
+  it('shows the complete available command catalog', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/help', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined, listForChannel: () => [] },
+        pluginsAdmin: {},
+      },
+      canSwitchSession: true,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(notices[0]).toContain('/runs');
+    expect(notices[0]).toContain('/extensions');
+    expect(notices[0]).toMatch(/^\/mode\s/m);
+  });
+
+  it('does not advertise controls an attached fixed runner cannot execute', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/help', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined, listForChannel: () => [] },
+      },
+      canSwitchSession: false,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(notices[0]).not.toMatch(/^\/runs\s/m);
+    expect(notices[0]).not.toMatch(/^\/extensions\s/m);
+    expect(notices[0]).not.toMatch(/^\/new\s/m);
+    expect(notices[0]).toContain('Type / and keep typing to filter.');
+  });
+
+  it('does not clear an attached runner when /new cannot create a separate run', () => {
+    const notices: Array<string | null> = [];
+    let handlerCalled = false;
+    runSlash('/new', {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: {
+          get: () => ({
+            name: 'new',
+            description: 'Start a fresh run',
+            handler: () => {
+              handlerCalled = true;
+              return { kind: 'session-action', action: 'new' };
+            },
+          }),
+        },
+      },
+      canSwitchSession: false,
+      setSystemNotice: (notice) => notices.push(notice),
+    } as unknown as SlashDeps);
+
+    expect(handlerCalled).toBe(false);
+    expect(notices[0]).toContain('separate run');
   });
 });
 
@@ -269,6 +417,17 @@ describe('runSlash /speak', () => {
       setSystemNotice: (n) => notices.push(n),
     } as unknown as SlashDeps);
     expect(notices.some((n) => typeof n === 'string' && /not available/.test(n))).toBe(true);
+  });
+});
+
+describe('extension product surface', () => {
+  it('keeps model connection packages in /model instead of /extensions', () => {
+    expect(isProductExtensionPackage('@moxxy/plugin-provider-openai')).toBe(false);
+    expect(
+      isProductExtensionPackage('@vendor/models', [{ category: 'provider' }]),
+    ).toBe(false);
+    expect(isProductExtensionPackage('@moxxy/plugin-browser')).toBe(true);
+    expect(isProductExtensionPackage('@moxxy/mode-goal')).toBe(true);
   });
 });
 

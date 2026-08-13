@@ -180,8 +180,8 @@ export async function handleTurn(
   try {
     const raw = await readBody(req);
     body = turnRequestSchema.parse(JSON.parse(raw));
-  } catch (err) {
-    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+  } catch {
+    reply(res, 400, { error: 'bad_request', message: 'invalid request body' });
     return;
   }
 
@@ -252,8 +252,8 @@ export async function handleTurnAudio(
   let bytes: Buffer;
   try {
     bytes = await readRequestBody(req, DEFAULT_AUDIO_MAX);
-  } catch (err) {
-    reply(res, 413, { error: 'payload_too_large', message: err instanceof Error ? err.message : String(err) });
+  } catch {
+    reply(res, 413, { error: 'payload_too_large', message: 'audio payload exceeds the allowed size' });
     return;
   }
   if (bytes.length === 0) {
@@ -326,8 +326,8 @@ export async function handleTurnStream(
   try {
     const raw = await readBody(req);
     body = turnRequestSchema.parse(JSON.parse(raw));
-  } catch (err) {
-    reply(res, 400, { error: 'bad_request', message: err instanceof Error ? err.message : String(err) });
+  } catch {
+    reply(res, 400, { error: 'bad_request', message: 'invalid request body' });
     return;
   }
 

@@ -40,7 +40,7 @@ export function SkillGallery({
             <Button
               variant="chip"
               onClick={onGenerate}
-              style={{ fontSize: 13, padding: '8px 13px', gap: 7 }}
+              style={{ fontSize: 'var(--type-ui)', padding: '8px 13px', gap: 7 }}
             >
               <Icon name="spark" size={14} />
               Generate with AI
@@ -60,7 +60,7 @@ export function SkillGallery({
       {skills.length === 0 ? (
         <EmptyState icon="spark" text="No skills yet." />
       ) : shown.length === 0 ? (
-        <p style={{ margin: 0, padding: '24px 4px', fontSize: 13, color: 'var(--color-text-dim)' }}>
+        <p style={{ margin: 0, padding: '24px 4px', fontSize: 'var(--type-ui)', color: 'var(--color-text-dim)' }}>
           No skills match “{query}”.
         </p>
       ) : (
@@ -89,7 +89,7 @@ export function SkillGallery({
                 minHeight: 104,
                 background: 'var(--color-card-bg)',
                 border: '1px solid var(--color-card-border)',
-                borderRadius: 14,
+                borderRadius: 'var(--radius-card)',
               }}
             >
               <div
@@ -108,7 +108,7 @@ export function SkillGallery({
                     width: 32,
                     height: 32,
                     flexShrink: 0,
-                    borderRadius: 9,
+                    borderRadius: 'var(--radius-block)',
                     background: 'var(--color-primary-soft)',
                     color: 'var(--color-primary-strong)',
                     display: 'inline-flex',
@@ -123,7 +123,7 @@ export function SkillGallery({
                   style={{
                     flex: 1,
                     minWidth: 0,
-                    fontSize: 13.5,
+                    fontSize: 'var(--type-ui)',
                     fontWeight: 600,
                     color: 'var(--color-text)',
                     whiteSpace: 'nowrap',
@@ -142,7 +142,7 @@ export function SkillGallery({
               <p
                 style={{
                   margin: 0,
-                  fontSize: 12.5,
+                  fontSize: 'var(--type-row)',
                   lineHeight: 1.5,
                   color: skill.description ? 'var(--color-text-muted)' : 'var(--color-text-dim)',
                   display: '-webkit-box',

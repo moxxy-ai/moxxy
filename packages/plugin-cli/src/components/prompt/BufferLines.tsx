@@ -1,7 +1,9 @@
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
+import { Colors } from '../../theme.js';
 
 const GUTTER = 2; // "› " / "  " prefix column
+const COMPOSER_VERTICAL_PADDING = 1;
 
 /**
  * Word-wrap one logical line to `width`, returning each visual row with the
@@ -46,10 +48,15 @@ export const BufferLines: React.FC<{
    * `buffer`.
    */
   ghostSuffix?: string;
-}> = ({ buffer, cursor, disabled, placeholder, ghostSuffix }) => {
+  /** Full-width gray composer band with vertical breathing room. */
+  surface?: boolean;
+}> = ({ buffer, cursor, disabled, placeholder, ghostSuffix, surface = false }) => {
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 80;
-  const width = Math.max(8, cols - GUTTER);
+  // Leave the terminal's final cell unused: writing into the bottom-right
+  // cell causes some terminals to wrap the band and makes the composer jump.
+  const surfaceWidth = Math.max(8, cols - 1);
+  const width = Math.max(8, surfaceWidth - GUTTER);
 
   const empty = buffer.length === 0;
   const logicalLines = empty ? [''] : buffer.split('\n');
@@ -81,23 +88,33 @@ export const BufferLines: React.FC<{
   }
 
   const atBufferEnd = cursor === buffer.length;
+  const blankSurfaceRow = ' '.repeat(surfaceWidth);
 
   return (
-    <>
+    <Box flexDirection="column" width="100%">
+      {surface
+        ? Array.from({ length: COMPOSER_VERTICAL_PADDING }, (_, index) => (
+            <Text key={`top-${index}`} backgroundColor={Colors.chrome}>
+              {blankSurfaceRow}
+            </Text>
+          ))
+        : null}
       {rows.map((row, idx) => {
         const prefix = idx === 0 ? (disabled ? '… ' : '› ') : '  ';
-        const prefixColor = idx === 0 ? (disabled ? 'gray' : 'green') : undefined;
+        const prefixColor = idx === 0 ? (disabled ? 'gray' : 'white') : undefined;
         const onCursorRow = idx === cursorRow;
         const showPlaceholder = idx === 0 && empty && !!placeholder;
         const showGhost = onCursorRow && atBufferEnd && !!ghostSuffix;
+        const suffixLength = (showGhost ? ghostSuffix?.length ?? 0 : 0)
+          + (showPlaceholder ? placeholder?.length ?? 0 : 0);
+        const cursorCellExtra = onCursorRow && cursorCol >= row.text.length ? 1 : 0;
+        const rowLength = prefix.length + row.text.length + suffixLength + cursorCellExtra;
+        const fill = surface ? ' '.repeat(Math.max(0, surfaceWidth - rowLength)) : '';
 
         return (
-          <Box key={idx} flexDirection="row">
-            <Box flexShrink={0}>
+          <Box key={idx} flexDirection="row" width="100%">
+            <Text color="white" {...(surface ? { backgroundColor: Colors.chrome } : {})}>
               <Text color={prefixColor}>{prefix}</Text>
-            </Box>
-            <Box flexShrink={1}>
-              <Text>
                 {onCursorRow ? (
                   <>
                     {row.text.slice(0, cursorCol)}
@@ -109,12 +126,19 @@ export const BufferLines: React.FC<{
                 )}
                 {showGhost ? <Text dimColor>{ghostSuffix}</Text> : null}
                 {showPlaceholder ? <Text dimColor>{placeholder}</Text> : null}
-              </Text>
-            </Box>
+              {fill}
+            </Text>
           </Box>
         );
       })}
-    </>
+      {surface
+        ? Array.from({ length: COMPOSER_VERTICAL_PADDING }, (_, index) => (
+            <Text key={`bottom-${index}`} backgroundColor={Colors.chrome}>
+              {blankSurfaceRow}
+            </Text>
+          ))
+        : null}
+    </Box>
   );
 };
 

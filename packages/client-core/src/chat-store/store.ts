@@ -277,11 +277,11 @@ class ChatStore {
   // ---- async loading (cursor pagination) ---------------------------------
 
   /**
-   * Load the most-recent window of a workspace's history on first open from the
-   * RUNNER's authoritative log (`session.loadHistory`). Idempotent — guarded by
+   * Load the most-recent window of a workspace's authoritative session log. On
+   * desktop this can be served from validated disk JSONL before the runner
+   * connects; remote clients use the same IPC seam. Idempotent — guarded by
    * `loaded`. Loaded events are prepended (with id-dedup) so any turn that raced
-   * ahead of the load stays newest. With no connected runner the transcript is
-   * empty until the runner attaches and streams live events in.
+   * ahead of the load stays newest.
    */
   async loadInitial(workspaceId: string): Promise<void> {
     const slot = this.ensure(workspaceId);
@@ -298,11 +298,10 @@ class ChatStore {
     this.emit();
     const epoch = slot.resetEpoch;
     try {
-      // History comes SOLELY from the runner's authoritative log. A null/empty
-      // result (no connected runner for this workspace yet) just shows an empty
-      // transcript until the runner attaches and streams live events in. (For the
-      // mobile gateway the runner is the session's persisted log, surfaced via
-      // the same `chat.loadHistory` IPC.)
+      // The backend chooses the freshest safe source: the connected runner's
+      // live log or, during desktop startup, the same validated JSONL on disk.
+      // A null result remains retryable for older/remote hosts that cannot serve
+      // history until their runner attaches.
       const runner = await this.collectRunnerInitial(workspaceId);
       if (slot.resetEpoch !== epoch) return;
       if (runner) {
@@ -310,9 +309,8 @@ class ChatStore {
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
       } else {
-        // No connected runner yet (collectRunnerInitial → null). Allow a retry on
-        // the next open so the most-recent-window backfill isn't permanently
-        // skipped for a workspace whose runner attaches just after first open.
+        // The backend cannot serve this session yet. Allow a retry on the next
+        // open/connection edge so backfill is not permanently skipped.
         slot.loaded = false;
       }
     } catch {
@@ -332,9 +330,9 @@ class ChatStore {
   /**
    * Pull the newest runner window for {@link loadInitial}, walking past
    * all-non-rendered windows (bounded) so a window that holds no rendered rows
-   * YET doesn't read as "no history". Returns `null` when no runner is connected
-   * for the workspace; otherwise the accumulated rendered events (possibly EMPTY
-   * — a brand-new/empty runner log) and the cursor for the next older page.
+   * YET doesn't read as "no history". Returns `null` when the backend cannot read
+   * the workspace; otherwise the accumulated rendered events (possibly EMPTY —
+   * a brand-new log) and the cursor for the next older page.
    */
   private async collectRunnerInitial(
     workspaceId: string,
@@ -352,8 +350,7 @@ class ChatStore {
     return { events, prevCursor: cursor };
   }
 
-  /** Fetch the page preceding the in-memory window (scroll-up) from the runner's
-   *  authoritative log. */
+  /** Fetch the page preceding the in-memory window from the authoritative log. */
   async loadOlder(workspaceId: string): Promise<void> {
     const slot = this.slots.get(workspaceId);
     if (!slot || !slot.hasOlder || slot.loadingOlder || !this.persistence) return;
@@ -367,7 +364,7 @@ class ChatStore {
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
       }
-      // runner === null means the runner dropped mid-scroll; leave the
+      // A null page means the backend became unavailable mid-scroll; leave the
       // cursor/hasOlder untouched so a later scroll retries.
     } catch {
       /* leave hasOlder set so the user can retry by scrolling */
@@ -385,24 +382,38 @@ class ChatStore {
   }
 
   /** Best-effort recovery for thin clients that missed non-persisted lifecycle
-   *  pushes while backgrounded/reconnecting. Pull the latest runner window,
-   *  append any tail events we missed, and clear the active turn if the
-   *  authoritative log now shows that same turn reached a terminal row. */
-  async refreshLatest(workspaceId: string): Promise<void> {
+   * pushes while backgrounded/reconnecting. History remains authoritative for
+   * transcript rows; `liveTurnId` is authoritative for runtime liveness. */
+  async refreshLatest(workspaceId: string, liveTurnId: string | null): Promise<void> {
     const slot = this.ensure(workspaceId);
     if (!this.persistence) return;
-    const activeTurnId = slot.rt.activeTurnId;
+    const previousTurnId = slot.rt.activeTurnId;
     const epoch = slot.resetEpoch;
     const runner = await this.collectRunnerInitial(workspaceId);
     if (slot.resetEpoch !== epoch || !runner) return;
 
     let changed = this.appendFreshTail(slot, runner.events);
-    if (activeTurnId && terminalEventForTurn(runner.events, activeTurnId)) {
-      changed = applyAction(slot.rt, { type: 'turn_complete', turnId: activeTurnId, error: null }) || changed;
+    const previousTerminal = previousTurnId
+      ? terminalEventForTurn(runner.events, previousTurnId)
+      : null;
+    if (previousTurnId && previousTerminal) {
+      changed =
+        applyAction(slot.rt, {
+          type: 'turn_complete',
+          turnId: previousTurnId,
+          error: null,
+        }) || changed;
     }
-    const openTurnId = latestOpenTurnId(runner.events);
-    if (!slot.rt.activeTurnId && openTurnId) {
-      changed = applyAction(slot.rt, { type: 'send_started', turnId: openTurnId }) || changed;
+
+    const liveTerminal = liveTurnId ? terminalEventForTurn(runner.events, liveTurnId) : null;
+    const desiredTurnId = liveTerminal ? null : liveTurnId;
+    if (slot.rt.activeTurnId !== desiredTurnId) {
+      if (slot.rt.activeTurnId !== null) {
+        changed = applyAction(slot.rt, { type: 'turn_reconciled_idle' }) || changed;
+      }
+      if (desiredTurnId !== null) {
+        changed = applyAction(slot.rt, { type: 'send_started', turnId: desiredTurnId }) || changed;
+      }
     }
     if (!changed) return;
     if (this.activeId === workspaceId) slot.lastSeenRev = slot.rt.rev;
@@ -412,15 +423,15 @@ class ChatStore {
   }
 
   /**
-   * Page the RUNNER's authoritative log into a window of at least `minRendered`
+   * Page the authoritative session log into a window of at least `minRendered`
    * RENDERED events (newest-first), filtering each raw page with
    * {@link isRenderedEvent}. Walks `session.loadHistory`'s `seq` cursor until it
    * has enough rendered rows, reaches the start of history, or the runner stops
    * serving.
    *
-   * Returns `null` when the runner can't serve the FIRST page (no connected
-   * runner for the workspace). A `null` on a LATER page (the runner dropped
-   * mid-walk) just ends the window early with whatever rendered rows were
+   * Returns `null` when the backend can't serve the FIRST page. A `null` on a
+   * LATER page (the source became unavailable mid-walk) just ends the window
+   * early with whatever rendered rows were
    * gathered, keeping the `seq` cursor so the next scroll-up can resume.
    */
   private async loadRunnerWindow(
@@ -641,20 +652,6 @@ function terminalEventForTurn(events: ReadonlyArray<MoxxyEvent>, turnId: string)
     if (event.type === 'assistant_message') return event.stopReason === 'tool_use' ? null : event;
     if (event.type === 'abort') return event;
     if (event.type === 'error') return event.kind === 'fatal' ? event : null;
-  }
-  return null;
-}
-
-function latestOpenTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
-  const turnId = latestTurnId(events);
-  if (!turnId) return null;
-  return terminalEventForTurn(events, turnId) ? null : turnId;
-}
-
-function latestTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const turnId = events[index]?.turnId;
-    if (typeof turnId === 'string' && turnId.length > 0) return turnId;
   }
   return null;
 }

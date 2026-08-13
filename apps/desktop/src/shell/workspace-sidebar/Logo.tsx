@@ -1,7 +1,8 @@
-import { asset } from '@/lib/asset';
+import { MoxxyMark } from '@/components/MoxxyMark';
 /**
- * Sidebar masthead — the pixel-art MoxxyAI mark plus the "Workspaces"
- * wordmark stacked beside it. Sits flush at the top of the dark rail.
+ * Sidebar masthead: the mark plus a one-line MoxxyAI wordmark. Sits flush at
+ * the top of the dark rail, so the mark's ink strand picks up the rail's own
+ * text colour.
  */
 export function Logo(): JSX.Element {
   return (
@@ -13,34 +14,18 @@ export function Logo(): JSX.Element {
         padding: '18px 18px 14px',
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt="MoxxyAI Workspaces"
-        width={32}
-        height={32}
+      <MoxxyMark size={32} />
+      <span
         style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          imageRendering: 'pixelated',
-          flexShrink: 0,
+          fontFamily: 'var(--font-prose)',
+          fontSize: 'var(--type-ui)',
+          fontWeight: 700,
+          lineHeight: 1,
+          letterSpacing: '-0.04em',
         }}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em' }}>
-          MoxxyAI
-        </span>
-        <span
-          style={{
-            fontSize: 10.5,
-            color: 'var(--color-sidebar-text-dim)',
-            letterSpacing: '0.04em',
-            textTransform: 'uppercase',
-          }}
-        >
-          Workspaces
-        </span>
-      </div>
+      >
+        MoxxyAI
+      </span>
     </div>
   );
 }

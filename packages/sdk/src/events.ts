@@ -1,4 +1,5 @@
 import type { EventId, PluginId, SessionId, SkillId, ToolCallId, TurnId } from './ids.js';
+import type { Principal } from './principal.js';
 
 export type EventSource = 'user' | 'model' | 'tool' | 'plugin' | 'system' | 'compactor';
 
@@ -10,6 +11,23 @@ export interface EventBase {
   readonly turnId: TurnId;
   readonly causationId?: EventId;
   readonly source: EventSource;
+  /**
+   * Who the action was taken on behalf of. `source` is a CATEGORY (user, model,
+   * tool, …); this is the SUBJECT, and without it a transcript proves a machine
+   * did something rather than that a person did.
+   *
+   * Stamped on EVERY event, not only turn boundaries, and carrying the whole
+   * principal rather than a reference. That repeats ~55 bytes per event, which
+   * is small against an envelope that already carries three ULIDs, and it buys
+   * the property an audit sink needs: a single record is self-attributing, so
+   * shipping one line to a SIEM requires no fold and no join. This is the same
+   * trade CloudTrail and the Kubernetes audit log make.
+   *
+   * OPTIONAL because the log is append-only and persisted: sessions recorded
+   * before identity existed replay with no actor, and must keep replaying.
+   * Treat absent as "unattributed", never as an error.
+   */
+  readonly actor?: Principal;
 }
 
 export interface UserPromptAttachment {

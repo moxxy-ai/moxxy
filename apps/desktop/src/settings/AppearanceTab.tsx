@@ -12,7 +12,7 @@
 import { useThemePreference, setThemePreference } from '@/lib/useTheme';
 import type { ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { Section } from './settings-primitives';
-import { Segmented } from '../shell/ViewHeader';
+import { Segmented } from '../shell/Segmented';
 
 const THEME_OPTIONS: ReadonlyArray<{ id: ThemePreference; label: string }> = [
   { id: 'light', label: 'Light' },
@@ -36,10 +36,10 @@ export function AppearanceTab(): JSX.Element {
           padding: '13px 16px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 14,
+          borderRadius: 'var(--radius-card)',
         }}
       >
-        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Theme</div>
+        <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600 }}>Theme</div>
         <Segmented
           items={THEME_OPTIONS}
           value={theme}

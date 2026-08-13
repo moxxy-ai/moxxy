@@ -1,12 +1,8 @@
 /**
- * useChat integration test — the first open of a workspace usually races the
- * runner spawn: `chat.loadHistory` returns null (no attached runner yet) and
- * `loadInitial` leaves the slot retryable. Because the runner attaches with
- * `replay:'none'`, nothing pushes history in — so the hook MUST re-run the load
- * once the workspace's runner reaches `connected`. Without that the transcript
- * stays empty until the user re-opens the workspace ("first click empty, second
- * click loads"). Each test uses a unique workspace id so the module-level
- * chat/connection singletons stay isolated.
+ * useChat integration tests for cache-first history. A host that cannot serve a
+ * pre-runner page stays retryable on connect; a successful startup page is
+ * reconciled with the live runner tail after a disconnect/reconnect edge.
+ * Unique workspace ids keep the module-level stores isolated.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,16 +21,45 @@ function ws(): string {
   return `ws-usechat-${wsSeq}`;
 }
 
-function userPrompt(text: string): MoxxyEvent {
+function userPrompt(text: string, seq = 1, turnId = 'T1'): MoxxyEvent {
   return {
     id: `e-${text}`,
-    seq: 1,
+    seq,
     ts: 1,
-    turnId: 'T1',
+    turnId,
     sessionId: 'S',
     source: 'user',
     type: 'user_prompt',
     text,
+  } as unknown as MoxxyEvent;
+}
+
+function toolRequest(turnId: string, seq: number): MoxxyEvent {
+  return {
+    id: `e-tool-${turnId}`,
+    seq,
+    ts: seq,
+    turnId,
+    sessionId: 'S',
+    source: 'model',
+    type: 'tool_call_requested',
+    callId: `call-${turnId}`,
+    name: 'write_file',
+    input: { path: 'report.pdf' },
+  } as unknown as MoxxyEvent;
+}
+
+function assistantMessage(turnId: string, seq: number): MoxxyEvent {
+  return {
+    id: `e-answer-${turnId}`,
+    seq,
+    ts: seq,
+    turnId,
+    sessionId: 'S',
+    source: 'model',
+    type: 'assistant_message',
+    content: 'Done.',
+    stopReason: 'end_turn',
   } as unknown as MoxxyEvent;
 }
 
@@ -58,6 +83,90 @@ afterEach(() => {
 });
 
 describe('useChat history backfill on runner connect', () => {
+  it('restores an active turn when an already-connected surface missed its start push', async () => {
+    const id = ws();
+    const turnId = 'turn-started-before-focus-opened';
+    const history = [userPrompt('Create the PDF.', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      if (cmd === 'session.activeTurn') return { turnId };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(2);
+      expect(result.current.sending).toBe(true);
+      expect(result.current.activeTurnId).toBe(turnId);
+    });
+  });
+
+  it('does not restore a completed turn from an already-connected live history', async () => {
+    const id = ws();
+    const turnId = 'turn-completed-before-focus-opened';
+    const history = [userPrompt('Create the PDF.', 1, turnId), assistantMessage(turnId, 2)];
+    let loadCalls = 0;
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') {
+        loadCalls += 1;
+        return { events: history, prevCursor: null };
+      }
+      if (cmd === 'session.activeTurn') return { turnId: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(loadCalls).toBeGreaterThanOrEqual(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
+  it('does not infer a running turn from a disconnected stale disk page', async () => {
+    const id = ws();
+    const turnId = 'turn-left-open-before-crash';
+    const history = [userPrompt('Old unfinished task', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
+  it('does not restore an orphaned turn when the connected runner reports no active work', async () => {
+    const id = ws();
+    const turnId = 'turn-left-open-before-runner-restart';
+    const history = [userPrompt('Old unfinished task', 1, turnId), toolRequest(turnId, 2)];
+    const invoke = (async (cmd: string) => {
+      if (cmd === 'chat.loadHistory') return { events: history, prevCursor: null };
+      if (cmd === 'session.activeTurn') return { turnId: null };
+      return undefined;
+    }) as unknown as MoxxyApi['invoke'];
+    __setApiOverride({ invoke, subscribe: () => () => {} });
+    chatStore.setPersistence(createIpcPersistence());
+    connectionStore.setSnapshot(id, connectedSnapshot());
+
+    const { result } = renderHook(() => useChat(id));
+
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(result.current.sending).toBe(false);
+    expect(result.current.activeTurnId).toBeNull();
+  });
+
   it('re-loads history once the workspace runner reaches connected', async () => {
     const id = ws();
     // The runner is "not connected" until the test flips this — chat.loadHistory
@@ -70,6 +179,7 @@ describe('useChat history backfill on runner connect', () => {
         loadCalls += 1;
         return state.connected ? { events: [userPrompt('hello')], prevCursor: null } : null;
       }
+      if (cmd === 'session.activeTurn') return { turnId: null };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });
@@ -97,14 +207,16 @@ describe('useChat history backfill on runner connect', () => {
     expect(loadCalls).toBeGreaterThan(callsBeforeConnect);
   });
 
-  it('does not re-page once a load has already succeeded (idempotent on reconnect)', async () => {
+  it('reconciles a successful startup page with the live tail on reconnect', async () => {
     const id = ws();
     let loadCalls = 0;
+    let history = [userPrompt('hi')];
     const invoke = (async (cmd: string) => {
       if (cmd === 'chat.loadHistory') {
         loadCalls += 1;
-        return { events: [userPrompt('hi')], prevCursor: null };
+        return { events: history, prevCursor: null };
       }
+      if (cmd === 'session.activeTurn') return { turnId: null };
       return undefined;
     }) as unknown as MoxxyApi['invoke'];
     __setApiOverride({ invoke, subscribe: () => () => {} });
@@ -117,18 +229,23 @@ describe('useChat history backfill on runner connect', () => {
     await waitFor(() => expect(result.current.events).toHaveLength(1));
     const callsAfterLoad = loadCalls;
 
-    // A reconnect (connected → reconnecting → connected) must NOT re-page: the
-    // window is already loaded (slot.loaded guards re-entry).
+    // The startup snapshot can become stale while disconnected. Reconnecting
+    // must pull the live tail without duplicating the already-rendered prompt.
     act(() => {
       connectionStore.setSnapshot(id, {
         ...connectedSnapshot(),
         phase: { phase: 'reconnecting', reason: 'drop', attempt: 1 },
       });
     });
+    history = [...history, userPrompt('arrived while offline', 2)];
     act(() => {
       connectionStore.setSnapshot(id, connectedSnapshot());
     });
-    await waitFor(() => expect(result.current.events).toHaveLength(1));
-    expect(loadCalls).toBe(callsAfterLoad);
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+    expect(loadCalls).toBeGreaterThan(callsAfterLoad);
+    expect(result.current.events.map((event) => event.id)).toEqual([
+      'e-hi',
+      'e-arrived while offline',
+    ]);
   });
 });

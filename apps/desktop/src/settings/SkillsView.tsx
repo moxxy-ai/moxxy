@@ -90,7 +90,7 @@ export function SkillsView({
         <Button
           variant="chip"
           onClick={() => setActive(null)}
-          style={{ alignSelf: 'flex-start', borderRadius: 9 }}
+          style={{ alignSelf: 'flex-start', borderRadius: 'var(--radius-block)' }}
         >
           <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
           All skills

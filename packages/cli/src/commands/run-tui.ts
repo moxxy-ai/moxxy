@@ -148,7 +148,7 @@ import { cliVersion } from '../version.js';
 import { readCachedCheck, refreshCheck } from '../update/check.js';
 import { detectInstall } from '../update/detect-install.js';
 import { runInitCommand } from './init.js';
-import type { Session } from '@moxxy/core';
+import { readSessionIndex, type Session } from '@moxxy/core';
 
 /**
  * Cheap, non-blocking "is there a newer @moxxy/cli?" for the TUI banner.
@@ -213,6 +213,9 @@ async function applyTuiPreferences(argv: ParsedArgv): Promise<void> {
     }
     if (tui.hints === false && process.env.MOXXY_TUI_HINTS === undefined) {
       process.env.MOXXY_TUI_HINTS = '0';
+    }
+    if (tui.density && process.env.MOXXY_TUI_DENSITY === undefined) {
+      process.env.MOXXY_TUI_DENSITY = tui.density;
     }
     if (tui.keys && process.env.MOXXY_TUI_KEYS === undefined) {
       process.env.MOXXY_TUI_KEYS = JSON.stringify(tui.keys);
@@ -323,6 +326,13 @@ async function runSelfHostedTui(
   tuiOpts: RunTuiOpts,
   standalone: boolean,
 ): Promise<number> {
+  // A welcome is useful once, when it teaches the product contract. Repeating
+  // it on every fresh run turns the same screen into friction. Empty records
+  // do not count as prior use (older builds could leave them behind on probes).
+  const firstRun = await readSessionIndex()
+    .then((runs) => shouldShowFirstRunWelcome(runs, Boolean(tuiOpts.resumeSessionId)))
+    .catch(() => false);
+
   if (process.stdin.isTTY) {
     const { sources } = await loadConfig({
       cwd: process.cwd(),
@@ -592,6 +602,7 @@ async function runSelfHostedTui(
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(version ? { version } : {}),
       ...(updateNotice ? { updateAvailable: updateNotice } : {}),
+      firstRun,
       ...(tuiOpts.resumeSessionId ? { resumed: true } : {}),
     }),
   );
@@ -602,6 +613,13 @@ async function runSelfHostedTui(
     await shutdown('normal');
   }
   return 0;
+}
+
+export function shouldShowFirstRunWelcome(
+  runs: ReadonlyArray<{ readonly eventCount: number }>,
+  resumed: boolean,
+): boolean {
+  return !resumed && runs.every((run) => run.eventCount === 0);
 }
 
 function errMsg(err: unknown): string {

@@ -58,7 +58,7 @@ export function WorkspaceStep({
           padding: '16px 18px',
           background: 'var(--color-card-bg)',
           border: '1px solid var(--color-card-border)',
-          borderRadius: 12,
+          borderRadius: 'var(--radius-card)',
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
@@ -70,7 +70,7 @@ export function WorkspaceStep({
         </button>
         {folder && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               Name
             </span>
             <input

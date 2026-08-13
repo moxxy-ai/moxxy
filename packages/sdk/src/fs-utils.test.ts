@@ -1,8 +1,20 @@
-import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { moxxyHome, moxxyPath, writeFileAtomic, writeFileAtomicSync } from './fs-utils.js';
+import {
+  ensurePrivateDir,
+  ensurePrivateFile,
+  moxxyHome,
+  moxxyPath,
+  pruneStaleTempFiles,
+  writeBoundedDataCacheAtomic,
+  writeBoundedNetworkCacheAtomicSync,
+  writeFileAtomic,
+  writeFileAtomicSync,
+  writeSignedNetworkCacheAtomic,
+} from './fs-utils.js';
 
 describe('writeFileAtomic', () => {
   let dir: string;
@@ -38,6 +50,65 @@ describe('writeFileAtomic', () => {
     await writeFileAtomic(target, bytes);
     const read = await readFile(target);
     expect(Array.from(read)).toEqual([0, 1, 2, 255]);
+  });
+});
+
+describe('network cache writers', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'moxxy-net-cache-'));
+  });
+
+  it('writes a signed payload only after verifying it at the file boundary', async () => {
+    const pair = generateKeyPairSync('ed25519');
+    const payload = Buffer.from('{"version":1}');
+    const signature = sign(null, payload, pair.privateKey).toString('base64');
+    const target = join(dir, 'signed.json');
+    await writeSignedNetworkCacheAtomic(
+      target,
+      payload,
+      signature,
+      pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      { writtenAtMs: 123 },
+    );
+    expect(JSON.parse(await readFile(target, 'utf8'))).toEqual({
+      payloadB64: payload.toString('base64'),
+      signature,
+      writtenAtMs: 123,
+    });
+  });
+
+  it('refuses an invalid signed payload without creating a cache file', async () => {
+    const pair = generateKeyPairSync('ed25519');
+    const target = join(dir, 'invalid.json');
+    await expect(
+      writeSignedNetworkCacheAtomic(
+        target,
+        Buffer.from('payload'),
+        Buffer.alloc(64).toString('base64'),
+        pair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      ),
+    ).rejects.toThrow('invalid signature');
+    await expect(readFile(target)).rejects.toThrow();
+  });
+
+  it('bounds unsigned network metadata before writing it', async () => {
+    const target = join(dir, 'metadata.json');
+    expect(() => writeBoundedNetworkCacheAtomicSync(target, '12345', { maxBytes: 4 })).toThrow(
+      'exceeds 4 bytes',
+    );
+    writeBoundedNetworkCacheAtomicSync(target, '1234', { maxBytes: 4 });
+    expect(await readFile(target, 'utf8')).toBe('1234');
+  });
+
+  it('bounds asynchronous data-only cache content before writing it', async () => {
+    const target = join(dir, 'queue.json');
+    await expect(writeBoundedDataCacheAtomic(target, '12345', { maxBytes: 4 })).rejects.toThrow(
+      'exceeds 4 bytes',
+    );
+    await expect(readFile(target)).rejects.toThrow();
+    await writeBoundedDataCacheAtomic(target, '1234', { maxBytes: 4 });
+    expect(await readFile(target, 'utf8')).toBe('1234');
   });
 });
 
@@ -103,5 +174,93 @@ describe('moxxyHome / moxxyPath', () => {
   it('falls back to ~/.moxxy when unset', () => {
     delete process.env.MOXXY_HOME;
     expect(moxxyHome().endsWith('/.moxxy')).toBe(true);
+  });
+});
+
+// POSIX modes are meaningless on Windows (chmod only toggles the read-only
+// flag), where these helpers are deliberate no-ops. Assert the guarantee only
+// where the platform can actually provide it.
+describe.skipIf(process.platform === 'win32')('ensurePrivateDir / ensurePrivateFile', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'moxxy-priv-'));
+  });
+
+  it('creates a directory owner-only', async () => {
+    const target = join(dir, 'sessions');
+    await ensurePrivateDir(target);
+    expect((await stat(target)).mode & 0o777).toBe(0o700);
+  });
+
+  it('tightens a directory that already exists with group/other bits', async () => {
+    const target = join(dir, 'legacy');
+    await mkdir(target, { mode: 0o755 });
+    await chmod(target, 0o755); // defeat umask so the pre-state is really loose
+    await ensurePrivateDir(target);
+    expect((await stat(target)).mode & 0o777).toBe(0o700);
+  });
+
+  it('creates a missing file owner-only without truncating an existing one', async () => {
+    const target = join(dir, 'log.jsonl');
+    await ensurePrivateFile(target);
+    expect((await stat(target)).mode & 0o777).toBe(0o600);
+
+    await writeFile(target, 'line\n');
+    await ensurePrivateFile(target);
+    expect(await readFile(target, 'utf8')).toBe('line\n');
+  });
+
+  it('tightens a file that already exists world-readable', async () => {
+    const target = join(dir, 'legacy.jsonl');
+    await writeFile(target, 'secret transcript\n');
+    await chmod(target, 0o644);
+    await ensurePrivateFile(target);
+    expect((await stat(target)).mode & 0o777).toBe(0o600);
+    expect(await readFile(target, 'utf8')).toBe('secret transcript\n');
+  });
+
+  it('creates parent directories', async () => {
+    const target = join(dir, 'a', 'b', 'c');
+    await ensurePrivateDir(target);
+    expect((await stat(target)).isDirectory()).toBe(true);
+  });
+});
+
+describe('pruneStaleTempFiles', () => {
+  let dir: string;
+  const DAY = 24 * 60 * 60 * 1000;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'moxxy-prune-'));
+  });
+
+  const tmpName = (base: string): string =>
+    `${base}.4242.3f2504e0-4f89-11d3-9a0c-0305e82c3301.tmp`;
+
+  it('removes an abandoned temp file older than a day', async () => {
+    const stale = join(dir, tmpName('schedules.json'));
+    await writeFile(stale, '{}');
+    const removed = await pruneStaleTempFiles([dir], Date.now() + 2 * DAY);
+    expect(removed).toBe(1);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  // The guarantee that makes this safe to run while another moxxy process is
+  // mid-write: a live temp file is milliseconds old and can never be selected.
+  it('leaves a freshly-written temp file alone', async () => {
+    const live = join(dir, tmpName('vault.json'));
+    await writeFile(live, '{}');
+    expect(await pruneStaleTempFiles([dir])).toBe(0);
+    expect(await readdir(dir)).toEqual([tmpName('vault.json')]);
+  });
+
+  it('ignores files that merely end in .tmp', async () => {
+    await writeFile(join(dir, 'notes.tmp'), 'user data');
+    await writeFile(join(dir, 'draft.md.tmp'), 'user data');
+    expect(await pruneStaleTempFiles([dir], Date.now() + 2 * DAY)).toBe(0);
+    expect((await readdir(dir)).sort()).toEqual(['draft.md.tmp', 'notes.tmp']);
+  });
+
+  it('never throws on a missing directory', async () => {
+    await expect(pruneStaleTempFiles([join(dir, 'nope')])).resolves.toBe(0);
   });
 });

@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import {
   z,
-  assertDefined,
   defineTool,
   createMutex,
   type Mutex,
@@ -77,8 +76,6 @@ function templateModel(): UserModel {
 
 // ── parse / serialize (round-trips unknown sections) ─────────────────────────
 
-const HEADING_RE = /^##\s+(.+?)\s*$/;
-
 /**
  * Parse the user-model Markdown into a preamble + ordered H2 sections. Any
  * section title is preserved (not just the fixed four), so a user's hand-added
@@ -91,13 +88,11 @@ export function parseUserModel(text: string): UserModel {
   let seenHeading = false;
 
   for (const line of text.split('\n')) {
-    const m = HEADING_RE.exec(line);
-    if (m) {
+    const title = parseHeading(line);
+    if (title !== null) {
       seenHeading = true;
       if (current) sections.push({ title: current.title, content: current.body.join('\n').trim() });
-      const title = m[1];
-      assertDefined(title, 'HEADING_RE capture group 1 is present on any match');
-      current = { title: title.trim(), body: [] };
+      current = { title, body: [] };
     } else if (!seenHeading) {
       preambleLines.push(line);
     } else if (current) {
@@ -106,6 +101,14 @@ export function parseUserModel(text: string): UserModel {
   }
   if (current) sections.push({ title: current.title, content: current.body.join('\n').trim() });
   return { preamble: preambleLines.join('\n').trim(), sections };
+}
+
+function parseHeading(line: string): string | null {
+  if (!line.startsWith('##') || !/\s/u.test(line[2] ?? '')) return null;
+  let titleStart = 2;
+  while (titleStart < line.length && /\s/u.test(line[titleStart] ?? '')) titleStart += 1;
+  const title = line.slice(titleStart).trim();
+  return title.length > 0 ? title : null;
 }
 
 /** Serialize back to Markdown, preserving the preamble and every section. */
@@ -177,9 +180,9 @@ export class UserModelStore {
    * provider request.
    */
   async load(): Promise<UserModel | null> {
-    let mtimeMs: number;
+    let handle: import('node:fs/promises').FileHandle;
     try {
-      mtimeMs = (await fs.stat(this.path)).mtimeMs;
+      handle = await fs.open(this.path, 'r');
     } catch (err) {
       if (isEnoent(err)) {
         this.cached = null;
@@ -187,10 +190,15 @@ export class UserModelStore {
       }
       throw err;
     }
-    if (this.cached && this.cached.mtimeMs === mtimeMs) return this.cached.model;
-    const model = parseUserModel(await fs.readFile(this.path, 'utf8'));
-    this.cached = { mtimeMs, model };
-    return model;
+    try {
+      const mtimeMs = (await handle.stat()).mtimeMs;
+      if (this.cached && this.cached.mtimeMs === mtimeMs) return this.cached.model;
+      const model = parseUserModel(await handle.readFile({ encoding: 'utf8' }));
+      this.cached = { mtimeMs, model };
+      return model;
+    } finally {
+      await handle.close();
+    }
   }
 
   /** Raw file text (or `null` when absent) — used by the CLI viewer. */

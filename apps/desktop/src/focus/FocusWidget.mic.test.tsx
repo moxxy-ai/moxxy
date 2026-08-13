@@ -86,6 +86,30 @@ describe('FocusWidget microphone leak guard', () => {
     expect(screen.getByRole('button', { name: /click to expand/i })).toBeTruthy();
   });
 
+  it('swaps the microphone for a stop control once it is actually listening', async () => {
+    const probe: RecorderProbe = { stop: vi.fn(), starts: 0 };
+    installAudioCapture(probe);
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+
+    // The mic glyph's own path — specific enough that finding it means the
+    // microphone really is what is drawn, not merely some icon.
+    const MIC_GLYPH = 'path[d^="M5 11a7 7"]';
+    const idle = await screen.findByRole('button', { name: /^record voice$/i });
+    expect(idle.querySelector(MIC_GLYPH)).not.toBeNull();
+
+    fireEvent.click(idle);
+    await waitFor(() => expect(probe.starts).toBe(1));
+
+    // Listening. A microphone here says "press to start" a second time, which
+    // is the opposite of what a press now does.
+    const listening = await screen.findByRole('button', { name: /^stop recording$/i });
+    expect(listening.querySelector(MIC_GLYPH)).toBeNull();
+    expect(listening.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('does not call stop() on collapse when not recording', () => {
     const probe: RecorderProbe = { stop: vi.fn(), starts: 0 };
     installAudioCapture(probe);

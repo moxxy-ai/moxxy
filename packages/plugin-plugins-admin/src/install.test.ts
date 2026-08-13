@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -144,5 +152,145 @@ describe('installPluginPackage / removePluginPackage honor a pre-aborted signal'
       /aborted before start/,
     );
     expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('repairs stale desktop seed tarballs before npm starts', async () => {
+    const pluginsDir = userPluginsDir();
+    const installed = path.join(
+      pluginsDir,
+      'node_modules',
+      '@moxxy',
+      'plugin-provider-anthropic',
+    );
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(
+      path.join(installed, 'package.json'),
+      JSON.stringify({ name: '@moxxy/plugin-provider-anthropic', version: '0.31.0' }),
+    );
+    writeFileSync(
+      path.join(pluginsDir, 'package.json'),
+      JSON.stringify({
+        name: 'moxxy-user-plugins',
+        version: '0.0.0',
+        private: true,
+        dependencies: {
+          '@moxxy/plugin-provider-anthropic':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-provider-anthropic.tgz',
+          '@moxxy/plugin-missing':
+            'file:../../tmp/moxxy-seed-tars-deleted/plugin-missing.tgz',
+          '@example/custom': 'file:../custom-plugin',
+        },
+      }),
+    );
+
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', signal: AbortSignal.abort() }),
+    ).rejects.toThrow(/aborted before start/);
+
+    const manifest = JSON.parse(readFileSync(path.join(pluginsDir, 'package.json'), 'utf8'));
+    expect(manifest.dependencies).toEqual({
+      '@moxxy/plugin-provider-anthropic': '0.31.0',
+      '@example/custom': 'file:../custom-plugin',
+    });
+  });
+});
+
+// Installing a plugin must NOT execute that package's lifecycle scripts. Without
+// `--ignore-scripts`, a `postinstall` (in the package itself or in any
+// transitive dependency) runs with the user's full privileges before the
+// package's declared capabilities are ever read, outside the permission engine
+// and outside every isolator. Version pinning from the signed registry does not
+// close this: a signature over the index says nothing about what a tarball's
+// install script does.
+//
+// Real npm, installing from a local path so the test needs no network.
+describe('installPluginPackage does not execute lifecycle scripts', () => {
+  let home: string;
+  let fixture: string;
+  let prevHome: string | undefined;
+
+  beforeEach(() => {
+    home = mkdtempSync(path.join(os.tmpdir(), 'mox-noscripts-home-'));
+    fixture = mkdtempSync(path.join(os.tmpdir(), 'mox-noscripts-pkg-'));
+    prevHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = home;
+    writeFileSync(
+      path.join(fixture, 'package.json'),
+      JSON.stringify({
+        name: 'moxxy-hostile-fixture',
+        version: '1.0.0',
+        // Writes into its own installed directory, so the marker's presence is
+        // unambiguous evidence the hook ran.
+        scripts: {
+          postinstall: "node -e \"require('fs').writeFileSync('PWNED','1')\"",
+        },
+      }),
+    );
+    writeFileSync(path.join(fixture, 'index.js'), 'export default {};\n');
+  });
+
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(fixture, { recursive: true, force: true });
+  });
+
+  it('leaves a hostile postinstall unexecuted', async () => {
+    await installPluginPackage({ packageName: fixture });
+
+    const installed = path.join(userPluginsDir(), 'node_modules', 'moxxy-hostile-fixture');
+    // The package really did install (otherwise the assertion below is vacuous).
+    expect(existsSync(path.join(installed, 'package.json'))).toBe(true);
+    expect(existsSync(path.join(installed, 'PWNED'))).toBe(false);
+  }, 120_000);
+
+  // The escape hatch for native modules that must compile/fetch a binding at
+  // install time. Human-only: `moxxy plugins install --allow-scripts`.
+  it('runs lifecycle scripts when explicitly allowed', async () => {
+    await installPluginPackage({ packageName: fixture, allowScripts: true });
+
+    const installed = path.join(userPluginsDir(), 'node_modules', 'moxxy-hostile-fixture');
+    expect(existsSync(path.join(installed, 'PWNED'))).toBe(true);
+  }, 120_000);
+});
+
+// The policy must bite inside the install FUNCTION, not at the CLI surface:
+// `install_plugin` (the model tool) reaches this same path, and a restriction
+// the agent could route around by asking itself would not be a restriction.
+describe('installPluginPackage enforces the install policy', () => {
+  let home: string;
+  let prevHome: string | undefined;
+  beforeEach(() => {
+    home = mkdtempSync(path.join(os.tmpdir(), 'mox-policy-home-'));
+    prevHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = home;
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('refuses under `denied` without ever spawning npm', async () => {
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', policy: 'denied' }),
+    ).rejects.toThrow(/disabled on this machine/);
+    expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('refuses an unsigned spec under `registry-only`', async () => {
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', policy: 'registry-only', signed: false }),
+    ).rejects.toThrow(/not in the signed plugin registry/);
+    expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('leaves the default path unrestricted', async () => {
+    // No policy passed = `open`; the abort guard is what stops it here, which
+    // proves the policy check did not fire first.
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', signal: AbortSignal.abort() }),
+    ).rejects.toThrow(/aborted before start/);
   });
 });

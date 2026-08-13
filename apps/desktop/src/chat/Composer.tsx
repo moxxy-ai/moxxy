@@ -14,14 +14,13 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
-import { useAgentSession } from './agent-picker/useAgentSession';
+import { commandPalettePulse, focusComposerPulse } from '@/lib/chatPulses';
+import type { AgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
-import { ModelContextControl } from './composer/ModelContextControl';
 import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
 import { VoiceModeButton } from './composer/VoiceModeButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
-import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { sendBtn } from './composer/composer-styles';
@@ -38,12 +37,19 @@ import type { ImagePreviewItem } from './image-preview/types';
 const MAX_TEXTAREA_HEIGHT = 190;
 
 interface ComposerProps {
+  /** Session info + provider/model/mode mutations, owned by ChatSurface so the
+   *  instrument bar's telemetry and this composer share one fetch. */
+  readonly agent: AgentSession;
   readonly ready: boolean;
   readonly sending: boolean;
   /** Runner is compacting the context — lock the composer entirely. */
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
+  /** While a voice conversation is open the rail owns the microphone, so the
+   *  composer hides its one-shot dictation chip and the button that would
+   *  start a second conversation. Typing, attachments and Send stay. */
+  readonly voiceModeActive?: boolean;
   readonly onOpenVoiceCall: () => void;
   readonly onSend: (
     prompt: string,
@@ -54,28 +60,35 @@ interface ComposerProps {
 }
 
 /**
- * Composer rendered as a rounded white card flush against the chat
- * pane bottom.
+ * The command bar: a panel docked at the foot of the field, not a floating card.
  *
- *   Enter         submit
+ *   Enter         send — or QUEUE, while a turn is in flight
  *   Shift+Enter   newline
- *   ⌘↵ / Ctrl+↵   submit (kept for terminal muscle memory)
- *   Esc           clear draft
+ *   ⌘↵ / Ctrl+↵   send (kept for terminal muscle memory)
+ *   Esc           stand down an armed goal, else clear the draft
  *
- * Tooling chips: Attach (file picker → appends a file: reference to
- * the draft) and Voice (push-to-record with MediaRecorder, transcribed
- * via the runner's active transcriber — disabled if none is set).
+ * Its status strip reports what the NEXT turn will do (mode, model,
+ * auto-approve, queue depth); what the run HAS done is the instrument bar's job
+ * at the top of the field. Both used to be crammed in here, which is why neither
+ * was legible.
  *
- * Pasting an image (e.g. a screenshot) attaches it: the bytes are
- * persisted to a temp file by the main process and added as a regular
- * attachment chip. The textarea also auto-grows to fit the draft.
+ * The action row is icon-only apart from the states that must be readable
+ * without hovering ("Listening…", and the Send label, which says "Queue"
+ * mid-turn because that is what pressing it does). Attach and the mode/goal
+ * controls live in the "+" menu.
+ *
+ * Pasting an image (e.g. a screenshot) attaches it: the bytes are persisted to a
+ * temp file by the main process and added as a regular attachment chip. The
+ * textarea auto-grows to fit the draft.
  */
 export function Composer({
+  agent,
   ready,
   sending,
   compacting,
   activeTurnId,
   workspaceId,
+  voiceModeActive = false,
   onOpenVoiceCall,
   onSend,
   onAbort,
@@ -89,15 +102,37 @@ export function Composer({
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [goalOpen, setGoalOpen] = useState(false);
+  // Goal is a STATE of the command bar, not a modal. A dialog to type one line
+  // that then goes through the same send path was a second composer stacked on
+  // top of the first — same textarea, same Enter-to-submit, same draft, plus a
+  // backdrop and a focus trap. Arming it here reuses the draft you already typed.
+  const [goalArmed, setGoalArmed] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   // The "no transcriber" toast auto-clears after a delay; track the timer so
   // repeated voice clicks don't stack timers and so it can't fire setState
   // after the composer unmounts (workspace switch).
   const noTranscriberTimer = useRef<number | undefined>(undefined);
 
+  // Voice Mode takes the microphone for the whole conversation, so a one-shot
+  // dictation that happens to be running has to let go first — two capture
+  // leases on one device is how you get a recording that never resolves.
+  const cancelDictation = voice.cancel;
+  const dictating = voice.phase === 'recording' || voice.phase === 'transcribing';
+  useEffect(() => {
+    if (voiceModeActive && dictating) cancelDictation();
+  }, [voiceModeActive, dictating, cancelDictation]);
+
   /** Stable callback for the attachment hooks to refocus the textarea. */
   const focusInput = useCallback(() => taRef.current?.focus(), []);
+
+  // Shell-owned shortcuts (⌘K / ⌘L) landing on the state that owns them.
+  commandPalettePulse.use(() => setActionsOpen(true));
+  focusComposerPulse.use(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+  });
 
   // Attachment handling (rail file-insert, native picker, image paste) lives
   // in its own hook so the attach path is independently testable.
@@ -112,9 +147,12 @@ export function Composer({
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
   const setDraftEmpty = useCallback(() => setDraft(''), []);
-  const closeGoal = useCallback(() => setGoalOpen(false), []);
+  const closeGoal = useCallback(() => setGoalArmed(false), []);
 
   const inFlight = activeTurnId !== null || sending;
+  const info = agent.info;
+  // Model name only, matching the instrument bar's agent cell.
+  const modelLabel = agent.selectedModel ?? info?.activeProvider ?? null;
   // The user can type / submit even while a turn is running — the
   // send() call queues it; the drainer ships it the moment the
   // current turn completes. A compaction is the one exception: the
@@ -132,9 +170,6 @@ export function Composer({
   // knows an autonomous mode is driving the session.
   const modeBadge = useActiveModeBadge(workspaceId);
 
-  // Session info + provider/model/mode mutations. One fetch feeds both the Mode
-  // submenu in the "+" overflow and the model/context control on the right.
-  const agent = useAgentSession(workspaceId, !ready || inFlight);
 
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
@@ -216,13 +251,30 @@ export function Composer({
     // users aren't surprised.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      submit();
+      send();
       return;
     }
     if (e.key === 'Escape') {
       e.preventDefault();
-      setDraft('');
+      // Escape stands down the goal first; only a second press clears the draft,
+      // so arming by mistake never costs you what you had written.
+      if (goalArmed) setGoalArmed(false);
+      else setDraft('');
     }
+  };
+
+  /** The one send path. Armed for a goal it starts a goal run; otherwise it ships
+   *  the draft. Both consume the same draft, which is the point of arming rather
+   *  than opening a dialog. */
+  const send = (): void => {
+    if (goalArmed) {
+      const objective = draft.trim();
+      if (objective.length === 0) return;
+      setGoalArmed(false);
+      startGoal(objective);
+      return;
+    }
+    submit();
   };
 
   const onVoiceClick = useCallback(() => {
@@ -255,8 +307,21 @@ export function Composer({
   // ready (collaboration modes filtered out by the hook); it's locked while a
   // turn is in flight, matching the old chip.
   const overflowItems: OverflowMenuItem[] = [
+    // Attach leads: it is the thing reached for most often, and it used to sit
+    // outside as its own button in a row that already had too many.
+    { icon: 'attach', label: 'Attach file', onClick: () => void onAttach() },
     { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
-    { icon: 'agent', label: 'Goal', onClick: () => setGoalOpen(true) },
+    {
+      icon: 'agent',
+      label: goalArmed ? 'Stand down goal' : 'Set a goal',
+      active: goalArmed,
+      // A TOGGLE. Arming from a menu that cannot also disarm leaves the only way
+      // out as Escape in the textarea, which nothing on screen says.
+      onClick: () => {
+        setGoalArmed((armed) => !armed);
+        taRef.current?.focus();
+      },
+    },
     {
       icon: 'check',
       label: autoApprove ? 'Auto-approve ON' : 'Auto-approve',
@@ -283,30 +348,45 @@ export function Composer({
       data-testid="composer"
       onSubmit={(e) => {
         e.preventDefault();
-        submit();
+        send();
       }}
-      style={{
-        margin: '12px 18px 4px',
-        padding: '12px 14px',
-        background: 'var(--color-card-bg)',
-        border: '1px solid var(--color-card-border)',
-        borderRadius: 16,
-        boxShadow: 'var(--color-card-shadow)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-      }}
+      // A docked panel with a top seam, not a floating rounded card with a
+      // shadow. It is permanent chrome at the foot of the field, and in this
+      // language a flat surface does not cast a shadow — that is reserved for
+      // things that genuinely float above the panel (menus, modals).
+      className="cmdbar"
     >
       {modeBadge && <ModeBanner badge={modeBadge} />}
+      {/* The status strip: what the NEXT turn will do. The instrument bar above
+          reports what the run HAS done; these are the settings in force when you
+          press send, which is why they belong to the composer and the telemetry
+          does not. */}
+      <div className="cmdbar__strip">
+        {info?.activeMode && <span className="tag tag--cmd">{info.activeMode}</span>}
+        {modelLabel && <span className="tag">{modelLabel}</span>}
+        {autoApprove && (
+          <span className="tag tag--warn" data-testid="composer-auto-approve">
+            auto-approve on
+          </span>
+        )}
+        {goalArmed && (
+          <button
+            type="button"
+            className="tag tag--cmd"
+            data-testid="composer-goal-armed"
+            title="Stand down (Esc)"
+            onClick={() => setGoalArmed(false)}
+          >
+            goal <Icon name="x" size={10} />
+          </button>
+        )}
+        <span className="cmdbar__hint">
+          {queued.length > 0 && `${queued.length} queued · `}
+          {inFlight ? 'turn in flight' : 'ready'} · ⌘K commands
+        </span>
+      </div>
       {(attachments.length > 0 || queued.length > 0) && (
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 6,
-            paddingBottom: 4,
-          }}
-        >
+        <div className="cmdbar__pending">
           {attachments.map((a) => (
             <AttachmentChip
               key={a.path}
@@ -335,11 +415,11 @@ export function Composer({
             gap: 8,
             padding: '7px 10px',
             marginBottom: 6,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-primary-strong)',
             background: 'var(--color-primary-soft)',
-            borderRadius: 9,
+            borderRadius: 'var(--radius-block)',
           }}
         >
           <span
@@ -356,133 +436,112 @@ export function Composer({
           Compacting context — summarizing older turns to free up the window…
         </div>
       )}
-      <textarea
-        ref={taRef}
-        data-testid="composer-input"
-        aria-label="prompt"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        placeholder={
-          compacting
-            ? 'Compacting context…'
-            : attachments.length > 0
-              ? 'Ask about the attached file…'
-              : ready
-                ? 'Send a message to the agent…'
-                : 'Waiting for runner…'
-        }
-        disabled={!ready || compacting}
-        rows={1}
-        style={{
-          width: '100%',
-          resize: 'none',
-          maxHeight: MAX_TEXTAREA_HEIGHT,
-          overflowY: 'auto',
-          padding: '4px 6px 6px',
-          fontSize: 14.5,
-          lineHeight: 1.55,
-          color: 'var(--color-text)',
-          background: 'transparent',
-          border: 'none',
-          fontFamily: 'inherit',
-          outline: 'none',
-        }}
-      />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div className="cmdbar__in">
         <OverflowMenu
           highlighted={autoApprove || modeBadge != null}
           items={overflowItems}
         />
-        <ToolChip label="Attach file" onClick={() => void onAttach()}>
-          <Icon name="attach" size={16} />
-          <span>Attach</span>
-        </ToolChip>
-        <ToolChip
-          label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
-          onClick={onVoiceClick}
-          tone={
-            voice.phase === 'recording'
-              ? 'recording'
-              : voice.phase === 'transcribing'
-                ? 'busy'
-                : 'idle'
+        <textarea
+          ref={taRef}
+          data-testid="composer-input"
+          aria-label="prompt"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          placeholder={
+            compacting
+              ? 'Compacting context…'
+              : goalArmed
+                ? 'Set your goal — moxxy works until it is reached…'
+                : attachments.length > 0
+                  ? 'Ask about the attached file…'
+                  : ready
+                    ? 'Send a message to the agent…'
+                    : 'Waiting for runner…'
           }
-        >
-          <Icon name="mic" size={16} />
-          <span>
-            {voice.phase === 'recording'
-              ? 'Listening…'
-              : voice.phase === 'transcribing'
-                ? 'Transcribing…'
-                : 'Voice'}
-          </span>
-        </ToolChip>
-        <VoiceModeButton
-          disabled={!ready || compacting || inFlight}
-          onOpen={onOpenVoiceCall}
+          disabled={!ready || compacting}
+          rows={1}
+          className="cmdbar__ta"
+          style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
         />
-        <span style={{ flex: 1 }} />
-        {agent.info && (
-          <ModelContextControl
-            workspaceId={workspaceId}
-            info={agent.info}
-            selectedModel={agent.selectedModel}
-            disabled={!ready}
-            onPick={agent.onPickProviderModel}
-          />
-        )}
-        {inFlight ? (
-          <button
-            type="button"
-            className="btn-cta"
-            data-testid="composer-abort"
-            onClick={onAbort}
-            style={sendBtn('var(--color-red)', true)}
-            aria-label="Abort"
+        <div className="cmdbar__acts">
+          {!voiceModeActive && (
+          <ToolChip
+            label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
+            showLabel={voice.phase !== 'idle'}
+            onClick={onVoiceClick}
+            tone={
+              voice.phase === 'recording'
+                ? 'recording'
+                : voice.phase === 'transcribing'
+                  ? 'busy'
+                  : 'idle'
+            }
           >
-            <Icon name="stop" size={16} />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className="btn-cta"
-            data-testid="composer-send"
-            disabled={!canSubmit}
-            style={sendBtn('var(--color-send)', canSubmit)}
-            aria-label="Send"
-          >
-            <Icon name="send" size={16} />
-          </button>
-        )}
+            <Icon name="mic" size={15} />
+            {/* The word appears only while recording or transcribing: those are
+                states you must be able to read WITHOUT hovering. Idle voice is
+                just an icon. */}
+            {voice.phase !== 'idle' && (
+              <span>{voice.phase === 'recording' ? 'Listening…' : 'Transcribing…'}</span>
+            )}
+          </ToolChip>
+          )}
+          {!voiceModeActive && (
+            <VoiceModeButton
+              disabled={!ready || compacting || inFlight}
+              onOpen={onOpenVoiceCall}
+            />
+          )}
+          {inFlight ? (
+            <button
+              type="button"
+              className="btn-cta"
+              data-testid="composer-abort"
+              onClick={onAbort}
+              style={sendBtn('var(--color-red)', true, 'var(--color-on-primary)')}
+              aria-label="Abort"
+            >
+              <Icon name="stop" size={14} />
+              <span>Stop</span>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="btn-cta"
+              data-testid="composer-send"
+              disabled={!canSubmit}
+              style={sendBtn('var(--color-action)', canSubmit)}
+              aria-label={inFlight ? 'Queue' : 'Send'}
+            >
+              {/* Says what it will actually DO: mid-turn a submit queues behind the
+                  running turn rather than sending, and the button is the only place
+                  someone would look before pressing it. */}
+              <span>
+                {goalArmed ? 'Start goal' : queued.length > 0 || inFlight ? 'Queue' : 'Send'}
+              </span>
+              <Icon name="send" size={14} />
+            </button>
+          )}
+        </div>
       </div>
       {(voice.errorReason ?? noTranscriberMsg ?? attachError) && (
-        <p
-          role="status"
-          style={{
-            margin: 0,
-            textAlign: 'center',
-            fontSize: 11,
-            color: 'var(--color-red)',
-          }}
-        >
+        <p className="cmdbar__error" role="status">
           {voice.errorReason ?? noTranscriberMsg ?? attachError}
         </p>
       )}
+      <p className="cmdbar__keys">
+        {inFlight ? 'Enter queues behind the running turn' : 'Enter sends'} · Shift+Enter
+        newline · Esc clears · ⌘/ shortcuts
+      </p>
       {actionsOpen && (
         <CommandPalette
           workspaceId={workspaceId}
           onClose={() => setActionsOpen(false)}
         />
       )}
-      {goalOpen && (
-        <GoalModal
-          defaultObjective={draft}
-          onCancel={() => setGoalOpen(false)}
-          onStart={startGoal}
-        />
-      )}
+
     </form>
   );
 }

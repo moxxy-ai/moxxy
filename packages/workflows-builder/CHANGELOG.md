@@ -1,5 +1,88 @@
 # @moxxy/workflows-builder
 
+## 0.1.46
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+
+## 0.1.45
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+
+## 0.1.44
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+
+## 0.1.43
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+
+## 0.1.42
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+
+## 0.1.41
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+
+## 0.1.40
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+
+## 0.1.39
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+
+## 0.1.38
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+
+## 0.1.37
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+
+## 0.1.36
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+
 ## 0.1.35
 
 ### Patch Changes

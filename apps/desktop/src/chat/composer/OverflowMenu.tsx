@@ -90,10 +90,12 @@ export function OverflowMenu({
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '6px 9px',
+          minWidth: 'var(--frame-control)',
+          height: 'var(--frame-control)',
+          padding: 0,
           lineHeight: 1,
           border: `1px solid ${armed ? 'var(--color-primary)' : 'var(--color-card-border)'}`,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: armed ? 'var(--color-primary-soft)' : 'var(--color-surface)',
           color: armed ? 'var(--color-primary-strong)' : 'var(--color-text-muted)',
           cursor: disabled ? 'default' : 'pointer',
@@ -102,24 +104,8 @@ export function OverflowMenu({
         <Icon name="plus" size={16} />
       </button>
       {open && (
-        <div
-          role="menu"
-          style={{
-            position: 'absolute',
-            bottom: 'calc(100% + 6px)',
-            left: 0,
-            zIndex: 30,
-            minWidth: 196,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            padding: 4,
-            background: 'var(--color-card-bg)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
-            boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.4)',
-          }}
-        >
+        <div role="menu" className="menu menu--up">
+          <div className="menu__label">Turn</div>
           {items.map((item) =>
             item.submenu ? (
               <SubmenuRow
@@ -164,16 +150,16 @@ function MenuRow({
     <button
       type="button"
       role="menuitem"
-      className="btn-chip"
+      className="menu__row"
+      data-active={item.active ? 'true' : undefined}
       disabled={item.disabled}
       onClick={onClick}
-      style={rowStyle(item.active, item.disabled)}
     >
-      <Icon name={item.icon} size={15} />
-      <span>{item.label}</span>
+      <Icon name={item.icon} size={14} />
+      <span className="menu__text">{item.label}</span>
       {item.active && (
-        <span style={{ marginLeft: 'auto', display: 'inline-flex' }}>
-          <Icon name="check" size={14} />
+        <span className="menu__mark" aria-hidden>
+          <Icon name="check" size={13} />
         </span>
       )}
     </button>
@@ -199,51 +185,31 @@ function SubmenuRow({
       <button
         type="button"
         role="menuitem"
-        className="btn-chip"
+        className="menu__row"
+        data-active={item.active ? 'true' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={item.disabled}
         onClick={onToggle}
-        style={rowStyle(item.active, item.disabled)}
       >
-        <Icon name={item.icon} size={15} />
-        <span>{item.label}:</span>
-        <span style={{ fontWeight: 700, color: 'var(--color-text)' }}>
-          {submenu.value || '—'}
-        </span>
+        <Icon name={item.icon} size={14} />
+        <span className="menu__text">{item.label}</span>
+        {/* The current value reads as the row's right-hand column, the same shape
+            the telemetry cells use: label on the left, reading on the right. */}
+        <span className="menu__value">{submenu.value || '—'}</span>
         <span
           aria-hidden
+          className="menu__mark"
           style={{
-            marginLeft: 'auto',
-            display: 'inline-flex',
-            color: 'var(--color-text-dim)',
             transform: open ? 'rotate(90deg)' : undefined,
-            transition: 'transform 120ms ease',
+            transition: 'transform var(--motion-shift) ease',
           }}
         >
-          <Icon name="chevron-right" size={14} />
+          <Icon name="chevron-right" size={13} />
         </span>
       </button>
       {open && (
-        <div
-          role="menu"
-          aria-label={item.label}
-          style={{
-            position: 'absolute',
-            left: 'calc(100% + 6px)',
-            bottom: 0,
-            zIndex: 31,
-            minWidth: 168,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            padding: 4,
-            background: 'var(--color-card-bg)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 12,
-            boxShadow: '0 18px 40px -22px rgba(15, 23, 42, 0.4)',
-          }}
-        >
+        <div role="menu" aria-label={item.label} className="menu menu--side">
           {submenu.options.map((opt) => {
             const active = opt === submenu.value;
             return (
@@ -253,10 +219,15 @@ function SubmenuRow({
                 role="menuitemradio"
                 aria-checked={active}
                 onClick={() => onSelect(opt)}
-                style={rowStyle(active, false)}
+                className="menu__row"
+                data-active={active ? 'true' : undefined}
               >
-                <span style={{ flex: 1 }}>{opt}</span>
-                {active && <Icon name="check" size={14} />}
+                <span className="menu__text">{opt}</span>
+                {active && (
+                  <span className="menu__mark" aria-hidden>
+                    <Icon name="check" size={13} />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -266,23 +237,3 @@ function SubmenuRow({
   );
 }
 
-/** Shared row styling for menu + submenu options. */
-function rowStyle(active = false, disabled = false): React.CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 9,
-    width: '100%',
-    padding: '8px 10px',
-    fontSize: 12.5,
-    fontWeight: 600,
-    lineHeight: 1,
-    textAlign: 'left',
-    border: 'none',
-    borderRadius: 8,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.5 : 1,
-    background: active ? 'var(--color-primary-soft)' : 'transparent',
-    color: active ? 'var(--color-primary-strong)' : 'var(--color-text)',
-  };
-}

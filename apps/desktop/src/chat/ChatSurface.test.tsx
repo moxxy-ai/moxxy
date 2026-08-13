@@ -11,6 +11,7 @@ const voiceCallState = vi.hoisted(() => ({
   active: false,
   phase: 'idle' as const,
   activity: null,
+  activeOperations: [],
   errorReason: null as string | null,
   lastTranscript: null as string | null,
   inputAnalyser: null,
@@ -47,17 +48,10 @@ vi.mock('./Composer', () => ({
   ),
 }));
 
-vi.mock('../voice-call/VoiceCallSurface', () => ({
-  VoiceCallSurface: ({
-    onClose,
-    onEnterFocusMode,
-  }: {
-    readonly onClose: () => void;
-    readonly onEnterFocusMode: () => void;
-  }) => (
-    <div data-testid="voice-call-surface-mock">
-      <button type="button" onClick={onClose}>Back to chat</button>
-      <button type="button" onClick={onEnterFocusMode}>Focus mode</button>
+vi.mock('../voice-call/VoicePresenceRail', () => ({
+  VoicePresenceRail: ({ onClose }: { readonly onClose: () => void }) => (
+    <div data-testid="voice-rail-mock">
+      <button type="button" onClick={onClose}>End voice mode</button>
     </div>
   ),
 }));
@@ -109,8 +103,28 @@ vi.mock('@moxxy/client-core', () => ({
     rename: vi.fn(),
   }),
   useActiveAsk: () => null,
-  useVoiceCall: () => voiceCallState,
+  useVoiceCall: () => ({ ...voiceCallState }),
+  useQueuedTurns: () => [],
   deskForWorkspace: () => undefined,
+  // ChatSurface owns the session-info fetch now (one fetch shared by the
+  // instrument bar's telemetry and the composer's mode menu), so its hook's
+  // dependencies have to exist on the mock too.
+  useConnection: () => ({ snapshot: undefined, hasEverConnected: false, retry: vi.fn() }),
+  chatStore: {
+    subscribe: () => () => undefined,
+    getModel: () => null,
+    getAutoApprove: () => false,
+    setActive: vi.fn(),
+    dropFromQueue: vi.fn(),
+  },
+  useContextUsage: () => ({
+    contextTokens: null,
+    contextWindow: null,
+    fraction: null,
+    summary: { calls: 0, totalPrompt: 0, totalOutput: 0 },
+    perCall: [],
+    hasData: false,
+  }),
 }));
 
 const loadingPhase = {
@@ -124,6 +138,7 @@ describe('ChatSurface session readiness', () => {
     chatState.loading = false;
     chatState.events = [];
     voiceCallState.active = false;
+    voiceCallState.activeOperations = [];
     voiceCallState.open.mockClear();
     voiceCallState.close.mockClear();
     focusModeToggle.mockClear();
@@ -135,9 +150,6 @@ describe('ChatSurface session readiness', () => {
         phase={loadingPhase}
         workspaceId="fresh-session"
         sessionLoading
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -161,9 +173,6 @@ describe('ChatSurface session readiness', () => {
         }}
         workspaceId="fresh-session"
         sessionLoading={false}
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -184,9 +193,6 @@ describe('ChatSurface session readiness', () => {
         phase={loadingPhase}
         workspaceId="huge-session"
         sessionLoading
-        railPane={null}
-        onPickPane={vi.fn()}
-        onView={vi.fn()}
       />,
     );
 
@@ -197,7 +203,11 @@ describe('ChatSurface session readiness', () => {
     expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
   });
 
-  it('opens voice mode from the composer and replaces chat chrome until the call closes', () => {
+  it('keeps the whole chat surface mounted when a voice conversation starts', () => {
+    chatState.events = [
+      { type: 'user_prompt', text: 'Keep the complete formatted conversation' },
+      { type: 'assistant_message', content: 'Voice mode uses the shared transcript' },
+    ];
     const props = {
       phase: {
         phase: 'connected',
@@ -217,17 +227,29 @@ describe('ChatSurface session readiness', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Voice mode' }));
     expect(voiceCallState.open).toHaveBeenCalledOnce();
 
+    // The transcript node itself must SURVIVE the switch. Remounting it would
+    // throw away scroll position and re-parse the whole history, which is the
+    // whole reason the rail lives inside the surface instead of replacing it.
+    const transcriptBefore = screen.getByTestId('transcript-mock');
+    const composerBefore = screen.getByTestId('composer-mock');
+
     voiceCallState.active = true;
     view.rerender(<ChatSurface {...props} />);
 
-    expect(screen.getByTestId('voice-call-surface-mock')).toBeInTheDocument();
-    expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
+    expect(screen.getByTestId('composer-mock')).toBe(composerBefore);
+    expect(screen.getByTestId('transcript-mock')).toHaveTextContent('Voice mode uses the shared transcript');
+    const voiceRail = screen.getByTestId('voice-rail-mock');
+    expect(voiceRail).toBeInTheDocument();
+    expect(voiceRail.parentElement).toHaveClass('voice-rail-shell');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
-    expect(focusModeToggle).toHaveBeenCalledOnce();
-    expect(voiceCallState.close).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'End voice mode' }));
     expect(voiceCallState.close).toHaveBeenCalledOnce();
+
+    voiceCallState.active = false;
+    view.rerender(<ChatSurface {...props} />);
+    expect(screen.queryByTestId('voice-rail-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
   });
+
 });

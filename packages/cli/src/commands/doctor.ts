@@ -2,15 +2,20 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
-import type { MoxxyConfig } from '@moxxy/config';
+import { pendingExportCount } from '@moxxy/core';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
+import { formatPrincipal } from '@moxxy/sdk';
+import { hasProxy, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
 import { embedderSelection } from '../setup/resolve-plugins-tree.js';
+import type { ConfigSource } from '../setup/load-config.js';
+import { resolveEgressSettings } from '../setup/egress.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { colors } from '../colors.js';
@@ -66,7 +71,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
     return emit(checks, asJson);
   }
 
-  const { session, config, configSources, vault, memory, pluginRegistration, persistence } =
+  const { session, config, configSources, policySources, vault, memory, pluginRegistration, persistence, audit } =
     setupResult.value;
 
   try {
@@ -74,6 +79,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
       session,
       config,
       configSources,
+      policySources,
       vault,
       memory,
       pluginRegistration,
@@ -84,14 +90,15 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   } finally {
     // Drain persistence + fire onShutdown hooks / stop the boot daemons so the
     // process exits promptly. Best-effort — never masks the doctor exit code.
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
 interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
-  readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly configSources: ReadonlyArray<ConfigSource>;
+  readonly policySources: ReadonlyArray<PolicySourceRecord>;
   readonly vault: VaultStore;
   /** Undefined on a slim boot without the memory plugin installed. */
   readonly memory: MemoryStore | undefined;
@@ -102,7 +109,7 @@ interface DoctorChecksDeps {
 }
 
 async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
-  const { session, config, configSources, vault, memory, pluginRegistration, checks, checkKeys, asJson } =
+  const { session, config, configSources, policySources, vault, memory, pluginRegistration, checks, checkKeys, asJson } =
     deps;
 
   // Config
@@ -123,7 +130,20 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     return vault.sourceName;
   });
   if (vaultRes.ok) {
-    checks.push({ id: 'vault', status: 'ok', message: `unlocked via ${vaultRes.value}` });
+    // Name the posture, not just the mechanism. A generated key protects a key
+    // from leaking through config in git, a transcript, or a log, which is the
+    // threat this vault addresses; it does not protect against someone who can
+    // already read a 0600 file in this user's home. The OS keychain and a
+    // passphrase both raise that bar, so say so once rather than leaving the
+    // user to infer it from the word "file:".
+    const source = vaultRes.value;
+    const note =
+      source === 'generated' || source.startsWith('file:')
+        ? colors.dim(
+            ' (key stored beside the vault; an OS keychain or `vault.requirePassphrase: true` raises the bar)',
+          )
+        : '';
+    checks.push({ id: 'vault', status: 'ok', message: `unlocked via ${source}${note}` });
   } else {
     checks.push({
       id: 'vault',
@@ -139,7 +159,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     (name): name is string => typeof name === 'string' && name.length > 0,
   )));
   if (providerNames.length === 0) {
-    checks.push({ id: 'providers', status: 'warn', message: 'no provider configured — run moxxy init' });
+    checks.push({ id: 'providers', status: 'warn', message: 'no model connection — run moxxy to connect one' });
   }
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
@@ -202,7 +222,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     checks.push({
       id: 'memory',
       status: 'warn',
-      message: 'memory plugin not installed — long-term memory off (moxxy plugins install @moxxy/plugin-memory)',
+      message: 'memory extension not installed — long-term memory off (moxxy extensions install @moxxy/plugin-memory)',
     });
   } else {
     const memDir = path.join(os.homedir(), '.moxxy', 'memory');
@@ -244,11 +264,152 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     message: `provider=${eProvider}${embedder?.model ? ` model=${embedder.model}` : ''}`,
   });
 
+  // Identity. What every event in this session is attributed to, and how much
+  // that attribution is worth: `os` is only as strong as local account
+  // separation, which an operator reading an audit trail needs to know.
+  const actor = session.principal;
+  checks.push({
+    id: 'identity',
+    status: actor ? 'ok' : 'warn',
+    message: actor
+      ? `${formatPrincipal(actor)} (${actor.kind})`
+      : 'unattributed: events carry no actor',
+  });
+
+  // Network egress. The single most common "moxxy cannot reach the provider"
+  // cause on a corporate host is a proxy that Node's global fetch ignores, so
+  // say plainly whether one is in force and whether a custom CA was supplied.
+  checks.push(buildEgressDoctorCheck(config));
+  checks.push(buildPolicyDoctorCheck(config, policySources));
+  // Excludes this diagnostic's own session: booting one to run these checks
+  // appends a record, which would otherwise make "up to date" unreachable.
+  const exportCheck = await buildAuditExportDoctorCheck(config, (exporter, endpoint) =>
+    pendingExportCount(exporter, endpoint, undefined, String(session.id)),
+  );
+  if (exportCheck) checks.push(exportCheck);
+
   // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2
   // (core patching) additionally needs git/pnpm + pinned source provenance.
   checks.push(await buildSelfUpdateDoctorCheck(session));
 
   return emit(checks, asJson);
+}
+
+/**
+ * Report the effective outbound-network posture: which proxy (if any) global
+ * `fetch` is routed through, and whether a custom CA bundle was supplied.
+ *
+ * `NODE_EXTRA_CA_CERTS` cannot be configured from inside the process (Node
+ * reads it at startup), so this reports rather than fixes. A TLS-terminating
+ * corporate proxy without it produces `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, which
+ * is otherwise a very unrewarding error to diagnose.
+ */
+/**
+ * Report which signed policy bundles are in force.
+ *
+ * Warns rather than passes when a bundle is serving off its cache: the rules
+ * still apply, but this host is not demonstrably current, and "the policy
+ * loaded" and "the policy is up to date" are different claims an operator
+ * should not have to conflate.
+ */
+/**
+ * Report whether a configured audit export is actually draining.
+ *
+ * The failure this catches: an export is configured, the scheduled job that
+ * runs it silently stops (a broken cron, an expired token, a collector moved),
+ * and everything keeps looking healthy because the LOCAL trail is still being
+ * written. A compliance control that quietly stopped running is worse than one
+ * that was never configured, because someone is relying on it.
+ *
+ * Backlog is measured in records rather than time: a machine that was idle for
+ * a week is not behind, and flagging it would train operators to ignore this.
+ */
+export async function buildAuditExportDoctorCheck(
+  config: MoxxyConfig,
+  countPending: (exporter: string, endpoint: string) => Promise<number>,
+): Promise<Check | null> {
+  const settings = config.audit?.export;
+  if (!settings) return null;
+  if (!config.audit?.enabled) {
+    return {
+      id: 'audit-export',
+      status: 'warn',
+      message: 'export is configured but audit.enabled is false, so nothing is recorded to send',
+    };
+  }
+  let pending: number;
+  try {
+    pending = await countPending(settings.exporter, settings.endpoint);
+  } catch (err) {
+    return {
+      id: 'audit-export',
+      status: 'warn',
+      message: `cannot read the export checkpoint: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (pending === 0) {
+    return { id: 'audit-export', status: 'ok', message: `up to date with ${settings.endpoint}` };
+  }
+  return {
+    id: 'audit-export',
+    status: 'warn',
+    message:
+      `${pending} record(s) not yet sent to ${settings.endpoint}. ` +
+      'Run `moxxy security audit-export`, or check the job that should.',
+  };
+}
+
+export function buildPolicyDoctorCheck(
+  config: MoxxyConfig,
+  sources: ReadonlyArray<PolicySourceRecord>,
+): Check {
+  const configured = config.policy?.bundles?.length ?? 0;
+  if (configured === 0) {
+    const local =
+      (config.permissions?.allow?.length ?? 0) + (config.permissions?.deny?.length ?? 0);
+    return {
+      id: 'policy',
+      status: 'ok',
+      message: local > 0 ? `${local} managed rule(s) from config` : 'no managed rules',
+    };
+  }
+  const stale = sources.filter((s) => s.from === 'cache');
+  const names = sources.map((s) => `${s.id}@${s.revision}`).join(', ');
+  if (stale.length > 0) {
+    return {
+      id: 'policy',
+      status: 'warn',
+      message: `${names} (serving from cache: ${stale[0]?.staleReason ?? 'remote unavailable'})`,
+    };
+  }
+  return { id: 'policy', status: 'ok', message: names };
+}
+
+export function buildEgressDoctorCheck(config: MoxxyConfig): Check {
+  const settings = resolveEgressSettings(config);
+  const ca = process.env.NODE_EXTRA_CA_CERTS;
+  const caNote = ca ? `, extra CA=${ca}` : '';
+
+  if (!hasProxy(settings)) {
+    const forcedOff = config.network?.proxy === 'off';
+    return {
+      id: 'network',
+      status: 'ok',
+      message: `direct${forcedOff ? ' (network.proxy=off)' : ''}${caNote}`,
+    };
+  }
+  const via = [
+    settings.httpsProxy ? `https via ${redactProxyUrl(settings.httpsProxy)}` : null,
+    settings.httpProxy ? `http via ${redactProxyUrl(settings.httpProxy)}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const bypass = settings.noProxy ? `, bypass=${settings.noProxy}` : '';
+  // A TLS-intercepting proxy without a trusted CA is the classic silent
+  // failure, so nudge toward it rather than waiting for the handshake error.
+  const status: Status = ca ? 'ok' : 'warn';
+  const hint = ca ? '' : ' (set NODE_EXTRA_CA_CERTS if the proxy terminates TLS)';
+  return { id: 'network', status, message: `${via}${bypass}${caNote}${hint}` };
 }
 
 export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Check> {

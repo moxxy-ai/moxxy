@@ -17,6 +17,7 @@ export function resolveSleepMs(input: { seconds?: number; ms?: number }): number
 
 export const sleepTool = defineTool({
   name: 'Sleep',
+  icon: 'settings',
   description:
     'Pause for a set duration before continuing. Use it to wait for an external/async process ' +
     '(a build, a deploy, a server warming up) before re-checking, instead of busy-looping. ' +

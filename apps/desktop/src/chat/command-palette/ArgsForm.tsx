@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { assertDefined } from '@/lib/assert';
-import { Button, Icon, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Icon, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 import { humanize } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 
@@ -46,13 +46,13 @@ export function ArgsForm({
         }}
       >
         {command.description && (
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+          <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
             {command.description}
           </p>
         )}
         {steps.map((step, i) => (
           <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
               {step.label}
             </span>
             <TextInput
@@ -73,18 +73,11 @@ export function ArgsForm({
               style={step.secret ? { fontFamily: 'inherit' } : undefined}
             />
             {step.help && (
-              <span style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>{step.help}</span>
+              <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{step.help}</span>
             )}
           </label>
         ))}
-        <footer
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 8,
-            alignItems: 'center',
-          }}
-        >
+        <ModalFooter justify="between">
           <Button variant="ghost" onClick={onBack} disabled={running}>
             ← Back
           </Button>
@@ -102,7 +95,7 @@ export function ArgsForm({
               <Icon name="send" size={13} />
             </Button>
           </div>
-        </footer>
+        </ModalFooter>
       </div>
     </Modal>
   );

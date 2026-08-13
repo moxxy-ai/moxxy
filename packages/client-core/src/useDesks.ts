@@ -44,7 +44,7 @@ const INITIAL: DesksState = { desks: [], activeId: null, loading: true, error: n
  * Module-level desks store.
  *
  * `useDesks` used to hold its overview in component-local `useState`, so
- * each consumer (the left WorkspaceSidebar AND the right ContextRail)
+ * each consumer (the left WorkspaceSidebar AND the right workbench rail)
  * kept an INDEPENDENT copy of the list. Creating a workspace in the
  * sidebar refreshed only the sidebar's copy — the rail's list stayed
  * stale, couldn't find the freshly-created active desk, and so rendered

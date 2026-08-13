@@ -10,7 +10,9 @@ import { useSyncExternalStore } from 'react';
 const STORAGE_KEY = 'moxxy.rightRailWidth';
 export const RAIL_MIN_WIDTH = 280;
 export const RAIL_MAX_WIDTH = 860;
-export const RAIL_DEFAULT_WIDTH = 320;
+/** The design's bench width (`--frame-bench`). Stated here as a number because
+ *  this store clamps and persists it; the token is the same 372. */
+export const RAIL_DEFAULT_WIDTH = 372;
 
 function clamp(n: number): number {
   return Math.max(RAIL_MIN_WIDTH, Math.min(RAIL_MAX_WIDTH, Math.round(n)));

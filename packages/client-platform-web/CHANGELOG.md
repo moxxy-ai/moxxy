@@ -1,5 +1,105 @@
 # @moxxy/client-platform-web
 
+## 0.1.63
+
+### Patch Changes
+
+- 9efe2ea: Two fixes underneath Voice Mode, both found by profiling the running app rather than a harness.
+
+  **Markdown re-parsing.** Rendered Markdown re-parses in full on every render, and a streaming turn re-renders the transcript on every delta, so every visible message in the conversation was re-parsing on every delta. `MarkdownBody` is now memoised and the parse sits behind its own memo boundary, so an unchanged message costs nothing. The message that IS growing is re-parsed on an interval derived from how long its previous parse actually took, which holds parsing at about a fifth of the renderer whatever the answer's length or structure.
+
+  **Audio.** Piper streams a sentence at a time and each clip built and closed its own `AudioContext`, tearing the audio device down and reopening it between every sentence. One context is now kept warm for the session, released and rebuilt when the output device changes — detached rather than closed, so the sentence playing right now finishes on the device it started on. Closing the context per clip had also been what released the clip's `<audio>` element; that is now explicit on every finish path, so a long conversation no longer leaves a decoded sentence per element waiting on the collector.
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/client-core@0.13.24
+
+## 0.1.62
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/client-core@0.13.23
+
+## 0.1.61
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/client-core@0.13.22
+
+## 0.1.60
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+- @moxxy/client-core@0.13.21
+
+## 0.1.59
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/client-core@0.13.20
+
+## 0.1.58
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/client-core@0.13.19
+
+## 0.1.57
+
+### Patch Changes
+
+- @moxxy/client-core@0.13.18
+- @moxxy/sdk@0.35.3
+
+## 0.1.56
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/client-core@0.13.17
+
+## 0.1.55
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/client-core@0.13.16
+
+## 0.1.54
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/client-core@0.13.15
+
+## 0.1.53
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/client-core@0.13.14
+
 ## 0.1.52
 
 ### Patch Changes

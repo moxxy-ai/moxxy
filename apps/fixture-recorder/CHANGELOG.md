@@ -1,5 +1,144 @@
 # fixture-recorder
 
+## 0.0.63
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/core@0.37.2
+  - @moxxy/mode-default@0.37.2
+  - @moxxy/plugin-provider-anthropic@0.37.2
+  - @moxxy/testing@0.0.63
+  - @moxxy/tools-builtin@0.1.10
+
+## 0.0.62
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/core@0.37.1
+  - @moxxy/mode-default@0.37.1
+  - @moxxy/plugin-provider-anthropic@0.37.1
+  - @moxxy/testing@0.0.62
+  - @moxxy/tools-builtin@0.1.9
+
+## 0.0.61
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/core@0.37.0
+  - @moxxy/mode-default@0.37.0
+  - @moxxy/plugin-provider-anthropic@0.37.0
+  - @moxxy/testing@0.0.61
+  - @moxxy/tools-builtin@0.1.8
+
+## 0.0.60
+
+### Patch Changes
+
+- Updated dependencies [9d343c0]
+  - @moxxy/plugin-provider-anthropic@0.36.1
+  - @moxxy/sdk@0.36.1
+  - @moxxy/core@0.36.1
+  - @moxxy/mode-default@0.36.1
+  - @moxxy/testing@0.0.60
+  - @moxxy/tools-builtin@0.1.7
+
+## 0.0.59
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/core@0.36.0
+  - @moxxy/mode-default@0.36.0
+  - @moxxy/plugin-provider-anthropic@0.36.0
+  - @moxxy/testing@0.0.59
+  - @moxxy/tools-builtin@0.1.6
+
+## 0.0.58
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/core@0.35.4
+- @moxxy/plugin-provider-anthropic@0.35.4
+- @moxxy/mode-default@0.35.4
+- @moxxy/testing@0.0.58
+- @moxxy/tools-builtin@0.1.5
+
+## 0.0.57
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/core@0.35.3
+- @moxxy/plugin-provider-anthropic@0.35.3
+- @moxxy/mode-default@0.35.3
+- @moxxy/testing@0.0.57
+- @moxxy/tools-builtin@0.1.4
+
+## 0.0.56
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/core@0.35.2
+- @moxxy/plugin-provider-anthropic@0.35.2
+- @moxxy/mode-default@0.35.2
+- @moxxy/testing@0.0.56
+- @moxxy/tools-builtin@0.1.3
+
+## 0.0.55
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/core@0.35.1
+- @moxxy/plugin-provider-anthropic@0.35.1
+- @moxxy/mode-default@0.35.1
+- @moxxy/testing@0.0.55
+- @moxxy/tools-builtin@0.1.2
+
+## 0.0.54
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/plugin-provider-anthropic@0.35.0
+  - @moxxy/sdk@0.35.0
+  - @moxxy/core@0.35.0
+  - @moxxy/mode-default@0.35.0
+  - @moxxy/testing@0.0.54
+  - @moxxy/tools-builtin@0.1.1
+
+## 0.0.53
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/core@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/tools-builtin@0.1.0
+  - @moxxy/mode-default@0.34.0
+  - @moxxy/plugin-provider-anthropic@0.34.0
+  - @moxxy/testing@0.0.53
+
 ## 0.0.52
 
 ### Patch Changes

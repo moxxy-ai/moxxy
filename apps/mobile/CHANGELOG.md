@@ -1,5 +1,132 @@
 # @moxxy/workspaces-app
 
+## 0.4.18
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+- Updated dependencies [9757ae4]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/design-tokens@0.5.0
+  - @moxxy/chat-model@0.4.6
+  - @moxxy/client-core@0.13.24
+  - @moxxy/client-transport-ws@0.2.33
+
+## 0.4.17
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/chat-model@0.4.5
+  - @moxxy/client-core@0.13.23
+  - @moxxy/client-transport-ws@0.2.32
+
+## 0.4.16
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/chat-model@0.4.4
+  - @moxxy/client-core@0.13.22
+  - @moxxy/client-transport-ws@0.2.31
+
+## 0.4.15
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+- @moxxy/chat-model@0.4.3
+- @moxxy/client-core@0.13.21
+- @moxxy/client-transport-ws@0.2.30
+
+## 0.4.14
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/chat-model@0.4.2
+  - @moxxy/client-core@0.13.20
+  - @moxxy/client-transport-ws@0.2.29
+
+## 0.4.13
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/chat-model@0.4.1
+- @moxxy/client-core@0.13.19
+- @moxxy/client-transport-ws@0.2.28
+
+## 0.4.12
+
+### Patch Changes
+
+- Updated dependencies [c49ab14]
+  - @moxxy/design-tokens@0.4.0
+  - @moxxy/chat-model@0.4.0
+  - @moxxy/client-core@0.13.18
+  - @moxxy/sdk@0.35.3
+  - @moxxy/client-transport-ws@0.2.27
+
+## 0.4.11
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/chat-model@0.3.28
+- @moxxy/client-core@0.13.17
+- @moxxy/client-transport-ws@0.2.26
+
+## 0.4.10
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/chat-model@0.3.27
+- @moxxy/client-core@0.13.16
+- @moxxy/client-transport-ws@0.2.25
+
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies [5164d4b]
+  - @moxxy/design-tokens@0.3.0
+
+## 0.4.8
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/chat-model@0.3.26
+  - @moxxy/client-core@0.13.15
+  - @moxxy/client-transport-ws@0.2.24
+
+## 0.4.7
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/client-core@0.13.14
+  - @moxxy/chat-model@0.3.25
+  - @moxxy/client-transport-ws@0.2.23
+
 ## 0.4.6
 
 ### Patch Changes

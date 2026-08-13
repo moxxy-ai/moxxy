@@ -90,7 +90,14 @@ function parseScalar(v: string): unknown {
 }
 
 function stripQuotes(s: string): string {
-  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    try {
+      return JSON.parse(s) as string;
+    } catch {
+      return s.slice(1, -1);
+    }
+  }
+  if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
     return s.slice(1, -1);
   }
   return s;
@@ -145,7 +152,7 @@ export function renderFrontmatter(frontmatter: Record<string, unknown>): string 
 function renderValue(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'string') {
-    return needsQuoting(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
+    return needsQuoting(v) ? `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : v;
   }
   if (typeof v === 'boolean' || typeof v === 'number') return String(v);
   if (Array.isArray(v)) {

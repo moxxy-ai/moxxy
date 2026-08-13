@@ -1,5 +1,110 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.62
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/runner@0.2.49
+
+## 0.1.61
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/runner@0.2.48
+
+## 0.1.60
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/runner@0.2.47
+
+## 0.1.59
+
+### Patch Changes
+
+- @moxxy/runner@0.2.46
+- @moxxy/sdk@0.36.1
+- @moxxy/desktop-ipc-contract@0.14.17
+
+## 0.1.58
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/desktop-ipc-contract@0.14.16
+  - @moxxy/runner@0.2.45
+
+## 0.1.57
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/desktop-ipc-contract@0.14.15
+- @moxxy/runner@0.2.44
+
+## 0.1.56
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/desktop-ipc-contract@0.14.14
+- @moxxy/runner@0.2.43
+
+## 0.1.55
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/desktop-ipc-contract@0.14.13
+- @moxxy/runner@0.2.42
+
+## 0.1.54
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+- @moxxy/runner@0.2.41
+
+## 0.1.53
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/desktop-ipc-contract@0.14.11
+  - @moxxy/runner@0.2.40
+
+## 0.1.52
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/runner@0.2.39
+  - @moxxy/desktop-ipc-contract@0.14.10
+
 ## 0.1.51
 
 ### Patch Changes

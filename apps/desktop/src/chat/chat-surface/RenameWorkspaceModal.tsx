@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 import { toErrorMessage } from '@moxxy/client-core';
 
 export function RenameWorkspaceModal({
@@ -46,7 +46,7 @@ export function RenameWorkspaceModal({
         style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
       >
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+          <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Name
           </span>
           <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
@@ -54,7 +54,7 @@ export function RenameWorkspaceModal({
         <div
           className="mono"
           style={{
-            fontSize: 11.5,
+            fontSize: 'var(--type-meta)',
             color: 'var(--color-text-dim)',
             wordBreak: 'break-all',
           }}
@@ -62,11 +62,11 @@ export function RenameWorkspaceModal({
           {desk.cwd}
         </div>
         {error && (
-          <p role="alert" style={{ margin: 0, fontSize: 12, color: 'var(--color-red)' }}>
+          <p role="alert" style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
             {error}
           </p>
         )}
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -78,7 +78,7 @@ export function RenameWorkspaceModal({
           >
             {busy ? 'Renaming…' : 'Rename'}
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

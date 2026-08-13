@@ -16,7 +16,7 @@
  * one broken app never hides the others.
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { parseAppManifest, APP_ID_RE, type AppManifest } from '@moxxy/desktop-app-sdk';
@@ -71,16 +71,20 @@ export async function discoverApps(appsRoot: string): Promise<DiscoveryResult> {
 
     const manifestPath = path.join(dir, MANIFEST_FILE);
     let raw: string;
+    let handle: import('node:fs/promises').FileHandle | null = null;
     try {
-      const info = await stat(manifestPath);
+      handle = await open(manifestPath, 'r');
+      const info = await handle.stat();
       if (!info.isFile()) continue; // a plain asset dir, not an app
       if (info.size > MAX_MANIFEST_BYTES) {
         skipped.push({ name, reason: 'manifest too large' });
         continue;
       }
-      raw = await readFile(manifestPath, 'utf8');
+      raw = await handle.readFile({ encoding: 'utf8' });
     } catch {
       continue; // no manifest here
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
 
     const parsed = parseAppManifest(raw);

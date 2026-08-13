@@ -3,6 +3,7 @@ import { isFileDiffResult, type ToolCallBlockData } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { ActivityRow } from '../ActivityRow';
 import { iconForTool, statusOf, toolActivityLabel } from '../SkillGroupView';
+import { useToolIcon } from '../ToolIconContext';
 import { preStyle, pretty } from './block-shared';
 import { FileDiffBlock } from './FileDiffBlock';
 
@@ -12,6 +13,7 @@ export function ToolBlock({ name, input, outcome }: {
   readonly outcome: ToolCallBlockData['outcome'];
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const declared = useToolIcon(name);
   if (isFileDiffResult(outcome)) {
     const display = (outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) return <FileDiffBlock display={display} />;
@@ -22,7 +24,7 @@ export function ToolBlock({ name, input, outcome }: {
   return (
     <div className="activity-block" data-testid="block-tool" data-status={status}>
       <ActivityRow
-        icon={iconForTool(name)}
+        icon={iconForTool(name, declared)}
         label={toolActivityLabel({ name, input, outcome })}
         meta={status === 'error' ? 'failed' : undefined}
         active={status === 'running'}

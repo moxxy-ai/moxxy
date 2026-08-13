@@ -31,7 +31,12 @@ import type {
   ReasoningEffort,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
-import type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
+import type {
+  ActiveTurnSnapshot,
+  PromptAttachment,
+  RunTurnArgs,
+  RunTurnResult,
+} from './chat.js';
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
@@ -255,6 +260,9 @@ export interface IpcCommands {
   'session.runTurn': (
     args: RunTurnArgs & { workspaceId?: string },
   ) => Promise<RunTurnResult>;
+  /** Live foreground work owned by the current driver. Persisted history is
+   * intentionally excluded so a crashed turn cannot resurrect as running. */
+  'session.activeTurn': (args?: { workspaceId?: string }) => Promise<ActiveTurnSnapshot>;
   /** Abort the named turn. Best-effort. */
   'session.abortTurn': (args: {
     workspaceId?: string;
@@ -422,8 +430,8 @@ export interface IpcCommands {
     }>;
   }>;
   /** Read a workspace file for the "Open" file viewer. Same cwd-scoping +
-   *  symlink guard as `workspace.listDir`. Images come back inline
-   *  (`kind:'image'`); text/code as UTF-8 (`kind:'text'`, head-excerpt +
+   *  symlink guard as `workspace.listDir`. Images, PDFs, and browser-decodable
+   *  audio/video come back inline; text/code as UTF-8 (`kind:'text'`, head-excerpt +
    *  `truncated` past the cap). Binary-looking or very large files return
    *  `kind:'confirm'` (with `reason`) so the UI can ask before opening — pass
    *  `force: true` to then read it as text anyway. */
@@ -434,13 +442,13 @@ export interface IpcCommands {
     force?: boolean;
   }) => Promise<{
     readonly path: string;
-    readonly kind: 'text' | 'image' | 'pdf' | 'confirm';
+    readonly kind: 'text' | 'image' | 'pdf' | 'media' | 'confirm';
     readonly content: string;
     readonly truncated: boolean;
     /** Back-compat: true exactly when `kind === 'text'`. */
     readonly text: boolean;
     readonly byteLength: number;
-    /** Set when `kind:'image'` — `data:<mediaType>;base64,<base64>`. */
+    /** Set for image/PDF/media binary previews. */
     readonly mediaType?: string;
     readonly base64?: string;
     /** Set when `kind:'confirm'` — why the gate fired. */
@@ -520,14 +528,13 @@ export interface IpcCommands {
     downloadId: string;
   }) => Promise<void>;
 
-  // ---- Chat transcript history (read from the runner's authoritative log) ---
-  /** Page the workspace's history from the RUNNER's authoritative log
-   *  (`session.loadHistory`, protocol v10) — the sole chat-history source now
-   *  that the NDJSON mirror is retired. `before` is a `seq` cursor; the page is
-   *  RAW events (includes non-rendered events like `assistant_chunk`), so the
-   *  renderer filters with `isRenderedEvent` and pages until it has enough
-   *  rendered rows. Returns `null` when the runner can't serve it (no connected
-   *  runner for the workspace). */
+  // ---- Chat transcript history (read from the authoritative session log) ----
+  /** Page the workspace's sole authoritative log. A connected runner serves
+   *  its live log; during startup the desktop host reads the same validated
+   *  JSONL directly. `before` is a `seq` cursor; the page is RAW events
+   *  (including non-rendered events such as `assistant_chunk`), so the client
+   *  projects rendered rows. Returns `null` only for an unknown/unreadable
+   *  session. */
   'chat.loadHistory': (args: {
     workspaceId: string;
     before: number | null;

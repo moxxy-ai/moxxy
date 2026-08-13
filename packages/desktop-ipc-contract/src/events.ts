@@ -9,6 +9,7 @@ import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { NativeBrowserSnapshot } from './native-browser.js';
+import type { RunTurnVisibility } from './chat.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -70,6 +71,8 @@ export interface IpcEvents {
   'runner.turn.started': {
     workspaceId: string;
     turnId: string;
+    /** Omitted by legacy senders and therefore treated as foreground. */
+    visibility?: RunTurnVisibility;
   };
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow

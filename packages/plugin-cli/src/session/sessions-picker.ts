@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { SessionMeta } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { ListPickerOption } from '../components/ListPicker.js';
@@ -58,8 +59,8 @@ export function buildSessionPickerOptions(
   const options: ListPickerOption[] = [
     {
       id: NEW_SESSION_OPTION_ID,
-      label: '+ New session',
-      description: 'start a fresh conversation (the current one stays saved)',
+      label: '+ New run',
+      description: 'start fresh · the current run stays saved',
     },
   ];
   for (const m of metas) {
@@ -73,7 +74,7 @@ export function buildSessionPickerOptions(
       id: m.id,
       label: titleFor(m),
       description: describe(m, now),
-      ...(isActive ? { current: true, badge: 'active', badgeColor: 'green' as const } : {}),
+      ...(isActive ? { current: true, badge: 'current', badgeColor: 'green' as const } : {}),
     });
   }
   return options;
@@ -81,16 +82,15 @@ export function buildSessionPickerOptions(
 
 function titleFor(m: SessionMeta): string {
   const raw = m.title?.trim() || m.firstPrompt?.trim();
-  if (!raw) return '(empty session)';
+  if (!raw) return '(empty run)';
   const oneLine = raw.replace(/\s+/g, ' ');
   return oneLine.length > TITLE_MAX ? `${oneLine.slice(0, TITLE_MAX - 1)}…` : oneLine;
 }
 
 function describe(m: SessionMeta, now: number): string {
   const when = formatAgo(m.lastActivity, now);
-  const events = `${m.eventCount} ev`;
-  const provider = m.model ?? m.provider;
-  return provider ? `${when} · ${events} · ${provider}` : `${when} · ${events}`;
+  const workspace = path.basename(path.resolve(m.cwd)) || m.cwd;
+  return `${when} · ${workspace}`;
 }
 
 /** Compact "Ns/Nm/Nh/Nd ago" — mirrors the `moxxy sessions list` formatting. */

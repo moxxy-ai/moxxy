@@ -42,8 +42,8 @@ interface InteractiveZoneProps {
   /** Ctrl+<letter> hotkeys plumbed into the input editor (Ink's useInput
    *  can't see these once PromptInput holds stdin). */
   commandHotkeys: Record<string, () => void>;
-  /** Shift+Tab inside the input cycles the active mode. */
-  onCycleMode: () => void;
+  /** Cycle the active run mode from the prompt with Shift+Tab. */
+  onShiftTab: () => void;
   externalInsert?: ExternalInsert;
   onPermissionDecide: (perm: PendingPermission, decision: import('@moxxy/sdk').PermissionDecision) => void;
   onApprovalDecide: (decision: import('@moxxy/sdk').ApprovalDecision) => void;
@@ -79,7 +79,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   queueMessages,
   priorityMessage,
   commandHotkeys,
-  onCycleMode,
+  onShiftTab,
   externalInsert,
   onPermissionDecide,
   onApprovalDecide,
@@ -92,7 +92,8 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
     return (
       <PermissionDialog
         call={pendingPermission.call}
-        toolDescription={session.tools.get(pendingPermission.call.name)?.description}
+        ctx={pendingPermission.ctx}
+        workspace={session.cwd}
         queueDepth={pendingPermissionDepth}
         onDecide={(decision) => onPermissionDecide(pendingPermission, decision)}
       />
@@ -167,7 +168,7 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
         placeholder={buildPromptPlaceholder(busy, voiceReady)}
         onPasteText={onPasteText}
         commandHotkeys={commandHotkeys}
-        onShiftTab={onCycleMode}
+        onShiftTab={onShiftTab}
         externalInsert={externalInsert}
       />
     </Box>
@@ -175,6 +176,8 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
 };
 
 export function buildPromptPlaceholder(busy: boolean, voiceReady = true): string {
-  if (busy) return 'type to queue a message — sent after the current turn (ctrl+t to force-send first)';
-  return voiceReady ? 'type a prompt, / for commands, Ctrl+R voice' : 'type a prompt, / for commands';
+  if (busy) return 'add a follow-up — it will run after the current response';
+  return voiceReady
+    ? 'ask about this workspace…  / commands  ·  Ctrl+R voice'
+    : 'ask about this workspace…  / commands';
 }

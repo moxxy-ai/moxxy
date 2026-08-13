@@ -48,8 +48,8 @@ WantedBy=default.target
 
 function quote(s: string): string {
   // systemd ExecStart tokenizes unquoted args; quote only when needed.
-  if (!/[\s"]/.test(s)) return s;
-  return '"' + s.replace(/"/g, '\\"') + '"';
+  if (!/[\s"\\]/.test(s)) return s;
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
 /**

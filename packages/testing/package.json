@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/testing",
   "private": true,
-  "version": "0.0.52",
+  "version": "0.0.63",
   "description": "Test harness for moxxy: FakeProvider, record/replay fixtures.",
   "type": "module",
   "main": "./dist/index.js",
@@ -35,6 +35,6 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.6"
   }
 }

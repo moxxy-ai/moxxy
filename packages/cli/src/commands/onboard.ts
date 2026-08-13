@@ -4,6 +4,7 @@ import {
   INSTALLABLE_PLUGIN_CATALOG,
   installPluginPackagePinned,
   type PluginCatalogEntry,
+  setCategoryDefault,
 } from '@moxxy/plugin-plugins-admin';
 import { EXIT_AFTER_PAIR_FLAG } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
@@ -12,6 +13,8 @@ import { colors } from '../colors.js';
 import { probeSession } from '../setup.js';
 import { cliVersion } from '../version.js';
 import { runPluginSetupSteps } from '../wizard/plugin-setup-steps.js';
+import { partitionCategories, summariseBlocks } from '../wizard/blocks-step.js';
+import type { CategoryView } from '@moxxy/sdk';
 import { formatHelp } from './help-format.js';
 import { runInitCommand } from './init.js';
 import { runChannelSubcommand } from './run-channel.js';
@@ -23,14 +26,14 @@ import {
 } from './service/index.js';
 
 /**
- * `moxxy onboard` — the one guided path from a fresh install to a paired,
- * always-on agent:
+ * `moxxy onboard` — the personal golden path from a fresh install to a local
+ * agent. It connects one model account and then returns the user to their
+ * project. Channels, runtime blocks, and background services are progressive
+ * disclosure behind `--advanced` or an explicit `--channel`.
  *
  *   1. provider  — `moxxy init`'s wizard, skipped when one is configured
- *   2. channel   — pick a messenger from the install catalog
- *   3. install   — catalog install (version-pinned) + `moxxy.setup` fields
- *   4. pair      — the channel's own pair flow, in pair-then-return mode
- *   5. service   — a `moxxy serve --all` launchd/systemd unit (opt-out)
+ * Advanced setup continues with channel install, pairing, runtime choices,
+ * and an optional background service.
  *
  * Every step delegates to the machinery that owns it (init wizard, plugin
  * setup steps, channel subcommands, service installer) — onboard only
@@ -91,13 +94,14 @@ export function buildChannelChoices(installed: ReadonlySet<string>): OnboardChan
 
 const HELP = formatHelp({
   title: 'moxxy onboard',
-  tagline: 'guided setup: provider → messaging channel → pairing → background service',
+  tagline: 'connect a model account and start working in this project',
   sections: [
     {
       title: 'FLAGS',
       rows: [
+        ['--advanced', 'also configure channels, runtime defaults, and a background service'],
         ['--channel <name>', 'skip the pick: onboard this channel (discord|telegram|whatsapp|signal|slack)'],
-        ['--no-service', 'skip the background-service step'],
+        ['--no-service', 'advanced setup: skip the background-service step'],
         ['--reinit', 'run the provider wizard even when a provider is already configured'],
       ],
     },
@@ -105,7 +109,8 @@ const HELP = formatHelp({
       title: 'NOTES',
       rows: [
         ['Interactive', 'onboard needs a TTY. For scripted setup use `moxxy provision`; for env-key bootstrap use headless `moxxy init`.'],
-        ['Service', 'installs a `moxxy serve --all` launchd/systemd unit — every channel + scheduler + webhooks in one background process.'],
+        ['Default', 'provider + authentication only; moxxy chooses recommended runtime defaults.'],
+        ['Advanced', 'can install a channel and a `moxxy serve --all` launchd/systemd service.'],
         ['Re-run', 'onboard is idempotent: configured steps are skipped or re-offered with their current values.'],
       ],
     },
@@ -127,6 +132,8 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     );
     return 1;
   }
+  const advanced = hasBoolFlag(argv, 'advanced');
+  const preset = stringFlag(argv, 'channel')?.toLowerCase();
 
   // ── Step 1: provider ────────────────────────────────────────────────────
   // `moxxy init` owns this flow (vault passphrase, wizard, plugin setup
@@ -140,7 +147,15 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
   intro(colors.bold('moxxy onboard'));
   const activeProvider = provider ?? (await loadActiveProvider());
   if (provider) {
-    log.info(`Provider already configured: ${colors.bold(provider)} ${colors.dim('(--reinit to change)')}`);
+    log.info(`Model connection ready: ${colors.bold(provider)} ${colors.dim('(--reinit to change)')}`);
+  }
+
+  if (!advanced && !preset) {
+    outro(
+      `${colors.bold('✓')} Ready. Run ${colors.bold('moxxy')} in this project. ` +
+        colors.dim('Add channels later with `moxxy onboard --advanced`.'),
+    );
+    return 0;
   }
 
   // ── Step 2: pick a channel ──────────────────────────────────────────────
@@ -155,7 +170,6 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
   );
   const choices = buildChannelChoices(installedChannels);
 
-  const preset = stringFlag(argv, 'channel')?.toLowerCase();
   let picked: OnboardChannelChoice | null = null;
   if (preset) {
     picked = choices.find((c) => c.value === preset) ?? null;
@@ -186,7 +200,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     // Terminal-only: nothing to install or keep alive; the TUI self-hosts.
     outro(
       `You're set. ${colors.bold('moxxy')} starts the TUI` +
-        (activeProvider ? colors.dim(` (provider: ${activeProvider})`) : '') +
+        (activeProvider ? colors.dim(` (${activeProvider} connected)`) : '') +
         '.',
     );
     return 0;
@@ -207,7 +221,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
       s.stop('Install failed.');
       log.error(err instanceof Error ? err.message : String(err));
       process.stderr.write(
-        colors.dim(`  Retry with: moxxy plugins install ${picked.entry.id}\n`),
+        colors.dim(`  Retry with: moxxy extensions install ${picked.entry.id}\n`),
       );
       return 1;
     }
@@ -230,7 +244,7 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
       const def = session.channels.get(channelName);
       if (!def) {
         log.error(
-          `channel "${channelName}" did not register after install — check \`moxxy plugins list\`.`,
+          `channel "${channelName}" did not register after install — check \`moxxy extensions list\`.`,
         );
         return 'missing';
       }
@@ -275,10 +289,14 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     );
   }
 
-  // ── Step 5: background service ──────────────────────────────────────────
+  // Runtime block selection is author/operator territory, not part of the
+  // explicit-channel shortcut.
+  if (advanced) await runBlocksStep();
+
+  // ── Step 6: background service ──────────────────────────────────────────
   const spec = serveSpec(new Set(), true);
   let serviceState: 'installed' | 'skipped' | 'unsupported' | 'failed' = 'skipped';
-  if (!hasBoolFlag(argv, 'no-service')) {
+  if (advanced && !hasBoolFlag(argv, 'no-service')) {
     if (servicePlatform() === 'unsupported') {
       serviceState = 'unsupported';
       note(
@@ -334,9 +352,73 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
   note(lines.join('\n'), 'your agent');
 
   outro(
-    pairOutcome === 'paired' && serviceState === 'installed'
-      ? `Message your agent now — it answers on ${colors.bold(channelName)}. The terminal works too: ${colors.bold('moxxy')}.`
-      : `Almost there — finish the steps above, then message your agent on ${colors.bold(channelName)}.`,
+    pairOutcome === 'paired'
+      ? `Message your agent now on ${colors.bold(channelName)}. The terminal works too: ${colors.bold('moxxy')}.`
+      : `Finish pairing when ready. You can start locally now with ${colors.bold('moxxy')}.`,
   );
   return 0;
+}
+
+/**
+ * Show what the swappable blocks currently resolve to, and offer a swap ONLY
+ * where there is genuinely an alternative.
+ *
+ * On a fresh install most categories hold exactly one registration (the
+ * protected floor). Asking "which compactor?" when there is one compactor
+ * wastes the user's attention and teaches them the wizard asks pointless
+ * questions, so those are summarised, not prompted.
+ *
+ * Best-effort: a probe failure here must not fail onboarding, since nothing in
+ * this step is required to have a working agent.
+ */
+async function runBlocksStep(): Promise<void> {
+  let views: ReadonlyArray<CategoryView>;
+  try {
+    views = await probeSession(
+      {
+        cwd: process.cwd(),
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      },
+      (r) => r.session.pluginsAdmin?.categories() ?? [],
+    );
+  } catch {
+    return;
+  }
+
+  const summary = summariseBlocks(views);
+  if (!summary) return;
+  note(
+    `${summary}\n\n${colors.dim('Every one of these is swappable. `moxxy plugins defaults` lists them,')}\n` +
+      `${colors.dim('`moxxy plugins set-default <category> <name>` changes one.')}`,
+    'building blocks',
+  );
+
+  const { swappable } = partitionCategories(views);
+  if (swappable.length === 0) return;
+
+  const wantSwap = await confirm({
+    message: `Change any of the ${swappable.length} block(s) that have alternatives?`,
+    initialValue: false,
+  });
+  if (isCancel(wantSwap) || !wantSwap) return;
+
+  for (const entry of swappable) {
+    const picked = await select({
+      message: `${entry.category}`,
+      options: entry.options.map((name) => ({
+        value: name,
+        label: name === entry.active ? `${name} (current)` : name,
+      })),
+      initialValue: entry.active ?? entry.options[0],
+    });
+    if (isCancel(picked) || picked === entry.active) continue;
+    try {
+      await setCategoryDefault(entry.category, String(picked));
+      log.success(`${entry.category} → ${String(picked)}`);
+    } catch (err) {
+      log.warn(`${entry.category}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }

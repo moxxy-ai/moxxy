@@ -53,6 +53,8 @@ export interface PromptInputProps {
    */
   readonly onInterrupt?: () => void;
   readonly externalInsert?: ExternalInsert;
+  /** Render the everyday composer as a padded, full-width transcript band. */
+  readonly surface?: boolean;
 }
 
 /**
@@ -93,6 +95,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onShiftTab,
   onInterrupt,
   externalInsert,
+  surface = false,
 }) => {
   const [state, dispatch] = useReducer(reducer, INITIAL);
   const [slashCursor, setSlashCursor] = React.useState(0);
@@ -290,6 +293,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         disabled={!!disabled}
         placeholder={placeholder}
         ghostSuffix={ghostSuffix}
+        surface={surface}
       />
     </Box>
   );

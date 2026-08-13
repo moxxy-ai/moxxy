@@ -9,6 +9,7 @@ import type { PermissionRule } from './permission.js';
 import type { Plugin, PluginSpec } from './plugin.js';
 import type { ProviderDef } from './provider.js';
 import type { SkillDef, SkillFrontmatter } from './skill.js';
+import type { ToolIcon } from './tool-icon.js';
 import type {
   HostedTool,
   ToolCompactPresentation,
@@ -58,6 +59,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     output: O,
   ) => ToolResultContextPolicy | undefined;
   compact?: ToolCompactPresentation;
+  icon?: ToolIcon;
   isolation?: ToolIsolationSpec;
 }): ToolDef {
   return Object.freeze({
@@ -72,6 +74,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     handler: spec.handler as (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown,
     contextPolicy: spec.contextPolicy as ToolDef['contextPolicy'],
     compact: spec.compact,
+    icon: spec.icon,
     isolation: spec.isolation,
   });
 }

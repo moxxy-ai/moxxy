@@ -63,24 +63,24 @@ export interface AnthropicProviderConfig {
   readonly oauthRefresh?: () => Promise<{ readonly token: string; readonly expiresAt?: number }>;
 }
 
-// Hardcoded model catalog (re-exported to @moxxy/plugin-provider-claude-code, which
-// reuses this provider class for the subscription path). Deriving it from the Models
-// API is a larger change (auth + caching) — deliberately deferred (TECH_DEBT P3 #8).
-// Values verified against the current Anthropic model catalog (2026-06): fable-5,
-// opus-4-8, opus-4-7 and opus-4-6 carry a 1M context window with a 128k streaming
-// ceiling; sonnet-4-6 is 1M/64k; haiku-4-5 is 200k/64k. fable-5 is Anthropic's most
-// capable model (always-on reasoning); the loop never sets `temperature`, which
-// fable-5/opus-4-8/4.7 reject — so they stream cleanly here, same as opus-4-7 already did.
+// Hardcoded model catalog. Deriving it from the Models API is a larger change
+// (auth + caching), so the built-in catalog remains explicit.
+// Values verified against the current Anthropic model catalog (2026-07): fable-5,
+// opus-5 and sonnet-5 carry a 1M context window with a 128k streaming ceiling;
+// haiku-4-5 is 200k/64k and is listed under its alias, matching the Claude Code
+// catalog. The previous generation (opus-4-7/4-6, sonnet-4-6) is still served by
+// the API but no longer offered here, so the picker matches what Anthropic
+// currently recommends; a config can still pin any id the API accepts.
+// fable-5 is Anthropic's most capable model (always-on reasoning); the loop never
+// sets `temperature`, which fable-5/opus-5/sonnet-5 reject, so they stream cleanly.
 // `supportsReasoning` marks models that accept adaptive thinking (`thinking:
-// {type:'adaptive', display:'summarized'}`) — fable-5/opus-4-8/4-7/4-6 and sonnet-4-6
-// do; haiku-4-5 does not (effort/adaptive-thinking error there), so it stays off.
+// {type:'adaptive', display:'summarized'}`) — fable-5, opus-5 and sonnet-5 do;
+// haiku-4-5 does not (effort/adaptive-thinking error there), so it stays off.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
   { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, hostedTools: ['web_search'] },
+  { id: 'claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-sonnet-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-haiku-4-5', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, hostedTools: ['web_search'] },
 ];
 
 export class AnthropicProvider implements LLMProvider {
@@ -108,7 +108,7 @@ export class AnthropicProvider implements LLMProvider {
   constructor(config: AnthropicProviderConfig = {}) {
     this.name = config.name ?? 'anthropic';
     this.models = config.models ?? anthropicModels;
-    this.defaultModel = config.defaultModel ?? 'claude-sonnet-4-6';
+    this.defaultModel = config.defaultModel ?? 'claude-sonnet-5';
     if (config.baseURL) this.baseURL = config.baseURL;
 
     if (config.oauthToken) {

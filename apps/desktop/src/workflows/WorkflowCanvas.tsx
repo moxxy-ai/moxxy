@@ -9,12 +9,12 @@ import {
   type StepKind,
 } from '@moxxy/workflows-builder';
 import { accentHex } from './accents';
+import { isEditableTarget } from '../hotkeys';
 import {
   ANCHOR_OFFSET,
   NODE_H,
   NODE_W,
   disconnectEdge,
-  isEditableTarget,
   preview,
   type PortKind,
   // Re-exported below so `./WorkflowCanvas` keeps its existing public surface
@@ -411,7 +411,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             display: 'grid',
             placeItems: 'center',
             color: 'var(--color-text-dim)',
-            fontSize: '0.9rem',
+            fontSize: 'var(--type-row)',
             pointerEvents: 'none',
           }}
         >
@@ -433,7 +433,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             padding: '0.4rem 0.7rem',
             background: 'var(--color-red)',
             color: 'var(--color-bg)',
-            fontSize: '0.76rem',
+            fontSize: 'var(--type-meta)',
             fontWeight: 600,
             borderRadius: 'var(--radius-block)',
             boxShadow: 'var(--color-card-shadow)',
@@ -480,7 +480,7 @@ function ZoomControls({
         alignItems: 'center',
         gap: 2,
         padding: 3,
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         boxShadow: 'var(--color-card-shadow)',
@@ -503,7 +503,7 @@ function ZoomControls({
         data-testid="canvas-zoom-reset"
         title="Reset zoom to 100%"
         onClick={onReset}
-        style={{ ...zoomBtn, width: 'auto', minWidth: 40, padding: '0 6px', fontSize: '0.68rem' }}
+        style={{ ...zoomBtn, width: 'auto', minWidth: 40, padding: '0 6px', fontSize: 'var(--type-label)' }}
       >
         {Math.round(zoom * 100)}%
       </button>
@@ -524,7 +524,7 @@ function ZoomControls({
         title="Zoom to fit all steps"
         aria-label="Zoom to fit"
         onClick={onFit}
-        style={{ ...zoomBtn, fontSize: '0.8rem' }}
+        style={{ ...zoomBtn, fontSize: 'var(--type-meta)' }}
       >
         ⛶
       </button>
@@ -627,7 +627,7 @@ function InsertNodeMenu({
         gap: 2,
         padding: 4,
         minWidth: 160,
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         boxShadow: 'var(--color-card-shadow)',
@@ -636,7 +636,7 @@ function InsertNodeMenu({
     >
       <span
         style={{
-          fontSize: '0.6rem',
+          fontSize: 'var(--type-label)',
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.04em',
@@ -670,7 +670,7 @@ function InsertNodeMenu({
             padding: '0.28rem 0.5rem',
             textAlign: 'left',
             color: 'var(--color-text)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-chip)',
           }}
         >
           <span
@@ -695,10 +695,10 @@ const zoomBtn: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: '0.95rem',
+  fontSize: 'var(--type-ui)',
   fontWeight: 600,
   color: 'var(--color-text-dim)',
-  borderRadius: 6,
+  borderRadius: 'var(--radius-chip)',
 };
 
 function TempLine({
@@ -825,7 +825,7 @@ function Edge({
 function edgeColor(isHoverTarget: boolean, selected: boolean, accent: string, errors: number): string {
   if (isHoverTarget) return 'var(--color-primary)';
   if (selected) return accent;
-  return errors > 0 ? 'var(--color-red)' : 'var(--color-border)';
+  return errors > 0 ? 'var(--color-red)' : 'var(--color-card-border)';
 }
 
 /** World-units a keyboard arrow nudge moves a node (Shift = larger step). */
@@ -921,7 +921,7 @@ function NodeCard({
         minHeight: NODE_H,
         cursor: dragging ? 'grabbing' : 'grab',
         userSelect: 'none',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         borderStyle: errored ? 'dashed dashed dashed solid' : 'solid',
         borderWidth: errored ? '3px 2px 2px 5px' : '2px 2px 2px 5px',
         // Per-side colors only — mixing the borderColor shorthand with
@@ -931,11 +931,14 @@ function NodeCard({
         borderBottomColor: borderColor,
         borderLeftColor: accent,
         borderRadius: 'var(--radius-block)',
+        // A ring, not a coloured glow: nothing flat in this language casts one,
+        // and a halo the colour of the step kind competed with the kind's own
+        // left edge for the same signal.
         boxShadow: isHoverTarget
           ? '0 0 0 2px var(--color-primary)'
           : selected
-            ? `0 4px 16px -6px ${accent}`
-            : 'var(--color-card-shadow)',
+            ? `0 0 0 1px ${accent}`
+            : 'none',
         padding: '0.5rem 0.65rem',
         zIndex: selected ? 3 : 2,
       }}
@@ -946,14 +949,14 @@ function NodeCard({
             <span
               title={`step ${order} in execution order`}
               style={{
-                fontSize: '0.58rem',
+                fontSize: 'var(--type-label)',
                 fontWeight: 800,
                 minWidth: 16,
                 height: 16,
                 lineHeight: '16px',
                 textAlign: 'center',
                 borderRadius: '50%',
-                color: 'var(--color-bg)',
+                color: 'var(--color-on-primary)',
                 background: accent,
               }}
             >
@@ -962,7 +965,7 @@ function NodeCard({
           )}
           <span
             style={{
-              fontSize: '0.6rem',
+              fontSize: 'var(--type-label)',
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.04em',
@@ -975,19 +978,19 @@ function NodeCard({
         {errors > 0 && (
           <span
             title={`${errors} validation issue(s)`}
-            style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--color-red)' }}
+            style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: 'var(--color-red)' }}
           >
             ⚠ {errors}
           </span>
         )}
       </div>
-      <div style={{ fontWeight: 600, fontSize: '0.82rem', marginTop: 2, color: 'var(--color-text)' }}>
+      <div style={{ fontWeight: 600, fontSize: 'var(--type-row)', marginTop: 2, color: 'var(--color-text)' }}>
         {node.label || node.id}
       </div>
       <div
         className="mono"
         style={{
-          fontSize: '0.66rem',
+          fontSize: 'var(--type-label)',
           color: 'var(--color-text-dim)',
           marginTop: 2,
           overflow: 'hidden',
@@ -1132,7 +1135,7 @@ function Handle({
         lineHeight: 1,
         color,
         borderRadius: '50%',
-        background: input && connecting ? color : 'var(--color-bg-card)',
+        background: input && connecting ? color : 'var(--color-card-bg)',
         border: `2px solid ${color}`,
         cursor: input ? 'default' : 'crosshair',
         boxShadow: input && connecting ? `0 0 0 3px color-mix(in oklab, ${color} 40%, transparent)` : 'none',
@@ -1172,7 +1175,7 @@ function BodyDropHandle({
         width: HANDLE_R * 2,
         height: HANDLE_R * 2,
         borderRadius: '50%',
-        background: connecting ? LOOP_BODY_COLOR : 'var(--color-bg-card)',
+        background: connecting ? LOOP_BODY_COLOR : 'var(--color-card-bg)',
         border: `2px dashed ${LOOP_BODY_COLOR}`,
         boxShadow: connecting ? `0 0 0 3px color-mix(in oklab, ${LOOP_BODY_COLOR} 40%, transparent)` : 'none',
         zIndex: 4,
@@ -1181,7 +1184,7 @@ function BodyDropHandle({
   );
 }
 
-// portOrigin / inBodyRegion / disconnectEdge / isEditableTarget / nodeAt /
+// portOrigin / inBodyRegion / disconnectEdge / nodeAt /
 // topologySignature / topoOrder / preview / labelOf moved to
 // ./canvas/canvas-graph (pure, independently unit-tested). topoOrder +
 // topologySignature are re-exported from this module's top so the canvas'

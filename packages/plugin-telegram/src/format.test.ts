@@ -34,9 +34,20 @@ describe('markdownToTelegramHtml', () => {
     expect(out).toContain('**not bold**');
   });
 
+  it('leaves a long unterminated fence literal', () => {
+    const input = `\`\`\`${'a'.repeat(50_000)}`;
+    expect(markdownToTelegramHtml(input)).toBe(input);
+  });
+
   it('converts links to <a href="...">', () => {
     const out = markdownToTelegramHtml('See [docs](https://example.com).');
     expect(out).toContain('<a href="https://example.com">docs</a>');
+  });
+
+  it('escapes a link target exactly once', () => {
+    const out = markdownToTelegramHtml('[search](https://example.com/?a=1&b=%3Ctwo%3E)');
+    expect(out).toContain('href="https://example.com/?a=1&amp;b=%3Ctwo%3E"');
+    expect(out).not.toContain('&amp;amp;');
   });
 
   it('allows http, mailto, and tel scheme links', () => {

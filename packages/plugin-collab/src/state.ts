@@ -51,7 +51,11 @@ const MAX_MESSAGES_HARD = MAX_MESSAGES * 4;
 
 /** Normalize a claim/file path for prefix comparison. */
 function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  let normalized = p.replace(/\\/g, '/');
+  if (normalized.startsWith('./')) normalized = normalized.slice(2);
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === '/') end -= 1;
+  return normalized.slice(0, end);
 }
 
 /** De-duplicate a list of path claims by their normalized form, preserving order. */

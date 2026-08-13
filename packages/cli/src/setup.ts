@@ -10,7 +10,12 @@ import {
   silentLogger,
 } from '@moxxy/core';
 import type { Plugin } from '@moxxy/sdk';
-import { buildConfigPlugin, loadConfig as loadMergedConfig, loadDisabledProviders } from '@moxxy/config';
+import {
+  buildConfigPlugin,
+  loadConfig as loadMergedConfig,
+  loadDisabledProviders,
+  loadPolicyBundles,
+} from '@moxxy/config';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
@@ -20,7 +25,11 @@ import {
 } from '@moxxy/plugin-plugins-admin';
 import { cliVersion } from './version.js';
 import { buildSessionConfigApplier } from './config-applier.js';
+import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
+import { applyEgressSettings } from './setup/egress.js';
+import { buildSecretResolver, vaultSecretProvider } from './setup/secrets.js';
+import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
 import { buildBuiltinsCore } from './setup/builtins.js';
@@ -41,6 +50,7 @@ import {
 } from './setup/resolve-plugins-tree.js';
 import { applySessionHeaderPreferences } from './setup/session-header-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
+import { attachAudit } from './setup/audit.js';
 import type { SetupOptions, SetupResult } from './setup/types.js';
 
 export type { BootStep, SetupOptions, SetupResult } from './setup/types.js';
@@ -60,15 +70,22 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   const skipKeyPrompt = opts.skipKeyPrompt || opts.onProgress != null;
   const progress = opts.onProgress ?? ((): void => undefined);
 
+  // Executable project configs need consent before they run. A probe or any
+  // other non-interactive boot passes no prompt, and the loader then refuses to
+  // execute rather than silently running unreviewed code.
   const { rawConfig, sources } = await loadRawConfig({
     cwd: opts.cwd,
     configPath: opts.configPath,
     skipUser: opts.skipUserConfig,
+    trustPrompt: skipKeyPrompt ? undefined : interactiveConfigTrustPrompt(),
   });
   progress({ kind: 'config-loaded', sources: sources.length });
 
+  // `requirePassphrase` comes from the RAW config: the vault is what resolves
+  // `${vault:…}` placeholders, so it must exist before they can be resolved.
   const { plugin: vaultPlugin, vault } = buildVaultPlugin({
     disableKeytar: opts.disableKeytar,
+    ...(rawConfig.vault?.requirePassphrase ? { requirePassphrase: true } : {}),
     ...(opts.passphrasePrompt ? { passphrasePrompt: opts.passphrasePrompt } : {}),
   });
 
@@ -84,6 +101,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
 
   const config = await resolveConfigPlaceholders(rawConfig, vault, logger);
 
+  // Re-resolve egress now that config is available. `bin.ts` already applied
+  // the environment's proxy before any command ran; this second pass is what
+  // lets a managed config pin (or forbid) a proxy the environment did not set.
+  // A no-op when the resolution is unchanged, which is the common case.
+  await applyEgressSettings(config);
+
   // Single source of truth for "is this package disabled?", seeded from the
   // merged config (project + user `plugins[name].enabled = false`). The
   // PluginHost reads it on every reload so a disabled plugin is never
@@ -91,9 +114,29 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // mutate it so a runtime toggle takes effect without a restart.
   const disabledPackages = new Set<string>(disabledPackageNames(config));
 
+  // Late-bound so the resolver can consult the registry the session creates.
+  let sessionRef: Session | undefined;
+  const secretResolver = buildSecretResolver(() => sessionRef, vault, opts.cwd);
+
+  // Loaded BEFORE the session so a machine that cannot obtain the policy it
+  // subscribes to never reaches the point of running a turn. Throws
+  // PolicyLoadError, which the caller reports rather than degrading past.
+  const policy = await loadPolicyBundles(config.policy?.bundles ?? []);
+  const systemManaged = sources.some((source) => source.scope === 'system');
+  const governance =
+    systemManaged || policy.sources.length > 0
+      ? {
+          managed: true as const,
+          label: policy.sources[0]?.id ?? 'organization policy',
+          ...(policy.sources.some((source) => source.staleReason) ? { stale: true } : {}),
+        }
+      : undefined;
+
   const session = await buildSession({
     cwd: opts.cwd,
     config,
+    bundledRules: { allow: policy.allow, deny: policy.deny },
+    ...(governance ? { governance } : {}),
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
     sessionId: opts.sessionId,
@@ -103,8 +146,23 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // value never enters the model's context or `process.env` — only the
     // handler that asks receives it. `vault.get` lazily opens the vault and
     // returns null for unknown names.
-    secretResolver: (name) => vault.get(name),
+    secretResolver,
   });
+  sessionRef = session;
+
+  // Register the vault as the protected FLOOR of the secret-provider registry.
+  // Done here rather than in core because core never imports a plugin, and the
+  // vault is one; making it the floor rather than a hardcoded special case lets
+  // an external store sit above it without migrating every secret first.
+  session.secretProviders.register(vaultSecretProvider(vault), { protected: true });
+
+  // Attribute everything this session appends to the local OS account. It is
+  // the FLOOR identity, worth exactly as much as local account separation,
+  // which is why it is issued as `os` rather than dressed up as something
+  // stronger. Set before any plugin registers or any hook fires, so no event
+  // can be appended unattributed. A channel that actually authenticates its
+  // users overrides it via `session.setPrincipal`.
+  session.setPrincipal(resolveOsPrincipal());
 
   // Build the builtin list first WITHOUT the config plugin so we can pass the
   // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).
@@ -147,6 +205,19 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   };
 
   let pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
+
+  // Re-resolve `${vault:…}` now that plugins have registered, this time through
+  // the session's resolver rather than the vault directly.
+  //
+  // The first pass above runs before any plugin exists, so it can only reach
+  // the local vault. That made `${vault:KEY}` mean two different things: in
+  // config it was always the local vault, while `ctx.getSecret` in a tool went
+  // through whatever SecretProvider the machine had active. This second pass is
+  // what makes the two uniform; on a machine with no external provider it
+  // resolves identically and the extra pass is a no-op walk.
+  const resolvedConfig = session.resolveSecret
+    ? await resolveConfigPlaceholders(rawConfig, session.resolveSecret, logger)
+    : config;
 
   // Compatibility migration for providers that used to ship inside the CLI.
   // If any configured provider is missing but advertises itself through a
@@ -210,9 +281,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
 
   const { credentialResolver } = await activateProvider({
     session,
-    config,
+    config: resolvedConfig,
     vault,
-    providerConfig: { ...(providerItem(config).config ?? {}), ...(opts.providerConfig ?? {}) },
+    providerConfig: {
+      ...(providerItem(resolvedConfig).config ?? {}),
+      ...(opts.providerConfig ?? {}),
+    },
     skipKeyPrompt,
     skipProviderActivation: opts.skipProviderActivation,
     tolerateNoProvider: opts.tolerateNoProvider,
@@ -278,6 +352,9 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   progress({ kind: 'ready' });
 
   const persistence = attachSessionPersistence(session, opts.cwd, opts.disableSessionPersistence);
+  // Separate from persistence on purpose: the trail must survive an operator
+  // turning session persistence off, and it records a different, smaller thing.
+  const audit = attachAudit(session, config, policy.sources);
 
   // The memory plugin (when installed/enabled) published its store as the
   // 'memory' service during onInit; a slim boot without it leaves this
@@ -288,11 +365,13 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     session,
     config,
     configSources: sources,
+    policySources: policy.sources,
     vault,
     memory,
     scheduler,
     webhooks,
     persistence,
+    audit,
     security,
     pluginRegistration,
   };

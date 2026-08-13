@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box } from 'ink';
 import { useApp } from 'ink';
-import type { UserPromptAttachment } from '@moxxy/sdk';
-import type { ClientSession as Session } from '@moxxy/sdk';
-import { isSelectableMode } from '@moxxy/sdk';
 import { setCategoryDefault } from '@moxxy/config';
+import {
+  type ClientSession as Session,
+  type UserPromptAttachment,
+} from '@moxxy/sdk';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
@@ -14,6 +15,7 @@ import {
   clearTerminalScreen,
   getModeBadge,
   getModeName,
+  nextSelectableMode,
   resolveActiveDescriptor,
   resolveActiveModel,
   resolveContextWindow,
@@ -91,7 +93,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // block shows its verb-summary line + the latest call preview.
   const [expandToolOutputs, setExpandToolOutputs] = useState(false);
   const [yolo, setYolo] = useState(false);
-  const { mcpStatus, refreshMcpStatus } = useMcpStatus(session);
+  const { refreshMcpStatus } = useMcpStatus(session);
   // Mid-session model override. When the user picks a model via /model,
   // this takes precedence over the prop passed in at mount time.
   const [activeModelOverride, setActiveModelOverride] = useState<string | null>(null);
@@ -130,6 +132,27 @@ export const SessionView: React.FC<SessionViewProps> = ({
     setSystemNotice,
   });
 
+  const cycleMode = (): void => {
+    if (turn.busyRef.current) {
+      setSystemNotice('finish the current response before changing mode');
+      return;
+    }
+    const next = nextSelectableMode(session);
+    if (!next) {
+      setSystemNotice(`mode · ${getModeName(session)} · no other mode available`);
+      return;
+    }
+    try {
+      session.modes.setActive(next.name);
+      setSystemNotice(`mode → ${next.name}`);
+      if (!next.transient) void setCategoryDefault('mode', next.name).catch(() => undefined);
+    } catch (err) {
+      setSystemNotice(
+        `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
   // Hotkeys that need to reach inside PromptInput. Routed through
   // parse-input.ts since Ink's useInput stops firing once the editor
   // owns the stdin stream (data-mode flowing vs. readable-mode read()).
@@ -152,15 +175,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
       );
     },
     [tuiKeys.toggleTools]: () => {
-      setExpandToolOutputs((e) => {
-        const next = !e;
-        setSystemNotice(
-          next
-            ? 'tool blocks expanded — Ctrl+O again to collapse'
-            : 'tool blocks collapsed — Ctrl+O again to expand',
-        );
-        return next;
-      });
+      // Static transcript rows are committed to terminal scrollback. An
+      // explicit details toggle therefore performs one intentional redraw so
+      // already-settled tool/skill rows can actually expand and collapse.
+      clearTerminalScreen();
+      setExpandToolOutputs((expanded) => !expanded);
     },
     r: voice.toggleVoiceInput,
   };
@@ -187,35 +206,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const contextUsed = estimateContextTokens(session.log);
   const modeName = getModeName(session);
   const modeBadge = getModeBadge(session);
-
-  // Shift+Tab (and /mode) advance to the next registered mode, wrapping
-  // around. Mirrors the model/loop picker's persistence so the choice
-  // survives across sessions. setSystemNotice forces the re-render that
-  // refreshes the footer's mode label.
-  const cycleMode = React.useCallback(() => {
-    // Only cycle user-selectable modes — special modes (e.g. collaborative,
-    // entered via /collab) are hidden from the Shift+Tab cycle the same way they
-    // are from the /mode picker. See ModeDef.special / isSelectableMode.
-    const modes = session.modes.list().filter(isSelectableMode);
-    if (modes.length === 0) return;
-    let current: string;
-    try {
-      current = session.modes.getActive().name;
-    } catch {
-      current = '';
-    }
-    const idx = modes.findIndex((m) => m.name === current);
-    const next = modes[(idx + 1) % modes.length]!;
-    try {
-      session.modes.setActive(next.name);
-      void setCategoryDefault('mode', next.name).catch(() => undefined);
-      setSystemNotice(`mode → ${next.name}`);
-    } catch {
-      /* registry empty or name vanished — leave the active mode as-is */
-    }
-  }, [session]);
-
-  const slashSuggestions = React.useMemo(() => buildSlashSuggestions(session), [session]);
+  const sessionInfo = session.getInfo();
+  const slashSuggestions = React.useMemo(
+    () =>
+      buildSlashSuggestions(session, {
+        canSwitchRuns: canSwitchSession ?? false,
+        canManageExtensions: Boolean(session.pluginsAdmin),
+      }),
+    [session, canSwitchSession],
+  );
 
   // Guards against a second picker-driven npm install while one is running.
   // npm itself is mutex-serialized host-side; this is purely UX (one clear
@@ -271,6 +270,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
     if (action === 'exit') {
       readAloud.stop();
       exit();
+      return;
+    }
+    if (action === 'new' && onSwitchSession) {
+      setSystemNotice('starting a fresh run…');
+      void onSwitchSession({ kind: 'new' }).catch((err: unknown) => {
+        setSystemNotice(
+          `could not start a fresh run: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
       return;
     }
     // Stop any read-aloud playback so a wiped/cleared session isn't still
@@ -434,8 +442,6 @@ export const SessionView: React.FC<SessionViewProps> = ({
     <Box flexDirection="column">
       <ChatView
         events={stream.events}
-        streamingDelta={stream.streamingDelta}
-        reasoningDelta={stream.reasoningDelta}
         expandToolOutputs={expandToolOutputs}
         compactTools={compactTools}
         hideLive={
@@ -522,15 +528,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueMessages={turn.queueRef.current}
         priorityMessage={turn.priorityMessage}
         commandHotkeys={commandHotkeys}
-        onCycleMode={cycleMode}
+        onShiftTab={cycleMode}
         externalInsert={voice.externalInsert}
         onPermissionDecide={(perm, decision) => {
           permissions.setPendingPermissions((prev) => prev.slice(1));
-          if (decision.mode === 'allow_always') {
-            void session.permissions
-              .addAllow({ name: perm.call.name, reason: 'allow_always via TUI dialog' })
-              .catch(() => undefined);
-          }
           perm.resolve(decision);
         }}
         onApprovalDecide={(decision) => {
@@ -554,19 +555,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
         onPasteText={images.handlePasteText}
       />
       <StatusLine
-        busyStartedAt={
-          turn.busy && !pendingPermission && !pendingApproval ? turn.busyStartedAt : null
-        }
-        queueCount={turn.queueCount}
-        modeName={modeName}
         modeBadge={modeBadge}
-        provider={providerName}
-        model={activeModel}
-        mcp={mcpStatus}
+        modeName={modeName}
+        modelName={activeModel}
         contextUsed={contextUsed}
-        {...(contextWindow ? { contextWindow } : {})}
-        {...(version ? { version } : {})}
-        {...(updateAvailable ? { updateLatest: updateAvailable.latest } : {})}
+        contextWindow={contextWindow}
+        governance={sessionInfo.governance ?? null}
       />
     </Box>
   );

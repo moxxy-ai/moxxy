@@ -43,6 +43,7 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'desks.setActive',
   // The conversation itself.
   'session.info',
+  'session.activeTurn',
   'session.runTurn',
   'session.abortTurn',
   'session.setProvider',
@@ -64,8 +65,8 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Multi-session conversations: list/create/switch/rename are conversation-
   // scoped — the same trust class as `session.newSession` (already allowed),
   // and what a paired phone needs to mirror the desktop's session list.
-  // `sessions.remove` is deliberately NOT here: it deletes on-disk state
-  // (the runner's session JSONL + the chat NDJSON transcript), a destructive
+  // `sessions.remove` is deliberately NOT here: it deletes the authoritative
+  // on-disk session JSONL, a destructive
   // host mutation in the same class as `desks.remove`, which is also
   // host-only.
   'sessions.list',
@@ -75,8 +76,8 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Voice input (capability-probed; transcribe fails coded without a transcriber).
   'session.hasTranscriber',
   'session.transcribe',
-  // Read a workspace's transcript history from the runner's authoritative log
-  // (a paired phone may read history, scoped to a workspace, not host config).
+  // Read a workspace's transcript history from its authoritative session log
+  // (a paired phone may read history, scoped to a known workspace, not host config).
   'chat.loadHistory',
   // Scheduler: mobile may inspect, pause/resume, and delete existing schedules
   // from the shared scheduler store. Creating/editing prompts remains an

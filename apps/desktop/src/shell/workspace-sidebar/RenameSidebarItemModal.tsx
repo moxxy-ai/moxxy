@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Modal, TextInput } from '@moxxy/desktop-ui';
+import { Button, Modal, ModalFooter, TextInput } from '@moxxy/desktop-ui';
 
 export function RenameSidebarItemModal({
   title,
@@ -27,7 +27,7 @@ export function RenameSidebarItemModal({
         <p
           style={{
             margin: 0,
-            fontSize: 13.5,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-text-muted)',
             lineHeight: 1.55,
           }}
@@ -39,7 +39,7 @@ export function RenameSidebarItemModal({
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            fontSize: 12.5,
+            fontSize: 'var(--type-row)',
             fontWeight: 600,
             color: 'var(--color-text-muted)',
           }}
@@ -51,7 +51,7 @@ export function RenameSidebarItemModal({
             onChange={(e) => draft.setName(e.target.value)}
           />
         </label>
-        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+        <ModalFooter>
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
@@ -63,7 +63,7 @@ export function RenameSidebarItemModal({
           >
             Rename
           </Button>
-        </footer>
+        </ModalFooter>
       </form>
     </Modal>
   );

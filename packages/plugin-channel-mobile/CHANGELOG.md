@@ -1,5 +1,154 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/core@0.37.2
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/e2e@0.37.2
+  - @moxxy/ipc-server-ws@0.1.62
+  - @moxxy/plugin-tunnel-proxy@0.37.2
+  - @moxxy/workspace-registry@0.2.32
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/core@0.37.1
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/e2e@0.37.1
+  - @moxxy/ipc-server-ws@0.1.61
+  - @moxxy/plugin-tunnel-proxy@0.37.1
+  - @moxxy/workspace-registry@0.2.31
+
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/core@0.37.0
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/e2e@0.37.0
+  - @moxxy/ipc-server-ws@0.1.60
+  - @moxxy/plugin-tunnel-proxy@0.37.0
+  - @moxxy/workspace-registry@0.2.30
+
+## 0.36.1
+
+### Patch Changes
+
+- @moxxy/ipc-server-ws@0.1.59
+- @moxxy/sdk@0.36.1
+- @moxxy/core@0.36.1
+- @moxxy/plugin-tunnel-proxy@0.36.1
+- @moxxy/e2e@0.36.1
+- @moxxy/desktop-ipc-contract@0.14.17
+- @moxxy/workspace-registry@0.2.29
+
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/core@0.36.0
+  - @moxxy/desktop-ipc-contract@0.14.16
+  - @moxxy/e2e@0.36.0
+  - @moxxy/ipc-server-ws@0.1.58
+  - @moxxy/plugin-tunnel-proxy@0.36.0
+  - @moxxy/workspace-registry@0.2.28
+
+## 0.35.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/core@0.35.4
+- @moxxy/plugin-tunnel-proxy@0.35.4
+- @moxxy/e2e@0.35.4
+- @moxxy/desktop-ipc-contract@0.14.15
+- @moxxy/ipc-server-ws@0.1.57
+- @moxxy/workspace-registry@0.2.27
+
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+- @moxxy/core@0.35.3
+- @moxxy/plugin-tunnel-proxy@0.35.3
+- @moxxy/e2e@0.35.3
+- @moxxy/desktop-ipc-contract@0.14.14
+- @moxxy/ipc-server-ws@0.1.56
+- @moxxy/workspace-registry@0.2.26
+
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+- @moxxy/core@0.35.2
+- @moxxy/plugin-tunnel-proxy@0.35.2
+- @moxxy/e2e@0.35.2
+- @moxxy/desktop-ipc-contract@0.14.13
+- @moxxy/ipc-server-ws@0.1.55
+- @moxxy/workspace-registry@0.2.25
+
+## 0.35.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+- @moxxy/core@0.35.1
+- @moxxy/plugin-tunnel-proxy@0.35.1
+- @moxxy/e2e@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+- @moxxy/ipc-server-ws@0.1.54
+- @moxxy/workspace-registry@0.2.24
+
+## 0.35.0
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/core@0.35.0
+  - @moxxy/desktop-ipc-contract@0.14.11
+  - @moxxy/e2e@0.35.0
+  - @moxxy/ipc-server-ws@0.1.53
+  - @moxxy/plugin-tunnel-proxy@0.35.0
+  - @moxxy/workspace-registry@0.2.23
+
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/core@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/workspace-registry@0.2.22
+  - @moxxy/desktop-ipc-contract@0.14.10
+  - @moxxy/e2e@0.34.0
+  - @moxxy/ipc-server-ws@0.1.52
+  - @moxxy/plugin-tunnel-proxy@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

@@ -1,5 +1,88 @@
 # @moxxy/plugin-channel-http
 
+## 0.37.2
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+
+## 0.37.1
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+
+## 0.37.0
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+
+## 0.36.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.36.1
+
+## 0.36.0
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+
+## 0.35.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+
+## 0.35.3
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.3
+
+## 0.35.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.2
+
+## 0.35.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.1
+
+## 0.35.0
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

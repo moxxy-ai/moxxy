@@ -26,7 +26,7 @@ export function ThinkingIndicator(): JSX.Element {
         style={{
           width: 34,
           height: 34,
-          borderRadius: 10,
+          borderRadius: 'var(--radius-block)',
           background: 'var(--color-primary-soft)',
           color: 'var(--color-primary-strong)',
           display: 'inline-flex',
@@ -39,11 +39,11 @@ export function ThinkingIndicator(): JSX.Element {
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>Assistant</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>Assistant</span>
           <span
             className="mono"
             style={{
-              fontSize: 11,
+              fontSize: 'var(--type-meta)',
               color: 'var(--color-primary)',
               display: 'inline-flex',
               alignItems: 'center',
@@ -61,7 +61,7 @@ export function ThinkingIndicator(): JSX.Element {
             gap: 6,
             padding: '8px 12px',
             background: 'var(--color-primary-soft)',
-            borderRadius: 14,
+            borderRadius: 'var(--radius-card)',
           }}
         >
           <span className="thinking-dot" style={{ animationDelay: '0ms' }} />

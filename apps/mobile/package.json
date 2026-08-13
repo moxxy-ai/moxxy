@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/workspaces-app",
-  "version": "0.4.6",
+  "version": "0.4.18",
   "private": true,
   "type": "module",
   "main": "./index.ts",
@@ -20,7 +20,7 @@
     "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/design-tokens": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "expo": "~54.0.0",
+    "expo": "~54.0.35",
     "expo-audio": "~1.1.1",
     "expo-blur": "~15.0.8",
     "expo-build-properties": "~1.0.10",

@@ -93,7 +93,11 @@ export function useAgentTask(workspaceId: string | null): AgentTask {
     setOutput('');
     setError(null);
     try {
-      const { turnId: id } = await api().invoke('session.runTurn', { workspaceId, prompt });
+      const { turnId: id } = await api().invoke('session.runTurn', {
+        workspaceId,
+        prompt,
+        visibility: 'background',
+      });
       // Hide BEFORE we start reading: the runner echoes a user_prompt + the
       // assistant output for this turn, and none of it should reach the
       // transcript. We deliberately do NOT dispatch send_started either, so

@@ -25,7 +25,10 @@ interface FloorLike {
  */
 const BUILTIN_FLOORS: ReadonlyArray<{ registry: (s: Session) => FloorLike | undefined; name: string }> =
   [
-    { registry: (s) => s.compactors, name: 'summarize' },
+    // The def's own name. `summarize`, the old value here, matched nothing, so
+    // the floor was never actually marked. Harmless while one compactor
+    // existed; with a second one it decides where an unregister reverts to.
+    { registry: (s) => s.compactors, name: 'summarize-old-turns' },
     { registry: (s) => s.cacheStrategies, name: 'stable-prefix' },
     { registry: (s) => s.workflowExecutors, name: 'dag' },
   ];

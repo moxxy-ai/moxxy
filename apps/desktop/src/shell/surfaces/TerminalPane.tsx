@@ -47,11 +47,26 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    // xterm paints to a canvas, so it cannot resolve `var()` — it needs concrete
+    // values. Reading them from the document at construction keeps the terminal
+    // on the palette AND theme-aware, instead of the two hard-coded hexes it had,
+    // which stayed a blue-black slate whichever theme was active.
+    const css = getComputedStyle(document.documentElement);
+    const token = (name: string, fallback: string): string =>
+      css.getPropertyValue(name).trim() || fallback;
     const term = new Terminal({
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-      fontSize: 12,
+      fontFamily: css.getPropertyValue('--font-mono').trim() || 'ui-monospace, Menlo, monospace',
+      // A NUMBER, not a CSS value: xterm measures glyphs itself and will not
+      // resolve a token here (a blanket sweep of the renderer's font sizes broke
+      // this once). Kept in step with --type-row by hand.
+      fontSize: 12.5,
       cursorBlink: true,
-      theme: { background: '#0b0f17', foreground: '#d6deeb' },
+      theme: {
+        background: token('--color-input-soft', '#0a0e11'),
+        foreground: token('--color-text', '#e4ebef'),
+        cursor: token('--color-primary', '#ff4a1e'),
+        selectionBackground: token('--color-primary-soft', '#2b130d'),
+      },
       scrollback: 5000,
     });
     const fit = new FitAddon();
@@ -122,7 +137,7 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {(surface.error || degraded) && (
-        <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--color-danger, #f87171)' }}>
+        <div style={{ padding: '8px 12px', fontSize: 'var(--type-meta)', color: 'var(--color-danger, #f87171)' }}>
           Terminal unavailable: {surface.error ?? degraded}
         </div>
       )}

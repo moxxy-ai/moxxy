@@ -4,9 +4,11 @@ import type { MoxxyConfig } from '@moxxy/config';
 // Provider plugins are installed/discovered like every other optional capability.
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
+import { planModePlugin } from '@moxxy/mode-plan';
 import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
 import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
+import { segmentsCompactorPlugin } from '@moxxy/compactor-segments';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
@@ -83,6 +85,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // the user installed and each ProviderDef owns its credential resolution.
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
+    // Planning is a lightweight core path: inspect + recall, produce a
+    // structured plan, then let the user revise it or deliberately switch to
+    // default/goal for execution. It is read-only by construction.
+    { name: '@moxxy/mode-plan', plugin: planModePlugin },
     // mode-goal / mode-deep-research / plugin-subagents / plugin-oauth /
     // plugin-computer-control / plugin-channel-http / plugin-usage-stats are
     // NOT bundled — they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG;
@@ -93,6 +99,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/mode-collaborative', plugin: collaborativeModePlugin },
     { name: '@moxxy/plugin-collab', plugin: collabPlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
+    // Sub-session compaction, the default. Records each finished turn as one
+    // outcome summary and folds old records into chapters, so a session's
+    // context is bounded by policy instead of by how long you've been talking.
+    // `summarize-old-turns` stays registered as the protected floor.
+    { name: '@moxxy/compactor-segments', plugin: segmentsCompactorPlugin },
     { name: '@moxxy/cache-strategy-stable-prefix', plugin: stablePrefixCacheStrategyPlugin },
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
     // plugin-stt-whisper(+codex) are NOT bundled — install on demand / seeded

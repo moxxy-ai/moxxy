@@ -8,7 +8,8 @@ import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { PreferencesTab } from './PreferencesTab';
 import { SearchBox } from './settings-primitives';
-import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
+import { InstrumentBar } from '../shell/InstrumentBar';
+import { IndexColumn } from '../shell/IndexColumn';
 
 type SettingsSlice = ReturnType<typeof useSettings>;
 
@@ -87,39 +88,130 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
   { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
 ];
 
-type Tab = (typeof TAB_DESCRIPTORS)[number]['id'];
+export type SettingsTab = (typeof TAB_DESCRIPTORS)[number]['id'];
+export type SettingsScope = 'all' | 'extensions' | 'settings';
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
+const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
   id,
   label,
 }));
 
 /**
- * Tabbed settings panel — providers, MCP servers, skills, vault. Each tab
- * reads its slice via `useSettings` and only the active tab does heavy work
- * (the IPC fan-out happens on refresh; tab switch just swaps the view).
+ * Settings sections, grouped by what they are ABOUT rather than listed flat.
  *
- * Providers / MCP / Vault share one list language: a leading icon tile, a
- * name + status subtitle in a flexible middle column, and a right-aligned
- * status dot / toggle / badge — so every row lines up on the same grid.
+ * A flat row of chips gave "Vault" and "Skills" the same standing, when one is a
+ * secret store and the other a capability — the grouping is the answer to "where
+ * would I look for this", which is the only question a settings nav has to
+ * answer.
+ */
+const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<SettingsTab> }> = [
+  { label: 'agent', ids: ['providers'] },
+  { label: 'extend', ids: ['mcp', 'skills'] },
+  { label: 'trust', ids: ['vault'] },
+  { label: 'app', ids: ['preferences'] },
+];
+
+function groupsFor(scope: SettingsScope): typeof GROUPS {
+  if (scope === 'extensions') return GROUPS.slice(0, 2);
+  if (scope === 'settings') return GROUPS.slice(2);
+  return GROUPS;
+}
+
+/** The Settings index column: the sections, grouped. */
+export function SettingsIndex({
+  tab,
+  onPick,
+  scope = 'all',
+}: {
+  readonly tab: SettingsTab;
+  readonly onPick: (tab: SettingsTab) => void;
+  readonly scope?: SettingsScope;
+}): JSX.Element | null {
+  return (
+    <IndexColumn title={scope === 'extensions' ? 'extensions' : 'settings'}>
+      {groupsFor(scope).map((group) => (
+        <div key={group.label}>
+          <div className="index-group">
+            <span className="index-group__label">{group.label}</span>
+          </div>
+          {group.ids.map((id) => {
+            const label = TABS.find((t) => t.id === id)?.label ?? id;
+            const active = id === tab;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={active ? 'session-row' : 'session-row row-button'}
+                data-testid={`settings-tab-${id}`}
+                data-active={active}
+                aria-current={active ? 'true' : undefined}
+                onClick={() => onPick(id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: '100%',
+                  minHeight: 'var(--frame-row)',
+                  padding: '2px var(--space-6) 2px var(--space-8)',
+                  borderRadius: 'var(--radius-block)',
+                  background: active ? 'var(--color-card-bg)' : 'transparent',
+                  color: active
+                    ? 'var(--color-sidebar-text)'
+                    : 'var(--color-sidebar-text-dim)',
+                  fontWeight: active ? 600 : 400,
+                  fontSize: 'var(--type-row)',
+                  textAlign: 'left',
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </IndexColumn>
+  );
+}
+
+/** Which settings section is open. Owned by the shell so the index column and
+ *  the pane agree, and so it survives leaving the destination and coming back. */
+export function useSettingsTab(
+  scope: SettingsScope = 'all',
+): readonly [SettingsTab, (t: SettingsTab) => void] {
+  const [tab, setTab] = useState<SettingsTab>(scope === 'settings' ? 'vault' : 'providers');
+  return [tab, setTab];
+}
+
+/**
+ * Settings — providers, MCP servers, skills, vault, preferences. Each section
+ * reads its slice via `useSettings` and only the active one does heavy work (the
+ * IPC fan-out happens on refresh; switching just swaps the view).
  *
- * This is the tab shell: it owns the segmented nav, the per-tab search filter,
- * and the loading / error chrome, then renders the active tab component.
+ * Providers / MCP / Vault share one list language: a leading icon tile, a name +
+ * status subtitle in a flexible middle column, and a right-aligned status dot /
+ * toggle / badge — so every row lines up on the same grid.
+ *
+ * The section is chosen in the INDEX COLUMN now, not from a segmented row in the
+ * header: a settings nav that collapses into a dropdown on a narrow window is a
+ * nav that hides itself exactly when there is least room to explore.
  */
 export function SettingsPanel({
-  // Optional so the panel can render standalone (tests); the app shell
-  // always wires it so the header switcher navigates.
-  onView = () => undefined,
-  disabledViews,
-  disabledViewReason,
+  tab,
+  scope = 'all',
 }: {
-  readonly onView?: (v: View) => void;
-  readonly disabledViews?: ReadonlyArray<View>;
-  readonly disabledViewReason?: string;
+  readonly tab: SettingsTab;
+  readonly scope?: SettingsScope;
 }): JSX.Element {
   const s = useSettings();
-  const [tab, setTab] = useState<Tab>('providers');
   const [query, setQuery] = useState('');
+  // Clearing the filter used to ride on the segmented control's onChange, which
+  // no longer exists; without this a query typed in Providers silently filters
+  // Skills the moment you switch. Keyed on the section so it fires exactly once
+  // per change, with no effect.
+  const [queryTab, setQueryTab] = useState(tab);
+  if (queryTab !== tab) {
+    setQueryTab(tab);
+    setQuery('');
+  }
 
   const firstTab = TAB_DESCRIPTORS[0];
   assertDefined(firstTab, 'TAB_DESCRIPTORS is a non-empty constant list');
@@ -128,25 +220,7 @@ export function SettingsPanel({
 
   return (
     <>
-      <ViewHeader>
-        <ViewSwitcher
-          view="settings"
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledReason={disabledViewReason}
-        />
-        <span style={{ flex: 1 }} />
-        <Segmented
-          items={TABS}
-          value={tab}
-          onChange={(t) => {
-            setTab(t);
-            setQuery('');
-          }}
-          testIdPrefix="settings-tab-"
-          collapsible
-        />
-      </ViewHeader>
+      <InstrumentBar crumbs={[scope === 'extensions' ? 'Extensions' : 'Settings', active.label]} />
       <div
         style={{
           flex: 1,
@@ -175,8 +249,8 @@ export function SettingsPanel({
             padding: '10px 14px',
             border: '1px solid color-mix(in oklab, var(--color-red) 30%, transparent)',
             background: 'color-mix(in oklab, var(--color-red) 8%, transparent)',
-            borderRadius: 12,
-            fontSize: 13,
+            borderRadius: 'var(--radius-card)',
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-red)',
           }}
         >

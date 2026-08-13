@@ -25,7 +25,7 @@ session.pluginHost.registerStatic(anthropicPlugin);
 
 session.providers.setActive('anthropic', {
   apiKey: process.env.ANTHROPIC_API_KEY,
-  // model: 'claude-opus-4-8',   // optional — defaults to the built-in catalog
+  // model: 'claude-opus-5',   // optional — defaults to the built-in catalog
 });
 
 for await (const e of runTurn(session, 'Write a haiku about TypeScript.')) {

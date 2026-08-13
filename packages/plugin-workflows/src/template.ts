@@ -22,8 +22,6 @@ export interface TemplateScope {
   readonly vars?: Record<string, unknown>;
 }
 
-const REF_RE = /\{\{\s*([^}]+?)\s*\}\}/g;
-
 function stringifyValue(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
@@ -61,15 +59,32 @@ export interface RenderOptions {
 
 /** Substitute every `{{ ref }}` in `text`. Unknown refs render empty. */
 export function renderTemplate(text: string, scope: TemplateScope, opts: RenderOptions = {}): string {
-  return text.replace(REF_RE, (_match, ref: string) => {
+  const output: string[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const open = text.indexOf('{{', cursor);
+    if (open === -1) break;
+    const close = text.indexOf('}}', open + 2);
+    if (close === -1) break;
+    const rawRef = text.slice(open + 2, close);
+    const ref = rawRef.trim();
+    if (!ref || rawRef.includes('}')) {
+      output.push(text.slice(cursor, close + 2));
+      cursor = close + 2;
+      continue;
+    }
+    output.push(text.slice(cursor, open));
     const value = resolveRef(ref.trim(), scope);
     if (value === undefined) {
       const logger = opts.logger;
       if (logger?.warn) logger.warn('workflow template: unresolved reference', { ref: ref.trim() });
-      return '';
+    } else {
+      output.push(stringifyValue(value));
     }
-    return stringifyValue(value);
-  });
+    cursor = close + 2;
+  }
+  output.push(text.slice(cursor));
+  return output.join('');
 }
 
 /** Deep-render string leaves of an args object/array. */

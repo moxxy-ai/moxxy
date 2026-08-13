@@ -27,13 +27,15 @@ export interface ResponsesSseEvent {
   response?: {
     status?: string;
     incomplete_details?: { reason?: string };
+    /** `response.failed` carries the failure here, NOT in the sibling `error`. */
+    error?: { type?: string; code?: string; message?: string };
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
       input_tokens_details?: { cached_tokens?: number };
     };
   };
-  error?: { message?: string };
+  error?: { type?: string; code?: string; message?: string };
 }
 
 export interface SseStepResult {

@@ -10,12 +10,23 @@ import {
   restoreSessionEvents,
   type Logger,
 } from '@moxxy/core';
-import { MoxxyError, type MoxxyEvent, type PermissionResolver, type SessionId } from '@moxxy/sdk';
-import type { MoxxyConfig } from '@moxxy/config';
+import {
+  MoxxyError,
+  type GovernanceInfo,
+  type MoxxyEvent,
+  type PermissionResolver,
+  type SessionId,
+} from '@moxxy/sdk';
+import type { MoxxyConfig, PolicyBundleRule } from '@moxxy/config';
 
 export interface BuildSessionArgs {
   readonly cwd: string;
   readonly config: MoxxyConfig;
+  /** Rules from verified policy bundles, layered with the config's own. */
+  readonly bundledRules?: {
+    readonly allow: ReadonlyArray<PolicyBundleRule>;
+    readonly deny: ReadonlyArray<PolicyBundleRule>;
+  };
   readonly resolver?: PermissionResolver;
   readonly resumeSessionId?: string;
   /**
@@ -25,6 +36,7 @@ export interface BuildSessionArgs {
    */
   readonly sessionId?: string;
   readonly logger: Logger;
+  readonly governance?: GovernanceInfo;
   /**
    * Vault-backed secret resolver, surfaced to every tool handler as
    * `ctx.getSecret(name)`. The caller wires this to the session vault's
@@ -48,6 +60,21 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
   const userPolicyPath =
     args.config.permissions?.policyPath ?? path.join(os.homedir(), '.moxxy', 'permissions.json');
   const permissionEngine = await PermissionEngine.load(userPolicyPath);
+  // Config-supplied rules sit ABOVE the user's policy file and are never
+  // written back. From the system scope (with `permissions` in `locked:`) this
+  // is how an operator ships a deny a user cannot remove: not by editing the
+  // file, not by answering "allow always", not by deleting the file.
+  // Previously these config keys existed in the schema and were silently
+  // ignored, so there was no way to push a rule at all.
+  // Local config first, then signed bundles. Order is presentational for deny
+  // (any match denies) but the layering that matters is already guaranteed by
+  // the engine: every deny in this layer is checked before any allow in it, so
+  // a local operator's deny beats a remote bundle's allow without needing to
+  // rank the two sources against each other.
+  permissionEngine.setImmutableRules({
+    allow: [...(args.config.permissions?.allow ?? []), ...(args.bundledRules?.allow ?? [])],
+    deny: [...(args.config.permissions?.deny ?? []), ...(args.bundledRules?.deny ?? [])],
+  });
 
   // The effective session id: an explicit `--resume <id>` (errors if missing),
   // or a sticky `sessionId` (resume-if-present, fresh on first run). Both reuse
@@ -62,8 +89,8 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
         code: 'CONFIG_INVALID',
         message: `Failed to resume session "${args.resumeSessionId}".`,
         hint:
-          `The persisted session may be missing or corrupted. Run \`moxxy sessions list\` to ` +
-          `see available sessions, or start a fresh one without --resume.`,
+          `The saved run may be missing or corrupted. Run \`moxxy runs list\` to ` +
+          `see available runs, or start a fresh one without --resume.`,
         context: { session_id: args.resumeSessionId },
         cause: err,
       });
@@ -96,6 +123,7 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
   return new Session({
     cwd: args.cwd,
     logger: args.logger,
+    ...(args.governance ? { governance: args.governance } : {}),
     permissionEngine,
     permissionResolver: args.resolver ?? denyByDefaultResolver,
     hookTimeoutMs: args.config.hookTimeoutMs,

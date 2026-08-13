@@ -21,7 +21,7 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
         style={{
           alignSelf: 'stretch',
           maxWidth: '92%',
-          fontSize: 11,
+          fontSize: 'var(--type-meta)',
           color: 'var(--color-text-dim)',
           fontStyle: 'italic',
           padding: '2px 0',
@@ -61,7 +61,7 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
         >
           <Icon name="chevron-right" size={14} />
         </span>
-        <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+        <span style={{ fontWeight: 600, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
           Thinking
         </span>
       </button>

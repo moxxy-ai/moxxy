@@ -65,7 +65,7 @@ export function AppCard({
         position: 'relative',
         listStyle: 'none',
         padding: '1rem 1.1rem',
-        background: 'var(--color-bg-card)',
+        background: 'var(--color-card-bg)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-block)',
         display: 'flex',
@@ -102,7 +102,7 @@ export function AppCard({
             width: 40,
             height: 40,
             flexShrink: 0,
-            borderRadius: 10,
+            borderRadius: 'var(--radius-block)',
             color: 'var(--color-primary)',
             background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)',
           }}
@@ -110,8 +110,8 @@ export function AppCard({
           <Icon name={def.icon} size={20} />
         </span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{def.name}</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginTop: 3 }}>
+          <div style={{ fontWeight: 600, fontSize: 'var(--type-ui)' }}>{def.name}</div>
+          <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', marginTop: 3 }}>
             {def.description}
           </div>
         </div>
@@ -136,7 +136,7 @@ export function AppCard({
               onClick={() => void runUninstall()}
               disabled={busy !== null}
               style={{
-                fontSize: 12,
+                fontSize: 'var(--type-row)',
                 color: 'var(--color-text-dim)',
                 background: 'none',
                 border: 'none',
@@ -159,7 +159,7 @@ export function AppCard({
             : 'Downloading…';
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 12, color: 'var(--color-text-dim)' }} aria-hidden>
+              <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }} aria-hidden>
                 {active
                   ? `Downloading… ${mb(active.receivedBytes)} / ${mb(active.totalBytes)}`
                   : 'Downloading…'}
@@ -173,8 +173,8 @@ export function AppCard({
                 aria-valuetext={label}
                 style={{
                   height: 6,
-                  borderRadius: 999,
-                  background: 'var(--color-border)',
+                  borderRadius: 'var(--radius-pill)',
+                  background: 'var(--color-card-border)',
                   overflow: 'hidden',
                 }}
               >
@@ -192,7 +192,7 @@ export function AppCard({
         })()
       ) : state === 'error' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div role="alert" style={{ fontSize: 12, color: 'var(--color-pink)' }}>
+          <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-pink)' }}>
             {status?.error ?? 'Install failed.'}
           </div>
           <Button variant="secondary" onClick={() => void runInstall()} disabled={busy !== null}>
@@ -202,7 +202,7 @@ export function AppCard({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {def.installSummary && (
-            <div style={{ fontSize: 12, color: 'var(--color-text-dim)' }}>{def.installSummary}</div>
+            <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>{def.installSummary}</div>
           )}
           <div>
             <Button

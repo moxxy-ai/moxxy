@@ -3,7 +3,8 @@
  *
  * Stages:
  *
- *   inactive    84×104  animated Moxxy pet. Click → ACTIVE.
+ *   inactive    84×104  animated Moxxy pet. An active Voice Mode reserves
+ *                       136px for the two radio-wave fans. Click → ACTIVE.
  *
  *   active     232×56   logo + voice + text + restore-main + close.
  *                       Mic button starts an in-place recording overlay
@@ -64,9 +65,10 @@ import type { FocusPetBubbleContent } from './FocusPetBubble';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
-// Keep the compact bar fitted to its current action set. Full Voice Mode adds
-// mute and waiting-sound controls, while its error state swaps those for retry.
-const ACTIVE_WIDTH_WITHOUT_MIC = 160;
+// The compact bar always carries text, restore-main and close. Its base width
+// is exactly those three controls plus the inset that clears the overlapping
+// Moxxy mark. Full Voice Mode adds only the controls it actually renders.
+const ACTIVE_BAR_BASE_WIDTH = 144;
 const ACTIVE_ACTION_WIDTH = 36;
 const INACTIVE_ASK_SIZE = { width: 588, height: 216 };
 const ACTIVE_ASK_EXTRA_WIDTH = 500 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
@@ -78,7 +80,7 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
     height: FOCUS_PET_LAYOUT.collapsedHeight,
   },
   active: {
-    width: ACTIVE_WIDTH_WITHOUT_MIC + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+    width: ACTIVE_BAR_BASE_WIDTH + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
     height: FOCUS_PET_LAYOUT.activeHeight,
   },
   // Taller default so a few lines of the latest message are readable
@@ -101,12 +103,12 @@ export function focusActiveWidth({
 }): number {
   if (!voiceModeActive) {
     const actionCount = Number(hasTranscriber) + Number(voiceModeAvailable);
-    return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * actionCount;
+    return ACTIVE_BAR_BASE_WIDTH + ACTIVE_ACTION_WIDTH * actionCount;
   }
   const voiceActionCount = voiceModePhase === 'error'
     ? 1 + Number(voiceModeRetryAvailable)
     : 3;
-  return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * voiceActionCount;
+  return ACTIVE_BAR_BASE_WIDTH + ACTIVE_ACTION_WIDTH * voiceActionCount;
 }
 
 // ---- Top-level wrapper ---------------------------------------------------
@@ -198,6 +200,9 @@ function Surface({
     voiceModeRetryAvailable: !voiceCall.localPiperInstallRequired,
   });
   const activeWidth = baseActiveWidth;
+  const inactiveVoiceWidthDelta = voiceCall.active
+    ? FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth - FOCUS_PET_LAYOUT.collapsedWidth
+    : 0;
   const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
   const openBubble = (): void => {
     if (bubble?.kind === 'reply') pinPreview();
@@ -293,6 +298,9 @@ function Surface({
 
   useEffect(() => {
     let { width, height } = SIZE[stage];
+    if (stage === 'inactive' && voiceCall.active) {
+      width = FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth;
+    }
     if (stage === 'active') {
       width = activeWidth + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
       if (bubbleRestoreVisible) height = FOCUS_PET_ACTIVE_RESTORE_LAYOUT.height;
@@ -301,13 +309,15 @@ function Surface({
       height = miniTextSize.height;
     }
     if (stage === 'inactive' && askVisible) {
-      width = INACTIVE_ASK_SIZE.width;
+      width = INACTIVE_ASK_SIZE.width + inactiveVoiceWidthDelta;
       height = INACTIVE_ASK_SIZE.height;
     } else if (stage === 'inactive' && bubbleVisible) {
       width = FOCUS_PET_BUBBLE_LAYOUT.width;
       height = FOCUS_PET_BUBBLE_LAYOUT.height;
     } else if (stage === 'inactive' && bubbleRestoreVisible) {
-      width = FOCUS_PET_RESTORE_LAYOUT.width;
+      width = voiceCall.active
+        ? FOCUS_PET_LAYOUT.voiceActiveCollapsedWidth + 36
+        : FOCUS_PET_RESTORE_LAYOUT.width;
       height = FOCUS_PET_RESTORE_LAYOUT.height;
     }
     if (stage === 'active' && askVisible) {
@@ -342,6 +352,8 @@ function Surface({
     askVisible,
     miniTextSize.width,
     miniTextSize.height,
+    voiceCall.active,
+    inactiveVoiceWidthDelta,
   ]);
 
   // Collapsing back to the inactive pet hides the recording UI but the voice
@@ -412,6 +424,10 @@ function Surface({
     <MiniText
       workspaceId={workspaceId}
       ask={ask}
+      voiceModeActive={voiceCall.active}
+      voiceModePhase={voiceCall.phase}
+      remoteQueuedTurns={voiceCall.remoteQueuedTurns}
+      onRemoveRemoteQueuedTurn={voiceCall.dropRemoteQueuedTurn}
       transcribing={
         voice.phase === 'transcribing' || voiceCall.phase === 'transcribing'
       }

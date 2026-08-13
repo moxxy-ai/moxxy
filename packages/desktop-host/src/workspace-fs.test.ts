@@ -100,6 +100,19 @@ describe('readFile shaping', () => {
     expect(typeof r.base64).toBe('string');
   });
 
+  it('returns browser-decodable audio and video with their media types', async () => {
+    await writeFile(path.join(root, 'voice.mp3'), Buffer.from([0x49, 0x44, 0x33]));
+    await writeFile(path.join(root, 'clip.webm'), Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+
+    const audio = await readFile(root, 'voice.mp3');
+    const video = await readFile(root, 'clip.webm');
+
+    expect(audio.kind).toBe('media');
+    expect(audio.mediaType).toBe('audio/mpeg');
+    expect(video.kind).toBe('media');
+    expect(video.mediaType).toBe('video/webm');
+  });
+
   it('previews an Office/ODF doc as its extracted text, not raw bytes', async () => {
     // RTF is an Office-family format parseBufferToText handles dependency-free,
     // so it exercises the office-text branch without needing a real .docx zip.

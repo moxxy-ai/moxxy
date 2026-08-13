@@ -9,7 +9,7 @@ const MIN_RATE = 0.94;
 const MAX_RATE = 1.08;
 const LONG_SENTENCE_WORDS = 16;
 const WORD_RE = /\p{L}+(?:[-'’]\p{L}+)*/gu;
-const CLOSING_PUNCTUATION_RE = /["'”’\])]+$/u;
+const CLOSING_PUNCTUATION = new Set(['"', "'", '”', '’', ']', ')']);
 
 /**
  * Derive a subtle, deterministic cadence from one speakable chunk. This is
@@ -19,7 +19,7 @@ const CLOSING_PUNCTUATION_RE = /["'”’\])]+$/u;
  * within conservative bounds that do not distort its voices.
  */
 export function planSpeechProsody(text: string): SpeechProsody {
-  const normalized = text.trim().replace(CLOSING_PUNCTUATION_RE, '');
+  const normalized = stripClosingPunctuation(text.trim());
   const words = normalized.match(WORD_RE) ?? [];
 
   let rate = 1;
@@ -52,6 +52,12 @@ export function planSpeechProsody(text: string): SpeechProsody {
     rate: roundRate(Math.min(MAX_RATE, Math.max(MIN_RATE, rate))),
     pauseAfterMs,
   });
+}
+
+function stripClosingPunctuation(text: string): string {
+  let end = text.length;
+  while (end > 0 && CLOSING_PUNCTUATION.has(text[end - 1] ?? '')) end -= 1;
+  return text.slice(0, end);
 }
 
 function roundRate(rate: number): number {

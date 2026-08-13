@@ -46,7 +46,7 @@ export function SkillEditor({
         // the same "writing surface" as a conversation.
         background: 'var(--color-main-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 12,
+        borderRadius: 'var(--radius-card)',
         overflow: 'hidden',
         minHeight: 460,
         display: 'flex',
@@ -66,7 +66,7 @@ export function SkillEditor({
           className="mono"
           style={{
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 'var(--type-ui)',
             color: 'var(--color-text)',
           }}
         >
@@ -75,9 +75,9 @@ export function SkillEditor({
         {dirty && (
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 'var(--type-label)',
               padding: '2px 6px',
-              borderRadius: 999,
+              borderRadius: 'var(--radius-pill)',
               background: 'var(--color-primary-soft)',
               color: 'var(--color-primary-strong)',
               fontWeight: 700,
@@ -99,9 +99,7 @@ export function SkillEditor({
           disabled={!dirty || saving}
           style={{
             padding: '6px 14px',
-            borderRadius: 9,
-            background: dirty ? 'var(--grad-cta)' : 'var(--color-card-border)',
-            color: dirty ? '#fff' : 'var(--color-text-dim)',
+            borderRadius: 'var(--radius-block)',
           }}
         >
           <Icon name="check" size={14} />
@@ -124,7 +122,7 @@ export function SkillEditor({
               width: '100%',
               height: '100%',
               padding: '16px 18px',
-              fontSize: 13,
+              fontSize: 'var(--type-ui)',
               lineHeight: 1.55,
               fontFamily: 'var(--font-mono)',
               background: 'transparent',
@@ -154,7 +152,7 @@ function SegmentedToggle({
         display: 'inline-flex',
         background: 'var(--color-sidebar-bg-hover)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 9,
+        borderRadius: 'var(--radius-block)',
         padding: 2,
       }}
     >
@@ -167,9 +165,9 @@ function SegmentedToggle({
           onClick={() => onChange(m)}
           style={{
             padding: '4px 10px',
-            fontSize: 11.5,
+            fontSize: 'var(--type-meta)',
             fontWeight: 700,
-            borderRadius: 7,
+            borderRadius: 'var(--radius-block)',
             color: value === m ? 'var(--color-text)' : 'var(--color-text-dim)',
             background: value === m ? 'var(--color-surface)' : 'transparent',
             boxShadow: value === m ? '0 1px 2px rgba(15,23,42,0.06)' : 'none',

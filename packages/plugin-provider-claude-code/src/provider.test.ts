@@ -54,15 +54,13 @@ describe('claude-code provider definition', () => {
   it('registers the exact Claude Code catalog and its native web-search capability', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
-    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-4-6');
+    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-5');
     expect(claudeCodeProviderDef.models).toBe(claudeCodeModels);
     expect(claudeCodeProviderDef.models.map((model) => model.id)).toEqual([
-      'claude-sonnet-4-6',
       'claude-fable-5',
-      'claude-opus-4-8',
-      'claude-opus-4-7',
-      'claude-opus-4-6',
-      'claude-haiku-4-5-20251001',
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
     ]);
     for (const model of claudeCodeProviderDef.models) {
       expect(model).toMatchObject({
@@ -94,7 +92,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(client.stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'message_start', model: 'claude-sonnet-5' },
       { type: 'text_delta', delta: 'Hello ' },
       { type: 'text_delta', delta: 'world' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 8, outputTokens: 2 } },
@@ -142,7 +140,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'message_start', model: 'claude-sonnet-5' },
       { type: 'text_delta', delta: 'Visible answer' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
@@ -161,7 +159,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'message_start', model: 'claude-sonnet-5' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
     expect(JSON.stringify(events)).not.toContain('private chain of thought');
@@ -290,7 +288,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('bypassPermissions');
   });
 
-  it.each(['claude-fable-5', 'claude-opus-4-8'])('passes the selected %s model as an exact structured argument', async (model) => {
+  it.each(['claude-fable-5', 'claude-opus-5'])('passes the selected %s model as an exact structured argument', async (model) => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -500,7 +498,7 @@ describe('claude-code provider definition', () => {
 
 function textRequest(): ProviderRequest {
   return {
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     system: 'system instructions',
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'prior user' }] },

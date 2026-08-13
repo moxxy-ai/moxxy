@@ -329,6 +329,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: optionalWorkspace,
     prompt: z.string().max(1_000_000),
     model: z.string().min(1).max(256).optional(),
+    visibility: z.enum(['foreground', 'background']).optional(),
     attachments: z
       .array(
         z.object({
@@ -379,6 +380,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       })
       .optional(),
   }),
+  'session.activeTurn': z.object({ workspaceId: optionalWorkspace }).optional(),
   'session.previewAttachment': z
     .object({
       workspaceId: optionalWorkspace,
@@ -534,9 +536,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'mobileGateway.status': z.undefined(),
   'mobileGateway.rotateToken': z.undefined(),
   'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
-  // `before` is a runner `seq` cursor; the page is RAW events. The runner itself
-  // re-validates and caps at its own MAX_HISTORY_PAGE_LIMIT (2000), so bound the
-  // renderer's raw-window request to that ceiling.
+  // `before` is a session-log `seq` cursor; the page is RAW events. Both the
+  // connected runner and host-side startup reader cap at the runner's
+  // MAX_HISTORY_PAGE_LIMIT (2000), so bind the renderer to that ceiling.
   'chat.loadHistory': z.object({
     workspaceId: z.string().min(1).max(256),
     before: z.number().int().nonnegative().nullable(),

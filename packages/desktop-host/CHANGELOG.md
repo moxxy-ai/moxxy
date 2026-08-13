@@ -1,5 +1,217 @@
 # @moxxy/desktop-host
 
+## 0.14.15
+
+### Patch Changes
+
+- Updated dependencies [84dd2c5]
+  - @moxxy/sdk@0.37.2
+  - @moxxy/core@0.37.2
+  - @moxxy/desktop-ipc-contract@0.14.20
+  - @moxxy/mode-collaborative@0.37.2
+  - @moxxy/plugin-scheduler@0.37.2
+  - @moxxy/plugin-stt-whisper-codex@0.37.2
+  - @moxxy/plugin-vault@0.37.2
+  - @moxxy/plugin-webhooks@0.37.2
+  - @moxxy/runner@0.2.49
+  - @moxxy/workspace-registry@0.2.32
+
+## 0.14.14
+
+### Patch Changes
+
+- Updated dependencies [e80b9d6]
+- Updated dependencies [abd9482]
+- Updated dependencies [5e4ca9f]
+  - @moxxy/sdk@0.37.1
+  - @moxxy/core@0.37.1
+  - @moxxy/desktop-ipc-contract@0.14.19
+  - @moxxy/mode-collaborative@0.37.1
+  - @moxxy/plugin-scheduler@0.37.1
+  - @moxxy/plugin-stt-whisper-codex@0.37.1
+  - @moxxy/plugin-vault@0.37.1
+  - @moxxy/plugin-webhooks@0.37.1
+  - @moxxy/runner@0.2.48
+  - @moxxy/workspace-registry@0.2.31
+
+## 0.14.13
+
+### Patch Changes
+
+- Updated dependencies [78938f8]
+  - @moxxy/sdk@0.37.0
+  - @moxxy/core@0.37.0
+  - @moxxy/desktop-ipc-contract@0.14.18
+  - @moxxy/mode-collaborative@0.37.0
+  - @moxxy/plugin-scheduler@0.37.0
+  - @moxxy/plugin-stt-whisper-codex@0.37.0
+  - @moxxy/plugin-vault@0.37.0
+  - @moxxy/plugin-webhooks@0.37.0
+  - @moxxy/runner@0.2.47
+  - @moxxy/workspace-registry@0.2.30
+
+## 0.14.12
+
+### Patch Changes
+
+- @moxxy/runner@0.2.46
+- @moxxy/mode-collaborative@0.36.1
+- @moxxy/sdk@0.36.1
+- @moxxy/core@0.36.1
+- @moxxy/plugin-scheduler@0.36.1
+- @moxxy/plugin-stt-whisper-codex@0.36.1
+- @moxxy/plugin-vault@0.36.1
+- @moxxy/plugin-webhooks@0.36.1
+- @moxxy/desktop-ipc-contract@0.14.17
+- @moxxy/workspace-registry@0.2.29
+
+## 0.14.11
+
+### Patch Changes
+
+- Updated dependencies [bc7844e]
+  - @moxxy/sdk@0.36.0
+  - @moxxy/core@0.36.0
+  - @moxxy/desktop-ipc-contract@0.14.16
+  - @moxxy/mode-collaborative@0.36.0
+  - @moxxy/plugin-scheduler@0.36.0
+  - @moxxy/plugin-stt-whisper-codex@0.36.0
+  - @moxxy/plugin-vault@0.36.0
+  - @moxxy/plugin-webhooks@0.36.0
+  - @moxxy/runner@0.2.45
+  - @moxxy/workspace-registry@0.2.28
+
+## 0.14.10
+
+### Patch Changes
+
+- @moxxy/sdk@0.35.4
+- @moxxy/core@0.35.4
+- @moxxy/plugin-scheduler@0.35.4
+- @moxxy/plugin-stt-whisper-codex@0.35.4
+- @moxxy/plugin-vault@0.35.4
+- @moxxy/plugin-webhooks@0.35.4
+- @moxxy/mode-collaborative@0.35.4
+- @moxxy/desktop-ipc-contract@0.14.15
+- @moxxy/runner@0.2.44
+- @moxxy/workspace-registry@0.2.27
+
+## 0.14.9
+
+### Patch Changes
+
+- c49ab14: Redesign the desktop around one navigation rail, an instrument bar and a trace.
+
+  The app had its navigation split across two organs — a segmented pill in the
+  main-pane header and a list at the foot of the sidebar — so the same kind of
+  decision lived in two places and the header never said where you were. It now has
+  one 52px app rail, a contextual index column beside it, a field with an instrument
+  bar that identifies the run and carries its telemetry, and a tabbed workbench.
+
+  - **Tokens.** A new palette (achromatic panel greys, colour only on data, one
+    accent that means "the human commanded this"), a mono chrome face with a
+    proportional face for prose, and the scales the package never had: spacing,
+    type, frame heights, motion. Gradients are gone.
+  - **Telemetry** (context window, token count, model, mode) moves out of chips
+    inside the composer and into permanent chrome, where the numbers that make you
+    intervene in an unattended run belong.
+  - **The transcript becomes a trace**: every entry hangs off one timeline in a
+    fixed gutter, tool calls group into numbered steps with measured durations, and
+    a blocking approval docks above the command bar instead of floating over the
+    scroll.
+  - **Automations and Channels become destinations.** Workflows, schedules and
+    webhooks left the Apps grab-bag; Mobile became one channel among the rest.
+
+  Also fixes, found while building it: the focus window's dark palette had drifted
+  in one of its three hand-maintained copies, so a system-dark user with no stored
+  theme preference got the light accent on a dark panel; and the renderer fetched
+  its webfonts from a CDN, which meant a cold offline boot rendered in a silent
+  fallback face. Both are gone, and with them the two CSP allowances the font CDN
+  needed.
+
+  - @moxxy/sdk@0.35.3
+  - @moxxy/core@0.35.3
+  - @moxxy/plugin-scheduler@0.35.3
+  - @moxxy/plugin-stt-whisper-codex@0.35.3
+  - @moxxy/plugin-vault@0.35.3
+  - @moxxy/plugin-webhooks@0.35.3
+  - @moxxy/mode-collaborative@0.35.3
+  - @moxxy/desktop-ipc-contract@0.14.14
+  - @moxxy/runner@0.2.43
+  - @moxxy/workspace-registry@0.2.26
+
+## 0.14.8
+
+### Patch Changes
+
+- @moxxy/plugin-stt-whisper-codex@0.35.2
+- @moxxy/sdk@0.35.2
+- @moxxy/core@0.35.2
+- @moxxy/plugin-scheduler@0.35.2
+- @moxxy/plugin-vault@0.35.2
+- @moxxy/plugin-webhooks@0.35.2
+- @moxxy/mode-collaborative@0.35.2
+- @moxxy/desktop-ipc-contract@0.14.13
+- @moxxy/runner@0.2.42
+- @moxxy/workspace-registry@0.2.25
+
+## 0.14.7
+
+### Patch Changes
+
+- @moxxy/plugin-stt-whisper-codex@0.35.1
+- @moxxy/sdk@0.35.1
+- @moxxy/core@0.35.1
+- @moxxy/plugin-scheduler@0.35.1
+- @moxxy/plugin-vault@0.35.1
+- @moxxy/plugin-webhooks@0.35.1
+- @moxxy/mode-collaborative@0.35.1
+- @moxxy/desktop-ipc-contract@0.14.12
+- @moxxy/runner@0.2.41
+- @moxxy/workspace-registry@0.2.24
+
+## 0.14.6
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+  - @moxxy/core@0.35.0
+  - @moxxy/desktop-ipc-contract@0.14.11
+  - @moxxy/mode-collaborative@0.35.0
+  - @moxxy/plugin-scheduler@0.35.0
+  - @moxxy/plugin-stt-whisper-codex@0.35.0
+  - @moxxy/plugin-vault@0.35.0
+  - @moxxy/plugin-webhooks@0.35.0
+  - @moxxy/runner@0.2.40
+  - @moxxy/workspace-registry@0.2.23
+
+## 0.14.5
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [68f7e20]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/core@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-stt-whisper-codex@0.34.0
+  - @moxxy/mode-collaborative@0.34.0
+  - @moxxy/runner@0.2.39
+  - @moxxy/workspace-registry@0.2.22
+  - @moxxy/desktop-ipc-contract@0.14.10
+  - @moxxy/plugin-scheduler@0.34.0
+  - @moxxy/plugin-vault@0.34.0
+  - @moxxy/plugin-webhooks@0.34.0
+
 ## 0.14.4
 
 ### Patch Changes

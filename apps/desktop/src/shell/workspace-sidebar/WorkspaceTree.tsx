@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
-import { SectionHeader } from './SectionHeader';
 import { useMenuKeyboard } from '../useMenuKeyboard';
 
 /**
@@ -11,10 +10,18 @@ import { useMenuKeyboard } from '../useMenuKeyboard';
  * active-desk-only pair (WorkspaceSwitcher card + flat SessionList).
  *
  *   WORKSPACES                                 [+]  ← new workspace
- *   ▾ ▣ blocky                              [+] ⋯   ← toggle / new session / menu
- *       Fix the sign-in bug                          ← session (first-prompt title)
- *       Redesign the sidebar          ●              ← unread dot
- *   ▸ ▣ website                       ●     [+] ⋯   ← collapsed: dot rolls up
+ *   ▾ ▣ BLOCKY                            2 [+] ⋯   ← toggle / count / new / menu
+ *     │ ● Fix the sign-in bug                        ← session (first-prompt title)
+ *     │ ● Redesign the sidebar                       ← rail shows what nests where
+ *   ▸ ▣ WEBSITE                       ●   1 [+] ⋯   ← collapsed: dot rolls up
+ *
+ * Telling the two row kinds apart is the layout's whole job, and it is carried
+ * by four cues at once rather than by any single one: a SQUARE workspace-colour
+ * chip vs a ROUND session LED, the muted header tier vs the dim row tier,
+ * uppercase+letterspaced vs sentence case, and the guide rail + group gap that
+ * make containment visible. They previously shared one colour
+ * (`--color-text-dim` === `--color-sidebar-text-dim`) and a 4px indent, and the
+ * tree read as one flat list.
  *
  * Interaction contract:
  *  - clicking a folder row (or its chevron) toggles collapse — switching
@@ -37,7 +44,6 @@ export function WorkspaceTree({
   unread,
   collapsed,
   busyDeskId,
-  newWorkspaceBusy,
   onToggleCollapse,
   onSelectSession,
   onCreateSession,
@@ -45,7 +51,6 @@ export function WorkspaceTree({
   onRemoveSession,
   onRenameWorkspace,
   onRemoveWorkspace,
-  onNewWorkspace,
 }: {
   readonly desks: ReadonlyArray<Desk>;
   readonly activeDeskId: string | null;
@@ -57,7 +62,6 @@ export function WorkspaceTree({
   readonly collapsed: ReadonlySet<string>;
   /** Desk with a session-create in flight (its [+] disables). */
   readonly busyDeskId: string | null;
-  readonly newWorkspaceBusy?: boolean;
   readonly onToggleCollapse: (deskId: string) => void;
   readonly onSelectSession: (id: string) => void;
   readonly onCreateSession: (deskId: string) => void;
@@ -65,28 +69,9 @@ export function WorkspaceTree({
   readonly onRemoveSession: (session: DeskSession) => void;
   readonly onRenameWorkspace: (desk: Desk) => void;
   readonly onRemoveWorkspace: (desk: Desk) => void;
-  readonly onNewWorkspace: () => void;
 }): JSX.Element {
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <SectionHeader title="Workspaces" style={{ flex: 1, padding: '8px 10px 6px 10px' }} />
-        <button
-          type="button"
-          data-testid="workspace-new"
-          aria-label="new workspace"
-          title="New workspace"
-          onClick={onNewWorkspace}
-          disabled={newWorkspaceBusy}
-          className="row-button"
-          style={{
-            ...iconButtonStyle,
-            opacity: newWorkspaceBusy ? 0.5 : 1,
-          }}
-        >
-          <Icon name="plus" size={14} />
-        </button>
-      </div>
       <ul
         role="tree"
         aria-label="Workspaces"
@@ -96,7 +81,7 @@ export function WorkspaceTree({
           padding: 0,
           display: 'flex',
           flexDirection: 'column',
-          gap: 1,
+          gap: 'var(--space-6)',
         }}
       >
         {desks.map((desk) => {
@@ -104,7 +89,14 @@ export function WorkspaceTree({
           const hasUnread =
             desk.sessions.some((s) => unread.has(s.id)) || unread.has(desk.id);
           return (
-            <li key={desk.id} role="treeitem" aria-expanded={!isCollapsed}>
+            <li
+              key={desk.id}
+              role="treeitem"
+              aria-expanded={!isCollapsed}
+              data-testid={`workspace-group-${desk.id}`}
+              data-active={desk.id === activeDeskId}
+              data-collapsed={isCollapsed}
+            >
               <FolderRow
                 desk={desk}
                 active={desk.id === activeDeskId}
@@ -122,8 +114,9 @@ export function WorkspaceTree({
                   aria-label={`sessions in ${desk.name}`}
                   style={{
                     listStyle: 'none',
-                    margin: 0,
-                    padding: 0,
+                    margin: '2px 0 0 var(--space-12)',
+                    padding: '0 0 0 var(--space-8)',
+                    borderLeft: '1px solid var(--color-sidebar-border)',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 1,
@@ -213,9 +206,9 @@ function FolderRow({
         display: 'flex',
         alignItems: 'center',
         gap: 6,
-        minHeight: 32,
-        padding: '4px 4px 4px 4px',
-        borderRadius: 8,
+        minHeight: 'var(--frame-row)',
+        padding: '2px var(--space-4)',
+        borderRadius: 'var(--radius-block)',
         cursor: 'pointer',
         color: 'var(--color-sidebar-text)',
       }}
@@ -256,22 +249,26 @@ function FolderRow({
       </button>
       <span
         aria-hidden
+        data-testid={`desk-chip-${desk.id}`}
         style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          width: 8,
+          height: 8,
           flexShrink: 0,
-          color: desk.color,
+          borderRadius: 'var(--radius-tag)',
+          background: desk.color,
+          opacity: active || !collapsed ? 1 : 0.55,
+          transition: 'opacity 120ms ease',
         }}
-      >
-        <Icon name="folder" size={14} />
-      </span>
+      />
       <span
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: 13,
-          fontWeight: active ? 700 : 600,
+          fontSize: 'var(--type-label)',
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: 'var(--color-text-muted)',
+          fontWeight: 600,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -281,6 +278,20 @@ function FolderRow({
         {desk.name}
       </span>
       {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
+      {/* How many conversations are in here. The row is a GROUP header, and a
+          group header that does not say how much it contains makes you expand it
+          to find out. */}
+      <span
+        aria-hidden
+        style={{
+          flexShrink: 0,
+          paddingRight: 'var(--space-4)',
+          fontSize: 'var(--type-label)',
+          color: 'var(--color-text-dim)',
+        }}
+      >
+        {desk.sessions.length}
+      </span>
       <ActionsOverlay show={showActions || busy} background={HOVER_ROW_BG}>
         <button
           type="button"
@@ -336,6 +347,7 @@ function SessionRow({
   // now, so pinning them open on the active row would permanently cover
   // the end of its title.
   const showActions = hot || menuOpen;
+  const meta = sessionMeta(s);
 
   return (
     <li>
@@ -349,6 +361,9 @@ function SessionRow({
         tabIndex={0}
         aria-label={`open session ${s.name}`}
         aria-current={active ? 'true' : undefined}
+        // The row ellipsizes, so the full name is exactly what a tooltip is for —
+        // and ours says it in 140ms instead of the OS's second and a half.
+        data-tip={s.name}
         onClick={onSelect}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -360,7 +375,7 @@ function SessionRow({
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
         onBlurCapture={() => setHot(false)}
-        className={active ? undefined : 'row-button'}
+        className={active ? 'session-row tip' : 'session-row row-button tip'}
         style={{
           position: 'relative',
           // While its ⋯ menu is open, lift this row above the rows below
@@ -371,32 +386,58 @@ function SessionRow({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          minHeight: 32,
-          padding: '4px 4px 4px 32px',
-          borderRadius: 8,
+          minHeight: 'var(--frame-row)',
+          padding: '2px var(--space-6) 2px var(--space-4)',
+          borderRadius: 'var(--radius-block)',
           cursor: 'pointer',
-          background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+          background: active ? 'var(--color-card-bg)' : 'transparent',
           color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
           fontWeight: active ? 600 : 400,
+          // The strap is a ::before (see `.session-row` in styles.css), NOT an
+          // inset box-shadow: an inset shadow is clipped by the row's border
+          // radius, so it curved around the corners and read as an outline — the
+          // exact thing removing the hairline was meant to stop.
+
         }}
       >
+        {/* An LED, like everywhere else in the frame: unread activity is the one
+            state this surface actually knows about, so it is the one it reports.
+            It also replaces the trailing dot, which said the same thing at the
+            far end of the row where the eye had to go looking. */}
+        {unread ? (
+          <span className="led" data-state="running" role="img" aria-label="unread activity" />
+        ) : (
+          <span className="led" aria-hidden />
+        )}
         <span
           style={{
             flex: 1,
             minWidth: 0,
-            fontSize: 13,
+            fontSize: 'var(--type-row)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           }}
-          title={s.name}
         >
           {s.name}
         </span>
-        {unread && <UnreadDot label="unread activity" />}
+        {meta !== null && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 'var(--type-label)',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            {meta}
+          </span>
+        )}
         <ActionsOverlay
           show={showActions}
-          background={active ? 'var(--color-sidebar-bg-active)' : HOVER_ROW_BG}
+          // Must match the row's CURRENT background or the mask paints a patch of
+          // some other colour behind the buttons. The active row is a raised card
+          // now, not the wash this used to name.
+          background={active ? 'var(--color-card-bg)' : HOVER_ROW_BG}
         >
           <RowMenu
             kind="session"
@@ -412,6 +453,28 @@ function SessionRow({
       </div>
     </li>
   );
+}
+
+/**
+ * The right-hand reading on a session row.
+ *
+ * `DeskSession` carries `lastActivity` and `eventCount` and nothing else about
+ * state, so this reports elapsed time since the session was last touched — and
+ * returns null rather than inventing a value when the field is absent. A run
+ * state (running / awaiting / failed) would be better and is not in the payload;
+ * it belongs to a protocol change, not to a formatter that guesses.
+ */
+function sessionMeta(session: DeskSession): string | null {
+  const raw = session.lastActivity;
+  if (!raw) return null;
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return null;
+  const mins = Math.floor((Date.now() - at) / 60_000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 /**
@@ -453,7 +516,7 @@ function ActionsOverlay({
         pointerEvents: show ? 'auto' : 'none',
         transition: 'opacity 120ms ease',
         background: `linear-gradient(to right, transparent, ${background} 16px)`,
-        borderRadius: 7,
+        borderRadius: 'var(--radius-block)',
       }}
     >
       {children}
@@ -461,21 +524,11 @@ function ActionsOverlay({
   );
 }
 
+/** The rolled-up unread marker on a COLLAPSED folder row. Uses the frame's LED so
+ *  "there is activity in here" looks the same whether it is on a session row or
+ *  summarised onto the group above it. */
 function UnreadDot({ label }: { readonly label: string }): JSX.Element {
-  return (
-    <span
-      aria-label={label}
-      title="New activity"
-      style={{
-        width: 6,
-        height: 6,
-        borderRadius: '50%',
-        background: 'var(--color-primary)',
-        flexShrink: 0,
-        boxShadow: '0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent)',
-      }}
-    />
-  );
+  return <span className="led" data-state="running" role="img" aria-label={label} />;
 }
 
 /** The hover-only ⋯ trigger + its tiny Rename/Delete popover, shared by
@@ -529,7 +582,7 @@ function RowMenu({
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, onOpenChange]);
+  }, [menuRef, open, onOpenChange]);
 
   useEffect(() => {
     if (!open) {
@@ -554,10 +607,10 @@ function RowMenu({
     gap: 8,
     width: '100%',
     padding: '7px 10px',
-    fontSize: 12.5,
+    fontSize: 'var(--type-row)',
     fontWeight: 500,
     textAlign: 'left',
-    borderRadius: 7,
+    borderRadius: 'var(--radius-block)',
     cursor: 'pointer',
   };
 
@@ -583,8 +636,8 @@ function RowMenu({
               padding: 4,
               background: 'var(--color-sidebar-bg)',
               border: '1px solid var(--color-sidebar-border)',
-              borderRadius: 10,
-              boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+              borderRadius: 'var(--radius-card)',
+              boxShadow: 'var(--color-card-shadow)',
             }}
           >
             <button
@@ -639,7 +692,7 @@ function RowMenu({
             justifyContent: 'center',
             width: 24,
             height: 24,
-            borderRadius: 7,
+            borderRadius: 'var(--radius-block)',
             color: 'var(--color-sidebar-text-dim)',
             opacity: visible ? 0.9 : 0,
             background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
@@ -680,7 +733,7 @@ const iconButtonStyle: React.CSSProperties = {
   justifyContent: 'center',
   width: 24,
   height: 24,
-  borderRadius: 7,
+  borderRadius: 'var(--radius-block)',
   color: 'var(--color-sidebar-text-dim)',
   flexShrink: 0,
 };

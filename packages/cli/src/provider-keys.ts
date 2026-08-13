@@ -1,5 +1,7 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { providerApiKeyName } from '@moxxy/plugin-provider-admin';
+// Subpath, not the barrel: the barrel pulls in the OpenAI SDK (see key-name.ts).
+// Subpath, not the barrel: the barrel pulls in the OpenAI SDK (see key-name.ts).
+import { providerApiKeyName } from '@moxxy/plugin-provider-admin/key-name';
 import { MoxxyError } from '@moxxy/sdk';
 import * as readline from 'node:readline/promises';
 
@@ -115,7 +117,7 @@ export async function resolveProviderApiKey(
       throw new MoxxyError({
         code: 'AUTH_NO_CREDENTIALS',
         message: `No ${canonical} provided at the prompt.`,
-        hint: `Set ${canonical} as an environment variable, or run \`moxxy init\` to store it in the vault.`,
+        hint: `Set ${canonical} as an environment variable, or run \`moxxy onboard\` to store it in the vault.`,
         context: { provider: providerName, env_var: canonical },
       });
     }
@@ -135,7 +137,7 @@ export async function resolveProviderApiKey(
     message: `No API key found for provider '${providerName}'.`,
     hint:
       `Set the ${canonical} environment variable, store it in the vault, or ` +
-      `run \`moxxy init\` in an interactive terminal to be prompted.`,
+      `run \`moxxy onboard\` in an interactive terminal to be prompted.`,
     context: { provider: providerName, env_var: canonical },
   });
 }

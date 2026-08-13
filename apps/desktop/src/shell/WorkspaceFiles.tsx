@@ -301,8 +301,8 @@ function Row({
         width: '100%',
         padding: '4px 6px',
         paddingLeft: 6 + level * 12,
-        borderRadius: 6,
-        fontSize: 12,
+        borderRadius: 'var(--radius-chip)',
+        fontSize: 'var(--type-row)',
         color: kind === 'dir' ? 'var(--color-text)' : 'var(--color-text-muted)',
         fontWeight: kind === 'dir' ? 600 : 500,
         textAlign: 'left',
@@ -342,7 +342,7 @@ function LoadingRow({ level }: { readonly level: number }): JSX.Element {
       style={{
         padding: '4px 6px',
         paddingLeft: 6 + level * 12,
-        fontSize: 11,
+        fontSize: 'var(--type-meta)',
         color: 'var(--color-text-dim)',
         fontStyle: 'italic',
       }}
@@ -366,7 +366,7 @@ function ErrorRow({
       style={{
         padding: '4px 6px',
         paddingLeft: 6 + level * 12,
-        fontSize: 11,
+        fontSize: 'var(--type-meta)',
         color: 'var(--color-red)',
         whiteSpace: 'nowrap',
         overflow: 'hidden',

@@ -95,7 +95,7 @@ export class ElevenLabsSynthesizer implements Synthesizer {
   constructor(opts: ElevenLabsSynthesizerOptions = {}) {
     this.explicitKey = opts.apiKey;
     this.getSecret = opts.getSecret;
-    this.baseURL = (opts.baseURL ?? 'https://api.elevenlabs.io/v1').replace(/\/+$/, '');
+    this.baseURL = trimTrailingSlashes(opts.baseURL ?? 'https://api.elevenlabs.io/v1');
     this.model = opts.model ?? 'eleven_multilingual_v2';
     this.voiceId = opts.voiceId ?? DEFAULT_VOICE_ID;
     this.format = opts.format ?? 'mp3_44100_128';
@@ -208,6 +208,12 @@ export class ElevenLabsSynthesizer implements Synthesizer {
     this.key = resolved;
     return resolved;
   }
+}
+
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 /**

@@ -46,9 +46,9 @@ export const Colors = {
   mode: 'magenta',
 } as const;
 
-/** Shared border style used by InputBox, ListPicker, dialog panels. */
+/** Shared square hairline used by the workspace frame, input, and dialogs. */
 export const Border = {
-  style: 'round' as const,
+  style: 'single' as const,
   color: Colors.chrome,
   dim: true,
 } as const;
