@@ -74,7 +74,7 @@ jobs:
       desktop-version: ${{ steps.cut.outputs.version }}
       desktop-sha: ${{ steps.cut.outputs.sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Versioning + publishing live on `development`; `main` is advanced from
           # it below. fetch-depth 0 so the version-bump and tombstone-bump pushes
@@ -219,7 +219,7 @@ jobs:
       # guard scans (and every desktop job builds from) precisely what will
       # ship under the desktop-v tag. The tag itself doesn't exist yet (it is
       # pushed only after the builds succeed), which is why this is a sha.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
       # A pk_live_ Clerk key must never live in the repo (only the public
@@ -262,7 +262,7 @@ jobs:
       # the desktop-v<version> tag that desktop-release will push at this same
       # sha — never main's HEAD, which may have moved on. (The tag can't be
       # used here: it intentionally doesn't exist until the builds succeed.)
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
 
