@@ -74,7 +74,7 @@ jobs:
       desktop-version: ${{ steps.cut.outputs.version }}
       desktop-sha: ${{ steps.cut.outputs.sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Versioning + publishing live on `development`; `main` is advanced from
           # it below. fetch-depth 0 so the version-bump and tombstone-bump pushes
@@ -219,7 +219,7 @@ jobs:
       # guard scans (and every desktop job builds from) precisely what will
       # ship under the desktop-v tag. The tag itself doesn't exist yet (it is
       # pushed only after the builds succeed), which is why this is a sha.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
       # A pk_live_ Clerk key must never live in the repo (only the public
@@ -262,7 +262,7 @@ jobs:
       # the desktop-v<version> tag that desktop-release will push at this same
       # sha — never main's HEAD, which may have moved on. (The tag can't be
       # used here: it intentionally doesn't exist until the builds succeed.)
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.version-publish.outputs.desktop-sha }}
 
@@ -344,7 +344,7 @@ jobs:
 
       - name: Upload app update bundle
         if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-update-bundle
           path: |
@@ -442,7 +442,7 @@ jobs:
 
       - name: Upload signing status
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-signing-status
           path: ${{ runner.temp }}/signing-status/signing-status.txt
@@ -471,7 +471,7 @@ jobs:
           pnpm --filter @moxxy/desktop exec electron-builder --publish never $EXTRA
 
       - name: Upload installers
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-${{ matrix.artifact }}
           path: |
@@ -490,7 +490,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all installers
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
           merge-multiple: true
