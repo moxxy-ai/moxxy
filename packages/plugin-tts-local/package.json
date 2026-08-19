@@ -55,7 +55,7 @@
   "dependencies": {
     "@moxxy/model-fetch": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "sherpa-onnx-node": "^1.13.3"
+    "sherpa-onnx-node": "^1.13.5"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
