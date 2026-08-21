@@ -129,3 +129,41 @@ describe('formatSnapshot — reusing an already-rendered tree', () => {
     expect(out).toContain('Sklep');
   });
 });
+
+describe('formatSnapshot — a page that is waiting on a person', () => {
+  /**
+   * The envelope already answers "which page am I on" and "is this trustworthy"
+   * unprompted. A wall is the third thing worth saying every time: without it
+   * the model has to infer from a pile of buttons that the page has stopped
+   * being readable, and the cheapest wrong guess is pressing "Accept all".
+   */
+  const consentPage = {
+    uid: '1',
+    role: 'RootWebArea',
+    name: 'Zanim przejdziesz do Google',
+    children: [{ uid: '2', role: 'button', name: 'Zaakceptuj wszystko', children: [] }],
+  };
+
+  it('says so above the page content, not buried in it', () => {
+    const out = formatSnapshot({
+      tree: consentPage,
+      url: 'https://www.google.com/search?q=koty',
+      title: 'Zanim przejdziesz do Google',
+      tabs: [],
+    });
+
+    expect(out).toContain('browser_await_human');
+    expect(out.indexOf('browser_await_human')).toBeLessThan(out.indexOf('### Snapshot'));
+  });
+
+  it('stays quiet on a page that is simply a page', () => {
+    const out = formatSnapshot({
+      tree: { uid: '1', role: 'RootWebArea', name: 'Sklep', children: [] },
+      url: 'https://sklep.pl',
+      title: 'Sklep',
+      tabs: [],
+    });
+
+    expect(out).not.toContain('browser_await_human');
+  });
+});

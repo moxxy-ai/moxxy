@@ -21,8 +21,13 @@ describe('normalizeAddress', () => {
 
   it('treats a phrase as a search, not a hostname', () => {
     const out = normalizeAddress('plakat na instagram');
-    expect(out).toContain('duckduckgo.com');
+    expect(out).toContain('google.com/search');
     expect(out).toContain('plakat');
+  });
+
+  it('escapes what was typed instead of pasting it into the query', () => {
+    // A phrase with an ampersand would otherwise become two query parameters.
+    expect(normalizeAddress('koty & psy')).toContain(encodeURIComponent('koty & psy'));
   });
 
   it('trims surrounding whitespace', () => {

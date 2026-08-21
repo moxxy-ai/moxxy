@@ -1,4 +1,6 @@
 import { formatAxTree } from './format.js';
+import { MASKED_VALUE, SECRET_LABEL } from './labels.js';
+import { detectWall, wallNote } from './wall.js';
 import type { AxNode } from './tree.js';
 
 /**
@@ -51,17 +53,6 @@ export const UNTRUSTED_NOTE =
 /** Placeholder substituted for anything that looks like a credential. */
 const REDACTED = '[redacted]';
 
-/**
- * Field labels whose value must never reach the model. Deliberately broad and
- * multi-lingual: the cost of over-redacting a value is that the model has to
- * ask, while the cost of under-redacting is a credential in the transcript,
- * the event log and every downstream consumer of it.
- */
-const SECRET_LABEL = /(pass|hasł|hasl|passw|senha|contrase|kennwort|secret|token|otp|2fa|mfa|\bpin\b|cvv|cvc|security code|kod sms|verification code)/i;
-
-/** A value already rendered as bullets is a masked input whatever its label. */
-const MASKED_VALUE = /^[•*·●]{3,}$/;
-
 function isSecret(node: AxNode): boolean {
   if (node.value === undefined || node.value === '') return false;
   if (MASKED_VALUE.test(node.value)) return true;
@@ -101,6 +92,12 @@ export function formatSnapshot(input: SnapshotInput): string {
   if (input.tabs.length > 0) {
     sections.push('### Open tabs', ...input.tabs.map(tabRow));
   }
+
+  // Ahead of the content, because it changes what the agent should do with
+  // everything below it: a page that has stopped being readable and started
+  // asking for a person is not a page to act on.
+  const wall = detectWall(input.tree);
+  if (wall) sections.push('### Needs you', wallNote(wall));
 
   sections.push('### Untrusted page content', UNTRUSTED_NOTE, '### Snapshot');
   sections.push(

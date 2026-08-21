@@ -50,8 +50,15 @@ export interface BrowserTabsApi {
  */
 export const BROWSER_PARTITION_NAME = 'persist:moxxy-browser';
 
-/** Where a fresh tab starts. */
-export const HOME_URL = 'https://duckduckgo.com';
+/**
+ * Where a fresh tab starts, and what a typed phrase is searched with.
+ *
+ * On a profile that has never been there, Google answers with the EU consent
+ * wall rather than results. That is not a wall the agent may clear — the choice
+ * is the user's — so the snapshot flags it and the agent hands over. The
+ * partition is persistent, so it is asked once and then never again.
+ */
+export const HOME_URL = 'https://www.google.com';
 
 /** Turn what the user typed into something navigable. */
 export function normalizeAddress(input: string): string | null {
@@ -60,7 +67,7 @@ export function normalizeAddress(input: string): string | null {
   if (/^https?:\/\//i.test(raw)) return raw;
   // A bare host gets https; anything with a space is a search, not an address.
   if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(raw)) return `https://${raw}`;
-  return `https://duckduckgo.com/?q=${encodeURIComponent(raw)}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
 }
 
 export function useBrowserTabs(): BrowserTabsApi {

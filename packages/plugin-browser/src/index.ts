@@ -37,6 +37,7 @@ export {
 export { buildAxTree, type AxNode, type AxNodeRaw, type AxTree } from './ax/tree.js';
 export { formatAxTree, MAX_LABEL_CHARS, MAX_TREE_DEPTH } from './ax/format.js';
 export { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from './ax/snapshot.js';
+export { detectWall, wallNote, type WallKind } from './ax/wall.js';
 
 export interface BuildBrowserPluginOptions extends BrowserSessionDeps {
   readonly webSearch?: BuildWebSearchToolOptions;
