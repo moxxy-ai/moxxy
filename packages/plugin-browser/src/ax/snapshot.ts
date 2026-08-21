@@ -27,6 +27,14 @@ export interface SnapshotInput {
   readonly url: string;
   readonly title: string;
   readonly tabs: ReadonlyArray<TabInfo>;
+  /**
+   * The tree, already rendered.
+   *
+   * A caller that had to render it anyway — to tell whether the page changed
+   * since the last read — would otherwise pay for rendering twice, which on a
+   * large document is the expensive half of a snapshot.
+   */
+  readonly body?: string;
 }
 
 /**
@@ -95,7 +103,10 @@ export function formatSnapshot(input: SnapshotInput): string {
   }
 
   sections.push('### Untrusted page content', UNTRUSTED_NOTE, '### Snapshot');
-  sections.push(input.tree ? formatAxTree(redactSecretValues(input.tree)) : '(strona nie udostępnia drzewa dostępności)');
+  sections.push(
+    input.body ??
+      (input.tree ? formatAxTree(redactSecretValues(input.tree)) : '(strona nie udostępnia drzewa dostępności)'),
+  );
 
   return sections.join('\n');
 }

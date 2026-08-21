@@ -15,6 +15,7 @@ const AX_NODES = [
 ];
 
 function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { navigateError?: string } = {}) {
+  let axNodes: unknown[] = AX_NODES;
   let current = url;
   let attached = false;
   let reloads = 0;
@@ -69,7 +70,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       },
       sendCommand: async (method, params) => {
         sent.push({ method, params });
-        if (method === 'Accessibility.getFullAXTree') return { nodes: AX_NODES };
+        if (method === 'Accessibility.getFullAXTree') return { nodes: axNodes };
         if (method === 'DOM.getBoxModel') return { model: { content: [0, 0, 80, 0, 80, 40, 0, 40] } };
         if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
         if (method === 'DOM.querySelector') {
@@ -106,6 +107,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       back.push(current);
       current = u;
     },
+    /** Let a test change what the page says, the way a real page would. */
+    setPage: (nodes: unknown[]) => (axNodes = nodes),
     emit: (event: string) => {
       for (const fn of [...(listeners.get(event) ?? [])]) fn();
     },
@@ -559,5 +562,146 @@ describe('BrowserHost — whose tab is whose', () => {
     host.noteAgentTab('t99');
 
     expect(host.agentTarget()).toBe('t1');
+  });
+});
+
+describe('BrowserHost — not re-reading a page that has not moved', () => {
+  /**
+   * The agent looks again after every action, and most of the time the page is
+   * exactly as it left it. Measured on a Wikipedia article: the second read is
+   * 100% identical to the first and costs the same ~25k tokens. Saying "nothing
+   * changed" costs a line.
+   */
+  const CHANGED = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaplac teraz' }, backendDOMNodeId: 31 },
+  ];
+
+  it('says so instead of sending the tree again', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const first = String(((await host.snapshot()).result as { text: string }).text);
+    const second = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(first).toContain('Do kasy');
+    expect(second).not.toContain('Do kasy');
+    expect(second).toMatch(/unchanged/i);
+    expect(second.length).toBeLessThan(first.length / 2);
+  });
+
+  it('leaves the uids from that page usable', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    await host.snapshot();
+
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+  });
+
+  it('sends the whole tree again the moment the page differs', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    a.setPage(CHANGED);
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('Zaplac teraz');
+    expect(text).not.toMatch(/unchanged/i);
+  });
+
+  it('never answers "unchanged" for a page it has not read before', async () => {
+    const a = fakeWc(1);
+    const b = fakeWc(2, 'https://inny.pl', 'Inny');
+    const host = hostWith(a, b);
+    host.register(1);
+    host.register(2);
+    await host.snapshot('t1');
+
+    const text = String(((await host.snapshot('t2')).result as { text: string }).text);
+
+    expect(text).toContain('Do kasy');
+  });
+
+  it('forgets what it read once the tab navigates', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    await host.goto('https://sklep.pl/koszyk');
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('Do kasy');
+    expect(text).not.toMatch(/unchanged/i);
+  });
+});
+
+describe('BrowserHost — letting go of a tab nobody is using', () => {
+  /**
+   * Chromium builds no accessibility tree until something asks, and maintains
+   * one across every DOM mutation once it has. Measured: +49 MB on a Wikipedia
+   * article, held for the life of the tab, because the host only ever detached
+   * when the tab closed.
+   */
+  const idle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('turns the tree off and detaches once the agent stops working', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost(() => a.wc, 30);
+    host.register(1);
+    await host.snapshot();
+    expect(a.isAttached()).toBe(true);
+
+    await idle(90);
+
+    expect(a.sent.some((s) => s.method === 'Accessibility.disable')).toBe(true);
+    expect(a.isAttached()).toBe(false);
+  });
+
+  it('holds on while the agent is still working the tab', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost(() => a.wc, 60);
+    host.register(1);
+
+    await host.snapshot();
+    await idle(35);
+    await host.snapshot();
+    await idle(35);
+
+    expect(a.isAttached()).toBe(true);
+  });
+
+  it('picks the tab back up on the next read', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost(() => a.wc, 30);
+    host.register(1);
+    await host.snapshot();
+    await idle(90);
+    expect(a.isAttached()).toBe(false);
+
+    const reply = await host.snapshot();
+
+    expect(reply.ok).toBe(true);
+    expect(a.isAttached()).toBe(true);
+    expect(String((reply.result as { text: string }).text)).toContain('Do kasy');
+  });
+
+  it('drops the countdown with the tab, so nothing fires into a closed view', async () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost(() => a.wc, 30);
+    host.register(1);
+    await host.snapshot();
+
+    host.closeAll();
+    await idle(90);
+
+    expect(a.isAttached()).toBe(false);
   });
 });

@@ -1,6 +1,9 @@
+import { createHash } from 'node:crypto';
 import {
   buildAxTree,
+  formatAxTree,
   formatSnapshot,
+  redactSecretValues,
   type AxNode,
   type TabInfo,
 } from '@moxxy/plugin-browser';
@@ -63,6 +66,10 @@ interface Tab {
   snapshot?: { index: ReadonlyMap<string, AxNode>; url: string };
   /** Detach the page-change listeners this host put on the view. */
   unwatch?: () => void;
+  /** Fingerprint of the page the last snapshot described. */
+  seen?: string;
+  /** Countdown to releasing this tab's accessibility tree. */
+  idle?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -74,6 +81,17 @@ interface Tab {
  * strip naming something that was no longer on screen.
  */
 const PAGE_CHANGE_EVENTS = ['page-title-updated', 'did-navigate', 'did-navigate-in-page'] as const;
+
+/**
+ * How long a tab may go untouched before its accessibility tree is handed back.
+ *
+ * Chromium builds no such tree until something asks for one, and then maintains
+ * it across every DOM mutation. Measured on a Wikipedia article: 49 MB, held for
+ * as long as the tab lived, because the only thing that ever detached was
+ * closing it. Thirty seconds is long enough that a thinking agent does not keep
+ * paying to re-enable, short enough that a tab left open stops costing.
+ */
+const IDLE_RELEASE_MS = 30_000;
 
 export interface HostReply {
   ok: boolean;
@@ -126,7 +144,11 @@ export class BrowserHost {
   private handoffSeq = 0;
   private askHuman: ((req: { requestId: string; tabId: string; reason: string }) => void) | null = null;
 
-  constructor(private readonly lookup: WebContentsLookup) {}
+  constructor(
+    private readonly lookup: WebContentsLookup,
+    /** Overridable so a test does not have to wait half a minute. */
+    private readonly idleReleaseMs: number = IDLE_RELEASE_MS,
+  ) {}
 
   /** Wire the channel main uses to ask the renderer for a new view. */
   setOpener(fn: ((req: { requestId: string; url: string }) => void) | null): void {
@@ -169,6 +191,7 @@ export class BrowserHost {
       // Whatever happened on screen, the old uids describe a page that has
       // almost certainly moved on.
       delete tab.snapshot;
+      delete tab.seen;
       return ok({ tabId: tab.id, completed: done });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -264,6 +287,7 @@ export class BrowserHost {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
     tab.unwatch?.();
+    if (tab.idle) clearTimeout(tab.idle);
     this.detachDebugger(tab);
     this.tabs.delete(tabId);
     if (this.active === tabId) this.active = this.tabs.keys().next().value ?? null;
@@ -317,6 +341,7 @@ export class BrowserHost {
       const open = [...this.tabs.keys()];
       throw new Error(`unknown tab_id ${id}${open.length ? ` — open tabs: ${open.join(', ')}` : ''}`);
     }
+    this.touch(tab);
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) {
       this.tabs.delete(tab.id);
@@ -334,6 +359,43 @@ export class BrowserHost {
   } {
     if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
     return { send: (method, params) => wc.debugger.sendCommand(method, params ?? {}) };
+  }
+
+  /**
+   * Restart a tab's countdown. Called from `resolve`, so any work at all on a
+   * tab counts as the agent still being interested in it.
+   */
+  private touch(tab: Tab): void {
+    if (tab.idle) clearTimeout(tab.idle);
+    tab.idle = setTimeout(() => this.releaseTree(tab), this.idleReleaseMs);
+    // Nothing here is worth keeping the process alive for.
+    tab.idle.unref?.();
+  }
+
+  /**
+   * Give the accessibility tree back and let go of the debugger.
+   *
+   * The uids stay: they point at DOM nodes, which outlive the accessibility
+   * tree, and the next read re-enables the domain on its own. What is dropped is
+   * the fingerprint — a page read after this gap deserves a fresh look rather
+   * than an "unchanged" that skipped over whatever happened in between.
+   */
+  private releaseTree(tab: Tab): void {
+    if (tab.idle) clearTimeout(tab.idle);
+    delete tab.idle;
+    delete tab.seen;
+    const wc = this.lookup(tab.webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    try {
+      if (wc.debugger.isAttached()) {
+        void Promise.resolve(wc.debugger.sendCommand('Accessibility.disable', {})).catch(() => {
+          // The view is going away; there is nothing left to disable.
+        });
+      }
+    } catch {
+      // As above.
+    }
+    this.detachDebugger(tab);
   }
 
   private detachDebugger(tab: Tab): void {
@@ -359,11 +421,35 @@ export class BrowserHost {
       const nodes = Array.isArray(reply?.nodes) ? reply.nodes : [];
       const tree = nodes.length > 0 ? buildAxTree(nodes) : null;
       const url = wc.getURL();
+      const title = wc.getTitle();
 
       if (tree) tab.snapshot = { index: tree.index, url };
       else delete tab.snapshot;
 
-      const text = formatSnapshot({ tree, url, title: wc.getTitle(), tabs: this.list() });
+      // Render once. The fingerprint is taken from the rendering rather than
+      // from the raw CDP reply, because that is what would actually be sent —
+      // and it deliberately leaves out the tab list, which another tab can
+      // change without this page having moved at all.
+      const body = tree
+        ? formatAxTree(redactSecretValues(tree))
+        : '(strona nie udostępnia drzewa dostępności)';
+      const fingerprint = createHash('sha1').update(`${url}\n${title}\n${body}`).digest('hex');
+
+      if (tab.seen === fingerprint) {
+        return ok({
+          text:
+            `### Page\n- URL: ${url}\n- Title: ${title}\n` +
+            `### Snapshot\nunchanged since your last snapshot of tab ${tab.id} — ` +
+            `the uids you already have are still valid. Act, then read again.`,
+          tabId: tab.id,
+          url,
+          nodes: tree ? tree.index.size : 0,
+          unchanged: true,
+        });
+      }
+      tab.seen = fingerprint;
+
+      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body });
       return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0 });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -506,6 +592,7 @@ export class BrowserHost {
       if (action === 'back' && !wc.navigationHistory.canGoBack()) return fail('nothing to go back to');
       if (action === 'forward' && !wc.navigationHistory.canGoForward()) return fail('nothing to go forward to');
       delete tab.snapshot;
+      delete tab.seen;
       if (action === 'back') wc.navigationHistory.goBack();
       else if (action === 'forward') wc.navigationHistory.goForward();
       else wc.reload();
@@ -659,6 +746,7 @@ export class BrowserHost {
   closeAll(): void {
     for (const tab of this.tabs.values()) {
       tab.unwatch?.();
+      if (tab.idle) clearTimeout(tab.idle);
       this.detachDebugger(tab);
     }
     this.tabs.clear();
@@ -693,6 +781,7 @@ export class BrowserHost {
     try {
       const { tab, wc } = this.resolve(tabId);
       delete tab.snapshot;
+      delete tab.seen;
       const reply = (await this.cdp(wc).send('Page.navigate', { url })) as { errorText?: string };
       if (reply?.errorText) return fail(`could not open ${url}: ${reply.errorText}`);
       this.changed();

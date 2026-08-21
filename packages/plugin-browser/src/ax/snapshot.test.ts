@@ -97,3 +97,35 @@ describe('formatSnapshot', () => {
     expect(out).toContain('t1');
   });
 });
+
+describe('formatSnapshot — reusing an already-rendered tree', () => {
+  /**
+   * The host has to render the tree to know whether the page changed since the
+   * last read. Rendering it a second time to build the envelope would double
+   * the cost of every snapshot — 600ms on a page the size of a Wikipedia
+   * article — so it can hand the rendering back in.
+   */
+  it('uses the body it was given instead of rendering again', () => {
+    const tree = { uid: '1', role: 'RootWebArea', name: 'Sklep', children: [] };
+
+    const out = formatSnapshot({
+      tree,
+      url: 'https://sklep.pl',
+      title: 'Sklep',
+      tabs: [],
+      body: '[1] RootWebArea: "juz-policzone"',
+    });
+
+    expect(out).toContain('juz-policzone');
+    expect(out).not.toContain('Sklep"');
+  });
+
+  it('renders the tree itself when nothing was handed in', () => {
+    const tree = { uid: '1', role: 'RootWebArea', name: 'Sklep', children: [] };
+
+    const out = formatSnapshot({ tree, url: 'https://sklep.pl', title: 'Sklep', tabs: [] });
+
+    expect(out).toContain('RootWebArea');
+    expect(out).toContain('Sklep');
+  });
+});
