@@ -416,7 +416,19 @@ export class BrowserHost {
         };
       }
       this.tabs.set(id, tab);
-      if (this.active === null) this.active = id;
+      /**
+       * Go to the tab that was just opened.
+       *
+       * A view is registered exactly when someone opened a tab — the person
+       * pressed plus, or the agent asked for one. Every browser goes to the tab
+       * it just opened, and staying put is the surprise: you press plus and
+       * nothing appears to happen.
+       *
+       * This moves what the person sees and nothing else. Where the agent is
+       * working is tracked apart from it, which is the same separation that
+       * stops a click in the tab strip from re-aiming the agent.
+       */
+      this.active = id;
       this.changed();
     }
     // Settle the agent's `newTab` if this view is the one it asked for.

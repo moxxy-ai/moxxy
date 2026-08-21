@@ -171,9 +171,55 @@ describe('BrowserHost — adopting views', () => {
     host.register(2);
 
     expect(host.list()).toEqual([
-      { tabId: 't1', url: 'https://a.pl', title: 'A', active: true },
-      { tabId: 't2', url: 'https://b.pl', title: 'B', active: false },
+      { tabId: 't1', url: 'https://a.pl', title: 'A', active: false },
+      { tabId: 't2', url: 'https://b.pl', title: 'B', active: true },
     ]);
+  });
+
+  /**
+   * A tab is registered exactly when someone opened one — the person pressed
+   * plus, or the agent asked for it. Every browser goes to the tab it just
+   * opened, and staying put is the surprise: you press plus and nothing appears
+   * to happen.
+   */
+  it('goes to the tab it just opened', () => {
+    const a = fakeWc(1);
+    const b = fakeWc(2);
+    const host = hostWith(a, b);
+    host.register(1);
+
+    host.register(2);
+
+    expect(host.activeId).toBe('t2');
+  });
+
+  it('stays put when the same view is registered again', () => {
+    const a = fakeWc(1);
+    const b = fakeWc(2);
+    const host = hostWith(a, b);
+    host.register(1);
+    host.register(2);
+    host.select('t1');
+
+    host.register(2);
+
+    expect(host.activeId).toBe('t1');
+  });
+
+  it('does not drag the agent along with it', () => {
+    // Opening a tab moves what the person sees. Where the agent is working is
+    // its own business — that separation is why a click in the strip cannot
+    // re-aim it either.
+    const a = fakeWc(1);
+    const b = fakeWc(2);
+    const host = hostWith(a, b);
+    host.register(1);
+    host.noteAgentTab('t1');
+
+    host.register(2);
+
+    expect(host.activeId).toBe('t2');
+    expect(host.agentTarget()).toBe('t1');
   });
 
   it('notifies listeners when the tab set changes', () => {
