@@ -1090,6 +1090,212 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
+/* --- Browser pane ---------------------------------------------- */
+
+/* The agent's browser. Chrome only — the page is a Chromium view the window
+ * composites, so nothing here paints content.
+ *
+ * Same grammar as the workbench tabs directly above it (flat cells, a hairline
+ * rule between them, the active one lifted onto the page surface with an accent
+ * underline) but one step down in weight and height, so the two tab rows read
+ * as an outer and an inner level instead of competing. Colour stays off the
+ * chrome: the only hues are the accent underline, amber when it is your turn,
+ * and red when something failed. */
+
+.browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Recessed, so the active tab reads as lifted out of it. No accent underline
+ * here: the workbench tab row directly above already carries one, and two
+ * accent rules a few pixels apart compete instead of nesting. Depth does the
+ * work, which keeps the chrome achromatic. */
+.browser__tabs {
+  display: flex;
+  height: var(--frame-row);
+  flex-shrink: 0;
+  min-width: 0;
+  background: var(--color-app-bg);
+  border-bottom: 1px solid var(--color-card-border);
+}
+
+/* Only as wide as the tabs need, so the new-tab button sits against the last
+ * one instead of drifting to the far edge. Past that width the strip scrolls
+ * inside itself — and because the button is outside it, a full strip can never
+ * push the way to make another tab out of reach. */
+.browser__tablist {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.browser__tablist::-webkit-scrollbar { height: 0; }
+
+.browser__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  max-width: 208px;
+  padding-right: var(--space-2);
+  border-right: 1px solid var(--color-card-border);
+  color: var(--color-text-dim);
+}
+.browser__tab:hover { color: var(--color-text); }
+.browser__tab[data-active='true'] {
+  color: var(--color-text);
+  background: var(--color-main-bg);
+}
+/* Paint over the strip's bottom rule so the active tab joins the address row
+ * beneath it, the way a browser tab has always joined its toolbar. */
+.browser__tab[data-active='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--color-main-bg);
+}
+
+.browser__tab-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-4) 0 var(--space-8);
+  color: inherit;
+  font-size: var(--type-meta);
+}
+.browser__tab-name:hover:not(:disabled) { filter: none; }
+.browser__tab-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Present but silent until the tab is wanted: a row of × marks is clutter, and
+ * one that only appears on hover cannot be reached from a keyboard — so focus
+ * reveals it too. */
+.browser__tab-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: var(--radius-chip);
+  color: var(--color-text-dim);
+  opacity: 0;
+  transition: opacity var(--motion-shift) ease;
+}
+.browser__tab:hover .browser__tab-x,
+.browser__tab[data-active='true'] .browser__tab-x,
+.browser__tab-x:focus-visible { opacity: 1; }
+.browser__tab-x:hover:not(:disabled) {
+  filter: none;
+  color: var(--color-text);
+  background: var(--color-input-soft);
+}
+
+/* Immediately after the last tab, not pinned to the far edge: that is where
+ * every browser puts it, and an empty strip with a control marooned at the
+ * other end is what made this pane look assembled rather than designed. */
+.browser__tab-new {
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: var(--space-4);
+}
+
+/* The address row takes its height from the controls in it rather than pinning
+ * a number of its own, so it stays in step if the control size ever moves. */
+.browser__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-6);
+  background: var(--color-main-bg);
+  border-bottom: 1px solid var(--color-card-border);
+}
+
+.browser__address {
+  flex: 1;
+  min-width: 0;
+  height: var(--frame-control);
+  margin: 0 var(--space-4);
+  padding: 0 var(--space-8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: var(--color-input-soft);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+}
+.browser__address:focus {
+  outline: none;
+  border-color: var(--color-card-border-strong);
+  background: var(--color-surface);
+}
+
+/* The agent has stopped and is waiting for the person at the keyboard. Amber is
+ * the one hue in this language that means "your turn". */
+.browser__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  flex-shrink: 0;
+  padding: var(--space-8) var(--space-12);
+  border-bottom: 1px solid var(--color-amber-border);
+  background: var(--color-amber-soft);
+  color: var(--color-amber-text);
+}
+.browser__notice-title {
+  font-size: var(--type-row);
+  font-weight: 600;
+}
+.browser__notice-body {
+  font-size: var(--type-meta);
+  opacity: 0.85;
+}
+.browser__notice-actions {
+  display: flex;
+  gap: var(--space-6);
+  flex-shrink: 0;
+}
+
+.browser__error {
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--color-red-border);
+  background: var(--color-red-soft);
+  color: var(--color-red-text);
+  font-size: var(--type-meta);
+}
+
+.browser__viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--color-main-bg);
+}
+
+.browser__empty {
+  padding: var(--space-24);
+  color: var(--color-text-dim);
+  font-size: var(--type-row);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser__tab-x { transition: none; }
+}
+
 /* --- Small shared controls ------------------------------------- */
 
 /* The quiet icon button used across the chrome (collapse, expand, close). */

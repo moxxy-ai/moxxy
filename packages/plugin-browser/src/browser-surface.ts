@@ -56,6 +56,8 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
     open: (): SurfaceInstance => {
       const dataSubs = new Set<(payload: unknown) => void>();
       let last: Frame | null = null;
+      /** base64 of the frame the viewers already have (see the dedup in tick). */
+      let lastSent: string | null = null;
       let timer: ReturnType<typeof setInterval> | null = null;
       let inFlight = false;
       let fails = 0;
@@ -69,25 +71,41 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
         for (const cb of dataSubs) cb(payload);
       };
 
+      /**
+       * Nobody is looking → nothing to send. The poll used to run for as long
+       * as the surface was open, so a collapsed pane still paid for a
+       * full-viewport JPEG three times a second across four process
+       * boundaries. The agent's own use of the page goes through the tools and
+       * does not need frames at all, so this costs it nothing.
+       */
+      const hasViewers = (): boolean => dataSubs.size > 0;
+
       const stopPolling = (): void => {
         if (timer) clearInterval(timer);
         timer = null;
       };
       const startPolling = (): void => {
-        if (timer) return;
+        if (timer || !hasViewers()) return;
         void tick();
         timer = setInterval(() => void tick(), FRAME_INTERVAL_MS);
       };
 
       const tick = async (): Promise<void> => {
         if (inFlight || needsInstall || installing) return; // don't pile up / retry a known-missing dep
+        if (!hasViewers()) return;
         inFlight = true;
         try {
           const reply = await browserSidecarCall('frame', {}, deps);
           if (!isFrame(reply)) throw new Error('malformed frame reply from sidecar');
           last = reply;
           fails = 0;
-          emit({ type: 'frame', base64: reply.base64, mime: reply.mediaType, url: reply.url });
+          // A still page produces byte-identical frames. Re-sending them is
+          // pure cost: the viewer already shows exactly this image. Late
+          // viewers are served by `snapshot()`, so nothing is lost by holding.
+          if (reply.base64 !== lastSent) {
+            lastSent = reply.base64;
+            emit({ type: 'frame', base64: reply.base64, mime: reply.mediaType, url: reply.url });
+          }
         } catch (err) {
           // The `playwright` npm package is simply absent — recoverable. Pause
           // polling and ask the user (the download is ~200MB) rather than spin on
@@ -131,8 +149,8 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
         setTimeout(() => void tick(), 140);
       };
 
-      // Kick an immediate frame (launches the browser), then poll.
-      startPolling();
+      // Polling now starts when the first viewer attaches (see onData), not
+      // here — an open-but-unwatched surface must cost nothing.
 
       const runInstall = async (): Promise<void> => {
         if (installing) return;
@@ -165,7 +183,16 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
         kind: 'browser',
         onData: (cb) => {
           dataSubs.add(cb);
-          return () => dataSubs.delete(cb);
+          if (dataSubs.size === 1) {
+            // First viewer: forget what the previous one had so this one gets
+            // a push rather than waiting for the page to change.
+            lastSent = null;
+            startPolling();
+          }
+          return () => {
+            dataSubs.delete(cb);
+            if (dataSubs.size === 0) stopPolling();
+          };
         },
         snapshot: () =>
           needsInstall

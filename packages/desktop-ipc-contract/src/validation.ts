@@ -515,6 +515,28 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
         .strict(),
     })
     .strict(),
+  // Agent browser. `webContentsId` selects a live Electron view and `url` is
+  // navigated for real, so both are validated at the boundary rather than
+  // trusted from the renderer.
+  'browser.registerTab': z.object({
+    webContentsId: z.number().int().nonnegative(),
+    requestId: z.string().min(1).max(64).optional(),
+  }),
+  'browser.releaseTab': z.object({ tabId: z.string().min(1).max(64) }),
+  'browser.selectTab': z.object({ tabId: z.string().min(1).max(64) }),
+  'browser.navigate': z.object({
+    url: z.string().url().refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
+    tabId: z.string().min(1).max(64).optional(),
+  }),
+  'browser.capture': z.object({ tabId: z.string().min(1).max(64).optional() }),
+  'browser.history': z.object({
+    action: z.enum(['back', 'forward', 'reload']),
+    tabId: z.string().min(1).max(64).optional(),
+  }),
+  'browser.resolveHandoff': z.object({
+    requestId: z.string().min(1).max(64),
+    completed: z.boolean(),
+  }),
 };
 
 /**

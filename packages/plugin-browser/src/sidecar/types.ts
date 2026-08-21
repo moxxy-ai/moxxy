@@ -77,6 +77,19 @@ export interface RouteHandle {
   continue(): Promise<void>;
 }
 
+/**
+ * A raw Chrome DevTools Protocol channel onto one page.
+ *
+ * This is how the accessibility tree is read: Playwright drives the browser,
+ * but `Accessibility.getFullAXTree` has no Playwright wrapper, so we borrow
+ * the CDP session it already owns rather than adding a second driver. Chromium
+ * only — `newCDPSession` is undefined elsewhere, and callers degrade.
+ */
+export interface CdpSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  detach?(): Promise<void>;
+}
+
 export interface PlaywrightHandle {
   // Loosely typed so we can avoid importing the playwright types at compile time —
   // they're an optional peer dependency.
@@ -86,6 +99,12 @@ export interface PlaywrightHandle {
     close(): Promise<void>;
     /** Optional because the type is a loose projection; real Playwright contexts always have it. */
     route?(pattern: string, handler: (route: RouteHandle) => Promise<void> | void): Promise<void>;
+    /** Every page this context owns, including ones opened by the site. */
+    pages?(): ReadonlyArray<PageHandle>;
+    /** Fires when the site opens a page (popup, `target="_blank"`). */
+    on?(event: 'page', handler: (page: PageHandle) => void): void;
+    /** Chromium only; absent on firefox/webkit, where AX perception degrades. */
+    newCDPSession?(page: PageHandle): Promise<CdpSession>;
   };
   readonly page: PageHandle;
 }

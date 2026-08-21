@@ -152,3 +152,57 @@ describe('resolveProviderTools', () => {
     expect(resolveProviderTools([webSearch], models, 'catalog-drift').tools).toEqual([webSearch]);
   });
 });
+
+/**
+ * Field descriptions are the only place a tool author can say what a parameter
+ * means, and the model is the audience. They were dropped on the floor: every
+ * `.describe()` in every moxxy tool reached the provider as nothing at all,
+ * which is how a model ends up inventing `tab_id: "current"` for a field whose
+ * description reads "Omit for the active tab".
+ */
+describe('zodToJsonSchema — descriptions', () => {
+  it('carries a field description through to the model', () => {
+    const out = zodToJsonSchema(z.object({ a: z.string().describe('Co to jest a') })) as {
+      properties: Record<string, Record<string, unknown>>;
+    };
+
+    expect(out.properties.a).toEqual({ type: 'string', description: 'Co to jest a' });
+  });
+
+  it('keeps a description that sits under a wrapper', () => {
+    expect(zodToJsonSchema(z.string().describe('opis').optional())).toEqual({
+      type: 'string',
+      description: 'opis',
+    });
+  });
+
+  it('lets the outermost description win when a wrapper carries one too', () => {
+    const schema = z.string().describe('wewnetrzny').optional().describe('zewnetrzny');
+
+    expect(zodToJsonSchema(schema)).toEqual({ type: 'string', description: 'zewnetrzny' });
+  });
+
+  it('describes a whole object, an enum and an array element too', () => {
+    const out = zodToJsonSchema(
+      z
+        .object({
+          mode: z.enum(['a', 'b']).describe('Tryb'),
+          tags: z.array(z.string()).describe('Etykiety'),
+        })
+        .describe('Cale wejscie'),
+    ) as { description: string; properties: Record<string, Record<string, unknown>> };
+
+    expect(out.description).toBe('Cale wejscie');
+    expect(out.properties.mode?.description).toBe('Tryb');
+    expect(out.properties.tags?.description).toBe('Etykiety');
+  });
+
+  it('adds no description key when the author wrote none', () => {
+    expect(zodToJsonSchema(z.string())).toEqual({ type: 'string' });
+    expect(zodToJsonSchema(z.object({ a: z.string() }))).toEqual({
+      type: 'object',
+      properties: { a: { type: 'string' } },
+      required: ['a'],
+    });
+  });
+});

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MoxxyError, assertDefined, defineTool, z } from '@moxxy/sdk';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
+import { BridgeClient, bridgeAddressFromEnv } from './bridge-client.js';
 
 /**
  * Heavy-tier browser: spawns the Playwright sidecar over stdio JSON-RPC and
@@ -480,17 +481,34 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
       },
     },
     async handler({ action }, ctx) {
-      const sidecar = getSidecar(deps);
+      /**
+       * Which browser this tool drives.
+       *
+       * It used to reach straight for the Playwright child, skipping the switch
+       * every other browser tool goes through. Inside the desktop that launched
+       * a SECOND Chromium — none of the user's logins, and invisible — so the
+       * agent worked in one page while the person watched another sit still.
+       * Seen live: asked to play a video, the agent said it had, and was telling
+       * the truth about a browser nobody could see.
+       *
+       * `browserSidecarCall` picks the backend the same way the rest of the
+       * plugin does; the sidecar is only touched when it is the one answering.
+       */
+      const bridge = deps?.spawnFn ? null : getBridge();
+      const sidecar = bridge ? null : getSidecar(deps);
       // Surface install-progress lines (and any other sidecar status writes)
       // through this call's logger — visible in verbose mode and the event log
       // ("downloading chromium…") instead of an apparently-hung turn. onStderr
-      // now supports concurrent subscribers and returns an unsubscribe.
-      const offStderr = sidecar.onStderr((line) => ctx.logger.info('browser_session', { line }));
+      // now supports concurrent subscribers and returns an unsubscribe. Nothing
+      // to subscribe to when the desktop is answering: there is no child.
+      const offStderr = sidecar
+        ? sidecar.onStderr((line) => ctx.logger.info('browser_session', { line }))
+        : (): void => {};
       // Per-call abort: pass ctx.signal so an abort cancels THIS call's RPC,
       // rather than calling sidecar.close() which would tear down the shared
       // singleton (and every other concurrent browser_session) on the bus.
       const call = (method: string, params: Record<string, unknown> = {}): Promise<unknown> =>
-        sidecar.call(method, params, ctx.signal);
+        browserSidecarCall(method, params, deps, ctx.signal);
       try {
         switch (action.kind) {
           case 'goto':
@@ -552,12 +570,59 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
  * Call a method on the shared sidecar (used by the browser SURFACE so it drives
  * the SAME page the `browser_session` tool does — agent + user share one page).
  */
+/**
+ * The desktop's browser bridge, when one was offered.
+ *
+ * Built once and reused: the connection is stateful (it holds a handshake) and
+ * the page it fronts is shared, so a second client would be a second view of
+ * the same thing for no benefit.
+ */
+let BRIDGE: BridgeClient | null = null;
+let BRIDGE_CHECKED = false;
+
+function getBridge(): BridgeClient | null {
+  if (!BRIDGE_CHECKED) {
+    BRIDGE_CHECKED = true;
+    const address = bridgeAddressFromEnv();
+    if (address) BRIDGE = new BridgeClient(address);
+  }
+  return BRIDGE;
+}
+
+/** Test seam: forget the resolved backend so the next call re-reads the env. */
+export function resetBrowserBackendForTests(): void {
+  BRIDGE?.close();
+  BRIDGE = null;
+  BRIDGE_CHECKED = false;
+}
+
+/** Which backend the tools are talking to — surfaced for diagnostics. */
+export function activeBrowserBackend(): 'desktop' | 'sidecar' {
+  return getBridge() ? 'desktop' : 'sidecar';
+}
+
+/**
+ * Run one browser operation, against whichever backend this process has.
+ *
+ * Inside the desktop that is the page the user is watching, reached over the
+ * bridge; everywhere else (TUI, headless, a remote runner) it is our own
+ * Playwright sidecar. Both speak the same protocol, so nothing above this line
+ * needs to know which answered — and the tools stay identical either way.
+ */
 export function browserSidecarCall(
   method: string,
   params: Record<string, unknown> = {},
   deps?: BrowserSessionDeps,
+  // Per-call abort: cancels THIS request only, leaving the shared backend and
+  // any concurrent calls untouched. Tool handlers pass `ctx.signal` so a
+  // stopped turn does not leave a request pending until its own timeout.
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  return getSidecar(deps).call(method, params);
+  // An explicit spawn override means the caller wants OUR sidecar (tests do
+  // this), so it wins over an ambient bridge.
+  const bridge = deps?.spawnFn ? null : getBridge();
+  if (bridge) return bridge.call(method, params, signal);
+  return getSidecar(deps).call(method, params, signal);
 }
 
 /** Closes the singleton sidecar — wired to plugin `onShutdown`. */

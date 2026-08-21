@@ -45,6 +45,7 @@ import type {
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 import type { FocusVerticalAnchor } from './focus-layout.js';
+import type { BrowserTabInfo } from './browser.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -467,6 +468,32 @@ export interface IpcCommands {
   // ---- Agentic surfaces (terminal · browser; runner protocol v8) --------
   /** Available surface kinds + availability for `workspaceId`. Empty when no
    *  surface plugin is loaded (or the runner predates v8). */
+  /**
+   * The agent's browser, hosted as a real Chromium view in the main process.
+   * The renderer attaches a `<webview>` and hands main its webContents id;
+   * everything after that — CDP, tabs, navigation — is main's. No frames cross
+   * this boundary, because the view is composited, not streamed.
+   */
+  'browser.registerTab': (args: {
+    webContentsId: number;
+    /** Echoes the id from a `browser.openTab` event, so main can settle the
+     *  agent's pending `tabs:new` with the view the pane just created. */
+    requestId?: string;
+  }) => Promise<{ tabId: string }>;
+  'browser.releaseTab': (args: { tabId: string }) => Promise<void>;
+  'browser.listTabs': () => Promise<{ tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null }>;
+  'browser.selectTab': (args: { tabId: string }) => Promise<void>;
+  'browser.navigate': (args: { url: string; tabId?: string }) => Promise<{ url: string; tabId: string }>;
+  'browser.history': (args: { action: 'back' | 'forward' | 'reload'; tabId?: string }) => Promise<void>;
+  /** The user answered the pane's hand-off banner. */
+  'browser.resolveHandoff': (args: { requestId: string; completed: boolean }) => Promise<void>;
+  /** A picture of the tab as it stands, for the person to hand to the agent.
+   *
+   *  How the agent *reads* a page is not on this channel and never was needed
+   *  here: perception goes host → agent tools directly. What the renderer wants
+   *  is the thing a person can point at. */
+  'browser.capture': (args: { tabId?: string }) => Promise<{ tabId: string; mediaType: string; base64: string }>;
+
   'surface.list': (args: { workspaceId: string }) => Promise<ReadonlyArray<SurfaceInfo>>;
   /** Open (or attach to the shared) surface instance; returns a catch-up
    *  snapshot. The runner then streams frames via the `surface.data` event. */

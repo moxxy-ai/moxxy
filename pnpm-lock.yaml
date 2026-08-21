@@ -992,6 +992,9 @@ importers:
       '@moxxy/mode-collaborative':
         specifier: workspace:*
         version: link:../mode-collaborative
+      '@moxxy/plugin-browser':
+        specifier: workspace:*
+        version: link:../plugin-browser
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler

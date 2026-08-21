@@ -1,629 +1,272 @@
-import { useEffect, useRef, useState } from 'react';
-import { api } from '@moxxy/client-core';
-import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
-import { emitInsertPath } from '../WorkspaceFiles';
-import { useReducedMotion } from '../useReducedMotion';
-import { useSurface } from './useSurface';
+import { useRef, useState } from 'react';
+import { Button, Icon } from '@moxxy/desktop-ui';
+import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
+import { BROWSER_PARTITION_NAME, HOME_URL, useBrowserTabs } from './useBrowserTabs';
+import { useBrowserChrome } from './useBrowserChrome';
+import { useAdoptedWebview, type WebviewElement } from './useAdoptedWebview';
 
-interface BrowserFrame {
-  readonly type?: string;
-  readonly base64?: string;
-  readonly mime?: string;
-  readonly url?: string;
-  /** Carried by `{ type: 'status' }` payloads — launch progress or a hard error. */
-  readonly text?: string;
-  /** Set on a status when the Playwright engine isn't installed — the pane shows
-   *  an "Install" button (the download is ~200MB, so we ask first). */
-  readonly needsInstall?: boolean;
-  /** Carried by `{ type: 'captured' }` — a PNG of the dragged region. */
-  readonly mediaType?: string;
-}
+/**
+ * The agent's browser.
+ *
+ * The page is a real Chromium view this window composites — not a picture of
+ * one. The pane used to receive a JPEG of the viewport several times a second
+ * and paint it into an `<img>`; that pipeline is gone, and with it the cost
+ * that made the panel expensive to leave open. What is left is chrome: a tab
+ * strip, an address bar, and the views themselves.
+ *
+ * Every tab stays mounted and only the active one is shown. Unmounting an
+ * inactive tab would destroy its page — losing scroll position, form state and
+ * whatever the agent had set up there — which is precisely what a tab is
+ * supposed to survive. Closing one therefore *is* unmounting it.
+ *
+ * Presentational by construction: the tab set lives in {@link useBrowserTabs},
+ * the address bar and the screenshot hand-off in {@link useBrowserChrome}, and the
+ * hand-off from renderer to main in {@link useAdoptedWebview}.
+ */
 
-/** A drag rectangle in pane-relative pixels (region-capture mode). */
-interface DragRect {
-  readonly x0: number;
-  readonly y0: number;
-  readonly x1: number;
-  readonly y1: number;
-}
+/** One tab's view. Owns its adoption handshake and renders nothing else. */
+function TabView({
+  initialUrl,
+  requestId,
+  visible,
+  adopt,
+  release,
+  onState,
+}: {
+  readonly initialUrl: string;
+  readonly requestId?: string;
+  readonly visible: boolean;
+  readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
+  readonly release: (tabId: string) => Promise<void>;
+  readonly onState: (tabId: string | null, url: string) => void;
+}): JSX.Element {
+  const ref = useRef<WebviewElement | null>(null);
+  const { tabId, url } = useAdoptedWebview({ ref, adopt, release, ...(requestId ? { requestId } : {}) });
 
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 5;
-const clampZoom = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+  // Let the chrome above act on whichever view is in front.
+  if (visible) onState(tabId, url || initialUrl);
 
-/** Keys (beyond single printable chars) we forward to the page; everything else
- *  — lone modifiers, F-keys, etc. — is ignored so it can't drive the host UI. */
-const NAMED_KEYS = new Set([
-  'Enter', 'Backspace', 'Tab', 'Escape', 'Delete',
-  'Home', 'End', 'PageUp', 'PageDown',
-  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-]);
-
-/** Brand spinner (matches ChatLoading) for the launching/installing states.
- *  Under prefers-reduced-motion the continuous spin is replaced by a static
- *  ring so it doesn't drive vestibular motion. */
-function Spinner({ size = 22, reduced = false }: { readonly size?: number; readonly reduced?: boolean }): JSX.Element {
   return (
-    <span
-      aria-hidden
+    <webview
+      ref={ref as unknown as React.Ref<HTMLElement>}
+      src={initialUrl}
+      partition={BROWSER_PARTITION_NAME}
+      allowpopups
       style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        border: '2.5px solid var(--color-card-border)',
-        borderTopColor: 'var(--color-primary)',
-        animation: reduced ? undefined : 'moxxy-spin 0.8s linear infinite',
+        // Laid out but hidden rather than `display:none`: a background tab must
+        // stay a live page, and Chromium stops painting an undisplayed view.
+        position: 'absolute',
+        inset: 0,
+        visibility: visible ? 'visible' : 'hidden',
+        zIndex: visible ? 1 : 0,
       }}
     />
   );
 }
 
-/**
- * The in-window browser pane: a live, interactive view of the agent's Playwright
- * page. Frames stream in as JPEGs (`{ type: 'frame', base64, url }`); the user's
- * clicks/hover/keys/scroll/navigation are proxied back to the SAME page via
- * `surface.input`, and the pane resizes the page viewport to fill the container
- * (`surface.resize`). The agent and the user share ONE page.
- */
-export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
-  const [frame, setFrame] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [needsInstall, setNeedsInstall] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [url, setUrl] = useState('');
-  const [editingUrl, setEditingUrl] = useState('');
-  const [zoom, setZoom] = useState(1);
-  // Region-capture mode: drag a box, screenshot it, attach to the chat input.
-  const [capturing, setCapturing] = useState(false);
-  const [drag, setDrag] = useState<DragRect | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const reducedMotion = useReducedMotion();
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const urlInputRef = useRef<HTMLInputElement | null>(null);
-  const lastMoveRef = useRef(0);
-  const zoomRef = useRef(1); // latest zoom, read by keyboard handlers (no stale closure)
-  // Coalesced wheel scrolling: accumulate deltas and flush one IPC per frame so
-  // a precision trackpad (dozens-to-hundreds of events/sec) can't flood the
-  // channel / Playwright dispatch.
-  const wheelAccumRef = useRef(0);
-  const wheelRafRef = useRef(0);
-  const noticeTimerRef = useRef(0);
-
-  const apply = (payload: unknown): void => {
-    const p = payload as BrowserFrame;
-    if (p?.type === 'frame' && typeof p.base64 === 'string') {
-      setFrame(`data:${p.mime ?? 'image/jpeg'};base64,${p.base64}`);
-      setStatus(null);
-      setNeedsInstall(false);
-      setInstalling(false);
-    } else if (p?.type === 'status') {
-      setStatus(typeof p.text === 'string' ? p.text : null);
-      // A `needsInstall` status re-arms the button (e.g. an install that failed);
-      // any other status during install is progress, so leave `installing` as-is.
-      if (p.needsInstall) {
-        setNeedsInstall(true);
-        setInstalling(false);
-      }
-    } else if (p?.type === 'captured' && typeof p.base64 === 'string') {
-      void attachCapture(p.base64, p.mediaType);
-    }
-    if (typeof p?.url === 'string') {
-      setUrl(p.url);
-      setEditingUrl((cur) => (document.activeElement === urlInputRef.current ? cur : p.url ?? cur));
-    }
-  };
-
-  const surface = useSurface(workspaceId, 'browser', { onSnapshot: apply, onData: apply });
-  // Stable ref so the resize effect always reaches the latest sender.
-  const surfaceRef = useRef(surface);
-  surfaceRef.current = surface;
-
-  // Keep the page viewport matched to the pane so the live view fills the whole
-  // container (no letterbox) and click coords map 1:1. Debounced to one rAF.
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    let raf = 0;
-    const send = (): void => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const width = Math.round(host.clientWidth);
-        const height = Math.round(host.clientHeight);
-        if (width > 0 && height > 0) surfaceRef.current.resize({ width, height });
-      });
-    };
-    send(); // push an initial size (and cover envs without ResizeObserver)
-    // ResizeObserver is absent in some test/headless environments — degrade to
-    // the one-shot size above rather than throwing on mount.
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(send);
-    ro.observe(host);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
-
-  // Push the initial size once the surface attaches (the ResizeObserver's first
-  // fire may land before the runner is ready, when resize is a no-op).
-  useEffect(() => {
-    if (!surface.ready) return;
-    const host = hostRef.current;
-    if (host && host.clientWidth > 0 && host.clientHeight > 0) {
-      surface.resize({ width: Math.round(host.clientWidth), height: Math.round(host.clientHeight) });
-    }
-  }, [surface.ready]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const navigate = (raw: string): void => {
-    const u = raw.trim();
-    if (!u) return;
-    const withScheme = /^https?:\/\//i.test(u) ? u : `https://${u}`;
-    surface.input({ type: 'navigate', url: withScheme });
-  };
-
-  const startInstall = (): void => {
-    setInstalling(true);
-    setNeedsInstall(false);
-    setStatus('Installing browser engine… (one-time, ~200MB)');
-    surface.input({ type: 'install' });
-  };
-
-  const setZoomTo = (next: number): void => {
-    const z = clampZoom(next);
-    zoomRef.current = z;
-    setZoom(z);
-    surface.input({ type: 'zoom', factor: z });
-  };
-
-  const flashNotice = (text: string): void => {
-    setNotice(text);
-    // Clear any prior pending timer so a rapid second notice doesn't leave an
-    // orphaned timeout, and store the handle so unmount can cancel it (no
-    // setState-after-unmount). The unmount cleanup lives in the effect below.
-    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = window.setTimeout(() => {
-      noticeTimerRef.current = 0;
-      setNotice((cur) => (cur === text ? null : cur));
-    }, 4000);
-  };
-
-  // Cancel a pending notice timer (and any queued wheel flush) on unmount.
-  useEffect(
-    () => () => {
-      if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
-    },
-    [],
-  );
-
-  // Accumulate wheel deltas; flush a single { type: 'scroll', dy } per frame.
-  const onWheel = (e: React.WheelEvent): void => {
-    wheelAccumRef.current += e.deltaY;
-    if (wheelRafRef.current) return;
-    wheelRafRef.current = requestAnimationFrame(() => {
-      wheelRafRef.current = 0;
-      const dy = wheelAccumRef.current;
-      wheelAccumRef.current = 0;
-      if (dy !== 0) surface.input({ type: 'scroll', dy });
-    });
-  };
-
-  // The captured region (a sharp PNG) is saved to a temp file and dropped into
-  // the chat composer as an attachment — the user then describes the change and
-  // sends, and the agent SEES the area. Reuses the same insert event the file
-  // tree uses, so the chip appears in the (visible) composer.
-  const attachCapture = async (base64: string, mediaType?: string): Promise<void> => {
-    try {
-      const att = await api().invoke('session.saveImageAttachment', {
-        dataBase64: base64,
-        mediaType: mediaType ?? 'image/png',
-        name: 'browser-capture.png',
-      });
-      emitInsertPath({ relPath: att.name, absPath: att.path, name: att.name });
-      flashNotice('📎 Screenshot added to the chat input — describe the change and send.');
-    } catch {
-      flashNotice('Could not attach the screenshot.');
-    }
-  };
-
-  // Pointer event → normalized page coords (0..1 of the frame box).
-  const norm = (e: React.MouseEvent): { fx: number; fy: number } | null => {
-    const rect = hostRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return null;
-    return { fx: (e.clientX - rect.left) / rect.width, fy: (e.clientY - rect.top) / rect.height };
-  };
-
-  // Pointer event → pane-relative px (for the drag-selection overlay).
-  const relPos = (e: React.MouseEvent): { x: number; y: number } | null => {
-    const rect = hostRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  };
-
-  const onHover = (e: React.MouseEvent): void => {
-    const now = Date.now();
-    if (now - lastMoveRef.current < 90) return; // throttle hover RPCs
-    lastMoveRef.current = now;
-    const n = norm(e);
-    if (n) surface.input({ type: 'move', ...n });
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent): void => {
-    // Browser zoom (⌘/Ctrl +/−/0) — intercept before key-forwarding so it zooms
-    // the PAGE, not the whole desktop app (Electron's default for these chords).
-    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-      if (e.key === '=' || e.key === '+') {
-        e.preventDefault();
-        setZoomTo(zoomRef.current + 0.1);
-        return;
-      }
-      if (e.key === '-' || e.key === '_') {
-        e.preventDefault();
-        setZoomTo(zoomRef.current - 0.1);
-        return;
-      }
-      if (e.key === '0') {
-        e.preventDefault();
-        setZoomTo(1);
-        return;
-      }
-    }
-    if (e.key === 'Escape') {
-      // Escape is the keyboard ESCAPE HATCH. Tab (and arrows/etc.) are forwarded
-      // to the page so they drive in-page navigation — which means a keyboard
-      // user who tabs INTO this view can't tab back out (WCAG 2.1.2 "no keyboard
-      // trap"). Escape blurs the host so focus returns to the surrounding UI;
-      // in capture mode it first cancels the in-progress capture.
-      e.preventDefault();
-      if (capturing) {
-        setCapturing(false);
-        setDrag(null);
-        return;
-      }
-      hostRef.current?.blur();
-      return;
-    }
-    const printable = e.key.length === 1;
-    if (!printable && !NAMED_KEYS.has(e.key)) return; // ignore lone modifiers, F-keys, …
-    const hasMod = e.ctrlKey || e.metaKey || e.altKey;
-    e.preventDefault(); // keep Tab/arrows/space from scrolling or moving host focus
-    if (printable && !hasMod) {
-      surface.input({ type: 'key', key: e.key }); // type the character
-      return;
-    }
-    // Build a Playwright press() combo for control keys + shortcuts (e.g. Meta+a).
-    const mods: string[] = [];
-    if (e.ctrlKey) mods.push('Control');
-    if (e.metaKey) mods.push('Meta');
-    if (e.altKey) mods.push('Alt');
-    if (e.shiftKey) mods.push('Shift');
-    let base = e.key === ' ' ? 'Space' : e.key;
-    if (base.length === 1) base = base.toLowerCase();
-    surface.input({ type: 'key', key: [...mods, base].join('+') });
-  };
-
-  const hasView = frame != null;
+/** Tracks one pane's adopted id so visibility can be decided from it. */
+function TabSlot({
+  pane,
+  index,
+  activeTabId,
+  adopt,
+  release,
+  onState,
+}: {
+  readonly pane: { key: string; initialUrl: string; requestId?: string };
+  readonly index: number;
+  readonly activeTabId: string | null;
+  readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
+  readonly release: (tabId: string) => Promise<void>;
+  readonly onState: (tabId: string | null, url: string) => void;
+}): JSX.Element {
+  const [tabId, setTabId] = useState<string | null>(null);
+  // Before anything is adopted the first pane is the one in front.
+  const visible = activeTabId ? tabId === activeTabId : index === 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Toolbar: back / forward / reload + address bar */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '6px 8px',
-          borderBottom: '1px solid var(--color-card-border)',
-          flexShrink: 0,
-        }}
+    <TabView
+      initialUrl={pane.initialUrl}
+      {...(pane.requestId ? { requestId: pane.requestId } : {})}
+      visible={visible}
+      adopt={async (wcId, reqId) => {
+        const id = await adopt(wcId, reqId);
+        setTabId(id);
+        return id;
+      }}
+      release={release}
+      onState={onState}
+    />
+  );
+}
+
+/** The strip. One cell per tab, plus the way to make another. */
+function TabStrip({
+  tabs,
+  activeTabId,
+  onSelect,
+  onClose,
+  onNew,
+}: {
+  readonly tabs: ReadonlyArray<BrowserTabInfo>;
+  readonly activeTabId: string | null;
+  readonly onSelect: (tabId: string) => void;
+  readonly onClose: (tabId: string) => void;
+  readonly onNew: () => void;
+}): JSX.Element {
+  return (
+    <div className="browser__tabs">
+      <div className="browser__tablist" role="tablist" aria-label="Browser tabs">
+        {tabs.map((tab) => {
+          const name = tab.title || tab.url || tab.tabId;
+          return (
+            // The cell is presentational so the tab and its close button can be
+            // siblings: a button inside a button is not markup a browser accepts.
+            <div key={tab.tabId} className="browser__tab" data-active={tab.tabId === activeTabId} role="presentation">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.tabId === activeTabId}
+                className="browser__tab-name"
+                title={tab.url}
+                onClick={() => onSelect(tab.tabId)}
+              >
+                <Icon name="globe" size={11} />
+                <span>{name}</span>
+              </button>
+              <button
+                type="button"
+                className="browser__tab-x"
+                aria-label={`Close ${name}`}
+                onClick={() => onClose(tab.tabId)}
+              >
+                <Icon name="x" size={10} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* Outside the tablist: a tablist holds tabs, and this is not one. */}
+      <button
+        type="button"
+        className="btn-quiet browser__tab-new tip"
+        data-tip="New tab"
+        data-tip-side="bottom"
+        aria-label="New tab"
+        onClick={onNew}
       >
-        <IconButton size={26} onClick={() => surface.input({ type: 'back' })} title="Back" aria-label="Back">
+        <Icon name="plus" size={13} />
+      </button>
+    </div>
+  );
+}
+
+export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
+  const {
+    tabs, activeTabId, error, adopt, release, select, navigate,
+    panes, openPane, closeTab, history, handoff, answerHandoff, noteAdoption,
+  } = useBrowserTabs();
+  const chrome = useBrowserChrome({ activeTabId, navigate });
+
+  if (!workspaceId) {
+    return <div className="browser__empty">Open a workspace to use the browser.</div>;
+  }
+
+  return (
+    <div className="browser">
+      <TabStrip
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelect={(tabId) => void select(tabId)}
+        onClose={(tabId) => void closeTab(tabId)}
+        onNew={() => openPane(HOME_URL)}
+      />
+
+      <div className="browser__bar">
+        <button
+          type="button"
+          className="btn-quiet"
+          aria-label="Back"
+          onClick={() => void history('back', chrome.targetTab())}
+        >
           <Icon name="chevron-right" size={14} style={{ transform: 'rotate(180deg)' }} />
-        </IconButton>
-        <IconButton size={26} onClick={() => surface.input({ type: 'forward' })} title="Forward" aria-label="Forward">
+        </button>
+        <button
+          type="button"
+          className="btn-quiet"
+          aria-label="Forward"
+          onClick={() => void history('forward', chrome.targetTab())}
+        >
           <Icon name="chevron-right" size={14} />
-        </IconButton>
-        <IconButton size={26} onClick={() => surface.input({ type: 'reload' })} title="Reload" aria-label="Reload">
-          <Icon name="rotate" size={14} />
-        </IconButton>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            navigate(editingUrl);
-            hostRef.current?.focus();
-          }}
-          style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}
+        </button>
+        <button
+          type="button"
+          className="btn-quiet"
+          aria-label="Reload"
+          onClick={() => void history('reload', chrome.targetTab())}
         >
-          <input
-            ref={urlInputRef}
-            type="text"
-            value={editingUrl}
-            placeholder="Search or enter a URL…"
-            onChange={(e) => setEditingUrl(e.target.value)}
-            spellCheck={false}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '6px 11px',
-              fontSize: 'var(--type-row)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 'var(--radius-pill)',
-              background: 'var(--color-surface)',
-              outline: 'none',
-            }}
-          />
-        </form>
-        {/* Zoom controls (⌘+/⌘−/⌘0 also work when the view is focused). */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-pill)',
-            padding: '0 2px',
+          <Icon name="rotate" size={13} />
+        </button>
+        <input
+          aria-label="Address"
+          className="browser__address"
+          value={chrome.address}
+          placeholder={HOME_URL}
+          onChange={(e) => chrome.setAddress(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') chrome.submitAddress();
           }}
-        >
-          <IconButton size={22} onClick={() => setZoomTo(zoom - 0.1)} title="Zoom out (⌘−)" aria-label="Zoom out">
-            <span style={{ fontSize: 'var(--type-ui)', lineHeight: 1 }}>−</span>
-          </IconButton>
-          <button
-            type="button"
-            onClick={() => setZoomTo(1)}
-            title="Reset zoom (⌘0)"
-            className="btn-ghost"
-            style={{ fontSize: 'var(--type-meta)', minWidth: 38, padding: '2px 2px', color: 'var(--color-text-dim)' }}
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <IconButton size={22} onClick={() => setZoomTo(zoom + 0.1)} title="Zoom in (⌘+)" aria-label="Zoom in">
-            <span style={{ fontSize: 'var(--type-ui)', lineHeight: 1 }}>+</span>
-          </IconButton>
-        </div>
-        {/* "Capture region" — drag a box; the screenshot is attached to the chat
-         *  input so you can ask the agent to change exactly that area. */}
-        <IconButton
-          size={26}
-          bordered={capturing}
-          onClick={() => {
-            setCapturing((v) => !v);
-            setDrag(null);
-          }}
-          title={
-            capturing
-              ? 'Drag a box to capture it for the agent (Esc to cancel)'
-              : 'Capture a region for the agent'
-          }
-          aria-label="Capture region"
-          style={capturing ? { color: 'var(--color-primary)' } : undefined}
+          onBlur={() => chrome.editing && chrome.submitAddress()}
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          className="btn-quiet tip"
+          data-tip="Screenshot to agent"
+          data-tip-side="left"
+          aria-label="Screenshot to agent"
+          onClick={() => void chrome.captureToAgent()}
         >
           <Icon name="attach" size={14} />
-        </IconButton>
+        </button>
       </div>
 
-      {/* Capture mode hint / "added to chat input" confirmation. */}
-      {(capturing || notice) && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '6px 12px',
-            fontSize: 'var(--type-row)',
-            color: notice ? 'var(--color-green)' : 'var(--color-text-muted)',
-            borderBottom: '1px solid var(--color-card-border)',
-            background: 'var(--color-input-soft)',
-            flexShrink: 0,
-          }}
-        >
-          {notice ?? 'Drag a box over the area to capture for the agent — Esc to cancel.'}
-        </div>
-      )}
-
-      {surface.error && (
-        <div style={{ padding: '8px 12px', fontSize: 'var(--type-meta)', color: 'var(--color-danger, #f87171)' }}>
-          Browser unavailable: {surface.error}
-        </div>
-      )}
-
-      {/* Live view / interaction surface — fills the container */}
-      <div
-        ref={hostRef}
-        tabIndex={0}
-        // `application` tells assistive tech to pass keystrokes through to this
-        // interactive surface (the keys are proxied to the live page) rather
-        // than intercepting them for browse-mode navigation. The label names
-        // the region and advertises the Escape hatch out of the keyboard trap.
-        role="application"
-        aria-label="Browser view — interactive. Press Escape to leave."
-        onMouseDown={(e) => {
-          if (capturing) {
-            const p = relPos(e);
-            if (p) {
-              e.preventDefault();
-              setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
-            }
-            return;
-          }
-          hostRef.current?.focus();
-        }}
-        onMouseMove={(e) => {
-          if (capturing) {
-            if (drag) {
-              const p = relPos(e);
-              if (p) setDrag((d) => (d ? { ...d, x1: p.x, y1: p.y } : d));
-            }
-            return;
-          }
-          if (hasView) onHover(e);
-        }}
-        onMouseUp={() => {
-          if (!capturing || !drag) return;
-          const rect = hostRef.current?.getBoundingClientRect();
-          setDrag(null);
-          setCapturing(false);
-          if (!rect || rect.width === 0 || rect.height === 0) return;
-          const minX = Math.min(drag.x0, drag.x1);
-          const minY = Math.min(drag.y0, drag.y1);
-          const w = Math.abs(drag.x1 - drag.x0);
-          const h = Math.abs(drag.y1 - drag.y0);
-          if (w < 6 || h < 6) return; // too small — treat as a stray click
-          surface.input({
-            type: 'capture',
-            fx: minX / rect.width,
-            fy: minY / rect.height,
-            fw: w / rect.width,
-            fh: h / rect.height,
-          });
-        }}
-        onClick={(e) => {
-          if (capturing) return; // drag handles capture mode
-          const n = norm(e);
-          if (n) surface.input({ type: 'click', ...n });
-        }}
-        onDoubleClick={(e) => {
-          if (capturing) return;
-          const n = norm(e);
-          if (n) surface.input({ type: 'dblclick', ...n });
-        }}
-        onWheel={onWheel}
-        onKeyDown={onKeyDown}
-        style={{
-          flex: 1,
-          minHeight: 0,
-          position: 'relative',
-          overflow: 'hidden',
-          background: '#0b0f17',
-          outline: 'none',
-          cursor: capturing ? 'crosshair' : 'default',
-        }}
-      >
-        {/* Drag-selection overlay (region capture). */}
-        {drag && (
-          <div
-            style={{
-              position: 'absolute',
-              left: Math.min(drag.x0, drag.x1),
-              top: Math.min(drag.y0, drag.y1),
-              width: Math.abs(drag.x1 - drag.x0),
-              height: Math.abs(drag.y1 - drag.y0),
-              border: '2px solid var(--color-primary)',
-              background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
-              pointerEvents: 'none',
-              zIndex: 2,
-            }}
-          />
-        )}
-        {hasView ? (
-          <img
-            src={frame ?? undefined}
-            alt={url || 'browser'}
-            draggable={false}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              display: 'block',
-              userSelect: 'none',
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 14,
-              padding: 24,
-              textAlign: 'center',
-            }}
-          >
-            {needsInstall && !installing ? (
-              <>
-                <div
-                  style={{
-                    width: 46,
-                    height: 46,
-                    borderRadius: 'var(--radius-card)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
-                    color: 'var(--color-primary)',
-                  }}
-                >
-                  <Icon name="globe" size={22} />
-                </div>
-                <div style={{ maxWidth: 280 }}>
-                  <div style={{ fontSize: 'var(--type-ui)', fontWeight: 600, color: 'var(--color-text)' }}>
-                    Browser engine required
-                  </div>
-                  <div style={{ marginTop: 4, fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
-                    The in-window browser needs Playwright + Chromium — a one-time ~200&nbsp;MB download.
-                  </div>
-                </div>
-                <Button variant="primary" size="sm" onClick={startInstall}>
-                  Install browser engine
-                </Button>
-              </>
-            ) : (
-              <>
-                <Spinner reduced={reducedMotion} />
-                <div style={{ fontSize: 'var(--type-ui)', color: 'var(--color-text)' }}>
-                  {installing ? 'Installing browser engine…' : surface.ready ? 'Loading…' : 'Starting browser…'}
-                </div>
-                {installing && (
-                  <div style={{ width: 'min(320px, 80%)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {/* Indeterminate progress bar (mirrors the app-update look). */}
-                    <div
-                      style={{
-                        height: 6,
-                        borderRadius: 'var(--radius-pill)',
-                        background: 'var(--color-card-border)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: '100%',
-                          // Under reduced motion the shimmer becomes a static
-                          // filled bar (no continuous travelling animation).
-                          width: reducedMotion ? '100%' : '40%',
-                          borderRadius: 'var(--radius-pill)',
-                          background: 'var(--color-primary)',
-                          animation: reducedMotion ? undefined : 'moxxy-shimmer 1.1s linear infinite',
-                        }}
-                      />
-                    </div>
-                    {status && (
-                      <div
-                        style={{
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                          fontSize: 'var(--type-label)',
-                          color: 'var(--color-text-dim)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                        title={status}
-                      >
-                        {status}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {!installing && status && !surface.error && (
-                  <div style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-dim)', maxWidth: 320 }}>{status}</div>
-                )}
-              </>
-            )}
+      {handoff && (
+        <div className="browser__notice" role="alert">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <strong className="browser__notice-title">Moxxy needs you</strong>
+            <span className="browser__notice-body">{handoff.reason}</span>
+            <span className="browser__notice-body">
+              The agent is not reading the page right now — do what it asks, then press Done.
+            </span>
           </div>
-        )}
+          <div className="browser__notice-actions">
+            <Button size="sm" onClick={() => void answerHandoff(true)}>Done</Button>
+            <Button size="sm" variant="ghost" onClick={() => void answerHandoff(false)}>Skip</Button>
+          </div>
+        </div>
+      )}
+
+      {(error || chrome.captureError) && <div className="browser__error">{error ?? chrome.captureError}</div>}
+
+      <div className="browser__viewport">
+        {panes.map((pane, index) => (
+          <TabSlot
+            key={pane.key}
+            pane={pane}
+            index={index}
+            activeTabId={activeTabId}
+            adopt={async (wcId, reqId) => {
+              const id = await adopt(wcId, reqId);
+              if (id) noteAdoption(pane.key, id);
+              return id;
+            }}
+            release={release}
+            onState={chrome.onViewState}
+          />
+        ))}
       </div>
+
     </div>
   );
 }

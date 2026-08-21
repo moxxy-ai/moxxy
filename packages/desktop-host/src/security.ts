@@ -110,12 +110,70 @@ function sameOrigin(a: string, b: string): boolean {
  * else. Windows that never sign in (focus widget) pass none and keep the
  * blanket deny.
  */
+/**
+ * Web preferences forced onto every `<webview>` this window is allowed to
+ * attach. The renderer asks for a webview; it does NOT get to say how
+ * privileged that webview is — main overwrites the whole security-relevant
+ * surface here, so a compromised renderer cannot request a preload of its
+ * choosing, node integration, or a shared session.
+ *
+ * This mirrors what the Codex app does with the same Electron primitive, and
+ * it is the reason a controlled attach is safer than it first looks: the
+ * dangerous part of `<webview>` is the preferences, and the preferences are
+ * not the renderer's to set.
+ */
+function hardenWebviewPreferences(params: {
+  preload?: string;
+  nodeIntegration?: boolean;
+  nodeIntegrationInSubFrames?: boolean;
+  webPreferences?: Record<string, unknown>;
+  partition?: string;
+}, partition: string, preload: string | undefined): void {
+  params.nodeIntegration = false;
+  params.nodeIntegrationInSubFrames = false;
+  // Only the preload main chose, or none at all.
+  if (preload) params.preload = preload;
+  else delete params.preload;
+  params.partition = partition;
+  params.webPreferences = {
+    ...(params.webPreferences ?? {}),
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    // A page inside the agent's browser must not itself embed webviews.
+    webviewTag: false,
+    plugins: false,
+    experimentalFeatures: false,
+  };
+}
+
 export function lockDownNavigation(
   win: BrowserWindow,
   opts: {
     readonly keepWindowOpenHandler?: boolean;
     /** Origins (matched as `URL.origin`) the top frame MAY navigate to. */
     readonly allowOriginPatterns?: ReadonlyArray<RegExp>;
+    /**
+     * Permit `<webview>` attachment on this window, on main's terms.
+     *
+     * Off by default, so every window keeps the blanket deny. The agent's
+     * browser pane turns it on: the page has to live in a real Chromium view
+     * composited by this window (that is the whole point — no screenshot
+     * pipeline), and the only way to get one is to let the renderer attach it.
+     * What makes that safe is that main rewrites every security-relevant
+     * preference at attach time (see {@link hardenWebviewPreferences}) rather
+     * than trusting what the renderer asked for.
+     */
+    readonly webviewAttach?: {
+      /** Session partition forced onto every attached webview. */
+      readonly partition: string;
+      /** Absolute path to the only preload permitted, if any. */
+      readonly preload?: string;
+    };
   } = {},
 ): void {
   const wc = win.webContents;
@@ -134,7 +192,32 @@ export function lockDownNavigation(
   };
   wc.on('will-navigate', guard);
   wc.on('will-redirect', guard);
-  wc.on('will-attach-webview', (event) => event.preventDefault());
+  const attach = opts.webviewAttach;
+  if (attach) {
+    wc.on('will-attach-webview', (_event, webPreferences, params) => {
+      // Main decides the privileges, not the renderer. Both objects are
+      // mutated in place — that is Electron's contract for this event.
+      hardenWebviewPreferences(
+        params as unknown as Parameters<typeof hardenWebviewPreferences>[0],
+        attach.partition,
+        attach.preload,
+      );
+      Object.assign(webPreferences, {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        plugins: false,
+        experimentalFeatures: false,
+        ...(attach.preload ? { preload: attach.preload } : { preload: undefined }),
+      });
+    });
+  } else {
+    wc.on('will-attach-webview', (event) => event.preventDefault());
+  }
   if (!opts.keepWindowOpenHandler) {
     wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   }

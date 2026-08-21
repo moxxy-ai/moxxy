@@ -115,7 +115,9 @@ describe('sidecar dispatch goto SSRF guard', () => {
     const state: SidecarState = { handle, pendingInstallNotice: null };
     const reply = (await dispatch(state, gotoReq('https://example.com/'))) as Ok;
     expect(reply.ok).toBe(true);
-    expect(reply.result).toEqual({ url: 'https://example.com/' });
+    // The reply also names the tab that was navigated, so a caller working
+    // across several tabs can tell which one moved.
+    expect(reply.result).toEqual({ url: 'https://example.com/', tabId: 't1' });
     expect(gotos).toEqual(['https://example.com/']);
   });
 });
