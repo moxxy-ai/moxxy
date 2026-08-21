@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { __setApiOverride } from '@moxxy/client-core';
 import { FILE_INSERT_EVENT } from '@/shell/WorkspaceFiles';
@@ -103,5 +103,43 @@ describe('BrowserPane', () => {
 
     expect(screen.getByText(/Open a workspace/)).toBeTruthy();
     expect(screen.queryByLabelText('Address')).toBeNull();
+  });
+});
+
+describe('BrowserPane — the hand-off banner', () => {
+  /**
+   * Seen live: the agent asked twice about a cookie banner that was nowhere on
+   * the user's screen. The pane now fronts the tab and main scrolls to the
+   * control — but when neither can put it in view, saying so is the only honest
+   * thing left. "Press Done" on an invisible control is how a hand-off becomes
+   * a loop.
+   */
+  function renderWithHandoff(onScreen: boolean): void {
+    let fire: ((req: unknown) => void) | null = null;
+    __setApiOverride({
+      invoke: ((channel: string) => {
+        if (channel === 'browser.listTabs') return Promise.resolve({ tabs: TABS, activeTabId: 't1' });
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: ((event: string, cb: unknown) => {
+        if (event === 'browser.handoffRequested') fire = cb as typeof fire;
+        return () => undefined;
+      }) as never,
+    } as never);
+    render(<BrowserPane workspaceId="w1" />);
+    act(() => fire?.({ requestId: 'h1', tabId: 't1', reason: 'zaakceptuj cookies', onScreen }));
+  }
+
+  it('tells the person to press it when it is in front of them', () => {
+    renderWithHandoff(true);
+
+    expect(screen.getByText(/do what it asks/i)).toBeTruthy();
+    expect(screen.queryByText(/not in view/i)).toBeNull();
+  });
+
+  it('tells them where to look when it is not', () => {
+    renderWithHandoff(false);
+
+    expect(screen.getByText(/not in view/i)).toBeTruthy();
   });
 });

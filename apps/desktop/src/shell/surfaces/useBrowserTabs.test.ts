@@ -117,9 +117,11 @@ describe('focusing a view so a key can land on it', () => {
   function apiWithFocusEvent(): {
     calls: Array<{ channel: string; args: unknown }>;
     fire: (req: { requestId: string; tabId: string }) => void;
+    askHuman: (req: { requestId: string; tabId: string; reason: string }) => void;
   } {
     const calls: Array<{ channel: string; args: unknown }> = [];
     let handler: ((req: { requestId: string; tabId: string }) => void) | null = null;
+    let handoffHandler: ((req: { requestId: string; tabId: string; reason: string }) => void) | null = null;
     __setApiOverride({
       invoke: ((channel: string, args: unknown) => {
         calls.push({ channel, args });
@@ -128,10 +130,15 @@ describe('focusing a view so a key can land on it', () => {
       }) as never,
       subscribe: ((event: string, cb: unknown) => {
         if (event === 'browser.focusTab') handler = cb as typeof handler;
+        if (event === 'browser.handoffRequested') handoffHandler = cb as typeof handoffHandler;
         return () => undefined;
       }) as never,
     } as never);
-    return { calls, fire: (req) => handler?.(req) };
+    return {
+      calls,
+      fire: (req) => handler?.(req),
+      askHuman: (req: { requestId: string; tabId: string; reason: string }) => handoffHandler?.(req),
+    };
   }
 
   it('brings the tab forward, focuses its view, and says when it has', async () => {
@@ -180,4 +187,26 @@ describe('focusing a view so a key can land on it', () => {
 
     expect(focused).toBe(0);
   });
+
+  /**
+   * Asking is the easy half. Seen live: the pane sat on one tab while the
+   * consent banner it was asking about was on another, so the person was told
+   * to press something that was not in front of them — twice, because pressing
+   * Done without doing anything leaves the wall exactly where it was.
+   */
+  it('brings the tab a hand-off is about to the front', async () => {
+    const { calls, askHuman } = apiWithFocusEvent();
+    const { result } = renderHook(() => useBrowserTabs());
+
+    await act(async () => {
+      askHuman({ requestId: 'h1', tabId: 't2', reason: 'zaakceptuj cookies' });
+      await new Promise((r) => setTimeout(r, 40));
+    });
+
+    expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(
+      true,
+    );
+    expect(result.current.handoff?.reason).toBe('zaakceptuj cookies');
+  });
 });
+

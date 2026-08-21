@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
   buildAxTree,
+  detectWall,
   formatAxTree,
   formatSnapshot,
   redactSecretValues,
   type AxNode,
   type TabInfo,
+  type WallKind,
 } from '@moxxy/plugin-browser';
 
 /**
@@ -70,6 +72,8 @@ interface Tab {
   unwatch?: () => void;
   /** Fingerprint of the page the last snapshot described. */
   seen?: string;
+  /** The thing the page is waiting on a person for, and where to find it. */
+  wall?: { kind: WallKind; backendNodeId: number; label: string };
   /** Countdown to releasing this tab's accessibility tree. */
   idle?: ReturnType<typeof setTimeout>;
 }
@@ -210,7 +214,10 @@ export class BrowserHost {
     timer: ReturnType<typeof setTimeout>;
   }>();
   private handoffSeq = 0;
-  private askHuman: ((req: { requestId: string; tabId: string; reason: string }) => void) | null = null;
+  /** `onScreen` says whether the thing being asked about is actually in view. */
+  private askHuman:
+    | ((req: { requestId: string; tabId: string; reason: string; onScreen: boolean; label?: string }) => void)
+    | null = null;
 
   constructor(
     private readonly lookup: WebContentsLookup,
@@ -265,7 +272,11 @@ export class BrowserHost {
   }
 
   /** Wire the channel main uses to put a hand-off request in front of the user. */
-  setHandoffPrompt(fn: ((req: { requestId: string; tabId: string; reason: string }) => void) | null): void {
+  setHandoffPrompt(
+    fn:
+      | ((req: { requestId: string; tabId: string; reason: string; onScreen: boolean; label?: string }) => void)
+      | null,
+  ): void {
     this.askHuman = fn;
   }
 
@@ -284,8 +295,30 @@ export class BrowserHost {
    */
   async awaitHuman(opts: { tabId?: string; reason: string; timeoutMs?: number }): Promise<HostReply> {
     try {
-      const { tab } = this.resolve(opts.tabId);
+      const { tab, wc } = this.resolve(opts.tabId);
       if (!this.askHuman) return fail('the browser pane is not open, so nobody can be asked');
+
+      /**
+       * Put the thing being asked about on screen first.
+       *
+       * A hand-off is worth nothing if the person cannot see what it means.
+       * Seen live: the pane showed one tab while the consent banner sat on
+       * another, and the banner itself was near the bottom of a page nobody had
+       * scrolled — so the agent asked the user to press something that was not
+       * in front of them, twice. The pane fronts the tab; this scrolls to the
+       * control. Best effort on purpose: a hand-off with no wall to point at is
+       * still a question worth asking.
+       */
+      let onScreen = false;
+      if (tab.wall) {
+        const cdp = this.cdp(wc);
+        try {
+          await cdp.send('DOM.scrollIntoViewIfNeeded', { backendNodeId: tab.wall.backendNodeId });
+        } catch {
+          // Not scrollable, or gone. The check below decides what to say.
+        }
+        onScreen = await this.elementOnScreen(cdp, tab.wall.backendNodeId);
+      }
       const requestId = `h${++this.handoffSeq}`;
       const timeoutMs = opts.timeoutMs ?? 10 * 60_000;
       const done = await new Promise<boolean>((resolve) => {
@@ -295,12 +328,19 @@ export class BrowserHost {
         }, timeoutMs);
         timer.unref?.();
         this.pendingHandoffs.set(requestId, { resolve, timer });
-        this.askHuman?.({ requestId, tabId: tab.id, reason: opts.reason });
+        this.askHuman?.({
+          requestId,
+          tabId: tab.id,
+          reason: opts.reason,
+          onScreen,
+          ...(tab.wall ? { label: tab.wall.label } : {}),
+        });
       });
       // Whatever happened on screen, the old uids describe a page that has
       // almost certainly moved on.
       delete tab.snapshot;
       delete tab.seen;
+      delete tab.wall;
       return ok({ tabId: tab.id, completed: done });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -493,6 +533,7 @@ export class BrowserHost {
     if (tab.idle) clearTimeout(tab.idle);
     delete tab.idle;
     delete tab.seen;
+    delete tab.wall;
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) return;
     try {
@@ -542,6 +583,7 @@ export class BrowserHost {
       const body = tree
         ? formatAxTree(redactSecretValues(tree))
         : '(strona nie udostępnia drzewa dostępności)';
+      const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
       const fingerprint = createHash('sha1').update(`${url}\n${title}\n${body}`).digest('hex');
 
       if (tab.seen === fingerprint) {
@@ -558,7 +600,7 @@ export class BrowserHost {
       }
       tab.seen = fingerprint;
 
-      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body });
+      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall });
       return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0 });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -702,6 +744,7 @@ export class BrowserHost {
       if (action === 'forward' && !wc.navigationHistory.canGoForward()) return fail('nothing to go forward to');
       delete tab.snapshot;
       delete tab.seen;
+      delete tab.wall;
       if (action === 'back') wc.navigationHistory.goBack();
       else if (action === 'forward') wc.navigationHistory.goForward();
       else wc.reload();
@@ -845,6 +888,90 @@ export class BrowserHost {
     }
   }
 
+  /**
+   * Whether this page is really waiting on a person.
+   *
+   * The detector reads the accessibility tree, which is enough to spot a consent
+   * button or a password field and not enough to know either is rendered. A
+   * control can sit in the tree with nothing drawn for it — `display: none`, a
+   * collapsed container, a leftover from a banner already dismissed — and a wall
+   * reported from one of those traps the agent in a hand-off nobody can answer.
+   *
+   * A box settles exactly that and no more. It is layout, not visibility: an
+   * element far down the page has a perfectly good box. That is deliberate — a
+   * consent banner below the fold is still a real wall — and it is why
+   * `awaitHuman` scrolls to the thing and checks it arrived before anyone is
+   * asked about it.
+   */
+  private async confirmWall(
+    cdp: { send: (m: string, p?: Record<string, unknown>) => Promise<unknown> },
+    // AxTree is the root node with an index hung off it, so one value is both.
+    tree: AxNode & { index: ReadonlyMap<string, AxNode> },
+    tab: Tab,
+  ): Promise<WallKind | null> {
+    delete tab.wall;
+    const found = detectWall(tree);
+    if (!found) return null;
+    const node = tree.index.get(found.uid);
+    if (node?.backendNodeId === undefined) return null;
+    try {
+      const box = (await cdp.send('DOM.getBoxModel', { backendNodeId: node.backendNodeId })) as {
+        model?: { content?: number[] };
+      };
+      const q = box?.model?.content;
+      if (!Array.isArray(q) || q.length < 8) return null;
+      const width = Math.max(q[0]!, q[2]!, q[4]!, q[6]!) - Math.min(q[0]!, q[2]!, q[4]!, q[6]!);
+      const height = Math.max(q[1]!, q[3]!, q[5]!, q[7]!) - Math.min(q[1]!, q[3]!, q[5]!, q[7]!);
+      if (!(width > 0 && height > 0)) return null;
+      // Kept so the hand-off can scroll to it: asking is the easy half.
+      tab.wall = {
+        kind: found.kind,
+        backendNodeId: node.backendNodeId,
+        // Carried so the pane can name the thing. "Press Done" next to a
+        // description of something the person cannot find is how a hand-off
+        // becomes a guessing game.
+        label: node.name || node.role,
+      };
+      return found.kind;
+    } catch {
+      // No box is the same answer as an empty one: nothing to point a person at.
+      return null;
+    }
+  }
+
+  /**
+   * Whether the page itself considers this element to be on screen.
+   *
+   * `DOM.getBoxModel` answers a different question — "is this laid out" — and an
+   * element far down the page has a perfectly good box. Asking the element for
+   * its own `getBoundingClientRect` against the viewport is the only form of the
+   * question that means what it sounds like.
+   */
+  private async elementOnScreen(
+    cdp: { send: (m: string, p?: Record<string, unknown>) => Promise<unknown> },
+    backendNodeId: number,
+  ): Promise<boolean> {
+    try {
+      const handle = (await cdp.send('DOM.resolveNode', { backendNodeId })) as { object?: { objectId?: string } };
+      const objectId = handle?.object?.objectId;
+      if (!objectId) return false;
+      const reply = (await cdp.send('Runtime.callFunctionOn', {
+        objectId,
+        returnByValue: true,
+        functionDeclaration: `function () {
+          const r = this.getBoundingClientRect();
+          if (r.width <= 0 || r.height <= 0) return false;
+          return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+        }`,
+      })) as { result?: { value?: unknown } };
+      return reply?.result?.value === true;
+    } catch {
+      // Gone, or a page that will not answer. Treat as not on screen: the
+      // honest answer when we cannot tell is that we cannot show it.
+      return false;
+    }
+  }
+
   async clickSelector(selector: string, opts: { tabId?: string; timeoutMs?: number } = {}): Promise<HostReply> {
     try {
       if (!selector) return fail('selector is required');
@@ -961,6 +1088,7 @@ export class BrowserHost {
       const { tab, wc } = this.resolve(tabId);
       delete tab.snapshot;
       delete tab.seen;
+      delete tab.wall;
       const reply = (await this.cdp(wc).send('Page.navigate', { url })) as { errorText?: string };
       if (reply?.errorText) return fail(`could not open ${url}: ${reply.errorText}`);
       this.changed();

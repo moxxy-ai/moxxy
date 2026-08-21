@@ -247,8 +247,15 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
             <strong className="browser__notice-title">Moxxy needs you</strong>
             <span className="browser__notice-body">{handoff.reason}</span>
+            {handoff.label && (
+              <span className="browser__notice-body">
+                Look for: <strong>{handoff.label}</strong>
+              </span>
+            )}
             <span className="browser__notice-body">
-              The agent is not reading the page right now — do what it asks, then press Done.
+              {handoff.onScreen
+                ? 'The agent is not reading the page right now — do what it asks, then press Done.'
+                : 'It is on this page but not in view — scroll to find it. The agent is not reading the page right now; press Done when you have.'}
             </span>
           </div>
           <div className="browser__notice-actions">

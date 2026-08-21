@@ -1,4 +1,6 @@
 import { formatSnapshot, type TabInfo } from '../ax/snapshot.js';
+import { detectWall, type WallKind } from '../ax/wall.js';
+import type { AxNode } from '../ax/tree.js';
 import { captureAx, pointForBackendNode } from './perceive.js';
 import type { SidecarState } from './state.js';
 import { badParams, errMsg, SidecarError, type CdpSession, type PageHandle, type PlaywrightHandle, type Reply, type Req } from './types.js';
@@ -67,6 +69,28 @@ function targetTab(state: SidecarState, params: Record<string, unknown>): { id: 
 }
 
 /**
+ * Whether this page is really waiting on a person.
+ *
+ * The detector reads the accessibility tree, which is enough to spot a consent
+ * button or a password field and not enough to know either is on screen. A
+ * control can sit in the tree undrawn, and a wall reported from one of those
+ * traps the agent in a hand-off nobody can answer: the person is told to press
+ * something they cannot see. `pointForBackendNode` already answers "is there a
+ * box to aim at", which is the same question.
+ */
+async function confirmWall(
+  cdp: CdpSession,
+  // AxTree is the root node with an index hung off it, so one value is both.
+  tree: AxNode & { index: ReadonlyMap<string, AxNode> },
+): Promise<WallKind | null> {
+  const found = detectWall(tree);
+  if (!found) return null;
+  const node = tree.index.get(found.uid);
+  if (node?.backendNodeId === undefined) return null;
+  return (await pointForBackendNode(cdp, node.backendNodeId)) ? found.kind : null;
+}
+
+/**
  * Read a tab: accessibility tree, address, title, and the full tab list.
  *
  * The tab list rides along on purpose. The model never has to spend a call
@@ -85,7 +109,8 @@ export async function opSnapshot(state: SidecarState, handle: PlaywrightHandle, 
     if (tree) state.snapshots.set(id, { index: tree.index, url });
     else state.snapshots.delete(id);
 
-    const text = formatSnapshot({ tree, url, title: await titleOf(page), tabs: await tabInfos(state) });
+    const wall = tree ? await confirmWall(cdp, tree) : null;
+    const text = formatSnapshot({ tree, url, title: await titleOf(page), tabs: await tabInfos(state), wall });
     return { id: req.id, ok: true, result: { text, tabId: id, url, nodes: tree ? tree.index.size : 0 } };
   } catch (err) {
     return { id: req.id, ok: false, error: { message: errMsg(err), kind: err instanceof SidecarError ? err.kind : 'runtime' } };

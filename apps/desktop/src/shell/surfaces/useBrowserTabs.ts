@@ -44,7 +44,16 @@ export interface BrowserTabsApi {
   /** Browser history, driven through main so the agent and the buttons agree. */
   readonly history: (action: 'back' | 'forward' | 'reload', tabId?: string) => Promise<void>;
   /** Outstanding request for the person at the keyboard, if any. */
-  readonly handoff: { readonly requestId: string; readonly tabId: string; readonly reason: string } | null;
+  readonly handoff: {
+    readonly requestId: string;
+    readonly tabId: string;
+    readonly reason: string;
+    /** False when the page has the thing but it is not in view — the pane says
+     *  so rather than asking for a press on something invisible. */
+    readonly onScreen: boolean;
+    /** What the page calls the control, when one was found. */
+    readonly label?: string;
+  } | null;
   /** Answer the hand-off: done, or skipped. */
   readonly answerHandoff: (completed: boolean) => Promise<void>;
 }
@@ -86,7 +95,13 @@ export function useBrowserTabs(): BrowserTabsApi {
   const adopted = useRef<Set<string>>(new Set());
   /** pane key → the tab id main gave it, so a closed tab can be pruned. */
   const adoptedByPane = useRef<Map<string, string>>(new Map());
-  const handoffRef = useRef<{ requestId: string; tabId: string; reason: string } | null>(null);
+  const handoffRef = useRef<{
+    requestId: string;
+    tabId: string;
+    reason: string;
+    onScreen: boolean;
+    label?: string;
+  } | null>(null);
   /** tabId → how to focus that tab's view. */
   const views = useRef<Map<string, () => void>>(new Map());
 
@@ -159,7 +174,13 @@ export function useBrowserTabs(): BrowserTabsApi {
     { key: 'home', initialUrl: HOME_URL },
   ]);
   const paneSeq = useRef(0);
-  const [handoff, setHandoff] = useState<{ requestId: string; tabId: string; reason: string } | null>(null);
+  const [handoff, setHandoff] = useState<{
+    requestId: string;
+    tabId: string;
+    reason: string;
+    onScreen: boolean;
+    label?: string;
+  } | null>(null);
 
   const openPane = useCallback((url: string) => {
     setPanes((prev) => [...prev, { key: `p${++paneSeq.current}`, initialUrl: url }]);
@@ -227,9 +248,19 @@ export function useBrowserTabs(): BrowserTabsApi {
       // being rendered instead of lingering as an orphan.
       setPanes((prev) => prev.filter((pane) => !adoptedByPane.current.has(pane.key) || live.has(adoptedByPane.current.get(pane.key)!)));
     });
+    /**
+     * Show what is being asked about, then ask.
+     *
+     * Seen live: the pane sat on one tab while the consent banner it was asking
+     * about was on another, so the person was told to press something that was
+     * not in front of them — and pressing Done without doing anything leaves the
+     * wall exactly where it was, so the question came straight back. Main scrolls
+     * to the control; bringing its tab forward is this side's half.
+     */
     const offHandoff = api().subscribe('browser.handoffRequested', (req) => {
       handoffRef.current = req;
       setHandoff(req);
+      void api().invoke('browser.selectTab', { tabId: req.tabId }).catch(() => {});
     });
     /**
      * Bring the tab forward, then focus its view, then say so.

@@ -22,8 +22,24 @@ const FILLABLE = new Set(['textbox', 'searchbox', 'combobox', 'TextField', 'Inpu
 const CAPTCHA =
   /(recaptcha|hcaptcha|turnstile|captcha|not a robot|nie jestem robotem|jestem człowiekiem|i am human)/i;
 
-const CONSENT =
-  /(accept all|reject all|accept cookies|manage cookies|i agree|agree and continue|only necessary|zaakceptuj wszystk|odrzuć wszystk|akceptuj|zgadzam się|zgoda na cookies|tylko niezbędne|więcej opcji)/i;
+/**
+ * A control belongs to a consent banner if it says so, or if it uses a phrase
+ * that appears nowhere else.
+ *
+ * The first draft matched loose stems — `akceptuj`, `więcej opcji` — and paid
+ * for it: Canva's account menu is called "Więcej opcji konta i zespołu", so
+ * every snapshot of a logged-in Canva reported a consent wall that did not
+ * exist, and the agent asked the user to answer it. Three times, before the
+ * banner started naming what it had found.
+ *
+ * Over-matching here is not a small cost: it sends the person looking for
+ * something that is not there, and pressing Done changes nothing, so the
+ * question comes straight back.
+ */
+const CONSENT_WORD = /(cookie|ciasteczk)/i;
+const CONSENT_PHRASE =
+  /(accept all|reject all|i agree|agree and continue|only necessary|zaakceptuj wszystk|odrzuć wszystk|odrzuc wszystk|zgadzam się|zgadzam sie|tylko niezbędne|tylko niezbedne)/i;
+const isConsent = (name: string): boolean => CONSENT_WORD.test(name) || CONSENT_PHRASE.test(name);
 
 /** Walk the tree once, shallow-first is irrelevant — every node gets looked at. */
 function walk(node: AxNode, visit: (n: AxNode) => void): void {
@@ -38,23 +54,37 @@ function walk(node: AxNode, visit: (n: AxNode) => void): void {
  * a cookie banner — the most blocking one is named, because that is the one the
  * person has to clear first.
  */
-export function detectWall(tree: AxNode | null): WallKind | null {
+export interface Wall {
+  readonly kind: WallKind;
+  /**
+   * The node that made it one.
+   *
+   * Named so a caller with geometry can check the thing is actually drawn. A
+   * control can sit in the accessibility tree without being on screen — hidden
+   * by opacity, moved off by a transform, inside a collapsed container — and a
+   * wall reported from one of those traps the agent in a hand-off nobody can
+   * answer: the person is told to click something they cannot see.
+   */
+  readonly uid: string;
+}
+
+export function detectWall(tree: AxNode | null): Wall | null {
   if (!tree) return null;
-  let captcha = false;
-  let signin = false;
-  let consent = false;
+  let captcha: string | null = null;
+  let signin: string | null = null;
+  let consent: string | null = null;
 
   walk(tree, (n) => {
     const name = n.name ?? '';
     if (!name) return;
-    if (CAPTCHA.test(name)) captcha = true;
-    if (FILLABLE.has(n.role) && SECRET_LABEL.test(name)) signin = true;
-    if (PRESSABLE.has(n.role) && CONSENT.test(name)) consent = true;
+    if (captcha === null && CAPTCHA.test(name)) captcha = n.uid;
+    if (signin === null && FILLABLE.has(n.role) && SECRET_LABEL.test(name)) signin = n.uid;
+    if (consent === null && PRESSABLE.has(n.role) && isConsent(name)) consent = n.uid;
   });
 
-  if (captcha) return 'captcha';
-  if (signin) return 'signin';
-  if (consent) return 'consent';
+  if (captcha !== null) return { kind: 'captcha', uid: captcha };
+  if (signin !== null) return { kind: 'signin', uid: signin };
+  if (consent !== null) return { kind: 'consent', uid: consent };
   return null;
 }
 

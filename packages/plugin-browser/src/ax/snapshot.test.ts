@@ -150,6 +150,7 @@ describe('formatSnapshot — a page that is waiting on a person', () => {
       url: 'https://www.google.com/search?q=koty',
       title: 'Zanim przejdziesz do Google',
       tabs: [],
+      wall: 'consent',
     });
 
     expect(out).toContain('browser_await_human');
@@ -161,6 +162,20 @@ describe('formatSnapshot — a page that is waiting on a person', () => {
       tree: { uid: '1', role: 'RootWebArea', name: 'Sklep', children: [] },
       url: 'https://sklep.pl',
       title: 'Sklep',
+      tabs: [],
+      wall: null,
+    });
+
+    expect(out).not.toContain('browser_await_human');
+  });
+
+  it('stays quiet about a wall the caller could not confirm is on screen', () => {
+    // The page has the buttons; nobody has said they are drawn. Reporting one
+    // that is not there tells the person to click something they cannot see.
+    const out = formatSnapshot({
+      tree: consentPage,
+      url: 'https://www.canva.com',
+      title: 'Canva',
       tabs: [],
     });
 

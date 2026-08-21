@@ -1,6 +1,6 @@
 import { formatAxTree } from './format.js';
 import { MASKED_VALUE, SECRET_LABEL } from './labels.js';
-import { detectWall, wallNote } from './wall.js';
+import { wallNote, type WallKind } from './wall.js';
 import type { AxNode } from './tree.js';
 
 /**
@@ -37,6 +37,14 @@ export interface SnapshotInput {
    * large document is the expensive half of a snapshot.
    */
   readonly body?: string;
+  /**
+   * What this page is waiting on a person for, if anything.
+   *
+   * Decided by the caller rather than here: telling a wall apart from a control
+   * that merely exists in the tree needs geometry, and this function only has
+   * the tree.
+   */
+  readonly wall?: WallKind | null;
 }
 
 /**
@@ -96,8 +104,7 @@ export function formatSnapshot(input: SnapshotInput): string {
   // Ahead of the content, because it changes what the agent should do with
   // everything below it: a page that has stopped being readable and started
   // asking for a person is not a page to act on.
-  const wall = detectWall(input.tree);
-  if (wall) sections.push('### Needs you', wallNote(wall));
+  if (input.wall) sections.push('### Needs you', wallNote(input.wall));
 
   sections.push('### Untrusted page content', UNTRUSTED_NOTE, '### Snapshot');
   sections.push(

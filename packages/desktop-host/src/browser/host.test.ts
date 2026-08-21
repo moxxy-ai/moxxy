@@ -16,6 +16,10 @@ const AX_NODES = [
 
 function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { navigateError?: string } = {}) {
   let axNodes: unknown[] = AX_NODES;
+  /** Zero-area means the element is in the tree but not drawn. */
+  const boxes: Record<number, number[] | null> = {};
+  /** Whether the page reports the element inside its viewport. */
+  let onScreen = true;
   let current = url;
   let attached = false;
   let reloads = 0;
@@ -72,7 +76,14 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       sendCommand: async (method, params) => {
         sent.push({ method, params });
         if (method === 'Accessibility.getFullAXTree') return { nodes: axNodes };
-        if (method === 'DOM.getBoxModel') return { model: { content: [0, 0, 80, 0, 80, 40, 0, 40] } };
+        if (method === 'DOM.getBoxModel') {
+          const id_ = (params as { backendNodeId?: number })?.backendNodeId;
+          if (id_ !== undefined && id_ in boxes) {
+            const q = boxes[id_];
+            return q ? { model: { content: q } } : {};
+          }
+          return { model: { content: [0, 0, 80, 0, 80, 40, 0, 40] } };
+        }
         if (method === 'DOM.getDocument') return { root: { nodeId: 1 } };
         if (method === 'DOM.querySelector') {
           // Only `#kup` and `#q` exist on this page.
@@ -81,6 +92,11 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
         }
         if (method === 'DOM.describeNode') return { node: { backendNodeId: 21 } };
         if (method === 'DOM.resolveNode') return { object: { objectId: 'obj-1' } };
+        if (method === 'Runtime.callFunctionOn') {
+          const fn = String((params as { functionDeclaration?: string })?.functionDeclaration ?? '');
+          if (fn.includes('getBoundingClientRect')) return { result: { value: onScreen } };
+          return {};
+        }
         if (method === 'Runtime.evaluate') {
           const expr = String((params as { expression?: string })?.expression ?? '');
           if (expr.includes('outerHTML')) return { result: { value: '<html>sklep</html>' } };
@@ -113,6 +129,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     },
     /** Let a test change what the page says, the way a real page would. */
     setPage: (nodes: unknown[]) => (axNodes = nodes),
+    setBox: (backendNodeId: number, quad: number[] | null) => (boxes[backendNodeId] = quad),
+    setOnScreen: (v: boolean) => (onScreen = v),
     emit: (event: string) => {
       for (const fn of [...(listeners.get(event) ?? [])]) fn();
     },
@@ -179,7 +197,13 @@ describe('BrowserHost — snapshot', () => {
 
     expect(reply.ok).toBe(true);
     expect(a.isAttached()).toBe(true);
-    expect(a.sent.map((s) => s.method)).toEqual(['Accessibility.enable', 'Accessibility.getFullAXTree']);
+    // The box lookup is the wall check: this fixture has a password field, so a
+    // sign-in wall is detected and then confirmed against its geometry.
+    expect(a.sent.map((s) => s.method)).toEqual([
+      'Accessibility.enable',
+      'Accessibility.getFullAXTree',
+      'DOM.getBoxModel',
+    ]);
   });
 
   it('returns text carrying the uid, the tab list and the untrusted framing', async () => {
@@ -904,5 +928,192 @@ describe('BrowserHost — getting the page focused before a key', () => {
     await host.act({ action: 'click', uid: '2' });
 
     expect(asked).toBe(0);
+  });
+});
+
+describe('BrowserHost — a wall only counts when it is on screen', () => {
+  /**
+   * A control can sit in the accessibility tree without being drawn — hidden by
+   * opacity, moved off by a transform, inside a collapsed container. Reported as
+   * a wall it traps the agent in a hand-off nobody can answer: the person is
+   * told to click something that is not on their screen, presses Done because
+   * there is nothing to do, and the next read says the same thing. Seen live on
+   * canva.com.
+   */
+  const CONSENT_PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Canva' }, childIds: ['b'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie pliki cookie' }, backendDOMNodeId: 55 },
+  ];
+
+  it('names the wall when the thing to press is really there', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Needs you');
+    expect(text).toContain('browser_await_human');
+  });
+
+  it('says nothing when the control is in the tree but not drawn', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    a.setBox(55, null);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).not.toContain('### Needs you');
+    // The page itself is still read — only the claim about a wall is dropped.
+    expect(text).toContain('Zaakceptuj wszystkie pliki cookie');
+  });
+
+  it('says nothing when the control has collapsed to nothing', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    a.setBox(55, [0, 0, 0, 0, 0, 0, 0, 0]);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).not.toContain('### Needs you');
+  });
+});
+
+describe('BrowserHost — putting the wall where the person can see it', () => {
+  /**
+   * A hand-off is only worth anything if the thing it asks about is on screen.
+   * Seen live: the pane showed one tab while the consent banner sat on another,
+   * so the agent asked the user to press something that was not in front of
+   * them — and the banner itself was near the bottom of a page nobody had
+   * scrolled. Asking is the easy half; showing is the half that was missing.
+   */
+  const CONSENT_PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Canva' }, childIds: ['b'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie pliki cookie' }, backendDOMNodeId: 55 },
+  ];
+
+  it('scrolls the wall into view before anyone is asked about it', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    await host.snapshot();
+    host.setHandoffPrompt((req) => host.resolveHandoff(req.requestId, true));
+
+    await host.awaitHuman({ reason: 'zaakceptuj cookies' });
+
+    const scrolled = a.sent.filter((s) => s.method === 'DOM.scrollIntoViewIfNeeded');
+    expect(scrolled.some((s) => s.params?.backendNodeId === 55)).toBe(true);
+  });
+
+  it('asks anyway when there is no wall it can point at', async () => {
+    // A sign-in the agent recognised from the page text, say. Nothing to scroll
+    // to is not a reason to withhold the question.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    host.setHandoffPrompt((req) => host.resolveHandoff(req.requestId, true));
+
+    const reply = await host.awaitHuman({ reason: 'zaloguj sie' });
+
+    expect(reply.ok).toBe(true);
+    expect((reply.result as { completed: boolean }).completed).toBe(true);
+  });
+
+  it('forgets the wall once the page has moved on', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    await host.snapshot();
+
+    await host.goto('https://inna.pl');
+    host.setHandoffPrompt((req) => host.resolveHandoff(req.requestId, true));
+    const before = a.sent.filter((s) => s.method === 'DOM.scrollIntoViewIfNeeded').length;
+    await host.awaitHuman({ reason: 'cokolwiek' });
+
+    expect(a.sent.filter((s) => s.method === 'DOM.scrollIntoViewIfNeeded')).toHaveLength(before);
+  });
+});
+
+describe('BrowserHost — asking only about what the person can see', () => {
+  /**
+   * `DOM.getBoxModel` answers "is this laid out", not "is this on screen": an
+   * element far down the page has a perfectly good box. So a rendered wall is
+   * worth reporting — a consent banner below the fold is still a real wall — but
+   * before anyone is asked about it, it has to be brought into view and the
+   * arrival has to be checked. Seen live: the agent asked twice about a banner
+   * that was nowhere on the user's screen.
+   */
+  const CONSENT_PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Canva' }, childIds: ['b'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie pliki cookie' }, backendDOMNodeId: 55 },
+  ];
+
+  async function handoffOn(a: ReturnType<typeof fakeWc>, host: BrowserHost) {
+    const asked: Array<{ reason: string; onScreen: boolean }> = [];
+    host.setHandoffPrompt((req) => {
+      asked.push({ reason: req.reason, onScreen: req.onScreen });
+      host.resolveHandoff(req.requestId, true);
+    });
+    await host.awaitHuman({ reason: 'zaakceptuj cookies' });
+    return asked;
+  }
+
+  it('reports a wall that is rendered but below the fold', async () => {
+    // Not on screen yet is not the same as not there. The snapshot still says so.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    a.setOnScreen(false);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Needs you');
+  });
+
+  it('says the wall is on screen once scrolling has put it there', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    await host.snapshot();
+
+    const asked = await handoffOn(a, host);
+
+    expect(a.sent.some((s) => s.method === 'DOM.scrollIntoViewIfNeeded' && s.params?.backendNodeId === 55)).toBe(true);
+    expect(asked[0]?.onScreen).toBe(true);
+  });
+
+  it('admits it when scrolling could not bring the wall into view', async () => {
+    // Fixed elements, oddly-clipped containers, a page that moved underneath.
+    // Telling the person to press something invisible is worse than saying so.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(CONSENT_PAGE);
+    await host.snapshot();
+    a.setOnScreen(false);
+
+    const asked = await handoffOn(a, host);
+
+    expect(asked[0]?.onScreen).toBe(false);
+  });
+
+  it('still asks when there is no wall to point at', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const asked = await handoffOn(a, host);
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.onScreen).toBe(false);
   });
 });

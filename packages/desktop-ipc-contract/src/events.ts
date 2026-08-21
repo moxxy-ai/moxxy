@@ -103,7 +103,19 @@ export interface IpcEvents {
    *  a consent screen. The pane shows a banner and answers via
    *  `browser.resolveHandoff`. While this is outstanding the agent is not
    *  reading the page. */
-  'browser.handoffRequested': { requestId: string; tabId: string; reason: string };
+  'browser.handoffRequested': {
+    requestId: string;
+    tabId: string;
+    reason: string;
+    /** Whether the thing being asked about is actually in view. False means the
+     *  page has it but the person will have to go looking — saying so beats
+     *  asking them to press something that is not on their screen. */
+    onScreen: boolean;
+    /** What the page calls the control in question, when one was found. Naming
+     *  it is what lets the person tell "I cannot see it" from "I am looking at
+     *  the wrong thing". */
+    label?: string;
+  };
 
   /** Streamed during `apps.install` — one event per download/verify step so the
    *  Apps gallery can show a progress bar while an app's assets download. */
