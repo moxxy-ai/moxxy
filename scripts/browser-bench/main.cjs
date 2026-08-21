@@ -35,6 +35,19 @@ const SAMPLE_MS = Number(process.env.BENCH_SAMPLE_MS ?? 6000);
 const SETTLE_MS = Number(process.env.BENCH_SETTLE_MS ?? 4000);
 /** Short, so the release can be watched happening rather than waited out. */
 const IDLE_MS = Number(process.env.BENCH_IDLE_MS ?? 3000);
+/**
+ * A heavy page the agent reads over and over.
+ *
+ * It tries to start playback, and on a bare Electron it will not: YouTube's
+ * player stays paused however it is asked, so what this phase actually measures
+ * is repeated reads of a large, mostly-still page. The moving case has to be
+ * measured in the real app, where playback works — see the note the phase prints
+ * when it could not start the video, and do not read the result as if it had.
+ */
+const LIVE_URL = process.env.BENCH_LIVE_URL ?? 'https://www.youtube.com/watch?v=75TUXS9nGAw';
+/** How many times the agent looks at that page, and how far apart. */
+const LIVE_READS = Number(process.env.BENCH_LIVE_READS ?? 6);
+const LIVE_GAP_MS = Number(process.env.BENCH_LIVE_GAP_MS ?? 2000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => process.stdout.write(a.join(' ') + '\n');
@@ -83,6 +96,10 @@ const fmt = (n, d = 1) => n.toFixed(d);
 const tokens = (text) => Math.round(text.length / 4);
 
 app.commandLine.appendSwitch('disable-gpu');
+// A playing video is the point of the last phase, and Chromium will not start
+// one without a user gesture. The policy is orthogonal to what is being
+// measured — the cost of reading a page that keeps changing.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 app.whenReady().then(async () => {
   const host = new BrowserHost((id) => {
@@ -196,6 +213,67 @@ app.whenReady().then(async () => {
       released: !stillAttached,
     });
   }
+
+  // ---------------------------------------------------------------------
+  // The case the other pages do not cover: the agent working a page that is
+  // changing under it. Everything above settles and then holds still, which is
+  // where "unchanged" wins; a playing video is where it cannot.
+  log(`── ${LIVE_URL}  (powtarzane odczyty ciężkiej strony)`);
+  await host.goto(LIVE_URL);
+  await sleep(SETTLE_MS);
+  const livePid = guest.getOSProcessId();
+  const playing = await guest
+    .executeJavaScript(
+      'const v = document.querySelector("video");' +
+        'if (v) { v.muted = true; const p = v.play(); if (p) p.catch(() => {}); }' +
+        'new Promise((r) => setTimeout(() => r(!!(v && !v.paused)), 1200))',
+    )
+    .catch(() => false);
+  log(
+    `   odtwarzanie: ${playing ? 'tak' : 'NIE — Chromium bez interfejsu nie startuje odtwarzacza.'}` +
+      `${playing ? '' : '\n   Ruchomą stronę trzeba zmierzyć w aplikacji; te liczby dotyczą strony w bezruchu.'}`,
+  );
+
+  // A. The page as the user has it: playing, nothing attached.
+  const liveIdle = await sample(livePid, SAMPLE_MS);
+  log(`   sam film             CPU ${fmt(liveIdle.cpuPct)}%  RAM ${fmt(liveIdle.memMb, 0)} MB`);
+
+  // B. The same, while the agent reads it over and over — sampled DURING the
+  //    reads rather than after, because the question is what working the page
+  //    costs, not what the page costs once the agent has stopped.
+  const reads = [];
+  const busy = sample(livePid, LIVE_READS * LIVE_GAP_MS);
+  for (let i = 0; i < LIVE_READS; i++) {
+    const t = Date.now();
+    const r = await host.snapshot();
+    reads.push({
+      ms: Date.now() - t,
+      unchanged: r.ok && r.result.unchanged === true,
+      text: r.ok ? r.result.text : '',
+    });
+    await sleep(LIVE_GAP_MS);
+  }
+  const liveBusy = await busy;
+
+  const hits = reads.filter((r) => r.unchanged).length;
+  const spent = reads.reduce((a, r) => a + tokens(r.text), 0);
+  const wouldHaveSpent = tokens(reads[0].text) * reads.length;
+  const overlaps = [];
+  for (let i = 1; i < reads.length; i++) {
+    if (!reads[i].unchanged && !reads[i - 1].unchanged) {
+      overlaps.push(repeatRatio(reads[i - 1].text, reads[i].text));
+    }
+  }
+  const avgOverlap = overlaps.length ? overlaps.reduce((a, b) => a + b, 0) / overlaps.length : 1;
+
+  log(
+    `   agent czyta co ${LIVE_GAP_MS / 1000}s     CPU ${fmt(liveBusy.cpuPct)}%  RAM ${fmt(liveBusy.memMb, 0)} MB` +
+      `   (Δ ${fmt(liveBusy.cpuPct - liveIdle.cpuPct)} pkt CPU)`,
+  );
+  log(`   ${LIVE_READS} odczytów             ~${spent} tokenów łącznie (bez skrótu byłoby ~${wouldHaveSpent})`);
+  log(`   trafień "bez zmian"        ${hits}/${LIVE_READS}`);
+  log(`   wspólnych linii między kolejnymi odczytami  ${fmt(avgOverlap * 100, 0)}%  (sufit dla diffu)`);
+  log(`   czas odczytu               ${Math.min(...reads.map((r) => r.ms))}–${Math.max(...reads.map((r) => r.ms))} ms\n`);
 
   log('# Podsumowanie\n');
   log('| strona | Δ CPU | koszt AX w RAM | tokeny/snapshot | ponowny odczyt | oddane po bezczynności | sufit diffu |');
