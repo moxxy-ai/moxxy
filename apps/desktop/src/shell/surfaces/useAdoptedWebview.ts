@@ -26,6 +26,12 @@ export function useAdoptedWebview(opts: {
   readonly requestId?: string;
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
   readonly release: (tabId: string) => Promise<void>;
+  /**
+   * Offer this element's focus under the tab id main knows it by. A key only
+   * reaches the page when this element has focus in the window's DOM, and main
+   * has no way to give it that from its side.
+   */
+  readonly registerView?: (tabId: string, focus: (() => void) | null) => void;
 }): { readonly tabId: string | null; readonly url: string } {
   const [tabId, setTabId] = useState<string | null>(null);
   const [url, setUrl] = useState('');
@@ -56,6 +62,7 @@ export function useAdoptedWebview(opts: {
         if (disposed || !id) return;
         tabIdRef.current = id;
         setTabId(id);
+        handlers.current.registerView?.(id, () => view.focus());
       });
     };
     const onNavigated = (): void => {
@@ -74,7 +81,10 @@ export function useAdoptedWebview(opts: {
       view.removeEventListener('did-navigate-in-page', onNavigated);
       view.removeEventListener('page-title-updated', onNavigated);
       const id = tabIdRef.current;
-      if (id) void handlers.current.release(id);
+      if (id) {
+        handlers.current.registerView?.(id, null);
+        void handlers.current.release(id);
+      }
     };
     // Only the view and its request id identify this attachment; the callbacks
     // are read through the ref above so a re-render cannot restart the effect.

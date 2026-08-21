@@ -529,6 +529,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     tabId: z.string().min(1).max(64).optional(),
   }),
   'browser.capture': z.object({ tabId: z.string().min(1).max(64).optional() }),
+  'browser.confirmFocus': z.object({ requestId: z.string().min(1).max(64) }),
   'browser.history': z.object({
     action: z.enum(['back', 'forward', 'reload']),
     tabId: z.string().min(1).max(64).optional(),

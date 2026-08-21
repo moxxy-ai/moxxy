@@ -182,6 +182,33 @@ export function buildAgentTools(deps?: BrowserSessionDeps): ReadonlyArray<ToolDe
     },
   });
 
+  const key = defineTool({
+    name: 'browser_key',
+    icon: 'globe',
+    description:
+      'Press a key on the page. Use it for the things a click and a typed string cannot do: submitting ' +
+      'with Enter, dismissing with Escape, moving between fields with Tab, and clearing a field that ' +
+      'already has something in it with "Meta+a" then "Backspace" before typing over it. Combine ' +
+      'modifiers with "+", e.g. "Shift+Tab", "Meta+a". ' +
+      'The key goes wherever the page has focus, so browser_click the field first — otherwise it lands ' +
+      'on whatever was focused before, which is rarely what you meant.',
+    inputSchema: z.object({
+      key: z
+        .string()
+        .min(1)
+        .describe('Named as a keyboard event names it: Enter, Escape, Tab, ArrowDown, Meta+a, Shift+Tab.'),
+      element: z
+        .string()
+        .min(1)
+        .describe('What has focus and what this key is meant to do — shown to the user when approving.'),
+      tab_id: tabId,
+    }),
+    permission: { action: 'prompt' },
+    compact: { verb: 'Pressing', noun: { one: 'key', other: 'keys' }, previewKey: 'key' },
+    isolation: ACT_ISOLATION,
+    handler: ({ key: k, tab_id }, ctx) => call('key', { key: k, tab_id }, deps, ctx.signal),
+  });
+
   const back = defineTool({
     name: 'browser_history',
     icon: 'globe',
@@ -218,5 +245,5 @@ export function buildAgentTools(deps?: BrowserSessionDeps): ReadonlyArray<ToolDe
     handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, deps, ctx.signal),
   });
 
-  return [snapshot, click, type, navigate, tabs, capture, back, awaitHuman];
+  return [snapshot, click, type, navigate, tabs, capture, key, back, awaitHuman];
 }

@@ -23,6 +23,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
   const forward: string[] = [];
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const listeners = new Map<string, Set<(...a: unknown[]) => void>>();
+  let focused = 0;
   const wc: HostWebContents = {
     id,
     on: (event: string, fn: (...a: unknown[]) => void) => {
@@ -96,6 +97,9 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       },
     },
     sendInputEvent: () => {},
+    focus: () => {
+      focused++;
+    },
   };
   return {
     wc,
@@ -113,6 +117,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       for (const fn of [...(listeners.get(event) ?? [])]) fn();
     },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0),
+    focusCount: () => focused,
   };
 }
 
@@ -703,5 +708,201 @@ describe('BrowserHost — letting go of a tab nobody is using', () => {
     await idle(90);
 
     expect(a.isAttached()).toBe(false);
+  });
+});
+
+describe('BrowserHost — the keyboard', () => {
+  /**
+   * There was no way to send a key at all. An agent that needed Cmd+A to replace
+   * the contents of a field had nothing to reach for, so it reached outside —
+   * seen live on Canva, where it went for a completely different browser rather
+   * than admit it could not press a key. The sidecar backend has had this since
+   * the beginning; only the desktop was missing it.
+   */
+  const sentKeys = (a: ReturnType<typeof fakeWc>) => a.sent.filter((s) => s.method === 'Input.dispatchKeyEvent');
+
+  it('presses a lone printable character, carrying the text so it lands', async () => {
+    // `Input.insertText` looked like the shorter road for a single character and
+    // is not one: on its own, after the click that focused the field, it does
+    // nothing at all. Observed against a real input — a key event with `text`
+    // is what actually types.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('a');
+
+    const keys = sentKeys(a);
+    expect(keys.map((k) => k.params?.type)).toEqual(['keyDown', 'keyUp']);
+    expect(keys[0]?.params).toMatchObject({ key: 'a', text: 'a' });
+    expect(a.sent.some((s) => s.method === 'Input.insertText')).toBe(false);
+  });
+
+  it('presses punctuation it has no name for', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    expect((await host.key('/')).ok).toBe(true);
+    expect(sentKeys(a)[0]?.params).toMatchObject({ text: '/' });
+  });
+
+  it('presses a named key down and up again', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Enter');
+
+    const keys = sentKeys(a);
+    expect(keys.map((k) => k.params?.type)).toEqual(['rawKeyDown', 'keyUp']);
+    expect(keys[0]?.params).toMatchObject({ key: 'Enter', windowsVirtualKeyCode: 13 });
+  });
+
+  it('carries modifiers as the bitmask CDP expects', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Shift+Tab');
+
+    expect(sentKeys(a)[0]?.params).toMatchObject({ key: 'Tab', modifiers: 8 });
+  });
+
+  it('sends select-all as an editing command, not just a modified letter', async () => {
+    // The blocked case. A modified letter alone does not reach the editing
+    // pipeline; the command does, and it is what a real Cmd+A produces.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Meta+a');
+
+    expect(sentKeys(a)[0]?.params).toMatchObject({ modifiers: 4, commands: ['selectAll'] });
+  });
+
+  it('treats Control and Meta alike for the editing commands', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Control+a');
+
+    expect(sentKeys(a)[0]?.params).toMatchObject({ modifiers: 2, commands: ['selectAll'] });
+  });
+
+  it('refuses a key it cannot spell rather than pressing something else', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const reply = await host.key('Wypadnij');
+
+    expect(reply.ok).toBe(false);
+    expect(reply.error?.message).toContain('Wypadnij');
+    expect(sentKeys(a)).toHaveLength(0);
+  });
+
+  it('refuses nothing at all', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    expect((await host.key('')).ok).toBe(false);
+  });
+});
+
+describe('BrowserHost — keys land where the user last clicked "allow"', () => {
+  /**
+   * Every acting tool asks before it runs, and answering means clicking in the
+   * app — which takes keyboard focus off the page. So key one of a sequence
+   * lands, key two does not, and the agent is left looking at a field it
+   * selected and could not clear. Seen live on a search box: the same two keys
+   * work with no prompt between them and do nothing with one.
+   */
+  it('takes the page back before pressing anything', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Backspace');
+
+    expect(a.focusCount()).toBe(1);
+  });
+
+  it('does not grab focus for reading or for clicking', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.snapshot();
+    await host.act({ action: 'click', uid: '2' });
+
+    expect(a.focusCount()).toBe(0);
+  });
+});
+
+describe('BrowserHost — getting the page focused before a key', () => {
+  /**
+   * A key only reaches the page when the `<webview>` ELEMENT has focus in the
+   * window's DOM — and answering the approval prompt takes that away, because
+   * answering means clicking in the app. `webContents.focus()` from here is not
+   * enough: the guest is a child of the embedder, and only the renderer can
+   * focus the element. Reproduced in a real window with a second focusable
+   * element beside the view.
+   */
+  it('asks the renderer to focus the view, then presses', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    const asked: string[] = [];
+    host.setFocuser((req) => {
+      asked.push(req.tabId);
+      host.confirmFocus(req.requestId);
+    });
+
+    await host.key('Enter');
+
+    expect(asked).toEqual(['t1']);
+    expect(a.sent.some((s) => s.method === 'Input.dispatchKeyEvent')).toBe(true);
+  });
+
+  it('presses anyway when no renderer is listening', async () => {
+    // The CLI has no pane to ask. A key that silently never fires would be worse
+    // than one sent at a view that may or may not have focus.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const reply = await host.key('Enter');
+
+    expect(reply.ok).toBe(true);
+  });
+
+  it('does not wait forever on a renderer that never answers', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    host.setFocuser(() => {
+      /* never confirms */
+    });
+
+    const reply = await host.key('Enter', undefined, 40);
+
+    expect(reply.ok).toBe(true);
+    expect(a.sent.some((s) => s.method === 'Input.dispatchKeyEvent')).toBe(true);
+  });
+
+  it('asks for nothing when only reading or clicking', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    let asked = 0;
+    host.setFocuser(() => asked++);
+
+    await host.snapshot();
+    await host.act({ action: 'click', uid: '2' });
+
+    expect(asked).toBe(0);
   });
 });

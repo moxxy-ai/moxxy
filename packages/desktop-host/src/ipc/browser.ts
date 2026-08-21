@@ -43,6 +43,10 @@ export function registerBrowserHandlers(host: BrowserHost): void {
     if (!reply.ok) throw new Error(reply.error?.message ?? 'navigation failed');
   });
 
+  handle('browser.confirmFocus', async ({ requestId }) => {
+    host.confirmFocus(requestId);
+  });
+
   handle('browser.resolveHandoff', async ({ requestId, completed }) => {
     host.resolveHandoff(requestId, completed);
   });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
+import { readFileSync } from 'node:fs';
 import { buildAgentTools } from './agent-tools.js';
 import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
 import { zodToJsonSchema } from '@moxxy/sdk';
@@ -187,6 +188,7 @@ describe('the tool set', () => {
       'browser_navigate',
       'browser_tabs',
       'browser_capture',
+      'browser_key',
       'browser_history',
       'browser_await_human',
     ]);
@@ -269,5 +271,84 @@ describe('the schema the model is shown', () => {
     expect(json.properties.action?.type).toBe('string');
     // Only `action` is genuinely required — the wrapped fields must not become so.
     expect(json.required).toEqual(['action']);
+  });
+});
+
+describe('browser_key', () => {
+  /**
+   * Added because its absence was load-bearing: with no way to press a key, an
+   * agent that needed Cmd+A to replace a field's contents went looking for a
+   * different browser entirely rather than report that it could not.
+   */
+  it('sends the key to the same backend as everything else', async () => {
+    const fake = fakeSidecar();
+    fake.setReply(() => ({ key: 'Meta+a' }));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    await byName(tools, 'browser_key').handler({ key: 'Meta+a', element: 'pole tytulu' }, ctx());
+
+    expect(fake.received[0]?.method).toBe('key');
+    expect(fake.received[0]?.params.key).toBe('Meta+a');
+  });
+
+  it('is offered on both backends, so a task does not depend on where it runs', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(tools.map((t) => t.name)).toContain('browser_key');
+  });
+
+  it('asks before pressing, like every other tool that acts', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(byName(tools, 'browser_key').permission?.action).toBe('prompt');
+  });
+
+  it('requires a description of what it is pressing on, for the approval to mean anything', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(() => byName(tools, 'browser_key').inputSchema.parse({ key: 'Enter' })).toThrow();
+  });
+});
+
+describe('the browser skill and the tools it names', () => {
+  /**
+   * The skill drifted: it still described driving pages by CSS selector and its
+   * `allowed-tools` listed only `browser_session`, so an agent that loaded it was
+   * told to use none of the perception tools. Nothing failed — a skill naming a
+   * tool that does not exist is silently dropped, and one omitting a tool that
+   * does exist just quietly withholds it.
+   *
+   * Read off disk rather than imported: this package owns the tools, the skills
+   * package owns the file, and neither should depend on the other to say so.
+   */
+  const skillPath = new URL('../../skills-builtin/skills/browser.md', import.meta.url);
+
+  function allowedTools(): string[] {
+    const text = readFileSync(skillPath, 'utf8');
+    const line = /^allowed-tools:\s*\[(.*)\]\s*$/m.exec(text);
+    if (!line) throw new Error('browser.md has no allowed-tools line');
+    return line[1]!.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+
+  it('names only tools that exist', () => {
+    const shipped = new Set([
+      ...buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }).map((t) => t.name),
+      // The two the plugin ships alongside them.
+      'browser_session',
+      'web_fetch',
+    ]);
+
+    const unknown = allowedTools().filter((t) => !shipped.has(t));
+
+    expect(unknown, 'the skill names tools nothing ships').toEqual([]);
+  });
+
+  it('withholds none of the browser tools from an agent that loaded it', () => {
+    const allowed = new Set(allowedTools());
+    const shipped = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }).map((t) => t.name);
+
+    const missing = shipped.filter((t) => !allowed.has(t));
+
+    expect(missing, 'the skill would hide these from the agent').toEqual([]);
   });
 });

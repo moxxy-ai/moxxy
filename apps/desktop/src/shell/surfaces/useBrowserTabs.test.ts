@@ -106,3 +106,78 @@ describe('closing a tab', () => {
     expect(calls.some((c) => c.channel === 'browser.releaseTab')).toBe(true);
   });
 });
+
+describe('focusing a view so a key can land on it', () => {
+  /**
+   * A key only reaches the page when the `<webview>` element has focus in this
+   * window's DOM, and answering an approval prompt takes it away — answering
+   * means clicking in the app. Main cannot fix that from its side: the guest is
+   * a child of the embedder, so the element has to be focused here.
+   */
+  function apiWithFocusEvent(): {
+    calls: Array<{ channel: string; args: unknown }>;
+    fire: (req: { requestId: string; tabId: string }) => void;
+  } {
+    const calls: Array<{ channel: string; args: unknown }> = [];
+    let handler: ((req: { requestId: string; tabId: string }) => void) | null = null;
+    __setApiOverride({
+      invoke: ((channel: string, args: unknown) => {
+        calls.push({ channel, args });
+        if (channel === 'browser.listTabs') return Promise.resolve({ tabs: [], activeTabId: null });
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: ((event: string, cb: unknown) => {
+        if (event === 'browser.focusTab') handler = cb as typeof handler;
+        return () => undefined;
+      }) as never,
+    } as never);
+    return { calls, fire: (req) => handler?.(req) };
+  }
+
+  it('brings the tab forward, focuses its view, and says when it has', async () => {
+    // A hidden view cannot take focus — measured against a real page: the same
+    // keys do nothing behind another tab and work the moment it is in front.
+    const { calls, fire } = apiWithFocusEvent();
+    const { result } = renderHook(() => useBrowserTabs());
+    let focused = 0;
+    act(() => result.current.registerView('t2', () => focused++));
+
+    await act(async () => {
+      fire({ requestId: 'f1', tabId: 't2' });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(true);
+    expect(focused).toBe(1);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'browser.confirmFocus' && (c.args as { requestId: string }).requestId === 'f1')).toBe(true),
+    );
+  });
+
+  it('still answers for a view it does not have, so nothing waits on it', async () => {
+    const { calls, fire } = apiWithFocusEvent();
+    renderHook(() => useBrowserTabs());
+
+    await act(async () => {
+      fire({ requestId: 'f2', tabId: 'tNieMa' });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    await waitFor(() => expect(calls.some((c) => c.channel === 'browser.confirmFocus')).toBe(true));
+  });
+
+  it('forgets a view whose tab has gone', async () => {
+    const { fire } = apiWithFocusEvent();
+    const { result } = renderHook(() => useBrowserTabs());
+    let focused = 0;
+    act(() => result.current.registerView('t2', () => focused++));
+    act(() => result.current.registerView('t2', null));
+
+    await act(async () => {
+      fire({ requestId: 'f3', tabId: 't2' });
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+    expect(focused).toBe(0);
+  });
+});

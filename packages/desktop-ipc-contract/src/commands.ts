@@ -485,6 +485,8 @@ export interface IpcCommands {
   'browser.selectTab': (args: { tabId: string }) => Promise<void>;
   'browser.navigate': (args: { url: string; tabId?: string }) => Promise<{ url: string; tabId: string }>;
   'browser.history': (args: { action: 'back' | 'forward' | 'reload'; tabId?: string }) => Promise<void>;
+  /** The pane reporting that the view it was asked to focus now has it. */
+  'browser.confirmFocus': (args: { requestId: string }) => Promise<void>;
   /** The user answered the pane's hand-off banner. */
   'browser.resolveHandoff': (args: { requestId: string; completed: boolean }) => Promise<void>;
   /** A picture of the tab as it stands, for the person to hand to the agent.

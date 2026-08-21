@@ -93,6 +93,9 @@ export interface IpcEvents {
    *  that element belongs to the renderer — so the pane makes one and echoes
    *  `requestId` back through `browser.registerTab`. */
   'browser.openTab': { requestId: string; url: string };
+  /** Main asking the pane to put keyboard focus on a tab's view, so the key it
+   *  is about to send actually lands on the page rather than in the app. */
+  'browser.focusTab': { requestId: string; tabId: string };
   /** The tab set or the active tab changed — including when the AGENT changed
    *  it, which is the case the pane cannot observe on its own. */
   'browser.tabsChanged': { tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null };

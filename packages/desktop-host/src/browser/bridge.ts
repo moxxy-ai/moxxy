@@ -209,6 +209,8 @@ export class BrowserBridge {
           ...(tabId ? { tabId } : {}),
           ...(timeoutMs ? { timeoutMs } : {}),
         });
+      case 'key':
+        return this.host.key(String(params.key ?? ''), tabId);
       case 'text':
         return this.host.textOf(sel || undefined, tabId);
       case 'html':

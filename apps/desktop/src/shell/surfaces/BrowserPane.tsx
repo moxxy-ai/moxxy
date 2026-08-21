@@ -31,6 +31,7 @@ function TabView({
   visible,
   adopt,
   release,
+  registerView,
   onState,
 }: {
   readonly initialUrl: string;
@@ -38,10 +39,17 @@ function TabView({
   readonly visible: boolean;
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
   readonly release: (tabId: string) => Promise<void>;
+  readonly registerView: (tabId: string, focus: (() => void) | null) => void;
   readonly onState: (tabId: string | null, url: string) => void;
 }): JSX.Element {
   const ref = useRef<WebviewElement | null>(null);
-  const { tabId, url } = useAdoptedWebview({ ref, adopt, release, ...(requestId ? { requestId } : {}) });
+  const { tabId, url } = useAdoptedWebview({
+    ref,
+    adopt,
+    release,
+    registerView,
+    ...(requestId ? { requestId } : {}),
+  });
 
   // Let the chrome above act on whichever view is in front.
   if (visible) onState(tabId, url || initialUrl);
@@ -71,6 +79,7 @@ function TabSlot({
   activeTabId,
   adopt,
   release,
+  registerView,
   onState,
 }: {
   readonly pane: { key: string; initialUrl: string; requestId?: string };
@@ -78,6 +87,7 @@ function TabSlot({
   readonly activeTabId: string | null;
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
   readonly release: (tabId: string) => Promise<void>;
+  readonly registerView: (tabId: string, focus: (() => void) | null) => void;
   readonly onState: (tabId: string | null, url: string) => void;
 }): JSX.Element {
   const [tabId, setTabId] = useState<string | null>(null);
@@ -95,6 +105,7 @@ function TabSlot({
         return id;
       }}
       release={release}
+      registerView={registerView}
       onState={onState}
     />
   );
@@ -164,7 +175,7 @@ function TabStrip({
 export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
   const {
     tabs, activeTabId, error, adopt, release, select, navigate,
-    panes, openPane, closeTab, history, handoff, answerHandoff, noteAdoption,
+    panes, openPane, closeTab, history, handoff, answerHandoff, noteAdoption, registerView,
   } = useBrowserTabs();
   const chrome = useBrowserChrome({ activeTabId, navigate });
 
@@ -262,6 +273,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
               return id;
             }}
             release={release}
+            registerView={registerView}
             onState={chrome.onViewState}
           />
         ))}

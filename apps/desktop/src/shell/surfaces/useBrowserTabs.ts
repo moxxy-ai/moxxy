@@ -27,6 +27,13 @@ export interface BrowserTabsApi {
   readonly openPane: (url: string) => void;
   /** Record which tab a pane became, so a closed tab can be pruned. */
   readonly noteAdoption: (paneKey: string, tabId: string) => void;
+  /**
+   * Offer a way to give this tab's view keyboard focus, or `null` to withdraw
+   * it. Main asks for this before sending a key: the element has to be focused
+   * in THIS window's DOM for the key to reach the page, and only the renderer
+   * can do that.
+   */
+  readonly registerView: (tabId: string, focus: (() => void) | null) => void;
   /** Release a view whose element is going away. */
   readonly release: (tabId: string) => Promise<void>;
   /** Close a tab: drop its view, and never leave the browser with none. */
@@ -80,6 +87,8 @@ export function useBrowserTabs(): BrowserTabsApi {
   /** pane key → the tab id main gave it, so a closed tab can be pruned. */
   const adoptedByPane = useRef<Map<string, string>>(new Map());
   const handoffRef = useRef<{ requestId: string; tabId: string; reason: string } | null>(null);
+  /** tabId → how to focus that tab's view. */
+  const views = useRef<Map<string, () => void>>(new Map());
 
   const refresh = useCallback(async () => {
     try {
@@ -222,10 +231,39 @@ export function useBrowserTabs(): BrowserTabsApi {
       handoffRef.current = req;
       setHandoff(req);
     });
+    /**
+     * Bring the tab forward, then focus its view, then say so.
+     *
+     * A hidden view cannot take focus — measured: the same key sequence does
+     * nothing while the agent's tab sits behind another and works the moment it
+     * is in front. Showing it is the honest thing anyway: the agent is about to
+     * act there, and this browser exists so the user can see that happen.
+     *
+     * Answered even for a tab this pane does not host — main is holding a key
+     * back until it hears something, and silence would park it until the
+     * timeout.
+     */
+    const offFocus = api().subscribe('browser.focusTab', ({ requestId, tabId }) => {
+      const done = (): void => {
+        views.current.get(tabId)?.();
+        void api().invoke('browser.confirmFocus', { requestId }).catch(() => {});
+      };
+      if (!views.current.has(tabId)) {
+        done();
+        return;
+      }
+      void api()
+        .invoke('browser.selectTab', { tabId })
+        .catch(() => {})
+        // One frame for React to make the view visible; focus lands on nothing
+        // otherwise, which is the bug this whole path exists to fix.
+        .finally(() => requestAnimationFrame(() => requestAnimationFrame(done)));
+    });
     return () => {
       offOpen();
       offTabs();
       offHandoff();
+      offFocus();
     };
   }, [refresh]);
 
@@ -245,5 +283,9 @@ export function useBrowserTabs(): BrowserTabsApi {
     handoff,
     answerHandoff,
     noteAdoption: (paneKey: string, tabId: string) => adoptedByPane.current.set(paneKey, tabId),
+    registerView: (tabId: string, focus: (() => void) | null) => {
+      if (focus) views.current.set(tabId, focus);
+      else views.current.delete(tabId);
+    },
   };
 }

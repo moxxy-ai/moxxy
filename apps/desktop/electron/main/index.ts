@@ -297,6 +297,9 @@ async function createWindow(): Promise<void> {
 
   // Main cannot create a <webview> — the element is the renderer's. When the
   // agent asks for a tab, forward the request and let the pane make one.
+  browserHost.setFocuser((req) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.focusTab', req);
+  });
   browserHost.setOpener((req) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.openTab', req);
   });
@@ -334,6 +337,7 @@ async function createWindow(): Promise<void> {
     // alive — sending into it threw and popped an error dialog on every quit.
     stopBrowserChangeFeed();
     browserHost.setOpener(null);
+    browserHost.setFocuser(null);
     browserHost.setHandoffPrompt(null);
     browserHost.closeAll();
   });

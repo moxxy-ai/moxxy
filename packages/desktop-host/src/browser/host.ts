@@ -54,6 +54,8 @@ export interface HostWebContents {
   /** Optional so a minimal stand-in still satisfies the type; Electron has both. */
   on?(event: string, listener: () => void): void;
   removeListener?(event: string, listener: () => void): void;
+  /** Give this view keyboard focus. Optional for the same reason. */
+  focus?(): void;
 }
 
 /** Resolve a live `WebContents` by id; null once it is gone. */
@@ -93,6 +95,68 @@ const PAGE_CHANGE_EVENTS = ['page-title-updated', 'did-navigate', 'did-navigate-
  */
 const IDLE_RELEASE_MS = 30_000;
 
+/** CDP's modifier bitmask, named so the mask test below reads as one. */
+const MOD_ALT = 1;
+const MOD_CONTROL = 2;
+const MOD_META = 4;
+const MOD_SHIFT = 8;
+
+const MODIFIERS: Record<string, number> = {
+  alt: MOD_ALT,
+  option: MOD_ALT,
+  control: MOD_CONTROL,
+  ctrl: MOD_CONTROL,
+  meta: MOD_META,
+  cmd: MOD_META,
+  command: MOD_META,
+  shift: MOD_SHIFT,
+};
+
+/**
+ * Editing commands a modified letter is expected to perform.
+ *
+ * Chromium routes these below the key event, so dispatching the modified letter
+ * alone selects nothing — which is precisely the failure that sent the agent
+ * looking for another browser. Control and Meta map to the same command so a
+ * task written on one platform still works on the other.
+ */
+const EDITING: Record<string, string> = { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo' };
+
+/** Named keys, with the virtual-key code Chromium wants for each. */
+const NAMED: Record<string, { key: string; code: string; code_: number }> = {
+  enter: { key: 'Enter', code: 'Enter', code_: 13 },
+  tab: { key: 'Tab', code: 'Tab', code_: 9 },
+  escape: { key: 'Escape', code: 'Escape', code_: 27 },
+  esc: { key: 'Escape', code: 'Escape', code_: 27 },
+  backspace: { key: 'Backspace', code: 'Backspace', code_: 8 },
+  delete: { key: 'Delete', code: 'Delete', code_: 46 },
+  space: { key: ' ', code: 'Space', code_: 32 },
+  arrowup: { key: 'ArrowUp', code: 'ArrowUp', code_: 38 },
+  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', code_: 40 },
+  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', code_: 37 },
+  arrowright: { key: 'ArrowRight', code: 'ArrowRight', code_: 39 },
+  home: { key: 'Home', code: 'Home', code_: 36 },
+  end: { key: 'End', code: 'End', code_: 35 },
+  pageup: { key: 'PageUp', code: 'PageUp', code_: 33 },
+  pagedown: { key: 'PageDown', code: 'PageDown', code_: 34 },
+};
+
+/** How Chromium wants one key spelled, or null if we cannot spell it. */
+function spellKey(name: string): { key: string; code: string; code_: number } | null {
+  const named = NAMED[name.toLowerCase()];
+  if (named) return named;
+  if ([...name].length !== 1) return null;
+  const upper = name.toUpperCase();
+  const isLetter = upper >= 'A' && upper <= 'Z';
+  const isDigit = name >= '0' && name <= '9';
+  if (!isLetter && !isDigit) return null;
+  return {
+    key: name,
+    code: isLetter ? `Key${upper}` : `Digit${name}`,
+    code_: upper.charCodeAt(0),
+  };
+}
+
 export interface HostReply {
   ok: boolean;
   result?: unknown;
@@ -112,6 +176,10 @@ export class BrowserHost {
    */
   private agentTab: string | null = null;
   private counter = 0;
+  /** Renderer channel for "give this view keyboard focus", and who is waiting. */
+  private askFocus: ((req: { requestId: string; tabId: string }) => void) | null = null;
+  private readonly pendingFocus = new Map<string, () => void>();
+  private focusSeq = 0;
   /** Fires whenever the tab set or the active tab changes. */
   private readonly listeners = new Set<() => void>();
   /**
@@ -149,6 +217,47 @@ export class BrowserHost {
     /** Overridable so a test does not have to wait half a minute. */
     private readonly idleReleaseMs: number = IDLE_RELEASE_MS,
   ) {}
+
+  /**
+   * Wire the channel main uses to ask the renderer to focus a view.
+   *
+   * A key only reaches the page when the `<webview>` ELEMENT has focus in the
+   * window's DOM, and answering an approval prompt takes that away — answering
+   * means clicking in the app. `webContents.focus()` from here does not fix it:
+   * the guest is a child of the embedder, and only the renderer can focus the
+   * element. Without a pane to ask, keys are sent anyway; a key that silently
+   * never fires is worse than one aimed at a view that may already be focused.
+   */
+  setFocuser(fn: ((req: { requestId: string; tabId: string }) => void) | null): void {
+    this.askFocus = fn;
+  }
+
+  /** The renderer reporting that the view now has focus. */
+  confirmFocus(requestId: string): void {
+    const waiting = this.pendingFocus.get(requestId);
+    if (waiting) waiting();
+  }
+
+  private focusView(tab: Tab, timeoutMs: number): Promise<void> {
+    const ask = this.askFocus;
+    if (!ask) {
+      this.lookup(tab.webContentsId)?.focus?.();
+      return Promise.resolve();
+    }
+    const requestId = `focus${++this.focusSeq}`;
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        this.pendingFocus.delete(requestId);
+        resolve();
+      };
+      // A renderer that never answers must not park the turn: press regardless.
+      const timer = setTimeout(done, timeoutMs);
+      timer.unref?.();
+      this.pendingFocus.set(requestId, done);
+      ask({ requestId, tabId: tab.id });
+    });
+  }
 
   /** Wire the channel main uses to ask the renderer for a new view. */
   setOpener(fn: ((req: { requestId: string; url: string }) => void) | null): void {
@@ -668,6 +777,74 @@ export class BrowserHost {
     return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
   }
 
+  /**
+   * Press a key.
+   *
+   * There was no way to do this at all, and an agent that needs one has no
+   * graceful fallback: seen live on Canva, where it wanted Cmd+A to replace a
+   * field and went looking for a different browser rather than admit it could
+   * not press a key. The sidecar backend has had this since the beginning — only
+   * the desktop was missing it — so the semantics here are the sidecar's: one
+   * printable character is typed, a named key is pressed.
+   */
+  async key(key: string, tabId?: string, focusTimeoutMs = 1500): Promise<HostReply> {
+    try {
+      if (!key) return fail('key is required');
+      const { tab, wc } = this.resolve(tabId);
+      const cdp = this.cdp(wc);
+
+      /**
+       * Put keyboard focus back on the page first.
+       *
+       * Every acting tool asks the user before it runs, and answering that
+       * prompt means clicking in the app — which takes focus away from the page.
+       * So the first key of a sequence lands and the second does not, and the
+       * agent sees a field it selected and could not clear. Observed live on a
+       * search box: the same sequence works with no prompt in the middle and
+       * silently does nothing with one.
+       */
+      await this.focusView(tab, focusTimeoutMs);
+
+      const parts = key.split('+').filter(Boolean);
+      const name = parts.pop() ?? '';
+      let modifiers = 0;
+      for (const mod of parts) {
+        const bit = MODIFIERS[mod.toLowerCase()];
+        if (bit === undefined) return fail(`unknown modifier ${mod} in ${key}`);
+        modifiers |= bit;
+      }
+
+      // A lone printable character is pressed as one, carrying its `text` so the
+      // character actually lands. `Input.insertText` looked like the shorter
+      // road and is not one: on its own, after the click that focused the field,
+      // it does nothing at all. Observed against a real input.
+      const printable = [...name].length === 1 && modifiers === 0;
+      const spelled = spellKey(name) ?? (printable ? { key: name, code: '', code_: 0 } : null);
+      if (!spelled) return fail(`unknown key ${key} — name it the way a keyboard event does, e.g. Enter, Escape, Meta+a`);
+
+      // Modified letters do not reach the editing pipeline on their own; the
+      // command does, and is what a real Cmd+A produces. Chromium takes both.
+      const command = modifiers & (MOD_CONTROL | MOD_META) ? EDITING[name.toLowerCase()] : undefined;
+      const event = {
+        key: spelled.key,
+        code: spelled.code,
+        windowsVirtualKeyCode: spelled.code_,
+        nativeVirtualKeyCode: spelled.code_,
+        modifiers,
+        ...(command ? { commands: [command] } : {}),
+      };
+      await cdp.send('Input.dispatchKeyEvent', {
+        type: printable ? 'keyDown' : 'rawKeyDown',
+        ...(printable ? { text: name } : {}),
+        ...event,
+      });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+      return ok({ key });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async clickSelector(selector: string, opts: { tabId?: string; timeoutMs?: number } = {}): Promise<HostReply> {
     try {
       if (!selector) return fail('selector is required');
@@ -762,6 +939,8 @@ export class BrowserHost {
       pending.resolve(false);
     }
     this.pendingHandoffs.clear();
+    for (const [, waiting] of this.pendingFocus) waiting();
+    this.pendingFocus.clear();
     this.changed();
   }
 
