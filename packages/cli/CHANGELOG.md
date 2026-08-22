@@ -1,5 +1,249 @@
 # @moxxy/cli
 
+## 0.38.0
+
+### Minor Changes
+
+- 971fd32: Browser: accessibility-first perception, named tabs, and a much cheaper live view.
+
+  The agent now reads pages as an accessibility tree where every interactive
+  element carries a `[uid]` it can act on, instead of choosing between a wall of
+  `innerText` and a screenshot — neither of which it could click, which is why it
+  had to guess CSS selectors. New tools: `browser_snapshot`, `browser_click`,
+  `browser_type`, `browser_navigate`, `browser_tabs`. `browser_session` remains
+  as the escape hatch for CSS selectors and in-page `eval`.
+
+  Every snapshot carries the open-tab list (so the agent never has to ask which
+  page it is on), frames page content as untrusted data, and redacts
+  credential-shaped field values before they reach the model.
+
+  Acting on a `uid` from before a navigation now fails with a clear "take a fresh
+  snapshot" rather than clicking whatever occupies that position now.
+
+  The live preview no longer streams while nobody is watching, skips frames
+  identical to the last one, and renders at CSS scale rather than 2x — the same
+  view at roughly a quarter of the pixels.
+
+  Desktop: the browser pane now hosts pages in real Chromium views the window
+  composites (Electron `<webview>`s main hardens at attach time), instead of
+  receiving a JPEG several times a second. Tabs stay mounted so a background page
+  keeps its state, and the agent drives those same views over CDP through a
+  private, token-authenticated socket — so the human and the agent look at one
+  document, which is what makes watching the agent work, and taking over from it,
+  possible at all. Outside the desktop (CLI, headless, a remote runner) the tools
+  fall back to the Playwright sidecar unchanged.
+
+  `browser_capture` restores region capture on top of CDP: pass a uid and it crops
+  to that element rather than shipping a whole viewport.
+
+  The agent can now stop and hand the browser to you. `browser_await_human` puts a
+  banner on the pane saying what it needs — a sign-in, a one-time code, a consent
+  screen — and blocks until you click Done or Skip. While it is pending the agent
+  is not reading the page, so nothing you type during a hand-off is snapshotted,
+  logged, or sent to the model, and every uid from before the pause is invalidated
+  afterwards. Tab changes the agent makes are pushed to the pane, so the tab strip
+  can no longer disagree with the page in front of you. `browser_history` gives
+  back/forward/reload the same treatment.
+
+- 16b0fe3: Reading a page costs what changed, and a sequence of actions costs one read.
+
+  The whole accessibility tree on every read is what a heavy page cost: ~25,300
+  tokens for a Wikipedia article, ~9,700 for Canva's home page, almost all of it
+  identical to the read before because the agent had clicked one thing. One Canva
+  task came to 2.2 million tokens, nearly all of it re-sending a page that had
+  barely moved.
+
+  Two things were in the way, and both are now gone.
+
+  **uids meant a position, so nothing could be called unchanged.** They were handed
+  out by a counter in document order, so inserting one element renumbered
+  everything below it — measured on a Wikipedia article, one added element left 1%
+  of the rendered lines matching. Chromium's own accessibility node ids do not
+  move: after that same insertion, all 17,644 nodes carrying a DOM node kept
+  theirs and none changed. uids are now short labels minted against those and
+  remembered for the life of the document, so a uid means the same element read
+  after read. They survive the tree being handed back for being idle — measured
+  too: after `Accessibility.disable`, a detach and a re-attach, 1,636 nodes kept
+  their ids — and they are dropped when the page actually navigates, including a
+  navigation the person started by clicking a link.
+
+  **Every read sent the whole page.** After the first read of a tab, a read now
+  carries only what was removed, added or changed, keyed by uid so a row that
+  merely shifted down is not reported as a change. The comparison runs over the
+  rendered text, so it is exactly what would have been sent, with no second
+  implementation of the pruning rules to drift. `full: true` asks for the whole
+  tree when the changes alone are not enough. Measured: a Wikipedia article after
+  one element appears, 25,345 tokens down to 1,136.
+
+  **And `browser_batch`**, because the other half of the cost is one read per
+  action. It runs a sequence — click, type, press, navigate, go back — and reads
+  the page once at the end. Steps stop at the first failure and the error names
+  which step it was, so a sequence never carries on against a page that did not do
+  what was expected. One approval covers the whole thing and shows every step,
+  which is more informative than four prompts answered in a row.
+
+  Measured end to end: opening Canva and creating an Instagram post project went
+  from about 1.4 million tokens to 501 thousand.
+
+- 87e3e10: The agent can press keys, and the browser skill knows about the tools it has.
+
+  There was no way to send a key at all. An agent that needed Cmd+A to replace what
+  a field already held had nothing to reach for — and, watched live on Canva, it
+  went looking for a different browser rather than report that it could not press a
+  key. `browser_key` closes that: `Enter` to submit, `Escape` to dismiss, `Tab` to
+  move on, `Meta+a` then `Backspace` to empty a field. Modifiers combine with `+`.
+  The sidecar backend has had this since the beginning; only the desktop was
+  missing it, so a task's outcome depended on where it ran.
+
+  `Input.insertText` looked like the shorter road for a single character and is not
+  one: on its own, after the click that focused the field, it does nothing at all.
+  A key event carrying its `text` is what actually types, which is what this sends.
+
+  Getting a key to land took two more things, both found by watching it fail in the
+  app rather than in a test. A key only reaches the page when the `<webview>`
+  ELEMENT has focus in the window's DOM — and answering the approval prompt takes
+  that away, because answering means clicking in the app. `webContents.focus()`
+  from main does not fix it: the guest is a child of the embedder, so main now asks
+  the pane to focus the element and waits for it to say it has. And a hidden view
+  cannot take focus at all, so the pane brings the agent's tab forward first —
+  which is the honest thing anyway, since the agent is about to act there and this
+  browser exists so the user can watch that happen.
+
+  The cost is one deliberate side effect: pressing a key moves keyboard focus off
+  the composer and brings the agent's tab to the front. There is no way around it —
+  Chromium will not deliver a key to a page that is hidden and unfocused — so it is
+  scoped to `browser_key` alone. Reading and clicking leave focus where it is, and
+  a test says so.
+
+  The browser skill had drifted badly. It still described driving pages by CSS
+  selector and its `allowed-tools` listed only `browser_session`, so an agent that
+  loaded it was told to use none of the perception tools built since. It now
+  describes reading a page as an accessibility tree, acting by uid, and handing
+  over when a page needs a person — with `browser_session` named as the escape
+  hatch below that, which is where it belongs.
+
+  Nothing failed while the skill was stale, which is the point: a skill naming a
+  tool that does not exist is silently dropped, and one omitting a tool that does
+  exist just quietly withholds it. Two tests now tie the skill's `allowed-tools` to
+  what the plugin actually ships, in both directions.
+
+  Known limit, found and not yet chased: on canva.com the agent correctly stops at
+  the cookie banner and hands over, but the banner is pinned to the bottom of the
+  page viewport and that sits below the visible edge of the pane — so the person
+  has nothing to click and the hand-off repeats. Whether the `<webview>` is taller
+  than its container or the window was simply too short is unmeasured. Any page
+  with something fixed to the bottom is affected, not just Canva.
+
+- 396319f: The browser searches with Google, and says when a page has stopped being
+  readable and started asking for a person.
+
+  Some pages are not pages any more: a cookie banner, a CAPTCHA, a sign-in form.
+  The agent must not clear any of them — the consent belongs to the user, the
+  CAPTCHA is theirs to solve, the password is theirs to type — and an agent that
+  presses "Accept all" on someone's behalf has made a decision nobody asked it to
+  make. Every acting tool is already permission-gated, so this is not the only
+  guard; it is the one that arrives before the model has to work out what it is
+  looking at from a pile of buttons. The snapshot now carries a `### Needs you`
+  section naming the wall and telling the agent to call `browser_await_human`
+  instead of clicking through it.
+
+  Detection reads the accessibility tree, not the prose: the words have to sit on
+  something pressable, so an article about cookies is still an article. Where a
+  page is several walls at once, the most blocking one is named — a sign-in behind
+  a CAPTCHA needs the CAPTCHA cleared first. The credential vocabulary is now
+  shared with the redactor rather than copied, because a security regex with two
+  copies is a security regex with two behaviours.
+
+  A new tab and a typed phrase now go to Google rather than DuckDuckGo. On a
+  profile that has never been there Google answers with the EU consent wall, which
+  is exactly the case above: the agent hands over, the user answers once, and the
+  persistent partition remembers it.
+
+### Patch Changes
+
+- 971fd32: The agent's browser tools all drive the page you are looking at.
+
+  `browser_session` built its own call bound straight to the Playwright child,
+  skipping the backend switch every other browser tool goes through. Inside the
+  desktop that launched a SECOND Chromium — none of the signed-in profile,
+  invisible to everyone — and the agent worked in that one while the person
+  watched the real page sit still. Asked to play a YouTube video, the agent
+  reported that it had, and was telling the truth about a browser nobody could
+  see. It now routes through the same switch as the rest of the plugin, and the
+  Playwright child is only reached for when it is the backend answering.
+
+  The desktop bridge grew the verbs that switch then delivers: `click` and `fill`
+  by CSS selector, `text`, `html`, `eval` and `screenshot`. Selector lookup
+  retries while the page settles rather than failing on the first miss, and `fill`
+  selects what a field already held so the insert replaces instead of appending —
+  by selection, not by assigning `.value`, which is the only form a
+  framework-controlled input sees. The sidecar's `close` is a no-op here: that
+  browser is the user's, on screen, holding their logins.
+
+  The pane's active tab and the tab the agent is working on are now separate. They
+  were the same value, so a person clicking a tab mid-task silently re-aimed the
+  agent's next un-targeted command at the page they had just opened. The agent's
+  aim moves only when the agent names a tab or opens one, and is forgotten when
+  that tab closes.
+
+- 94ff81b: A page only counts as waiting on a person when there is something real to press —
+  and the person is shown it before they are asked.
+
+  The wall detector reads the accessibility tree, which is enough to spot a
+  consent button or a password field and not enough to know either is drawn. A
+  control can sit in the tree without being on screen — hidden by opacity, moved
+  away by a transform, inside a collapsed container, or simply left behind after
+  the banner it belonged to was dismissed. Reported as a wall, one of those traps
+  the agent in a hand-off nobody can answer: the person is told to press something
+  they cannot see, presses Done because there is nothing to do, and the next read
+  says exactly the same thing.
+
+  Seen live on canva.com, where the agent asked three times running for a cookie
+  choice the user could not find. The banner had been real earlier in the session
+  and was gone by the time they looked.
+
+  `detectWall` now names the node it matched, and the callers — which do have
+  geometry — check something is actually laid out for it before believing it. Both
+  backends do this: the desktop through `DOM.getBoxModel`, the sidecar through the
+  point lookup it already uses to decide whether a uid can be clicked.
+  `formatSnapshot` no longer decides for itself; it renders what it is told,
+  because telling a wall from a control that merely exists needs more than the tree
+  it is given.
+
+  A box is layout, not visibility — an element far down the page has a perfectly
+  good one — and that is on purpose: a consent banner below the fold is still a
+  real wall. Being _shown_ it is a separate job, and it belongs to the hand-off.
+  Raising one now brings its tab to the front, scrolls to the control, and asks the
+  page whether the element actually landed in view. When it did not, the banner
+  says so and tells the person to go looking, rather than asking them to press
+  something that is not on their screen — which is precisely how a hand-off turns
+  into a loop: press Done, nothing changed, asked again.
+
+  Also settled while chasing this: the pane's `<webview>` is not taller than its
+  container. A capture of the guest viewport matches what the pane shows — so the
+  suspicion recorded in the previous commit was wrong, and pages with something
+  fixed to the bottom are fine.
+
+  The pattern that decides what a consent control looks like was too loose. It
+  matched bare stems — `akceptuj`, `więcej opcji` — and Canva's account menu is
+  called "Więcej opcji konta i zespołu", so every snapshot of a logged-in Canva
+  reported a consent wall that was not there. The agent, trusting the section,
+  asked the user to answer a cookie banner that did not exist; pressing Done
+  changed nothing, so it asked again. Three times, over an hour, before the
+  hand-off banner started naming the control it had found — at which point the
+  account menu identified itself in one screenshot.
+
+  A control now counts as consent if its label mentions cookies, or uses a phrase
+  that appears nowhere but a consent banner. Over-matching here is not a small
+  cost: it sends the person looking for something that is not there.
+
+  The hand-off banner names the control from now on. It is the difference between
+  "I cannot see it" and "I am looking at the wrong thing", and it turned an hour of
+  guessing into one screenshot.
+
+- Updated dependencies [971fd32]
+  - @moxxy/sdk@0.38.0
+
 ## 0.37.2
 
 ### Patch Changes

@@ -9,6 +9,7 @@ import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
+import type { BrowserTabInfo } from './browser.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -88,6 +89,34 @@ export interface IpcEvents {
    *  matching pane by `data.surfaceId` and ignores frames for panes it isn't
    *  showing. Forwarded verbatim from the runner's `surface.data`. */
   'surface.data': { workspaceId: string; data: SurfaceDataMessage };
+  /** The agent asked for a browser tab. Main cannot create a `<webview>` —
+   *  that element belongs to the renderer — so the pane makes one and echoes
+   *  `requestId` back through `browser.registerTab`. */
+  'browser.openTab': { requestId: string; url: string };
+  /** Main asking the pane to put keyboard focus on a tab's view, so the key it
+   *  is about to send actually lands on the page rather than in the app. */
+  'browser.focusTab': { requestId: string; tabId: string };
+  /** The tab set or the active tab changed — including when the AGENT changed
+   *  it, which is the case the pane cannot observe on its own. */
+  'browser.tabsChanged': { tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null };
+  /** The agent stopped and needs the person at the keyboard: a login, a code,
+   *  a consent screen. The pane shows a banner and answers via
+   *  `browser.resolveHandoff`. While this is outstanding the agent is not
+   *  reading the page. */
+  'browser.handoffRequested': {
+    requestId: string;
+    tabId: string;
+    reason: string;
+    /** Whether the thing being asked about is actually in view. False means the
+     *  page has it but the person will have to go looking — saying so beats
+     *  asking them to press something that is not on their screen. */
+    onScreen: boolean;
+    /** What the page calls the control in question, when one was found. Naming
+     *  it is what lets the person tell "I cannot see it" from "I am looking at
+     *  the wrong thing". */
+    label?: string;
+  };
+
   /** Streamed during `apps.install` — one event per download/verify step so the
    *  Apps gallery can show a progress bar while an app's assets download. */
   'apps.install.progress': AppInstallProgress;

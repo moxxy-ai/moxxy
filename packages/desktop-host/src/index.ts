@@ -79,3 +79,9 @@ export {
   isTrustedLoopbackCertByHost,
   type SelfSignedCert,
 } from './self-signed-cert.js';
+
+// The agent's browser: a real Chromium view this window composites, driven by
+// CDP. See ./browser/host.ts for why there is no frame pipeline.
+export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from './browser/host.js';
+export { BrowserBridge, type BridgeAddress } from './browser/bridge.js';
+export { setRunnerExtraEnv } from './runner-supervisor.js';

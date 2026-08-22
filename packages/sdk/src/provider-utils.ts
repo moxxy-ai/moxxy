@@ -80,7 +80,29 @@ export function toFriendlyError(
  */
 const MAX_SCHEMA_DEPTH = 32;
 
+/**
+ * Convert, then re-attach the author's `.describe()` text.
+ *
+ * A field description is the only place a tool author gets to say what a
+ * parameter means, and the model is the audience — dropping it leaves the
+ * model guessing at values (`tab_id: "current"` for a field documented as
+ * "omit for the active tab"). `description` is standard JSON Schema, so every
+ * provider either uses it or ignores it.
+ *
+ * Doing it here rather than at each of the dozen returns below also fixes the
+ * wrappers for free: `.describe()` may sit on the ZodOptional/ZodEffects OR on
+ * the type inside it, and each level of the recursion re-enters through this
+ * function. The outermost wins, because it applies last.
+ */
 export function zodToJsonSchema(schema: unknown, depth = 0): unknown {
+  const json = convertSchema(schema, depth);
+  const description = (schema as { _def?: { description?: string } } | null)?._def?.description;
+  if (typeof description !== 'string' || !description) return json;
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return json;
+  return { ...json, description };
+}
+
+function convertSchema(schema: unknown, depth: number): unknown {
   if (depth > MAX_SCHEMA_DEPTH) return {};
   const s = schema as { _def?: { typeName?: string }; toJSON?: () => unknown };
   // Only honor a pre-serialized schema's `toJSON` for NON-zod objects (a plain

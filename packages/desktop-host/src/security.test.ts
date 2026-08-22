@@ -60,6 +60,7 @@ describe('navigation lockdown', () => {
       setWindowOpenHandler: () => undefined,
     };
     return {
+      handlers,
       win: { webContents: wc } as unknown as BrowserWindow,
       setUrl: (u) => {
         url = u;
@@ -73,6 +74,97 @@ describe('navigation lockdown', () => {
       },
     };
   }
+
+  describe('webview attachment', () => {
+    /**
+     * The agent's browser pane needs a real Chromium view composited by the
+     * window — that is what removes the screenshot pipeline entirely. Getting
+     * one means letting the renderer attach a `<webview>`, which is only safe
+     * because main rewrites the privileges at attach time. These tests pin
+     * that: the renderer may ask, but it never decides.
+     */
+    function attachOnce(handlers: Map<string, unknown>, asked: Record<string, unknown>) {
+      const handler = handlers.get('will-attach-webview') as
+        | ((e: { preventDefault: () => void }, wp: Record<string, unknown>, p: Record<string, unknown>) => void)
+        | undefined;
+      assertDefined(handler, 'will-attach-webview handler');
+      let prevented = false;
+      const webPreferences: Record<string, unknown> = {};
+      const params: Record<string, unknown> = { ...asked };
+      handler({ preventDefault: () => (prevented = true) }, webPreferences, params);
+      return { prevented, webPreferences, params };
+    }
+
+    it('refuses attachment unless the window opted in', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win);
+
+      expect(attachOnce(handlers, {}).prevented).toBe(true);
+    });
+
+    it('permits attachment when the window opted in', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, { webviewAttach: { partition: 'persist:moxxy-browser' } });
+
+      expect(attachOnce(handlers, {}).prevented).toBe(false);
+    });
+
+    it('overrides a renderer that asks for node integration', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, { webviewAttach: { partition: 'persist:moxxy-browser' } });
+
+      const { params, webPreferences } = attachOnce(handlers, {
+        nodeIntegration: true,
+        nodeIntegrationInSubFrames: true,
+      });
+
+      expect(params.nodeIntegration).toBe(false);
+      expect(params.nodeIntegrationInSubFrames).toBe(false);
+      expect(webPreferences.nodeIntegration).toBe(false);
+      expect(webPreferences.sandbox).toBe(true);
+      expect(webPreferences.contextIsolation).toBe(true);
+      expect(webPreferences.webSecurity).toBe(true);
+    });
+
+    it('strips a preload the renderer chose', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, { webviewAttach: { partition: 'persist:moxxy-browser' } });
+
+      const { params } = attachOnce(handlers, { preload: '/tmp/evil.js' });
+
+      expect(params.preload).toBeUndefined();
+    });
+
+    it('installs only the preload main named', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, {
+        webviewAttach: { partition: 'persist:moxxy-browser', preload: '/app/browser-preload.js' },
+      });
+
+      const { params } = attachOnce(handlers, { preload: '/tmp/evil.js' });
+
+      expect(params.preload).toBe('/app/browser-preload.js');
+    });
+
+    it('forces the session partition regardless of what was requested', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, { webviewAttach: { partition: 'persist:moxxy-browser' } });
+
+      const { params } = attachOnce(handlers, { partition: 'persist:somewhere-else' });
+
+      expect(params.partition).toBe('persist:moxxy-browser');
+    });
+
+    it('refuses to let a page inside the browser embed further webviews', () => {
+      const { win, handlers } = fakeWindow('https://desktop.moxxy.ai:51789/');
+      lockDownNavigation(win, { webviewAttach: { partition: 'persist:moxxy-browser' } });
+
+      const { params, webPreferences } = attachOnce(handlers, { webPreferences: { webviewTag: true } });
+
+      expect((params.webPreferences as Record<string, unknown>).webviewTag).toBe(false);
+      expect(webPreferences.webviewTag).toBe(false);
+    });
+  });
 
   it('blocks every off-origin navigation by default, keeps same-origin', () => {
     const { win, allows } = fakeWindow('https://desktop.moxxy.ai:51789/');

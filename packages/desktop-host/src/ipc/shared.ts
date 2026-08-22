@@ -226,21 +226,51 @@ export function mustRemote(
   return session;
 }
 
+/**
+ * Who is waiting on which workspace, per pool.
+ *
+ * Every readiness-wait used to attach its own `change` listener to the pool for
+ * the length of one 40 ms poll. The renderer asks about every visible workspace
+ * at once on startup, so a dozen workspaces sailed past EventEmitter's default
+ * cap of 10 and Node printed a MaxListenersExceededWarning on every launch —
+ * which then hid any genuine listener leak in the host behind known noise.
+ *
+ * One listener per pool fans out to a set of waiters instead, so the count is
+ * flat no matter how many waits are in flight and the default cap goes back to
+ * meaning what it says. Keyed weakly: the bookkeeping dies with the pool.
+ */
+const poolWaiters = new WeakMap<RunnerPool, Map<string, Set<() => void>>>();
+
+function waitersFor(pool: RunnerPool): Map<string, Set<() => void>> {
+  const existing = poolWaiters.get(pool);
+  if (existing) return existing;
+  const waiters = new Map<string, Set<() => void>>();
+  poolWaiters.set(pool, waiters);
+  pool.on('change', (changedId: string) => {
+    // Copy first: each waiter removes itself from this set as it wakes.
+    for (const wake of [...(waiters.get(changedId) ?? [])]) wake();
+  });
+  return waiters;
+}
+
 function waitForPoolChange(pool: RunnerPool, id: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
+    const waiters = waitersFor(pool);
+    const forId = waiters.get(id) ?? new Set<() => void>();
+    waiters.set(id, forId);
     let settled = false;
     const cleanup = (): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      pool.off('change', onChange);
+      forId.delete(cleanup);
+      // Drop the empty bucket too, or a long-lived pool accumulates one entry
+      // per workspace ever waited on.
+      if (forId.size === 0) waiters.delete(id);
       resolve();
     };
-    const onChange = (changedId: string): void => {
-      if (changedId === id) cleanup();
-    };
     const timer = setTimeout(cleanup, timeoutMs);
-    pool.on('change', onChange);
+    forId.add(cleanup);
   });
 }
 

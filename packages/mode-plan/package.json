@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/mode-plan",
-  "version": "0.37.2",
+  "version": "0.38.0",
   "description": "Read-only planning mode for turning a request into a complete, revisable implementation plan before execution.",
   "keywords": [
     "moxxy",

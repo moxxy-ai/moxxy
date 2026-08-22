@@ -47,6 +47,19 @@ export function emitInsertPath(detail: FileInsertDetail): void {
   window.dispatchEvent(ev);
 }
 
+/**
+ * Attach a file that is already on disk but came from nowhere in the tree — a
+ * browser screenshot main has just written to a temp path.
+ *
+ * Same channel: the Composer only ever reads `absPath` and `name`, so a second
+ * event would be a second thing to keep in step for no gain. `relPath` has no
+ * meaning for a file outside the workspace, and the basename is the closest
+ * true answer.
+ */
+export function emitAttachment(att: { readonly path: string; readonly name: string }): void {
+  emitInsertPath({ relPath: att.name, absPath: att.path, name: att.name });
+}
+
 export function WorkspaceFiles({
   workspaceId,
   reloadSignal = 0,

@@ -5,11 +5,18 @@
 
 import { assertPublicUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
+import { opAct, opSnapshot, opTabs } from './agent-ops.js';
+// SidecarState lives in a leaf module so `agent-ops` can import it without
+// closing a cycle back through this file. Re-exported for existing importers.
+import type { SidecarState } from './state.js';
+export type { SidecarState, TabSnapshot } from './state.js';
+import { TabRegistry } from './tabs.js';
 import {
   badParams,
   errMsg,
   SidecarError,
   type BrowserKind,
+  type PageHandle,
   type PlaywrightHandle,
   type Reply,
   type Req,
@@ -28,15 +35,29 @@ const SCREENSHOT_TIMEOUT_MS = 30_000;
  *  message (e.g. width:1e9). */
 const MAX_DIMENSION = 16_384;
 
-export interface SidecarState {
-  handle: PlaywrightHandle | null;
-  /**
-   * Set after a successful auto-install of browser binaries so the next
-   * tool result can carry a `notice` letting the user/model know the
-   * one-time download happened. Cleared once the notice has been
-   * delivered (handed to the reply once, then forgotten).
-   */
-  pendingInstallNotice: string | null;
+
+/**
+ * Make sure the tab registry exists and knows about every page the context
+ * already owns. Called after `ensurePlaywright` so the launch page is always
+ * tab 1, and hooked to `context.on('page')` so a popup or a `target="_blank"`
+ * link becomes an addressable tab instead of a document nobody can reach.
+ */
+function ensureTabs(state: SidecarState, handle: PlaywrightHandle): TabRegistry {
+  if (state.tabs) return state.tabs;
+  const registry = new TabRegistry();
+  registry.add(handle.page);
+
+  // Pages the context opened before we looked (rare, but a `newPage` during
+  // launch would qualify) plus everything it opens from here on.
+  for (const page of handle.context.pages?.() ?? []) {
+    if (page !== handle.page) registry.add(page);
+  }
+  handle.context.on?.('page', (page: PageHandle) => {
+    registry.add(page);
+  });
+
+  state.tabs = registry;
+  return registry;
 }
 
 async function ensurePlaywright(
@@ -83,11 +104,31 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       await ensurePlaywright(state, opts);
       return { id: req.id, ok: true, result: { ready: true } };
     }
+    // ── Agent-facing perception + action, addressed by tab and uid. ──
+    // These own their error replies (each has several distinct refusal
+    // reasons worth telling the model apart), so they are not wrapped by the
+    // generic catch in `dispatch`.
+    case 'snapshot': {
+      const h = await ensurePlaywright(state, {});
+      ensureTabs(state, h);
+      return opSnapshot(state, h, req);
+    }
+    case 'act': {
+      const h = await ensurePlaywright(state, {});
+      ensureTabs(state, h);
+      return opAct(state, h, req);
+    }
+    case 'tabs': {
+      const h = await ensurePlaywright(state, {});
+      ensureTabs(state, h);
+      return opTabs(state, h, req);
+    }
     case 'goto': {
-      const { url, waitUntil, timeoutMs } = (req.params ?? {}) as {
+      const { url, waitUntil, timeoutMs, tab_id } = (req.params ?? {}) as {
         url: string;
         waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
         timeoutMs?: number;
+        tab_id?: string;
       };
       if (!url) throw badParams('url is required');
       // Defence-in-depth: the parent already runs the full SSRF guard before
@@ -105,12 +146,21 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
       const h = await ensurePlaywright(state, {});
+      // Named tabs: an explicit tab_id targets that tab, omitting it keeps the
+      // historical behaviour of navigating whatever is active.
+      const registry = ensureTabs(state, h);
+      const target = registry.get(tab_id);
       try {
-        await h.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
+        await target.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
-      return { id: req.id, ok: true, result: { url: h.page.url() } };
+      // Every uid from the previous snapshot belonged to the previous document.
+      // Dropping them here means the next `act` fails with "take a fresh
+      // snapshot" instead of resolving a handle onto whatever now sits at that
+      // position.
+      state.snapshots?.delete(target.id);
+      return { id: req.id, ok: true, result: { url: target.page.url(), tabId: target.id } };
     }
     case 'click': {
       const h = await ensurePlaywright(state, {});
@@ -157,10 +207,21 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // plus the current url + viewport size, so the renderer can map clicks
       // back onto the page. One round-trip per frame.
       const h = await ensurePlaywright(state, {});
-      // quality 70 (was 55) + the context's deviceScaleFactor:2 = legible text in
-      // the live view. Reports the CSS viewport size (the image is 2× that) so the
-      // renderer keeps mapping clicks in CSS coords.
-      const buf = await h.page.screenshot({ type: 'jpeg', quality: 70, timeout: SCREENSHOT_TIMEOUT_MS });
+      // `scale: 'css'` pins the image to ONE pixel per CSS pixel. The context
+      // runs at deviceScaleFactor 2 so that `capture` and `screenshot` come out
+      // crisp, but the live view does not need that: at a 1280×720 viewport the
+      // default 'device' scale encodes 2560×1440 — four times the pixels — and
+      // then ships them through the sidecar pipe, the runner and IPC several
+      // times a second. Crispness matters for a still the model or the user
+      // reads; it does not matter for a preview that is about to be replaced.
+      // The reported size stays the CSS viewport either way, so click mapping
+      // is unaffected.
+      const buf = await h.page.screenshot({
+        type: 'jpeg',
+        quality: 70,
+        scale: 'css',
+        timeout: SCREENSHOT_TIMEOUT_MS,
+      });
       const vp = h.page.viewportSize() ?? { width: 1280, height: 720 };
       return {
         id: req.id,
