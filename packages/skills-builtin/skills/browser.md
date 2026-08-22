@@ -2,7 +2,7 @@
 name: browser
 description: Drive the in-window browser the user is watching — read a page as an accessibility tree, click and type by uid, manage tabs, and hand over when a page needs a person.
 triggers: ["open the browser", "in the browser", "go to this site", "navigate to", "show me the page", "screenshot the page", "click the button on", "fill the form on", "browse to", "search for", "on the website", "log in to", "sign in to", "book a", "order a", "design a"]
-allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_session, web_fetch]
+allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_session, web_fetch]
 ---
 
 # The in-window browser
@@ -23,8 +23,12 @@ that can be acted on, each with a `[uid]`. That is the form you act on: you name
 a uid, not a CSS selector and not a coordinate.
 
 - Read before acting, and again after anything that changes the page.
-- uids belong to the snapshot they came from. After a navigation they are refused
-  rather than guessed at — take a fresh snapshot.
+- After the first read of a tab you get **only what changed** since it. A uid
+  keeps meaning the same element, so everything not listed is still as you last
+  saw it. Ask for `full: true` when you have lost your bearings — it costs far
+  more, so not by default.
+- After a navigation the uids are gone with the page they described, and the next
+  read is a whole tree again.
 - If the answer is "unchanged since your last snapshot", the page really has not
   moved. Do something, then look again; reading twice in a row tells you nothing
   and is not free.
@@ -43,6 +47,17 @@ a uid, not a CSS selector and not a coordinate.
 
 Every one of these takes a `tab_id`. Pass the one the snapshot gave you; omit it
 only when you mean "whatever tab is in front".
+
+## Doing several things at once
+
+`browser_batch` runs a sequence and reads the page **once**, at the end. Reading
+a large page costs thousands of tokens, so filling a form as five separate calls
+pays for five reads of it. Whenever you already know the next few steps — fill
+these fields, press Enter, then look — put them in one batch.
+
+Steps stop at the first failure, so a sequence never carries on against a page
+that did not do what you expected, and the error names which step it was. One
+approval covers the whole thing, and it shows every step.
 
 ## Tabs
 

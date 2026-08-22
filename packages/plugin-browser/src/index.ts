@@ -34,8 +34,9 @@ export {
   BRIDGE_TOKEN_ENV,
   type BridgeAddress,
 } from './bridge-client.js';
-export { buildAxTree, type AxNode, type AxNodeRaw, type AxTree } from './ax/tree.js';
+export { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from './ax/tree.js';
 export { formatAxTree, MAX_LABEL_CHARS, MAX_TREE_DEPTH } from './ax/format.js';
+export { diffRendering, renderingFromText, renderingOf } from './ax/diff.js';
 export { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from './ax/snapshot.js';
 export { detectWall, wallNote, type Wall, type WallKind } from './ax/wall.js';
 

@@ -180,6 +180,7 @@ app.whenReady().then(async () => {
       .catch(() => {});
     await sleep(1500);
     const scrolled = await host.snapshot();
+    const movedTokens = scrolled.ok ? tokens(scrolled.result.text) : 0;
     const repeatMoved = scrolled.ok ? repeatRatio(text, scrolled.result.text) : 0;
 
     log(
@@ -190,7 +191,10 @@ app.whenReady().then(async () => {
       `   ponowny odczyt bez zmian   ~${againTokens} tokenów zamiast ~${tokens(text)}` +
         `   (oszczędność ${fmt(saved * 100, 0)}%)`,
     );
-    log(`   po dodaniu 1 elementu      ${fmt(repeatMoved * 100, 0)}% linii wspólnych  (sufit dla diffu)`);
+    log(
+      `   po dodaniu 1 elementu      ~${movedTokens} tokenów zamiast ~${tokens(text)}` +
+        `   (oszczędność ${fmt((1 - movedTokens / Math.max(1, tokens(text))) * 100, 0)}%)`,
+    );
 
     // 4. And whether the tab is let go of once the agent stops working it.
     //    Reported as the fact, not as megabytes: the allocator decides when the
@@ -210,6 +214,7 @@ app.whenReady().then(async () => {
       saved,
       againTokens,
       repeatMoved,
+      movedTokens,
       released: !stillAttached,
     });
   }
@@ -276,7 +281,7 @@ app.whenReady().then(async () => {
   log(`   czas odczytu               ${Math.min(...reads.map((r) => r.ms))}–${Math.max(...reads.map((r) => r.ms))} ms\n`);
 
   log('# Podsumowanie\n');
-  log('| strona | Δ CPU | koszt AX w RAM | tokeny/snapshot | ponowny odczyt | oddane po bezczynności | sufit diffu |');
+  log('| strona | Δ CPU | koszt AX w RAM | tokeny/snapshot | ponowny odczyt | oddane po bezczynności | po zmianie |');
   log('|---|---|---|---|---|---|---|');
   for (const r of rows) {
     const host_ = new URL(r.url).hostname.replace(/^www\./, '');
@@ -284,7 +289,7 @@ app.whenReady().then(async () => {
       `| ${host_} | ${fmt(r.watched.cpuPct - r.idle.cpuPct)} | ` +
         `+${fmt(r.watched.memMb - r.idle.memMb, 0)} MB | ~${r.tokens} | ` +
         `~${r.againTokens} (−${fmt(r.saved * 100, 0)}%) | ${r.released ? 'tak' : 'NIE'} | ` +
-        `${fmt(r.repeatMoved * 100, 0)}% |`,
+        `~${r.movedTokens} |`,
     );
   }
   log('');

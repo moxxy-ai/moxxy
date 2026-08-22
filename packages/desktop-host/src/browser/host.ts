@@ -2,11 +2,15 @@ import { createHash } from 'node:crypto';
 import {
   buildAxTree,
   detectWall,
+  diffRendering,
+  newUidMemory,
+  renderingFromText,
   formatAxTree,
   formatSnapshot,
   redactSecretValues,
   type AxNode,
   type TabInfo,
+  type UidMemory,
   type WallKind,
 } from '@moxxy/plugin-browser';
 
@@ -74,6 +78,10 @@ interface Tab {
   seen?: string;
   /** The thing the page is waiting on a person for, and where to find it. */
   wall?: { kind: WallKind; backendNodeId: number; label: string };
+  /** Labels this document has been using, so a uid survives the page changing. */
+  uids?: UidMemory;
+  /** What the last read rendered, keyed by uid, to send only what moved. */
+  rendering?: Map<string, string>;
   /** Countdown to releasing this tab's accessibility tree. */
   idle?: ReturnType<typeof setTimeout>;
 }
@@ -341,6 +349,8 @@ export class BrowserHost {
       delete tab.snapshot;
       delete tab.seen;
       delete tab.wall;
+      delete tab.uids;
+      delete tab.rendering;
       return ok({ tabId: tab.id, completed: done });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -410,9 +420,29 @@ export class BrowserHost {
       const wc = this.lookup(webContentsId);
       if (wc?.on && wc.removeListener) {
         const announce = (): void => this.changed();
-        for (const event of PAGE_CHANGE_EVENTS) wc.on(event, announce);
+        /**
+         * A navigation the page made itself — a link the person clicked — ends
+         * the document the labels describe. Reading the new page as a
+         * difference from the old one would be describing it against nothing.
+         * `did-navigate-in-page` is a fragment or a pushState: same document,
+         * so the labels still hold and throwing them away would be waste.
+         */
+        const restart = (): void => {
+          delete tab.seen;
+          delete tab.wall;
+          delete tab.uids;
+          delete tab.rendering;
+          announce();
+        };
+        wc.on('did-navigate', restart);
+        for (const event of PAGE_CHANGE_EVENTS) {
+          if (event !== 'did-navigate') wc.on(event, announce);
+        }
         tab.unwatch = () => {
-          for (const event of PAGE_CHANGE_EVENTS) wc.removeListener?.(event, announce);
+          wc.removeListener?.('did-navigate', restart);
+          for (const event of PAGE_CHANGE_EVENTS) {
+            if (event !== 'did-navigate') wc.removeListener?.(event, announce);
+          }
         };
       }
       this.tabs.set(id, tab);
@@ -546,6 +576,10 @@ export class BrowserHost {
     delete tab.idle;
     delete tab.seen;
     delete tab.wall;
+    // The labels and the last rendering stay. Measured: after
+    // `Accessibility.disable`, a detach and a re-attach, 1,636 nodes kept their
+    // accessibility ids and none changed — so the memory is still true, and
+    // discarding it would cost a whole tree on the next read for nothing.
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) return;
     try {
@@ -574,14 +608,17 @@ export class BrowserHost {
    * Read a tab as the model reads it. Identical envelope to the sidecar
    * backend, so a tool cannot tell which one served it.
    */
-  async snapshot(tabId?: string): Promise<HostReply> {
+  async snapshot(tabId?: string, opts: { full?: boolean } = {}): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(tabId);
       const cdp = this.cdp(wc);
       await cdp.send('Accessibility.enable');
       const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
       const nodes = Array.isArray(reply?.nodes) ? reply.nodes : [];
-      const tree = nodes.length > 0 ? buildAxTree(nodes) : null;
+      // One memory per document: a node keeps its label read after read, which
+      // is the whole reason a difference can be described at all.
+      tab.uids ??= newUidMemory();
+      const tree = nodes.length > 0 ? buildAxTree(nodes, tab.uids) : null;
       const url = wc.getURL();
       const title = wc.getTitle();
 
@@ -592,13 +629,40 @@ export class BrowserHost {
       // from the raw CDP reply, because that is what would actually be sent —
       // and it deliberately leaves out the tab list, which another tab can
       // change without this page having moved at all.
-      const body = tree
+      const full = tree
         ? formatAxTree(redactSecretValues(tree))
         : '(strona nie udostępnia drzewa dostępności)';
-      const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
-      const fingerprint = createHash('sha1').update(`${url}\n${title}\n${body}`).digest('hex');
 
-      if (tab.seen === fingerprint) {
+      /**
+       * After the first read, send what moved rather than the page again.
+       *
+       * A Canva task came to 2.2 million tokens, nearly all of it re-sending a
+       * page that had barely changed — the agent clicks one thing and pays for
+       * the whole tree. The comparison is over the rendered text, so it is
+       * exactly what would have been sent, and it is keyed by uid, so a row that
+       * merely shifted down is not reported as a change.
+       */
+      const rendering = tree ? renderingFromText(full) : new Map<string, string>();
+      const previous = tab.rendering;
+      const asDiff = !opts.full && previous !== undefined && tree !== null;
+      const changes = asDiff ? diffRendering(previous, rendering) : null;
+      const body = changes
+        ? [
+            'Changes since your last read of this tab. Everything else is as you last saw it;',
+            'ask for the whole tree with full: true if you have lost your bearings.',
+            '',
+            ...changes,
+          ].join('\n')
+        : full;
+      const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
+      const fingerprint = createHash('sha1').update(`${url}\n${title}\n${full}`).digest('hex');
+
+      // An empty difference is the same news as a matching fingerprint, and the
+      // fingerprint is gone whenever the tree was handed back for being idle.
+      // Say the short thing rather than a header with nothing under it.
+      if (tab.seen === fingerprint || (changes !== null && changes.length === 0)) {
+        tab.seen = fingerprint;
+        tab.rendering = rendering;
         return ok({
           text:
             `### Page\n- URL: ${url}\n- Title: ${title}\n` +
@@ -611,6 +675,7 @@ export class BrowserHost {
         });
       }
       tab.seen = fingerprint;
+      tab.rendering = rendering;
 
       const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall });
       return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0 });
@@ -757,6 +822,8 @@ export class BrowserHost {
       delete tab.snapshot;
       delete tab.seen;
       delete tab.wall;
+      delete tab.uids;
+      delete tab.rendering;
       if (action === 'back') wc.navigationHistory.goBack();
       else if (action === 'forward') wc.navigationHistory.goForward();
       else wc.reload();
@@ -1101,6 +1168,8 @@ export class BrowserHost {
       delete tab.snapshot;
       delete tab.seen;
       delete tab.wall;
+      delete tab.uids;
+      delete tab.rendering;
       const reply = (await this.cdp(wc).send('Page.navigate', { url })) as { errorText?: string };
       if (reply?.errorText) return fail(`could not open ${url}: ${reply.errorText}`);
       this.changed();

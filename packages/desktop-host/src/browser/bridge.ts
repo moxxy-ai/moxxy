@@ -145,7 +145,7 @@ export class BrowserBridge {
     const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
     switch (method) {
       case 'snapshot':
-        return this.host.snapshot(tabId);
+        return this.host.snapshot(tabId, params.full === true ? { full: true } : {});
       case 'act':
         return this.host.act({
           action: String(params.action ?? ''),

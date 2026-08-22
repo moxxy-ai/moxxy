@@ -1,4 +1,4 @@
-import type { AxNode } from '../ax/tree.js';
+import type { AxNode, UidMemory } from '../ax/tree.js';
 import type { TabRegistry } from './tabs.js';
 import type { CdpSession, PlaywrightHandle } from './types.js';
 
@@ -38,6 +38,14 @@ export interface SidecarState {
   tabs?: TabRegistry;
   /** One CDP channel per tab, opened on demand and reused. */
   cdp?: Map<string, CdpSession>;
+  /**
+   * Per tab: the labels its current document has been using, and what the last
+   * read rendered. Together they are what lets a read send only what moved —
+   * a uid has to mean the same element before a difference means anything.
+   * Both are dropped when the tab navigates.
+   */
+  uids?: Map<string, UidMemory>;
+  renderings?: Map<string, Map<string, string>>;
   /** Last accessibility snapshot per tab, so a uid can be resolved back. */
   snapshots?: Map<string, TabSnapshot>;
 }

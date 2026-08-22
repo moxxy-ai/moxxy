@@ -1,4 +1,4 @@
-import { buildAxTree, type AxTree } from '../ax/tree.js';
+import { buildAxTree, type AxTree, type UidMemory } from '../ax/tree.js';
 import type { CdpSession } from './types.js';
 
 /**
@@ -24,12 +24,12 @@ interface BoxModelReply {
  * shipping agent browsers use. A CDP *failure* still throws, because a closed
  * target is a different problem and hiding it would strand the turn.
  */
-export async function captureAx(cdp: CdpSession): Promise<AxTree | null> {
+export async function captureAx(cdp: CdpSession, memory?: UidMemory): Promise<AxTree | null> {
   await cdp.send('Accessibility.enable');
   const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
   const nodes = reply?.nodes;
   if (!Array.isArray(nodes) || nodes.length === 0) return null;
-  return buildAxTree(nodes);
+  return buildAxTree(nodes, memory);
 }
 
 /**

@@ -45,6 +45,15 @@ export interface AxTree extends AxNode {
   readonly index: ReadonlyMap<string, AxNode>;
 }
 
+/** The label this document uses for a node, minting one on first sight. */
+function label(memory: UidMemory, nodeId: string): string {
+  const known = memory.byNode.get(nodeId);
+  if (known !== undefined) return known;
+  const fresh = String(++memory.next);
+  memory.byNode.set(nodeId, fresh);
+  return fresh;
+}
+
 /**
  * Cap on tree depth. Comfortably above any real page and far below the call
  * stack limit, so a malformed or hostile payload yields a truncated tree
@@ -71,7 +80,35 @@ function isFocused(raw: AxNodeRaw): boolean {
  * underneath it. Unresolvable child ids are skipped, and a node already
  * visited on this walk is not re-entered, so a cyclic payload terminates.
  */
-export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>): AxTree | null {
+/**
+ * uids that mean the same element from one read to the next.
+ *
+ * A counter in document order was the obvious first answer and the wrong one:
+ * inserting a single element near the top renumbers everything below it, and a
+ * page where every uid moved is a page where nothing can be described as
+ * unchanged. Measured on a Wikipedia article — one added element left 1% of the
+ * rendered lines matching.
+ *
+ * Chromium's own accessibility node ids do not move: after that insertion all
+ * 17,644 nodes carrying a DOM node kept theirs and none changed. Those are the
+ * stable thing; this maps them to short labels, because sending the raw ids
+ * would cost several characters a line on a tree with tens of thousands of them.
+ *
+ * One memory per document. A navigation starts a new one — the old page's
+ * elements are gone and reusing their labels would be a lie.
+ */
+export interface UidMemory {
+  /** accessibility node id → the label this document has been calling it. */
+  readonly byNode: Map<string, string>;
+  /** Next label to hand out. */
+  next: number;
+}
+
+export function newUidMemory(): UidMemory {
+  return { byNode: new Map(), next: 0 };
+}
+
+export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>, memory?: UidMemory): AxTree | null {
   const root = nodes[0];
   if (!root) return null;
 
@@ -101,8 +138,10 @@ export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>): AxTree | null {
 
     // Reserve the uid BEFORE descending so numbering reads in document order
     // (parent before its children) — that is the order the model sees the text
-    // in, and a uid that jumps around is a uid nobody can reason about.
-    const uid = String(++counter);
+    // in, and a uid that jumps around is a uid nobody can reason about. With a
+    // memory, a node the document has been seen with before keeps its label and
+    // only genuinely new nodes take a fresh one.
+    const uid = memory ? label(memory, raw.nodeId) : String(++counter);
     const children = descend();
 
     const node: AxNode = {

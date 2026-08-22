@@ -70,15 +70,26 @@ export function buildAgentTools(deps?: BrowserSessionDeps): ReadonlyArray<ToolDe
     description:
       'Read the current page as an accessibility tree: every interactive element with a [uid] you can act on, ' +
       'plus the URL, the title and the list of open tabs. Call this before acting, and again after any action ' +
-      'that changes the page — uids are only valid for the snapshot they came from. Prefer this over a ' +
-      'screenshot: it is cheaper and it is the only form you can click.',
-    inputSchema: z.object({ tab_id: tabId }),
+      'that changes the page. Prefer this over a screenshot: it is cheaper and it is the only form you can ' +
+      'click. After the first read of a tab you get only what changed since it — a uid keeps meaning the same ' +
+      'element, so everything not listed is still as you last saw it. Ask for full: true when the changes alone ' +
+      'are not enough to work from.',
+    inputSchema: z.object({
+      tab_id: tabId,
+      full: z
+        .boolean()
+        .optional()
+        .describe(
+          'Send the whole tree instead of only what changed. Costs far more on a large page — use it when you ' +
+            'have lost your bearings, not by default.',
+        ),
+    }),
     // Reading a page the user already told the agent to visit is not a
     // decision worth interrupting them for; the acting tools are.
     permission: { action: 'allow' },
     compact: { verb: 'Reading', noun: { one: 'page', other: 'pages' }, previewKey: 'tab_id' },
     isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 60_000 } },
-    handler: ({ tab_id }, ctx) => call('snapshot', { tab_id }, deps, ctx.signal),
+    handler: ({ tab_id, full }, ctx) => call('snapshot', { tab_id, full }, deps, ctx.signal),
   });
 
   const click = defineTool({
@@ -209,6 +220,72 @@ export function buildAgentTools(deps?: BrowserSessionDeps): ReadonlyArray<ToolDe
     handler: ({ key: k, tab_id }, ctx) => call('key', { key: k, tab_id }, deps, ctx.signal),
   });
 
+  /**
+   * One step of a batch. Deliberately the same primitives the single tools
+   * expose — a batch is a way to pay for one read instead of five, not a second
+   * vocabulary that could drift from the first.
+   */
+  const step = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('click'), uid: z.string().min(1) }),
+    z.object({ kind: z.literal('type'), uid: z.string().min(1), text: z.string() }),
+    z.object({ kind: z.literal('key'), key: z.string().min(1) }),
+    z.object({ kind: z.literal('navigate'), url: z.string().url() }),
+    z.object({ kind: z.literal('history'), action: z.enum(['back', 'forward', 'reload']) }),
+  ]);
+
+  const batch = defineTool({
+    name: 'browser_batch',
+    icon: 'globe',
+    description:
+      'Do several things to a page and read it once at the end, instead of reading after every one. This is ' +
+      'the cheap way to work: a read of a large page costs thousands of tokens, so filling a form as five ' +
+      'separate calls pays for five of them. Use it whenever you already know the next few steps — fill these ' +
+      'fields, press Enter, read the result. Steps run in order and stop at the first failure, so a sequence ' +
+      'never carries on against a page that did not do what you expected. The uids must come from your latest ' +
+      'snapshot.',
+    inputSchema: z.object({
+      element: z
+        .string()
+        .min(1)
+        .describe('What this sequence does, in a few words — shown to the user when approving all of it at once.'),
+      steps: z.array(step).min(1).max(20).describe('In order. The page is read once, after the last one.'),
+      tab_id: tabId,
+    }),
+    permission: { action: 'prompt' },
+    compact: { verb: 'Doing', noun: { one: 'sequence', other: 'sequences' }, previewKey: 'element' },
+    isolation: ACT_ISOLATION,
+    async handler({ steps, tab_id }, ctx) {
+      for (const [i, s] of steps.entries()) {
+        try {
+          if (s.kind === 'click' || s.kind === 'type') {
+            await call(
+              'act',
+              { action: s.kind, uid: s.uid, ...(s.kind === 'type' ? { text: s.text } : {}), tab_id },
+              deps,
+              ctx.signal,
+            );
+          } else if (s.kind === 'key') {
+            await call('key', { key: s.key, tab_id }, deps, ctx.signal);
+          } else if (s.kind === 'navigate') {
+            await assertPublicUrl(s.url, 'browser_batch', { failClosed: true });
+            await call('goto', { url: s.url, tab_id }, deps, ctx.signal);
+          } else {
+            await call(s.action, { tab_id }, deps, ctx.signal);
+          }
+        } catch (err) {
+          // Name the step. "It failed" against a five-step sequence tells the
+          // model nothing about what the page is now in the middle of.
+          const why = err instanceof Error ? err.message : String(err);
+          throw new MoxxyError({ code: 'INTERNAL', message: `step ${i + 1} (${s.kind}) failed: ${why}` });
+        }
+      }
+      return call('snapshot', { tab_id }, deps, ctx.signal).then((snap) => ({
+        ...(snap as object),
+        ran: steps.length,
+      }));
+    },
+  });
+
   const back = defineTool({
     name: 'browser_history',
     icon: 'globe',
@@ -245,5 +322,5 @@ export function buildAgentTools(deps?: BrowserSessionDeps): ReadonlyArray<ToolDe
     handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, deps, ctx.signal),
   });
 
-  return [snapshot, click, type, navigate, tabs, capture, key, back, awaitHuman];
+  return [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman];
 }

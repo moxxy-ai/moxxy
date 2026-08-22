@@ -15,11 +15,14 @@ interface Fake {
   spawn: (path: string) => SidecarStream;
   received: Array<{ method: string; params: Record<string, unknown> }>;
   setReply: (fn: (method: string) => unknown) => void;
+  setReplyRaw: (fn: (method: string) => unknown) => void;
 }
 
 function fakeSidecar(): Fake {
   const received: Array<{ method: string; params: Record<string, unknown> }> = [];
   let reply: (method: string) => unknown = () => ({});
+  /** Full envelope, for testing what a failing step does. */
+  let raw: ((method: string) => unknown) | null = null;
   const spawn = (): SidecarStream => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
@@ -33,7 +36,8 @@ function fakeSidecar(): Fake {
         if (!line.trim()) continue;
         const req = JSON.parse(line) as { id: string; method: string; params: Record<string, unknown> };
         received.push({ method: req.method, params: req.params ?? {} });
-        stdout.write(JSON.stringify({ id: req.id, ok: true, result: reply(req.method) }) + '\n');
+        const envelope = raw ? { id: req.id, ...(raw(req.method) as object) } : { id: req.id, ok: true, result: reply(req.method) };
+        stdout.write(JSON.stringify(envelope) + '\n');
       }
     });
     const exits: Array<(c: number | null) => void> = [];
@@ -49,7 +53,12 @@ function fakeSidecar(): Fake {
       },
     };
   };
-  return { spawn, received, setReply: (fn) => (reply = fn) };
+  return {
+    spawn,
+    received,
+    setReply: (fn) => (reply = fn),
+    setReplyRaw: (fn: (method: string) => unknown) => (raw = fn),
+  };
 }
 
 function ctx(): ToolContext {
@@ -189,6 +198,7 @@ describe('the tool set', () => {
       'browser_tabs',
       'browser_capture',
       'browser_key',
+      'browser_batch',
       'browser_history',
       'browser_await_human',
     ]);
@@ -350,5 +360,82 @@ describe('the browser skill and the tools it names', () => {
     const missing = shipped.filter((t) => !allowed.has(t));
 
     expect(missing, 'the skill would hide these from the agent').toEqual([]);
+  });
+});
+
+describe('browser_batch', () => {
+  /**
+   * One read per action is the other half of what a heavy page costs. Codex's
+   * agent runs `click; setValue; pressKey; ax.write()` in a single call and pays
+   * for one read; moxxy paid for a read after every one of those. On Canva that
+   * was the difference between a few reads and a few dozen.
+   *
+   * One approval covers the whole sequence, and the approval shows every step —
+   * which is more informative than four prompts answered one after another.
+   */
+  it('runs the steps in order and reads the page once at the end', async () => {
+    const fake = fakeSidecar();
+    fake.setReply((m) => (m === 'snapshot' ? { text: 'po wszystkim', tabId: 't1', url: 'https://a.pl', nodes: 3 } : {}));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    const out = (await byName(tools, 'browser_batch').handler(
+      {
+        element: 'formularz logowania',
+        steps: [
+          { kind: 'click', uid: '4' },
+          { kind: 'type', uid: '5', text: 'moxxy' },
+          { kind: 'key', key: 'Enter' },
+        ],
+      },
+      ctx(),
+    )) as { text: string; ran: number };
+
+    expect(fake.received.map((r) => r.method)).toEqual(['act', 'act', 'key', 'snapshot']);
+    expect(fake.received[0]?.params).toMatchObject({ action: 'click', uid: '4' });
+    expect(fake.received[1]?.params).toMatchObject({ action: 'type', uid: '5', text: 'moxxy' });
+    expect(fake.received[2]?.params).toMatchObject({ key: 'Enter' });
+    expect(out.ran).toBe(3);
+    expect(out.text).toBe('po wszystkim');
+  });
+
+  it('stops at the first step that fails, and says which', async () => {
+    // Carrying on after a failed click would act on a page that is not the page
+    // the rest of the sequence was written for.
+    const fake = fakeSidecar();
+    let seen = 0;
+    fake.setReplyRaw((method) => {
+      if (method === 'act' && ++seen === 2) return { ok: false, error: { message: 'uid 5 is not in the last snapshot' } };
+      return { ok: true, result: method === 'snapshot' ? { text: 'stan', tabId: 't1', url: '', nodes: 0 } : {} };
+    });
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    await expect(
+      byName(tools, 'browser_batch').handler(
+        { element: 'formularz', steps: [{ kind: 'click', uid: '4' }, { kind: 'click', uid: '5' }, { kind: 'key', key: 'Enter' }] },
+        ctx(),
+      ),
+    ).rejects.toThrow(/step 2.*uid 5/is);
+
+    expect(fake.received.map((r) => r.method)).toEqual(['act', 'act']);
+  });
+
+  it('asks before running, like every other tool that acts', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(byName(tools, 'browser_batch').permission?.action).toBe('prompt');
+  });
+
+  it('will not run an empty sequence', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(() => byName(tools, 'browser_batch').inputSchema.parse({ element: 'x', steps: [] })).toThrow();
+  });
+
+  it('describes what it is about to do, for the approval to mean anything', () => {
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+    expect(() =>
+      byName(tools, 'browser_batch').inputSchema.parse({ steps: [{ kind: 'key', key: 'Enter' }] }),
+    ).toThrow();
   });
 });

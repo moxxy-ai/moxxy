@@ -1,5 +1,9 @@
 import { formatSnapshot, type TabInfo } from '../ax/snapshot.js';
 import { detectWall, type WallKind } from '../ax/wall.js';
+import { diffRendering, renderingFromText } from '../ax/diff.js';
+import { formatAxTree } from '../ax/format.js';
+import { redactSecretValues } from '../ax/snapshot.js';
+import { newUidMemory } from '../ax/tree.js';
 import type { AxNode } from '../ax/tree.js';
 import { captureAx, pointForBackendNode } from './perceive.js';
 import type { SidecarState } from './state.js';
@@ -102,7 +106,22 @@ export async function opSnapshot(state: SidecarState, handle: PlaywrightHandle, 
     const { id, page } = targetTab(state, params);
     const cdp = await cdpFor(state, handle, id, page);
 
-    const tree = await captureAx(cdp);
+    // One memory per document, so a uid means the same element read after read
+    // — the thing a difference is described against.
+    state.uids ??= new Map();
+    state.renderings ??= new Map();
+    const previousUrl = state.snapshots?.get(id)?.url;
+    if (previousUrl !== undefined && previousUrl !== page.url()) {
+      state.uids.delete(id);
+      state.renderings.delete(id);
+    }
+    let memory = state.uids.get(id);
+    if (!memory) {
+      memory = newUidMemory();
+      state.uids.set(id, memory);
+    }
+
+    const tree = await captureAx(cdp, memory);
     const url = page.url();
 
     state.snapshots ??= new Map();
@@ -110,7 +129,31 @@ export async function opSnapshot(state: SidecarState, handle: PlaywrightHandle, 
     else state.snapshots.delete(id);
 
     const wall = tree ? await confirmWall(cdp, tree) : null;
-    const text = formatSnapshot({ tree, url, title: await titleOf(page), tabs: await tabInfos(state), wall });
+    const full = tree ? formatAxTree(redactSecretValues(tree)) : null;
+    const rendering = full !== null ? renderingFromText(full) : new Map<string, string>();
+    const previous = state.renderings.get(id);
+    const wantsFull = (req.params ?? {}).full === true;
+    const changes = !wantsFull && previous !== undefined && tree !== null ? diffRendering(previous, rendering) : null;
+    if (tree) state.renderings.set(id, rendering);
+    else state.renderings.delete(id);
+
+    const body = changes
+      ? [
+          'Changes since your last read of this tab. Everything else is as you last saw it;',
+          'ask for the whole tree with full: true if you have lost your bearings.',
+          '',
+          ...changes,
+        ].join('\n')
+      : full ?? undefined;
+
+    const text = formatSnapshot({
+      tree,
+      url,
+      title: await titleOf(page),
+      tabs: await tabInfos(state),
+      wall,
+      ...(body !== undefined ? { body } : {}),
+    });
     return { id: req.id, ok: true, result: { text, tabId: id, url, nodes: tree ? tree.index.size : 0 } };
   } catch (err) {
     return { id: req.id, ok: false, error: { message: errMsg(err), kind: err instanceof SidecarError ? err.kind : 'runtime' } };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAxTree, type AxNodeRaw } from './tree.js';
+import { buildAxTree, type AxNodeRaw, newUidMemory } from './tree.js';
 
 /**
  * The AX tree is what the model reads instead of a screenshot, so its shape is
@@ -125,5 +125,76 @@ describe('buildAxTree — uid index', () => {
 
     expect(tree!.index.get('2')?.backendNodeId).toBe(77);
     expect(tree!.index.get('1')?.role).toBe('RootWebArea');
+  });
+});
+
+describe('buildAxTree — uids that survive the page changing', () => {
+  /**
+   * uids used to be a counter in document order, so inserting one element near
+   * the top renumbered everything below it. Measured on a Wikipedia article:
+   * one added element left 1% of lines matching, which makes a diff worthless —
+   * everything "changed".
+   *
+   * Chromium's own accessibility node ids are stable: after an insertion, all
+   * 17,644 nodes with a DOM node kept theirs and none moved. Keying off those
+   * and remembering the mapping gives a uid that means the same element read
+   * after read, while staying short enough to be worth sending.
+   */
+  const raw = (nodeId: string, role: string, name: string, childIds?: string[]): AxNodeRaw =>
+    ({ nodeId, role: { value: role }, name: { value: name }, ...(childIds ? { childIds } : {}) }) as AxNodeRaw;
+
+  const PAGE: AxNodeRaw[] = [
+    raw('n10', 'RootWebArea', 'Sklep', ['n20', 'n30']),
+    raw('n20', 'heading', 'Nagłówek'),
+    raw('n30', 'button', 'Kup'),
+  ];
+
+  it('gives the same element the same uid on a second read', () => {
+    const memory = newUidMemory();
+
+    const first = buildAxTree(PAGE, memory);
+    const second = buildAxTree(PAGE, memory);
+
+    expect([...first!.index.keys()].sort()).toEqual([...second!.index.keys()].sort());
+    for (const name of ['Sklep', 'Nagłówek', 'Kup']) {
+      const before = [...first!.index.values()].find((n) => n.name === name)?.uid;
+      const after = [...second!.index.values()].find((n) => n.name === name)?.uid;
+      expect(after, `${name} changed uid between reads`).toBe(before);
+    }
+  });
+
+  it('leaves the rest alone when something appears above them', () => {
+    const memory = newUidMemory();
+    const before = buildAxTree(PAGE, memory)!;
+    const uidOfButton = [...before.index.values()].find((n) => n.name === 'Kup')!.uid;
+
+    const after = buildAxTree(
+      [raw('n10', 'RootWebArea', 'Sklep', ['n5', 'n20', 'n30']), raw('n5', 'button', 'Nowy'), PAGE[1]!, PAGE[2]!],
+      memory,
+    )!;
+
+    expect([...after.index.values()].find((n) => n.name === 'Kup')?.uid).toBe(uidOfButton);
+    expect([...after.index.values()].find((n) => n.name === 'Nowy')?.uid).toBe('4');
+  });
+
+  /** uid of the node with this name, however the index happens to be ordered. */
+  const uidOf = (tree: AxTree, name: string): string | undefined =>
+    [...tree.index.values()].find((n) => n.name === name)?.uid;
+
+  it('starts over for a page it has never seen', () => {
+    const tree = buildAxTree(PAGE, newUidMemory())!;
+
+    expect(uidOf(tree, 'Sklep')).toBe('1');
+    expect(uidOf(tree, 'Nagłówek')).toBe('2');
+    expect(uidOf(tree, 'Kup')).toBe('3');
+  });
+
+  it('numbers from scratch when no memory is offered', () => {
+    // The sidecar and every existing caller keep working unchanged.
+    const a = buildAxTree(PAGE)!;
+    const b = buildAxTree(PAGE)!;
+
+    expect(uidOf(a, 'Kup')).toBe('3');
+    expect(uidOf(b, 'Kup')).toBe('3');
   });
 });

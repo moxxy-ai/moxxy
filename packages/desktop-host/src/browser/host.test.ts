@@ -765,7 +765,9 @@ describe('BrowserHost — letting go of a tab nobody is using', () => {
 
     expect(reply.ok).toBe(true);
     expect(a.isAttached()).toBe(true);
-    expect(String((reply.result as { text: string }).text)).toContain('Do kasy');
+    // The labels survive the release, so an unchanged page reads as unchanged
+    // rather than as a whole tree — see "what the uid memory survives".
+    expect(String((reply.result as { text: string }).text)).toMatch(/unchanged/i);
   });
 
   it('drops the countdown with the tab, so nothing fires into a closed view', async () => {
@@ -1161,5 +1163,167 @@ describe('BrowserHost — asking only about what the person can see', () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]?.onScreen).toBe(false);
+  });
+});
+
+describe('BrowserHost — sending what moved, not the whole page again', () => {
+  /**
+   * A Canva task came to 2.2 million tokens, nearly all of it re-sending a page
+   * that had barely changed. The agent clicks one thing and pays for the entire
+   * tree: ~9,700 tokens on Canva's home page, ~25,300 on a Wikipedia article.
+   *
+   * Now that a uid means the same element read after read, the second and later
+   * reads can carry only the difference — with a way back to the whole thing
+   * when the agent has lost its bearings.
+   */
+  const PAGE_A = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b', 'c'] },
+    { nodeId: 'b', role: { value: 'heading' }, name: { value: 'Koty' }, backendDOMNodeId: 21 },
+    { nodeId: 'c', role: { value: 'link' }, name: { value: 'Stara oferta' }, backendDOMNodeId: 22 },
+  ];
+  const PAGE_B = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b', 'd'] },
+    { nodeId: 'b', role: { value: 'heading' }, name: { value: 'Koty' }, backendDOMNodeId: 21 },
+    { nodeId: 'd', role: { value: 'button' }, name: { value: 'Zamknij' }, backendDOMNodeId: 31 },
+  ];
+
+  const textOf = (r: { result?: unknown }) => String((r.result as { text: string }).text);
+
+  it('sends the whole tree the first time it reads a page', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE_A);
+
+    const text = textOf(await host.snapshot());
+
+    expect(text).toContain('Koty');
+    expect(text).toContain('Stara oferta');
+    expect(text).not.toMatch(/^\+ /m);
+  });
+
+  it('sends only what moved on the reads after that', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE_A);
+    await host.snapshot();
+
+    a.setPage(PAGE_B);
+    const text = textOf(await host.snapshot());
+
+    expect(text).toContain('+ [4] button: "Zamknij"');
+    expect(text).toContain('- [3] link: "Stara oferta"');
+    // The heading did not move, so it costs nothing to say so.
+    expect(text).not.toContain('Koty"');
+  });
+
+  it('keeps a uid pointing at the same element across reads', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE_A);
+    const first = textOf(await host.snapshot());
+    const headingUid = /\[(\d+)\] heading: "Koty"/.exec(first)?.[1];
+
+    a.setPage(PAGE_B);
+    await host.snapshot();
+    const reply = await host.act({ action: 'click', uid: headingUid! });
+
+    expect(reply.ok).toBe(true);
+  });
+
+  it('gives the whole tree back when asked for it', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE_A);
+    await host.snapshot();
+    a.setPage(PAGE_B);
+
+    const text = textOf(await host.snapshot(undefined, { full: true }));
+
+    expect(text).toContain('Koty');
+    expect(text).toContain('Zamknij');
+    expect(text).not.toMatch(/^\+ /m);
+  });
+
+  it('starts again from the whole tree after a navigation', async () => {
+    // The old page's elements are gone; describing the new one as a difference
+    // from them would be describing it against nothing.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE_A);
+    await host.snapshot();
+
+    await host.goto('https://inna.pl');
+    a.setPage(PAGE_B);
+    const text = textOf(await host.snapshot());
+
+    expect(text).toContain('Zamknij');
+    expect(text).not.toMatch(/^\+ /m);
+  });
+});
+
+describe('BrowserHost — what the uid memory survives', () => {
+  const PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Kup' }, backendDOMNodeId: 21 },
+  ];
+  const idle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const textOf = (r: { result?: unknown }) => String((r.result as { text: string }).text);
+
+  it('keeps the labels when the tree is handed back for being idle', async () => {
+    // Measured: Accessibility.disable, detach, re-attach — 1,636 nodes kept
+    // their accessibility ids and none changed. Throwing the memory away there
+    // would cost a whole tree on the next read for no reason.
+    const a = fakeWc(1);
+    const host = new BrowserHost(() => a.wc, 30);
+    host.register(1);
+    a.setPage(PAGE);
+    await host.snapshot();
+
+    await idle(90);
+    const text = textOf(await host.snapshot());
+
+    // Had the memory been thrown away, this would be the whole tree again.
+    expect(text).toMatch(/unchanged/i);
+    expect(text).not.toContain('Kup');
+  });
+
+  it('starts over when the page itself navigated', async () => {
+    // A link the person clicked. The old page's elements are gone, so there is
+    // nothing to describe a difference against.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE);
+    await host.snapshot();
+
+    a.setUrl('https://sklep.pl/koszyk');
+    a.emit('did-navigate');
+    const text = textOf(await host.snapshot());
+
+    expect(text).toContain('Kup');
+    expect(text).not.toMatch(/Changes since your last read/);
+  });
+
+  it('keeps them when the page only changed its address in place', async () => {
+    // pushState and fragments keep the document, so the labels still hold.
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(PAGE);
+    await host.snapshot();
+
+    a.setUrl('https://sklep.pl#dol');
+    a.emit('did-navigate-in-page');
+    const text = textOf(await host.snapshot());
+
+    // Same document, same labels — so an unmoved page still reads as unmoved
+    // rather than being sent again from scratch.
+    expect(text).toMatch(/unchanged/i);
+    expect(text).not.toContain('Kup');
   });
 });
