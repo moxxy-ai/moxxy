@@ -51,8 +51,8 @@ export function registerBrowserHandlers(host: BrowserHost): void {
     host.resolveHandoff(requestId, completed);
   });
 
-  handle('browser.capture', async ({ tabId }) => {
-    const reply = await host.capture(tabId ? { tabId } : {});
+  handle('browser.capture', async ({ tabId, clip }) => {
+    const reply = await host.capture({ ...(tabId ? { tabId } : {}), ...(clip ? { clip } : {}) });
     if (!reply.ok) throw new Error(reply.error?.message ?? 'capture failed');
     return reply.result as { tabId: string; mediaType: string; base64: string };
   });

@@ -1279,6 +1279,74 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-size: var(--type-meta);
 }
 
+/* The screenshot button opens a choice: the whole view, or a part of it. */
+.browser__shot {
+  position: relative;
+  flex-shrink: 0;
+}
+.browser__shot-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+}
+.browser__shot-menu button {
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-chip);
+  color: var(--color-text);
+  font-size: var(--type-row);
+  text-align: left;
+  white-space: nowrap;
+}
+.browser__shot-menu button:hover:not(:disabled) {
+  filter: none;
+  background: var(--color-input-soft);
+}
+
+/* Laid over the page while an area is being drawn, so the drag goes here and not
+ * to the page. Deliberately unpainted: until a rectangle exists there is nothing
+ * to dim, and the page should stay readable while the person decides what to
+ * frame. Transparent still takes the pointer. */
+.browser__pick {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  cursor: crosshair;
+  user-select: none;
+}
+/* The dimming lives on the rectangle, not the overlay, so what is kept reads as
+ * a hole rather than as a box drawn on top of a veil — and the two cannot stack
+ * into a double shade. */
+.browser__pick-rect {
+  position: absolute;
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 0 0 9999px rgba(11, 15, 18, 0.45);
+}
+.browser__pick-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-16);
+  transform: translateX(-50%);
+  padding: var(--space-6) var(--space-12);
+  border-radius: var(--radius-pill);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  color: var(--color-text);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .browser__viewport {
   flex: 1;
   min-height: 0;

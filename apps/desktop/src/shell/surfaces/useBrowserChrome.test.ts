@@ -151,3 +151,71 @@ describe('useBrowserChrome — sending a screenshot to the agent', () => {
     await waitFor(() => expect(result.current.captureError).toContain('did not return an image'));
   });
 });
+
+describe('useBrowserChrome — cropping the screenshot', () => {
+  /**
+   * The pane used to let you drag a box over the streamed JPEG and send that
+   * region; rewriting it around a real Chromium view lost the feature. The host
+   * has taken a `clip` all along, so this is the missing half: a mode to draw
+   * the rectangle in, and the rectangle reaching the capture.
+   */
+  it('sends the whole view when no rectangle was drawn', async () => {
+    const { calls } = installApi();
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.onViewState('t1', 'https://example.com/'));
+
+    await act(async () => {
+      await result.current.captureToAgent();
+    });
+
+    expect(calls.find((c) => c.channel === 'browser.capture')?.args).toEqual({ tabId: 't1' });
+  });
+
+  it('sends the rectangle when one was', async () => {
+    const { calls } = installApi();
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.onViewState('t1', 'https://example.com/'));
+
+    await act(async () => {
+      await result.current.captureToAgent({ x: 10, y: 20, width: 100, height: 50 });
+    });
+
+    expect(calls.find((c) => c.channel === 'browser.capture')?.args).toEqual({
+      tabId: 't1',
+      clip: { x: 10, y: 20, width: 100, height: 50 },
+    });
+  });
+
+  it('is not in selection mode until asked', () => {
+    installApi();
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+
+    expect(result.current.picking).toBe(false);
+  });
+
+  it('leaves selection mode once a rectangle has been taken', async () => {
+    installApi();
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.startPicking());
+    expect(result.current.picking).toBe(true);
+
+    await act(async () => {
+      await result.current.captureToAgent({ x: 0, y: 0, width: 10, height: 10 });
+    });
+
+    expect(result.current.picking).toBe(false);
+  });
+
+  it('leaves it on a cancel too, without sending anything', async () => {
+    const { calls } = installApi();
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.startPicking());
+
+    await act(async () => {
+      await result.current.captureToAgent(null);
+    });
+
+    expect(result.current.picking).toBe(false);
+    expect(calls.some((c) => c.channel === 'browser.capture')).toBe(false);
+  });
+});

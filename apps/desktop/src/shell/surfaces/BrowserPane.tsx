@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useRegionSelect, type Rect } from './useRegionSelect';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 import { BROWSER_PARTITION_NAME, HOME_URL, useBrowserTabs } from './useBrowserTabs';
@@ -29,6 +30,7 @@ function TabView({
   initialUrl,
   requestId,
   visible,
+  inert,
   adopt,
   release,
   registerView,
@@ -37,6 +39,7 @@ function TabView({
   readonly initialUrl: string;
   readonly requestId?: string;
   readonly visible: boolean;
+  readonly inert: boolean;
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
   readonly release: (tabId: string) => Promise<void>;
   readonly registerView: (tabId: string, focus: (() => void) | null) => void;
@@ -67,6 +70,10 @@ function TabView({
         inset: 0,
         visibility: visible ? 'visible' : 'hidden',
         zIndex: visible ? 1 : 0,
+        // A guest composites above ordinary DOM whatever the z-index says, so
+        // an overlay drawn on top of it never sees the pointer. Standing the
+        // view down for the length of a drag is what lets one work.
+        pointerEvents: inert ? 'none' : 'auto',
       }}
     />
   );
@@ -77,6 +84,7 @@ function TabSlot({
   pane,
   index,
   activeTabId,
+  inert,
   adopt,
   release,
   registerView,
@@ -85,6 +93,7 @@ function TabSlot({
   readonly pane: { key: string; initialUrl: string; requestId?: string };
   readonly index: number;
   readonly activeTabId: string | null;
+  readonly inert: boolean;
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
   readonly release: (tabId: string) => Promise<void>;
   readonly registerView: (tabId: string, focus: (() => void) | null) => void;
@@ -99,6 +108,7 @@ function TabSlot({
       initialUrl={pane.initialUrl}
       {...(pane.requestId ? { requestId: pane.requestId } : {})}
       visible={visible}
+      inert={inert}
       adopt={async (wcId, reqId) => {
         const id = await adopt(wcId, reqId);
         setTabId(id);
@@ -178,6 +188,13 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     panes, openPane, closeTab, history, handoff, answerHandoff, noteAdoption, registerView,
   } = useBrowserTabs();
   const chrome = useBrowserChrome({ activeTabId, navigate });
+  const [shotMenu, setShotMenu] = useState(false);
+  const viewport = useRef<HTMLDivElement | null>(null);
+  const region = useRegionSelect({
+    active: chrome.picking,
+    surface: viewport,
+    onPick: (rect: Rect | null) => void chrome.captureToAgent(rect),
+  });
 
   if (!workspaceId) {
     return <div className="browser__empty">Open a workspace to use the browser.</div>;
@@ -230,16 +247,48 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
           onBlur={() => chrome.editing && chrome.submitAddress()}
           spellCheck={false}
         />
-        <button
-          type="button"
-          className="btn-quiet tip"
-          data-tip="Screenshot to agent"
-          data-tip-side="left"
-          aria-label="Screenshot to agent"
-          onClick={() => void chrome.captureToAgent()}
-        >
-          <Icon name="attach" size={14} />
-        </button>
+        <div className="browser__shot">
+          <button
+            type="button"
+            className="btn-quiet tip"
+            data-tip="Screenshot to agent"
+            data-tip-side="left"
+            aria-label="Screenshot to agent"
+            aria-expanded={shotMenu}
+            onClick={() => setShotMenu((open) => !open)}
+          >
+            <Icon name="attach" size={14} />
+          </button>
+          {shotMenu && (
+            <div
+              className="browser__shot-menu"
+              role="menu"
+              // Let the window mousedown-to-close below ignore clicks inside.
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setShotMenu(false);
+                  void chrome.captureToAgent();
+                }}
+              >
+                Whole page
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setShotMenu(false);
+                  chrome.startPicking();
+                }}
+              >
+                Select an area
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {handoff && (
@@ -267,13 +316,44 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
 
       {(error || chrome.captureError) && <div className="browser__error">{error ?? chrome.captureError}</div>}
 
-      <div className="browser__viewport">
+      <div className="browser__viewport" ref={viewport}>
+        {chrome.picking && (
+          <div
+            className="browser__pick"
+            role="application"
+            aria-label="Drag over the page to choose an area, or press Escape"
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              region.handlers.onPointerDown(e.nativeEvent);
+            }}
+            onPointerMove={(e) => region.handlers.onPointerMove(e.nativeEvent)}
+            onPointerUp={(e) => region.handlers.onPointerUp(e.nativeEvent)}
+          >
+            {region.rect && (
+              <div
+                className="browser__pick-rect"
+                style={{
+                  left: region.rect.x,
+                  top: region.rect.y,
+                  width: region.rect.width,
+                  height: region.rect.height,
+                }}
+              />
+            )}
+            <span className="browser__pick-hint">
+              {region.rect
+                ? `${Math.round(region.rect.width)} × ${Math.round(region.rect.height)}`
+                : 'Drag over the part you want · Esc to cancel'}
+            </span>
+          </div>
+        )}
         {panes.map((pane, index) => (
           <TabSlot
             key={pane.key}
             pane={pane}
             index={index}
             activeTabId={activeTabId}
+            inert={chrome.picking}
             adopt={async (wcId, reqId) => {
               const id = await adopt(wcId, reqId);
               if (id) noteAdoption(pane.key, id);

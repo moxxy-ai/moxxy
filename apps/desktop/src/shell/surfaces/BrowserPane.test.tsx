@@ -78,6 +78,54 @@ describe('BrowserPane', () => {
     );
   });
 
+  it('offers a choice before taking a picture', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+
+    expect(screen.getByRole('menuitem', { name: /whole page/i })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /select an area/i })).toBeTruthy();
+  });
+
+  it('opens a place to drag when an area is what you want', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+
+    await userEvent.click(screen.getByRole('menuitem', { name: /select an area/i }));
+
+    expect(screen.getByRole('application', { name: /drag over the page/i })).toBeTruthy();
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('stands the page down while an area is drawn, so the drag reaches the overlay', async () => {
+    installApi();
+    const { container } = render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+    expect(container.querySelector('webview')?.getAttribute('style')).toContain(
+      'pointer-events: auto',
+    );
+
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /select an area/i }));
+
+    // A guest view composites above ordinary DOM whatever the z-index says, so
+    // while it still takes the pointer the overlay never sees the drag at all —
+    // observed live as a selection mode that could be entered but never used.
+    expect(container.querySelector('webview')?.getAttribute('style')).toContain(
+      'pointer-events: none',
+    );
+  });
+
+  it('is not covering the page until an area is asked for', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+
+    expect(screen.queryByRole('application')).toBeNull();
+  });
+
   it('hands a picture of the page to the agent, not a dump of what it reads', async () => {
     // The pane is for the person. How the agent perceives a page is between the
     // agent and the host, and putting it on screen only invited the question of
@@ -91,6 +139,7 @@ describe('BrowserPane', () => {
     render(<BrowserPane workspaceId="w1" />);
 
     await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /whole page/i }));
 
     await waitFor(() => expect(attached).toEqual(['browser-duckduckgo.com.png']));
     window.removeEventListener(FILE_INSERT_EVENT, onInsert);

@@ -494,7 +494,12 @@ export interface IpcCommands {
    *  How the agent *reads* a page is not on this channel and never was needed
    *  here: perception goes host → agent tools directly. What the renderer wants
    *  is the thing a person can point at. */
-  'browser.capture': (args: { tabId?: string }) => Promise<{ tabId: string; mediaType: string; base64: string }>;
+  'browser.capture': (args: {
+    tabId?: string;
+    /** Crop to this rectangle, in CSS pixels of the page's own viewport. Omit
+     *  for the whole visible page. */
+    clip?: { x: number; y: number; width: number; height: number };
+  }) => Promise<{ tabId: string; mediaType: string; base64: string }>;
 
   'surface.list': (args: { workspaceId: string }) => Promise<ReadonlyArray<SurfaceInfo>>;
   /** Open (or attach to the shared) surface instance; returns a catch-up

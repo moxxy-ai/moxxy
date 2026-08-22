@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { emitAttachment } from '@/shell/WorkspaceFiles';
 import { normalizeAddress } from './useBrowserTabs';
+import type { Rect } from './useRegionSelect';
 
 /**
  * The chrome wrapped around the page: what the address bar reads, which tab the
@@ -25,8 +26,15 @@ export interface BrowserChrome {
   readonly onViewState: (tabId: string | null, url: string) => void;
   /** Which tab the buttons act on. */
   readonly targetTab: () => string | undefined;
-  /** Photograph the page and hand it to the agent as an attachment. */
-  readonly captureToAgent: () => Promise<void>;
+  /**
+   * Photograph the page and hand it to the agent as an attachment. Pass a
+   * rectangle to crop to it, or `null` to abandon a selection that was started.
+   */
+  readonly captureToAgent: (crop?: Rect | null) => Promise<void>;
+  /** True while the person is drawing the rectangle to crop to. */
+  readonly picking: boolean;
+  /** Start drawing one. */
+  readonly startPicking: () => void;
   /** Why the last capture did not happen, if it did not. */
   readonly captureError: string | null;
 }
@@ -54,6 +62,7 @@ export function useBrowserChrome(opts: {
   const [address, setAddressState] = useState('');
   const [editing, setEditing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   /** The view currently in front, as it last reported itself. */
   const inFront = useRef<{ tabId: string | null; url: string }>({ tabId: null, url: '' });
 
@@ -97,11 +106,18 @@ export function useBrowserChrome(opts: {
    * inventing one is also what clears the attachment provenance gate — a path
    * the renderer conjured up on its own would be dropped before the turn.
    */
-  const captureToAgent = useCallback(async (): Promise<void> => {
+  const captureToAgent = useCallback(async (crop?: Rect | null): Promise<void> => {
     setCaptureError(null);
+    // `null` is the person changing their mind mid-selection: leave the mode,
+    // send nothing. `undefined` is the plain "whole view" button.
+    setPicking(false);
+    if (crop === null) return;
     try {
       const tabId = targetTab();
-      const shot = await api().invoke('browser.capture', tabId ? { tabId } : {});
+      const shot = await api().invoke('browser.capture', {
+        ...(tabId ? { tabId } : {}),
+        ...(crop ? { clip: crop } : {}),
+      });
       const saved = await api().invoke('session.saveImageAttachment', {
         dataBase64: shot.base64,
         mediaType: shot.mediaType,
@@ -113,5 +129,16 @@ export function useBrowserChrome(opts: {
     }
   }, [targetTab]);
 
-  return { address, setAddress, editing, submitAddress, onViewState, targetTab, captureToAgent, captureError };
+  return {
+    address,
+    setAddress,
+    editing,
+    submitAddress,
+    onViewState,
+    targetTab,
+    captureToAgent,
+    captureError,
+    picking,
+    startPicking: () => setPicking(true),
+  };
 }

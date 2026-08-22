@@ -149,13 +149,13 @@ describe('focusing a view so a key can land on it', () => {
     let focused = 0;
     act(() => result.current.registerView('t2', () => focused++));
 
-    await act(async () => {
-      fire({ requestId: 'f1', tabId: 't2' });
-      await new Promise((r) => setTimeout(r, 60));
-    });
+    // Fronting the tab, letting React paint it and only then focusing is
+    // asynchronous by nature, so wait for the outcome rather than for a fixed
+    // number of milliseconds — under load a fixed wait is a flaky test.
+    act(() => fire({ requestId: 'f1', tabId: 't2' }));
 
+    await waitFor(() => expect(focused).toBe(1));
     expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(true);
-    expect(focused).toBe(1);
     await waitFor(() =>
       expect(calls.some((c) => c.channel === 'browser.confirmFocus' && (c.args as { requestId: string }).requestId === 'f1')).toBe(true),
     );
@@ -165,26 +165,23 @@ describe('focusing a view so a key can land on it', () => {
     const { calls, fire } = apiWithFocusEvent();
     renderHook(() => useBrowserTabs());
 
-    await act(async () => {
-      fire({ requestId: 'f2', tabId: 'tNieMa' });
-      await new Promise((r) => setTimeout(r, 60));
-    });
+    act(() => fire({ requestId: 'f2', tabId: 'tNieMa' }));
 
     await waitFor(() => expect(calls.some((c) => c.channel === 'browser.confirmFocus')).toBe(true));
   });
 
   it('forgets a view whose tab has gone', async () => {
-    const { fire } = apiWithFocusEvent();
+    const { calls, fire } = apiWithFocusEvent();
     const { result } = renderHook(() => useBrowserTabs());
     let focused = 0;
     act(() => result.current.registerView('t2', () => focused++));
     act(() => result.current.registerView('t2', null));
 
-    await act(async () => {
-      fire({ requestId: 'f3', tabId: 't2' });
-      await new Promise((r) => setTimeout(r, 60));
-    });
+    act(() => fire({ requestId: 'f3', tabId: 't2' }));
 
+    // Nothing to focus, so nothing to wait for — but it must still answer, and
+    // that is the observable thing.
+    await waitFor(() => expect(calls.some((c) => c.channel === 'browser.confirmFocus')).toBe(true));
     expect(focused).toBe(0);
   });
 
@@ -200,8 +197,12 @@ describe('focusing a view so a key can land on it', () => {
 
     await act(async () => {
       askHuman({ requestId: 'h1', tabId: 't2', reason: 'zaakceptuj cookies' });
-      await new Promise((r) => setTimeout(r, 40));
     });
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(
+        true,
+      ),
+    );
 
     expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(
       true,

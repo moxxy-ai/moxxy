@@ -528,7 +528,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     url: z.string().url().refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
     tabId: z.string().min(1).max(64).optional(),
   }),
-  'browser.capture': z.object({ tabId: z.string().min(1).max(64).optional() }),
+  'browser.capture': z.object({
+    tabId: z.string().min(1).max(64).optional(),
+    // Bounded: a rectangle from a drag on screen, not an arbitrary region of an
+    // arbitrarily large page. Positive extents only — a zero-width crop is a
+    // stray click, and the host would refuse it anyway.
+    clip: z
+      .object({
+        x: z.number().min(0).max(100_000),
+        y: z.number().min(0).max(100_000),
+        width: z.number().positive().max(100_000),
+        height: z.number().positive().max(100_000),
+      })
+      .optional(),
+  }),
   'browser.confirmFocus': z.object({ requestId: z.string().min(1).max(64) }),
   'browser.history': z.object({
     action: z.enum(['back', 'forward', 'reload']),
