@@ -655,7 +655,10 @@ export class BrowserHost {
           ].join('\n')
         : full;
       const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
-      const fingerprint = createHash('sha1').update(`${url}\n${title}\n${full}`).digest('hex');
+      // A change detector, not a security primitive — but it runs over page text
+      // that can carry anything the user has on screen, and sha256 is what the
+      // rest of the repo uses. There is no reason to be the one exception.
+      const fingerprint = createHash('sha256').update(`${url}\n${title}\n${full}`).digest('hex');
 
       // An empty difference is the same news as a matching fingerprint, and the
       // fingerprint is gone whenever the tree was handed back for being idle.
