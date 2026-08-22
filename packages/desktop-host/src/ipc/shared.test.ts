@@ -6,9 +6,11 @@ import { describe, expect, it, vi } from 'vitest';
 // runtime, so stub electron — importing it must not require the GUI binary.
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
+import { EventEmitter } from 'node:events';
 import {
   drivers,
   IpcError,
+  waitForRemoteSession,
   publishDriver,
   resolveCtx,
   resolveDriver,
@@ -179,5 +181,56 @@ describe('resolveDriver', () => {
   it('returns undefined when the resolved id has no driver yet', () => {
     const pool = fakePool({ active: 'ws-no-driver', supervisors: {} });
     expect(resolveDriver(pool)).toBeUndefined();
+  });
+});
+
+/**
+ * A pool with real event machinery — the listener bookkeeping is the thing
+ * under test, so it must be the real EventEmitter and not a stand-in.
+ */
+function eventfulPool(remoteFor: (id: string) => unknown = () => null): RunnerPool & EventEmitter {
+  const pool = new EventEmitter() as EventEmitter & Record<string, unknown>;
+  pool.activeWorkspaceId = () => null;
+  pool.get = (id: string) => {
+    const remote = remoteFor(id);
+    return remote ? { remote: () => remote } : undefined;
+  };
+  return pool as unknown as RunnerPool & EventEmitter;
+}
+
+describe('waitForRemoteSession — how it subscribes to the pool', () => {
+  /**
+   * Each readiness-wait used to attach its own `change` listener for the length
+   * of one 40 ms poll. The renderer asks about every visible workspace at once
+   * on startup, so a dozen workspaces sailed past EventEmitter's default cap and
+   * Node printed a MaxListenersExceededWarning on every launch — after which a
+   * real listener leak anywhere in the host would have been invisible noise.
+   */
+  it('holds one pool listener however many waits are in flight', async () => {
+    const pool = eventfulPool();
+
+    const waits = Array.from({ length: 25 }, (_, i) => waitForRemoteSession(pool, `w${i}`, 30));
+
+    expect(pool.listenerCount('change')).toBe(1);
+    await Promise.all(waits);
+    expect(pool.listenerCount('change')).toBe(1);
+  });
+
+  it('returns the session once the workspace has one', async () => {
+    const session = { id: 'sesja' };
+    let ready = false;
+    const pool = eventfulPool((id) => (ready && id === 'w1' ? session : null));
+
+    const wait = waitForRemoteSession(pool, 'w1', 2_000);
+    ready = true;
+    pool.emit('change', 'w1');
+
+    await expect(wait).resolves.toBe(session);
+  });
+
+  it('gives up and answers null when nothing ever connects', async () => {
+    const pool = eventfulPool();
+
+    await expect(waitForRemoteSession(pool, 'w1', 30)).resolves.toBeNull();
   });
 });

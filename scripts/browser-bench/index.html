@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>bench host</title>
+<style>html,body{margin:0;height:100%}webview{width:1280px;height:800px}</style>
+<webview id="wv" src="about:blank" partition="persist:moxxy-browser-bench"></webview>
+<script>
+  const wv = document.getElementById('wv');
+  wv.addEventListener('dom-ready', () => window.bench.ready(wv.getWebContentsId()), { once: true });
+</script>

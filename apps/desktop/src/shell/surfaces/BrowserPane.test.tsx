@@ -1,145 +1,194 @@
-/**
- * BrowserPane keyboard forwarding:
- *   The frame surface forwards typing + a small set of control keys to the
- *   remote page. It must preventDefault on those keys so Tab/arrows/Backspace
- *   drive the page only and never leak to the host UI (focus loss / scroll /
- *   navigation). Regression for the "keys leak to host" bug.
- */
-import { describe, expect, it, afterEach, vi } from 'vitest';
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { __setApiOverride } from '@moxxy/client-core';
+import { FILE_INSERT_EVENT } from '@/shell/WorkspaceFiles';
 import { BrowserPane } from './BrowserPane';
 
-/** Fake transport that opens the surface immediately and records inputs. */
-function installFakeApi(): { inputs: unknown[] } {
-  const inputs: unknown[] = [];
+/**
+ * The pane's chrome. What matters here is that the controls a person needs are
+ * present and reach the right command — the page itself is a Chromium view no
+ * test environment can create, and everything about it is covered on the main
+ * side.
+ */
+const TABS = [
+  { tabId: 't1', url: 'https://duckduckgo.com/', title: 'DuckDuckGo', active: true },
+  { tabId: 't2', url: 'https://example.com/', title: 'Example Domain', active: false },
+];
+
+function installApi(): { calls: Array<{ channel: string; args: unknown }> } {
+  const calls: Array<{ channel: string; args: unknown }> = [];
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
-      if (channel === 'surface.open') return Promise.resolve({ surfaceId: 'surf-1' });
-      if (channel === 'surface.input') {
-        inputs.push((args as { message: unknown }).message);
-        return Promise.resolve(undefined);
-      }
+      calls.push({ channel, args });
+      if (channel === 'browser.listTabs') return Promise.resolve({ tabs: TABS, activeTabId: 't1' });
+      if (channel === 'browser.capture')
+        return Promise.resolve({ tabId: 't1', mediaType: 'image/png', base64: 'AAAA' });
+      if (channel === 'session.saveImageAttachment')
+        return Promise.resolve({ path: '/tmp/shot.png', name: 'browser-duckduckgo.com.png' });
       return Promise.resolve(undefined);
     }) as never,
     subscribe: (() => () => undefined) as never,
   } as never);
-  return { inputs };
+  return { calls };
 }
 
-afterEach(async () => {
-  // Unmount (firing useSurface's async surface.close) while the fake transport
-  // is still installed, then yield a microtask so that close lands before we
-  // tear the override down — otherwise the deferred cleanup hits a missing
-  // transport.
+afterEach(() => {
   cleanup();
-  await Promise.resolve();
-  __setApiOverride(null);
+  __setApiOverride(null as never);
 });
 
-describe('BrowserPane keyboard forwarding', () => {
-  it('preventDefaults forwarded keys (Tab/arrows) and proxies them to the page', async () => {
-    const spy = installFakeApi();
-    const { container } = render(<BrowserPane workspaceId="ws-1" />);
+describe('BrowserPane', () => {
+  it('names every open tab and says which one is in front', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
 
-    // The frame box is the focusable (tabIndex=0) div carrying onKeyDown.
-    const surfaceEl = container.querySelector('[tabindex="0"]') as HTMLElement;
-    expect(surfaceEl).toBeTruthy();
+    const tabs = await screen.findAllByRole('tab');
 
-    // Wait for surface.open to resolve (ready) so input() is no longer a no-op.
-    await waitFor(() => expect(screen.queryByText(/Browser unavailable/i)).toBeNull());
-
-    for (const key of ['Tab', 'ArrowDown', 'a']) {
-      const evt = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
-      surfaceEl.dispatchEvent(evt);
-      // The forwarded key must be consumed so it doesn't reach the host UI.
-      expect(evt.defaultPrevented).toBe(true);
-    }
-
-    await waitFor(() => expect(spy.inputs.length).toBe(3));
-    expect(spy.inputs).toEqual([
-      { type: 'key', key: 'Tab' },
-      { type: 'key', key: 'ArrowDown' },
-      { type: 'key', key: 'a' },
-    ]);
+    expect(tabs.map((t) => t.textContent)).toEqual(['DuckDuckGo', 'Example Domain']);
+    expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
   });
 
-  it('does not preventDefault keys it does not forward (e.g. F5)', async () => {
-    installFakeApi();
-    const { container } = render(<BrowserPane workspaceId="ws-1" />);
-    const surfaceEl = container.querySelector('[tabindex="0"]') as HTMLElement;
-    await waitFor(() => expect(screen.queryByText(/Browser unavailable/i)).toBeNull());
+  it('offers a way to close each tab, named so it is unambiguous', async () => {
+    const { calls } = installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    const close = await screen.findByLabelText('Close Example Domain');
 
-    const evt = new KeyboardEvent('keydown', { key: 'F5', bubbles: true, cancelable: true });
-    surfaceEl.dispatchEvent(evt);
-    expect(evt.defaultPrevented).toBe(false);
+    await userEvent.click(close);
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'browser.releaseTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(
+        true,
+      ),
+    );
   });
 
-  it('Escape blurs the view (keyboard escape hatch) and is NOT forwarded to the page', async () => {
-    // WCAG 2.1.2: because Tab is forwarded to the page, the view would otherwise
-    // be a keyboard trap. Escape must release focus to the host UI rather than
-    // proxying yet another key into the page.
-    const spy = installFakeApi();
-    const { container } = render(<BrowserPane workspaceId="ws-1" />);
-    const surfaceEl = container.querySelector('[tabindex="0"]') as HTMLElement;
-    await waitFor(() => expect(screen.queryByText(/Browser unavailable/i)).toBeNull());
+  it('switches tabs through main rather than guessing locally', async () => {
+    const { calls } = installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    const tabs = await screen.findAllByRole('tab');
 
-    surfaceEl.focus();
-    expect(document.activeElement).toBe(surfaceEl);
+    await userEvent.click(tabs[1]!);
 
-    const before = spy.inputs.length;
-    const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    surfaceEl.dispatchEvent(evt);
+    await waitFor(() =>
+      expect(calls.some((c) => c.channel === 'browser.selectTab' && (c.args as { tabId: string }).tabId === 't2')).toBe(
+        true,
+      ),
+    );
+  });
 
-    // Consumed (so it doesn't trigger a host-level Escape handler) …
-    expect(evt.defaultPrevented).toBe(true);
-    // … focus left the trap …
-    expect(document.activeElement).not.toBe(surfaceEl);
-    // … and no key input was proxied to the page.
-    await Promise.resolve();
-    expect(spy.inputs.slice(before)).toEqual([]);
+  it('offers a choice before taking a picture', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+
+    expect(screen.getByRole('menuitem', { name: /whole page/i })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /select an area/i })).toBeTruthy();
+  });
+
+  it('opens a place to drag when an area is what you want', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+
+    await userEvent.click(screen.getByRole('menuitem', { name: /select an area/i }));
+
+    expect(screen.getByRole('application', { name: /drag over the page/i })).toBeTruthy();
+    expect(screen.queryByRole('menuitem')).toBeNull();
+  });
+
+  it('stands the page down while an area is drawn, so the drag reaches the overlay', async () => {
+    installApi();
+    const { container } = render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+    expect(container.querySelector('webview')?.getAttribute('style')).toContain(
+      'pointer-events: auto',
+    );
+
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /select an area/i }));
+
+    // A guest view composites above ordinary DOM whatever the z-index says, so
+    // while it still takes the pointer the overlay never sees the drag at all —
+    // observed live as a selection mode that could be entered but never used.
+    expect(container.querySelector('webview')?.getAttribute('style')).toContain(
+      'pointer-events: none',
+    );
+  });
+
+  it('is not covering the page until an area is asked for', async () => {
+    installApi();
+    render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+
+    expect(screen.queryByRole('application')).toBeNull();
+  });
+
+  it('hands a picture of the page to the agent, not a dump of what it reads', async () => {
+    // The pane is for the person. How the agent perceives a page is between the
+    // agent and the host, and putting it on screen only invited the question of
+    // what to do with it.
+    installApi();
+    const attached: string[] = [];
+    const onInsert = (ev: Event): void => {
+      attached.push((ev as CustomEvent<{ name: string }>).detail.name);
+    };
+    window.addEventListener(FILE_INSERT_EVENT, onInsert);
+    render(<BrowserPane workspaceId="w1" />);
+
+    await userEvent.click(await screen.findByLabelText('Screenshot to agent'));
+    await userEvent.click(screen.getByRole('menuitem', { name: /whole page/i }));
+
+    await waitFor(() => expect(attached).toEqual(['browser-duckduckgo.com.png']));
+    window.removeEventListener(FILE_INSERT_EVENT, onInsert);
+    expect(screen.queryByLabelText('What the agent sees')).toBeNull();
+  });
+
+  it('says what to do instead of rendering a browser with no workspace', () => {
+    installApi();
+    render(<BrowserPane workspaceId={null} />);
+
+    expect(screen.getByText(/Open a workspace/)).toBeTruthy();
+    expect(screen.queryByLabelText('Address')).toBeNull();
   });
 });
 
-describe('BrowserPane wheel coalescing', () => {
-  it('flushes a single summed scroll per frame instead of one IPC per wheel event', async () => {
-    const spy = installFakeApi();
-    // Capture the rAF callback rather than running it, so we can deliver three
-    // wheel ticks WITHIN one frame and then flush once — exercising the
-    // coalescing the throttle provides under real (async) rAF.
-    const queued: FrameRequestCallback[] = [];
-    const rafSpy = vi
-      .spyOn(window, 'requestAnimationFrame')
-      .mockImplementation((cb: FrameRequestCallback) => {
-        queued.push(cb);
-        return queued.length;
-      });
-    try {
-      const { container } = render(<BrowserPane workspaceId="ws-1" />);
-      const surfaceEl = container.querySelector('[tabindex="0"]') as HTMLElement;
-      await waitFor(() => expect(screen.queryByText(/Browser unavailable/i)).toBeNull());
+describe('BrowserPane — the hand-off banner', () => {
+  /**
+   * Seen live: the agent asked twice about a cookie banner that was nowhere on
+   * the user's screen. The pane now fronts the tab and main scrolls to the
+   * control — but when neither can put it in view, saying so is the only honest
+   * thing left. "Press Done" on an invisible control is how a hand-off becomes
+   * a loop.
+   */
+  function renderWithHandoff(onScreen: boolean): void {
+    let fire: ((req: unknown) => void) | null = null;
+    __setApiOverride({
+      invoke: ((channel: string) => {
+        if (channel === 'browser.listTabs') return Promise.resolve({ tabs: TABS, activeTabId: 't1' });
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: ((event: string, cb: unknown) => {
+        if (event === 'browser.handoffRequested') fire = cb as typeof fire;
+        return () => undefined;
+      }) as never,
+    } as never);
+    render(<BrowserPane workspaceId="w1" />);
+    act(() => fire?.({ requestId: 'h1', tabId: 't1', reason: 'zaakceptuj cookies', onScreen }));
+  }
 
-      const before = spy.inputs.length;
-      const framesBefore = queued.length; // resize effect may have queued some
-      fireEvent.wheel(surfaceEl, { deltaY: 10 });
-      fireEvent.wheel(surfaceEl, { deltaY: 20 });
-      fireEvent.wheel(surfaceEl, { deltaY: 12 });
+  it('tells the person to press it when it is in front of them', () => {
+    renderWithHandoff(true);
 
-      // The three ticks scheduled exactly ONE additional flush frame (coalesced).
-      expect(queued.length - framesBefore).toBe(1);
-      // No IPC sent yet — the flush hasn't run.
-      expect(spy.inputs.slice(before).filter((m) => (m as { type?: string }).type === 'scroll')).toEqual(
-        [],
-      );
+    expect(screen.getByText(/do what it asks/i)).toBeTruthy();
+    expect(screen.queryByText(/not in view/i)).toBeNull();
+  });
 
-      queued.slice(framesBefore).forEach((cb) => cb(0));
+  it('tells them where to look when it is not', () => {
+    renderWithHandoff(false);
 
-      const scrolls = spy.inputs
-        .slice(before)
-        .filter((m) => (m as { type?: string }).type === 'scroll');
-      expect(scrolls).toEqual([{ type: 'scroll', dy: 42 }]);
-    } finally {
-      rafSpy.mockRestore();
-    }
+    expect(screen.getByText(/not in view/i)).toBeTruthy();
   });
 });

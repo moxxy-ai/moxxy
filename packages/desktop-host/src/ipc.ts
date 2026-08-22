@@ -46,6 +46,8 @@ import { registerAppsHandlers } from './ipc/apps';
 import { registerAnonymizerHandlers } from './ipc/anonymizer';
 import { registerGitHandlers } from './ipc/git';
 import { registerSurfaceHandlers } from './ipc/surfaces';
+import { registerBrowserHandlers } from './ipc/browser';
+import type { BrowserHost } from './browser/host';
 import { registerDesksHandlers } from './ipc/desks';
 import { registerWorkflowsHandlers } from './ipc/workflows';
 import { registerSchedulerHandlers } from './ipc/scheduler';
@@ -68,6 +70,9 @@ export function registerIpcHandlers(
      *  main injects it. Omitted ⇒ the commands report `not-supported`. */
     readonly mobileGateway?: MobileGatewayController;
     readonly voice?: Pick<VoiceHandlerDependencies, 'setRealtimeCaptureActive'>;
+    /** The main-process browser. Omitted ⇒ the `browser.*` commands are absent
+     *  and the pane reports the browser as unavailable rather than erroring. */
+    readonly browser?: BrowserHost;
   } = {},
 ): void {
   // Register the SAME handler bodies onto every transport. `setActiveBus`
@@ -92,6 +97,7 @@ export function registerIpcHandlers(
     registerAnonymizerHandlers(pool, desks);
     registerGitHandlers(desks);
     registerSurfaceHandlers(pool);
+    if (opts.browser) registerBrowserHandlers(opts.browser);
     registerDesksHandlers(pool, desks);
     registerWorkflowsHandlers(pool, desks);
     registerSchedulerHandlers(undefined, desks);

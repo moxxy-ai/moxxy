@@ -48,6 +48,21 @@ const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;
 const LOG_RING_SIZE = 200;
 
+/**
+ * Extra environment handed to every runner this process spawns.
+ *
+ * Set once, at startup, by whoever owns a resource the runner needs to find —
+ * currently the browser bridge, whose socket path is only known after it
+ * listens. A module-level holder rather than a constructor argument because
+ * the pool creates supervisors lazily, long after that address exists.
+ */
+let runnerExtraEnv: Readonly<Record<string, string>> = {};
+
+/** Merge more variables into what future runners inherit. */
+export function setRunnerExtraEnv(env: Readonly<Record<string, string>>): void {
+  runnerExtraEnv = { ...runnerExtraEnv, ...env };
+}
+
 export class RunnerSupervisor extends EventEmitter {
   private currentPhase: ConnectionPhase = { phase: 'idle' };
   private cliPath: string | null = null;
@@ -478,6 +493,11 @@ export class RunnerSupervisor extends EventEmitter {
     const proc = spawnCli(cli, ['serve'], {
       env: {
         MOXXY_RUNNER_SOCKET: this.socketPath,
+        // Anything the host wants every runner to inherit — today the browser
+        // bridge address, so the agent's browser tools drive the page the user
+        // is watching instead of launching a second one. Spread first so a
+        // named var below always wins.
+        ...runnerExtraEnv,
         // Desktop owns the UI; we don't need the co-attached web
         // surface, and binding its fixed port (4040) breaks the moment
         // a second workspace runner spawns.

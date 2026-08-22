@@ -146,3 +146,6 @@ export { REMOTE_ALLOWED_COMMANDS } from './remote.js';
 
 // ---------- Shape the preload exposes on `window.moxxy` -------------------
 export type { SubscribeFn, InvokeFn, MoxxyApi } from './api.js';
+
+// ---------- Agent browser (main-process Chromium view) --------------------
+export type { BrowserTabInfo } from './browser.js';

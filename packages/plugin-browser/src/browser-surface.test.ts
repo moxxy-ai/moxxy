@@ -251,6 +251,112 @@ describe('browser surface polling lifecycle', () => {
   });
 });
 
+describe('browser surface — work only when someone is watching', () => {
+  /**
+   * The surface used to poll a JPEG of the full viewport three times a second
+   * for as long as it was open, whether or not a pane was showing it and
+   * whether or not anything on the page had changed. That is the whole of the
+   * "it stutters even on a fast machine" report: the cost is not the encode,
+   * it is a few hundred kilobytes crossing four process boundaries ten times
+   * every three seconds. These tests pin the two conditions that stop it.
+   */
+  it('does not poll while nobody is subscribed', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() }));
+
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    await flush();
+    await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS * 10);
+    await flush();
+
+    expect(sidecar.received.filter((r) => r.method === 'frame')).toHaveLength(0);
+    surface.close();
+  });
+
+  it('starts polling as soon as the first viewer attaches', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() }));
+
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    surface.onData(() => {});
+    await flush();
+
+    expect(sidecar.received.filter((r) => r.method === 'frame').length).toBeGreaterThan(0);
+    surface.close();
+  });
+
+  it('stops polling when the last viewer leaves', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() }));
+
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const off = surface.onData(() => {});
+    await flush();
+    off();
+
+    const before = sidecar.received.filter((r) => r.method === 'frame').length;
+    await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS * 10);
+    await flush();
+
+    expect(sidecar.received.filter((r) => r.method === 'frame')).toHaveLength(before);
+    surface.close();
+  });
+
+  it('does not re-send a frame identical to the last one', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() })); // same bytes every tick
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const payloads: Array<{ type: string }> = [];
+    surface.onData((p) => payloads.push(p as { type: string }));
+
+    await flush();
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS);
+      await flush();
+    }
+
+    expect(payloads.filter((p) => p.type === 'frame')).toHaveLength(1);
+    surface.close();
+  });
+
+  it('sends the next frame as soon as the page actually changes', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    let bytes = 'AAAA';
+    sidecar.setHandler(() => ({ ok: true, result: frame({ base64: bytes }) }));
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const payloads: Array<{ type: string; base64?: string }> = [];
+    surface.onData((p) => payloads.push(p as { type: string; base64?: string }));
+
+    await flush();
+    bytes = 'BBBB';
+    await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS);
+    await flush();
+
+    const frames = payloads.filter((p) => p.type === 'frame');
+    expect(frames).toHaveLength(2);
+    expect(frames[1]?.base64).toBe('BBBB');
+    surface.close();
+  });
+
+  it('still serves a late viewer the current frame from the snapshot', async () => {
+    // Dedup must not leave someone who attaches later with a blank pane.
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: true, result: frame() }));
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    surface.onData(() => {});
+    await flush();
+
+    expect(surface.snapshot()).toMatchObject({ type: 'frame', base64: 'AAAA' });
+    surface.close();
+  });
+});
+
 describe('browser surface input mapping', () => {
   it('click maps normalized fx/fy to viewport pixel coords from the last frame', async () => {
     vi.useFakeTimers();
@@ -259,6 +365,10 @@ describe('browser surface input mapping', () => {
       method === 'frame' ? { ok: true, result: frame({ width: 1000, height: 500 }) } : { ok: true, result: { url: 'x' } },
     );
     const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    // A real viewer is what produces input, and its presence is what starts
+    // the frame poll — so attach one before asserting the mapping that
+    // depends on a landed frame.
+    surface.onData(() => {});
     await flush(); // establish last frame (1000x500)
 
     await surface.input({ type: 'click', fx: 0.5, fy: 0.2 });
@@ -303,6 +413,7 @@ describe('browser surface input mapping', () => {
     const sidecar = makeControllableSpawn();
     sidecar.setHandler((method) => (method === 'frame' ? { ok: true, result: frame({ width: 1000, height: 500 }) } : { ok: true, result: {} }));
     const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    surface.onData(() => {});
     await flush();
 
     await surface.input({ type: 'dblclick', fx: 0.5, fy: 0.5 });

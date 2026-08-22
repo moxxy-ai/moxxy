@@ -21,6 +21,11 @@ import {
   UNBOUND_ID,
   bindWindow,
   registerIpcHandlers,
+  BrowserHost,
+  BrowserBridge,
+  BROWSER_PARTITION,
+  setRunnerExtraEnv,
+  type HostWebContents,
   ElectronCommandBus,
   wsEventBus,
   DeskStore,
@@ -99,7 +104,7 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   const entry = preferredCliEntry(app.getPath('userData'), process.resourcesPath);
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
-import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences, webContents } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -129,6 +134,25 @@ const CLERK_PUBLISHABLE_KEY =
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
 const realtimeCapture = new RealtimeCaptureController();
+/**
+ * The agent's browser. Owns the Chromium views the pane attaches, and drives
+ * them over CDP. Long-lived like the runner pool: tabs outlive any one render
+ * of the pane, so closing the panel must not throw the pages away.
+ */
+const browserHost = new BrowserHost((id) => {
+  const wc = webContents.fromId(id);
+  if (!wc || wc.isDestroyed()) return null;
+  // Electron's WebContents carries far more than the host needs; HostWebContents
+  // is the slice it actually uses, and narrowing here keeps the host testable
+  // against a plain object instead of a live Electron view.
+  return wc as unknown as HostWebContents;
+});
+/**
+ * How the agent's browser tools — which run in the runner, a separate process —
+ * reach the page this one owns. Without it the agent would drive its own
+ * browser and the pane would be showing a different document entirely.
+ */
+const browserBridge = new BrowserBridge(browserHost);
 /** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
 // Typed as the bridge server (not the bare TransportServer) so the host can
 // call `rotateWsBridgeToken(userData, wsServer)` to invalidate a leaked token.
@@ -250,8 +274,74 @@ async function createWindow(): Promise<void> {
       // the OS process sandbox is safe to enable — it shrinks the blast
       // radius of a renderer compromise to "can't reach Node directly."
       sandbox: true,
+      // The agent's browser pane hosts the page in a real Chromium view this
+      // window composites, which is what removes the screenshot pipeline
+      // entirely. The renderer may ASK to attach one; main rewrites every
+      // security-relevant preference at attach time (see the webviewAttach
+      // option on lockDownNavigation below), so asking is all it gets to do.
+      webviewTag: true,
     },
   });
+  // Publish the bridge before any runner spawns, so the first one already
+  // inherits its address. Failure is not fatal: the plugin simply falls back to
+  // its own Playwright sidecar, which is the same path the CLI always takes.
+  try {
+    const address = await browserBridge.start();
+    setRunnerExtraEnv({
+      MOXXY_BROWSER_BRIDGE_SOCKET: address.socketPath,
+      MOXXY_BROWSER_BRIDGE_TOKEN: address.token,
+    });
+  } catch (err) {
+    console.warn('[moxxy] browser bridge unavailable:', err instanceof Error ? err.message : err);
+  }
+
+  // Main cannot create a <webview> — the element is the renderer's. When the
+  // agent asks for a tab, forward the request and let the pane make one.
+  browserHost.setFocuser((req) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.focusTab', req);
+  });
+  browserHost.setOpener((req) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.openTab', req);
+  });
+
+  // The agent can switch, open and close tabs on its own. Without this push the
+  // pane would keep showing whatever it last fetched, and the user would watch
+  // a tab strip that disagrees with the page in front of them.
+  const stopBrowserChangeFeed = browserHost.onChange(() => {
+    // `closeAll()` on window teardown also fires this, and by then the window
+    // is destroyed — reaching into it threw "Object has been destroyed" and
+    // popped an error dialog on every quit.
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('browser.tabsChanged', {
+      tabs: browserHost.list(),
+      activeTabId: browserHost.activeId,
+    });
+  });
+
+  // A login wall the agent must not get past on its own.
+  browserHost.setHandoffPrompt((req) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('browser.handoffRequested', req);
+    // Bring the window forward: the agent is blocked until someone acts.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+    }
+  });
+
+  // The views die with the window; drop the debuggers before they do, or
+  // Electron logs a hard error for every one still attached.
+  mainWindow.on('closed', () => {
+    // Unhook FIRST: `closeAll()` notifies listeners, and by this point the
+    // window's webContents is gone even though the window itself still reports
+    // alive — sending into it threw and popped an error dialog on every quit.
+    stopBrowserChangeFeed();
+    browserHost.setOpener(null);
+    browserHost.setFocuser(null);
+    browserHost.setHandoffPrompt(null);
+    browserHost.closeAll();
+  });
+
   const captureTarget = mainWindow.webContents;
   realtimeCapture.attach(captureTarget);
   mainWindow.on('closed', () => {
@@ -273,6 +363,10 @@ async function createWindow(): Promise<void> {
   lockDownNavigation(mainWindow, {
     keepWindowOpenHandler: true,
     allowOriginPatterns: [...OAUTH_HOST_PATTERNS, ...appOriginPatterns],
+    // One persistent profile for the agent's browser, shared across its tabs —
+    // so signing in on one tab is still signed in on the next, which is what
+    // makes a multi-step task on a real site possible at all.
+    webviewAttach: { partition: BROWSER_PARTITION },
   });
 
   // OAuth popup handling — Clerk's clerk-js calls window.open() to
@@ -802,6 +896,7 @@ app.whenReady().then(async () => {
     voice: {
       setRealtimeCaptureActive: (active) => realtimeCapture.setActive(active),
     },
+    browser: browserHost,
   });
 
   // Events fan out to WS clients once the bus exists — independent of whether the
@@ -898,6 +993,16 @@ app.on('will-quit', () => {
 });
 
 async function shutdown(): Promise<void> {
+  // Browser first: detach every CDP debugger and take the bridge socket down
+  // before anything that could be waiting on it goes away. Best effort — a
+  // failure here must not stop the rest of the shutdown from running.
+  try {
+    browserHost.closeAll();
+    await browserBridge.stop();
+  } catch {
+    /* nothing worth blocking quit for */
+  }
+
   // Tear the mobile gateway down THROUGH the manager (not just the raw server):
   // `stop()` also closes the E2E proxy tunnel + shim, so the relay deregisters
   // this machine's tunnel on quit. Closing only the WS server (the old path)
