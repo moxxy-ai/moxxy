@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-tts-openai",
-  "version": "0.37.2",
+  "version": "0.38.0",
   "description": "OpenAI text-to-speech Synthesizer for moxxy. Text → spoken audio bytes via POST /v1/audio/speech. Plugs into the session's SynthesizerRegistry; read-aloud surfaces (desktop 'Read aloud', a voice channel) consume it transparently. The first shipped Synthesizer backend.",
   "keywords": [
     "moxxy",
