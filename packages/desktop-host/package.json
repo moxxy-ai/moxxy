@@ -39,16 +39,16 @@
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workspace-registry": "workspace:*",
-    "officeparser": "~7.5.1",
+    "officeparser": "~7.8.0",
     "pdfjs-dist": "4.10.38",
-    "yaml": "^2.6.0"
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
-    "electron": "^43.4.0",
+    "electron": "^43.4.1",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
