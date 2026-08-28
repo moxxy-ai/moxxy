@@ -14,6 +14,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
   const cliBin = path.join(cliDir, 'dist', 'bin.js');
   const seedDir = path.join(root, 'plugins-seed');
   const seedManifestPath = path.join(seedDir, 'package.json');
+  const seedLockPath = path.join(seedDir, 'package-lock.json');
 
   const cliManifest = await readManifest(cliManifestPath, '@moxxy/cli');
   await requireFile(cliBin, 'embedded CLI entrypoint');
@@ -26,6 +27,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
   }
 
   const seedManifest = await readManifest(seedManifestPath);
+  const seedLock = await readSeedPackageLock(seedLockPath);
   if (typeof seedManifest.dependencies?.[CODEX_PROVIDER] !== 'string') {
     throw new Error(`plugins-seed manifest does not include ${CODEX_PROVIDER}`);
   }
@@ -34,6 +36,11 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
   );
   if (seedDependencies.length === 0) {
     throw new Error('plugins-seed manifest contains no first-party dependencies');
+  }
+  for (const dependency of seedDependencies) {
+    if (typeof seedLock.packages[''].dependencies?.[dependency] !== 'string') {
+      throw new Error(`plugins-seed package lock does not include ${dependency}`);
+    }
   }
   let providerManifest;
   for (const dependency of seedDependencies) {
@@ -98,6 +105,25 @@ async function readManifest(manifestPath, expectedName) {
   }
   if (expectedName && parsed.name !== expectedName) {
     throw new Error(`Expected ${expectedName} in ${manifestPath}, found ${String(parsed.name)}`);
+  }
+  return parsed;
+}
+
+async function readSeedPackageLock(lockPath) {
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(lockPath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Cannot read plugins-seed package lock: ${lockPath}`, { cause: error });
+  }
+  const root = parsed?.packages?.[''];
+  if (
+    !Number.isInteger(parsed?.lockfileVersion) ||
+    !root ||
+    typeof root !== 'object' ||
+    Array.isArray(root)
+  ) {
+    throw new Error(`Invalid plugins-seed package lock: ${lockPath}`);
   }
   return parsed;
 }

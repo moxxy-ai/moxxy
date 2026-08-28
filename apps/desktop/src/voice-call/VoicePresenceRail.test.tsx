@@ -136,6 +136,27 @@ describe('VoicePresenceRail', () => {
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
   });
 
+  it('shows a friendly install failure and keeps technical details behind an explicit action', () => {
+    const technicalError = 'npm install failed: spawn git ENOENT';
+    const { onInstallLocalPiper, onRetry } = renderRail({
+      phase: 'error',
+      localPiperInstallRequired: true,
+      errorReason: technicalError,
+    });
+
+    expect(screen.getByText("Couldn't install local voice")).toBeInTheDocument();
+    expect(screen.getByText('Check your connection and try again.')).toBeInTheDocument();
+    expect(screen.queryByText(technicalError)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onInstallLocalPiper).toHaveBeenCalledTimes(1);
+    expect(onRetry).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Technical details' }));
+    expect(screen.getByRole('dialog', { name: 'Voice installation details' })).toBeInTheDocument();
+    expect(screen.getByText(technicalError)).toBeInTheDocument();
+  });
+
   it('shows the failure reason with retry, and still lets the call be ended', () => {
     const { onRetry } = renderRail({ phase: 'error', errorReason: 'Piper stopped responding.' });
 

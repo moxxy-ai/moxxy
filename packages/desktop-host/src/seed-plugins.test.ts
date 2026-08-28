@@ -42,6 +42,24 @@ async function makeSeed(
   );
 }
 
+async function makeSeedLock(
+  dependencies: Record<string, string>,
+  packages: Record<string, unknown> = {},
+): Promise<void> {
+  await fs.writeFile(
+    path.join(resources, 'plugins-seed', 'package-lock.json'),
+    JSON.stringify({
+      name: 'plugins-seed',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': { dependencies },
+        ...packages,
+      },
+    }),
+  );
+}
+
 describe('seedPluginsFromResources', () => {
   it('no-ops without a bundled seed (dev run)', async () => {
     await fs.mkdir(resources, { recursive: true });
@@ -68,6 +86,56 @@ describe('seedPluginsFromResources', () => {
         'utf8',
       ),
     ).resolves.toContain('export default');
+  });
+
+  it('initializes a package lock so later installs reuse seeded dependencies', async () => {
+    const transientSpec = 'file:../../tmp/moxxy-seed-tars-old/mode-goal.tgz';
+    await makeSeed({
+      '@moxxy/mode-goal': {
+        version: '1.2.3',
+        dependencySpec: transientSpec,
+      },
+    });
+    await makeSeedLock(
+      { '@moxxy/mode-goal': transientSpec },
+      {
+        'node_modules/@moxxy/mode-goal': {
+          version: '1.2.3',
+          resolved: transientSpec,
+          integrity: 'sha512-test',
+        },
+        'node_modules/libsignal': {
+          version: '6.0.0',
+          resolved: 'git+ssh://git@github.com/whiskeysockets/libsignal-node.git#pinned',
+        },
+      },
+    );
+
+    await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+    const lock = JSON.parse(
+      await fs.readFile(path.join(home, 'plugins', 'package-lock.json'), 'utf8'),
+    );
+    expect(lock.name).toBe('moxxy-user-plugins');
+    expect(lock.version).toBe('0.0.0');
+    expect(lock.packages[''].dependencies['@moxxy/mode-goal']).toBe('1.2.3');
+    expect(lock.packages['node_modules/libsignal'].resolved).toContain('#pinned');
+  });
+
+  it('never overwrites a user package lock', async () => {
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0' } });
+    await makeSeedLock({ '@moxxy/mode-goal': '1.0.0' });
+    const pluginsDir = path.join(home, 'plugins');
+    await fs.mkdir(pluginsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(pluginsDir, 'package-lock.json'),
+      JSON.stringify({ name: 'user-owned-lock', lockfileVersion: 3, packages: { '': {} } }),
+    );
+
+    await seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home });
+
+    const lock = JSON.parse(await fs.readFile(path.join(pluginsDir, 'package-lock.json'), 'utf8'));
+    expect(lock.name).toBe('user-owned-lock');
   });
 
   it('never overwrites an existing (possibly user-updated) package', async () => {

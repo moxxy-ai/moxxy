@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { access, mkdir, readdir, rm } from 'node:fs/promises';
 import net from 'node:net';
 import * as path from 'node:path';
 
@@ -57,6 +57,57 @@ try {
   if (!/PROVIDERS[\s\S]*openai-codex/i.test(loginHelp)) {
     throw new Error('Installed CLI did not register OpenAI Codex for OAuth login');
   }
+
+  // Reproduce the real clean-machine contract: Node/npm are present, but Git
+  // is not a desktop prerequisite. The copied seed lock must keep npm from
+  // re-resolving WhatsApp → Baileys → libsignal through a git URL while adding
+  // the unrelated optional Piper package.
+  const noGitEnv = {
+    ...smokeEnv,
+    PATH: path.dirname(process.execPath),
+  };
+  const piperInstall = run(
+    runtimePath,
+    [cliBin, 'plugins', 'install', '@moxxy/plugin-tts-local'],
+    180_000,
+    noGitEnv,
+  );
+  if (!/installed @moxxy\/plugin-tts-local/i.test(piperInstall)) {
+    throw new Error('Installed CLI did not report a successful Local Piper install');
+  }
+  run(
+    runtimePath,
+    [cliBin, 'plugins', 'enable', '@moxxy/plugin-tts-local'],
+    60_000,
+    noGitEnv,
+  );
+  run(
+    runtimePath,
+    [cliBin, 'plugins', 'set-default', 'synthesizer', 'local-piper'],
+    60_000,
+    noGitEnv,
+  );
+  await access(
+    path.join(
+      smokeHome,
+      'plugins',
+      'node_modules',
+      '@moxxy',
+      'plugin-tts-local',
+      'dist',
+      'index.js',
+    ),
+  );
+  await access(
+    path.join(
+      smokeHome,
+      'plugins',
+      'node_modules',
+      'sherpa-onnx-win-x64',
+      'package.json',
+    ),
+  );
+  console.log('Installed and selected Local Piper without Git on PATH.');
 
   server = spawn(runtimePath, [cliBin, 'serve'], {
     env: smokeEnv,

@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import type { VoiceCallPhase, VoiceOperationKind } from '@moxxy/client-core';
-import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { Icon, Modal, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import type { VoiceModeStatus } from './useVoiceModePresentation';
 import type { VoiceRailView } from './voice-rail';
@@ -68,6 +69,7 @@ export function VoicePresenceRail({
   readonly onClose: () => void;
 }): JSX.Element {
   const pulseRef = useVoicePulse({ phase, inputAnalyser, outputAnalyser });
+  const [showInstallDetails, setShowInstallDetails] = useState(false);
   const failed = phase === 'error';
   const voiceCarrying = phase === 'listening' || phase === 'speaking';
 
@@ -91,7 +93,26 @@ export function VoicePresenceRail({
       </div>
 
       <div className="voice-rail-work">
-        {localPiperInstallRequired ? (
+        {localPiperInstallRequired && failed ? (
+          <>
+            <span className="voice-rail-work-copy voice-rail-work-copy--error">
+              <strong role="alert">Couldn't install local voice</strong>
+              <small>Check your connection and try again.</small>
+            </span>
+            {errorReason && (
+              <button
+                type="button"
+                className="voice-rail-action"
+                onClick={() => setShowInstallDetails(true)}
+              >
+                Technical details
+              </button>
+            )}
+            <button type="button" className="voice-rail-action" onClick={onInstallLocalPiper}>
+              Try again
+            </button>
+          </>
+        ) : localPiperInstallRequired ? (
           <>
             <span className="voice-rail-work-copy">
               <strong>{localPiperInstalling ? 'Installing local voice' : 'Local voice required'}</strong>
@@ -179,6 +200,38 @@ export function VoicePresenceRail({
       >
         End voice
       </button>
+
+      {showInstallDetails && errorReason && (
+        <Modal
+          title="Voice installation details"
+          width={560}
+          onClose={() => setShowInstallDetails(false)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p style={{ margin: 0, color: 'var(--color-text-dim)' }}>
+              Copy these details when reporting the problem. They stay hidden during normal use.
+            </p>
+            <pre
+              style={{
+                margin: 0,
+                padding: 12,
+                overflow: 'auto',
+                border: '1px solid var(--color-card-border)',
+                borderRadius: 'var(--radius-card)',
+                background: 'var(--color-code-bg)',
+                color: 'var(--color-text)',
+                fontSize: 'var(--type-meta)',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                userSelect: 'text',
+              }}
+            >
+              {errorReason}
+            </pre>
+          </div>
+        </Modal>
+      )}
     </section>
   );
 }
