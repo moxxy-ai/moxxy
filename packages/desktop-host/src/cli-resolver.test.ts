@@ -53,12 +53,17 @@ describe('resolveMoxxyCli', () => {
     expect(resolveMoxxyCli()).toBeNull();
   });
 
-  it('finds moxxy on PATH and returns a `direct` invocation', () => {
+  it('finds an extensionless moxxy shim through the explicit POSIX resolver path', () => {
     const bin = path.join(tmp, 'moxxy');
     writeFileSync(bin, '#!/bin/sh\necho moxxy\n');
     chmodSync(bin, 0o755);
-    const result = resolveMoxxyCli();
-    expect(result).toEqual({ kind: 'direct', bin });
+    // Use a relative single-entry PATH so this POSIX contract is portable even
+    // when the test host itself has a drive-letter Windows path. Windows-native
+    // behavior is covered separately by the moxxy.cmd cases below.
+    const result = resolveMoxxyCli({ platform: 'linux', pathEnv: '.' });
+    expect(result?.kind).toBe('direct');
+    if (result?.kind !== 'direct') throw new Error('POSIX moxxy shim did not resolve directly');
+    expect(realpathSync(result.bin)).toBe(realpathSync(bin));
   });
 
   it('maps the Windows moxxy.cmd npm launcher to the installed JavaScript entry', () => {
