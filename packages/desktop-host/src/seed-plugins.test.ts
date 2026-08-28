@@ -119,6 +119,8 @@ describe('seedPluginsFromResources', () => {
     expect(lock.name).toBe('moxxy-user-plugins');
     expect(lock.version).toBe('0.0.0');
     expect(lock.packages[''].dependencies['@moxxy/mode-goal']).toBe('1.2.3');
+    expect(lock.packages['node_modules/@moxxy/mode-goal'].resolved).toBeUndefined();
+    expect(lock.packages['node_modules/@moxxy/mode-goal'].integrity).toBeUndefined();
     expect(lock.packages['node_modules/libsignal'].resolved).toContain('#pinned');
   });
 
@@ -241,6 +243,32 @@ describe('repairSeededPluginManifest', () => {
         },
       }),
     );
+    await fs.writeFile(
+      path.join(pluginsDir, 'package-lock.json'),
+      JSON.stringify({
+        name: 'moxxy-user-plugins',
+        lockfileVersion: 3,
+        packages: {
+          '': {
+            dependencies: {
+              '@moxxy/plugin-provider-anthropic':
+                'file:../../tmp/moxxy-seed-tars-deleted/plugin-provider-anthropic.tgz',
+              '@example/custom': 'file:../custom-plugin',
+            },
+          },
+          'node_modules/@moxxy/plugin-provider-anthropic': {
+            version: '3.4.5',
+            resolved:
+              'file:../../tmp/moxxy-seed-tars-deleted/plugin-provider-anthropic.tgz',
+            integrity: 'sha512-transient-tarball',
+          },
+          'node_modules/@example/custom': {
+            version: '1.0.0',
+            resolved: 'file:../custom-plugin',
+          },
+        },
+      }),
+    );
 
     const repaired = await repairSeededPluginManifest(pluginsDir);
 
@@ -250,5 +278,18 @@ describe('repairSeededPluginManifest', () => {
     expect(pkg.dependencies['@moxxy/plugin-provider-anthropic']).toBe('3.4.5');
     expect(pkg.dependencies['@moxxy/plugin-missing']).toBeUndefined();
     expect(pkg.dependencies['@example/custom']).toBe('file:../custom-plugin');
+    const lock = JSON.parse(
+      await fs.readFile(path.join(pluginsDir, 'package-lock.json'), 'utf8'),
+    );
+    expect(lock.packages[''].dependencies).toEqual(pkg.dependencies);
+    expect(
+      lock.packages['node_modules/@moxxy/plugin-provider-anthropic'].resolved,
+    ).toBeUndefined();
+    expect(
+      lock.packages['node_modules/@moxxy/plugin-provider-anthropic'].integrity,
+    ).toBeUndefined();
+    expect(lock.packages['node_modules/@example/custom'].resolved).toBe(
+      'file:../custom-plugin',
+    );
   });
 });
