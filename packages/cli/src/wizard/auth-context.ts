@@ -6,7 +6,13 @@
  */
 
 import { createInterface, type Interface } from 'node:readline';
-import { MoxxyError, encodeLoginPrompt, type ProviderAuthContext, type ProviderDef } from '@moxxy/sdk';
+import {
+  MoxxyError,
+  encodeLoginAuthUrl,
+  encodeLoginPrompt,
+  type ProviderAuthContext,
+  type ProviderDef,
+} from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { isCancel, password, text } from '@clack/prompts';
 
@@ -22,7 +28,8 @@ export interface BuildAuthContextOptions {
    * on stdout and reads the answer back as one stdin line — for a GUI host (the
    * desktop app) that drives `moxxy login` as a subprocess with no TTY and so
    * can't render a clack prompt. The out-of-band paste flows
-   * work identically; only the input transport differs.
+   * work identically; loopback flows also transfer their authorization URL as
+   * a marker and leave browser opening to the GUI host.
    */
   readonly promptMode?: 'clack' | 'stdin';
   /**
@@ -50,6 +57,14 @@ export function buildProviderAuthContext(
     headless: opts.headless,
     ...(opts.providerConfig ? { providerConfig: opts.providerConfig } : {}),
     write: opts.write ?? ((s) => process.stdout.write(s)),
+    ...(opts.promptMode === 'stdin'
+      ? {
+          noOpen: true,
+          onAuthUrl: (url: string): void => {
+            process.stdout.write(encodeLoginAuthUrl(url));
+          },
+        }
+      : {}),
     ...(prompt ? { prompt } : {}),
     vault: {
       get: (key) => vault.get(key),

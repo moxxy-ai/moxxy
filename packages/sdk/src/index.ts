@@ -202,6 +202,8 @@ export type {
   ProviderAuthDescriptor,
 } from './provider.js';
 export {
+  encodeLoginAuthUrl,
+  decodeLoginAuthUrl,
   encodeLoginPrompt,
   decodeLoginPrompt,
   createLoginStreamScanner,

@@ -73,6 +73,8 @@ export function registerIpcHandlers(
     /** The main-process browser. Omitted ⇒ the `browser.*` commands are absent
      *  and the pane reports the browser as unavailable rather than erroring. */
     readonly browser?: BrowserHost;
+    /** Native, main-process browser opener used by hosted OAuth login. */
+    readonly openExternal?: (url: string) => Promise<void>;
   } = {},
 ): void {
   // Register the SAME handler bodies onto every transport. `setActiveBus`
@@ -89,7 +91,10 @@ export function registerIpcHandlers(
     registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
     registerConnectionHandlers(pool);
     registerOnboardingHandlers(pool);
-    registerProviderLoginHandlers(pool);
+    registerProviderLoginHandlers(
+      pool,
+      opts.openExternal ? { openExternal: opts.openExternal } : {},
+    );
     registerSessionHandlers(pool);
     registerSessionsHandlers(pool, desks);
     registerWorkspaceFsHandlers(desks);

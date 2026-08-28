@@ -34,6 +34,7 @@ export function OAuthSignIn({
   const [prompt, setPrompt] = useState<{ question: string; mask: boolean } | null>(null);
   const [answer, setAnswer] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const loginIdRef = useRef<string | null>(null);
 
   // Keep the latest onSignedIn so the []-dep subscription below (which captures
@@ -62,10 +63,14 @@ export function OAuthSignIn({
         setPrompt({ question: p.question, mask: p.mask });
         setAnswer('');
       }),
+      api().subscribe('provider.login.authUrl', (p) => {
+        if (p.loginId === loginIdRef.current) setAuthUrl(p.url);
+      }),
       api().subscribe('provider.login.done', (p) => {
         if (p.loginId !== loginIdRef.current) return;
         loginIdRef.current = null;
         setPrompt(null);
+        setAuthUrl(null);
         if (p.code === 0) {
           setPhase('done');
           onSignedInRef.current?.();
@@ -96,6 +101,7 @@ export function OAuthSignIn({
     setError(null);
     setLog([]);
     setPrompt(null);
+    setAuthUrl(null);
     try {
       await api().invoke('provider.login.start', { loginId: id, provider });
     } catch (e) {
@@ -123,6 +129,7 @@ export function OAuthSignIn({
     // outcome, and so unmount does not send the credential-free cancel twice.
     loginIdRef.current = null;
     setPrompt(null);
+    setAuthUrl(null);
     try {
       await api().invoke('provider.login.cancel', { loginId: id });
       setError('Sign-in cancelled.');
@@ -130,6 +137,18 @@ export function OAuthSignIn({
       setError(toErrorMessage(e));
     }
     setPhase('error');
+  };
+
+  const openAuthUrl = async (): Promise<void> => {
+    if (!authUrl) return;
+    try {
+      // The URL came from main, but it still crosses the renderer→main trust
+      // boundary again here. Reuse the existing validated openExternal command;
+      // never render it as a raw href or open it from renderer JavaScript.
+      await api().invoke('onboarding.openExternal', { url: authUrl });
+    } catch (e) {
+      setError(toErrorMessage(e));
+    }
   };
 
   // claude-code's first prompt offers "paste a token OR press Enter for the
@@ -193,6 +212,11 @@ export function OAuthSignIn({
           <p style={{ margin: 0, flex: 1, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
             Opening your browser — complete the sign-in there…
           </p>
+          {authUrl && (
+            <Button variant="primary" onClick={() => void openAuthUrl()}>
+              Open sign-in page
+            </Button>
+          )}
           <Button onClick={() => void cancel()}>Cancel sign-in</Button>
         </div>
       )}

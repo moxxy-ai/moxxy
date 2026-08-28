@@ -18,7 +18,10 @@ import {
 } from '../provider-login';
 import { handle } from './shared';
 
-export function registerProviderLoginHandlers(pool: RunnerPool): void {
+export function registerProviderLoginHandlers(
+  pool: RunnerPool,
+  opts: { readonly openExternal?: (url: string) => Promise<void> } = {},
+): void {
   handle('provider.login.start', async ({ loginId, provider }) => {
     const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
     if (!target) throw new Error('no window to drive the provider login');
@@ -26,6 +29,7 @@ export function registerProviderLoginHandlers(pool: RunnerPool): void {
       onExit: (code) => {
         if (code === 0) pool.active()?.forceRetry();
       },
+      ...(opts.openExternal ? { openExternal: opts.openExternal } : {}),
     });
   });
   handle('provider.login.answer', async ({ loginId, value }) => {

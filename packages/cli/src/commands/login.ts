@@ -157,9 +157,9 @@ export async function runLoginProvider(
   //   - stdin isn't a TTY (CI, ssh -T, docker exec without -t) AND the
   //     caller didn't force the browser flow with `--browser` / drive it over
   //     `--stdin-prompts`.
-  // `--browser` lets a GUI host (the desktop app) spawn `moxxy login` with
-  // piped stdio yet still get the loopback flow that opens the browser
-  // automatically — no manual code copying.
+  // `--browser` lets a standalone non-TTY caller retain process-local browser
+  // ownership. Desktop uses `--stdin-prompts` instead: it receives the loopback
+  // URL as a marker and opens it through Electron main.
   const headless =
     !stdinPrompts &&
     (hasBoolFlag(argv, 'no-browser') ||

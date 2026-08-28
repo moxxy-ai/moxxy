@@ -874,6 +874,7 @@ app.whenReady().then(async () => {
   }
 
   registerIpcHandlers(wsBus ? [electronBus, wsBus] : [electronBus], pool, desks, {
+    openExternal: (url) => shell.openExternal(url),
     update: {
       publicKeyPem: BUNDLED_UPDATE_PUBLIC_KEY,
       // Dev/test escape hatch: point the updater at a local manifest. Ignored in

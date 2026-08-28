@@ -9,7 +9,9 @@
  * renderer as `provider.login.*` events and write the user's typed answers back
  * as stdin lines. Loopback providers (openai-codex) emit no prompts — the CLI
  * opens the browser, catches the callback, and exits; the renderer just shows
- * the streamed log.
+ * waits for the callback, and exits. In a desktop-hosted run, the CLI emits a
+ * validated authorization-URL marker without opening the browser itself; main
+ * opens it through Electron and the renderer retains an explicit fallback.
  *
  * Encryption + the OAuth dance stay entirely in the CLI (mirroring
  * `saveProviderKey` → `moxxy vault set`); this module is only a relay.
@@ -19,7 +21,7 @@ import type { BrowserWindow } from 'electron';
 import { createLoginStreamScanner } from '@moxxy/sdk';
 import type { ChildProcess } from 'node:child_process';
 import { augmentedPaths, resolveMoxxyCli, spawnCli } from './cli-resolver';
-import { assertSafeProviderName } from './security';
+import { assertSafeExternalUrl, assertSafeProviderName } from './security';
 import { sendEvent } from './send-event';
 
 interface LoginRun {
@@ -42,7 +44,11 @@ export function startProviderLogin(
   loginId: string,
   provider: string,
   window: BrowserWindow,
-  opts: { readonly onExit?: (code: number) => void } = {},
+  opts: {
+    readonly onExit?: (code: number) => void;
+    /** Native browser opener injected by the Electron main process. */
+    readonly openExternal?: (url: string) => Promise<void>;
+  } = {},
 ): void {
   assertSafeProviderName(provider);
   if (runs.has(loginId)) throw new Error('a login with this id is already running');
@@ -63,6 +69,24 @@ export function startProviderLogin(
           question: item.prompt.question,
           mask: item.prompt.mask,
         });
+      } else if (item.type === 'auth_url') {
+        // The child marker is validated by the SDK scanner. Keep the main
+        // process's central shell.openExternal guard as a second boundary before
+        // calling the injected Electron capability.
+        assertSafeExternalUrl(item.url);
+        sendEvent(window, 'provider.login.authUrl', { loginId, url: item.url });
+        const reportOpenFailure = (error: unknown): void => {
+          sendEvent(window, 'provider.login.output', {
+            loginId,
+            text: `Could not open the sign-in page automatically: ${String(error)}\n`,
+          });
+        };
+        try {
+          const opening = opts.openExternal?.(item.url);
+          if (opening) void opening.catch(reportOpenFailure);
+        } catch (error) {
+          reportOpenFailure(error);
+        }
       } else if (item.text) {
         sendEvent(window, 'provider.login.output', { loginId, text: item.text });
       }

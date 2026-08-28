@@ -203,6 +203,18 @@ export interface ProviderAuthContext {
    */
   readonly write: (chunk: string) => void;
   /**
+   * True when a GUI host owns browser opening. OAuth implementations still
+   * build the loopback URL and report it through {@link onAuthUrl}, but must not
+   * invoke their process-local browser helper.
+   */
+  readonly noOpen?: boolean;
+  /**
+   * Browser authorization URL produced by a loopback flow. GUI hosts relay it
+   * over their authenticated transport, validate it again, and open it using
+   * their native browser API.
+   */
+  readonly onAuthUrl?: (url: string) => void;
+  /**
    * Optional single-line input prompt. Present when the host has an
    * interactive TTY; absent in headless runs. Flows that need the user to
    * paste something back — out-of-band / manual authorization-code flows,

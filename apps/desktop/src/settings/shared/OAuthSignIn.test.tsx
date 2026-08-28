@@ -96,6 +96,29 @@ describe('OAuthSignIn', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in cancelled.');
   });
 
+  it('offers a renderer fallback that opens the validated auth URL through IPC', async () => {
+    const { api, emit } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-browser' as `${string}-${string}-${string}-${string}-${string}`);
+    render(<OAuthSignIn provider="openai-codex" />);
+
+    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    act(() =>
+      emit('provider.login.authUrl', {
+        loginId: 'login-browser',
+        url: 'https://auth.example.test/authorize?state=opaque',
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open sign-in page' }));
+    await waitFor(() =>
+      expect(api.invoke).toHaveBeenCalledWith('onboarding.openExternal', {
+        url: 'https://auth.example.test/authorize?state=opaque',
+      }),
+    );
+    act(() => emit('provider.login.done', { loginId: 'login-browser', code: 0 }));
+  });
+
   it('reports a failed CLI sign-in and preserves diagnostic output', async () => {
     const { api, emit } = fakeApi();
     __setApiOverride(api);
