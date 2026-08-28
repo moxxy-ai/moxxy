@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import net from 'node:net';
 import * as path from 'node:path';
 
+import { seedPluginsFromResources } from '../../../packages/desktop-host/dist/seed-plugins.js';
 import { verifyDesktopResources } from './verify-desktop-resources.mjs';
 
 const installerPath = process.argv[2];
@@ -31,8 +32,10 @@ try {
   await verifyDesktopResources(resourcesPath, { runtimePath });
 
   await mkdir(smokeHome, { recursive: true });
-  await cp(path.join(resourcesPath, 'plugins-seed'), path.join(smokeHome, 'plugins'), {
-    recursive: true,
+  await seedPluginsFromResources({
+    resourcesPath,
+    moxxyHome: smokeHome,
+    log: (message) => console.log(message),
   });
   const cliBin = path.join(resourcesPath, 'moxxy-cli', 'dist', 'bin.js');
   const smokeEnv = {
@@ -49,6 +52,10 @@ try {
   const plugins = run(runtimePath, [cliBin, 'plugins', 'list'], 60_000, smokeEnv);
   if (!plugins.includes('openai-codex')) {
     throw new Error('Installed CLI did not discover the seeded OpenAI Codex provider');
+  }
+  const loginHelp = run(runtimePath, [cliBin, 'login'], 60_000, smokeEnv, 2);
+  if (!/PROVIDERS[\s\S]*openai-codex/i.test(loginHelp)) {
+    throw new Error('Installed CLI did not register OpenAI Codex for OAuth login');
   }
 
   server = spawn(runtimePath, [cliBin, 'serve'], {
@@ -87,7 +94,7 @@ function removeInstallDir() {
   });
 }
 
-function run(command, args, timeout, env = process.env) {
+function run(command, args, timeout, env = process.env, expectedStatus = 0) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     env,
@@ -95,9 +102,9 @@ function run(command, args, timeout, env = process.env) {
     windowsHide: true,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) {
+  if (result.status !== expectedStatus) {
     throw new Error(
-      `${path.basename(command)} exited with status ${result.status}: ` +
+      `${path.basename(command)} exited with status ${result.status}; expected ${expectedStatus}: ` +
         `${result.stderr ?? ''}${result.stdout ?? ''}`.trim(),
     );
   }

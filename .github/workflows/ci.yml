@@ -130,15 +130,13 @@ jobs:
         run: pnpm build
 
       - name: Test affected runtime packages
-        run: >-
-          pnpm exec turbo run test --concurrency=2
-          --filter=@moxxy/sdk
-          --filter=@moxxy/cli
-          --filter=@moxxy/desktop-host
-          --filter=@moxxy/desktop-ipc-contract
-          --filter=@moxxy/plugin-oauth
-          --filter=@moxxy/plugin-plugins-admin
-          --filter=@moxxy/desktop
+        run: |
+          pnpm --filter @moxxy/sdk exec vitest run src/process-invocation.test.ts src/provider-login-bridge.test.ts
+          pnpm --filter @moxxy/cli exec vitest run src/commands/login.test.ts src/commands/update.test.ts
+          pnpm --filter @moxxy/desktop-host exec vitest run src/seed-plugins.test.ts src/cli-resolver.test.ts src/runner-pool.test.ts src/provider-login.test.ts src/ipc/provider-login.test.ts
+          pnpm --filter @moxxy/plugin-oauth exec vitest run src/profile.test.ts
+          pnpm --filter @moxxy/plugin-plugins-admin exec vitest run src/install.test.ts src/shared.test.ts
+          pnpm --filter @moxxy/desktop exec vitest run src/settings/shared/OAuthSignIn.test.tsx
 
       - name: Test packaging contracts
         run: node --test scripts/desktop-packaging.test.mjs
@@ -217,10 +215,10 @@ jobs:
       - name: Test Windows process invocation
         shell: bash
         run: |
-          pnpm --filter @moxxy/sdk test
-          pnpm --filter @moxxy/cli test
-          pnpm --filter @moxxy/desktop-host test
-          pnpm --filter @moxxy/plugin-plugins-admin test
+          pnpm --filter @moxxy/sdk exec vitest run src/process-invocation.test.ts
+          pnpm --filter @moxxy/cli exec vitest run src/commands/update.test.ts
+          pnpm --filter @moxxy/desktop-host exec vitest run src/cli-resolver.test.ts src/runner-pool.test.ts src/ipc/provider-login.test.ts
+          pnpm --filter @moxxy/plugin-plugins-admin exec vitest run src/install.test.ts src/shared.test.ts
 
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})

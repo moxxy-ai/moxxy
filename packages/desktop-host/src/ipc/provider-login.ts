@@ -23,6 +23,10 @@ export function registerProviderLoginHandlers(
   opts: { readonly openExternal?: (url: string) => Promise<void> } = {},
 ): void {
   handle('provider.login.start', async ({ loginId, provider }) => {
+    // The provider catalog paints immediately, while the packaged first launch
+    // seeds its plugin tree after first paint. Share the runner's preparation
+    // gate so a fast click cannot spawn `moxxy login` against a partial tree.
+    await pool.prepare();
     const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
     if (!target) throw new Error('no window to drive the provider login');
     startProviderLogin(loginId, provider, target, {

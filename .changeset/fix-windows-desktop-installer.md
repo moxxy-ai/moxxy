@@ -4,4 +4,4 @@
 '@moxxy/desktop': patch
 ---
 
-Fix Windows desktop packaging, shell-free command launchers, and hosted OAuth browser handoff.
+Fix Windows desktop packaging, shell-free command launchers, first-launch plugin readiness, and hosted OAuth browser handoff.

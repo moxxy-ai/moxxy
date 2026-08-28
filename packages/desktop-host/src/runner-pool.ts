@@ -56,7 +56,7 @@ export class RunnerPool extends EventEmitter {
    */
   async getOrCreate(id: string, cwd: string | null): Promise<RunnerSupervisor> {
     if (this.stopped) throw new Error('RunnerPool is stopped');
-    await this.prepareToStart();
+    await this.prepare();
     if (this.stopped) throw new Error('RunnerPool stopped before runner startup completed');
     const existing = this.entries.get(id);
     if (existing) {
@@ -103,7 +103,12 @@ export class RunnerPool extends EventEmitter {
     return supervisor;
   }
 
-  private async prepareToStart(): Promise<void> {
+  /**
+   * Finish the desktop's one-time runtime preparation without creating a
+   * runner. Non-runner subprocesses such as provider login use the same gate so
+   * they cannot race plugin seeding on a fresh profile.
+   */
+  async prepare(): Promise<void> {
     const beforeStart = this.options.beforeStart;
     if (!beforeStart) return;
     if (!this.preparation) this.preparation = beforeStart();
