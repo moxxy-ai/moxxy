@@ -98,6 +98,26 @@ describe('useSettings', () => {
     expect(invokes[1]?.cmd).toBe('settings.providerRefreshReady');
   });
 
+  it('activateProvider waits for session activation before refreshing settings', async () => {
+    const invokes: Array<{ cmd: string; args: unknown }> = [];
+    const invoke = vi.fn(async (cmd: string, args?: unknown) => {
+      invokes.push({ cmd, args });
+      return [];
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    const { result } = renderHook(() => useSettings());
+    await waitFor(() => expect(invokes.some((i) => i.cmd === 'settings.providers')).toBe(true));
+    invokes.length = 0;
+
+    await act(() => result.current.activateProvider('openai-codex'));
+    expect(invokes[0]).toEqual({
+      cmd: 'session.setProvider',
+      args: { provider: 'openai-codex' },
+    });
+    expect(invokes.slice(1).some((i) => i.cmd === 'settings.providers')).toBe(true);
+  });
+
   it('surfaces the runner error when a toggle is refused (active provider)', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'settings.providerSetEnabled') {

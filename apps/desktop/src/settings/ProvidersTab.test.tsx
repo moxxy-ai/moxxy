@@ -56,21 +56,24 @@ function renderTab(overrides?: Partial<Parameters<typeof ProvidersTab>[0]>): {
   onToggle: ReturnType<typeof vi.fn>;
   onConfigure: ReturnType<typeof vi.fn>;
   onSetKey: ReturnType<typeof vi.fn>;
+  onActivate: ReturnType<typeof vi.fn>;
 } {
   const onToggle = vi.fn(() => Promise.resolve());
   const onConfigure = vi.fn(() => Promise.resolve());
   const onSetKey = vi.fn(() => Promise.resolve());
+  const onActivate = vi.fn(() => Promise.resolve());
   render(
     <ProvidersTab
       providers={[anthropic, codex, zai]}
       onToggle={onToggle}
       onConfigure={onConfigure}
       onSetKey={onSetKey}
+      onActivate={onActivate}
       onRefresh={() => Promise.resolve()}
       {...overrides}
     />,
   );
-  return { onToggle, onConfigure, onSetKey };
+  return { onToggle, onConfigure, onSetKey, onActivate };
 }
 
 describe('ProvidersTab', () => {
@@ -162,5 +165,29 @@ describe('ProvidersTab', () => {
     expect(screen.queryByTestId('provider-key-input')).toBeNull();
     // The dead "run moxxy login in a terminal" hint is gone — there's a button.
     expect(screen.getByRole('button', { name: /sign in with openai-codex/i })).toBeTruthy();
+  });
+
+  it('activates the OAuth provider before reporting the settings sign-in complete', async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const invoke = vi.fn(() => Promise.resolve());
+    __setApiOverride({
+      invoke,
+      subscribe: (event: string, handler: (payload: unknown) => void) => {
+        handlers.set(event, handler);
+        return () => handlers.delete(event);
+      },
+    } as never);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('settings-login' as `${string}-${string}-${string}-${string}-${string}`);
+    const { onActivate } = renderTab({ providers: [codex] });
+    fireEvent.click(screen.getByRole('button', { name: /configure openai-codex/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in with openai-codex/i }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('provider.login.start', {
+      loginId: 'settings-login',
+      provider: 'openai-codex',
+    }));
+
+    handlers.get('provider.login.done')?.({ loginId: 'settings-login', code: 0 });
+
+    await waitFor(() => expect(onActivate).toHaveBeenCalledWith('openai-codex'));
   });
 });

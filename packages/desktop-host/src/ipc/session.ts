@@ -94,7 +94,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
     const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
-    session.providers.setActive(provider);
+    await session.setActiveProvider(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
     setSessionModel(id, null, { force: true });
     // Re-emit the connection phase so the renderer sees the new activeProvider

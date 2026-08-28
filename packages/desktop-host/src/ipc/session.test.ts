@@ -145,6 +145,33 @@ describe('session.setModel handler', () => {
   });
 });
 
+describe('session.setProvider handler', () => {
+  it('awaits runner activation and surfaces the exact activation failure', async () => {
+    const failure = new Error('Provider not registered: openai-codex');
+    const setActiveProvider = vi.fn().mockRejectedValue(failure);
+    const supervisor = {
+      remote: () => ({ setActiveProvider }),
+      refreshConnectedInfo: vi.fn(),
+    } as unknown as RunnerSupervisor;
+    const pool = {
+      activeWorkspaceId: () => 'ws-provider',
+      get: (id: string) => (id === 'ws-provider' ? supervisor : null),
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const setProviderHandler = handlers.get('session.setProvider');
+    assertDefined(setProviderHandler, 'session.setProvider handler');
+
+    await expect(
+      setProviderHandler({ workspaceId: 'ws-provider', provider: 'openai-codex' }),
+    ).rejects.toBe(failure);
+    expect(setActiveProvider).toHaveBeenCalledWith('openai-codex');
+    expect(supervisor.refreshConnectedInfo).not.toHaveBeenCalled();
+  });
+});
+
 describe('session.setAutoApprove handler', () => {
   it('updates the driver and broadcasts the shared auto-approve state to every surface', async () => {
     const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];

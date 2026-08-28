@@ -18,6 +18,9 @@ import {
 } from '../provider-login';
 import { handle } from './shared';
 
+const preparingLogins = new Set<string>();
+const cancelledWhilePreparing = new Set<string>();
+
 export function registerProviderLoginHandlers(
   pool: RunnerPool,
   opts: { readonly openExternal?: (url: string) => Promise<void> } = {},
@@ -26,20 +29,28 @@ export function registerProviderLoginHandlers(
     // The provider catalog paints immediately, while the packaged first launch
     // seeds its plugin tree after first paint. Share the runner's preparation
     // gate so a fast click cannot spawn `moxxy login` against a partial tree.
-    await pool.prepare();
-    const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
-    if (!target) throw new Error('no window to drive the provider login');
-    startProviderLogin(loginId, provider, target, {
-      onExit: (code) => {
-        if (code === 0) pool.active()?.forceRetry();
-      },
-      ...(opts.openExternal ? { openExternal: opts.openExternal } : {}),
-    });
+    preparingLogins.add(loginId);
+    try {
+      await pool.prepare();
+      if (cancelledWhilePreparing.has(loginId)) return;
+      const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
+      if (!target) throw new Error('no window to drive the provider login');
+      startProviderLogin(loginId, provider, target, {
+        onExit: (code) => {
+          if (code === 0) pool.active()?.forceRetry();
+        },
+        ...(opts.openExternal ? { openExternal: opts.openExternal } : {}),
+      });
+    } finally {
+      preparingLogins.delete(loginId);
+      cancelledWhilePreparing.delete(loginId);
+    }
   });
   handle('provider.login.answer', async ({ loginId, value }) => {
     answerProviderLogin(loginId, value);
   });
   handle('provider.login.cancel', async ({ loginId }) => {
+    if (preparingLogins.has(loginId)) cancelledWhilePreparing.add(loginId);
     cancelProviderLogin(loginId);
   });
 }

@@ -5,6 +5,7 @@ import type { RunnerPool } from '../runner-pool';
 
 const h = vi.hoisted(() => ({
   startProviderLogin: vi.fn(),
+  cancelProviderLogin: vi.fn(),
   window: { once: vi.fn() },
 }));
 
@@ -17,7 +18,7 @@ vi.mock('electron', () => ({
 
 vi.mock('../provider-login', () => ({
   answerProviderLogin: vi.fn(),
-  cancelProviderLogin: vi.fn(),
+  cancelProviderLogin: h.cancelProviderLogin,
   startProviderLogin: h.startProviderLogin,
 }));
 
@@ -52,6 +53,7 @@ function deferred(): { readonly promise: Promise<void>; readonly release: () => 
 
 beforeEach(() => {
   h.startProviderLogin.mockReset();
+  h.cancelProviderLogin.mockReset();
   h.window.once.mockReset();
 });
 
@@ -95,6 +97,27 @@ describe('provider login IPC preparation', () => {
     await expect(
       start({ loginId: 'login-failed', provider: 'openai-codex' } as never),
     ).rejects.toBe(failure);
+    expect(h.startProviderLogin).not.toHaveBeenCalled();
+  });
+
+  it('does not spawn a login that was cancelled while preparation was pending', async () => {
+    const preparation = deferred();
+    const pool = {
+      prepare: vi.fn(() => preparation.promise),
+      active: () => null,
+    } as unknown as RunnerPool;
+    const handlers = register(pool);
+    const start = handlers.get('provider.login.start');
+    const cancel = handlers.get('provider.login.cancel');
+    if (!start || !cancel) throw new Error('provider login handlers were not registered');
+
+    const pending = start({ loginId: 'login-cancelled', provider: 'openai-codex' } as never);
+    await Promise.resolve();
+    await cancel({ loginId: 'login-cancelled' } as never);
+    preparation.release();
+    await pending;
+
+    expect(h.cancelProviderLogin).toHaveBeenCalledWith('login-cancelled');
     expect(h.startProviderLogin).not.toHaveBeenCalled();
   });
 });

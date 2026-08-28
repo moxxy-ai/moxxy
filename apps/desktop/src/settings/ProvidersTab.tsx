@@ -78,6 +78,7 @@ export function ProvidersTab({
   onToggle,
   onConfigure,
   onSetKey,
+  onActivate,
   onRefresh,
   search,
 }: {
@@ -88,6 +89,7 @@ export function ProvidersTab({
     patch: { baseURL?: string; defaultModel?: string },
   ) => Promise<void>;
   readonly onSetKey: (keyName: string, value: string) => Promise<void>;
+  readonly onActivate: (name: string) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly search?: React.ReactNode;
 }): JSX.Element {
@@ -184,7 +186,7 @@ export function ProvidersTab({
           provider={configuring}
           onConfigure={onConfigure}
           onSetKey={onSetKey}
-          onRefresh={onRefresh}
+          onActivate={onActivate}
           onClose={() => setConfiguring(null)}
         />
       )}
@@ -213,7 +215,7 @@ function ConfigureProviderModal({
   provider,
   onConfigure,
   onSetKey,
-  onRefresh,
+  onActivate,
   onClose,
 }: {
   readonly provider: ProviderRow;
@@ -222,7 +224,7 @@ function ConfigureProviderModal({
     patch: { baseURL?: string; defaultModel?: string },
   ) => Promise<void>;
   readonly onSetKey: (keyName: string, value: string) => Promise<void>;
-  readonly onRefresh: () => Promise<void>;
+  readonly onActivate: (name: string) => Promise<void>;
   readonly onClose: () => void;
 }): JSX.Element {
   const [key, setKey] = useState('');
@@ -268,9 +270,7 @@ function ConfigureProviderModal({
             </p>
             <OAuthSignIn
               provider={provider.name}
-              onSignedIn={() => {
-                void onRefresh();
-              }}
+              onSignedIn={() => onActivate(provider.name)}
             />
           </div>
         ) : providerNeedsNoKey(provider) ? (

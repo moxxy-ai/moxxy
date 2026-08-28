@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, TextInput } from '@moxxy/desktop-ui';
 
-type Phase = 'idle' | 'running' | 'done' | 'error';
+type Phase = 'idle' | 'preparing' | 'running' | 'activating' | 'done' | 'error';
 
 export function OAuthSignIn({
   provider,
@@ -25,7 +25,7 @@ export function OAuthSignIn({
 }: {
   readonly provider: string;
   /** Called once the login exits 0 — the caller activates the provider. */
-  readonly onSignedIn?: () => void;
+  readonly onSignedIn?: () => void | Promise<void>;
   /** Override the initial button text (defaults to `Sign in with <provider>`). */
   readonly startLabel?: string;
 }): JSX.Element {
@@ -72,8 +72,13 @@ export function OAuthSignIn({
         setPrompt(null);
         setAuthUrl(null);
         if (p.code === 0) {
-          setPhase('done');
-          onSignedInRef.current?.();
+          setPhase('activating');
+          void Promise.resolve(onSignedInRef.current?.())
+            .then(() => setPhase('done'))
+            .catch((cause: unknown) => {
+              setError(toErrorMessage(cause));
+              setPhase('error');
+            });
         } else {
           setPhase('error');
           setError(`Sign-in did not complete (exit ${p.code}).`);
@@ -97,13 +102,16 @@ export function OAuthSignIn({
   const start = async (): Promise<void> => {
     const id = crypto.randomUUID();
     loginIdRef.current = id;
-    setPhase('running');
+    setPhase('preparing');
     setError(null);
     setLog([]);
     setPrompt(null);
     setAuthUrl(null);
     try {
       await api().invoke('provider.login.start', { loginId: id, provider });
+      // A very fast child may complete before the start IPC reply crosses back
+      // to the renderer. Do not overwrite its activating/done/error phase.
+      if (loginIdRef.current === id) setPhase('running');
     } catch (e) {
       loginIdRef.current = null;
       setError(toErrorMessage(e));
@@ -171,6 +179,18 @@ export function OAuthSignIn({
           </p>
           <Button onClick={() => void start()}>Re-link {provider}</Button>
         </div>
+      )}
+
+      {phase === 'preparing' && (
+        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
+          Preparing Moxxy for first use…
+        </p>
+      )}
+
+      {phase === 'activating' && (
+        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
+          Activating {provider}…
+        </p>
       )}
 
       {(phase === 'running' || phase === 'error') && prompt && (
