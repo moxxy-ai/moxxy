@@ -56,6 +56,7 @@ export interface UseVoiceCall {
   readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
+  readonly localPiperInstallError: string | null;
   readonly lastTranscript: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
@@ -76,7 +77,18 @@ export interface UseVoiceCall {
 
 const LOCAL_PIPER = 'local-piper';
 const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
-const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 1_500, 2_000, 2_500] as const;
+const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
+  100,
+  250,
+  500,
+  1_000,
+  1_500,
+  2_000,
+  2_500,
+  3_000,
+  4_000,
+  5_000,
+] as const;
 
 interface VoicePreflightStatus {
   readonly hasTranscriber: boolean;
@@ -119,8 +131,10 @@ export function useVoiceCall({
   const [waitingSoundEnabled, setWaitingSoundEnabled] = useState(readWaitingSoundPreference);
   const [localPiperInstallRequired, setLocalPiperInstallRequired] = useState(false);
   const [localPiperInstalling, setLocalPiperInstalling] = useState(false);
+  const [localPiperInstallError, setLocalPiperInstallError] = useState<string | null>(null);
   const [turnRequestPending, setTurnRequestPending] = useState(false);
   const generationRef = useRef(0);
+  const postInstallRecoveryRef = useRef(false);
   const turnCycleRef = useRef(false);
   const turnObservedRef = useRef(false);
   const completionTargetRef = useRef<number | null>(null);
@@ -253,30 +267,51 @@ export function useVoiceCall({
     audioSuppressedTurnIdRef.current = null;
     pendingFeedbackTranscriptRef.current = null;
     bargeInTransitionRef.current = false;
+    postInstallRecoveryRef.current = false;
     setLocalPiperInstallRequired(false);
     setLocalPiperInstalling(false);
+    setLocalPiperInstallError(null);
   }, [feedback, speech.disable, voice.cancel]);
 
   const preflight = useCallback(async (
     generation: number,
     retryRunnerRestart: boolean,
   ): Promise<void> => {
-    if (!ready) {
+    const finishPostInstallRecovery = (): void => {
+      if (!retryRunnerRestart) return;
+      postInstallRecoveryRef.current = false;
+      setLocalPiperInstalling(false);
+    };
+    if (!ready && !retryRunnerRestart) {
       dispatch({ type: 'failed', reason: 'This session is still connecting.' });
       return;
     }
     try {
-      let status = await readVoicePreflightStatus(workspaceId);
-      if (retryRunnerRestart) {
-        for (const delayMs of POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS) {
-          if (status.hasTranscriber && status.activeSynthesizer === LOCAL_PIPER) break;
-          await waitForPreflightRetry(delayMs);
-          if (generation !== generationRef.current) return;
+      let status: VoicePreflightStatus | null = null;
+      let lastReadError: unknown = null;
+      const retryDelays = retryRunnerRestart
+        ? [0, ...POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS]
+        : [0];
+      for (const delayMs of retryDelays) {
+        if (delayMs > 0) await waitForPreflightRetry(delayMs);
+        if (generation !== generationRef.current) return;
+        try {
           status = await readVoicePreflightStatus(workspaceId);
+          lastReadError = null;
+          if (
+            !retryRunnerRestart
+            || (status.hasTranscriber && status.activeSynthesizer === LOCAL_PIPER)
+          ) break;
+        } catch (error) {
+          lastReadError = error;
+          if (!retryRunnerRestart) throw error;
         }
       }
       if (generation !== generationRef.current) return;
+      if (!status) throw lastReadError ?? new Error('The session did not reconnect.');
       if (!status.hasTranscriber) {
+        if (retryRunnerRestart) setLocalPiperInstallRequired(false);
+        finishPostInstallRecovery();
         dispatch({ type: 'failed', reason: 'Voice transcription is unavailable.' });
         return;
       }
@@ -284,6 +319,7 @@ export function useVoiceCall({
         const installed = await api().invoke('voice.isLocalPiperInstalled');
         if (generation !== generationRef.current) return;
         setLocalPiperInstallRequired(!installed);
+        finishPostInstallRecovery();
         dispatch({
           type: 'failed',
           reason: installed
@@ -293,6 +329,8 @@ export function useVoiceCall({
         return;
       }
       setLocalPiperInstallRequired(false);
+      setLocalPiperInstallError(null);
+      finishPostInstallRecovery();
       speech.enable();
       const currentChat = chatRef.current;
       if (currentChat.sending || currentChat.activeTurnId !== null) {
@@ -307,6 +345,8 @@ export function useVoiceCall({
       }
     } catch (error) {
       if (generation !== generationRef.current) return;
+      if (retryRunnerRestart) setLocalPiperInstallRequired(false);
+      finishPostInstallRecovery();
       dispatch({ type: 'failed', reason: toErrorMessage(error) });
     }
   }, [ready, speech.enable, workspaceId]);
@@ -324,23 +364,25 @@ export function useVoiceCall({
   const installLocalPiper = useCallback((): void => {
     if (!state.active || !localPiperInstallRequired || localPiperInstalling) return;
     const generation = generationRef.current;
+    setLocalPiperInstallError(null);
     setLocalPiperInstalling(true);
     void api().invoke('voice.installLocalPiper')
       .then(() => {
         if (generation !== generationRef.current) return;
-        setLocalPiperInstalling(false);
-        begin('retry', true);
+        postInstallRecoveryRef.current = true;
+        setLocalPiperInstallRequired(false);
+        dispatch({ type: 'retry' });
+        void preflight(generation, true);
       })
       .catch((error: unknown) => {
         if (generation !== generationRef.current) return;
+        const reason = `Local Piper installation failed: ${toErrorMessage(error)}`;
         setLocalPiperInstalling(false);
         setLocalPiperInstallRequired(true);
-        dispatch({
-          type: 'failed',
-          reason: `Local Piper installation failed: ${toErrorMessage(error)}`,
-        });
+        setLocalPiperInstallError(reason);
+        dispatch({ type: 'failed', reason });
       });
-  }, [begin, localPiperInstallRequired, localPiperInstalling, state.active]);
+  }, [localPiperInstallRequired, localPiperInstalling, preflight, state.active]);
   const close = useCallback((): void => {
     releaseResources();
     setLastTranscript(null);
@@ -683,7 +725,12 @@ export function useVoiceCall({
   ]);
 
   useEffect(() => {
-    if (!state.active || ready || state.phase === 'error') return;
+    if (
+      !state.active
+      || ready
+      || state.phase === 'error'
+      || postInstallRecoveryRef.current
+    ) return;
     releaseResources();
     dispatch({
       type: 'failed',
@@ -714,6 +761,7 @@ export function useVoiceCall({
     waitingSoundEnabled,
     localPiperInstallRequired,
     localPiperInstalling,
+    localPiperInstallError,
     lastTranscript,
     inputAnalyser,
     outputAnalyser,

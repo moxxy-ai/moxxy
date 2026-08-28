@@ -35,10 +35,11 @@ export function resolveVoiceModeStatus({
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
 }): VoiceModeStatus {
+  if (localPiperInstalling) {
+    return { title: 'Installing local voice', detail: 'Downloading the offline voice package' };
+  }
   if (localPiperInstallRequired) {
-    return localPiperInstalling
-      ? { title: 'Installing local voice', detail: 'Downloading the offline voice package' }
-      : { title: 'Local voice required', detail: 'Install Local Piper once to use Voice Mode' };
+    return { title: 'Local voice required', detail: 'Install Local Piper once to use Voice Mode' };
   }
 
   const status = resolveVoicePhaseStatus(phase);

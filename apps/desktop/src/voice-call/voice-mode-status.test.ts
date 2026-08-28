@@ -26,5 +26,12 @@ describe('Voice Mode status presentation', () => {
       localPiperInstallRequired: true,
       localPiperInstalling: true,
     }).title).toBe('Installing local voice');
+
+    expect(resolveVoiceModeStatus({
+      phase: 'checking',
+      microphoneMuted: false,
+      localPiperInstallRequired: false,
+      localPiperInstalling: true,
+    }).title).toBe('Installing local voice');
   });
 });

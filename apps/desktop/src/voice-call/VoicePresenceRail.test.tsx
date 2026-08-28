@@ -23,6 +23,7 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       waitingSoundEnabled
       localPiperInstallRequired={false}
       localPiperInstalling={false}
+      localPiperInstallError={null}
       errorReason={null}
       inputAnalyser={null}
       outputAnalyser={null}
@@ -128,12 +129,33 @@ describe('VoicePresenceRail', () => {
   });
 
   it('replaces the work slot with the install prompt when Local Piper is missing', () => {
-    const { onInstallLocalPiper } = renderRail({ localPiperInstallRequired: true });
+    const { onInstallLocalPiper } = renderRail({
+      phase: 'error',
+      localPiperInstallRequired: true,
+      errorReason: 'Local Piper is not installed.',
+    });
 
+    expect(screen.getByText('Local voice required')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't install local voice")).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /install local piper/i }));
     expect(onInstallLocalPiper).toHaveBeenCalledTimes(1);
     // Ending the call stays available even when the voice cannot start.
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
+  });
+
+  it('replaces a previous error with a locked installation progress state', () => {
+    const { onInstallLocalPiper } = renderRail({
+      phase: 'error',
+      localPiperInstallRequired: true,
+      localPiperInstalling: true,
+      errorReason: 'Local Piper is not installed.',
+    });
+
+    expect(screen.getByText('Installing local voice')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't install local voice")).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Installing…' })).toBeDisabled();
+    expect(onInstallLocalPiper).not.toHaveBeenCalled();
   });
 
   it('shows a friendly install failure and keeps technical details behind an explicit action', () => {
@@ -141,6 +163,7 @@ describe('VoicePresenceRail', () => {
     const { onInstallLocalPiper, onRetry } = renderRail({
       phase: 'error',
       localPiperInstallRequired: true,
+      localPiperInstallError: technicalError,
       errorReason: technicalError,
     });
 
