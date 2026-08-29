@@ -59,6 +59,64 @@ function buildSession(): Session {
 }
 
 describe('runTurn turnId filtering', () => {
+  it('prepares dynamic provider metadata before the mode receives its context', async () => {
+    const fallbackModels = [{
+      id: 'fallback',
+      contextWindow: 8_192,
+      supportsTools: true,
+      supportsStreaming: true,
+    }];
+    const clientModels = [...fallbackModels];
+    let prepared = 0;
+    const client = {
+      name: 'local',
+      models: clientModels,
+      prepareModel: async (model: string) => {
+        prepared += 1;
+        clientModels.splice(0, clientModels.length, {
+          id: model,
+          contextWindow: 4_096,
+          supportsTools: true,
+          supportsStreaming: true,
+        });
+      },
+      stream: async function* () {},
+      countTokens: async () => 0,
+    };
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'prepared-provider-test',
+      version: '0.0.0',
+      providers: [defineProvider({
+        name: 'local',
+        models: fallbackModels,
+        createClient: () => client,
+      })],
+      modes: [defineMode({
+        name: 'context-window-echo',
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          const descriptor = ctx.provider.models.find((candidate) => candidate.id === ctx.model);
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: String(descriptor?.contextWindow),
+          });
+        },
+      })],
+    }));
+    session.providers.setActive('local');
+    session.modes.setActive('context-window-echo');
+
+    const events = await collectTurn(session, 'measure', { model: 'bielik' });
+
+    expect(prepared).toBe(1);
+    expect(events.find((event) => event.type === 'assistant_message')).toMatchObject({
+      text: '4096',
+    });
+  });
+
   it('continues the last resolved session model when no model override is supplied', async () => {
     const models = [{ id: 'noop-default' }, { id: 'noop-sticky' }];
     const session = new Session({ cwd: '/tmp', silent: true });

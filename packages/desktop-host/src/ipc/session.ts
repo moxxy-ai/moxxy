@@ -53,7 +53,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
 
   handle('session.info', async (args) => {
     const session = await waitForRemoteSession(pool, args?.workspaceId);
-    return session ? session.getInfo() : null;
+    if (!session) return null;
+    const { mergeDiscoveredLocalModels } = await import('../provider-discovery.js');
+    return mergeDiscoveredLocalModels(session.getInfo());
   });
   handle('session.runTurn', async ({
     workspaceId,

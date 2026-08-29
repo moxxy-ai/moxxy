@@ -18,14 +18,16 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
+import type { ModelDescriptor, SessionInfo } from '@moxxy/sdk';
 import { moxxyHome } from '@moxxy/sdk/server';
-import { discoverLocalModels } from '@moxxy/plugin-provider-local';
+import { discoverLocalModelDescriptors } from '@moxxy/plugin-provider-local';
 import { openAICompatModelsURL } from '@moxxy/plugin-provider-openai';
 import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
 /** Bound the live `/v1/models` request so a hung provider can't wedge the
  *  IPC handler (and the Settings model picker) indefinitely. */
 const MODELS_FETCH_TIMEOUT_MS = 15_000;
+let discoveredLocalModels: ReadonlyArray<ModelDescriptor> = [];
 
 /**
  * The vault API key is about to ride on this baseURL's request — only attach it
@@ -249,10 +251,12 @@ export async function fetchProviderModels(
   if (providerName === 'local') {
     const { config } = await readProviderItem(providerName);
     const baseURL = typeof config['baseURL'] === 'string' ? config['baseURL'] : undefined;
-    return discoverLocalModels(
+    const descriptors = await discoverLocalModelDescriptors(
       baseURL ? { baseURL } : {},
       options.signal ? { signal: options.signal } : {},
     );
+    discoveredLocalModels = descriptors;
+    return descriptors.map((descriptor) => descriptor.id);
   }
   const stored = await readStoredProviders();
   const entry = stored.providers.find((p) => p.name === providerName);
@@ -286,6 +290,19 @@ export async function fetchProviderModels(
   return ids.sort();
 }
 
+/** Overlay the desktop's last validated Ollama catalog onto runner metadata. */
+export function mergeDiscoveredLocalModels(info: SessionInfo): SessionInfo {
+  if (discoveredLocalModels.length === 0) return info;
+  return {
+    ...info,
+    providers: info.providers.map((provider) => (
+      provider.name === 'local'
+        ? { ...provider, models: discoveredLocalModels }
+        : provider
+    )),
+  };
+}
+
 export function requireAvailableLocalModel(
   configuredModel: string | null,
   availableModels: ReadonlyArray<string>,
@@ -310,8 +327,9 @@ export async function resolveLocalModelForTurn(): Promise<string> {
   const baseURL = typeof item.config['baseURL'] === 'string'
     ? item.config['baseURL']
     : undefined;
-  const models = await discoverLocalModels(baseURL ? { baseURL } : {});
-  return requireAvailableLocalModel(item.model, models);
+  const descriptors = await discoverLocalModelDescriptors(baseURL ? { baseURL } : {});
+  discoveredLocalModels = descriptors;
+  return requireAvailableLocalModel(item.model, descriptors.map((descriptor) => descriptor.id));
 }
 
 /** Reachability probe used by Settings; a model list may legitimately be empty. */

@@ -104,6 +104,36 @@ describe('useContextUsage summary arithmetic', () => {
 });
 
 describe('useContextUsage context window resolution', () => {
+  it('refreshes the window when the runner publishes prepared Ollama metadata', async () => {
+    const id = ws();
+    chatStore.setModel(id, 'bielik');
+    let current = info(
+      [{ name: 'local', models: [{ id: 'bielik', contextWindow: 8_192 }] }],
+      'local',
+    );
+    let changed: ((payload: { workspaceId: string }) => void) | undefined;
+    __setApiOverride({
+      invoke: (async (cmd: string) => {
+        if (cmd === 'session.info') return current;
+        throw new Error(`unexpected ${cmd}`);
+      }) as unknown as MoxxyApi['invoke'],
+      subscribe: ((channel: string, handler: (payload: { workspaceId: string }) => void) => {
+        if (channel === 'session.info.changed') changed = handler;
+        return () => {};
+      }) as unknown as MoxxyApi['subscribe'],
+    });
+    const { result } = renderHook(() => useContextUsage(id));
+    await waitFor(() => expect(result.current.contextWindow).toBe(8_192));
+
+    current = info(
+      [{ name: 'local', models: [{ id: 'bielik', contextWindow: 4_096 }] }],
+      'local',
+    );
+    changed?.({ workspaceId: id });
+
+    await waitFor(() => expect(result.current.contextWindow).toBe(4_096));
+  });
+
   it('resolves the active provider + model contextWindow', async () => {
     const id = ws();
     chatStore.setModel(id, 'big');

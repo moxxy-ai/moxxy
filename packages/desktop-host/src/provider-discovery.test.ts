@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import os from 'node:os';
+import type { SessionInfo } from '@moxxy/sdk';
 
 // Both readStoredProviders and the vault shell-out resolve under homedir().
 // Point homedir() at a throwaway dir so the parse paths read our fixtures.
@@ -19,6 +20,7 @@ import {
   readAdminProviderNames,
   readAdminProviderDetails,
   fetchProviderModels,
+  mergeDiscoveredLocalModels,
   requireAvailableLocalModel,
 } from './provider-discovery';
 
@@ -184,10 +186,32 @@ describe('readAdminProviderDetails', () => {
 });
 
 describe('fetchProviderModels', () => {
-  it('discovers exact model ids from the built-in local provider', async () => {
+  it('discovers exact model ids and caches Ollama runtime context for session.info', async () => {
     const requests: string[] = [];
     const server = createServer((request, response) => {
       requests.push(request.url ?? '');
+      if (request.url === '/api/ps') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          models: [{
+            name: 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+            context_length: 4_096,
+          }],
+        }));
+        return;
+      }
+      if (request.url === '/api/show') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          model_info: {
+            'general.architecture': 'llama',
+            'llama.context_length': 32_768,
+          },
+          parameters: '',
+          capabilities: ['completion', 'tools'],
+        }));
+        return;
+      }
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({
         data: [
@@ -205,7 +229,26 @@ describe('fetchProviderModels', () => {
         'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
         'glm-5:cloud',
       ]);
-      expect(requests).toEqual(['/v1/models']);
+      const info = {
+        activeProvider: 'local',
+        providers: [{
+          name: 'local',
+          models: [{
+            id: 'llama3.3',
+            contextWindow: 8_192,
+            supportsTools: true,
+            supportsStreaming: true,
+          }],
+        }],
+      } as unknown as SessionInfo;
+      expect(mergeDiscoveredLocalModels(info).providers[0]?.models).toContainEqual(
+        expect.objectContaining({
+          id: 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+          contextWindow: 4_096,
+        }),
+      );
+      expect(requests).toContain('/v1/models');
+      expect(requests).toContain('/api/ps');
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {

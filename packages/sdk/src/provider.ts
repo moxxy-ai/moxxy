@@ -160,6 +160,16 @@ export interface ModelDescriptor {
 export interface LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /**
+   * Optional provider-owned metadata preparation for a dynamically selected
+   * model. The runtime awaits it before it calculates context budgets, so a
+   * provider whose catalog is discovered at runtime can publish the exact
+   * descriptor without trusting a client-supplied context-window value.
+   */
+  prepareModel?(
+    model: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<void>;
   stream(req: ProviderRequest): AsyncIterable<ProviderEvent>;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }

@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { discoverLocalModels } from './index.js';
+import { discoverLocalModelDescriptors, discoverLocalModels } from './index.js';
 
 interface TestServer {
   readonly baseURL: string;
@@ -146,5 +146,110 @@ describe('discoverLocalModels', () => {
 
   it('rejects non-http schemes before making a request', async () => {
     await expect(discoverLocalModels({ baseURL: 'file:///tmp/models' })).rejects.toThrow(/http/i);
+  });
+});
+
+describe('discoverLocalModelDescriptors (Ollama only)', () => {
+  it('uses Ollama runtime allocation instead of the larger model maximum', async () => {
+    const model = 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0';
+    const server = await startServer((request, response) => {
+      if (request.url === '/v1/models') {
+        json(response, { data: [{ id: model }] });
+        return;
+      }
+      if (request.url === '/api/ps') {
+        json(response, { models: [{ name: model, model, context_length: 4_096 }] });
+        return;
+      }
+      if (request.url === '/api/show') {
+        json(response, {
+          model_info: {
+            'general.architecture': 'llama',
+            'llama.context_length': 32_768,
+          },
+          parameters: '',
+          capabilities: ['completion', 'tools'],
+        });
+        return;
+      }
+      json(response, { error: 'not found' }, 404);
+    });
+    try {
+      await expect(
+        discoverLocalModelDescriptors({ baseURL: `${server.baseURL}/v1` }),
+      ).resolves.toEqual([
+        {
+          id: model,
+          contextWindow: 4_096,
+          supportsStreaming: true,
+          supportsTools: true,
+        },
+      ]);
+      expect(server.requests).toEqual(['/v1/models', '/api/ps', '/api/show']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps the existing generic-local fallback when the server is not Ollama', async () => {
+    const server = await startServer((request, response) => {
+      if (request.url === '/v1/models') {
+        json(response, { data: [{ id: 'lm-studio-model' }] });
+        return;
+      }
+      json(response, { error: 'not an Ollama endpoint' }, 404);
+    });
+    try {
+      await expect(
+        discoverLocalModelDescriptors({ baseURL: `${server.baseURL}/v1` }),
+      ).resolves.toEqual([
+        {
+          id: 'lm-studio-model',
+          contextWindow: 8_192,
+          supportsStreaming: true,
+          supportsTools: true,
+        },
+      ]);
+      expect(server.requests).toEqual(['/v1/models', '/api/ps']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('uses an explicit Ollama num_ctx for an unloaded model and never exceeds its maximum', async () => {
+    const server = await startServer((request, response) => {
+      if (request.url === '/v1/models') {
+        json(response, { data: [{ id: 'configured-model' }] });
+        return;
+      }
+      if (request.url === '/api/ps') {
+        json(response, { models: [] });
+        return;
+      }
+      if (request.url === '/api/show') {
+        json(response, {
+          model_info: {
+            'general.architecture': 'llama',
+            'llama.context_length': 8_192,
+          },
+          parameters: 'temperature 0.1\nnum_ctx 12288',
+          capabilities: ['completion'],
+        });
+        return;
+      }
+      json(response, { error: 'not found' }, 404);
+    });
+    try {
+      const [descriptor] = await discoverLocalModelDescriptors({
+        baseURL: `${server.baseURL}/v1`,
+      });
+      expect(descriptor).toMatchObject({
+        id: 'configured-model',
+        contextWindow: 8_192,
+        supportsTools: false,
+      });
+    } finally {
+      await server.close();
+    }
   });
 });
