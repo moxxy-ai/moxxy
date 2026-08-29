@@ -77,6 +77,7 @@ export interface UseVoiceCall {
 
 const LOCAL_PIPER = 'local-piper';
 const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
+const POST_INSTALL_RELOAD_POLL_MS = 500;
 const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
   100,
   250,
@@ -85,10 +86,11 @@ const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
   1_500,
   2_000,
   2_500,
-  3_000,
-  4_000,
-  5_000,
-] as const;
+  // RunnerSupervisor permits a 20 s socket bind attempt followed by a 2 s
+  // reconnect backoff. Keep Voice Mode alive across two legitimate attempts,
+  // while polling no less responsively than every three seconds.
+  ...Array.from({ length: 15 }, () => 3_000),
+] as ReadonlyArray<number>;
 
 interface VoicePreflightStatus {
   readonly hasTranscriber: boolean;
@@ -152,6 +154,8 @@ export function useVoiceCall({
   const bargeInTransitionRef = useRef(false);
   const chatRef = useRef(chat);
   chatRef.current = chat;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
 
   const feedbackRef = useRef<VoiceFeedbackScheduler | null>(null);
   const speech = useStreamingVoiceMode(workspaceId, {
@@ -282,7 +286,7 @@ export function useVoiceCall({
       postInstallRecoveryRef.current = false;
       setLocalPiperInstalling(false);
     };
-    if (!ready && !retryRunnerRestart) {
+    if (!readyRef.current && !retryRunnerRestart) {
       dispatch({ type: 'failed', reason: 'This session is still connecting.' });
       return;
     }
@@ -292,9 +296,20 @@ export function useVoiceCall({
       const retryDelays = retryRunnerRestart
         ? [0, ...POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS]
         : [0];
-      for (const delayMs of retryDelays) {
+      let retryIndex = 0;
+      while (retryIndex < retryDelays.length) {
+        if (retryRunnerRestart && !readyRef.current) {
+          status = null;
+          lastReadError = null;
+          retryIndex = 0;
+          await waitForPreflightRetry(POST_INSTALL_RELOAD_POLL_MS);
+          if (generation !== generationRef.current) return;
+          continue;
+        }
+        const delayMs = retryDelays[retryIndex] ?? 0;
         if (delayMs > 0) await waitForPreflightRetry(delayMs);
         if (generation !== generationRef.current) return;
+        if (retryRunnerRestart && !readyRef.current) continue;
         try {
           status = await readVoicePreflightStatus(workspaceId);
           lastReadError = null;
@@ -306,6 +321,13 @@ export function useVoiceCall({
           lastReadError = error;
           if (!retryRunnerRestart) throw error;
         }
+        if (retryRunnerRestart && !readyRef.current) {
+          status = null;
+          lastReadError = null;
+          retryIndex = 0;
+          continue;
+        }
+        retryIndex += 1;
       }
       if (generation !== generationRef.current) return;
       if (!status) throw lastReadError ?? new Error('The session did not reconnect.');
@@ -349,7 +371,7 @@ export function useVoiceCall({
       finishPostInstallRecovery();
       dispatch({ type: 'failed', reason: toErrorMessage(error) });
     }
-  }, [ready, speech.enable, workspaceId]);
+  }, [speech.enable, workspaceId]);
 
   const begin = useCallback((kind: 'open' | 'retry', retryRunnerRestart = false): void => {
     releaseResources();
