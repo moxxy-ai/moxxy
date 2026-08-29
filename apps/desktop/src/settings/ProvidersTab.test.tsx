@@ -155,6 +155,40 @@ describe('ProvidersTab', () => {
     expect(screen.queryByText(/only the key is configurable/i)).toBeNull();
   });
 
+  it('distinguishes a configured local provider from a reachable Ollama server', () => {
+    const disconnected = {
+      name: 'local',
+      ready: true,
+      connected: false,
+      enabled: true,
+      active: true,
+      authKind: 'api-key',
+      kind: 'builtin',
+      keyName: 'LOCAL_API_KEY',
+    } as ProviderEntry & { connected: boolean };
+    const view = renderTab({ providers: [disconnected] });
+    expect(screen.getByText(/configured · ollama is not reachable/i)).toBeTruthy();
+    expect(screen.getByText('Unavailable')).toBeTruthy();
+
+    view.onToggle.mockClear();
+  });
+
+  it('reports Connected only when the local model server answers', () => {
+    const connected = {
+      name: 'local',
+      ready: true,
+      connected: true,
+      enabled: true,
+      active: true,
+      authKind: 'api-key',
+      kind: 'builtin',
+      keyName: 'LOCAL_API_KEY',
+    } as ProviderEntry & { connected: boolean };
+    renderTab({ providers: [connected] });
+    expect(screen.getByText(/connected · ollama is available/i)).toBeTruthy();
+    expect(screen.getByText('Connected')).toBeTruthy();
+  });
+
   it('offers a real sign-in (not a key form) for OAuth providers', () => {
     // The OAuthSignIn flow subscribes to provider.login.* on mount, so the
     // configure sheet needs a transport even though the buttons aren't clicked.

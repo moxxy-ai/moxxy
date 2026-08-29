@@ -1,5 +1,5 @@
 /**
- * Live model discovery for admin-registered providers.
+ * Live model discovery for providers that advertise a runtime catalog.
  *
  * The runner exposes `SessionInfo.providers[*].models` but those lists
  * are whatever the user put in `~/.moxxy/providers.json` — typically
@@ -19,6 +19,8 @@ import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
 import { moxxyHome } from '@moxxy/sdk/server';
+import { discoverLocalModels } from '@moxxy/plugin-provider-local';
+import { openAICompatModelsURL } from '@moxxy/plugin-provider-openai';
 import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
 /** Bound the live `/v1/models` request so a hung provider can't wedge the
@@ -60,6 +62,33 @@ interface StoredProvider {
 
 interface StoredProvidersConfig {
   readonly providers: ReadonlyArray<StoredProvider>;
+}
+
+interface ProviderItem {
+  readonly model: string | null;
+  readonly config: Record<string, unknown>;
+}
+
+async function readProviderItem(
+  providerName: string,
+): Promise<ProviderItem> {
+  try {
+    const body = await readFile(path.join(moxxyHome(), 'config.yaml'), 'utf8');
+    const cfg = parseYaml(body) as {
+      plugins?: {
+        provider?: {
+          items?: Record<string, { model?: unknown; config?: Record<string, unknown> }>;
+        };
+      };
+    } | null;
+    const item = cfg?.plugins?.provider?.items?.[providerName];
+    return {
+      model: typeof item?.model === 'string' ? item.model : null,
+      config: item?.config ?? {},
+    };
+  } catch {
+    return { model: null, config: {} };
+  }
 }
 
 /**
@@ -209,14 +238,22 @@ function envVarFor(provider: StoredProvider): string {
  * OpenAI-compatible API (OpenAI, OpenRouter, Together, zai, etc.).
  * Returns ids sorted alphabetically.
  *
- * Built-in providers (anthropic, openai, openai-codex) ship their
- * own hard-coded model list with the moxxy CLI build and don't need
- * live discovery — we return an empty array and let the picker fall
- * back to whatever the runner advertises, rather than throwing.
+ * The built-in local provider owns its unauthenticated discovery behavior;
+ * admin-registered providers use their stored endpoint and vault credential.
+ * Other built-ins keep their runner-advertised catalog and return no additions.
  */
 export async function fetchProviderModels(
   providerName: string,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<ReadonlyArray<string>> {
+  if (providerName === 'local') {
+    const { config } = await readProviderItem(providerName);
+    const baseURL = typeof config['baseURL'] === 'string' ? config['baseURL'] : undefined;
+    return discoverLocalModels(
+      baseURL ? { baseURL } : {},
+      options.signal ? { signal: options.signal } : {},
+    );
+  }
   const stored = await readStoredProviders();
   const entry = stored.providers.find((p) => p.name === providerName);
   if (!entry) {
@@ -231,13 +268,13 @@ export async function fetchProviderModels(
   // baseURL can't even trigger the vault read.
   assertSafeProviderBase(base);
   const apiKey = await vaultGet(envVarFor(entry));
-  const url = `${base}/v1/models`;
+  const url = openAICompatModelsURL(base);
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
       Accept: 'application/json',
     },
-    signal: AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
+    signal: options.signal ?? AbortSignal.timeout(MODELS_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
@@ -247,4 +284,42 @@ export async function fetchProviderModels(
     .map((m) => m.id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
   return ids.sort();
+}
+
+export function requireAvailableLocalModel(
+  configuredModel: string | null,
+  availableModels: ReadonlyArray<string>,
+): string {
+  if (!configuredModel) {
+    throw new Error(
+      'Choose an available local model before sending a message. Open Model & usage and select one from Ollama.',
+    );
+  }
+  if (!availableModels.includes(configuredModel)) {
+    throw new Error(
+      `Configured local model "${configuredModel}" is not available from Ollama. ` +
+        'Open Model & usage and choose one of the currently available models.',
+    );
+  }
+  return configuredModel;
+}
+
+/** Resolve a safe local default only when the configured id is currently live. */
+export async function resolveLocalModelForTurn(): Promise<string> {
+  const item = await readProviderItem('local');
+  const baseURL = typeof item.config['baseURL'] === 'string'
+    ? item.config['baseURL']
+    : undefined;
+  const models = await discoverLocalModels(baseURL ? { baseURL } : {});
+  return requireAvailableLocalModel(item.model, models);
+}
+
+/** Reachability probe used by Settings; a model list may legitimately be empty. */
+export async function isProviderModelServerConnected(providerName: string): Promise<boolean> {
+  try {
+    await fetchProviderModels(providerName, { signal: AbortSignal.timeout(2_000) });
+    return true;
+  } catch {
+    return false;
+  }
 }

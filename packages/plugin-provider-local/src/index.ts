@@ -1,8 +1,16 @@
-import { definePlugin, MoxxyError, type ModelDescriptor } from '@moxxy/sdk';
+import {
+  classifyHttpStatus,
+  classifyNetworkError,
+  definePlugin,
+  MoxxyError,
+  type ModelDescriptor,
+} from '@moxxy/sdk';
 import {
   defineOpenAICompatProvider,
+  openAICompatModelsURL,
   type OpenAICompatConfig,
 } from '@moxxy/plugin-provider-openai';
+import { z } from 'zod';
 
 /**
  * Default endpoint: Ollama's OpenAI-compatible server. Override with the
@@ -125,6 +133,100 @@ function resolveLocalBaseURL(cfg: OpenAICompatConfig): string {
   return raw;
 }
 
+const localModelsResponseSchema = z.object({
+  data: z.array(z.object({ id: z.unknown() }).passthrough()).nullable(),
+}).passthrough();
+
+const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+
+export interface LocalModelDiscoveryOptions {
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Read the model catalog exposed by Ollama or another OpenAI-compatible local
+ * server. IDs are returned byte-for-byte as advertised because tags, owner
+ * prefixes and `:cloud` suffixes are part of the model's public identifier.
+ */
+export async function discoverLocalModels(
+  config: OpenAICompatConfig = {},
+  options: LocalModelDiscoveryOptions = {},
+): Promise<ReadonlyArray<string>> {
+  const baseURL = resolveLocalBaseURL(config);
+  const modelsURL = openAICompatModelsURL(baseURL);
+  const signal = options.signal ?? AbortSignal.timeout(MODEL_DISCOVERY_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(modelsURL, {
+      headers: { accept: 'application/json' },
+      signal,
+    });
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'TimeoutError') {
+      throw new MoxxyError({
+        code: 'NETWORK_TIMEOUT',
+        message: `Local model discovery timed out at ${new URL(modelsURL).host}.`,
+        hint: 'Make sure Ollama is running, then try refreshing the model list.',
+        context: { provider: 'local', url: modelsURL },
+        cause,
+      });
+    }
+    const classified = classifyNetworkError(cause, { provider: 'local', url: modelsURL });
+    if (classified) throw classified;
+    throw MoxxyError.wrap(cause, {
+      code: 'NETWORK_UNREACHABLE',
+      message: `Could not reach the local model server at ${new URL(modelsURL).host}.`,
+      hint: 'Make sure Ollama is running, then try refreshing the model list.',
+      context: { provider: 'local', url: modelsURL },
+    });
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    const classified = classifyHttpStatus(response.status, {
+      provider: 'local',
+      url: modelsURL,
+      body,
+    });
+    if (classified) throw classified;
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: `Local model server returned HTTP ${response.status}.`,
+      context: { provider: 'local', url: modelsURL, status: response.status },
+    });
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (cause) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'Local model server returned invalid JSON from /v1/models.',
+      hint: 'Check that LOCAL_MODEL_BASE_URL points to an OpenAI-compatible endpoint.',
+      context: { provider: 'local', url: modelsURL },
+      cause,
+    });
+  }
+
+  const parsed = localModelsResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'Local model server returned an invalid /v1/models response.',
+      hint: 'Check that LOCAL_MODEL_BASE_URL points to an OpenAI-compatible endpoint.',
+      context: { provider: 'local', url: modelsURL },
+      cause: parsed.error,
+    });
+  }
+
+  const ids = (parsed.data.data ?? [])
+    .map((model) => model.id)
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  return [...new Set(ids)].sort();
+}
+
 /**
  * Local models via any OpenAI-compatible server (Ollama, LM Studio, llama.cpp,
  * vLLM). Reuses the shared {@link defineOpenAICompatProvider} pointed at a
@@ -144,6 +246,7 @@ export const localProviderDef = defineOpenAICompatProvider({
   baseURL: DEFAULT_LOCAL_BASE_URL,
   defaultModel: LOCAL_DEFAULT_MODEL,
   models: localModels,
+  supportsLiveModelDiscovery: true,
   validate: false,
   resolveApiKey: (cfg) => cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
   resolveBaseURL: resolveLocalBaseURL,

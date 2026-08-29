@@ -995,6 +995,12 @@ importers:
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
+      '@moxxy/plugin-provider-local':
+        specifier: workspace:*
+        version: link:../plugin-provider-local
+      '@moxxy/plugin-provider-openai':
+        specifier: workspace:*
+        version: link:../plugin-provider-openai
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler
@@ -2255,6 +2261,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2271,9 +2280,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
-      zod:
-        specifier: 'catalog:'
-        version: 3.25.76
 
   packages/plugin-provider-openai:
     dependencies:

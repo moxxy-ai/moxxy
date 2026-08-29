@@ -82,7 +82,13 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       safe = authorized;
     }
     if (model !== undefined) setSessionModel(id, model);
-    const selectedModel = model ?? getSessionModel(id) ?? undefined;
+    let selectedModel = model ?? getSessionModel(id) ?? undefined;
+    const activeProvider = supervisor.remote()?.getInfo().activeProvider ?? null;
+    if (activeProvider === 'local' && selectedModel === undefined) {
+      const { resolveLocalModelForTurn } = await import('../provider-discovery.js');
+      selectedModel = await resolveLocalModelForTurn();
+      setSessionModel(id, selectedModel);
+    }
     return driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility);
   });
   handle('session.activeTurn', async (args) => ({

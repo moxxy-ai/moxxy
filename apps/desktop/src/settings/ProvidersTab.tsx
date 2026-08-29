@@ -143,7 +143,11 @@ export function ProvidersTab({
                 trailing={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                     {p.active && <Badge>Active</Badge>}
-                    <StatusDot ok={p.ready} okLabel="Ready" offLabel="Inactive" />
+                    <StatusDot
+                      ok={providerNeedsNoKey(p) ? p.connected === true : p.ready}
+                      okLabel={providerNeedsNoKey(p) ? 'Connected' : 'Ready'}
+                      offLabel={providerNeedsNoKey(p) ? 'Unavailable' : 'Inactive'}
+                    />
                     <IconButton
                       aria-label={`Configure ${p.name}`}
                       onClick={() => setConfiguring(p)}
@@ -196,8 +200,12 @@ export function ProvidersTab({
 
 function subtitleFor(p: ProviderRow): string {
   if (!p.enabled) return 'Disabled · excluded from activation';
+  if (providerNeedsNoKey(p)) {
+    if (p.connected === true) return 'Connected · Ollama is available';
+    if (p.ready) return 'Configured · Ollama is not reachable';
+    return 'Inactive · start a local server to connect';
+  }
   if (p.ready) return 'Active · credentials resolved';
-  if (providerNeedsNoKey(p)) return 'Inactive · start a local server to connect';
   return p.authKind === 'oauth'
     ? 'Inactive · sign in to connect'
     : 'Inactive · add a key to use';

@@ -31,6 +31,7 @@ const PROVIDER_DEF_BUILDERS: Record<StoredProvider['kind'], ProviderDefBuilder> 
       baseURL: entry.baseURL,
       defaultModel: entry.defaultModel,
       models: entry.models,
+      supportsLiveModelDiscovery: true,
     }),
 };
 

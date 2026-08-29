@@ -317,6 +317,12 @@ export interface ProviderOAuthStatus {
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /**
+   * True when the provider can return its current model catalog at runtime.
+   * Hosts use this capability signal to offer live discovery instead of
+   * presenting the provider's build-time fallback catalog as authoritative.
+   */
+  readonly supportsLiveModelDiscovery?: boolean;
   createClient(config: Record<string, unknown>): LLMProvider;
   /**
    * Optional provider-owned credential/config resolver. Hosts call this before

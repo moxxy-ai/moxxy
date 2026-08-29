@@ -15,6 +15,22 @@ export interface OpenAICompatConfig {
   readonly defaultModel?: string;
 }
 
+/** Compose the standard model-catalog endpoint without duplicating `/v1`. */
+export function openAICompatModelsURL(baseURL: string): string {
+  const url = new URL(baseURL);
+  url.search = '';
+  url.hash = '';
+  const path = url.pathname.replace(/\/+$/, '');
+  if (path.endsWith('/v1/models')) {
+    url.pathname = path;
+  } else if (path.endsWith('/v1')) {
+    url.pathname = `${path}/models`;
+  } else {
+    url.pathname = `${path}/v1/models`;
+  }
+  return url.toString();
+}
+
 /**
  * Narrow the registry's untyped config down to the handful of optional string
  * fields an OpenAI-compatible vendor forwards (`apiKey`/`baseURL`/`defaultModel`).
@@ -44,6 +60,8 @@ export interface DefineOpenAICompatProviderSpec {
   readonly defaultModel: string;
   /** The vendor's model catalog, forced onto the client (so context-window/capability lookups hit the vendor's models). */
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /** Whether hosts may discover the current model catalog from the provider. */
+  readonly supportsLiveModelDiscovery?: boolean;
   /** Auth descriptor surfaced to the setup wizard / `moxxy login`. */
   readonly auth?: ProviderAuthDescriptor;
   /**
@@ -98,6 +116,9 @@ export function defineOpenAICompatProvider(spec: DefineOpenAICompatProviderSpec)
   return defineProvider({
     name: spec.name,
     models: [...spec.models],
+    ...(spec.supportsLiveModelDiscovery === true
+      ? { supportsLiveModelDiscovery: true }
+      : {}),
     createClient: (config) => {
       const cfg = pickOpenAICompatConfig(config);
       const apiKey = resolveApiKey(cfg);
