@@ -447,6 +447,19 @@ export class RemoteSession implements ClientSession {
   }
 
   /**
+   * Activate a provider and wait for the runner to either confirm the change
+   * or return its real error. The synchronous `providers.setActive` facade is
+   * retained for the SDK contract, but UI flows that must not claim success
+   * early use this awaited command.
+   */
+  async setActiveProvider(name: string, config?: Record<string, unknown>): Promise<void> {
+    await this.peer.request(RunnerMethod.ProviderSetActive, {
+      name,
+      ...(config ? { config } : {}),
+    });
+  }
+
+  /**
    * Page the runner's AUTHORITATIVE event history (protocol v10). Backs the
    * desktop's dual-history retirement — the renderer reads transcript history
    * from the runner instead of its own NDJSON chat store. Newest-first paging:

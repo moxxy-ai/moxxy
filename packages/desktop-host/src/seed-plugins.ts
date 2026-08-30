@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
+import { z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
@@ -44,6 +45,15 @@ const NO_REPAIR: SeedManifestRepairResult = { replaced: [], removed: [] };
 const MOXXY_PACKAGE_NAME = /^@moxxy\/[a-z0-9][a-z0-9._-]*$/i;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 const TRANSIENT_SEED_TARBALL = /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i;
+const packageLockSchema = z.object({
+  name: z.string().optional(),
+  version: z.string().optional(),
+  lockfileVersion: z.number().int().positive(),
+  packages: z.record(z.string(), z.unknown()),
+}).passthrough();
+const packageLockRootSchema = z.object({
+  dependencies: z.record(z.string(), z.string()).optional(),
+}).passthrough();
 let manifestMutationTail: Promise<void> = Promise.resolve();
 
 export async function seedPluginsFromResources(
@@ -127,7 +137,55 @@ async function mergeManifest(seedDir: string, targetDir: string): Promise<void> 
       ...targetDeps.dependencies,
     };
     await writeFileAtomic(targetPath, `${JSON.stringify(targetPkg, null, 2)}\n`);
+    await initializePackageLock(seedDir, targetDir, targetPkg);
   });
+}
+
+/**
+ * Preserve npm's resolved graph for the copied seed tree. Without its root
+ * lockfile, a later optional-plugin install resolves every seeded dependency
+ * again. On a clean Windows host that reaches Baileys' git-based libsignal
+ * dependency and fails because Git is intentionally not a desktop prerequisite.
+ *
+ * An existing target lock belongs to the user/npm and is never overwritten.
+ * For a fresh or legacy lock-less tree, copy the packaged lock and align only
+ * its root metadata/dependency ledger with the manifest written above. The
+ * build-only `file:moxxy-seed-tars-*` locations are removed from first-party
+ * package entries because those temporary tarballs do not exist after packaging.
+ */
+async function initializePackageLock(
+  seedDir: string,
+  targetDir: string,
+  targetManifest: JsonObject,
+): Promise<void> {
+  const targetPath = path.join(targetDir, 'package-lock.json');
+  if (await exists(targetPath)) return;
+
+  const seedLock = await readJson(path.join(seedDir, 'package-lock.json'));
+  if (!seedLock) return;
+  const parsed = packageLockSchema.safeParse(seedLock);
+  if (!parsed.success) {
+    throw new Error('Bundled plugins-seed package-lock.json is malformed.');
+  }
+  const root = packageLockRootSchema.safeParse(parsed.data.packages['']);
+  if (!root.success) {
+    throw new Error('Bundled plugins-seed package-lock.json has no valid root package.');
+  }
+
+  const targetName = typeof targetManifest.name === 'string'
+    ? targetManifest.name
+    : parsed.data.name;
+  const targetVersion = typeof targetManifest.version === 'string'
+    ? targetManifest.version
+    : parsed.data.version;
+  const normalized = normalizePackageLock(parsed.data, targetManifest);
+  const lock = {
+    ...parsed.data,
+    ...(targetName ? { name: targetName } : {}),
+    ...(targetVersion ? { version: targetVersion } : {}),
+    packages: normalized.packages,
+  };
+  await writeFileAtomic(targetPath, `${JSON.stringify(lock, null, 2)}\n`);
 }
 
 /**
@@ -153,16 +211,77 @@ export async function repairSeededPluginManifest(
       dependenciesOf(pkg),
       path.join(pluginsDir, 'node_modules'),
     );
-    if (normalized.replaced.length === 0 && normalized.removed.length === 0) {
-      return NO_REPAIR;
+    if (normalized.replaced.length > 0 || normalized.removed.length > 0) {
+      pkg.dependencies = normalized.dependencies;
+      await writeFileAtomic(manifestPath, `${JSON.stringify(pkg, null, 2)}\n`);
     }
-    pkg.dependencies = normalized.dependencies;
-    await writeFileAtomic(manifestPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    await repairPackageLock(pluginsDir, pkg);
     return {
       replaced: normalized.replaced,
       removed: normalized.removed,
     };
   });
+}
+
+async function repairPackageLock(
+  pluginsDir: string,
+  targetManifest: JsonObject,
+): Promise<void> {
+  const lockPath = path.join(pluginsDir, 'package-lock.json');
+  const lock = await readJson(lockPath);
+  if (!lock) return;
+  const parsed = packageLockSchema.safeParse(lock);
+  if (!parsed.success) return;
+  const root = packageLockRootSchema.safeParse(parsed.data.packages['']);
+  if (!root.success) return;
+
+  const normalized = normalizePackageLock(parsed.data, targetManifest);
+  if (!normalized.changed) return;
+  await writeFileAtomic(
+    lockPath,
+    `${JSON.stringify({ ...parsed.data, packages: normalized.packages }, null, 2)}\n`,
+  );
+}
+
+interface NormalizedPackageLock {
+  readonly packages: Record<string, unknown>;
+  readonly changed: boolean;
+}
+
+function normalizePackageLock(
+  lock: z.infer<typeof packageLockSchema>,
+  targetManifest: JsonObject,
+): NormalizedPackageLock {
+  const packages = { ...lock.packages };
+  const root = packageLockRootSchema.parse(packages['']);
+  const targetDependencies = dependenciesOf(targetManifest);
+  let changed = !sameDependencies(root.dependencies ?? {}, targetDependencies);
+  packages[''] = { ...root, dependencies: targetDependencies };
+
+  for (const [packagePath, value] of Object.entries(packages)) {
+    if (!packagePath.startsWith('node_modules/') || !isJsonObject(value)) continue;
+    const name = packagePath.slice('node_modules/'.length);
+    if (name.includes('/node_modules/')) continue;
+    const resolved = value.resolved;
+    if (typeof resolved !== 'string' || !isGeneratedTransientSeedSpec(name, resolved)) {
+      continue;
+    }
+    const durable = { ...value };
+    delete durable.resolved;
+    delete durable.integrity;
+    packages[packagePath] = durable;
+    changed = true;
+  }
+  return { packages, changed };
+}
+
+function sameDependencies(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  return leftEntries.length === Object.keys(right).length &&
+    leftEntries.every(([name, spec]) => right[name] === spec);
 }
 
 interface NormalizedDependencies extends SeedManifestRepairResult {

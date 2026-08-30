@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@clack/prompts':
-      specifier: ^1.4.0
-      version: 1.4.0
+      specifier: 1.0.1
+      version: 1.0.1
     '@noble/ciphers':
       specifier: ^2.2.0
       version: 2.2.0
@@ -604,7 +604,7 @@ importers:
     devDependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/cache-strategy-stable-prefix':
         specifier: workspace:*
         version: link:../cache-strategy-stable-prefix
@@ -995,6 +995,12 @@ importers:
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
+      '@moxxy/plugin-provider-local':
+        specifier: workspace:*
+        version: link:../plugin-provider-local
+      '@moxxy/plugin-provider-openai':
+        specifier: workspace:*
+        version: link:../plugin-provider-openai
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler
@@ -1461,7 +1467,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -1538,7 +1544,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -1630,7 +1636,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -1673,7 +1679,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -1771,7 +1777,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -2255,6 +2261,9 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2271,9 +2280,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
-      zod:
-        specifier: 'catalog:'
-        version: 3.25.76
 
   packages/plugin-provider-openai:
     dependencies:
@@ -2593,7 +2599,7 @@ importers:
     dependencies:
       '@clack/prompts':
         specifier: 'catalog:'
-        version: 1.4.0
+        version: 1.0.1
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
@@ -3943,9 +3949,15 @@ packages:
     resolution: {integrity: sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA==}
     engines: {node: '>=18'}
 
+  '@clack/core@1.0.1':
+    resolution: {integrity: sha512-WKeyK3NOBwDOzagPR5H08rFk9D/WuN705yEbuZvKqlkmoLM2woKtXb10OO2k1NoSU4SFG947i2/SCYh+2u5e4g==}
+
   '@clack/core@1.3.1':
     resolution: {integrity: sha512-fT1qHVGAag4IEkrupZ6lRRbNCs1vS9P01KB/sG8zKgvUztbYtFBtQpjSITNwooDZ83tpsPzP0mRNs1/KVszCRA==}
     engines: {node: '>= 20.12.0'}
+
+  '@clack/prompts@1.0.1':
+    resolution: {integrity: sha512-/42G73JkuYdyWZ6m8d/CJtBrGl1Hegyc7Fy78m5Ob+jF85TOUmLR5XLce/U3LxYAw0kJ8CT5aI99RIvPHcGp/Q==}
 
   '@clack/prompts@1.4.0':
     resolution: {integrity: sha512-S0My7XPGIgpRWMDG8uRqalbgT+a6FmCUdOW+HaIOVVpUPHOb7RrpvjTjiODadKp06fsrVDJZlIzc6yCTp4AnxA==}
@@ -13345,9 +13357,20 @@ snapshots:
     dependencies:
       fontkitten: 1.0.3
 
+  '@clack/core@1.0.1':
+    dependencies:
+      picocolors: 1.1.1
+      sisteransi: 1.0.5
+
   '@clack/core@1.3.1':
     dependencies:
       fast-wrap-ansi: 0.2.0
+      sisteransi: 1.0.5
+
+  '@clack/prompts@1.0.1':
+    dependencies:
+      '@clack/core': 1.0.1
+      picocolors: 1.1.1
       sisteransi: 1.0.5
 
   '@clack/prompts@1.4.0':

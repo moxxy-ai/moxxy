@@ -17,11 +17,39 @@
  * depend on, so the two ends can never drift.
  */
 
+import { z } from 'zod';
+
 /** The byte that brackets a prompt marker. Absent from normal CLI output. */
 const NUL = '\u0000';
 
 /** Tag distinguishing a login-prompt marker from any other NUL-bracketed run. */
 const PROMPT_TAG = 'moxxy.login.prompt';
+
+/** Tag distinguishing a browser-authorization URL from normal login output. */
+const AUTH_URL_TAG = 'moxxy.login.auth_url';
+
+const LoginAuthUrlSchema = z
+  .string()
+  .max(8192)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        (url.protocol === 'http:' || url.protocol === 'https:') &&
+        url.username === '' &&
+        url.password === ''
+      );
+    } catch {
+      return false;
+    }
+  }, 'must be an http(s) URL without embedded credentials');
+
+const LoginAuthUrlMarkerSchema = z
+  .object({
+    tag: z.literal(AUTH_URL_TAG),
+    url: LoginAuthUrlSchema,
+  })
+  .strict();
 
 export interface LoginPromptRequest {
   /** The question to show the user, verbatim from `ctx.prompt`. */
@@ -33,7 +61,8 @@ export interface LoginPromptRequest {
 /** One decoded item from a login subprocess's stdout stream. */
 export type LoginStreamItem =
   | { readonly type: 'output'; readonly text: string }
-  | { readonly type: 'prompt'; readonly prompt: LoginPromptRequest };
+  | { readonly type: 'prompt'; readonly prompt: LoginPromptRequest }
+  | { readonly type: 'auth_url'; readonly url: string };
 
 /**
  * Serialize a prompt request as a NUL-bracketed marker for stdout. The
@@ -54,6 +83,28 @@ export function decodeLoginPrompt(segment: string): LoginPromptRequest | null {
     const o = JSON.parse(segment) as Record<string, unknown>;
     if (o.tag !== PROMPT_TAG || typeof o.question !== 'string') return null;
     return { question: o.question, mask: o.mask === true };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Serialize the browser authorization URL for a GUI host. Validation happens
+ * before a marker reaches stdout: a provider-controlled URL may only be a
+ * credential-free HTTP(S) URL, never a shell-adjacent custom/file scheme.
+ */
+export function encodeLoginAuthUrl(url: string): string {
+  const marker = LoginAuthUrlMarkerSchema.parse({ tag: AUTH_URL_TAG, url });
+  return NUL + JSON.stringify(marker) + NUL;
+}
+
+/** Decode and validate one inter-NUL authorization-URL marker. */
+export function decodeLoginAuthUrl(segment: string): string | null {
+  if (!segment.startsWith('{')) return null;
+  try {
+    const parsed: unknown = JSON.parse(segment);
+    const marker = LoginAuthUrlMarkerSchema.safeParse(parsed);
+    return marker.success ? marker.data.url : null;
   } catch {
     return null;
   }
@@ -84,9 +135,16 @@ export function createLoginStreamScanner(): {
         if (open > 0) out.push({ type: 'output', text: buf.slice(0, open) });
         const segment = buf.slice(open + 1, close);
         const prompt = decodeLoginPrompt(segment);
+        const authUrl = prompt ? null : decodeLoginAuthUrl(segment);
         // A NUL-bracketed run that isn't a valid marker is anomalous; surface
         // its inner text as output rather than swallowing it.
-        out.push(prompt ? { type: 'prompt', prompt } : { type: 'output', text: segment });
+        out.push(
+          prompt
+            ? { type: 'prompt', prompt }
+            : authUrl !== null
+              ? { type: 'auth_url', url: authUrl }
+              : { type: 'output', text: segment },
+        );
         buf = buf.slice(close + 1);
       }
       // Flush any plain text that precedes a still-incomplete marker (or all

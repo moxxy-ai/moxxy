@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -9,7 +8,12 @@ import {
   type CapabilitySpec,
   type ToolIsolationSpec,
 } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import {
+  moxxyPath,
+  resolveExecutableTarget,
+  spawnExecutableTarget,
+  writeFileAtomic,
+} from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 import { pinFirstPartySpec } from './pin.js';
 import { readPluginSetup } from './setup-spec.js';
@@ -551,9 +555,6 @@ function isMissingFileError(error: unknown): boolean {
   return error.code === 'ENOENT';
 }
 
-/** The npm executable, resolved per-platform (Windows ships `npm.cmd`). */
-const NPM_BIN = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
 /**
  * Flags shared by every npm invocation we make.
  *
@@ -589,11 +590,28 @@ function runNpm(
     }
     // stdout is ignored (no caller reads it) so a verbose install can't buffer
     // hundreds of MB; stderr is kept as a bounded tail for error reporting.
-    const child = spawn(NPM_BIN, [...args], {
+    let npm;
+    try {
+      npm = resolveExecutableTarget('npm');
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    if (!npm) {
+      reject(new Error('npm not found on PATH'));
+      return;
+    }
+    const child = spawnExecutableTarget(npm, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
+    const stderrStream = child.stderr;
+    if (!stderrStream) {
+      child.kill();
+      reject(new Error('npm process started without the requested stderr pipe'));
+      return;
+    }
     let stderr = '';
-    child.stderr.on('data', (d: Buffer) => {
+    stderrStream.on('data', (d: Buffer) => {
       stderr += d.toString('utf8');
       if (stderr.length > MAX_STDERR_BYTES) stderr = stderr.slice(-MAX_STDERR_BYTES);
     });

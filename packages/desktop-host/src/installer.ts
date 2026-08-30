@@ -14,6 +14,7 @@ import { chmodSync, existsSync, readFileSync, statSync } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
+import { resolveExecutableTarget, spawnExecutableTarget } from '@moxxy/sdk/server';
 import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnPath } from './cli-resolver';
 import { sendEvent } from './send-event';
 import { wsEventBus } from './event-bus';
@@ -61,11 +62,13 @@ export async function probeNode(): Promise<NodeProbe> {
 export async function installMoxxyCli(window: BrowserWindow): Promise<number> {
   const npm = findExecutable('npm', augmentedPaths());
   if (!npm) throw new Error('npm not found on PATH');
+  const npmTarget = resolveExecutableTarget(npm);
+  if (!npmTarget) throw new Error(`npm executable disappeared before launch: ${npm}`);
 
   emit(window, '$ npm install -g @moxxy/cli');
 
   return new Promise<number>((resolve, reject) => {
-    const proc = spawn(npm, ['install', '-g', '@moxxy/cli'], {
+    const proc = spawnExecutableTarget(npmTarget, ['install', '-g', '@moxxy/cli'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       // npm is itself a `#!/usr/bin/env node` shebang; a GUI-launched app
       // lacks the shell PATH, so put node's dir (= npm's dir) on PATH.
@@ -151,11 +154,13 @@ export async function updateCli(userDataDir: string, window: BrowserWindow): Pro
   const target = path.join(userDataDir, 'cli');
   const npm = findExecutable('npm', augmentedPaths());
   if (!npm) throw new Error('npm not found on PATH — install Node.js to update the CLI');
+  const npmTarget = resolveExecutableTarget(npm);
+  if (!npmTarget) throw new Error(`npm executable disappeared before launch: ${npm}`);
 
   emit(window, `$ npm install @moxxy/cli@latest --prefix ${target}`);
 
   return new Promise<number>((resolve, reject) => {
-    const proc = spawn(npm, ['install', '@moxxy/cli@latest', '--prefix', target], {
+    const proc = spawnExecutableTarget(npmTarget, ['install', '@moxxy/cli@latest', '--prefix', target], {
       stdio: ['ignore', 'pipe', 'pipe'],
       // GUI launches lack the shell PATH; npm's `#!/usr/bin/env node`
       // shebang needs node, which lives in npm's own dir.

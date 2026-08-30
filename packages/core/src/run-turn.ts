@@ -93,8 +93,6 @@ export async function* runTurn(
     // run concurrently — see the field's doc in SessionRuntime.
     session.lastResolvedModel = model;
 
-    const strategy = session.modes.getActive();
-    const previousModeName = session.modes.getPreviousActiveName();
     // Combine the session's signal, the per-turn one (if provided), and the
     // generator-scoped abandonment signal so any of them firing cancels the turn.
     const effectiveSignal = AbortSignal.any(
@@ -102,6 +100,13 @@ export async function* runTurn(
         ? [session.signal, opts.signal, turnController.signal]
         : [session.signal, turnController.signal],
     );
+    // A provider with a runtime catalog (currently the local Ollama provider)
+    // owns the trust-boundary fetch and updates its descriptor before the mode
+    // sizes compaction/elision. Clients never get to assert a context window.
+    await provider.prepareModel?.(model, { signal: effectiveSignal });
+
+    const strategy = session.modes.getActive();
+    const previousModeName = session.modes.getPreviousActiveName();
     // The session's working dir + environment, mirrored onto the ModeContext
     // so the shared tool dispatcher can hand onToolCall hooks the real cwd/env
     // (path-based policy hooks gate on these) instead of empty placeholders.

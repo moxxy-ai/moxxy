@@ -32,6 +32,8 @@
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
+    "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/plugin-provider-local": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",

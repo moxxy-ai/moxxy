@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   createLoginStreamScanner,
+  decodeLoginAuthUrl,
   decodeLoginPrompt,
+  encodeLoginAuthUrl,
   encodeLoginPrompt,
   type LoginStreamItem,
 } from './provider-login-bridge.js';
@@ -20,6 +22,35 @@ describe('encode/decode login prompt', () => {
     expect(decodeLoginPrompt('just text')).toBeNull();
     expect(decodeLoginPrompt('{"tag":"other","question":"x"}')).toBeNull();
     expect(decodeLoginPrompt('{not json')).toBeNull();
+  });
+});
+
+describe('encode/decode login auth URL', () => {
+  const authUrl =
+    'https://auth.example.test/authorize?client_id=moxxy&state=opaque&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback';
+
+  it('round-trips a credential-free http(s) URL', () => {
+    const marker = encodeLoginAuthUrl(authUrl);
+    expect(marker.startsWith('\u0000')).toBe(true);
+    expect(marker.endsWith('\u0000')).toBe(true);
+    expect(decodeLoginAuthUrl(marker.slice(1, -1))).toBe(authUrl);
+  });
+
+  it.each([
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'https://alice:secret@auth.example.test/authorize',
+  ])('rejects an unsafe URL before encoding: %s', (url) => {
+    expect(() => encodeLoginAuthUrl(url)).toThrow();
+  });
+
+  it.each([
+    '{"tag":"moxxy.login.auth_url","url":"file:///etc/passwd"}',
+    '{"tag":"moxxy.login.auth_url","url":"https://alice:secret@auth.example.test/"}',
+    '{"tag":"moxxy.login.auth_url","url":42}',
+  ])('rejects a forged unsafe marker: %s', (segment) => {
+    expect(decodeLoginAuthUrl(segment)).toBeNull();
   });
 });
 
@@ -60,6 +91,17 @@ describe('createLoginStreamScanner', () => {
     expect(scanAll([a + b])).toEqual([
       { type: 'prompt', prompt: { question: 'first', mask: false } },
       { type: 'prompt', prompt: { question: 'second', mask: true } },
+    ]);
+  });
+
+  it('reassembles an auth_url marker and keeps it distinct from plain output', () => {
+    const url = 'https://auth.example.test/authorize?state=opaque';
+    const marker = encodeLoginAuthUrl(url);
+    const mid = Math.floor(marker.length / 2);
+    expect(scanAll(['opening\n' + marker.slice(0, mid), marker.slice(mid), 'waiting\n'])).toEqual([
+      { type: 'output', text: 'opening\n' },
+      { type: 'auth_url', url },
+      { type: 'output', text: 'waiting\n' },
     ]);
   });
 

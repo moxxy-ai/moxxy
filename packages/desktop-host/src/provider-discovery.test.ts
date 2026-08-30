@@ -1,7 +1,11 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import os from 'node:os';
+import type { SessionInfo } from '@moxxy/sdk';
 
 // Both readStoredProviders and the vault shell-out resolve under homedir().
 // Point homedir() at a throwaway dir so the parse paths read our fixtures.
@@ -16,6 +20,8 @@ import {
   readAdminProviderNames,
   readAdminProviderDetails,
   fetchProviderModels,
+  mergeDiscoveredLocalModels,
+  requireAvailableLocalModel,
 } from './provider-discovery';
 
 /** Emit the unified-tree YAML (`plugins.provider.items`) the CLI's
@@ -55,6 +61,7 @@ function providersToYaml(json: unknown): string {
 }
 
 const savedMoxxyHome = process.env.MOXXY_HOME;
+const savedLocalModelBaseURL = process.env.LOCAL_MODEL_BASE_URL;
 
 beforeEach(() => {
   tmp = mkdtempSync(path.join(os.tmpdir(), 'provider-discovery-'));
@@ -65,6 +72,8 @@ beforeEach(() => {
 afterEach(() => {
   if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = savedMoxxyHome;
+  if (savedLocalModelBaseURL === undefined) delete process.env.LOCAL_MODEL_BASE_URL;
+  else process.env.LOCAL_MODEL_BASE_URL = savedLocalModelBaseURL;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -177,6 +186,77 @@ describe('readAdminProviderDetails', () => {
 });
 
 describe('fetchProviderModels', () => {
+  it('discovers exact model ids and caches Ollama runtime context for session.info', async () => {
+    const requests: string[] = [];
+    const server = createServer((request, response) => {
+      requests.push(request.url ?? '');
+      if (request.url === '/api/ps') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          models: [{
+            name: 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+            context_length: 4_096,
+          }],
+        }));
+        return;
+      }
+      if (request.url === '/api/show') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          model_info: {
+            'general.architecture': 'llama',
+            'llama.context_length': 32_768,
+          },
+          parameters: '',
+          capabilities: ['completion', 'tools'],
+        }));
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({
+        data: [
+          { id: 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0' },
+          { id: 'glm-5:cloud' },
+        ],
+      }));
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address() as AddressInfo;
+    process.env.LOCAL_MODEL_BASE_URL = `http://127.0.0.1:${address.port}/v1`;
+    try {
+      await expect(fetchProviderModels('local')).resolves.toEqual([
+        'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+        'glm-5:cloud',
+      ]);
+      const info = {
+        activeProvider: 'local',
+        providers: [{
+          name: 'local',
+          models: [{
+            id: 'llama3.3',
+            contextWindow: 8_192,
+            supportsTools: true,
+            supportsStreaming: true,
+          }],
+        }],
+      } as unknown as SessionInfo;
+      expect(mergeDiscoveredLocalModels(info).providers[0]?.models).toContainEqual(
+        expect.objectContaining({
+          id: 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+          contextWindow: 4_096,
+        }),
+      );
+      expect(requests).toContain('/v1/models');
+      expect(requests).toContain('/api/ps');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    }
+  });
+
   it('returns [] for a built-in (not in providers.json) without any network call', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     await expect(fetchProviderModels('anthropic')).resolves.toEqual([]);
@@ -215,5 +295,24 @@ describe('fetchProviderModels', () => {
     await expect(fetchProviderModels('broken')).rejects.toThrow(/invalid provider baseurl/i);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe('requireAvailableLocalModel', () => {
+  const models = [
+    'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+    'glm-5:cloud',
+  ];
+
+  it('returns the exact configured id when Ollama advertises it', () => {
+    expect(requireAvailableLocalModel(
+      'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0',
+      models,
+    )).toBe('SpeakLeash/bielik-11b-v3.0-instruct:Q8_0');
+  });
+
+  it('refuses to fall back silently when no available model is selected', () => {
+    expect(() => requireAvailableLocalModel(null, models)).toThrow(/choose.*local model/i);
+    expect(() => requireAvailableLocalModel('llama3.3', models)).toThrow(/not available/i);
   });
 });

@@ -28,6 +28,8 @@ export async function codexLogin(ctx: ProviderAuthContext): Promise<ProviderOAut
     vault: ctx.vault,
     headless: ctx.headless,
     write: ctx.write,
+    ...(ctx.noOpen ? { noOpen: true } : {}),
+    ...(ctx.onAuthUrl ? { onAuthUrl: ctx.onAuthUrl } : {}),
   });
   return result.accountId
     ? { accountId: result.accountId, expiresAt: result.tokens.expiresAt ?? 0 }

@@ -53,7 +53,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
 
   handle('session.info', async (args) => {
     const session = await waitForRemoteSession(pool, args?.workspaceId);
-    return session ? session.getInfo() : null;
+    if (!session) return null;
+    const { mergeDiscoveredLocalModels } = await import('../provider-discovery.js');
+    return mergeDiscoveredLocalModels(session.getInfo());
   });
   handle('session.runTurn', async ({
     workspaceId,
@@ -82,7 +84,13 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       safe = authorized;
     }
     if (model !== undefined) setSessionModel(id, model);
-    const selectedModel = model ?? getSessionModel(id) ?? undefined;
+    let selectedModel = model ?? getSessionModel(id) ?? undefined;
+    const activeProvider = supervisor.remote()?.getInfo().activeProvider ?? null;
+    if (activeProvider === 'local' && selectedModel === undefined) {
+      const { resolveLocalModelForTurn } = await import('../provider-discovery.js');
+      selectedModel = await resolveLocalModelForTurn();
+      setSessionModel(id, selectedModel);
+    }
     return driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility);
   });
   handle('session.activeTurn', async (args) => ({
@@ -94,7 +102,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
     const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
-    session.providers.setActive(provider);
+    await session.setActiveProvider(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
     setSessionModel(id, null, { force: true });
     // Re-emit the connection phase so the renderer sees the new activeProvider
