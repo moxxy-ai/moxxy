@@ -58,8 +58,8 @@ catalogs:
       specifier: ^8.21.0
       version: 8.21.0
     zod:
-      specifier: ^3.25.76
-      version: 3.25.76
+      specifier: ^4.4.3
+      version: 4.4.3
 
 overrides:
   '@hono/node-server': 2.1.0
@@ -223,7 +223,7 @@ importers:
         version: 4.0.1
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/client-transport-ws':
         specifier: workspace:*
@@ -333,7 +333,7 @@ importers:
         version: link:../../packages/tools-builtin
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -600,7 +600,7 @@ importers:
         version: 6.28.0
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@clack/prompts':
         specifier: 'catalog:'
@@ -889,7 +889,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -920,7 +920,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -960,7 +960,7 @@ importers:
     dependencies:
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1061,7 +1061,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1253,7 +1253,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1309,7 +1309,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/mode-default:
     dependencies:
@@ -1340,7 +1340,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/mode-goal:
     dependencies:
@@ -1349,7 +1349,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1380,7 +1380,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1507,7 +1507,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1562,7 +1562,7 @@ importers:
         version: 4.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1654,7 +1654,7 @@ importers:
         version: 1.5.4
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1700,7 +1700,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -1734,7 +1734,7 @@ importers:
         version: 8.21.0
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1798,7 +1798,7 @@ importers:
         version: 1.5.4
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/mode-default':
         specifier: workspace:*
@@ -1887,7 +1887,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -1937,7 +1937,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2009,13 +2009,13 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(zod@3.25.76)
+        version: 1.30.0(zod@4.4.3)
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2040,7 +2040,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2068,7 +2068,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2099,7 +2099,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2133,10 +2133,10 @@ importers:
         version: link:../sdk
       openai:
         specifier: ^4.80.0
-        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@3.25.76)
+        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.4.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2189,7 +2189,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-claude-code:
     dependencies:
@@ -2223,7 +2223,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-google:
     dependencies:
@@ -2251,7 +2251,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-local:
     dependencies:
@@ -2263,7 +2263,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2288,7 +2288,7 @@ importers:
         version: link:../sdk
       openai:
         specifier: ^4.80.0
-        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@3.25.76)
+        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.4.3)
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2307,7 +2307,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-openai-codex:
     dependencies:
@@ -2338,7 +2338,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-xai:
     dependencies:
@@ -2366,7 +2366,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-provider-zai:
     dependencies:
@@ -2397,7 +2397,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.18)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/plugin-scheduler:
     dependencies:
@@ -2409,7 +2409,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2434,7 +2434,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2459,7 +2459,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2568,7 +2568,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2802,7 +2802,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2831,7 +2831,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2859,7 +2859,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2893,7 +2893,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2924,7 +2924,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -2952,7 +2952,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2989,7 +2989,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/mode-default':
         specifier: workspace:*
@@ -3032,7 +3032,7 @@ importers:
         version: 3.2.7(@types/debug@4.1.13)(@types/node@26.2.0)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
 
   packages/skills-builtin:
     dependencies:
@@ -3088,7 +3088,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.4.3
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -14498,7 +14498,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 2.1.0(hono@4.13.1)
       ajv: 8.20.0
@@ -14515,8 +14515,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -20992,6 +20992,21 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
+  openai@4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.4.3):
+    dependencies:
+      '@types/node': 18.19.130
+      '@types/node-fetch': 2.6.13
+      abort-controller: 3.0.0
+      agentkeepalive: 4.6.0
+      form-data-encoder: 1.7.2
+      formdata-node: 4.4.1
+      node-fetch: 2.7.0(encoding@0.1.13)
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - encoding
+
   opencollective-postinstall@2.0.3: {}
 
   optionator@0.9.4:
@@ -23554,15 +23569,16 @@ snapshots:
 
   zlibjs@0.3.1: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
-      zod: 3.25.76
+      zod: 4.4.3
 
   zod-validation-error@4.0.2(zod@4.4.3):
     dependencies:
       zod: 4.4.3
 
-  zod@3.25.76: {}
+  zod@3.25.76:
+    optional: true
 
   zod@4.4.3: {}
 
