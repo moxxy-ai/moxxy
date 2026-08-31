@@ -42,7 +42,7 @@
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
-    "@testing-library/react": "^16.1.0",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "jsdom": "^25.0.1",

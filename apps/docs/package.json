@@ -14,12 +14,12 @@
     "clean": "rm -rf dist .astro .turbo"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.7",
-    "astro": "^7.2.0",
-    "sharp": "^0.35.3"
+    "@astrojs/starlight": "^0.41.9",
+    "astro": "^7.2.9",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.9",
+    "@astrojs/check": "^0.9.10",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }
