@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.39.0
+
+### Minor Changes
+
+- 1d983d9: Fix Windows desktop packaging, shell-free command launchers across supported Node versions, first-launch plugin readiness, optional Local Piper installation without Git with accurate progress and automatic recovery, OAuth browser handoff, reliable provider activation, and live local-model discovery with persistent exact model selection and Ollama runtime context-window accounting.
+
+### Patch Changes
+
+- Updated dependencies [1d983d9]
+  - @moxxy/sdk@0.39.0
+
 ## 0.38.0
 
 ### Minor Changes
