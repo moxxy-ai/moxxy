@@ -165,7 +165,7 @@ jobs:
         run: |
           $installer = (Get-ChildItem apps/desktop/release/moxxy-desktop-*-setup.exe | Select-Object -First 1).FullName
           if (-not $installer) { throw "Windows installer was not produced" }
-          node apps/desktop/scripts/smoke-windows-installer.mjs $installer "$env:RUNNER_TEMP\moxxy-installer-smoke"
+          pnpm exec node apps/desktop/scripts/smoke-windows-installer.mjs $installer "$env:RUNNER_TEMP\moxxy-installer-smoke" --local-packages
 
       - name: Upload Windows test installer
         if: runner.os == 'Windows'
@@ -328,7 +328,7 @@ jobs:
         run: pnpm audit:security
 
       - name: Verify the locally patched parsers
-        run: node --test scripts/image-size-patch.test.mjs
+        run: node --test scripts/image-size-patch.test.mjs scripts/decode-uri-patch.test.mjs
 
   dep-cruise-graph:
     name: Generate dependency graph
