@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
-import { access, mkdir, readdir, rm } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import net from 'node:net';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { seedPluginsFromResources } from '../../../packages/desktop-host/dist/seed-plugins.js';
 import { verifyDesktopResources } from './verify-desktop-resources.mjs';
+import { prepareLocalSmokePackages } from './local-smoke-packages.mjs';
 
 const installerPath = process.argv[2];
 const installDir = process.argv[3];
@@ -66,14 +68,38 @@ try {
     ...smokeEnv,
     PATH: path.dirname(process.execPath),
   };
+  let piperSpec = '@moxxy/plugin-tts-local';
+  let expectedPiperVersion;
+  if (process.argv.includes('--local-packages')) {
+    const sourcePiper = JSON.parse(await readFile(
+      new URL('../../../packages/plugin-tts-local/package.json', import.meta.url), 'utf8',
+    ));
+    expectedPiperVersion = sourcePiper.version;
+    const sources = await prepareLocalSmokePackages({
+      repoRoot: fileURLToPath(new URL('../../../', import.meta.url)),
+      pluginsDir: path.join(smokeHome, 'plugins'),
+      packageNames: [piperSpec],
+    });
+    piperSpec = sources[piperSpec];
+  }
   const piperInstall = run(
     runtimePath,
-    [cliBin, 'plugins', 'install', '@moxxy/plugin-tts-local'],
+    [cliBin, 'plugins', 'install', piperSpec],
     180_000,
     noGitEnv,
   );
-  if (!/installed @moxxy\/plugin-tts-local/i.test(piperInstall)) {
+  if (!piperInstall.includes(`installed ${piperSpec}`)) {
     throw new Error('Installed CLI did not report a successful Local Piper install');
+  }
+  const installedPiper = JSON.parse(await readFile(
+    path.join(smokeHome, 'plugins', 'node_modules', '@moxxy', 'plugin-tts-local', 'package.json'),
+    'utf8',
+  ));
+  if (installedPiper.name !== '@moxxy/plugin-tts-local') {
+    throw new Error('Installed CLI did not install the expected Piper package');
+  }
+  if (expectedPiperVersion && installedPiper.version !== expectedPiperVersion) {
+    throw new Error(`Expected workspace Piper ${expectedPiperVersion}, installed ${installedPiper.version}`);
   }
   run(
     runtimePath,

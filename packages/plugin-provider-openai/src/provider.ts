@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { tokenLimitParams } from './token-limit.js';
 import type {
   LLMProvider,
   ModelDescriptor,
@@ -63,6 +64,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // (Responses-API only), so the flag mainly gates the config UI + effort there;
 // OpenAI-compatible reasoning backends (DeepSeek/z.ai/local) do stream it.
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
+  // https://developers.openai.com/api/docs/models/gpt-6-astra
+  { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   // GPT-5.6 family (GA July 9, 2026): three-tier frontier class, knowledge
   // cutoff Feb 16, 2026. Sol = flagship, Terra = balanced, Luna = fast/cheap.
   // All share the 1,050,000-token window and 128k max output; pick by cost:
@@ -163,14 +166,6 @@ export class OpenAIProvider implements LLMProvider {
 
     yield { type: 'message_start', model };
 
-    // GPT-5.x (and OpenAI's reasoning models) renamed the token cap field
-    // from `max_tokens` to `max_completion_tokens` and ALSO reject the
-    // legacy name with a 400. Use the new name for any model whose id
-    // starts with gpt-5 / o1 / o3; keep the legacy name for the gpt-4
-    // family so existing callers don't regress.
-    const usesCompletionTokens = /^(?:gpt-5|o1|o3)/.test(model);
-    const tokenLimitKey = usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens';
-
     // Reasoning preview is gated by the per-provider toggle (`req.reasoning`).
     // When on, request `reasoning_effort` for OpenAI reasoning models (improves
     // depth + makes a summary available where the backend streams one) and
@@ -190,9 +185,9 @@ export class OpenAIProvider implements LLMProvider {
         ? { tools: tools as unknown as OpenAI.Chat.Completions.ChatCompletionTool[] }
         : {}),
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-      ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
+      ...tokenLimitParams(model, req.maxTokens),
       // Send `reasoning_effort` independently of the token-field heuristic.
-      // The two are unrelated concerns: `usesCompletionTokens` picks the cap
+      // The two are unrelated concerns: `tokenLimitParams` picks the cap
       // FIELD NAME for the OpenAI-hosted reasoning models, while effort applies
       // to any reasoning backend. OpenAI-compatible vendors (z.ai GLM,
       // DeepSeek-R1, vLLM, Ollama) honor reasoning_effort but their model ids

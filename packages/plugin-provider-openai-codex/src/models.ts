@@ -6,10 +6,13 @@ import type { ModelDescriptor } from '@moxxy/sdk';
  * still exposes the full catalog; this list is the subset the Codex backend
  * routes to ChatGPT-Pro/Plus subscribers without per-token billing.
  */
-// Every Codex-served model is a gpt-5-family reasoning model, so all advertise
+// The Codex catalog contains reasoning models, so all advertise
 // `supportsReasoning` — the request already sends `reasoning.summary: 'auto'`;
 // the per-provider toggle decides whether the summary is surfaced.
 export const codexModels: ReadonlyArray<ModelDescriptor> = [
+  // https://learn.chatgpt.com/docs/models — retain our conservative OAuth
+  // budget until a larger backend allocation is confirmed independently of API limits.
+  { id: 'gpt-6-astra', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   // The ChatGPT-plan Codex backend enforces a ~400k window for the gpt-5-family
   // models it serves, well below the raw API ceiling. Advertising 1M here made
   // the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate
