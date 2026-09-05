@@ -165,7 +165,9 @@ jobs:
         run: |
           $installer = (Get-ChildItem apps/desktop/release/moxxy-desktop-*-setup.exe | Select-Object -First 1).FullName
           if (-not $installer) { throw "Windows installer was not produced" }
-          pnpm exec node apps/desktop/scripts/smoke-windows-installer.mjs $installer "$env:RUNNER_TEMP\moxxy-installer-smoke" --local-packages
+          # pnpm run supplies npm_execpath; exec does not. The smoke uses it
+          # to invoke pnpm through Node without interpreting a Windows shim.
+          pnpm run smoke:windows-installer $installer "$env:RUNNER_TEMP\moxxy-installer-smoke" --local-packages
 
       - name: Upload Windows test installer
         if: runner.os == 'Windows'
