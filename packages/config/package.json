@@ -43,7 +43,7 @@
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
     "jiti": "^2.4.2",
-    "yaml": "^2.6.0",
+    "yaml": "^2.9.0",
     "zod": "catalog:"
   },
   "devDependencies": {
