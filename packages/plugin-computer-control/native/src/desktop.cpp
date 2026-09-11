@@ -19,6 +19,16 @@ bool protected_element(IUIAutomationElement* node) {
 Rect element_bounds(IUIAutomationElement* node) {
   RECT value; check_hresult(node->get_CurrentBoundingRectangle(&value)); return rect_from(value);
 }
+std::optional<ValueState> element_value(IUIAutomationElement* node) {
+  com_ptr<IUIAutomationValuePattern> pattern;
+  if (FAILED(node->GetCurrentPatternAs(UIA_ValuePatternId,IID_PPV_ARGS(pattern.put()))) || !pattern) return std::nullopt;
+  struct OwnedString { BSTR value=nullptr; ~OwnedString() { SysFreeString(value); } } text;
+  check_hresult(pattern->get_CurrentValue(&text.value));
+  auto length=SysStringLen(text.value);
+  require(length<=64000,"observation-limit","Control value exceeds observation safety limit; use the image path");
+  BOOL readonly=TRUE; check_hresult(pattern->get_CurrentIsReadOnly(&readonly));
+  return ValueState{length ? std::wstring(text.value,length) : std::wstring(), readonly!=FALSE};
+}
 }
 Rect window_bounds(HWND hwnd) {
   RECT rect;
@@ -41,7 +51,7 @@ void Desktop::acquire() {
   owns_lease = true;
   lease_active = true;
 }
-Window& Desktop::target(const Json& params) {
+Window& Desktop::target(const Json& params, bool allow_minimized) {
   auto id = text(params, L"windowId");
   auto found = windows.find(id);
   require(found != windows.end(), "stale-window", "List windows again; window reference is unknown");
@@ -53,7 +63,7 @@ Window& Desktop::target(const Json& params) {
   check_hresult(automation->ElementFromHandle(window.hwnd, current.put()));
   BOOL same = FALSE; check_hresult(automation->CompareElements(window.root.get(), current.get(), &same));
   require(same, "stale-window", "Window identity changed; list windows again");
-  require(!IsIconic(window.hwnd) && IsWindowVisible(window.hwnd), "target-unavailable", "Restore the window first");
+  require((allow_minimized || !IsIconic(window.hwnd)) && IsWindowVisible(window.hwnd), "target-unavailable", "Restore the window first");
   acquire();
   return window;
 }
@@ -74,7 +84,7 @@ JsonArray Desktop::list_windows() {
       com_ptr<IUIAutomationElement> root;
       check_hresult(automation->ElementFromHandle(hwnd, root.put()));
       auto created = creation_time(pid);
-      auto bounds = window_bounds(hwnd);
+      bool minimized=IsIconic(hwnd)!=FALSE;
       wchar_t title[2049]{}; GetWindowTextW(hwnd, title, 2049);
       wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
       auto generation = window_generation(hwnd);
@@ -89,7 +99,11 @@ JsonArray Desktop::list_windows() {
       }
       live.insert(id);
       Json entry; entry.Insert(L"windowId", string_value(id)); entry.Insert(L"pid", numeric(pid));
-      entry.Insert(L"title", string_value(title)); entry.Insert(L"bounds", rect_json(bounds));
+      entry.Insert(L"title", string_value(title));
+      entry.Insert(L"bounds",minimized ? Windows::Data::Json::IJsonValue(JsonValue::CreateNullValue()) : rect_json(window_bounds(hwnd)));
+      entry.Insert(L"state",string_value(minimized ? L"minimized" : L"normal"));
+      auto owner=GetWindow(hwnd,GW_OWNER);
+      entry.Insert(L"kind",string_value(std::wstring_view(name)==L"#32768" ? L"menu" : owner && !IsWindowEnabled(owner) ? L"modal" : L"normal"));
       entry.Insert(L"className", string_value(name));
       result.Append(entry);
     } catch (...) { /* Inaccessible/elevated/closing windows are not actionable targets. */ }
@@ -126,21 +140,16 @@ Json Desktop::observe(const Json& params, Window& window) {
       label.assign(name, std::min<size_t>(SysStringLen(name), 512)); SysFreeString(name);
     }
     if (rect.width > 0 && rect.height > 0) {
-      elements.emplace(id, Element{node, rect});
+      auto value=secret ? std::nullopt : element_value(node.get());
+      elements.emplace(id, Element{node, rect, value});
       Json entry; entry.Insert(L"elementId", string_value(id));
       entry.Insert(L"parentId", parent.empty() ? JsonValue::CreateNullValue() : string_value(parent));
       entry.Insert(L"name", string_value(label)); entry.Insert(L"controlType", numeric(control));
       entry.Insert(L"bounds", rect_json(rect)); entry.Insert(L"enabled", boolean(enabled)); entry.Insert(L"protected", boolean(secret));
-      if (!secret) {
-        com_ptr<IUIAutomationValuePattern> pattern;
-        if (SUCCEEDED(node->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(pattern.put()))) && pattern) {
-          BSTR value = nullptr;
-          if (SUCCEEDED(pattern->get_CurrentValue(&value)) && value) {
-            size_t length = std::min<size_t>(512, SysStringLen(value));
-            if (length && value[length-1]>=0xD800 && value[length-1]<=0xDBFF) --length;
-            entry.Insert(L"value", string_value(std::wstring_view(value,length))); SysFreeString(value);
-          }
-        }
+      if (value) {
+        auto length=std::min<size_t>(512,value->text.size());
+        if (length && value->text[length-1]>=0xD800 && value->text[length-1]<=0xDBFF) --length;
+        entry.Insert(L"value",string_value(std::wstring_view(value->text).substr(0,length)));
       }
       output.Append(entry);
       BOOL same = FALSE;
@@ -187,6 +196,7 @@ Element& Desktop::element(const Json& params, Window& window, bool needs_focus) 
   require(element.bounds == element_bounds(element.node.get()), "stale-element", "Element moved; observe again");
   BOOL enabled = FALSE; check_hresult(element.node->get_CurrentIsEnabled(&enabled));
   require(enabled && !protected_element(element.node.get()), "protected-element", "Element disabled or protected");
+  require(element.value==element_value(element.node.get()),"stale-element","Control value or editability changed; observe again before acting");
   return element;
 }
 Point Desktop::point(const Json& params, const Json& coordinates, Window& window) {
@@ -210,7 +220,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   }
   if (method == L"windows" || method == L"apps") { fields(params, {}); check_active_desktop(); return list_windows(); }
   // Validate shape before acquiring a lease or executing any native operation.
-  if (method == L"focus") fields(params, {L"windowId"});
+  if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
   else if (method == L"observe") fields(params, {L"windowId", L"maxNodes"});
   else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});
   else if (method == L"click") fields(params, {L"windowId", L"captureId", L"x", L"y", L"observationId", L"elementId", L"button", L"count"});
@@ -220,9 +230,20 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"drag") fields(params, {L"windowId", L"captureId", L"from", L"to", L"durationMs"});
   else if (method == L"clipboard") fields(params, {L"windowId", L"action", L"text"});
   else throw Error("unsupported", "Unknown Computer Use operation");
-  auto& window = target(params);
+  auto& window = target(params,method==L"restore");
   wait_for_access(window.hwnd,false);
-  if (method == L"focus") {
+  if (method == L"restore") {
+    if (IsIconic(window.hwnd)) {
+      input_may_have_run=true;
+      require(ShowWindowAsync(window.hwnd,SW_RESTORE),"restore-denied","Window restore could not be requested");
+      auto deadline=GetTickCount64()+2000;
+      while (IsIconic(window.hwnd) && GetTickCount64()<deadline) {
+        require(WaitForSingleObject(stop_event,50)==WAIT_TIMEOUT,"cancelled","Restore cancelled");
+        target(params,true);
+      }
+      require(!IsIconic(window.hwnd),"uncertain-result","Restore not confirmed; list windows again before continuing");
+    }
+  } else if (method == L"focus") {
     if (!has_target_focus(window.hwnd)) SetForegroundWindow(window.hwnd);
     check_focus(window.hwnd); observation_id.clear(); capture_id.clear();
   } else if (method == L"observe") return observe(params, window);

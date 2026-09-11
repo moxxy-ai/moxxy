@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema } from './contracts.js';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema } from './contracts.js';
 import { JsonLineDecoder } from './protocol.js';
 
 describe('Windows computer control contracts', () => {
   const geometry = { x: -1920, y: -200, width: 1920, height: 1080 };
+  it('does not expose minimized window bounds as actionable screen geometry', () => {
+    const target={windowId:'w',pid:42,title:'Minimized',className:'Fixture',state:'minimized',kind:'normal',bounds:null};
+    expect(windowSchema.safeParse(target).success).toBe(true);
+    expect(windowSchema.safeParse({...target,bounds:geometry}).success).toBe(false);
+    expect(windowSchema.safeParse({...target,state:'normal',bounds:geometry}).success).toBe(true);
+    expect(windowSchema.safeParse({...target,state:'normal'}).success).toBe(false);
+  });
   it('maps image pixels into physical screen coordinates, including negative origins', () => {
     expect(imagePointToScreen({ x: 640, y: 360 }, { width: 1280, height: 720 }, geometry))
       .toEqual({ x: -960, y: 340 });

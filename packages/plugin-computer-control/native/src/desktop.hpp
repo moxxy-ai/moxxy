@@ -4,7 +4,12 @@
 
 namespace moxxy {
 struct Window { HWND hwnd; DWORD pid; uint64_t created; uint64_t generation; com_ptr<IUIAutomationElement> root; };
-struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; };
+struct ValueState {
+  std::wstring text;
+  bool readonly;
+  bool operator==(const ValueState&) const = default;
+};
+struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; std::optional<ValueState> value; };
 class Desktop {
  public:
   Desktop();
@@ -22,7 +27,7 @@ class Desktop {
   uint64_t observed_epoch = 0, captured_epoch = 0;
   int captured_width = 0, captured_height = 0;
   void acquire();
-  Window& target(const Json& params);
+  Window& target(const Json& params, bool allow_minimized = false);
   Element& element(const Json& params, Window& window, bool needs_focus = true);
   void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
   Point point(const Json& params, const Json& coordinates, Window& window);

@@ -53,7 +53,11 @@ export const clipboardSchema = z.discriminatedUnion('action', [
   targetSchema.extend({ action: z.literal('read') }).strict(),
   targetSchema.extend({ action: z.literal('write'), text: z.string().max(64000) }).strict(),
 ]);
-export const windowSchema = z.object({ windowId: idSchema, pid: pixel.positive(), title: z.string().max(2048), className: z.string().max(255), bounds: rectangleSchema }).strict();
+const windowIdentity = z.object({windowId:idSchema,pid:pixel.positive(),title:z.string().max(2048),className:z.string().max(255),kind:z.enum(['normal','modal','menu'])});
+export const windowSchema = z.discriminatedUnion('state',[
+  windowIdentity.extend({state:z.literal('normal'),bounds:rectangleSchema}).strict(),
+  windowIdentity.extend({state:z.literal('minimized'),bounds:z.null()}).strict(),
+]);
 export const observationSchema = z.object({
   windowId: idSchema, observationId: idSchema, bounds: rectangleSchema,
   focusedElementId: idSchema.nullable(), truncated: z.boolean(),
