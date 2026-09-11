@@ -230,7 +230,10 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       com_ptr<IUIAutomationValuePattern> pattern;
       check_hresult(control.node->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(pattern.put())));
       BOOL readonly = TRUE; check_hresult(pattern->get_CurrentIsReadOnly(&readonly));
-      require(!readonly, "read-only", "Control is read-only"); check_hresult(pattern->SetValue(value.c_str()));
+      require(!readonly, "read-only", "Control is read-only");
+      BSTR argument = SysAllocStringLen(value.data(), static_cast<UINT>(value.size()));
+      require(argument != nullptr, "native-error", "Cannot allocate control value");
+      auto result = pattern->SetValue(argument); SysFreeString(argument); check_hresult(result);
     } else {
       com_ptr<IUIAutomationElement> focused; check_hresult(automation->GetFocusedElement(focused.put()));
       BOOL same = FALSE; check_hresult(automation->CompareElements(focused.get(), control.node.get(), &same));
