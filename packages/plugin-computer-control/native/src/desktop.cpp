@@ -116,6 +116,17 @@ Json Desktop::observe(const Json& params, Window& window) {
       entry.Insert(L"parentId", parent.empty() ? JsonValue::CreateNullValue() : string_value(parent));
       entry.Insert(L"name", string_value(label)); entry.Insert(L"controlType", numeric(control));
       entry.Insert(L"bounds", rect_json(rect)); entry.Insert(L"enabled", boolean(enabled)); entry.Insert(L"protected", boolean(secret));
+      if (!secret) {
+        com_ptr<IUIAutomationValuePattern> pattern;
+        if (SUCCEEDED(node->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(pattern.put()))) && pattern) {
+          BSTR value = nullptr;
+          if (SUCCEEDED(pattern->get_CurrentValue(&value)) && value) {
+            size_t length = std::min<size_t>(512, SysStringLen(value));
+            if (length && value[length-1]>=0xD800 && value[length-1]<=0xDBFF) --length;
+            entry.Insert(L"value", string_value(std::wstring_view(value,length))); SysFreeString(value);
+          }
+        }
+      }
       output.Append(entry);
       BOOL same = FALSE;
       if (focused && SUCCEEDED(automation->CompareElements(node.get(), focused.get(), &same)) && same) focused_id = id;

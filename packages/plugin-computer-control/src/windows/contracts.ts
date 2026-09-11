@@ -50,6 +50,7 @@ export const observationSchema = z.object({
   elements: z.array(z.object({
     elementId: idSchema, parentId: idSchema.nullable(), name: z.string().max(512),
     controlType: pixel, bounds: rectangleSchema, enabled: z.boolean(), protected: z.boolean(),
+    value: z.string().max(512).optional(),
   }).strict()).max(256),
 }).strict();
 export const captureSchema = z.object({
