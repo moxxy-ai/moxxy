@@ -3,13 +3,15 @@ param(
   [string]$FixturePath = (Join-Path $PSScriptRoot 'moxxy-computer-fixture.exe'),
   [string]$ReportDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('moxxy-computer-tests-' + [guid]::NewGuid())),
   [switch]$NonInteractive,
-  [switch]$TestClipboard
+  [switch]$TestClipboard,
+  [switch]$TestInstalledApps
 )
 $ErrorActionPreference = 'Stop'
 if (-not $NonInteractive) {
   Write-Host 'Test controls ONLY its own windows. Do not use the mouse or keyboard during the test.'
   Write-Host 'Use Stop Computer Use to stop. No data is uploaded.'
   if ($TestClipboard) { Write-Host 'Clipboard test is enabled: non-text clipboard contents may be replaced.' }
+  if ($TestInstalledApps) { Write-Host 'Installed-app test is enabled: a NEW Notepad window will be opened and closed without editing files.' }
   if ((Read-Host 'Type START to continue') -cne 'START') { return }
 }
 New-Item -ItemType Directory -Path $ReportDirectory -Force | Out-Null
@@ -437,6 +439,28 @@ try {
         Check ($script:helper.WaitForExit(3000)) 'Panel Stop left the worker running'
       } finally { if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose() }
     }
+    if ($TestInstalledApps) {
+      Test 'catalog launches a named installed application without desktop activation or shell text' {
+        $script:helper=Start-Peer
+        $apps=Call 'app_catalog' @{query='notepad';maxResults=64}
+        Check ($apps.apps.Count -gt 0) 'Notepad absent from installed catalog'
+        $app=@($apps.apps | Where-Object source -eq 'system')[0]
+        if (-not $app) { $app=$apps.apps[0] }
+        $before=@((Call 'windows' @{}).windowId)
+        $oldPids=@(Get-Process -Name notepad -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+        $opened=Call 'open' @{appId=$app.appId;instance='new';timeoutMs=8000}
+        Check ($opened.status -eq 'opened' -and $opened.windows.Count -eq 1) 'Application launch did not resolve one window'
+        $window=$opened.windows[0]
+        Check ($before -notcontains $window.windowId -and $oldPids -notcontains $window.pid) 'New-instance request silently reused an old window'
+        $process=Get-Process -Id $window.pid
+        try {
+          Check ($process.ProcessName -eq 'notepad') 'Catalog launched the wrong application'
+          Check ((Call 'observe' @{windowId=$window.windowId;maxNodes=64}).elements.Count -gt 0) 'Opened application cannot be observed'
+          $invalid=Request $script:helper 'open' @{appId='notepad.exe & echo unexpected';instance='new';timeoutMs=500}
+          Check (-not $invalid.ok -and $invalid.error.code -eq 'unknown-app') 'Unresolved command text was accepted'
+        } finally { $process.CloseMainWindow() | Out-Null; $process.WaitForExit(3000) | Out-Null; $process.Dispose() }
+      }
+    } else { Record 'installed application launch' 'not-tested' 'Explicitly opt in with -TestInstalledApps; opens a new Notepad window.' }
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
