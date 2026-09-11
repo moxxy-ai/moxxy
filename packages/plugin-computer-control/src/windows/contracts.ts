@@ -16,6 +16,8 @@ export const clickSchema = z.union([
   targetSchema.extend({ captureId: idSchema, x: pixel.nonnegative(), y: pixel.nonnegative(), ...clickOptions }).strict(),
 ]);
 export const screenshotSchema = targetSchema.extend({
+  region: rectangleSchema.extend({ x: pixel.nonnegative(), y: pixel.nonnegative() }).strict().optional()
+    .describe('Optional crop in physical pixels relative to the window bounds, before resizing.'),
   maxDim: z.number().int().min(256).max(3840).default(1280),
   format: z.enum(['png', 'jpeg']).default('jpeg'),
   quality: z.number().int().min(40).max(100).default(72),

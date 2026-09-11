@@ -18,7 +18,7 @@ class Desktop {
   Handle lease;
   bool owns_lease = false;
   std::wstring observed_window, observation_id, capture_id, captured_window;
-  Rect observed_bounds{}, captured_bounds{};
+  Rect observed_bounds{}, captured_bounds{}, captured_window_bounds{};
   uint64_t observed_epoch = 0, captured_epoch = 0;
   int captured_width = 0, captured_height = 0;
   void acquire();
