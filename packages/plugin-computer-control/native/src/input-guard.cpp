@@ -9,7 +9,7 @@ constexpr LONG guard_version=1;
 constexpr size_t ledger_capacity=16;
 struct SharedInput {
   LONG version;
-  LONG count;
+  volatile LONG count;
   INPUT releases[ledger_capacity];
   volatile LONG physical[256];
 };
@@ -56,7 +56,7 @@ void release_ledger(SharedInput& state, HANDLE mutex) {
     // Do not send key-up for an unrelated physically held user key. Windows
     // cannot express separate held states for a physical and injected key.
     if (!physically_held(release)) SendInput(1,&release,sizeof(INPUT));
-    --state.count;
+    InterlockedDecrement(&state.count);
   }
 }
 LRESULT CALLBACK keyboard_hook(int code, WPARAM message, LPARAM data) {
@@ -137,12 +137,16 @@ void start_input_guard(HANDLE parent, HANDLE stop) {
 void guarded_input(INPUT input, std::optional<INPUT> release) {
   require(guard && WaitForSingleObject(guard->process.value,0)==WAIT_TIMEOUT,"guard-unavailable","Input guardian exited; input is disabled");
   MutexLock lock(guard->mutex.value);
+  require(WaitForSingleObject(stop_event,0)==WAIT_TIMEOUT && WaitForSingleObject(guard->process.value,0)==WAIT_TIMEOUT,
+    "cancelled","Input stopped before delivery");
   auto& state=*guard->view.value;
   require(state.version==guard_version && state.count>=0 && state.count<ledger_capacity,"guard-protocol","Invalid input ledger");
   if (release) {
     require(!physically_held(*release),"user-input-active","User is holding this key or button");
     state.releases[state.count]=*release;
-    ++state.count; // Publish before SendInput, while the inter-process mutex is held.
+    // Interlocked publication orders the complete record before SendInput even
+    // if the worker dies without releasing the mutex.
+    InterlockedIncrement(&state.count);
   }
   input_may_have_run=true;
   require(SendInput(1,&input,sizeof(INPUT))==1,"input-denied","Windows rejected input; check target privileges");
