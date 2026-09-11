@@ -111,7 +111,8 @@ Json clipboard(const Json& params) {
   std::wstring value;
   if (action == L"write") value = text(params, L"text", 64000);
   else require(!params.HasKey(L"text"), "invalid-input", "Read must not include text");
-  require(OpenClipboard(nullptr), "clipboard-busy", "Clipboard unavailable");
+  // Win32 requires an owner HWND for EmptyClipboard + SetClipboardData.
+  require(OpenClipboard(control_window.load()), "clipboard-busy", "Clipboard unavailable");
   struct Close { ~Close() { CloseClipboard(); } } close;
   if (action == L"read") {
     auto memory = GetClipboardData(CF_UNICODETEXT);
