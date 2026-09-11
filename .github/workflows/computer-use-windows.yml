@@ -110,6 +110,11 @@ jobs:
             Get-Content -LiteralPath $smokeOut
             Get-Content -LiteralPath $smokeErr
             if ($smoke.ExitCode -ne 0) { throw 'Installed extension smoke failed' }
+            $updateScript=(Resolve-Path apps/desktop/scripts/smoke-computer-update.mjs).Path
+            $update=Start-Process -FilePath $exe -ArgumentList ('"'+$updateScript+'"'),('"'+$resources+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
+            Get-Content -LiteralPath $smokeOut
+            Get-Content -LiteralPath $smokeErr
+            if ($update.ExitCode -ne 0) { throw 'Installed Computer Use upgrade smoke failed' }
             Remove-Item Env:ELECTRON_RUN_AS_NODE
             & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
             if ($LASTEXITCODE -eq 1) { throw 'Installed Computer Use GUI tests failed' }
