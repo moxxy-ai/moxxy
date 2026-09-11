@@ -25,7 +25,7 @@ jobs:
       - name: Real desktop preflight and fixture tests
         shell: pwsh
         run: |
-          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-report"
+          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-report"
           if ($LASTEXITCODE -eq 2) { Write-Warning "GUI not tested: interactive desktop unavailable; Windows 10/11 reports required"; exit 0 }
           exit $LASTEXITCODE
       - name: Upload test report
