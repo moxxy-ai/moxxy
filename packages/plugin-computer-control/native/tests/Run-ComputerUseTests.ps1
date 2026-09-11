@@ -133,6 +133,26 @@ try {
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
+    Test 'accessibility reads and selects real Unicode text without exposing protected text' {
+      $before=Observe
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      $value='Zażółć gęślą jaźń, gęślą'
+      Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=$value} | Out-Null
+      $before=Observe
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      $ref=@{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId}
+      $read=Call 'read_text' ($ref+@{maxChars=100})
+      Check ($read.text -eq $value -and -not $read.truncated) 'TextPattern did not return actual Unicode document text'
+      $short=Call 'read_text' ($ref+@{maxChars=3})
+      Check ($short.text -eq 'Zaż' -and $short.truncated) 'Text output did not report truncation'
+      Call 'select_text' ($ref+@{text='gęślą';occurrence=2}) | Out-Null
+      $state=Fixture-State
+      Check ($state.selectionStart -eq $value.LastIndexOf('gęślą') -and $state.selectionEnd -eq $value.Length) 'Second occurrence was not selected in the actual EDIT'
+      $before=Observe
+      $secret=@($before.elements | Where-Object { $_.protected })[0]
+      $denied=Request $script:helper 'read_text' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$secret.elementId;maxChars=100}
+      Check (-not $denied.ok -and $denied.error.code -eq 'protected-element') 'Protected text read was not rejected'
+    }
     Test 'inventory preserves unchanged window and observation identities' {
       $before=Observe
       $inventory=Call 'windows' @{}
