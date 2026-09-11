@@ -51,6 +51,7 @@ void Desktop::acquire() {
   require(result == WAIT_OBJECT_0 || result == WAIT_ABANDONED, "control-busy", "Another Moxxy turn owns desktop control");
   owns_lease = true;
   lease_active = true;
+  publish_guard_state(ControlState::recovering);
 }
 Window& Desktop::target(const Json& params, bool allow_minimized) {
   auto id = text(params, L"windowId");
@@ -209,6 +210,42 @@ Point Desktop::point(const Json& params, const Json& coordinates, Window& window
   return image_point(number(coordinates, L"x", 0, 3840), number(coordinates, L"y", 0, 3840),
     captured_width, captured_height, captured_bounds);
 }
+Json Desktop::open(const Json& params) {
+  auto app_id=text(params,L"appId");
+  const auto& app=catalog.get(app_id);
+  auto mode=text(params,L"instance"); require(mode==L"new" || mode==L"reuse","invalid-input","Unknown instance mode");
+  auto timeout=number(params,L"timeoutMs",500,8000);
+  acquire(); wait_for_access(nullptr,false);
+  std::set<std::wstring> before;
+  JsonArray existing;
+  for (const auto& item:list_windows()) {
+    auto row=item.GetObject(); before.insert(text(row,L"windowId"));
+    if (catalog.matches(app,static_cast<DWORD>(row.GetNamedNumber(L"pid")))) existing.Append(row);
+  }
+  auto result=[&](const wchar_t* status,bool launched,const JsonArray& windows) {
+    Json value; value.Insert(L"appId",string_value(app_id)); value.Insert(L"status",string_value(status));
+    value.Insert(L"launched",boolean(launched)); value.Insert(L"windows",windows); return value;
+  };
+  if (mode==L"reuse" && existing.Size()) return result(existing.Size()==1 ? L"existing" : L"ambiguous",false,existing);
+  Handle launched(catalog.launch(app));
+  DWORD launched_pid=launched.value ? GetProcessId(launched.value) : 0;
+  auto until=GetTickCount64()+timeout;
+  JsonArray candidates;
+  do {
+    check_active_desktop();
+    candidates.Clear();
+    for (const auto& item:list_windows()) {
+      auto row=item.GetObject(); auto id=text(row,L"windowId");
+      if (mode==L"new" && before.contains(id)) continue;
+      auto pid=static_cast<DWORD>(row.GetNamedNumber(L"pid"));
+      bool launch_alive=launched.value && WaitForSingleObject(launched.value,0)==WAIT_TIMEOUT;
+      if ((launch_alive && launched_pid==pid) || catalog.matches(app,pid)) candidates.Append(row);
+    }
+    if (candidates.Size()) return result(candidates.Size()==1 ? L"opened" : L"ambiguous",true,candidates);
+    require(WaitForSingleObject(stop_event,100)==WAIT_TIMEOUT,"cancelled","Application wait cancelled");
+  } while (GetTickCount64()<until);
+  return result(L"no_window",true,candidates);
+}
 Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, const Json& params) {
   if (method == L"status") {
     fields(params, {});
@@ -221,6 +258,8 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     result.Insert(L"limitations", limits); return result;
   }
   if (method == L"windows" || method == L"apps") { fields(params, {}); check_active_desktop(); return list_windows(); }
+  if (method == L"app_catalog") { fields(params,{L"query",L"maxResults"}); check_active_desktop(); return catalog.list(params); }
+  if (method == L"open") { fields(params,{L"appId",L"instance",L"timeoutMs"}); return open(params); }
   // Validate shape before acquiring a lease or executing any native operation.
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
   else if (method == L"observe") fields(params, {L"windowId", L"maxNodes"});

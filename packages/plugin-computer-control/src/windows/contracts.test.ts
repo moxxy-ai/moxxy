@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema } from './contracts.js';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema } from './contracts.js';
 import { JsonLineDecoder } from './protocol.js';
 
 describe('Windows computer control contracts', () => {
   const geometry = { x: -1920, y: -200, width: 1920, height: 1080 };
+  it('does not call an ambiguous or unlaunched application an opened window', () => {
+    const window={windowId:'w',pid:42,title:'App',className:'Fixture',state:'normal',kind:'normal',bounds:geometry};
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:true,windows:[window]}).success).toBe(true);
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:false,windows:[window]}).success).toBe(false);
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:true,windows:[window,window]}).success).toBe(false);
+    expect(openResultSchema.safeParse({appId:'a',status:'no_window',launched:true,windows:[]}).success).toBe(true);
+  });
   it('does not expose minimized window bounds as actionable screen geometry', () => {
     const target={windowId:'w',pid:42,title:'Minimized',className:'Fixture',state:'minimized',kind:'normal',bounds:null};
     expect(windowSchema.safeParse(target).success).toBe(true);

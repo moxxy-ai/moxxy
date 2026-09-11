@@ -172,11 +172,11 @@ void guard_control(ControlCommand command) {
 }
 void publish_guard_state(ControlState state, HWND target) {
   if (!observed) return;
+  InterlockedExchange(&observed->visible,lease_active ? 1 : 0);
   if (target) {
     DWORD pid=0; GetWindowThreadProcessId(target,&pid);
     InterlockedExchange(&observed->target_pid,pid);
     InterlockedExchange64(&observed->target,reinterpret_cast<LONG64>(target));
-    InterlockedExchange(&observed->visible,1);
   }
   InterlockedExchange(&observed->state,static_cast<LONG>(state));
 }

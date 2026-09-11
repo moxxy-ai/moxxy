@@ -20,7 +20,11 @@ describe('platform capability registration', () => {
     expect(names).toContain('computer_observe');
     expect(names).toContain('computer_status');
     expect(names).not.toContain('computer_applescript');
-    expect(names).not.toContain('computer_open');
+    expect(names).toContain('computer_open');
+    expect(names).toContain('computer_app_catalog');
+    const open=tools.find(tool=>tool.name==='computer_open');
+    expect(open?.inputSchema.safeParse({appId:'catalog-entry',instance:'new'}).success).toBe(true);
+    expect(open?.inputSchema.safeParse({app:'cmd.exe',arguments:'/c anything'}).success).toBe(false);
     const key = tools.find((tool) => tool.name === 'computer_key');
     expect(key?.inputSchema.safeParse({ windowId: 'w', observationId: 'o', key: 'a', modifiers: ['cmd'] }).success).toBe(false);
     for (const tool of tools) expect(tool.permission?.action).toBe('prompt');
