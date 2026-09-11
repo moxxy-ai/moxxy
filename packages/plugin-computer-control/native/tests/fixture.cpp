@@ -25,6 +25,7 @@ void report() {
   result.Insert(L"left", numeric(left)); result.Insert(L"right", numeric(right)); result.Insert(L"middle", numeric(middle));
   result.Insert(L"doubleClicks", numeric(double_clicks)); result.Insert(L"scrollX", numeric(wheel_x)); result.Insert(L"scrollY", numeric(wheel_y));
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
+  result.Insert(L"leftDown", moxxy::boolean((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0));
   std::ofstream output(report_path, std::ios::binary | std::ios::trunc);
   output << to_string(result.Stringify());
 }

@@ -222,10 +222,9 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     if (params.HasKey(L"elementId")) {
       require(!params.HasKey(L"captureId") && !params.HasKey(L"x") && !params.HasKey(L"y"), "invalid-input", "Ambiguous click target");
       auto& value = element(params, window);
-      com_ptr<IUIAutomationInvokePattern> invoke;
-      if (button == L"left" && count == 1 && SUCCEEDED(value.node->GetCurrentPatternAs(UIA_InvokePatternId, IID_PPV_ARGS(invoke.put()))) && invoke) {
-        check_focus(window.hwnd); check_hresult(invoke->Invoke());
-      } else click_point(window.hwnd, {value.bounds.x+value.bounds.width/2, value.bounds.y+value.bounds.height/2}, button, count);
+      // Some InvokePattern providers block until a modal closes. A verified
+      // physical click keeps the protocol available to observe that modal.
+      click_point(window.hwnd, {value.bounds.x+value.bounds.width/2, value.bounds.y+value.bounds.height/2}, button, count);
     } else {
       require(!params.HasKey(L"observationId"), "invalid-input", "Ambiguous click reference");
       click_point(window.hwnd, point(params, params, window), button, count);

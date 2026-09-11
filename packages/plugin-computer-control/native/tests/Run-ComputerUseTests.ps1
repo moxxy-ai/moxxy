@@ -133,7 +133,7 @@ try {
       $response=Request $script:helper 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$secret.elementId; text='not allowed' }
       Check (-not $response.ok) 'Protected field mutation accepted'
     }
-    Test 'UIA invokes real button; stale reference rejected' {
+    Test 'observed element click reaches button; stale reference rejected' {
       $observation=Observe
       $button=@($observation.elements | Where-Object { $_.name -eq 'Save' })[0]
       $input=@{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 }
@@ -193,6 +193,50 @@ try {
       Check (-not $response.ok -and $response.error.code -eq 'control-busy') 'Concurrent desktop control accepted'
       $other.StandardInput.Close(); Check ($other.WaitForExit(3000)) 'Second helper leaked'
     }
+    Test 'modal can be observed and closed without blocking the helper' {
+      $observation=Observe
+      $button=@($observation.elements | Where-Object { $_.name -eq 'Open modal' })[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      Start-Sleep -Milliseconds 250
+      $inventory=Call 'windows' @{}
+      $modal=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy test modal' })[0]
+      $parent=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
+      Check ($null -ne $modal -and $null -ne $parent) 'Modal/parent identity unavailable'
+      $script:windowId=$modal.windowId
+      Call 'focus' @{ windowId=$script:windowId } | Out-Null
+      $observation=Observe
+      $ok=@($observation.elements | Where-Object { $_.name -eq 'OK' -and $_.controlType -eq 50000 })[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$ok.elementId; button='left'; count=1 } | Out-Null
+      Start-Sleep -Milliseconds 200
+      $script:windowId=$parent.windowId
+      Call 'focus' @{ windowId=$script:windowId } | Out-Null
+      Check ((Observe).elements.Count -gt 2) 'Parent not usable after modal'
+    }
+    Test 'delayed control appears in fresh observations' {
+      $until=[DateTime]::UtcNow.AddSeconds(3)
+      do {
+        $found=@((Observe).elements | Where-Object name -eq 'Delayed button')
+        if ($found.Count) { break }
+        Start-Sleep -Milliseconds 100
+      } while ([DateTime]::UtcNow -lt $until)
+      Check ($found.Count -eq 1) 'Delayed control absent'
+    }
+    Test 'cancellation during drag releases input and desktop lease' {
+      Start-Sleep -Milliseconds 600
+      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
+      $frame=@{ version=1; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
+      $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
+      Start-Sleep -Milliseconds 150
+      $script:helper.StandardInput.Close()
+      Check ($script:helper.WaitForExit(3000)) 'Cancelled helper did not exit'
+      Check (-not (Fixture-State).leftDown) 'Mouse button remained held after cancellation'
+      $script:helper=Start-Peer
+      $inventory=Call 'windows' @{}
+      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
+      $script:windowId=$target.windowId
+      Call 'focus' @{ windowId=$script:windowId } | Out-Null
+      Check ((Observe).elements.Count -gt 2) 'Desktop lease not released on cancellation'
+    }
     # Do not overwrite non-text clipboard formats on a user's workstation.
     Record 'clipboard round trip' 'not-tested' 'Requires an explicitly disposable clipboard; test does not overwrite user clipboard.'
     $exitCode=0
@@ -207,7 +251,7 @@ finally {
     try { if (-not $fixture.HasExited) { $fixture.CloseMainWindow() | Out-Null; if (-not $fixture.WaitForExit(3000)) { $fixture.Kill() } } } catch {}
     $fixture.Dispose()
   }
-  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI','input cancellation during drag','focus theft','window recreation','modal and delayed controls')) {
+  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI','focus theft','window recreation')) {
     Record $name 'not-tested' 'Required acceptance coverage not yet executed by this test runner.'
   }
   $report=@{ schemaVersion=1; os=[Environment]::OSVersion.VersionString; architecture=$env:PROCESSOR_ARCHITECTURE;
