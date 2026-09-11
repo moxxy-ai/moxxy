@@ -29,6 +29,7 @@ void report() {
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
   result.Insert(L"leftDown", moxxy::boolean((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0));
   result.Insert(L"menuPicks", numeric(menu_picks));
+  result.Insert(L"foreground", moxxy::boolean(edit && GetForegroundWindow()==GetAncestor(edit,GA_ROOT)));
   std::ofstream output(report_path, std::ios::binary | std::ios::trunc);
   output << to_string(result.Stringify());
 }
