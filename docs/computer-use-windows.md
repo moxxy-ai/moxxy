@@ -36,6 +36,19 @@ system-command backend with the same arguments.
 - Background `computer_set_value` currently supports verified standard EDIT
   controls through targeted messages. Generic UIA SetValue is **not** assumed
   focus-neutral. Changed values or editability invalidate stored element targets.
+- `computer_action` exposes verified UIA patterns: invoke, item selection,
+  toggle, expand/collapse and scroll into view. These semantic actions currently
+  require foreground access; they never silently fall back to physical clicks.
+  Selection/toggle/expansion changes invalidate the stored element. A separate
+  MTA executor returns a pending/completed/failed receipt; `computer_action_status`
+  checks it without replay. Observation and physical modal closure remain available
+  while the provider's invocation is pending. Stop still belongs to the guardian.
+- `computer_read_text` reads bounded document/selection text through TextPattern
+  or verified native EDIT support. `computer_select_text` selects a literal
+  occurrence where a complete control value can be validated. Protected controls
+  are excluded. `computer_type_window` supports an observed graphical target
+  without requiring an editable element, but still requires identifiable,
+  non-protected focus and validates it during typing.
 - `computer_app_catalog` enumerates the Windows Shell app catalog and installed
   system Notepad/Paint entries. `computer_open` uses a catalog ID, not a shell
   command, and resolves matching windows by process/application identity.
@@ -49,6 +62,9 @@ system-command backend with the same arguments.
   `computer.snapshot` / `computer.control` route by explicit workspace, session
   and turn. Older runners return an update-required error for these operations,
   not for ordinary chat. Stopped transports are never recreated by these commands.
+  The desktop chat strip consumes this service only for an active Windows-capable
+  turn; stale replies from another workspace/session/turn are not presented as
+  controls for the current run. It does not replace the independent native panel.
 
 ## Distribution and updates
 
@@ -107,13 +123,25 @@ The CI wrapper preserves that status in its artifact and warning.
 ## Release acceptance still required
 
 This branch is not yet the complete acceptance implementation. Outstanding work
-includes richer UIA actions, document opening, cross-window
-drag, desktop-renderer consumption of the typed SDK/runner/IPC state, and the full fault
-and agent benchmark matrices. The built-in panel controls the guardian directly
+includes document opening, cross-window drag, broader background-control support,
+handling physical user activity without a focus change, automatic recovery of a
+hung semantic provider, and the full fault and agent benchmark matrices.
+The built-in panel controls the guardian directly
 so Stop does not depend on the desktop renderer. Controlled upgrade tests include
 private SDK resolution, refusal without consent, rollback and actual runner discovery;
-the installed Windows path still requires a successful CI/client acceptance run.
+the installed Windows path passed CI at checkpoint `7f5d3570`, but newer code and
+the Windows 10/11 client upgrade path still require their own acceptance runs.
 Do not call the branch release-ready or equivalent to Codex.
+
+## Reference boundary
+
+The locally installed `@oai/cua` 0.2.4 / `@oai/sky` 0.6.26 clients were inspected
+to compare addressing and responsibilities: app-bound macOS operations,
+Windows app/window identity, separate element and coordinate actions, screenshot
+identity/geometry, value operations and secondary accessibility actions. The
+Windows native implementation was not available as source in that inspection.
+These observations are design references, not copied code or runtime dependencies,
+and do not prove the foreground/background behavior of Codex's Windows helper.
 
 Run on both Windows 10 and 11 at 100%, 150% and 200% scaling. Test mixed-DPI
 monitors when available; absence of hardware remains not-tested. Native fixture

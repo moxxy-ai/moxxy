@@ -20,6 +20,8 @@ import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
+import { useComputerControl } from '../computer-control/useComputerControl';
+import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -88,6 +90,8 @@ export function ChatSurface({
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
+  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && actionCatalog.tools.some(tool=>tool.name==='computer_app_catalog')
+    ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
   const voiceCall = useDesktopVoiceCall({
     surface: 'main',
     workspaceId,
@@ -205,6 +209,7 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
+        {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (

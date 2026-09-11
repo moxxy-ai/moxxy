@@ -14,3 +14,5 @@ Move accessible pause/resume/stop controls into a non-activating native guardian
 Expose session/turn-owned Computer Use state and human controls through an optional SDK service, runner protocol v12 and validated workspace-specific desktop IPC. Preserve stopped-turn tombstones and ordinary chat compatibility when the service is absent.
 
 Add filtered, observation-scoped accessibility reads and Windows-specific request guidance. Offer a consent-based offline Computer Use upgrade from full Windows installers with private dependencies, hash checks, backups, npm ledger alignment, isolated runtime verification and interrupted-update recovery; leave other extensions and user credentials untouched.
+
+Add semantic UIA action receipts with modal-safe execution, bounded accessible text reading and literal selection, and explicit window typing that rejects protected focus. Distinguish native-panel Stop from a process failure and present exact-turn human controls in the desktop chat surface.
