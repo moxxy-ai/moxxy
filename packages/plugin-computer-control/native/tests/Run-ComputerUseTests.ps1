@@ -411,6 +411,16 @@ try {
       Call 'restore' @{windowId=$script:windowId} | Out-Null
       Check ((Observe).elements.Count -gt 2) 'Restored window is not usable'
     }
+    Test 'hard worker termination during drag releases only its held input' {
+      Call 'focus' @{windowId=$script:windowId} | Out-Null
+      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
+      $frame=@{version=2;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
+      $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
+      Check ((Fixture-State).leftDown) 'Crash test never reached held mouse input'
+      $script:helper.Kill(); Check ($script:helper.WaitForExit(3000)) 'Worker did not terminate'
+      Start-Sleep -Milliseconds 500
+      Check (-not (Fixture-State).leftDown) 'Hard worker termination left injected mouse button held'
+    }
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
