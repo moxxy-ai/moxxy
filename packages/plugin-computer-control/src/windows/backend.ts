@@ -11,6 +11,7 @@ import {
   appCatalogInputSchema, appCatalogSchema, openSchema, openResultSchema,
   readTextSchema, selectTextSchema, textResultSchema,
   actionSchema, actionStatusSchema, actionResultSchema,
+  typeWindowSchema,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -99,6 +100,7 @@ export class WindowsBackend {
       operation('screenshot', 'Capture a specific window; use returned captureId for image-based actions.', screenshotSchema, captureSchema),
       operation('click', 'Click an observed element or image point; observe again to verify the effect.', clickSchema, delivered),
       operation('type', 'Type Unicode into the explicitly observed and focused control.', typeSchema, delivered),
+      operation('type_window', 'Type Unicode to a freshly observed active window when there is no editable UIA element, for example a graphical canvas. The current focus must be identifiable and non-protected. Waits for foreground; never types in another window.', typeWindowSchema, delivered),
       operation('set_value', 'Set an editable non-protected control value. Background changes require verified native support and never fall back to physical input.', typeSchema, delivered),
       operation('read_text', 'Read bounded document text and selected ranges from an observed, non-protected text control without focusing it.', readTextSchema, textResultSchema),
       operation('select_text', 'Select a literal, case-sensitive occurrence in an observed text control. Requires foreground access and a verifiable unchanged control value; no keyboard fallback.', selectTextSchema, delivered),

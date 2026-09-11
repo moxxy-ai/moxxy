@@ -300,6 +300,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});
   else if (method == L"click") fields(params, {L"windowId", L"captureId", L"x", L"y", L"observationId", L"elementId", L"button", L"count"});
   else if (method == L"type" || method == L"set_value") fields(params, {L"windowId", L"observationId", L"elementId", L"text"});
+  else if (method == L"type_window") fields(params,{L"windowId",L"observationId",L"text"});
   else if (method == L"read_text") fields(params, {L"windowId", L"observationId", L"elementId", L"maxChars"});
   else if (method == L"select_text") fields(params, {L"windowId", L"observationId", L"elementId", L"text", L"occurrence"});
   else if (method == L"action") fields(params,{L"windowId",L"observationId",L"elementId",L"action"});
@@ -395,6 +396,14 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       require(same, "focus-changed", "Target control is not focused; click and observe it first");
       type_text(window.hwnd, value, [&] { fresh_observation(params, window); });
     }
+  } else if (method == L"type_window") {
+    auto value=text(params,L"text",4000);
+    auto validate=[&] {
+      fresh_observation(params,window);
+      require(observed_focus && !protected_element(observed_focus.get()),"protected-element","Focused control is protected or cannot be identified");
+    };
+    validate();
+    type_text(window.hwnd,value,validate);
   } else if (method == L"action") {
     auto name=text(params,L"action");
     auto& control=element(params,window);

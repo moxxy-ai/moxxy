@@ -46,6 +46,7 @@ export const observeSchema = targetSchema.extend({
   filter: z.object({nameIncludes: z.string().max(256).optional(), controlType: pixel.min(50000).max(60000).optional()}).strict().optional(),
 }).strict();
 export const typeSchema = elementSchema.extend({ text: z.string().max(4000) }).strict();
+export const typeWindowSchema = targetSchema.extend({observationId:idSchema,text:z.string().max(4000)}).strict();
 export const readTextSchema = elementSchema.extend({ maxChars: z.number().int().min(1).max(16000).default(4000) }).strict();
 export const selectTextSchema = elementSchema.extend({ text: z.string().min(1).max(4000), occurrence: z.number().int().min(1).max(100).default(1) }).strict();
 export const textResultSchema = z.object({
