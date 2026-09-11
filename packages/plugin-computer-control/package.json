@@ -31,7 +31,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./skills/*": "./skills/*"
+    "./skills/*": "./skills/*",
+    "./maintenance": {
+      "types": "./dist/windows/maintenance.d.ts",
+      "import": "./dist/windows/maintenance.js"
+    }
   },
   "files": [
     "dist",
