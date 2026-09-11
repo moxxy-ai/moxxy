@@ -74,8 +74,6 @@ extern std::atomic<bool> lease_active;
 extern std::atomic<DWORD> stop_exit_code;
 extern std::atomic<HWND> control_window;
 extern std::atomic<ULONGLONG> operation_deadline;
-extern std::atomic<bool> user_paused;
-extern std::atomic<bool> resume_requested;
 extern std::atomic<bool> input_may_have_run;
 enum class ControlState { idle, background, foreground, waiting_for_focus, paused_by_user, recovering, stopped, failed };
 extern std::atomic<ControlState> control_state;

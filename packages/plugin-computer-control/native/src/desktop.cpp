@@ -1,4 +1,5 @@
 #include "desktop.hpp"
+#include "input-guard.hpp"
 #include <dwmapi.h>
 #include <functional>
 
@@ -65,13 +66,14 @@ Window& Desktop::target(const Json& params, bool allow_minimized) {
   require(same, "stale-window", "Window identity changed; list windows again");
   require((allow_minimized || !IsIconic(window.hwnd)) && IsWindowVisible(window.hwnd), "target-unavailable", "Restore the window first");
   acquire();
+  publish_guard_state(has_target_focus(window.hwnd) ? ControlState::foreground : ControlState::background,window.hwnd);
   return window;
 }
 JsonArray Desktop::list_windows() {
   std::vector<HWND> handles;
   EnumWindows([](HWND hwnd, LPARAM ptr) -> BOOL {
     wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
-    if (IsWindowVisible(hwnd) && (GetWindowTextLengthW(hwnd) > 0 || std::wstring_view(name) == L"#32768"))
+    if (std::wstring_view(name)!=L"MoxxyComputerControlPanel" && IsWindowVisible(hwnd) && (GetWindowTextLengthW(hwnd) > 0 || std::wstring_view(name) == L"#32768"))
       reinterpret_cast<std::vector<HWND>*>(ptr)->push_back(hwnd);
     return reinterpret_cast<std::vector<HWND>*>(ptr)->size() < 256;
   }, reinterpret_cast<LPARAM>(&handles));
