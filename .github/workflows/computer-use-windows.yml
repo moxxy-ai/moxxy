@@ -6,6 +6,11 @@ on:
       - 'packages/plugin-computer-control/**'
       - '.github/workflows/computer-use-windows.yml'
   workflow_dispatch:
+    inputs:
+      installer:
+        description: Build an NSIS test installer (does not publish a release)
+        type: boolean
+        default: false
   workflow_call:
 permissions:
   contents: read
@@ -47,4 +52,41 @@ jobs:
         with:
           name: moxxy-computer-use-windows-x64
           path: ${{ runner.temp }}/computer-use-kit/
+          if-no-files-found: error
+  installer:
+    if: github.event_name == 'workflow_dispatch' && inputs.installer
+    needs: native
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.30.0
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+          cache: pnpm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: moxxy-computer-native
+          path: packages/plugin-computer-control/bin/win32-x64/
+      - run: pnpm install --frozen-lockfile
+      - name: Build with isolated test desktop configuration
+        shell: bash
+        run: |
+          cp apps/desktop/.env.example apps/desktop/.env
+          pnpm build
+      - run: pnpm --filter @moxxy/desktop run prepare:resources
+      - name: Build test installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm --filter @moxxy/desktop exec electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: moxxy-computer-use-test-installer
+          path: apps/desktop/release/*-setup.exe
           if-no-files-found: error
