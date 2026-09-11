@@ -421,6 +421,22 @@ try {
       Start-Sleep -Milliseconds 500
       Check (-not (Fixture-State).leftDown) 'Hard worker termination left injected mouse button held'
     }
+    Test 'guardian panel exposes working accessible pause resume and stop buttons' {
+      $script:helper=Start-Peer
+      $inventory=Call 'windows' @{}
+      $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
+      Call 'focus' @{windowId=$script:windowId} | Out-Null
+      $workerId=$script:helper.Id
+      $children=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$workerId" | Where-Object Name -eq 'moxxy-computer.exe')
+      Check ($children.Count -eq 1) 'Expected one independent guardian'
+      $panelReport=Join-Path $ReportDirectory 'panel-result.txt'
+      $probe=Start-Process -FilePath $FixturePath -ArgumentList '--panel-test',($children[0].ProcessId),('"'+$panelReport+'"') -PassThru
+      try {
+        Check ($probe.WaitForExit(10000)) 'Panel test timed out'
+        Check ($probe.ExitCode -eq 0 -and (Get-Content -LiteralPath $panelReport -Raw) -eq 'passed') 'Guardian panel accessibility/actions failed'
+        Check ($script:helper.WaitForExit(3000)) 'Panel Stop left the worker running'
+      } finally { if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose() }
+    }
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
