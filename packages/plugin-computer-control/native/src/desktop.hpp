@@ -1,6 +1,7 @@
 #pragma once
 #include "common.hpp"
 #include "app-catalog.hpp"
+#include "accessibility-actions.hpp"
 #include <map>
 
 namespace moxxy {
@@ -10,7 +11,7 @@ struct ValueState {
   bool readonly;
   bool operator==(const ValueState&) const = default;
 };
-struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; std::optional<ValueState> value; };
+struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; std::optional<ValueState> value; AccessibilityState accessibility; };
 class Desktop {
  public:
   Desktop();
@@ -19,6 +20,7 @@ class Desktop {
  private:
   com_ptr<IUIAutomation> automation;
   AppCatalog catalog;
+  AccessibilityActions actions;
   com_ptr<IUIAutomationElement> observed_focus;
   std::map<std::wstring, Window> windows;
   std::map<std::wstring, Element> elements;
