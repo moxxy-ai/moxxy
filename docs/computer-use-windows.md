@@ -129,8 +129,10 @@ hung semantic provider, and the full fault and agent benchmark matrices.
 The built-in panel controls the guardian directly
 so Stop does not depend on the desktop renderer. Controlled upgrade tests include
 private SDK resolution, refusal without consent, rollback and actual runner discovery;
-the installed Windows path passed CI at checkpoint `7f5d3570`, but newer code and
-the Windows 10/11 client upgrade path still require their own acceptance runs.
+checkpoint `4d0b1b2b` passed 36 native fixture checks and 35 checks against
+installed resources on Windows Server CI, including actual runner discovery and
+the controlled upgrade smoke. See [the installer run](https://github.com/moxxy-ai/moxxy/actions/runs/34655804220).
+The Windows 10/11 client upgrade path still requires its own acceptance runs.
 Do not call the branch release-ready or equivalent to Codex.
 
 ## Reference boundary
