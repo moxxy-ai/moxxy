@@ -12,7 +12,10 @@ INPUT key(WORD vk, bool up, WORD scan = 0) {
   input.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0) | (scan ? KEYEVENTF_UNICODE : 0);
   return input;
 }
-void send(INPUT input) { require(SendInput(1, &input, sizeof(INPUT)) == 1, "input-denied", "Windows rejected input; check target privileges"); }
+void send(INPUT input) {
+  input_may_have_run=true;
+  require(SendInput(1, &input, sizeof(INPUT)) == 1, "input-denied", "Windows rejected input; check target privileges");
+}
 void down(INPUT input, INPUT release) {
   std::lock_guard guard(input_mutex); releases.push_back(release); send(input);
 }
@@ -62,8 +65,7 @@ bool has_target_focus(HWND window) {
     info.hwndMenuOwner && GetAncestor(info.hwndMenuOwner, GA_ROOT) == foreground;
 }
 void check_focus(HWND window) {
-  check_active_desktop();
-  require(has_target_focus(window), "focus-changed", "Target lost focus; observe again");
+  wait_for_access(window,true);
 }
 void click_point(HWND window, Point point, const std::wstring& button, int count) {
   no_user_modifiers();

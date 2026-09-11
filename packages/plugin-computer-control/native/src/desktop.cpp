@@ -170,8 +170,8 @@ void Desktop::fresh_observation(const Json& params, Window& window, bool needs_f
     !observation_id.empty() && observed_bounds == window_bounds(window.hwnd),
     "stale-observation", "Observe again after window or focus changes");
   if (!needs_focus) return;
-  require(observed_epoch == focus_epoch.load(), "focus-changed", "Focus changed; observe again");
   check_focus(window.hwnd);
+  require(observed_epoch == focus_epoch.load(), "focus-changed", "Focus changed; observe again");
   com_ptr<IUIAutomationElement> focused;
   check_hresult(automation->GetFocusedElement(focused.put()));
   BOOL same = FALSE;
@@ -190,6 +190,7 @@ Element& Desktop::element(const Json& params, Window& window, bool needs_focus) 
   return element;
 }
 Point Desktop::point(const Json& params, const Json& coordinates, Window& window) {
+  check_focus(window.hwnd);
   require(text(params, L"captureId") == capture_id && !capture_id.empty() && text(params, L"windowId") == captured_window &&
     captured_window_bounds == window_bounds(window.hwnd) && captured_epoch == focus_epoch.load(),
     "stale-capture", "Capture window again after geometry or focus changes");
@@ -220,9 +221,9 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"clipboard") fields(params, {L"windowId", L"action", L"text"});
   else throw Error("unsupported", "Unknown Computer Use operation");
   auto& window = target(params);
+  wait_for_access(window.hwnd,false);
   if (method == L"focus") {
-    if (!has_target_focus(window.hwnd))
-      require(SetForegroundWindow(window.hwnd), "focus-denied", "Windows denied focus; activate the window manually");
+    if (!has_target_focus(window.hwnd)) SetForegroundWindow(window.hwnd);
     check_focus(window.hwnd); observation_id.clear(); capture_id.clear();
   } else if (method == L"observe") return observe(params, window);
   else if (method == L"screenshot") {
@@ -278,6 +279,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
         auto style=GetWindowLongPtrW(hwnd,GWL_STYLE);
         require(IsWindowEnabled(hwnd) && !(style & (ES_READONLY|ES_PASSWORD)), "protected-element", "Edit is read-only or protected");
         DWORD_PTR result = 0;
+        input_may_have_run=true;
         require(SendMessageTimeoutW(hwnd,WM_SETTEXT,0,reinterpret_cast<LPARAM>(value.c_str()),SMTO_ABORTIFHUNG|SMTO_BLOCK,1000,&result)!=0,
           "uncertain-result", "Background value request timed out; observe before any further action");
         require(result!=0, "value-rejected", "The edit rejected the new value");
@@ -286,6 +288,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       }
       BSTR argument = SysAllocStringLen(value.data(), static_cast<UINT>(value.size()));
       require(argument != nullptr, "native-error", "Cannot allocate control value");
+      input_may_have_run=true;
       auto result = pattern->SetValue(argument); SysFreeString(argument); check_hresult(result);
     } else {
       com_ptr<IUIAutomationElement> focused; check_hresult(automation->GetFocusedElement(focused.put()));

@@ -1,8 +1,17 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const MAX_FRAME_BYTES = 3_000_000;
 export const idSchema = z.string().min(1).max(160);
+export const controlStateSchema = z.object({
+  version: z.literal(PROTOCOL_VERSION), event: z.literal('control_state'), id: idSchema,
+  state: z.enum(['idle', 'background', 'foreground', 'waiting_for_focus', 'paused_by_user', 'recovering', 'stopped', 'failed']),
+}).strict();
+export type ControlState = z.infer<typeof controlStateSchema>;
+export const observationRequiredSchema = z.object({
+  status: z.literal('needs_observation'), delivered: z.literal(false),
+  effect: z.enum(['none', 'possible']), verificationRequired: z.literal(true),
+}).strict();
 const pixel = z.number().finite().int();
 export const rectangleSchema = z.object({
   x: pixel, y: pixel, width: pixel.positive(), height: pixel.positive(),

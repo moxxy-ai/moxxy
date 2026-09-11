@@ -16,7 +16,7 @@ assert.ok(plugin.tools.every((tool) => tool.permission.action === 'prompt'));
 const context = { sessionId: randomUUID(), turnId: randomUUID(), signal: new AbortController().signal };
 try {
   const result = await status.handler({}, context);
-  assert.equal(result.protocolVersion, 1);
+  assert.equal(result.protocolVersion, 2);
   assert.equal(result.architecture, 'x64');
   assert.equal(result.platform, 'win32');
   console.log('Installed Computer Use extension and native helper handshake passed');
