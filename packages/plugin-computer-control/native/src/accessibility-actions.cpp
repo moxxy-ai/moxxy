@@ -34,6 +34,11 @@ HRESULT perform(IUIAutomationElement* node, unsigned index) {
 }
 AccessibilityState accessibility_state(IUIAutomationElement* node) {
   AccessibilityState state;
+  struct OwnedString { BSTR value=nullptr; ~OwnedString() { SysFreeString(value); } } name;
+  check_hresult(node->get_CurrentName(&name.value));
+  auto length=SysStringLen(name.value);
+  require(length<=64000,"observation-limit","Accessible name exceeds the bounded identity snapshot");
+  if (length) state.name.assign(name.value,length);
   if (pattern<IUIAutomationInvokePattern>(node,UIA_InvokePatternId)) state.actions|=1;
   if (auto value=pattern<IUIAutomationSelectionItemPattern>(node,UIA_SelectionItemPatternId)) {
     BOOL selected=FALSE; check_hresult(value->get_CurrentIsSelected(&selected));

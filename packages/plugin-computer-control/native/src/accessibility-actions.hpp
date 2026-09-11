@@ -4,6 +4,7 @@
 
 namespace moxxy {
 struct AccessibilityState {
+  std::wstring name;
   unsigned actions=0;
   int toggle=-1,selected=-1,expanded=-1;
   bool operator==(const AccessibilityState&) const = default;
