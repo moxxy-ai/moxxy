@@ -153,6 +153,35 @@ try {
       $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
       Check ($crop.width -eq 200 -and $crop.height -eq 100 -and $crop.source.x -eq $full.source.x+20 -and $crop.source.y -eq $full.source.y+30) 'Crop source mapping differs'
     }
+    Test 'explicit pause stays paused on foreground and resumes only by user command' {
+      try {
+        $before=Observe
+        $script:helper.StandardInput.WriteLine('{"version":2,"control":"pause"}'); $script:helper.StandardInput.Flush()
+        $id=[guid]::NewGuid().ToString()
+        $frame=@{version=2;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
+        $read=$script:helper.StandardOutput.ReadLineAsync()
+        Check ($read.Wait(5000)) 'No paused state'
+        $state=$read.Result | ConvertFrom-Json
+        Check ($state.id -eq $id -and $state.state -eq 'paused_by_user') 'Explicit pause was not honored'
+        $pending=$script:helper.StandardOutput.ReadLineAsync()
+        Check (-not $pending.Wait(1200)) 'Pause auto-resumed while target was foreground'
+        $script:helper.StandardInput.WriteLine('{"version":2,"control":"resume"}'); $script:helper.StandardInput.Flush()
+        Check ($pending.Wait(5000)) 'Resume could not reach blocked helper'
+        $state=$pending.Result | ConvertFrom-Json
+        Check ($state.state -in @('foreground','background')) 'Missing resumed state'
+        $read=$script:helper.StandardOutput.ReadLineAsync()
+        Check ($read.Wait(5000)) 'Missing paused operation result'
+        $response=$read.Result | ConvertFrom-Json
+        Check ($response.ok -and $response.result.status -eq 'needs_observation' -and $response.result.effect -eq 'none') 'Paused input was replayed'
+      } finally {
+        $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null
+        $script:helper=Start-Peer
+        $inventory=Call 'windows' @{}
+        $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+      }
+    }
     Test 'focus wait stays pending and returns observation-required after target resumes' {
       $before=Observe
       $otherPath=Join-Path $ReportDirectory 'focus-wait-fixture.json'
