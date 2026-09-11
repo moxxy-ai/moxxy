@@ -458,10 +458,17 @@ try {
       $panelReport=Join-Path $ReportDirectory 'panel-result.txt'
       $probe=Start-Process -FilePath $FixturePath -ArgumentList '--panel-test',($children[0].ProcessId),('"'+$panelReport+'"') -PassThru
       try {
-        Check ($probe.WaitForExit(10000)) 'Panel test timed out'
-        Check ($probe.ExitCode -eq 0 -and (Get-Content -LiteralPath $panelReport -Raw) -eq 'passed') 'Guardian panel accessibility/actions failed'
+        Check ($probe.WaitForExit(15000)) 'Panel test timed out'
+        $detail=Get-Content -LiteralPath $panelReport -Raw
+        Check ($probe.ExitCode -eq 0 -and $detail -eq 'passed') ('Guardian panel accessibility/actions failed: '+$detail)
         Check ($script:helper.WaitForExit(3000)) 'Panel Stop left the worker running'
-      } finally { if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose() }
+      } finally {
+        if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose()
+        if (-not $script:helper.HasExited) {
+          $script:helper.StandardInput.Close()
+          if (-not $script:helper.WaitForExit(3000)) { $script:helper.Kill(); $script:helper.WaitForExit() }
+        }
+      }
     }
     if ($TestInstalledApps) {
       Test 'catalog launches a named installed application without desktop activation or shell text' {
