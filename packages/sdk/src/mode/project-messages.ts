@@ -420,7 +420,10 @@ export function projectMessages(
         } else if (e.ok && (image = imageBlockFromOutput(e.output))) {
           // Short marker satisfies the tool_use→tool_result pairing; the image
           // block (appended below) carries the actual pixels.
-          text = '[image returned by tool — see attached image]';
+          const description = (e.output as { forModel?: unknown }).forModel;
+          text = typeof description === 'string'
+            ? description
+            : '[image returned by tool — see attached image]';
         } else {
           text = safeStringifyOutput(e.output);
         }

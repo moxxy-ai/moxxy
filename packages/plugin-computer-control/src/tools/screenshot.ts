@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
 import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
+import { withTemporaryFiles } from '../temporary-files.js';
 
 const regionSchema = z.object({
   x: z.number().int().min(0),
@@ -108,7 +109,9 @@ export const screenshotTool = defineTool({
     // reject (e.g. `sips` not on PATH) / mid-capture timeout that may have
     // left a partial file. Without this, those failure paths leak the temp
     // file in os.tmpdir() permanently and accumulate over repeated failures.
-    try {
+    const outExt = fmt === 'jpeg' ? 'jpg' : 'png';
+    const outTmp = path.join(os.tmpdir(), `moxxy-screencap-${process.pid}-${uniq}-out.${outExt}`);
+    return withTemporaryFiles([captureTmp, outTmp], async () => {
       const cap = await runProcess('screencapture', captureArgs, {
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         timeoutMs: 15_000,
@@ -127,11 +130,6 @@ export const screenshotTool = defineTool({
       // Resize + format-convert in one sips call. `-Z N` fits within N
       // on the longest edge while preserving aspect ratio. Output ext
       // picks the format; format options apply when JPEG.
-      const outExt = fmt === 'jpeg' ? 'jpg' : 'png';
-      const outTmp = path.join(
-        os.tmpdir(),
-        `moxxy-screencap-${process.pid}-${Date.now()}-${uniq}-out.${outExt}`,
-      );
       const sipsArgs = [
         '-Z',
         String(dim),
@@ -187,8 +185,6 @@ export const screenshotTool = defineTool({
       } finally {
         await fs.rm(outTmp, { force: true });
       }
-    } finally {
-      await fs.rm(captureTmp, { force: true });
-    }
+    });
   },
 });
