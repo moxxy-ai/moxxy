@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema } from './contracts.js';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema, observeSchema } from './contracts.js';
 import { JsonLineDecoder } from './protocol.js';
 
 describe('Windows computer control contracts', () => {
   const geometry = { x: -1920, y: -200, width: 1920, height: 1080 };
+  it('requires an observation-scoped subtree and bounded literal filters', () => {
+    const input={windowId:'w',root:{observationId:'o',elementId:'e'},filter:{nameIncludes:'Save',controlType:50000}};
+    expect(observeSchema.safeParse(input).success).toBe(true);
+    expect(observeSchema.safeParse({...input,root:{elementId:'e'}}).success).toBe(false);
+    expect(observeSchema.safeParse({...input,filter:{nameIncludes:'x'.repeat(257)}}).success).toBe(false);
+    expect(observeSchema.safeParse({...input,filter:{xpath:'//button'}}).success).toBe(false);
+  });
   it('does not call an ambiguous or unlaunched application an opened window', () => {
     const window={windowId:'w',pid:42,title:'App',className:'Fixture',state:'normal',kind:'normal',bounds:geometry};
     expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:true,windows:[window]}).success).toBe(true);

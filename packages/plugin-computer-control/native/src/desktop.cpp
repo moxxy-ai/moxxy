@@ -118,10 +118,25 @@ JsonArray Desktop::list_windows() {
 }
 Json Desktop::observe(const Json& params, Window& window) {
   const auto limit = number(params, L"maxNodes", 1, 256);
+  auto root=window.root;
+  if (params.HasKey(L"root")) {
+    auto reference=params.GetNamedObject(L"root"); fields(reference,{L"observationId",L"elementId"});
+    reference.Insert(L"windowId",params.GetNamedValue(L"windowId"));
+    root=element(reference,window,false).node;
+  }
+  std::wstring name_filter;
+  std::optional<int> type_filter;
+  if (params.HasKey(L"filter")) {
+    auto filter=params.GetNamedObject(L"filter"); fields(filter,{L"nameIncludes",L"controlType"});
+    if (filter.HasKey(L"nameIncludes")) name_filter=text(filter,L"nameIncludes",256);
+    if (filter.HasKey(L"controlType")) type_filter=number(filter,L"controlType",50000,60000);
+    std::transform(name_filter.begin(),name_filter.end(),name_filter.begin(),[](wchar_t c){return static_cast<wchar_t>(towlower(c));});
+  }
   elements.clear(); observation_id = identifier(); observed_window = text(params, L"windowId");
   observed_bounds = window_bounds(window.hwnd); observed_epoch = focus_epoch.load();
   JsonArray output;
   bool truncated = false;
+  unsigned visited=0;
   std::wstring focused_id;
   com_ptr<IUIAutomationElement> focused;
   automation->GetFocusedElement(focused.put());
@@ -131,7 +146,8 @@ Json Desktop::observe(const Json& params, Window& window) {
   std::function<void(com_ptr<IUIAutomationElement>, std::wstring, int)> walk;
   walk = [&](com_ptr<IUIAutomationElement> node, std::wstring parent, int depth) {
     if (!node) return;
-    if (output.Size() >= static_cast<unsigned>(limit) || depth > 24) { truncated = true; return; }
+    if (output.Size() >= static_cast<unsigned>(limit) || depth > 24 || visited>=1024) { truncated = true; return; }
+    ++visited;
     auto rect = element_bounds(node.get());
     auto id = identifier();
     bool secret = protected_element(node.get());
@@ -142,7 +158,10 @@ Json Desktop::observe(const Json& params, Window& window) {
     if (!secret && SUCCEEDED(node->get_CurrentName(&name)) && name) {
       label.assign(name, std::min<size_t>(SysStringLen(name), 512)); SysFreeString(name);
     }
-    if (rect.width > 0 && rect.height > 0) {
+    auto normalized=label;
+    std::transform(normalized.begin(),normalized.end(),normalized.begin(),[](wchar_t c){return static_cast<wchar_t>(towlower(c));});
+    bool matches=(!type_filter || control==*type_filter) && (name_filter.empty() || normalized.find(name_filter)!=std::wstring::npos);
+    if (matches && rect.width > 0 && rect.height > 0) {
       auto value=secret ? std::nullopt : element_value(node.get());
       elements.emplace(id, Element{node, rect, value});
       Json entry; entry.Insert(L"elementId", string_value(id));
@@ -163,13 +182,13 @@ Json Desktop::observe(const Json& params, Window& window) {
     com_ptr<IUIAutomationElement> child;
     check_hresult(walker->GetFirstChildElement(node.get(), child.put()));
     while (child) {
-      if (output.Size() >= static_cast<unsigned>(limit)) { truncated = true; break; }
+      if (output.Size() >= static_cast<unsigned>(limit) || visited>=1024) { truncated = true; break; }
       walk(child, parent, depth + 1);
       com_ptr<IUIAutomationElement> next;
       check_hresult(walker->GetNextSiblingElement(child.get(), next.put())); child = std::move(next);
     }
   };
-  walk(window.root, L"", 0);
+  walk(root, L"", 0);
   require(observed_bounds == window_bounds(window.hwnd),
     "stale-observation", "Window changed while observing; observe again");
   Json result; result.Insert(L"windowId", string_value(observed_window)); result.Insert(L"observationId", string_value(observation_id));
@@ -262,7 +281,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   if (method == L"open") { fields(params,{L"appId",L"instance",L"timeoutMs"}); return open(params); }
   // Validate shape before acquiring a lease or executing any native operation.
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
-  else if (method == L"observe") fields(params, {L"windowId", L"maxNodes"});
+  else if (method == L"observe") fields(params, {L"windowId", L"maxNodes", L"root", L"filter"});
   else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});
   else if (method == L"click") fields(params, {L"windowId", L"captureId", L"x", L"y", L"observationId", L"elementId", L"button", L"count"});
   else if (method == L"type" || method == L"set_value") fields(params, {L"windowId", L"observationId", L"elementId", L"text"});
