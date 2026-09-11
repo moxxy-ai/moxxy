@@ -266,6 +266,24 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       check_hresult(control.node->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(pattern.put())));
       BOOL readonly = TRUE; check_hresult(pattern->get_CurrentIsReadOnly(&readonly));
       require(!readonly, "read-only", "Control is read-only");
+      if (!has_target_focus(window.hwnd)) {
+        // The system UIA EDIT proxy may focus the application during SetValue.
+        // WM_SETTEXT targets a standard EDIT directly without using global input.
+        UIA_HWND native = nullptr; check_hresult(control.node->get_CurrentNativeWindowHandle(&native));
+        auto hwnd = reinterpret_cast<HWND>(native);
+        wchar_t klass[256]{}; GetClassNameW(hwnd,klass,256);
+        DWORD pid = 0; GetWindowThreadProcessId(hwnd,&pid);
+        require(std::wstring_view(klass)==L"Edit" || std::wstring_view(klass)==L"EDIT", "foreground-required", "This control has no verified background value operation");
+        require(pid==window.pid && GetAncestor(hwnd,GA_ROOT)==window.hwnd, "stale-element", "Native edit no longer belongs to target");
+        auto style=GetWindowLongPtrW(hwnd,GWL_STYLE);
+        require(IsWindowEnabled(hwnd) && !(style & (ES_READONLY|ES_PASSWORD)), "protected-element", "Edit is read-only or protected");
+        DWORD_PTR result = 0;
+        require(SendMessageTimeoutW(hwnd,WM_SETTEXT,0,reinterpret_cast<LPARAM>(value.c_str()),SMTO_ABORTIFHUNG|SMTO_BLOCK,1000,&result)!=0,
+          "uncertain-result", "Background value request timed out; observe before any further action");
+        require(result!=0, "value-rejected", "The edit rejected the new value");
+        observation_id.clear(); capture_id.clear();
+        Json delivered; delivered.Insert(L"delivered",boolean(true)); delivered.Insert(L"verificationRequired",boolean(true)); return delivered;
+      }
       BSTR argument = SysAllocStringLen(value.data(), static_cast<UINT>(value.size()));
       require(argument != nullptr, "native-error", "Cannot allocate control value");
       auto result = pattern->SetValue(argument); SysFreeString(argument); check_hresult(result);
