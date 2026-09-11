@@ -13,6 +13,7 @@ std::filesystem::path report_path;
 int left = 0, right = 0, middle = 0, double_clicks = 0, wheel_x = 0, wheel_y = 0, drags = 0, saves = 0, menu_picks = 0;
 bool dragging = false;
 bool recreating = false;
+std::wstring canvas_text;
 std::string panel_failure;
 POINT drag_start{};
 HWND create_fixture_window();
@@ -75,6 +76,7 @@ LRESULT CALLBACK edit_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
 void report() {
   wchar_t value[4097]{}; if (edit) GetWindowTextW(edit, value, 4097);
   Json result; result.Insert(L"text", string_value(value));
+  result.Insert(L"canvasText",string_value(canvas_text));
   DWORD selection_start=0,selection_end=0;
   if (edit) SendMessageW(edit,EM_GETSEL,reinterpret_cast<WPARAM>(&selection_start),reinterpret_cast<LPARAM>(&selection_end));
   result.Insert(L"selectionStart",numeric(selection_start)); result.Insert(L"selectionEnd",numeric(selection_end));
@@ -95,6 +97,7 @@ void report() {
 }
 LRESULT CALLBACK canvas_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
+    case WM_CHAR: if (canvas_text.size()<4000) canvas_text.push_back(static_cast<wchar_t>(wparam)); break;
     case WM_PAINT: {
       PAINTSTRUCT paint; HDC dc = BeginPaint(hwnd, &paint);
       RECT area; GetClientRect(hwnd, &area);

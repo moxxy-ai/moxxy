@@ -145,6 +145,23 @@ try {
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
+    Test 'window-targeted typing reaches a non-text canvas but refuses protected focus' {
+      $observation=Observe
+      $canvas=@($observation.elements | Where-Object name -eq 'Canvas')[0]
+      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
+      $observation=Observe
+      Call 'type_window' @{windowId=$script:windowId;observationId=$observation.observationId;text='Zażółć'} | Out-Null
+      Check ((Fixture-State).canvasText -eq 'Zażółć') 'Window-targeted typing did not reach the real canvas'
+      $observation=Observe
+      $secret=@($observation.elements | Where-Object protected)[0]
+      $capture=Screenshot
+      $x=[math]::Floor(($secret.bounds.x+10-$capture.source.x)*$capture.width/$capture.source.width)
+      $y=[math]::Floor(($secret.bounds.y+10-$capture.source.y)*$capture.height/$capture.source.height)
+      Call 'click' @{windowId=$script:windowId;captureId=$capture.captureId;x=$x;y=$y;button='left';count=1} | Out-Null
+      $observation=Observe
+      $denied=Request $script:helper 'type_window' @{windowId=$script:windowId;observationId=$observation.observationId;text='must not type'}
+      Check (-not $denied.ok -and $denied.error.code -eq 'protected-element') 'Window typing accepted a password focus'
+    }
     Test 'UIA invoke toggle selection and tree expansion affect real controls' {
       $before=(Fixture-State).saves
       Await-Action (Accessible-Action 'Save' 'invoke')
