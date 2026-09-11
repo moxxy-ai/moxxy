@@ -442,6 +442,8 @@ try {
     if ($TestInstalledApps) {
       Test 'catalog launches a named installed application without desktop activation or shell text' {
         $script:helper=Start-Peer
+        $catalog=Call 'app_catalog' @{query='';maxResults=64}
+        Check ($catalog.unavailableSources.Count -eq 0 -and @($catalog.apps | Where-Object source -eq 'windows-shell').Count -gt 0) 'Windows installed-app catalog source unavailable'
         $apps=Call 'app_catalog' @{query='notepad';maxResults=64}
         Check ($apps.apps.Count -gt 0) 'Notepad absent from installed catalog'
         $app=@($apps.apps | Where-Object source -eq 'system')[0]
