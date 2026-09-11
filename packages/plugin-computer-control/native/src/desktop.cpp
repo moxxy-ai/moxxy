@@ -277,6 +277,13 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     result.Insert(L"limitations", limits); return result;
   }
   if (method == L"windows" || method == L"apps") { fields(params, {}); check_active_desktop(); return list_windows(); }
+  if (method == L"maintenance") {
+    fields(params,{}); acquire();
+    // Installer maintenance owns the lease, not interactive computer input.
+    // Its explicit update dialog controls cancellation; hide the input panel.
+    lease_active=false; publish_guard_state(ControlState::idle);
+    Json result; result.Insert(L"maintenanceReady",boolean(true)); return result;
+  }
   if (method == L"app_catalog") { fields(params,{L"query",L"maxResults"}); check_active_desktop(); return catalog.list(params); }
   if (method == L"open") { fields(params,{L"appId",L"instance",L"timeoutMs"}); return open(params); }
   // Validate shape before acquiring a lease or executing any native operation.
