@@ -269,6 +269,21 @@ try {
       $script:windowId=$target.windowId
       Call 'focus' @{ windowId=$script:windowId } | Out-Null
     }
+    Test 'native popup menu has an actionable window identity' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Context menu')[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      Start-Sleep -Milliseconds 200
+      $inventory=Call 'windows' @{}
+      $menu=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.className -eq '#32768' })[0]
+      $parent=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
+      Check ($null -ne $menu) 'Native menu omitted from window inventory'
+      $script:windowId=$menu.windowId
+      Call 'focus' @{ windowId=$script:windowId } | Out-Null
+      $observation=Observe; $item=@($observation.elements | Where-Object name -eq 'Choose test action')[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$item.elementId; button='left'; count=1 } | Out-Null
+      $script:windowId=$parent.windowId
+      Check ((Fixture-State).menuPicks -eq 1) 'Context menu action not delivered'
+    }
     if ($TestClipboard) {
       Test 'clipboard Unicode round trip' {
         $original=Request $script:helper 'clipboard' @{ windowId=$script:windowId; action='read' }
