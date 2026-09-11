@@ -93,6 +93,20 @@ try {
     Record 'interactive desktop preflight' 'not-tested' 'Windows has no unlocked interactive desktop.'
     $exitCode = 2
   } else {
+    Test 'maintenance lease excludes competing helpers without targeting a window' {
+      try {
+        $lease=Call 'maintenance' @{}
+        Check ($lease.maintenanceReady) 'No maintenance lease acknowledgement'
+        $other=Start-Peer
+        try {
+          $busy=Request $other 'maintenance' @{}
+          Check (-not $busy.ok -and $busy.error.code -eq 'control-busy') 'Maintenance allowed competing desktop owner'
+        } finally { $other.StandardInput.Close(); $other.WaitForExit(3000) | Out-Null }
+      } finally {
+        $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null
+        $script:helper=Start-Peer
+      }
+    }
     $script:statePath = Join-Path $ReportDirectory 'fixture-state.json'
     $fixture = Start-Process -FilePath $FixturePath -ArgumentList ('"' + $script:statePath + '"') -PassThru
     $fixtures.Add($fixture)
