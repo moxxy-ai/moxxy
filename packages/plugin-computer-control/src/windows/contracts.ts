@@ -46,6 +46,11 @@ export const observeSchema = targetSchema.extend({
   filter: z.object({nameIncludes: z.string().max(256).optional(), controlType: pixel.min(50000).max(60000).optional()}).strict().optional(),
 }).strict();
 export const typeSchema = elementSchema.extend({ text: z.string().max(4000) }).strict();
+export const readTextSchema = elementSchema.extend({ maxChars: z.number().int().min(1).max(16000).default(4000) }).strict();
+export const selectTextSchema = elementSchema.extend({ text: z.string().min(1).max(4000), occurrence: z.number().int().min(1).max(100).default(1) }).strict();
+export const textResultSchema = z.object({
+  text: z.string().max(16000), selectedText: z.array(z.string().max(16000)).max(16), truncated: z.boolean(),
+}).strict();
 export const keySchema = targetSchema.extend({
   observationId: idSchema,
   key: z.string().regex(/^(?:[a-z0-9]|enter|tab|escape|backspace|delete|space|home|end|pageup|pagedown|left|right|up|down|f(?:[1-9]|1[0-2]))$/),
