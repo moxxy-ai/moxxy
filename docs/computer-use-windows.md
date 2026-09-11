@@ -10,19 +10,38 @@ system-command backend with the same arguments.
 - Windows 10 22H2 and Windows 11 x64 are the intended client targets. Windows
   Server CI does not establish support for either client OS.
 - Every operation still uses the tool permission pipeline. UI text is untrusted.
-- Enumerate windows, focus one, observe or capture, act, then observe again.
-  Window IDs are scoped to a helper/inventory; element IDs to an observation.
+- Enumerate windows, observe or capture the target, act, then observe again.
+  Focus is required for physical input, not for window observation. Window IDs
+  remain stable within the helper when inventory is refreshed; element IDs are
+  observation-scoped. Minimized windows expose null bounds and require `computer_restore`.
   Image coordinates are pixels of the returned image, not desktop coordinates.
 - UIA observes a bounded subtree; password controls do not expose text. WGC
   captures a window; visible-screen fallback requires explicit opt-in and may
   include overlapping content. Dispatch success is not evidence of task success.
 - A Windows mutex serializes control across processes until the owning turn
-  ends. Input is released on cancellation, parent exit and watchdog timeout.
-  The native indicator offers Stop Computer Use; normal client cancellation also
+  ends. An independent guardian holds a shared injected-input ledger and releases
+  it on cancellation, parent exit, watchdog timeout and hard worker termination.
+  Only the ledger's releases are sent; physical key state is tracked separately.
+  This does not cover failure of the guardian or Windows itself.
+- The guardian owns the non-activating Moxxy panel with accessible Pause, Resume
+  and Stop buttons. Optional Ctrl+Alt+F11/F10/F12 equivalents register while it is
+  visible, when those shortcuts are available. Normal turn cancellation also
   closes the helper. A failed/stopped connection cannot retry input in that turn.
+- Native protocol v2 reports local focus waiting. Active request deadlines pause
+  during explicit waiting, but cancellation remains live. Target focus resumes
+  focus-waiting; explicit Pause requires Resume. Resuming returns
+  `needs_observation`, with `effect: none | possible`, never replayed input.
+- Background `computer_set_value` currently supports verified standard EDIT
+  controls through targeted messages. Generic UIA SetValue is **not** assumed
+  focus-neutral. Changed values or editability invalidate stored element targets.
+- `computer_app_catalog` enumerates the Windows Shell app catalog and installed
+  system Notepad/Paint entries. `computer_open` uses a catalog ID, not a shell
+  command, and resolves matching windows by process/application identity.
+  Reuse/new-instance requests return explicit existing/opened/ambiguous/no-window
+  results. An unavailable catalog source is reported, not treated as an empty one.
 - Windows UAC, secure desktops, elevation, Linux and ARM64 are not supported.
-  Windows may deny foreground activation. Ask the user to activate the window;
-  do not work around Windows' security or focus rules.
+  Windows may deny foreground activation. Wait locally for the target or explicit
+  Resume; do not repeatedly steal focus or bypass Windows restrictions.
 
 ## Distribution and updates
 
@@ -59,12 +78,24 @@ unique temporary report directory. Reports stay local; nothing is uploaded by th
 user script. If execution policy blocks the script, use your organization's
 approved procedure rather than disabling policy globally.
 
+`-TestInstalledApps` explicitly opts into opening and closing a new Notepad
+window without editing files. It is separate from tests confined to the fixture.
+The guardian panel is tested through actual UI Automation in the fixture probe.
+
 JSON/HTML reports distinguish passed, failed and not-tested. `releaseAccepted`
 stays false until the complete acceptance matrix has been independently met.
 CI exit 2 means the interactive desktop was unavailable, not a successful GUI test.
 The CI wrapper preserves that status in its artifact and warning.
 
 ## Release acceptance still required
+
+This branch is not yet the complete acceptance implementation. Outstanding work
+includes richer UIA actions/subtree filtering, document opening, cross-window
+drag, typed control-state integration through SDK/runner/desktop IPC, staged
+extension upgrade/rollback and local-modification detection, and the full fault
+and agent benchmark matrices. The built-in panel does not implement that IPC
+integration. Existing extension seeding still does not perform the planned
+controlled upgrade. Do not call the branch release-ready or equivalent to Codex.
 
 Run on both Windows 10 and 11 at 100%, 150% and 200% scaling. Test mixed-DPI
 monitors when available; absence of hardware remains not-tested. Native fixture
