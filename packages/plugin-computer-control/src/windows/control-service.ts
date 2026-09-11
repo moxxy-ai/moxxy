@@ -40,7 +40,8 @@ export class TurnControls {
       snapshot: async () => [...this.entries.values()]
         .filter((entry) => entry.snapshot.sessionId === sessionId)
         .map(({ snapshot, transport }) => ({
-          ...snapshot, state: transport.closed && snapshot.state !== 'stopped' ? 'failed' : snapshot.state,
+          ...snapshot, state: transport.stoppedByUser ? 'stopped'
+            : transport.closed && snapshot.state !== 'stopped' ? 'failed' : snapshot.state,
         })),
       control: async (input) => {
         const command = computerControlCommandSchema.parse(input);

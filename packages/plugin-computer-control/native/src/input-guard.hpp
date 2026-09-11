@@ -9,6 +9,7 @@ void guarded_input(INPUT input, std::optional<INPUT> release = std::nullopt);
 void guarded_release() noexcept;
 void guard_control(ControlCommand command);
 bool guard_paused();
+bool guard_stopped_by_user();
 bool take_guard_resume();
 void publish_guard_state(ControlState state, HWND target = nullptr);
 }

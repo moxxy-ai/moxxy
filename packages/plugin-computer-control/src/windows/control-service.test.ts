@@ -2,6 +2,17 @@ import { expect, it } from 'vitest';
 import { HelperTransport } from './transport.js';
 import { TurnControls } from './control-service.js';
 
+it('distinguishes the independent panel Stop from a crashed worker', async () => {
+  const controls = new TurnControls();
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.once("data",()=>process.exit(20))']);
+  try {
+    controls.attach('session', 'turn', transport);
+    await expect(transport.request('status', {}, new AbortController().signal)).rejects.toThrow();
+    expect((await controls.forSession('session').snapshot())[0]?.state).toBe('stopped');
+    await expect(controls.forSession('session').control({sessionId:'session',turnId:'turn',command:'resume'})).rejects.toThrow(/stopped/);
+  } finally { await transport.close(); }
+});
+
 it('routes human control to the exact live turn and retains a stopped tombstone', async () => {
   const controls = new TurnControls();
   const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()']);
