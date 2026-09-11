@@ -93,7 +93,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
         if (command==180) ++menu_picks; DestroyMenu(menu);
       }
       report(); return 0;
-    case WM_DESTROY: report(); if (!recreating) PostQuitMessage(0); return 0;
+    case WM_DESTROY:
+      // Last-resort test cleanup, after assertions: never leave the test's drag
+      // held on a developer desktop when a deliberately failing crash test exits.
+      if (dragging) {
+        INPUT release{}; release.type=INPUT_MOUSE; release.mi.dwFlags=MOUSEEVENTF_LEFTUP;
+        SendInput(1,&release,sizeof(release)); dragging=false;
+      }
+      report(); if (!recreating) PostQuitMessage(0); return 0;
     default: return DefWindowProcW(hwnd,message,wparam,lparam);
   }
 }
