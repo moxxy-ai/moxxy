@@ -12,3 +12,5 @@ Preserve unchanged window identities, reject changed control values, explicitly 
 Move accessible pause/resume/stop controls into a non-activating native guardian panel. Add an installed-application catalog and explicit reuse/new-instance launching with correlated window results instead of command-text interpolation.
 
 Expose session/turn-owned Computer Use state and human controls through an optional SDK service, runner protocol v12 and validated workspace-specific desktop IPC. Preserve stopped-turn tombstones and ordinary chat compatibility when the service is absent.
+
+Add filtered, observation-scoped accessibility reads and Windows-specific request guidance. Offer a consent-based offline Computer Use upgrade from full Windows installers with private dependencies, hash checks, backups, npm ledger alignment, isolated runtime verification and interrupted-update recovery; leave other extensions and user credentials untouched.

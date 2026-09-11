@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { HelperTransport } from './transport.js';
 import { verifyHelperArtifact } from './artifact.js';
 import { TurnControls } from './control-service.js';
+import { withWindowsComputerGuidance } from './guidance.js';
 import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,
   observationSchema, observationRequiredSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
@@ -50,6 +51,7 @@ export class WindowsBackend {
   }
 
   readonly hooks: LifecycleHooks = {
+    onBeforeProviderCall: withWindowsComputerGuidance,
     onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
     onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
     onShutdown: (ctx) => this.release(ctx.sessionId),
@@ -95,7 +97,7 @@ export class WindowsBackend {
       operation('screenshot', 'Capture a specific window; use returned captureId for image-based actions.', screenshotSchema, captureSchema),
       operation('click', 'Click an observed element or image point; observe again to verify the effect.', clickSchema, delivered),
       operation('type', 'Type Unicode into the explicitly observed and focused control.', typeSchema, delivered),
-      operation('set_value', 'Set an editable non-protected control through UI Automation.', typeSchema, delivered),
+      operation('set_value', 'Set an editable non-protected control value. Background changes require verified native support and never fall back to physical input.', typeSchema, delivered),
       operation('key', 'Send an explicit Windows shortcut to a freshly observed focused window.', keySchema, delivered),
       operation('scroll', 'Scroll at a captured point; positive Y scrolls up, positive X right, 120 units per notch.', scrollSchema, delivered),
       operation('drag', 'Drag between two points in the same fresh window capture.', dragSchema, delivered),
