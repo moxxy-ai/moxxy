@@ -83,4 +83,16 @@ describe('native helper transport', () => {
     await expect(transport.request('status', {}, new AbortController().signal)).rejects.toThrow(/exited/);
     await transport.close();
   });
+  it('sends resume independently of a pending operation and permanently closes on stop', async () => {
+    const transport = new HelperTransport(process.execPath, ['-e', `const lines=require('readline').createInterface({input:process.stdin});
+      let request;
+      lines.on('line',line=>{const r=JSON.parse(line);
+        if(r.method){request=r;process.stdout.write(JSON.stringify({version:2,event:'control_state',id:r.id,state:'paused_by_user'})+'\\n');}
+        else if(r.control==='resume'){process.stdout.write(JSON.stringify({version:2,id:request.id,ok:true,result:{resumed:true}})+'\\n');}
+      });`], 1000, state => { if (state.state === 'paused_by_user') transport.control('resume'); });
+    expect(await transport.request('click', {}, new AbortController().signal)).toEqual({resumed:true});
+    transport.control('stop');
+    await expect(transport.request('click', {}, new AbortController().signal)).rejects.toThrow(/closed/);
+    await transport.close();
+  });
 });

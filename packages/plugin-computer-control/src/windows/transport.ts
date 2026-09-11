@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { JsonLineDecoder } from './protocol.js';
-import { MAX_FRAME_BYTES, PROTOCOL_VERSION, responseSchema, controlStateSchema, type ControlState } from './contracts.js';
+import { MAX_FRAME_BYTES, PROTOCOL_VERSION, responseSchema, controlStateSchema, controlCommandSchema, type ControlState } from './contracts.js';
 
 interface Pending {
   id: string;
@@ -66,6 +66,17 @@ export class HelperTransport {
     const next = this.queue.then(() => this.send(method, params, signal));
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  /** Control uses the reader side of the helper, never its blocked request queue. */
+  control(command: 'pause' | 'resume' | 'stop'): void {
+    controlCommandSchema.parse(command);
+    if (this.stopped) throw new Error('Computer Use connection closed');
+    if (command === 'stop') {
+      this.fail(new Error('Computer Use stopped by user; action not retried.'));
+      return;
+    }
+    this.child.stdin.write(JSON.stringify({version: PROTOCOL_VERSION, control: command}) + '\n');
   }
 
   private send(method: string, params: unknown, signal: AbortSignal): Promise<unknown> {

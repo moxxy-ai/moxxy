@@ -8,6 +8,7 @@ export const controlStateSchema = z.object({
   state: z.enum(['idle', 'background', 'foreground', 'waiting_for_focus', 'paused_by_user', 'recovering', 'stopped', 'failed']),
 }).strict();
 export type ControlState = z.infer<typeof controlStateSchema>;
+export const controlCommandSchema = z.enum(['pause', 'resume', 'stop']);
 export const observationRequiredSchema = z.object({
   status: z.literal('needs_observation'), delivered: z.literal(false),
   effect: z.enum(['none', 'possible']), verificationRequired: z.literal(true),
