@@ -163,7 +163,7 @@ Element& Desktop::element(const Json& params, Window& window) {
 }
 Point Desktop::point(const Json& params, const Json& coordinates, Window& window) {
   require(text(params, L"captureId") == capture_id && !capture_id.empty() && text(params, L"windowId") == captured_window &&
-    captured_bounds == window_bounds(window.hwnd) && captured_epoch == focus_epoch.load(),
+    captured_window_bounds == window_bounds(window.hwnd) && captured_epoch == focus_epoch.load(),
     "stale-capture", "Capture window again after geometry or focus changes");
   return image_point(number(coordinates, L"x", 0, 3840), number(coordinates, L"y", 0, 3840),
     captured_width, captured_height, captured_bounds);
@@ -183,7 +183,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   // Validate shape before acquiring a lease or executing any native operation.
   if (method == L"focus") fields(params, {L"windowId"});
   else if (method == L"observe") fields(params, {L"windowId", L"maxNodes"});
-  else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback"});
+  else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});
   else if (method == L"click") fields(params, {L"windowId", L"captureId", L"x", L"y", L"observationId", L"elementId", L"button", L"count"});
   else if (method == L"type" || method == L"set_value") fields(params, {L"windowId", L"observationId", L"elementId", L"text"});
   else if (method == L"key") fields(params, {L"windowId", L"observationId", L"key", L"modifiers"});
@@ -200,9 +200,16 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     auto format = text(params, L"format");
     require(format == L"png" || format == L"jpeg", "invalid-input", "Unsupported image format");
     auto epoch = focus_epoch.load();
+    auto bounds_before = window_bounds(window.hwnd);
+    std::optional<Rect> crop;
+    if (params.HasKey(L"region")) {
+      auto region=params.GetNamedObject(L"region"); fields(region,{L"x",L"y",L"width",L"height"});
+      crop=Rect{number(region,L"x",0,32768),number(region,L"y",0,32768),number(region,L"width",1,32768),number(region,L"height",1,32768)};
+    }
     auto capture = capture_window(window.hwnd, number(params, L"maxDim", 256, 3840), format == L"jpeg",
-      number(params, L"quality", 40, 100), params.GetNamedBoolean(L"allowVisibleFallback"));
-    require(capture.source == window_bounds(window.hwnd) && epoch == focus_epoch.load(), "stale-capture", "Window changed during capture");
+      number(params, L"quality", 40, 100), params.GetNamedBoolean(L"allowVisibleFallback"), crop);
+    require(bounds_before == window_bounds(window.hwnd) && epoch == focus_epoch.load(), "stale-capture", "Window changed during capture");
+    captured_window_bounds = bounds_before;
     captured_bounds = capture.source; captured_width = capture.width; captured_height = capture.height;
     capture_id = identifier(); captured_window = text(params, L"windowId"); captured_epoch = epoch;
     Json result; result.Insert(L"windowId", string_value(captured_window)); result.Insert(L"captureId", string_value(capture_id));

@@ -113,6 +113,11 @@ try {
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
+    Test 'window-local crop retains source geometry' {
+      $full=Screenshot
+      $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
+      Check ($crop.width -eq 200 -and $crop.height -eq 100 -and $crop.source.x -eq $full.source.x+20 -and $crop.source.y -eq $full.source.y+30) 'Crop source mapping differs'
+    }
     Test 'UIA set value preserves Polish and Unicode' {
       $observation = Observe
       $field = @($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]

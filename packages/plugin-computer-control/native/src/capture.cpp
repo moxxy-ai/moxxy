@@ -80,10 +80,12 @@ std::vector<uint8_t> capture_visible(HWND hwnd, Rect bounds) {
   return {begin, begin+static_cast<size_t>(bounds.width)*bounds.height*4};
 }
 }
-Capture capture_window(HWND hwnd, int max_dim, bool jpeg, int quality, bool allow_fallback) {
+Capture capture_window(HWND hwnd, int max_dim, bool jpeg, int quality, bool allow_fallback, std::optional<Rect> crop) {
   using namespace Windows::Graphics::Imaging;
   using namespace Windows::Storage::Streams;
   auto bounds = window_bounds(hwnd);
+  if (crop) require(crop->x+crop->width <= bounds.width && crop->y+crop->height <= bounds.height,
+    "invalid-crop", "Crop must fit inside the window");
   require(static_cast<uint64_t>(bounds.width)*bounds.height <= 16'777'216, "capture-limit", "Capture source is too large");
   std::vector<uint8_t> pixels;
   bool fallback = false;
@@ -91,6 +93,14 @@ Capture capture_window(HWND hwnd, int max_dim, bool jpeg, int quality, bool allo
   catch (...) {
     if (!allow_fallback) throw;
     pixels = capture_visible(hwnd, bounds); fallback = true;
+  }
+  if (crop) {
+    std::vector<uint8_t> cropped(static_cast<size_t>(crop->width)*crop->height*4);
+    for (int row=0;row<crop->height;++row)
+      memcpy(cropped.data()+static_cast<size_t>(row)*crop->width*4,
+        pixels.data()+(static_cast<size_t>(row+crop->y)*bounds.width+crop->x)*4, crop->width*4);
+    pixels=std::move(cropped);
+    bounds={bounds.x+crop->x,bounds.y+crop->y,crop->width,crop->height};
   }
   double scale = std::min(1.0, static_cast<double>(max_dim)/std::max(bounds.width,bounds.height));
   int width = std::max(1,static_cast<int>(bounds.width*scale)), height = std::max(1,static_cast<int>(bounds.height*scale));

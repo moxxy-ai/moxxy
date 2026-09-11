@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema } from './contracts.js';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema } from './contracts.js';
 import { JsonLineDecoder } from './protocol.js';
 
 describe('Windows computer control contracts', () => {
@@ -14,6 +14,10 @@ describe('Windows computer control contracts', () => {
     expect(() => imagePointToScreen({ x: 1280, y: 0 }, { width: 1280, height: 720 }, geometry)).toThrow();
     expect(rectangleSchema.safeParse({ ...geometry, width: 0 }).success).toBe(false);
     expect(rectangleSchema.safeParse({ ...geometry, x: Infinity }).success).toBe(false);
+  });
+  it('accepts a window-local crop, never a negative or empty crop', () => {
+    expect(screenshotSchema.safeParse({ windowId: 'w', region: { x: 10, y: 20, width: 200, height: 100 } }).success).toBe(true);
+    expect(screenshotSchema.safeParse({ windowId: 'w', region: { x: -1, y: 20, width: 200, height: 100 } }).success).toBe(false);
   });
   it('requires exactly one fresh target reference for a click', () => {
     expect(clickSchema.safeParse({ windowId: 'w1', captureId: 'c1', x: 10, y: 20 }).success).toBe(true);

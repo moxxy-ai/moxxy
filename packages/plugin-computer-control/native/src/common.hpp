@@ -11,6 +11,7 @@
 #include <set>
 #include <cmath>
 #include <functional>
+#include <optional>
 #include "geometry.hpp"
 
 namespace moxxy {
@@ -82,6 +83,6 @@ void scroll_at(HWND window, Point point, int dx, int dy);
 void drag_to(HWND window, Point from, Point to, int duration);
 Json clipboard(const Json& params);
 struct Capture { Rect source; int width; int height; std::string base64; std::wstring media_type; bool fallback; };
-Capture capture_window(HWND window, int max_dim, bool jpeg, int quality, bool allow_fallback);
+Capture capture_window(HWND window, int max_dim, bool jpeg, int quality, bool allow_fallback, std::optional<Rect> crop);
 Rect window_bounds(HWND window);
 }
