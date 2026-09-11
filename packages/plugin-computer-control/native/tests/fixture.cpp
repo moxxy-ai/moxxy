@@ -12,6 +12,7 @@ std::filesystem::path report_path;
 int left = 0, right = 0, middle = 0, double_clicks = 0, wheel_x = 0, wheel_y = 0, drags = 0, saves = 0, menu_picks = 0;
 bool dragging = false;
 bool recreating = false;
+std::string panel_failure;
 POINT drag_start{};
 HWND create_fixture_window();
 int test_control_panel(DWORD pid) {
@@ -24,7 +25,12 @@ int test_control_panel(DWORD pid) {
     VARIANT process{}; process.vt=VT_I4; process.lVal=pid;
     com_ptr<IUIAutomationCondition> condition;
     check_hresult(automation->CreatePropertyCondition(UIA_ProcessIdPropertyId,process,condition.put()));
-    check_hresult(desktop->FindFirst(TreeScope_Children,condition.get(),panel.put()));
+    auto deadline=GetTickCount64()+3000;
+    do {
+      check_hresult(desktop->FindFirst(TreeScope_Children,condition.get(),panel.put()));
+      if (panel) break;
+      Sleep(25);
+    } while (GetTickCount64()<deadline);
     require(panel!=nullptr,"panel-test","Independent guardian panel not found");
     auto find=[&](const wchar_t* name) {
       VARIANT value{}; value.vt=VT_BSTR; value.bstrVal=SysAllocString(name);
@@ -39,16 +45,24 @@ int test_control_panel(DWORD pid) {
       check_hresult(button->GetCurrentPatternAs(UIA_InvokePatternId,IID_PPV_ARGS(action.put())));
       check_hresult(action->Invoke());
     };
-    invoke(L"Pause"); Sleep(250);
-    require(find(L"Paused by you")!=nullptr,"panel-test","Panel pause did not change visible state");
-    invoke(L"Resume"); Sleep(250);
-    require(find(L"Paused by you")==nullptr,"panel-test","Panel resume left control paused");
+    auto wait_paused=[&](bool expected) {
+      auto deadline=GetTickCount64()+3000;
+      do {
+        if ((find(L"Paused by you")!=nullptr)==expected) return;
+        Sleep(25);
+      } while (GetTickCount64()<deadline);
+      throw Error("panel-test",expected ? "Panel pause did not change visible state" : "Panel resume left control paused");
+    };
+    invoke(L"Pause"); wait_paused(true);
+    invoke(L"Resume"); wait_paused(false);
     Handle guardian(OpenProcess(SYNCHRONIZE,FALSE,pid));
     require(guardian.value!=nullptr,"panel-test","Guardian process missing before Stop");
     try { invoke(L"Stop"); } catch (...) { /* UIA provider can disappear during Stop. */ }
     require(WaitForSingleObject(guardian.value,3000)==WAIT_OBJECT_0,"panel-test","Panel Stop did not terminate control");
     return 0;
-  } catch (...) { return 1; }
+  } catch (const Error& error) { panel_failure=error.what(); return 1; }
+    catch (const hresult_error& error) { panel_failure=to_string(error.message()); return 1; }
+    catch (...) { panel_failure="Unknown panel probe failure"; return 1; }
 }
 LRESULT CALLBACK edit_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   // A bare Win32 EDIT does not implement the application-level Ctrl+A shortcut.
@@ -154,7 +168,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (!pid || !end || *end) { LocalFree(argv); return 2; }
     report_path=argv[3]; LocalFree(argv);
     auto result=test_control_panel(pid);
-    std::ofstream output(report_path); output << (result==0 ? "passed" : "failed");
+    std::ofstream output(report_path); output << (result==0 ? "passed" : "failed: "+panel_failure);
     return result;
   }
   if (!argv || argc!=2) { if (argv) LocalFree(argv); return 2; }
