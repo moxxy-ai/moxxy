@@ -515,6 +515,23 @@ try {
       Start-Sleep -Milliseconds 500
       Check (-not (Fixture-State).leftDown) 'Hard worker termination left injected mouse button held'
     }
+    Test 'changed control meaning invalidates its old reference without activation' {
+      $script:helper=Start-Peer
+      $inventory=Call 'windows' @{}
+      $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
+      try {
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+        Await-Action (Accessible-Action 'Rename later' 'invoke')
+        $before=Observe
+        $save=@($before.elements | Where-Object name -eq 'Save')[0]
+        Check ($null -ne $save) 'Rename test missed its original control'
+        $saves=(Fixture-State).saves
+        Start-Sleep -Milliseconds 3300
+        $stale=Request $script:helper 'action' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$save.elementId;action='invoke'}
+        Check (-not $stale.ok -and $stale.error.code -eq 'stale-element') 'Renamed button retained an actionable old reference'
+        Check ((Fixture-State).saves -eq $saves) 'Stale semantic action was executed'
+      } finally { $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null }
+    }
     Test 'guardian panel exposes working accessible pause resume and stop buttons' {
       $script:helper=Start-Peer
       $inventory=Call 'windows' @{}

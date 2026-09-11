@@ -131,6 +131,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       CreateWindowW(L"BUTTON",L"Context menu",WS_CHILD|WS_VISIBLE,20,488,150,28,hwnd,reinterpret_cast<HMENU>(108),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Value later",WS_CHILD|WS_VISIBLE,185,488,150,28,hwnd,reinterpret_cast<HMENU>(109),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Minimize",WS_CHILD|WS_VISIBLE,350,488,150,28,hwnd,reinterpret_cast<HMENU>(110),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Rename later",WS_CHILD|WS_VISIBLE,560,450,240,30,hwnd,reinterpret_cast<HMENU>(111),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Enable test option",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,560,40,240,30,hwnd,reinterpret_cast<HMENU>(201),nullptr,nullptr);
       {
         auto list=CreateWindowW(L"LISTBOX",L"Test choices",WS_CHILD|WS_VISIBLE|WS_TABSTOP|LBS_NOTIFY,560,100,240,90,hwnd,reinterpret_cast<HMENU>(202),nullptr,nullptr);
@@ -148,6 +149,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (wparam==3) { KillTimer(hwnd,3); SetWindowPos(hwnd,nullptr,250,160,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE); return 0; }
       if (wparam==4) { KillTimer(hwnd,4); SetFocus(GetDlgItem(hwnd,102)); return 0; }
       if (wparam==6) { KillTimer(hwnd,6); SetWindowTextW(edit,L"Changed by application"); return 0; }
+      if (wparam==7) { KillTimer(hwnd,7); SetWindowTextW(GetDlgItem(hwnd,103),L"Different action"); return 0; }
       if (wparam==5) {
         KillTimer(hwnd,5); recreating=true; DestroyWindow(hwnd); create_fixture_window(); recreating=false; return 0;
       }
@@ -160,6 +162,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (LOWORD(wparam)==107) SetTimer(hwnd,5,3000,nullptr);
       if (LOWORD(wparam)==109) SetTimer(hwnd,6,3000,nullptr);
       if (LOWORD(wparam)==110) ShowWindow(hwnd,SW_MINIMIZE);
+      if (LOWORD(wparam)==111) SetTimer(hwnd,7,3000,nullptr);
       if (LOWORD(wparam)==108) {
         HMENU menu=CreatePopupMenu(); AppendMenuW(menu,MF_STRING,180,L"Choose test action");
         POINT point{40,260}; ClientToScreen(hwnd,&point);
