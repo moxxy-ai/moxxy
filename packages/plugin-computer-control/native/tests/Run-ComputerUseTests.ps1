@@ -58,6 +58,18 @@ function Call($method, $parameters) {
 }
 function Check($condition, $message) { if (-not $condition) { throw $message } }
 function Observe { return Call 'observe' @{ windowId=$script:windowId; maxNodes=128 } }
+function Await-Action($receipt) {
+  for ($i=0;$i -lt 8 -and $receipt.status -eq 'pending';$i++) {
+    $receipt=Call 'action_status' @{actionId=$receipt.actionId;waitMs=500}
+  }
+  Check ($receipt.status -eq 'completed') ('UIA operation did not complete: '+($receipt | ConvertTo-Json -Compress))
+}
+function Accessible-Action($name,$action) {
+  $observation=Observe
+  $control=@($observation.elements | Where-Object name -eq $name)[0]
+  Check ($null -ne $control -and $control.actions -contains $action) ('Action not advertised for '+$name+': '+$action)
+  return Call 'action' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$control.elementId;action=$action}
+}
 function Screenshot {
   return Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false }
 }
@@ -133,6 +145,19 @@ try {
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
+    Test 'UIA invoke toggle selection and tree expansion affect real controls' {
+      $before=(Fixture-State).saves
+      Await-Action (Accessible-Action 'Save' 'invoke')
+      Check ((Fixture-State).saves -eq $before+1) 'Invoke did not activate the real button'
+      Await-Action (Accessible-Action 'Enable test option' 'toggle')
+      Check ((Fixture-State).checked) 'Toggle did not change the real checkbox'
+      Await-Action (Accessible-Action 'Second choice' 'select')
+      Check ((Fixture-State).selectedItem -eq 1) 'Selection did not reach the real list item'
+      Await-Action (Accessible-Action 'Test branch' 'expand')
+      Check ((Fixture-State).expanded) 'Tree branch did not expand'
+      Await-Action (Accessible-Action 'Test branch' 'collapse')
+      Check (-not (Fixture-State).expanded) 'Tree branch did not collapse'
+    }
     Test 'accessibility reads and selects real Unicode text without exposing protected text' {
       $before=Observe
       $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
