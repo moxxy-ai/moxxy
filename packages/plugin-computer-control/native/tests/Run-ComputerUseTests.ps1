@@ -363,10 +363,12 @@ try {
       Check (-not $response.ok -and $response.error.code -eq 'control-busy') 'Concurrent desktop control accepted'
       $other.StandardInput.Close(); Check ($other.WaitForExit(3000)) 'Second helper leaked'
     }
-    Test 'modal can be observed and closed without blocking the helper' {
+    Test 'semantic modal invocation returns a receipt without blocking observation or closure' {
       $observation=Observe
       $button=@($observation.elements | Where-Object { $_.name -eq 'Open modal' })[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      $clock=[Diagnostics.Stopwatch]::StartNew()
+      $receipt=Call 'action' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; action='invoke' }
+      Check ($clock.ElapsedMilliseconds -lt 2000) 'Invoke blocked the request loop until modal closure'
       Start-Sleep -Milliseconds 250
       $inventory=Call 'windows' @{}
       $modal=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy test modal' })[0]
@@ -377,6 +379,7 @@ try {
       $observation=Observe
       $ok=@($observation.elements | Where-Object { $_.name -eq 'OK' -and $_.controlType -eq 50000 })[0]
       Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$ok.elementId; button='left'; count=1 } | Out-Null
+      Await-Action $receipt
       Start-Sleep -Milliseconds 200
       $script:windowId=$parent.windowId
       Call 'focus' @{ windowId=$script:windowId } | Out-Null
