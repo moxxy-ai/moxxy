@@ -40,7 +40,11 @@ export const screenshotSchema = targetSchema.extend({
   quality: z.number().int().min(40).max(100).default(72),
   allowVisibleFallback: z.boolean().default(false),
 }).strict();
-export const observeSchema = targetSchema.extend({ maxNodes: z.number().int().min(1).max(256).default(128) }).strict();
+export const observeSchema = targetSchema.extend({
+  maxNodes: z.number().int().min(1).max(256).default(128),
+  root: z.object({observationId: idSchema, elementId: idSchema}).strict().optional(),
+  filter: z.object({nameIncludes: z.string().max(256).optional(), controlType: pixel.min(50000).max(60000).optional()}).strict().optional(),
+}).strict();
 export const typeSchema = elementSchema.extend({ text: z.string().max(4000) }).strict();
 export const keySchema = targetSchema.extend({
   observationId: idSchema,
