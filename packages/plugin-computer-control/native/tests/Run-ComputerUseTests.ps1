@@ -151,6 +151,38 @@ try {
       $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
       Check ($crop.width -eq 200 -and $crop.height -eq 100 -and $crop.source.x -eq $full.source.x+20 -and $crop.source.y -eq $full.source.y+30) 'Crop source mapping differs'
     }
+    Test 'focus wait stays pending and returns observation-required after target resumes' {
+      $before=Observe
+      $otherPath=Join-Path $ReportDirectory 'focus-wait-fixture.json'
+      $other=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$otherPath+'"') -PassThru
+      $fixtures.Add($other)
+      try {
+        Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
+        Start-Sleep -Milliseconds 250
+        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
+        $id=[guid]::NewGuid().ToString()
+        $frame=@{version=1;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
+        $read=$script:helper.StandardOutput.ReadLineAsync()
+        Check ($read.Wait(5000)) 'No waiting state event'
+        $state=$read.Result | ConvertFrom-Json
+        Check ($state.id -eq $id -and $state.event -eq 'control_state' -and $state.state -eq 'waiting_for_focus') 'Focus loss ended the operation instead of waiting locally'
+        $pending=$script:helper.StandardOutput.ReadLineAsync()
+        Check (-not $pending.Wait(1200)) 'Focus waiting ended prematurely'
+        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).text -eq '') 'Input leaked into another window'
+        $other.CloseMainWindow() | Out-Null
+        Check ($other.WaitForExit(3000)) 'Second fixture did not close'
+        Check ($pending.Wait(5000)) 'Target focus did not resume waiting'
+        $state=$pending.Result | ConvertFrom-Json
+        Check ($state.state -eq 'foreground') 'Missing foreground resume state'
+        $read=$script:helper.StandardOutput.ReadLineAsync()
+        Check ($read.Wait(5000)) 'No resumed result'
+        $response=$read.Result | ConvertFrom-Json
+        Check ($response.id -eq $id -and $response.ok -and $response.result.status -eq 'needs_observation' -and -not $response.result.delivered) 'Waiting replayed stale input'
+      } finally {
+        if (-not $other.HasExited) { $other.CloseMainWindow() | Out-Null; $other.WaitForExit(3000) | Out-Null }
+      }
+    }
     Test 'UIA set value preserves Polish and Unicode' {
       $observation = Observe
       $field = @($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
