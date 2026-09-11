@@ -103,15 +103,20 @@ jobs:
             $resources=Join-Path $installDir 'resources'
             $exe=Join-Path $installDir 'MoxxyAI Workspaces.exe'
             $env:ELECTRON_RUN_AS_NODE='1'
-            & $exe apps/desktop/scripts/smoke-computer-use.mjs $resources
-            if ($LASTEXITCODE -ne 0) { throw 'Installed extension smoke failed' }
+            $smokeScript=(Resolve-Path apps/desktop/scripts/smoke-computer-use.mjs).Path
+            $smokeOut=Join-Path $env:RUNNER_TEMP 'computer-smoke-stdout.log'
+            $smokeErr=Join-Path $env:RUNNER_TEMP 'computer-smoke-stderr.log'
+            $smoke=Start-Process -FilePath $exe -ArgumentList ('"'+$smokeScript+'"'),('"'+$resources+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
+            Get-Content -LiteralPath $smokeOut
+            Get-Content -LiteralPath $smokeErr
+            if ($smoke.ExitCode -ne 0) { throw 'Installed extension smoke failed' }
             Remove-Item Env:ELECTRON_RUN_AS_NODE
             & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
             if ($LASTEXITCODE -eq 1) { throw 'Installed Computer Use GUI tests failed' }
           } finally {
             $uninstaller=Get-ChildItem -LiteralPath $installDir -Filter '*uninstall*.exe' | Select-Object -First 1
             if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait }
-            Remove-Item -LiteralPath $installDir -Recurse -Force
+            if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
           }
       - name: Upload installed resource test report
         if: always()

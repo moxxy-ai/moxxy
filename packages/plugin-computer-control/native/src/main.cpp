@@ -13,6 +13,7 @@ std::atomic<uint64_t> focus_epoch{0};
 HANDLE stop_event = nullptr;
 std::atomic<bool> lease_active{false};
 std::atomic<DWORD> stop_exit_code{2};
+std::atomic<HWND> control_window{nullptr};
 std::mutex identity_mutex;
 std::unordered_map<HWND,uint64_t> identity_generations;
 uint64_t next_generation = 1;
@@ -98,6 +99,7 @@ int main(int argc, char** argv) {
         L"Moxxy controls your computer",WS_CAPTION|WS_SYSMENU,GetSystemMetrics(SM_CXSCREEN)-290,10,270,90,
         nullptr,nullptr,klass.hInstance,nullptr);
       if (!indicator) { SetEvent(stop.value); return; }
+      control_window = indicator;
       auto hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
         focus_changed, 0, 0, WINEVENT_OUTOFCONTEXT);
       if (!hook) { SetEvent(stop.value); return; }
