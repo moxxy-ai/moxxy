@@ -9,7 +9,7 @@ namespace {
 HWND edit = nullptr;
 WNDPROC edit_default = nullptr;
 std::filesystem::path report_path;
-int left = 0, right = 0, middle = 0, double_clicks = 0, wheel_x = 0, wheel_y = 0, drags = 0, saves = 0;
+int left = 0, right = 0, middle = 0, double_clicks = 0, wheel_x = 0, wheel_y = 0, drags = 0, saves = 0, menu_picks = 0;
 bool dragging = false;
 bool recreating = false;
 POINT drag_start{};
@@ -28,6 +28,7 @@ void report() {
   result.Insert(L"doubleClicks", numeric(double_clicks)); result.Insert(L"scrollX", numeric(wheel_x)); result.Insert(L"scrollY", numeric(wheel_y));
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
   result.Insert(L"leftDown", moxxy::boolean((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0));
+  result.Insert(L"menuPicks", numeric(menu_picks));
   std::ofstream output(report_path, std::ios::binary | std::ios::trunc);
   output << to_string(result.Stringify());
 }
@@ -63,6 +64,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       CreateWindowW(L"BUTTON",L"Move later",WS_CHILD|WS_VISIBLE,20,450,150,30,hwnd,reinterpret_cast<HMENU>(105),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Focus later",WS_CHILD|WS_VISIBLE,185,450,150,30,hwnd,reinterpret_cast<HMENU>(106),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Recreate later",WS_CHILD|WS_VISIBLE,350,450,150,30,hwnd,reinterpret_cast<HMENU>(107),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Context menu",WS_CHILD|WS_VISIBLE,20,488,150,28,hwnd,reinterpret_cast<HMENU>(108),nullptr,nullptr);
       SetTimer(hwnd,1,1500,nullptr); SetTimer(hwnd,2,100,nullptr); SetFocus(edit); report(); return 0;
     case WM_TIMER:
       if (wparam==2) { report(); return 0; }
@@ -78,6 +80,12 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (LOWORD(wparam)==105) SetTimer(hwnd,3,3000,nullptr);
       if (LOWORD(wparam)==106) SetTimer(hwnd,4,3000,nullptr);
       if (LOWORD(wparam)==107) SetTimer(hwnd,5,3000,nullptr);
+      if (LOWORD(wparam)==108) {
+        HMENU menu=CreatePopupMenu(); AppendMenuW(menu,MF_STRING,180,L"Choose test action");
+        POINT point{40,260}; ClientToScreen(hwnd,&point);
+        auto command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_LEFTALIGN,point.x,point.y,0,hwnd,nullptr);
+        if (command==180) ++menu_picks; DestroyMenu(menu);
+      }
       report(); return 0;
     case WM_DESTROY: report(); if (!recreating) PostQuitMessage(0); return 0;
     default: return DefWindowProcW(hwnd,message,wparam,lparam);
