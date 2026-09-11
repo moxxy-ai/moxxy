@@ -23,11 +23,11 @@ std::vector<uint8_t> capture_graphics(HWND hwnd, Rect bounds) {
   auto dxgi = device.as<IDXGIDevice>();
   com_ptr<IInspectable> inspectable;
   check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgi.get(), inspectable.put()));
-  auto runtime_device = inspectable.as<DirectX::Direct3D11::IDirect3DDevice>();
+  auto runtime_device = inspectable.as<Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice>();
   auto factory = get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
   GraphicsCaptureItem item{nullptr};
   check_hresult(factory->CreateForWindow(hwnd, guid_of<GraphicsCaptureItem>(), put_abi(item)));
-  auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device, DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, item.Size());
+  auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device, Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, item.Size());
   auto session = pool.CreateCaptureSession(item);
   struct Close { GraphicsCaptureSession session; Direct3D11CaptureFramePool pool; ~Close() { session.Close(); pool.Close(); } } close{session, pool};
   session.StartCapture();
