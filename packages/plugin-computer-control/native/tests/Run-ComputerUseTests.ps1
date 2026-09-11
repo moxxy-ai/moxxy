@@ -482,6 +482,7 @@ try {
         $detail=Get-Content -LiteralPath $panelReport -Raw
         Check ($probe.ExitCode -eq 0 -and $detail -eq 'passed') ('Guardian panel accessibility/actions failed: '+$detail)
         Check ($script:helper.WaitForExit(3000)) 'Panel Stop left the worker running'
+        Check ($script:helper.ExitCode -eq 20) 'Panel Stop was reported as a crash rather than an explicit user stop'
       } finally {
         if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose()
         if (-not $script:helper.HasExited) {
