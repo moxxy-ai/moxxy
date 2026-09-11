@@ -127,11 +127,14 @@ try {
       Call 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$text } | Out-Null
       $actual=(Fixture-State).text.Replace("`r",'')
       Check ($actual -ceq $text) ("UIA text differs: actual="+($actual|ConvertTo-Json -Compress)+" expected="+($text|ConvertTo-Json -Compress))
+      $field=@((Observe).elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      Check ($field.value.Replace("`r",'') -ceq $text) 'Observation omitted editable value'
     }
     Test 'protected control has no value/name disclosure' {
       $observation=Observe
       $secret=@($observation.elements | Where-Object { $_.protected })[0]
       Check ($null -ne $secret -and $secret.name -eq '') 'Password leaked through accessibility'
+      Check ($null -eq $secret.value) 'Password value leaked through accessibility'
       $response=Request $script:helper 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$secret.elementId; text='not allowed' }
       Check (-not $response.ok) 'Protected field mutation accepted'
     }
