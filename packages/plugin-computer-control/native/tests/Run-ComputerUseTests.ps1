@@ -237,6 +237,33 @@ try {
       Call 'focus' @{ windowId=$script:windowId } | Out-Null
       Check ((Observe).elements.Count -gt 2) 'Desktop lease not released on cancellation'
     }
+    Test 'window movement rejects old image coordinates' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Move later')[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      $capture=Screenshot
+      Start-Sleep -Milliseconds 3300
+      $response=Request $script:helper 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=50; y=50; button='left'; count=1 }
+      Check (-not $response.ok -and $response.error.code -eq 'stale-capture') 'Moved window accepted old coordinates'
+    }
+    Test 'focus theft rejects old observation' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Focus later')[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      $observation=Observe
+      Start-Sleep -Milliseconds 3300
+      $response=Request $script:helper 'key' @{ windowId=$script:windowId; observationId=$observation.observationId; key='a'; modifiers=@() }
+      Check (-not $response.ok -and $response.error.code -eq 'focus-changed') 'Input sent after focus theft'
+    }
+    Test 'recreated window rejects old identity' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Recreate later')[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
+      Start-Sleep -Milliseconds 3300
+      $response=Request $script:helper 'focus' @{ windowId=$script:windowId }
+      Check (-not $response.ok -and $response.error.code -eq 'stale-window') 'Recreated window accepted old identity'
+      $inventory=Call 'windows' @{}
+      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
+      $script:windowId=$target.windowId
+      Call 'focus' @{ windowId=$script:windowId } | Out-Null
+    }
     # Do not overwrite non-text clipboard formats on a user's workstation.
     Record 'clipboard round trip' 'not-tested' 'Requires an explicitly disposable clipboard; test does not overwrite user clipboard.'
     $exitCode=0
@@ -251,7 +278,7 @@ finally {
     try { if (-not $fixture.HasExited) { $fixture.CloseMainWindow() | Out-Null; if (-not $fixture.WaitForExit(3000)) { $fixture.Kill() } } } catch {}
     $fixture.Dispose()
   }
-  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI','focus theft','window recreation')) {
+  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI')) {
     Record $name 'not-tested' 'Required acceptance coverage not yet executed by this test runner.'
   }
   $report=@{ schemaVersion=1; os=[Environment]::OSVersion.VersionString; architecture=$env:PROCESSOR_ARCHITECTURE;
