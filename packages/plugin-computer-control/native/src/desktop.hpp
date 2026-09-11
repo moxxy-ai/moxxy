@@ -3,7 +3,7 @@
 #include <map>
 
 namespace moxxy {
-struct Window { HWND hwnd; DWORD pid; uint64_t created; com_ptr<IUIAutomationElement> root; };
+struct Window { HWND hwnd; DWORD pid; uint64_t created; uint64_t generation; com_ptr<IUIAutomationElement> root; };
 struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; };
 class Desktop {
  public:

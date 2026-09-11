@@ -85,6 +85,40 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: pnpm --filter @moxxy/desktop exec electron-builder --win nsis --publish never
+      - name: Download real fixture test kit
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: moxxy-computer-use-windows-x64
+          path: computer-use-kit/
+      - name: Test extension from installed NSIS resources
+        shell: pwsh
+        run: |
+          $setup=(Get-ChildItem apps/desktop/release/*-setup.exe | Select-Object -First 1).FullName
+          if (-not $setup) { throw 'Installer missing' }
+          $installDir=Join-Path $env:RUNNER_TEMP ('moxxy-cu-installed-'+[guid]::NewGuid())
+          New-Item -ItemType Directory $installDir | Out-Null
+          try {
+            $install=Start-Process -FilePath $setup -ArgumentList '/S',("/D="+$installDir) -Wait -PassThru
+            if ($install.ExitCode -ne 0) { throw 'Installer failed' }
+            $resources=Join-Path $installDir 'resources'
+            $exe=Join-Path $installDir 'MoxxyAI Workspaces.exe'
+            $env:ELECTRON_RUN_AS_NODE='1'
+            & $exe apps/desktop/scripts/smoke-computer-use.mjs $resources
+            if ($LASTEXITCODE -ne 0) { throw 'Installed extension smoke failed' }
+            Remove-Item Env:ELECTRON_RUN_AS_NODE
+            & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
+            if ($LASTEXITCODE -eq 1) { throw 'Installed Computer Use GUI tests failed' }
+          } finally {
+            $uninstaller=Get-ChildItem -LiteralPath $installDir -Filter '*uninstall*.exe' | Select-Object -First 1
+            if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait }
+            Remove-Item -LiteralPath $installDir -Recurse -Force
+          }
+      - name: Upload installed resource test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-computer-report
+          path: ${{ runner.temp }}/installed-computer-report/report.*
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: moxxy-computer-use-test-installer

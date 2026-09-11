@@ -1,8 +1,8 @@
-import { access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { defineTool, type LifecycleHooks, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { z } from 'zod';
 import { HelperTransport } from './transport.js';
+import { verifyHelperArtifact } from './artifact.js';
 import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,
   observationSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
@@ -20,8 +20,8 @@ export class WindowsBackend {
     const previous = this.turns.get(key);
     if (previous && !previous.transport.closed) return previous.transport;
     if (previous) throw new Error('Computer Use stopped for this turn. Start a new turn to regain control and observe again.');
-    try { await access(helperPath); } catch {
-      throw new Error('Windows Computer Use component is missing. Install the matching x64 extension from a full installer; chat remains available.');
+    try { await verifyHelperArtifact(helperPath); } catch {
+      throw new Error('Windows Computer Use component is missing or incompatible. Install the matching x64 extension from a full installer; chat remains available.');
     }
     ctx.signal.throwIfAborted();
     // No await between the final lookup and registration: parallel calls share one child.

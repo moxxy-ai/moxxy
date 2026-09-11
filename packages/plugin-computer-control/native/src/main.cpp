@@ -4,6 +4,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <deque>
+#include <unordered_map>
 #include <io.h>
 #include <fcntl.h>
 
@@ -12,8 +13,22 @@ std::atomic<uint64_t> focus_epoch{0};
 HANDLE stop_event = nullptr;
 std::atomic<bool> lease_active{false};
 std::atomic<DWORD> stop_exit_code{2};
+std::mutex identity_mutex;
+std::unordered_map<HWND,uint64_t> identity_generations;
+uint64_t next_generation = 1;
+uint64_t window_generation(HWND window) {
+  std::lock_guard guard(identity_mutex);
+  if (auto found=identity_generations.find(window); found!=identity_generations.end()) return found->second;
+  if (identity_generations.size() >= 4096) identity_generations.clear();
+  auto generation=next_generation++; identity_generations.emplace(window,generation); return generation;
+}
 }
 namespace {
+void CALLBACK window_destroyed(HWINEVENTHOOK, DWORD, HWND hwnd, LONG object, LONG child, DWORD, DWORD) {
+  if (object != OBJID_WINDOW || child != CHILDID_SELF) return;
+  std::lock_guard guard(moxxy::identity_mutex);
+  if (auto found=moxxy::identity_generations.find(hwnd); found!=moxxy::identity_generations.end()) found->second=moxxy::next_generation++;
+}
 void CALLBACK focus_changed(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
   ++moxxy::focus_epoch;
 }
@@ -86,10 +101,13 @@ int main(int argc, char** argv) {
       auto hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
         focus_changed, 0, 0, WINEVENT_OUTOFCONTEXT);
       if (!hook) { SetEvent(stop.value); return; }
+      auto destroy_hook=SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_DESTROY, nullptr, window_destroyed, 0, 0, WINEVENT_OUTOFCONTEXT);
+      if (!destroy_hook) { SetEvent(stop.value); return; }
       SetEvent(hooks_ready.value);
       MSG message;
       while (GetMessageW(&message, nullptr, 0, 0) > 0) DispatchMessageW(&message);
       UnhookWinEvent(hook);
+      UnhookWinEvent(destroy_hook);
     }).detach();
     require(WaitForSingleObject(hooks_ready.value, 2000) == WAIT_OBJECT_0, "native-error", "Focus monitor unavailable");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
