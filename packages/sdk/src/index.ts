@@ -41,6 +41,13 @@ export type {
 } from './events.js';
 
 export type { EventLogReader } from './log.js';
+export {
+  computerControlStateSchema, computerControlOwnerSchema,
+  computerControlCommandSchema, computerControlSnapshotSchema,
+} from './computer-control.js';
+export type {
+  ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
+} from './computer-control.js';
 
 // Identity. The type + pure helpers ride the main barrel; the OS resolver needs
 // `node:os` and is exported from `@moxxy/sdk/server`.

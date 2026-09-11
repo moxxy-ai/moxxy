@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AppContext,
+  ComputerControlService,
   ClientSession,
   EmittedEvent,
   LoopGuardSettings,
@@ -516,6 +517,10 @@ export class Session implements ClientSession, SessionRuntime {
    */
   get providerAdmin(): ProviderAdminView | undefined {
     return this.services.get<ProviderAdminView>('providerAdmin');
+  }
+
+  get computerControl(): ComputerControlService | undefined {
+    return this.services.get<ComputerControlService>('computerControl');
   }
 
   /**

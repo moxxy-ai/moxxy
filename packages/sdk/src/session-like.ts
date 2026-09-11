@@ -9,6 +9,7 @@ import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
 import type { ClientChromeItem } from './client-chrome.js';
+import type { ComputerControlService } from './computer-control.js';
 
 /**
  * Options accepted by `SessionLike.runTurn`. Defined here (rather than in
@@ -522,6 +523,8 @@ export interface SessionLike {
   mcpAdmin?: McpAdminView;
   /** Provider admin slice — edit stored (runtime-registered) providers. */
   providerAdmin?: ProviderAdminView;
+  /** Optional human control of the session's native Computer Use turns. */
+  computerControl?: ComputerControlService;
   /** Workflows slice backing the `/workflows` modal. */
   workflows?: WorkflowsView;
   /** Plugin-management slice backing the `/plugins` picker. */

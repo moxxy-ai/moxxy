@@ -51,6 +51,19 @@ const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
 
+  handle('computer.snapshot', async ({workspaceId}) => {
+    const {session} = resolveCtx(pool, {workspaceId});
+    const control = session.computerControl;
+    return {workspaceId, turns: control ? await control.snapshot() : []};
+  });
+  handle('computer.control', async ({workspaceId, ...command}) => {
+    const {session} = resolveCtx(pool, {workspaceId});
+    if (command.sessionId !== session.getInfo().sessionId) throw new IpcError('runner-error', 'Computer Use session mismatch');
+    const control = session.computerControl;
+    if (!control) throw new IpcError('runner-error', 'Computer Use control is unavailable');
+    await control.control(command);
+  });
+
   handle('session.info', async (args) => {
     const session = await waitForRemoteSession(pool, args?.workspaceId);
     if (!session) return null;

@@ -151,11 +151,15 @@ import type {
  * self-attributing records. Older clients simply omit it and their events stay
  * unattributed, exactly as before. (Additive: a v10 server ignores the key.)
  *
- * Every change v1→v11 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v12: adds session-owned `computer.snapshot` and `computer.control` human
+ * controls. The optional service does not affect ordinary chat. Clients gate
+ * these methods on the negotiated server version.
+ *
+ * Every change v1→v12 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 11;
+export const RUNNER_PROTOCOL_VERSION = 12;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -172,6 +176,8 @@ export const RunnerMethod = {
   Attach: 'attach',
   /** client->server: re-fetch the registry snapshot. */
   GetInfo: 'getInfo',
+  ComputerSnapshot: 'computer.snapshot',
+  ComputerControl: 'computer.control',
   /** client->server: start a turn; returns its turnId. Events stream separately. */
   RunTurn: 'runTurn',
   /** client->server: abort an in-flight turn. */

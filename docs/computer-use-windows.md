@@ -42,6 +42,11 @@ system-command backend with the same arguments.
 - Windows UAC, secure desktops, elevation, Linux and ARM64 are not supported.
   Windows may deny foreground activation. Wait locally for the target or explicit
   Resume; do not repeatedly steal focus or bypass Windows restrictions.
+- An optional SDK `computerControl` service exposes live turn snapshots and
+  human pause/resume/stop commands. Runner protocol v12 and desktop IPC
+  `computer.snapshot` / `computer.control` route by explicit workspace, session
+  and turn. Older runners return an update-required error for these operations,
+  not for ordinary chat. Stopped transports are never recreated by these commands.
 
 ## Distribution and updates
 
@@ -91,10 +96,10 @@ The CI wrapper preserves that status in its artifact and warning.
 
 This branch is not yet the complete acceptance implementation. Outstanding work
 includes richer UIA actions/subtree filtering, document opening, cross-window
-drag, typed control-state integration through SDK/runner/desktop IPC, staged
+drag, desktop-renderer consumption of the typed SDK/runner/IPC state, staged
 extension upgrade/rollback and local-modification detection, and the full fault
-and agent benchmark matrices. The built-in panel does not implement that IPC
-integration. Existing extension seeding still does not perform the planned
+and agent benchmark matrices. The built-in panel controls the guardian directly
+so Stop does not depend on the desktop renderer. Existing extension seeding still does not perform the planned
 controlled upgrade. Do not call the branch release-ready or equivalent to Codex.
 
 Run on both Windows 10 and 11 at 100%, 150% and 200% scaling. Test mixed-DPI

@@ -19,6 +19,7 @@ import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import { runnerSocketPath } from './socket-path.js';
+import { handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
 import {
   MIN_COMPATIBLE_PROTOCOL_VERSION,
   RUNNER_PROTOCOL_VERSION,
@@ -213,6 +214,8 @@ export class RunnerServer {
     // and per-turn state). Every domain handler delegates to its module.
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
     peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
+    peer.handle(RunnerMethod.ComputerSnapshot, (raw) => handleComputerSnapshot(ctx, raw));
+    peer.handle(RunnerMethod.ComputerControl, (raw) => handleComputerControl(ctx, raw));
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
