@@ -9,6 +9,7 @@ import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,
   observationSchema, observationRequiredSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
   appCatalogInputSchema, appCatalogSchema, openSchema, openResultSchema,
+  readTextSchema, selectTextSchema, textResultSchema,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -98,6 +99,8 @@ export class WindowsBackend {
       operation('click', 'Click an observed element or image point; observe again to verify the effect.', clickSchema, delivered),
       operation('type', 'Type Unicode into the explicitly observed and focused control.', typeSchema, delivered),
       operation('set_value', 'Set an editable non-protected control value. Background changes require verified native support and never fall back to physical input.', typeSchema, delivered),
+      operation('read_text', 'Read bounded document text and selected ranges from an observed, non-protected text control without focusing it.', readTextSchema, textResultSchema),
+      operation('select_text', 'Select a literal, case-sensitive occurrence in an observed text control. Requires foreground access and a verifiable unchanged control value; no keyboard fallback.', selectTextSchema, delivered),
       operation('key', 'Send an explicit Windows shortcut to a freshly observed focused window.', keySchema, delivered),
       operation('scroll', 'Scroll at a captured point; positive Y scrolls up, positive X right, 120 units per notch.', scrollSchema, delivered),
       operation('drag', 'Drag between two points in the same fresh window capture.', dragSchema, delivered),

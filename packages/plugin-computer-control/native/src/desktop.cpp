@@ -1,5 +1,6 @@
 #include "desktop.hpp"
 #include "input-guard.hpp"
+#include "text-actions.hpp"
 #include <dwmapi.h>
 #include <functional>
 
@@ -292,6 +293,8 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});
   else if (method == L"click") fields(params, {L"windowId", L"captureId", L"x", L"y", L"observationId", L"elementId", L"button", L"count"});
   else if (method == L"type" || method == L"set_value") fields(params, {L"windowId", L"observationId", L"elementId", L"text"});
+  else if (method == L"read_text") fields(params, {L"windowId", L"observationId", L"elementId", L"maxChars"});
+  else if (method == L"select_text") fields(params, {L"windowId", L"observationId", L"elementId", L"text", L"occurrence"});
   else if (method == L"key") fields(params, {L"windowId", L"observationId", L"key", L"modifiers"});
   else if (method == L"scroll") fields(params, {L"windowId", L"captureId", L"x", L"y", L"deltaX", L"deltaY"});
   else if (method == L"drag") fields(params, {L"windowId", L"captureId", L"from", L"to", L"durationMs"});
@@ -384,6 +387,16 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       require(same, "focus-changed", "Target control is not focused; click and observe it first");
       type_text(window.hwnd, value, [&] { fresh_observation(params, window); });
     }
+  } else if (method == L"read_text") {
+    auto limit=number(params,L"maxChars",1,16000);
+    auto& control=element(params,window,false);
+    return read_control_text(control.node.get(),limit);
+  } else if (method == L"select_text") {
+    auto query=text(params,L"text",4000); require(!query.empty(),"invalid-input","Selection text must not be empty");
+    auto occurrence=number(params,L"occurrence",1,100);
+    auto& control=element(params,window);
+    require(control.value.has_value(),"unsupported","This text control has no verifiable value snapshot; selection was not performed");
+    select_control_text(control.node.get(),window.hwnd,query,occurrence);
   } else if (method == L"key") { fresh_observation(params, window); key_press(window.hwnd, params); }
   else if (method == L"scroll") scroll_at(window.hwnd, point(params, params, window), number(params, L"deltaX", -1200, 1200), number(params, L"deltaY", -1200, 1200));
   else if (method == L"drag") {
