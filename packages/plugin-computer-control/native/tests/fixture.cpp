@@ -66,11 +66,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       CreateWindowW(L"BUTTON",L"Focus later",WS_CHILD|WS_VISIBLE,185,450,150,30,hwnd,reinterpret_cast<HMENU>(106),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Recreate later",WS_CHILD|WS_VISIBLE,350,450,150,30,hwnd,reinterpret_cast<HMENU>(107),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Context menu",WS_CHILD|WS_VISIBLE,20,488,150,28,hwnd,reinterpret_cast<HMENU>(108),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Value later",WS_CHILD|WS_VISIBLE,185,488,150,28,hwnd,reinterpret_cast<HMENU>(109),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Minimize",WS_CHILD|WS_VISIBLE,350,488,150,28,hwnd,reinterpret_cast<HMENU>(110),nullptr,nullptr);
       SetTimer(hwnd,1,1500,nullptr); SetTimer(hwnd,2,100,nullptr); SetFocus(edit); report(); return 0;
     case WM_TIMER:
       if (wparam==2) { report(); return 0; }
       if (wparam==3) { KillTimer(hwnd,3); SetWindowPos(hwnd,nullptr,250,160,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE); return 0; }
       if (wparam==4) { KillTimer(hwnd,4); SetFocus(GetDlgItem(hwnd,102)); return 0; }
+      if (wparam==6) { KillTimer(hwnd,6); SetWindowTextW(edit,L"Changed by application"); return 0; }
       if (wparam==5) {
         KillTimer(hwnd,5); recreating=true; DestroyWindow(hwnd); create_fixture_window(); recreating=false; return 0;
       }
@@ -81,6 +84,8 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (LOWORD(wparam)==105) SetTimer(hwnd,3,3000,nullptr);
       if (LOWORD(wparam)==106) SetTimer(hwnd,4,3000,nullptr);
       if (LOWORD(wparam)==107) SetTimer(hwnd,5,3000,nullptr);
+      if (LOWORD(wparam)==109) SetTimer(hwnd,6,3000,nullptr);
+      if (LOWORD(wparam)==110) ShowWindow(hwnd,SW_MINIMIZE);
       if (LOWORD(wparam)==108) {
         HMENU menu=CreatePopupMenu(); AppendMenuW(menu,MF_STRING,180,L"Choose test action");
         POINT point{40,260}; ClientToScreen(hwnd,&point);
