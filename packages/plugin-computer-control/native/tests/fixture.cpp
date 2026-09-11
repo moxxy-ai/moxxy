@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <commctrl.h>
 
 using namespace moxxy;
 namespace {
@@ -77,6 +78,12 @@ void report() {
   DWORD selection_start=0,selection_end=0;
   if (edit) SendMessageW(edit,EM_GETSEL,reinterpret_cast<WPARAM>(&selection_start),reinterpret_cast<LPARAM>(&selection_end));
   result.Insert(L"selectionStart",numeric(selection_start)); result.Insert(L"selectionEnd",numeric(selection_end));
+  auto root=edit ? GetAncestor(edit,GA_ROOT) : nullptr;
+  result.Insert(L"checked",moxxy::boolean(root && SendDlgItemMessageW(root,201,BM_GETCHECK,0,0)==BST_CHECKED));
+  result.Insert(L"selectedItem",numeric(root ? SendDlgItemMessageW(root,202,LB_GETCURSEL,0,0) : -1));
+  auto tree=root ? GetDlgItem(root,203) : nullptr;
+  auto branch=tree ? TreeView_GetRoot(tree) : nullptr;
+  result.Insert(L"expanded",moxxy::boolean(branch && (TreeView_GetItemState(tree,branch,TVIS_EXPANDED)&TVIS_EXPANDED)));
   result.Insert(L"left", numeric(left)); result.Insert(L"right", numeric(right)); result.Insert(L"middle", numeric(middle));
   result.Insert(L"doubleClicks", numeric(double_clicks)); result.Insert(L"scrollX", numeric(wheel_x)); result.Insert(L"scrollY", numeric(wheel_y));
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
@@ -121,6 +128,17 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       CreateWindowW(L"BUTTON",L"Context menu",WS_CHILD|WS_VISIBLE,20,488,150,28,hwnd,reinterpret_cast<HMENU>(108),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Value later",WS_CHILD|WS_VISIBLE,185,488,150,28,hwnd,reinterpret_cast<HMENU>(109),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Minimize",WS_CHILD|WS_VISIBLE,350,488,150,28,hwnd,reinterpret_cast<HMENU>(110),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Enable test option",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,560,40,240,30,hwnd,reinterpret_cast<HMENU>(201),nullptr,nullptr);
+      {
+        auto list=CreateWindowW(L"LISTBOX",L"Test choices",WS_CHILD|WS_VISIBLE|WS_TABSTOP|LBS_NOTIFY,560,100,240,90,hwnd,reinterpret_cast<HMENU>(202),nullptr,nullptr);
+        SendMessageW(list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"First choice"));
+        SendMessageW(list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(L"Second choice"));
+        auto tree=CreateWindowW(WC_TREEVIEWW,L"Test tree",WS_CHILD|WS_VISIBLE|WS_TABSTOP|TVS_HASBUTTONS|TVS_HASLINES,560,230,240,180,hwnd,reinterpret_cast<HMENU>(203),nullptr,nullptr);
+        TVINSERTSTRUCTW item{}; item.hParent=TVI_ROOT; item.hInsertAfter=TVI_LAST; item.item.mask=TVIF_TEXT;
+        item.item.pszText=const_cast<wchar_t*>(L"Test branch");
+        auto branch=TreeView_InsertItem(tree,&item);
+        item.hParent=branch; item.item.pszText=const_cast<wchar_t*>(L"Test leaf"); TreeView_InsertItem(tree,&item);
+      }
       SetTimer(hwnd,1,1500,nullptr); SetTimer(hwnd,2,100,nullptr); SetFocus(edit); report(); return 0;
     case WM_TIMER:
       if (wparam==2) { report(); return 0; }
@@ -159,7 +177,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
 }
 HWND create_fixture_window() {
   return CreateWindowW(L"MoxxyComputerFixture",L"Moxxy Computer Use Test",WS_OVERLAPPEDWINDOW|WS_VISIBLE,
-    100,100,600,560,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+    100,100,850,560,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
 }
 }
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
@@ -177,6 +195,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   if (!argv || argc!=2) { if (argv) LocalFree(argv); return 2; }
   report_path=argv[1]; LocalFree(argv);
   init_apartment(apartment_type::single_threaded);
+  INITCOMMONCONTROLSEX controls{sizeof(controls),ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
   WNDCLASSW canvas_class{}; canvas_class.style=CS_DBLCLKS; canvas_class.lpfnWndProc=canvas_proc;
   canvas_class.hInstance=GetModuleHandleW(nullptr); canvas_class.lpszClassName=L"MoxxyTestCanvas";
