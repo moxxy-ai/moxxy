@@ -19,6 +19,13 @@ export const rectangleSchema = z.object({
 }).strict();
 export const pointSchema = z.object({ x: pixel.nonnegative(), y: pixel.nonnegative() }).strict();
 export const targetSchema = z.object({ windowId: idSchema }).strict();
+export const appCatalogInputSchema = z.object({query:z.string().max(256).default(''),maxResults:z.number().int().min(1).max(64).default(32)}).strict();
+export const appCatalogSchema = z.object({
+  apps:z.array(z.object({appId:idSchema,name:z.string().max(512),source:z.enum(['system','windows-shell'])}).strict()).max(64),
+  truncated:z.boolean(),
+  unavailableSources:z.array(z.literal('windows-shell')).max(1),
+}).strict();
+export const openSchema = z.object({appId:idSchema,instance:z.enum(['reuse','new']).default('reuse'),timeoutMs:z.number().int().min(500).max(8000).default(5000)}).strict();
 export const elementSchema = targetSchema.extend({ observationId: idSchema, elementId: idSchema }).strict();
 const clickOptions = { button: z.enum(['left', 'right', 'middle']).default('left'), count: z.number().int().min(1).max(3).default(1) };
 export const clickSchema = z.union([
@@ -57,6 +64,12 @@ const windowIdentity = z.object({windowId:idSchema,pid:pixel.positive(),title:z.
 export const windowSchema = z.discriminatedUnion('state',[
   windowIdentity.extend({state:z.literal('normal'),bounds:rectangleSchema}).strict(),
   windowIdentity.extend({state:z.literal('minimized'),bounds:z.null()}).strict(),
+]);
+export const openResultSchema = z.discriminatedUnion('status',[
+  z.object({appId:idSchema,status:z.literal('opened'),launched:z.literal(true),windows:z.array(windowSchema).length(1)}).strict(),
+  z.object({appId:idSchema,status:z.literal('existing'),launched:z.literal(false),windows:z.array(windowSchema).length(1)}).strict(),
+  z.object({appId:idSchema,status:z.literal('ambiguous'),launched:z.boolean(),windows:z.array(windowSchema).min(2).max(256)}).strict(),
+  z.object({appId:idSchema,status:z.literal('no_window'),launched:z.literal(true),windows:z.array(windowSchema).length(0)}).strict(),
 ]);
 export const observationSchema = z.object({
   windowId: idSchema, observationId: idSchema, bounds: rectangleSchema,

@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "app-catalog.hpp"
 #include <map>
 
 namespace moxxy {
@@ -17,6 +18,7 @@ class Desktop {
   Windows::Data::Json::IJsonValue execute(const std::wstring& method, const Json& params);
  private:
   com_ptr<IUIAutomation> automation;
+  AppCatalog catalog;
   com_ptr<IUIAutomationElement> observed_focus;
   std::map<std::wstring, Window> windows;
   std::map<std::wstring, Element> elements;
@@ -33,5 +35,6 @@ class Desktop {
   Point point(const Json& params, const Json& coordinates, Window& window);
   JsonArray list_windows();
   Json observe(const Json& params, Window& window);
+  Json open(const Json& params);
 };
 }

@@ -34,7 +34,7 @@ void wait_for_access(HWND window, bool needs_focus) {
   for (;;) {
     check_active_desktop();
     DWORD current_pid=0;
-    require(IsWindow(window) && GetWindowThreadProcessId(window,&current_pid)==thread && current_pid==pid && window_generation(window)==generation,
+    require(!window || (IsWindow(window) && GetWindowThreadProcessId(window,&current_pid)==thread && current_pid==pid && window_generation(window)==generation),
       "stale-window", "Target disappeared while waiting; list windows again");
     // Resume is an explicit user action, never an automatic focus-stealing loop.
     if (take_guard_resume()) {
