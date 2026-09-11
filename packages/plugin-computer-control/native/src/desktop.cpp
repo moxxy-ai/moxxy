@@ -46,7 +46,7 @@ Window& Desktop::target(const Json& params) {
   require(found != windows.end(), "stale-window", "List windows again; window reference is unknown");
   auto& window = found->second;
   DWORD pid = 0; GetWindowThreadProcessId(window.hwnd, &pid);
-  require(IsWindow(window.hwnd) && pid == window.pid && creation_time(pid) == window.created,
+  require(IsWindow(window.hwnd) && pid == window.pid && creation_time(pid) == window.created && window_generation(window.hwnd) == window.generation,
     "stale-window", "Window or process no longer exists");
   com_ptr<IUIAutomationElement> current;
   check_hresult(automation->ElementFromHandle(window.hwnd, current.put()));
@@ -76,7 +76,7 @@ JsonArray Desktop::list_windows() {
       auto bounds = window_bounds(hwnd);
       wchar_t title[2049]{}; GetWindowTextW(hwnd, title, 2049);
       auto id = identifier();
-      windows.emplace(id, Window{hwnd, pid, created, std::move(root)});
+      windows.emplace(id, Window{hwnd, pid, created, window_generation(hwnd), std::move(root)});
       Json entry; entry.Insert(L"windowId", string_value(id)); entry.Insert(L"pid", numeric(pid));
       entry.Insert(L"title", string_value(title)); entry.Insert(L"bounds", rect_json(bounds));
       result.Append(entry);

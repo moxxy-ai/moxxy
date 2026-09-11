@@ -146,7 +146,6 @@ export const screenshotTool = defineTool({
         timeoutMs: 15_000,
       });
       if (sip.exitCode !== 0) {
-        await fs.rm(outTmp, { force: true });
         const cause = procFailureCause(sip, 15_000);
         throw new MoxxyError({
           code: 'TOOL_ERROR',
@@ -157,34 +156,25 @@ export const screenshotTool = defineTool({
         });
       }
 
-      try {
-        const bytes = await fs.readFile(outTmp);
-        if (bytes.length > MAX_BYTES) {
-          throw new MoxxyError({
-            code: 'TOOL_ERROR',
-            message:
-              `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
-              `Lower maxDim (currently ${dim}) or quality (currently ${q}), or pass a smaller region.`,
-            context: { tool: 'computer_screenshot', byteLength: bytes.length },
-          });
-        }
-        // The `{ mediaType, base64 }` pair is load-bearing, not decorative: the
-        // SDK's tool_result projection keys off exactly this shape to emit a
-        // provider `image` ContentBlock so the model SEES the pixels. Returning
-        // the bytes inside a stringified blob (the JSON.stringify fallback path)
-        // would reach the model as base64 TEXT it cannot decode. Extra fields
-        // are diagnostic only and ignored by the image projection.
-        return {
-          mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),
-          base64: bytes.toString('base64'),
-          byteLength: bytes.length,
-          maxDim: dim,
-          format: fmt,
-          ...(fmt === 'jpeg' ? { quality: q } : {}),
-        };
-      } finally {
-        await fs.rm(outTmp, { force: true });
+      const bytes = await fs.readFile(outTmp);
+      if (bytes.length > MAX_BYTES) {
+        throw new MoxxyError({
+          code: 'TOOL_ERROR',
+          message:
+            `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
+            `Lower maxDim (currently ${dim}) or quality (currently ${q}), or pass a smaller region.`,
+          context: { tool: 'computer_screenshot', byteLength: bytes.length },
+        });
       }
+      // Preserve the image-shaped output consumed by the SDK projection.
+      return {
+        mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),
+        base64: bytes.toString('base64'),
+        byteLength: bytes.length,
+        maxDim: dim,
+        format: fmt,
+        ...(fmt === 'jpeg' ? { quality: q } : {}),
+      };
     });
   },
 });

@@ -71,6 +71,7 @@ extern std::atomic<uint64_t> focus_epoch;
 extern HANDLE stop_event;
 extern std::atomic<bool> lease_active;
 extern std::atomic<DWORD> stop_exit_code;
+uint64_t window_generation(HWND window);
 void release_input() noexcept;
 void check_active_desktop();
 void check_focus(HWND window);

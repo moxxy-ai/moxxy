@@ -142,6 +142,17 @@ jobs:
         run: node --test scripts/desktop-packaging.test.mjs
 
       - name: Prepare embedded CLI and plugins
+        # The native executable is a full-installer resource, not a JS hot update.
+        if: runner.os != 'Windows'
+        run: pnpm --filter @moxxy/desktop run prepare:resources
+
+      - name: Build Windows Computer Use component
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: packages/plugin-computer-control/native/Build-Windows.ps1
+
+      - name: Prepare Windows embedded CLI and plugins
+        if: runner.os == 'Windows'
         run: pnpm --filter @moxxy/desktop run prepare:resources
 
       - name: Package unpacked desktop
