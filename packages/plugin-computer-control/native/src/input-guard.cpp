@@ -5,14 +5,14 @@
 
 namespace moxxy {
 namespace {
-constexpr LONG guard_version=1;
+constexpr LONG guard_version=2;
 constexpr size_t ledger_capacity=16;
 struct SharedInput {
   LONG version;
   volatile LONG count;
   INPUT releases[ledger_capacity];
   volatile LONG physical[256];
-  volatile LONG paused, resume, visible, state, target_pid;
+  volatile LONG paused, resume, visible, state, target_pid, user_stopped;
   volatile LONG64 target;
 };
 struct Mapping {
@@ -25,6 +25,7 @@ struct Guard {
 };
 std::unique_ptr<Guard> guard;
 SharedInput* observed=nullptr;
+std::atomic<SharedInput*> stop_state{nullptr};
 LONG physical(UINT key) {
   return key<256 ? InterlockedCompareExchange(&observed->physical[key],0,0) : 0;
 }
@@ -134,6 +135,7 @@ void start_input_guard(HANDLE parent, HANDLE stop) {
     throw Error("guard-unavailable","Input guardian did not become ready");
   }
   observed=instance->view.value;
+  stop_state.store(observed);
   guard=std::move(instance);
 }
 void guarded_input(INPUT input, std::optional<INPUT> release) {
@@ -158,10 +160,17 @@ void guarded_release() noexcept {
   try { release_ledger(*guard->view.value,guard->mutex.value); } catch (...) { /* Guardian repeats cleanup when the worker exits. */ }
 }
 bool guard_paused() { return observed && InterlockedCompareExchange(&observed->paused,0,0)!=0; }
+bool guard_stopped_by_user() {
+  auto state=stop_state.load();
+  return state && InterlockedCompareExchange(&state->user_stopped,0,0)!=0;
+}
 bool take_guard_resume() { return observed && InterlockedExchange(&observed->resume,0)!=0; }
 void guard_control(ControlCommand command) {
   require(observed!=nullptr,"guard-unavailable","Control is not ready");
-  if (command==ControlCommand::stop) { stop_exit_code=20; SetEvent(stop_event); return; }
+  if (command==ControlCommand::stop) {
+    InterlockedExchange(&observed->user_stopped,1);
+    stop_exit_code=20; SetEvent(stop_event); return;
+  }
   if (command==ControlCommand::pause) {
     InterlockedExchange(&observed->resume,0); InterlockedExchange(&observed->paused,1);
   } else {
@@ -191,6 +200,7 @@ int run_input_guard(int argc, char** argv) {
       DWORD flags=0; require(GetHandleInformation(handles[i].value,&flags),"guard-protocol","Unavailable guardian handle");
     }
     Mapping mapping; map_view(mapping,handles[0].value); observed=mapping.value;
+    stop_state.store(observed);
     stop_event=handles[2].value;
     require(observed->version==guard_version,"guard-protocol","Input ledger version mismatch");
     for (int key=0;key<256;++key) InterlockedExchange(&observed->physical[key],(GetAsyncKeyState(key)&0x8000) ? 1 : 0);

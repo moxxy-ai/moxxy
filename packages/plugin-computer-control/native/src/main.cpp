@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
         DWORD result = WaitForMultipleObjects(2, handles, FALSE, 50);
         auto until = operation_deadline.load();
         if (result != WAIT_TIMEOUT || (until && GetTickCount64() > until)) {
-          SetEvent(stop.value); release_input(); ExitProcess(stop_exit_code.load());
+          SetEvent(stop.value); release_input(); ExitProcess(guard_stopped_by_user() ? 20 : stop_exit_code.load());
         }
       }
     }).detach();

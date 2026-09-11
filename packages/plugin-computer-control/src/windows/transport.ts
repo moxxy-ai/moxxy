@@ -17,9 +17,11 @@ export class HelperTransport {
   private readonly exited: Promise<void>;
   private pending: Pending | undefined;
   private stopped = false;
+  private userStopped = false;
   private queue: Promise<unknown> = Promise.resolve();
   private stderrBytes = 0;
   get closed(): boolean { return this.stopped; }
+  get stoppedByUser(): boolean { return this.userStopped; }
 
   constructor(command: string, args: string[], private readonly timeoutMs = 15_000,
     private readonly onState: (state: ControlState) => void = () => undefined) {
@@ -28,7 +30,10 @@ export class HelperTransport {
     const decoder = new JsonLineDecoder(MAX_FRAME_BYTES);
     this.child.on('error', () => this.fail(new Error('Computer Use helper cannot start; reinstall the extension.')));
     this.child.stdin.on('error', () => this.fail(new Error('Computer Use pipe closed; action not retried.')));
-    this.child.on('close', (code) => this.fail(new Error(`Computer Use helper exited (${code}); action not retried.`)));
+    this.child.on('close', (code) => {
+      if (code === 20) this.userStopped = true;
+      this.fail(new Error(`Computer Use helper exited (${code}); action not retried.`));
+    });
     this.child.stdout.on('data', (bytes: Buffer) => {
       try {
         for (const frame of decoder.push(bytes)) {
@@ -73,6 +78,7 @@ export class HelperTransport {
     controlCommandSchema.parse(command);
     if (this.stopped) throw new Error('Computer Use connection closed');
     if (command === 'stop') {
+      this.userStopped = true;
       this.fail(new Error('Computer Use stopped by user; action not retried.'));
       return;
     }
