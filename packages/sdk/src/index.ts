@@ -149,6 +149,7 @@ export type {
   ToolContext,
   ToolDef,
   HostedTool,
+  ToolImageResult,
   ToolCompactPresentation,
   BrokeredFs,
   BrokeredStat,

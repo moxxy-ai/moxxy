@@ -16,6 +16,13 @@ import type { ToolIsolationSpec } from './isolation.js';
  */
 export type HostedTool = { readonly type: 'web_search' };
 
+/** Image pixels and optional model-facing context (for example capture geometry). */
+export interface ToolImageResult {
+  readonly mediaType: string;
+  readonly base64: string;
+  readonly forModel?: string;
+}
+
 /**
  * Capability-mediated filesystem operations injected by isolators that
  * support brokering. Handlers can opt in by checking `ctx.fs` at runtime

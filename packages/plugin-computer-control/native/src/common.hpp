@@ -1,0 +1,83 @@
+#pragma once
+#include <windows.h>
+#include <UIAutomation.h>
+#include <winrt/base.h>
+#include <winrt/Windows.Data.Json.h>
+#include <atomic>
+#include <string>
+#include <vector>
+#include <set>
+#include <cmath>
+#include <functional>
+#include "geometry.hpp"
+
+namespace moxxy {
+using namespace winrt;
+using namespace Windows::Data::Json;
+using Json = JsonObject;
+inline constexpr int protocol_version = 1;
+inline constexpr size_t frame_limit = 3'000'000;
+struct Error : std::runtime_error {
+  std::string code;
+  Error(std::string c, const char* message) : std::runtime_error(message), code(std::move(c)) {}
+};
+inline void require(bool condition, const char* code, const char* message) {
+  if (!condition) throw Error(code, message);
+}
+inline void fields(const Json& object, std::initializer_list<std::wstring_view> allowed) {
+  for (const auto& pair : object) {
+    bool found = false;
+    for (const auto name : allowed) if (pair.Key() == name) found = true;
+    require(found, "invalid-input", "Unknown parameter");
+  }
+}
+inline std::wstring text(const Json& object, std::wstring_view key, size_t maximum = 160) {
+  auto value = object.GetNamedString(key);
+  require(value.size() <= maximum, "invalid-input", "Text exceeds limit");
+  require(std::wstring_view(value).find(L'\0') == std::wstring_view::npos, "invalid-input", "NUL is not allowed");
+  return std::wstring(value);
+}
+inline int number(const Json& object, std::wstring_view key, int minimum, int maximum) {
+  double value = object.GetNamedNumber(key);
+  require(std::isfinite(value) && value >= minimum && value <= maximum && std::floor(value) == value,
+    "invalid-input", "Number outside supported range");
+  return static_cast<int>(value);
+}
+inline auto string_value(std::wstring_view value) { return JsonValue::CreateStringValue(value); }
+inline auto numeric(int value) { return JsonValue::CreateNumberValue(value); }
+inline auto boolean(bool value) { return JsonValue::CreateBooleanValue(value); }
+inline Json rect_json(Rect r) {
+  Json result;
+  result.Insert(L"x", numeric(r.x)); result.Insert(L"y", numeric(r.y));
+  result.Insert(L"width", numeric(r.width)); result.Insert(L"height", numeric(r.height));
+  return result;
+}
+inline Rect rect_from(RECT r) { return {r.left, r.top, r.right-r.left, r.bottom-r.top}; }
+inline std::wstring identifier() {
+  GUID value; check_hresult(CoCreateGuid(&value));
+  wchar_t buffer[40]; StringFromGUID2(value, buffer, 40); return buffer;
+}
+struct Handle {
+  HANDLE value = nullptr;
+  explicit Handle(HANDLE h = nullptr) : value(h) {}
+  ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+  Handle(const Handle&) = delete;
+  Handle& operator=(const Handle&) = delete;
+};
+extern std::atomic<uint64_t> focus_epoch;
+extern HANDLE stop_event;
+extern std::atomic<bool> lease_active;
+extern std::atomic<DWORD> stop_exit_code;
+void release_input() noexcept;
+void check_active_desktop();
+void check_focus(HWND window);
+void click_point(HWND window, Point point, const std::wstring& button, int count);
+void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus);
+void key_press(HWND window, const Json& params);
+void scroll_at(HWND window, Point point, int dx, int dy);
+void drag_to(HWND window, Point from, Point to, int duration);
+Json clipboard(const Json& params);
+struct Capture { Rect source; int width; int height; std::string base64; std::wstring media_type; bool fallback; };
+Capture capture_window(HWND window, int max_dim, bool jpeg, int quality, bool allow_fallback);
+Rect window_bounds(HWND window);
+}
