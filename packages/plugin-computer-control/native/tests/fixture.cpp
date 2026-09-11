@@ -2,6 +2,7 @@
 #include <fstream>
 #include <filesystem>
 #include <windowsx.h>
+#include <shellapi.h>
 
 using namespace moxxy;
 namespace {
@@ -59,11 +60,13 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
   }
 }
 }
-int wmain(int argc, wchar_t** argv) {
-  if (argc!=2) return 2;
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+  int argc = 0;
+  auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (!argv || argc!=2) { if (argv) LocalFree(argv); return 2; }
+  report_path=argv[1]; LocalFree(argv);
   init_apartment(apartment_type::single_threaded);
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-  report_path=argv[1];
   WNDCLASSW canvas_class{}; canvas_class.style=CS_DBLCLKS; canvas_class.lpfnWndProc=canvas_proc;
   canvas_class.hInstance=GetModuleHandleW(nullptr); canvas_class.lpszClassName=L"MoxxyTestCanvas";
   RegisterClassW(&canvas_class);

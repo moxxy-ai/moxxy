@@ -55,6 +55,13 @@ function Observe { return Call 'observe' @{ windowId=$script:windowId; maxNodes=
 function Screenshot {
   return Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false }
 }
+function Canvas-Point($capture, $xOffset = 60, $yOffset = 60) {
+  $observation=Observe
+  $canvas=@($observation.elements | Where-Object { $_.name -eq 'Canvas' })[0]
+  Check ($null -ne $canvas) 'Canvas not found in fixture'
+  return @{ x=[math]::Floor(($canvas.bounds.x+$xOffset-$capture.source.x)*$capture.width/$capture.source.width);
+    y=[math]::Floor(($canvas.bounds.y+$yOffset-$capture.source.y)*$capture.height/$capture.source.height) }
+}
 function Fixture-State {
   # Wait for real window messages to be processed, not for a model declaration.
   Start-Sleep -Milliseconds 200
@@ -128,6 +135,49 @@ try {
       Check ((Fixture-State).saves -eq 1) 'Button did not receive click'
       Check (-not (Request $script:helper 'click' $input).ok) 'Stale element accepted'
     }
+    Test 'SendInput typing and Ctrl+A affect the named focused control' {
+      $observation=Observe
+      $field=@($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; button='left'; count=1 } | Out-Null
+      $observation=Observe
+      Call 'key' @{ windowId=$script:windowId; observationId=$observation.observationId; key='a'; modifiers=@('control') } | Out-Null
+      $observation=Observe
+      $field=@($observation.elements | Where-Object { $_.elementId -eq $observation.focusedElementId })[0]
+      $typed='Moxxy '+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+"`n"+[char]::ConvertFromUtf32(0x1F600)
+      Call 'type' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$typed } | Out-Null
+      Check ((Fixture-State).text.Replace("`r",'') -ceq $typed) 'SendInput text differs'
+    }
+    Test 'mouse buttons reach the real canvas' {
+      foreach ($button in @('left','right','middle')) {
+        $before=(Fixture-State).$button
+        $capture=Screenshot; $point=Canvas-Point $capture
+        Call 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; button=$button; count=1 } | Out-Null
+        Check ((Fixture-State).$button -eq $before+1) "$button click missing"
+      }
+    }
+    Test 'double click reaches the real canvas' {
+      Start-Sleep -Milliseconds 600
+      $before=(Fixture-State).doubleClicks
+      $capture=Screenshot; $point=Canvas-Point $capture
+      Call 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; button='left'; count=2 } | Out-Null
+      Check ((Fixture-State).doubleClicks -eq $before+1) 'Double click missing'
+    }
+    Test 'both scroll axes reach the real canvas' {
+      $before=Fixture-State
+      $capture=Screenshot; $point=Canvas-Point $capture
+      Call 'scroll' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; deltaX=120; deltaY=-120 } | Out-Null
+      $after=Fixture-State
+      Check ($after.scrollX -eq $before.scrollX+120 -and $after.scrollY -eq $before.scrollY-120) 'Scroll messages missing'
+    }
+    Test 'drag reaches canvas and old capture is rejected' {
+      Start-Sleep -Milliseconds 600
+      $before=(Fixture-State).drags
+      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 180 90
+      $input=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=400 }
+      Call 'drag' $input | Out-Null
+      Check ((Fixture-State).drags -eq $before+1) 'Drag did not reach target'
+      Check (-not (Request $script:helper 'drag' $input).ok) 'Stale capture accepted'
+    }
     Test 'desktop lease prevents concurrent control' {
       $other=Start-Peer
       $inventory=(Request $other 'windows' @{}).result
@@ -136,10 +186,8 @@ try {
       Check (-not $response.ok -and $response.error.code -eq 'control-busy') 'Concurrent desktop control accepted'
       $other.StandardInput.Close(); Check ($other.WaitForExit(3000)) 'Second helper leaked'
     }
-    Test 'clipboard real Unicode round trip' {
-      Call 'clipboard' @{ windowId=$script:windowId; action='write'; text='Moxxy test '+[char]0x17C } | Out-Null
-      Check ((Call 'clipboard' @{ windowId=$script:windowId; action='read' }).text -ceq ('Moxxy test '+[char]0x17C)) 'Clipboard mismatch'
-    }
+    # Do not overwrite non-text clipboard formats on a user's workstation.
+    Record 'clipboard round trip' 'not-tested' 'Requires an explicitly disposable clipboard; test does not overwrite user clipboard.'
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
@@ -152,7 +200,7 @@ finally {
     try { if (-not $fixture.HasExited) { $fixture.CloseMainWindow() | Out-Null; if (-not $fixture.WaitForExit(3000)) { $fixture.Kill() } } } catch {}
     $fixture.Dispose()
   }
-  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI','input cancellation during drag','focus theft','window recreation','mouse buttons and scrolling','typing and shortcuts','modal and delayed controls')) {
+  foreach ($name in @('Windows 10/11 agent benchmark 12x3','mixed monitor DPI','input cancellation during drag','focus theft','window recreation','modal and delayed controls')) {
     Record $name 'not-tested' 'Required acceptance coverage not yet executed by this test runner.'
   }
   $report=@{ schemaVersion=1; os=[Environment]::OSVersion.VersionString; architecture=$env:PROCESSOR_ARCHITECTURE;
