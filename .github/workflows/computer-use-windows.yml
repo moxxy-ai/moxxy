@@ -19,9 +19,23 @@ jobs:
         run: cmake --build packages/plugin-computer-control/native/build --config Release
       - name: Native deterministic tests
         run: ctest --test-dir packages/plugin-computer-control/native/build -C Release --output-on-failure
+      - name: Real desktop preflight and fixture tests
+        shell: pwsh
+        run: |
+          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-report"
+          if ($LASTEXITCODE -eq 2) { Write-Warning "GUI not tested: interactive desktop unavailable; Windows 10/11 reports required"; exit 0 }
+          exit $LASTEXITCODE
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: computer-use-report
+          path: ${{ runner.temp }}/computer-use-report/report.*
       - name: Upload native test components
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: moxxy-computer-use-windows-x64
-          path: packages/plugin-computer-control/native/build/Release/*.exe
+          path: |
+            packages/plugin-computer-control/native/build/Release/*.exe
+            packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1
           if-no-files-found: error
