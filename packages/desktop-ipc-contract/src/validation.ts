@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
 
@@ -229,6 +229,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // with an oversized string. All currently-valid payloads (a short turn id, an
   // optional workspace slug, an optional desk id, or no arg at all) still pass.
   'session.info': z.object({ workspaceId: optionalWorkspace }).optional(),
+  'computer.snapshot': z.object({workspaceId: z.string().min(1).max(160)}).strict(),
+  'computer.control': computerControlCommandSchema.extend({workspaceId: z.string().min(1).max(160)}).strict(),
   'session.abortTurn': z.object({
     workspaceId: optionalWorkspace,
     turnId: z.string().min(1).max(256),

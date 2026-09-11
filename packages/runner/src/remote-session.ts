@@ -5,6 +5,7 @@ import type {
   ApprovalRequest,
   ApprovalResolver,
   ClientSession,
+  ComputerControlService,
   CommandsClientView,
   ModesClientView,
   MoxxyEvent,
@@ -32,6 +33,7 @@ import type {
   TurnId,
 } from '@moxxy/sdk';
 import { sleepWithAbort } from '@moxxy/sdk';
+import { makeComputerControlView } from './client-views/computer-control.js';
 import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { JsonRpcPeer } from './jsonrpc.js';
 import {
@@ -196,6 +198,7 @@ export class RemoteSession implements ClientSession {
   readonly permissions: PermissionsClientView;
   readonly mcpAdmin: McpAdminClientView;
   readonly providerAdmin: ProviderAdminClientView;
+  readonly computerControl: ComputerControlService;
   readonly workflows: WorkflowsClientView;
   /**
    * Turns that completed before their `runTurn` stream was registered. A fast
@@ -332,6 +335,7 @@ export class RemoteSession implements ClientSession {
     this.permissions = makePermissionsView(view);
     this.mcpAdmin = makeMcpAdminView(view);
     this.providerAdmin = makeProviderAdminView(view);
+    this.computerControl = makeComputerControlView(view);
     this.workflows = makeWorkflowsView(view);
   }
 

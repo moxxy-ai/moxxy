@@ -1,5 +1,7 @@
 import type {
   ApprovalDecision,
+  ComputerControlCommand,
+  ComputerControlSnapshot,
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
@@ -247,6 +249,8 @@ export interface IpcCommands {
   /** Returns the runner's SessionInfo snapshot for the workspace.
    *  Defaults to the active workspace. */
   'session.info': (args?: { workspaceId?: string }) => Promise<SessionInfo | null>;
+  'computer.snapshot': (args: {workspaceId: string}) => Promise<{workspaceId: string; turns: ReadonlyArray<ComputerControlSnapshot>}>;
+  'computer.control': (args: ComputerControlCommand & {workspaceId: string}) => Promise<void>;
   /** Issue a new turn. Defaults to the active workspace; pass a
    *  workspaceId to start a turn in a background workspace. Events
    *  stream back via 'runner.event' tagged with the same id. */

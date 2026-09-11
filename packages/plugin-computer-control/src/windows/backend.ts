@@ -3,6 +3,7 @@ import { defineTool, type LifecycleHooks, type ToolContext, type ToolDef } from 
 import { z } from 'zod';
 import { HelperTransport } from './transport.js';
 import { verifyHelperArtifact } from './artifact.js';
+import { TurnControls } from './control-service.js';
 import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,
   observationSchema, observationRequiredSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
@@ -13,7 +14,8 @@ export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-compu
 const delivered = z.object({ delivered: z.literal(true), verificationRequired: z.literal(true) }).strict();
 
 export class WindowsBackend {
-  private readonly turns = new Map<string, { sessionId: string; transport: HelperTransport; dispose(): void }>();
+  private readonly turns = new Map<string, { sessionId: string; turnId: string; transport: HelperTransport; dispose(): void }>();
+  private readonly controls = new TurnControls();
 
   private async transport(ctx: ToolContext): Promise<HelperTransport> {
     ctx.signal.throwIfAborted();
@@ -28,10 +30,12 @@ export class WindowsBackend {
     // No await between the final lookup and registration: parallel calls share one child.
     const existing = this.turns.get(key);
     if (existing) return existing.transport;
-    const transport = new HelperTransport(helperPath, ['--parent', String(process.pid)]);
+    const transport = new HelperTransport(helperPath, ['--parent', String(process.pid)], 15_000,
+      (event) => this.controls.update(ctx.sessionId, ctx.turnId, event.state));
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };
     ctx.signal.addEventListener('abort', abort, { once: true });
-    this.turns.set(key, { sessionId: ctx.sessionId, transport, dispose: () => ctx.signal.removeEventListener('abort', abort) });
+    this.turns.set(key, { sessionId: ctx.sessionId, turnId: ctx.turnId, transport, dispose: () => ctx.signal.removeEventListener('abort', abort) });
+    this.controls.attach(ctx.sessionId, ctx.turnId, transport);
     return transport;
   }
 
@@ -40,11 +44,13 @@ export class WindowsBackend {
     for (const [key, entry] of this.turns) {
       if (entry.sessionId !== sessionId || (turnId && key !== JSON.stringify([sessionId, turnId]))) continue;
       this.turns.delete(key); entry.dispose(); closing.push(entry.transport.close());
+      this.controls.detach(entry.sessionId, entry.turnId);
     }
     await Promise.all(closing);
   }
 
   readonly hooks: LifecycleHooks = {
+    onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
     onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
     onShutdown: (ctx) => this.release(ctx.sessionId),
   };
@@ -60,7 +66,11 @@ export class WindowsBackend {
       isolation: { capabilities: { subprocess: true, commands: [helperPath], net: { mode: 'none' } } },
       handler: async (input, ctx) => {
         const transport = await this.transport(ctx);
-        const raw = await transport.request(name, input, ctx.signal);
+        const target = z.object({windowId: z.string().min(1).max(160)}).safeParse(input);
+        this.controls.activity(ctx.sessionId, ctx.turnId, 'recovering', target.success ? target.data.windowId : undefined);
+        let raw: unknown;
+        try { raw = await transport.request(name, input, ctx.signal); }
+        finally { this.controls.activity(ctx.sessionId, ctx.turnId, 'idle'); }
         const interrupted = observationRequiredSchema.safeParse(raw);
         if (interrupted.success) return interrupted.data;
         const result = outputSchema.parse(raw);
