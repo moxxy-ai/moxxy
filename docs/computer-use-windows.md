@@ -15,7 +15,9 @@ system-command backend with the same arguments.
   remain stable within the helper when inventory is refreshed; element IDs are
   observation-scoped. Minimized windows expose null bounds and require `computer_restore`.
   Image coordinates are pixels of the returned image, not desktop coordinates.
-- UIA observes a bounded subtree; password controls do not expose text. WGC
+- UIA observes a bounded tree or selected observation-scoped subtree and can
+  filter by literal name/control type. Output and visited-node limits are separate;
+  password controls do not expose text. WGC
   captures a window; visible-screen fallback requires explicit opt-in and may
   include overlapping content. Dispatch success is not evidence of task success.
 - A Windows mutex serializes control across processes until the owning turn
@@ -61,12 +63,22 @@ not a JS app-update bundle. Startup of other extensions does not require it.
 Runtime and Windows resource verification reject missing, mismatched or corrupt
 artifacts; a digest is an integrity check, not a replacement for release signing.
 
-Existing user extensions are deliberately **not** overwritten by seeding. After
-the version is officially published, explicitly update the Computer Use extension
-from Extensions (or `moxxy plugins install @moxxy/plugin-computer-control@VERSION`).
-Do not delete `.moxxy`, chats or credentials. Preserve local customizations before
-an explicit extension replacement. A local preview also needs the native artifact
-in the extension actually loaded by that preview, not just in the repository.
+Seeding still preserves existing extensions. Packaged Windows startup separately
+offers a controlled Computer Use update before starting its runners. An existing
+installation requires confirmation; the dialog distinguishes changes to a managed
+copy from a legacy copy without a verification record. Declining keeps that copy.
+
+The update holds a native maintenance lease, stages the installer package with
+private runtime dependencies, rechecks hashes, retains the previous directory,
+and probes the installed JavaScript and helper in an isolated process. It updates
+only Computer Use's npm pin/lock subtree. Journals recover interrupted activation;
+unexpected concurrent file changes require review instead of being overwritten.
+Backups remain under `.moxxy/desktop/computer-updates`. No npm/network is needed
+to apply the bundled package. Other plugins, vault and chats are not replaced.
+
+Do not delete `.moxxy` or credentials. A local preview still needs the native
+artifact in the extension actually loaded by that preview. The controlled startup
+offer belongs to full Windows installers, not a JS-only hot update.
 
 ## Local test kit
 
@@ -95,12 +107,13 @@ The CI wrapper preserves that status in its artifact and warning.
 ## Release acceptance still required
 
 This branch is not yet the complete acceptance implementation. Outstanding work
-includes richer UIA actions/subtree filtering, document opening, cross-window
-drag, desktop-renderer consumption of the typed SDK/runner/IPC state, staged
-extension upgrade/rollback and local-modification detection, and the full fault
+includes richer UIA actions, document opening, cross-window
+drag, desktop-renderer consumption of the typed SDK/runner/IPC state, and the full fault
 and agent benchmark matrices. The built-in panel controls the guardian directly
-so Stop does not depend on the desktop renderer. Existing extension seeding still does not perform the planned
-controlled upgrade. Do not call the branch release-ready or equivalent to Codex.
+so Stop does not depend on the desktop renderer. Controlled upgrade tests include
+private SDK resolution, refusal without consent, rollback and actual runner discovery;
+the installed Windows path still requires a successful CI/client acceptance run.
+Do not call the branch release-ready or equivalent to Codex.
 
 Run on both Windows 10 and 11 at 100%, 150% and 200% scaling. Test mixed-DPI
 monitors when available; absence of hardware remains not-tested. Native fixture

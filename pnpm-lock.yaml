@@ -1005,6 +1005,9 @@ importers:
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
+      '@moxxy/plugin-computer-control':
+        specifier: workspace:*
+        version: link:../plugin-computer-control
       '@moxxy/plugin-provider-local':
         specifier: workspace:*
         version: link:../plugin-provider-local

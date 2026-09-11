@@ -7,7 +7,7 @@
  *   - the IPC wiring
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 
 // Set the user-facing app name BEFORE app.whenReady so the macOS
 // menu bar / Dock and Windows taskbar pick it up. Falls through to
@@ -50,6 +50,7 @@ import {
   installAccountPortalRecovery,
   preferredCliEntry,
   seedPluginsFromResources,
+  offerBundledComputerUpdate,
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
@@ -199,13 +200,30 @@ async function prepareRunnerEnvironment(): Promise<void> {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
     try {
-      await seedPluginsFromResources({
+      const seed = await seedPluginsFromResources({
         resourcesPath: process.resourcesPath,
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
+      if (process.platform === 'win32' && process.arch === 'x64') {
+        await offerBundledComputerUpdate({
+          resourcesPath:process.resourcesPath, moxxyHome,
+          freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
+          confirm:async ({backupPath,localChanges}) => {
+            const result=await dialog.showMessageBox({
+              type:'question',title:'Update Computer Use',
+              message:'Install the Computer Use package included with this Moxxy installer?',
+              detail:(localChanges==='changed' ? 'The extension has changed since a managed installation. ' : localChanges==='untracked' ? 'The existing extension has no verified update record and may contain local changes. ' : '')+
+                'Only Computer Use, its private dependencies and its npm entry will be updated. Chats, OAuth and other extensions are unchanged. A copy will be kept at:\n'+backupPath,
+              buttons:['Later','Update Computer Use'],defaultId:0,cancelId:0,noLink:true,
+            });
+            return result.response===1;
+          },
+          log:(message)=>console.log(`[moxxy] ${message}`),
+        });
+      }
     } catch (err) {
-      console.warn('[moxxy] plugins-seed copy failed:', err);
+      console.warn('[moxxy] bundled plugin preparation failed:', err);
     }
   }
 
