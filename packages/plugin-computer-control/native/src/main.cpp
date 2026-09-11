@@ -76,10 +76,27 @@ int main(int argc, char** argv) {
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     std::thread([&] {
+      init_apartment(apartment_type::multi_threaded);
       std::string line;
       char c;
       while (std::cin.get(c)) {
         if (c == '\n') {
+          try {
+            auto command=Json::Parse(to_hstring(line));
+            if (command.HasKey(L"control")) {
+              fields(command,{L"version",L"control"});
+              number(command,L"version",protocol_version,protocol_version);
+              auto action=text(command,L"control");
+              if (action==L"pause") { resume_requested=false; user_paused=true; }
+              else if (action==L"resume") {
+                auto state=control_state.load();
+                user_paused=false;
+                resume_requested=state==ControlState::paused_by_user || state==ControlState::waiting_for_focus;
+              } else if (action==L"stop") { stop_exit_code=20; SetEvent(stop.value); }
+              else throw Error("invalid-input","Unknown control command");
+              line.clear(); continue;
+            }
+          } catch (...) { SetEvent(stop.value); return; }
           std::lock_guard guard(mutex);
           if (frames.size() >= 8) break;
           frames.push_back(std::move(line)); line.clear(); ready.notify_one();
