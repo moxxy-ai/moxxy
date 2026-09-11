@@ -13,6 +13,8 @@ it('injects Windows guidance only with available computer tools and without chan
   expect(result.system).toContain('Windows x64');
   expect(result.system).toContain('needs_observation');
   expect(result.system).toContain('Do not bypass Stop');
+  expect(result.system).toContain('computer_action_status');
+  expect(result.system).toContain('pending receipt');
   expect(withWindowsComputerGuidance(result)).toBe(result);
   const noTools:ProviderRequest={model:'configured-model',messages:[]};
   expect(withWindowsComputerGuidance(noTools)).toBe(noTools);
