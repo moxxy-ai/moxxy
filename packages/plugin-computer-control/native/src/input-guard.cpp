@@ -12,6 +12,8 @@ struct SharedInput {
   volatile LONG count;
   INPUT releases[ledger_capacity];
   volatile LONG physical[256];
+  volatile LONG paused, resume, visible, state, target_pid;
+  volatile LONG64 target;
 };
 struct Mapping {
   SharedInput* value=nullptr;
@@ -155,6 +157,29 @@ void guarded_release() noexcept {
   if (!guard) return;
   try { release_ledger(*guard->view.value,guard->mutex.value); } catch (...) { /* Guardian repeats cleanup when the worker exits. */ }
 }
+bool guard_paused() { return observed && InterlockedCompareExchange(&observed->paused,0,0)!=0; }
+bool take_guard_resume() { return observed && InterlockedExchange(&observed->resume,0)!=0; }
+void guard_control(ControlCommand command) {
+  require(observed!=nullptr,"guard-unavailable","Control is not ready");
+  if (command==ControlCommand::stop) { stop_exit_code=20; SetEvent(stop_event); return; }
+  if (command==ControlCommand::pause) {
+    InterlockedExchange(&observed->resume,0); InterlockedExchange(&observed->paused,1);
+  } else {
+    auto state=static_cast<ControlState>(InterlockedCompareExchange(&observed->state,0,0));
+    InterlockedExchange(&observed->paused,0);
+    InterlockedExchange(&observed->resume,state==ControlState::paused_by_user || state==ControlState::waiting_for_focus ? 1 : 0);
+  }
+}
+void publish_guard_state(ControlState state, HWND target) {
+  if (!observed) return;
+  if (target) {
+    DWORD pid=0; GetWindowThreadProcessId(target,&pid);
+    InterlockedExchange(&observed->target_pid,pid);
+    InterlockedExchange64(&observed->target,reinterpret_cast<LONG64>(target));
+    InterlockedExchange(&observed->visible,1);
+  }
+  InterlockedExchange(&observed->state,static_cast<LONG>(state));
+}
 int run_input_guard(int argc, char** argv) {
   try {
     require(argc==8,"guard-protocol","Invalid guardian arguments");
@@ -166,11 +191,30 @@ int run_input_guard(int argc, char** argv) {
       DWORD flags=0; require(GetHandleInformation(handles[i].value,&flags),"guard-protocol","Unavailable guardian handle");
     }
     Mapping mapping; map_view(mapping,handles[0].value); observed=mapping.value;
+    stop_event=handles[2].value;
     require(observed->version==guard_version,"guard-protocol","Input ledger version mismatch");
     for (int key=0;key<256;++key) InterlockedExchange(&observed->physical[key],(GetAsyncKeyState(key)&0x8000) ? 1 : 0);
     auto keyboard=SetWindowsHookExW(WH_KEYBOARD_LL,keyboard_hook,GetModuleHandleW(nullptr),0);
     auto mouse=SetWindowsHookExW(WH_MOUSE_LL,mouse_hook,GetModuleHandleW(nullptr),0);
     require(keyboard && mouse,"guard-unavailable","Cannot distinguish physical input from agent input");
+    PanelModel model{
+      [] {
+        auto target=reinterpret_cast<HWND>(InterlockedCompareExchange64(&observed->target,0,0));
+        wchar_t title[256]{}; GetWindowTextW(target,title,256);
+        auto state=static_cast<ControlState>(InterlockedCompareExchange(&observed->state,0,0));
+        if (static_cast<int>(state)<0 || static_cast<int>(state)>7) state=ControlState::failed;
+        return PanelSnapshot{InterlockedCompareExchange(&observed->visible,0,0)!=0,guard_paused() ? ControlState::paused_by_user : state,title};
+      },
+      [](ControlCommand command) {
+        if (command==ControlCommand::resume) {
+          auto target=reinterpret_cast<HWND>(InterlockedCompareExchange64(&observed->target,0,0));
+          DWORD pid=0; GetWindowThreadProcessId(target,&pid);
+          if (IsWindow(target) && pid==static_cast<DWORD>(InterlockedCompareExchange(&observed->target_pid,0,0))) SetForegroundWindow(target);
+        }
+        guard_control(command);
+      }
+    };
+    auto panel=create_control_panel(model);
     std::thread([&] {
       HANDLE monitored[]={handles[2].value,handles[4].value,handles[5].value};
       WaitForMultipleObjects(3,monitored,FALSE,INFINITE);
@@ -180,7 +224,9 @@ int run_input_guard(int argc, char** argv) {
     }).detach();
     SetEvent(handles[3].value);
     MSG message;
-    while (GetMessageW(&message,nullptr,0,0)>0) { TranslateMessage(&message); DispatchMessageW(&message); }
+    while (GetMessageW(&message,nullptr,0,0)>0) {
+      if (!IsDialogMessageW(panel,&message)) { TranslateMessage(&message); DispatchMessageW(&message); }
+    }
     UnhookWindowsHookEx(keyboard); UnhookWindowsHookEx(mouse);
   } catch (...) { return 1; }
   return 0;

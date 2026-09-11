@@ -35,15 +35,6 @@ void CALLBACK focus_changed(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD
   ++moxxy::focus_epoch;
 }
 LRESULT CALLBACK indicator_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-  if (message == WM_CREATE) {
-    CreateWindowW(L"BUTTON", L"Stop Computer Use", WS_CHILD|WS_VISIBLE, 10, 8, 230, 32, hwnd,
-      reinterpret_cast<HMENU>(1), GetModuleHandleW(nullptr), nullptr);
-    SetTimer(hwnd, 1, 100, nullptr); return 0;
-  }
-  if (message == WM_TIMER) { ShowWindow(hwnd, moxxy::lease_active ? SW_SHOWNOACTIVATE : SW_HIDE); return 0; }
-  if (message == WM_CLOSE || (message == WM_COMMAND && LOWORD(wparam) == 1)) {
-    moxxy::stop_exit_code = 20; SetEvent(moxxy::stop_event); return 0;
-  }
   return DefWindowProcW(hwnd,message,wparam,lparam);
 }
 }
@@ -89,12 +80,9 @@ int main(int argc, char** argv) {
               fields(command,{L"version",L"control"});
               number(command,L"version",protocol_version,protocol_version);
               auto action=text(command,L"control");
-              if (action==L"pause") { resume_requested=false; user_paused=true; }
-              else if (action==L"resume") {
-                auto state=control_state.load();
-                user_paused=false;
-                resume_requested=state==ControlState::paused_by_user || state==ControlState::waiting_for_focus;
-              } else if (action==L"stop") { stop_exit_code=20; SetEvent(stop.value); }
+              if (action==L"pause") guard_control(ControlCommand::pause);
+              else if (action==L"resume") guard_control(ControlCommand::resume);
+              else if (action==L"stop") guard_control(ControlCommand::stop);
               else throw Error("invalid-input","Unknown control command");
               line.clear(); continue;
             }
@@ -113,9 +101,10 @@ int main(int argc, char** argv) {
     std::thread([&] {
       WNDCLASSW klass{}; klass.lpfnWndProc=indicator_proc; klass.hInstance=GetModuleHandleW(nullptr);
       klass.lpszClassName=L"MoxxyComputerControlIndicator"; RegisterClassW(&klass);
-      auto indicator=CreateWindowExW(WS_EX_TOPMOST|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,klass.lpszClassName,
-        L"Moxxy controls your computer",WS_CAPTION|WS_SYSMENU,GetSystemMetrics(SM_CXSCREEN)-290,10,270,90,
-        nullptr,nullptr,klass.hInstance,nullptr);
+      // Clipboard ownership and focus hooks stay in the worker; visible controls
+      // live in the independent guardian, not this message-only window.
+      auto indicator=CreateWindowExW(0,klass.lpszClassName,L"Moxxy clipboard owner",0,0,0,0,0,
+        HWND_MESSAGE,nullptr,klass.hInstance,nullptr);
       if (!indicator) { SetEvent(stop.value); return; }
       control_window = indicator;
       auto hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
@@ -171,6 +160,7 @@ int main(int argc, char** argv) {
       require(wire.size() <= frame_limit, "output-limit", "Response exceeds protocol limit");
       std::cout << wire << '\n' << std::flush;
       operation_deadline = 0;
+      publish_guard_state(ControlState::idle);
     }
   } catch (...) { return 1; }
 }
