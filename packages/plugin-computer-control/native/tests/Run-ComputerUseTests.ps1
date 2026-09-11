@@ -2,12 +2,14 @@ param(
   [string]$HelperPath = (Join-Path $PSScriptRoot 'moxxy-computer.exe'),
   [string]$FixturePath = (Join-Path $PSScriptRoot 'moxxy-computer-fixture.exe'),
   [string]$ReportDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('moxxy-computer-tests-' + [guid]::NewGuid())),
-  [switch]$NonInteractive
+  [switch]$NonInteractive,
+  [switch]$TestClipboard
 )
 $ErrorActionPreference = 'Stop'
 if (-not $NonInteractive) {
   Write-Host 'Test controls ONLY its own windows. Do not use the mouse or keyboard during the test.'
   Write-Host 'Use Stop Computer Use to stop. No data is uploaded.'
+  if ($TestClipboard) { Write-Host 'Clipboard test is enabled: non-text clipboard contents may be replaced.' }
   if ((Read-Host 'Type START to continue') -cne 'START') { return }
 }
 New-Item -ItemType Directory -Path $ReportDirectory -Force | Out-Null
@@ -264,8 +266,18 @@ try {
       $script:windowId=$target.windowId
       Call 'focus' @{ windowId=$script:windowId } | Out-Null
     }
-    # Do not overwrite non-text clipboard formats on a user's workstation.
-    Record 'clipboard round trip' 'not-tested' 'Requires an explicitly disposable clipboard; test does not overwrite user clipboard.'
+    if ($TestClipboard) {
+      Test 'clipboard Unicode round trip' {
+        $original=Request $script:helper 'clipboard' @{ windowId=$script:windowId; action='read' }
+        try {
+          $value='Clipboard '+[char]0x17C+[char]::ConvertFromUtf32(0x1F600)
+          Call 'clipboard' @{ windowId=$script:windowId; action='write'; text=$value } | Out-Null
+          Check ((Call 'clipboard' @{ windowId=$script:windowId; action='read' }).text -ceq $value) 'Clipboard mismatch'
+        } finally {
+          if ($original.ok) { Call 'clipboard' @{ windowId=$script:windowId; action='write'; text=$original.result.text } | Out-Null }
+        }
+      }
+    } else { Record 'clipboard round trip' 'not-tested' 'Run with -TestClipboard only when clipboard content is disposable.' }
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
