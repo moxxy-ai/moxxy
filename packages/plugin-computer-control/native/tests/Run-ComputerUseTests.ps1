@@ -115,6 +115,37 @@ try {
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
+    Test 'inventory preserves unchanged window and observation identities' {
+      $before=Observe
+      $inventory=Call 'windows' @{}
+      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id })[0]
+      $previous=$script:windowId
+      $script:windowId=$target.windowId
+      Check ($previous -eq $target.windowId) 'Unchanged window received a new identity'
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='inventory retained'} | Out-Null
+    }
+    Test 'background UIA change does not steal foreground or require focus' {
+      $before=Observe
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      $otherPath=Join-Path $ReportDirectory 'other-fixture-state.json'
+      $other=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$otherPath+'"') -PassThru
+      $fixtures.Add($other)
+      try {
+        Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
+        Start-Sleep -Milliseconds 250
+        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
+        Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='background updated'} | Out-Null
+        Check ((Fixture-State).text -eq 'background updated') 'Background value not set'
+        $image=Screenshot
+        Check ($image.mode -eq 'window') 'Background capture used desktop fallback'
+        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Automation stole foreground'
+      } finally {
+        $other.CloseMainWindow() | Out-Null
+        $other.WaitForExit(3000) | Out-Null
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+      }
+    }
     Test 'window-local crop retains source geometry' {
       $full=Screenshot
       $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
