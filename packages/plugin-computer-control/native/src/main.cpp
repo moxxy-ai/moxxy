@@ -108,15 +108,15 @@ int main(int argc, char** argv) {
         id = text(request, L"id"); require(!id.empty(), "invalid-input", "Missing request ID");
         require(number(request, L"version", 1, 1) == protocol_version, "protocol-mismatch", "Update Computer Use extension");
         auto result = desktop.execute(text(request, L"method"), request.GetNamedObject(L"params"));
-        response.Insert(L"ok", boolean(true)); response.Insert(L"result", result);
+        response.Insert(L"ok", moxxy::boolean(true)); response.Insert(L"result", result);
       } catch (const Error& error) {
         Json detail; detail.Insert(L"code", string_value(to_hstring(error.code)));
         detail.Insert(L"message", string_value(to_hstring(error.what())));
-        response.Insert(L"ok", boolean(false)); response.Insert(L"error", detail);
+        response.Insert(L"ok", moxxy::boolean(false)); response.Insert(L"error", detail);
       } catch (...) {
         Json detail; detail.Insert(L"code", string_value(L"native-error"));
         detail.Insert(L"message", string_value(L"Native operation failed or target became unavailable; observe again."));
-        response.Insert(L"ok", boolean(false)); response.Insert(L"error", detail);
+        response.Insert(L"ok", moxxy::boolean(false)); response.Insert(L"error", detail);
       }
       response.Insert(L"id", string_value(id));
       auto wire = to_string(response.Stringify());
