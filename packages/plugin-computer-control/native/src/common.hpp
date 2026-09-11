@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <ole2.h>
 #include <UIAutomation.h>
 #include <winrt/base.h>
 #include <winrt/Windows.Data.Json.h>
@@ -12,6 +13,7 @@
 #include "geometry.hpp"
 
 namespace moxxy {
+namespace Windows = winrt::Windows;
 using namespace winrt;
 using namespace Windows::Data::Json;
 using Json = JsonObject;
