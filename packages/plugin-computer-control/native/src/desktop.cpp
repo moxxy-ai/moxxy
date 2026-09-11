@@ -164,11 +164,13 @@ Json Desktop::observe(const Json& params, Window& window) {
     bool matches=(!type_filter || control==*type_filter) && (name_filter.empty() || normalized.find(name_filter)!=std::wstring::npos);
     if (matches && rect.width > 0 && rect.height > 0) {
       auto value=secret ? std::nullopt : element_value(node.get());
-      elements.emplace(id, Element{node, rect, value});
+      auto accessibility=secret ? AccessibilityState{} : accessibility_state(node.get());
+      elements.emplace(id, Element{node, rect, value, accessibility});
       Json entry; entry.Insert(L"elementId", string_value(id));
       entry.Insert(L"parentId", parent.empty() ? JsonValue::CreateNullValue() : string_value(parent));
       entry.Insert(L"name", string_value(label)); entry.Insert(L"controlType", numeric(control));
       entry.Insert(L"bounds", rect_json(rect)); entry.Insert(L"enabled", boolean(enabled)); entry.Insert(L"protected", boolean(secret));
+      entry.Insert(L"actions",accessibility_actions(accessibility)); entry.Insert(L"controlState",accessibility_properties(accessibility));
       if (value) {
         auto length=std::min<size_t>(512,value->text.size());
         if (length && value->text[length-1]>=0xD800 && value->text[length-1]<=0xDBFF) --length;
@@ -220,6 +222,7 @@ Element& Desktop::element(const Json& params, Window& window, bool needs_focus) 
   BOOL enabled = FALSE; check_hresult(element.node->get_CurrentIsEnabled(&enabled));
   require(enabled && !protected_element(element.node.get()), "protected-element", "Element disabled or protected");
   require(element.value==element_value(element.node.get()),"stale-element","Control value or editability changed; observe again before acting");
+  require(element.accessibility==accessibility_state(element.node.get()),"stale-element","Control selection, toggle, expansion or supported actions changed; observe again");
   return element;
 }
 Point Desktop::point(const Json& params, const Json& coordinates, Window& window) {
@@ -287,6 +290,10 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   }
   if (method == L"app_catalog") { fields(params,{L"query",L"maxResults"}); check_active_desktop(); return catalog.list(params); }
   if (method == L"open") { fields(params,{L"appId",L"instance",L"timeoutMs"}); return open(params); }
+  if (method == L"action_status") {
+    fields(params,{L"actionId",L"waitMs"});
+    return actions.status(text(params,L"actionId"),number(params,L"waitMs",0,1000));
+  }
   // Validate shape before acquiring a lease or executing any native operation.
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
   else if (method == L"observe") fields(params, {L"windowId", L"maxNodes", L"root", L"filter"});
@@ -295,6 +302,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"type" || method == L"set_value") fields(params, {L"windowId", L"observationId", L"elementId", L"text"});
   else if (method == L"read_text") fields(params, {L"windowId", L"observationId", L"elementId", L"maxChars"});
   else if (method == L"select_text") fields(params, {L"windowId", L"observationId", L"elementId", L"text", L"occurrence"});
+  else if (method == L"action") fields(params,{L"windowId",L"observationId",L"elementId",L"action"});
   else if (method == L"key") fields(params, {L"windowId", L"observationId", L"key", L"modifiers"});
   else if (method == L"scroll") fields(params, {L"windowId", L"captureId", L"x", L"y", L"deltaX", L"deltaY"});
   else if (method == L"drag") fields(params, {L"windowId", L"captureId", L"from", L"to", L"durationMs"});
@@ -387,10 +395,16 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       require(same, "focus-changed", "Target control is not focused; click and observe it first");
       type_text(window.hwnd, value, [&] { fresh_observation(params, window); });
     }
+  } else if (method == L"action") {
+    auto name=text(params,L"action");
+    auto& control=element(params,window);
+    input_may_have_run=true;
+    auto receipt=actions.start(control.node,window.hwnd,control.accessibility,name);
+    observation_id.clear(); capture_id.clear(); return receipt;
   } else if (method == L"read_text") {
     auto limit=number(params,L"maxChars",1,16000);
     auto& control=element(params,window,false);
-    return read_control_text(control.node.get(),limit);
+    return read_control_text(control.node.get(),window.hwnd,limit);
   } else if (method == L"select_text") {
     auto query=text(params,L"text",4000); require(!query.empty(),"invalid-input","Selection text must not be empty");
     auto occurrence=number(params,L"occurrence",1,100);

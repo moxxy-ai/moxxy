@@ -51,6 +51,12 @@ export const selectTextSchema = elementSchema.extend({ text: z.string().min(1).m
 export const textResultSchema = z.object({
   text: z.string().max(16000), selectedText: z.array(z.string().max(16000)).max(16), truncated: z.boolean(),
 }).strict();
+const accessibilityActionSchema = z.enum(['invoke', 'select', 'add_to_selection', 'remove_from_selection', 'toggle', 'expand', 'collapse', 'scroll_into_view']);
+export const actionSchema = elementSchema.extend({ action: accessibilityActionSchema }).strict();
+export const actionStatusSchema = z.object({actionId:idSchema,waitMs:z.number().int().min(0).max(1000).default(0)}).strict();
+export const actionResultSchema = z.object({
+  actionId:idSchema,status:z.enum(['pending','completed','failed']),verificationRequired:z.literal(true),
+}).strict();
 export const keySchema = targetSchema.extend({
   observationId: idSchema,
   key: z.string().regex(/^(?:[a-z0-9]|enter|tab|escape|backspace|delete|space|home|end|pageup|pagedown|left|right|up|down|f(?:[1-9]|1[0-2]))$/),
@@ -87,6 +93,8 @@ export const observationSchema = z.object({
     elementId: idSchema, parentId: idSchema.nullable(), name: z.string().max(512),
     controlType: pixel, bounds: rectangleSchema, enabled: z.boolean(), protected: z.boolean(),
     value: z.string().max(512).optional(),
+    actions: z.array(accessibilityActionSchema).max(8).optional(),
+    controlState: z.object({toggle:z.number().int().min(0).max(2).optional(),selected:z.boolean().optional(),expansion:z.number().int().min(0).max(3).optional()}).strict().optional(),
   }).strict()).max(256),
 }).strict();
 export const captureSchema = z.object({

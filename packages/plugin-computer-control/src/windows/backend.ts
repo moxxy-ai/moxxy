@@ -10,6 +10,7 @@ import {
   observationSchema, observationRequiredSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
   appCatalogInputSchema, appCatalogSchema, openSchema, openResultSchema,
   readTextSchema, selectTextSchema, textResultSchema,
+  actionSchema, actionStatusSchema, actionResultSchema,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -101,6 +102,8 @@ export class WindowsBackend {
       operation('set_value', 'Set an editable non-protected control value. Background changes require verified native support and never fall back to physical input.', typeSchema, delivered),
       operation('read_text', 'Read bounded document text and selected ranges from an observed, non-protected text control without focusing it.', readTextSchema, textResultSchema),
       operation('select_text', 'Select a literal, case-sensitive occurrence in an observed text control. Requires foreground access and a verifiable unchanged control value; no keyboard fallback.', selectTextSchema, delivered),
+      operation('action', 'Perform an advertised UI Automation action on a fresh control. Foreground access is required until this control has verified background support. Returns a receipt; pending is not success and must not be repeated. Observe and handle any resulting modal.', actionSchema, actionResultSchema),
+      operation('action_status', 'Read a previous UIA action receipt, optionally waiting up to 1 second. Never replays the operation; verify the actual interface even after completion.', actionStatusSchema, actionResultSchema),
       operation('key', 'Send an explicit Windows shortcut to a freshly observed focused window.', keySchema, delivered),
       operation('scroll', 'Scroll at a captured point; positive Y scrolls up, positive X right, 120 units per notch.', scrollSchema, delivered),
       operation('drag', 'Drag between two points in the same fresh window capture.', dragSchema, delivered),
