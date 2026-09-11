@@ -118,7 +118,8 @@ try {
       $field = @($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
       $text = 'Za' + [char]0x17C + [char]0xF3 + [char]0x142 + [char]0x107 + ' g' + [char]0x119 + [char]0x15B + 'l' + [char]0x105 + ' ja' + [char]0x17A + [char]0x144 + [char]0x0A + [char]::ConvertFromUtf32(0x1F600)
       Call 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$text } | Out-Null
-      Check ((Fixture-State).text.Replace("`r",'') -ceq $text) 'UIA text differs'
+      $actual=(Fixture-State).text.Replace("`r",'')
+      Check ($actual -ceq $text) ("UIA text differs: actual="+($actual|ConvertTo-Json -Compress)+" expected="+($text|ConvertTo-Json -Compress))
     }
     Test 'protected control has no value/name disclosure' {
       $observation=Observe
@@ -145,7 +146,8 @@ try {
       $field=@($observation.elements | Where-Object { $_.elementId -eq $observation.focusedElementId })[0]
       $typed='Moxxy '+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+"`n"+[char]::ConvertFromUtf32(0x1F600)
       Call 'type' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$typed } | Out-Null
-      Check ((Fixture-State).text.Replace("`r",'') -ceq $typed) 'SendInput text differs'
+      $actual=(Fixture-State).text.Replace("`r",'')
+      Check ($actual -ceq $typed) ("SendInput text differs: actual="+($actual|ConvertTo-Json -Compress)+" expected="+($typed|ConvertTo-Json -Compress))
     }
     Test 'mouse buttons reach the real canvas' {
       foreach ($button in @('left','right','middle')) {
