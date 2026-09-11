@@ -390,6 +390,27 @@ try {
         }
       }
     } else { Record 'clipboard round trip' 'not-tested' 'Run with -TestClipboard only when clipboard content is disposable.' }
+    Test 'changed control value rejects stale observation without overwriting user data' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Value later')[0]
+      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$button.elementId;button='left';count=1} | Out-Null
+      $before=Observe
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      Start-Sleep -Milliseconds 3300
+      $response=Request $script:helper 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='Must not overwrite'}
+      Check (-not $response.ok -and $response.error.code -eq 'stale-element') 'Changed value did not invalidate the element'
+      Check ((Fixture-State).text -eq 'Changed by application') 'Stale operation overwrote application data'
+    }
+    Test 'minimized windows retain identity and require explicit restore' {
+      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Minimize')[0]
+      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$button.elementId;button='left';count=1} | Out-Null
+      Start-Sleep -Milliseconds 250
+      $inventory=Call 'windows' @{}
+      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
+      Check ($target.windowId -eq $script:windowId -and $target.state -eq 'minimized' -and $null -eq $target.bounds) 'Minimized window was exposed as a clickable offscreen target'
+      Check (-not (Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=128}).ok) 'Minimized window accepted input preparation'
+      Call 'restore' @{windowId=$script:windowId} | Out-Null
+      Check ((Observe).elements.Count -gt 2) 'Restored window is not usable'
+    }
     $exitCode=0
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
