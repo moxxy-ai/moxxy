@@ -77,6 +77,7 @@ uint64_t window_generation(HWND window);
 void release_input() noexcept;
 void check_active_desktop();
 void check_focus(HWND window);
+bool has_target_focus(HWND window);
 void click_point(HWND window, Point point, const std::wstring& button, int count);
 void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus);
 void key_press(HWND window, const Json& params);

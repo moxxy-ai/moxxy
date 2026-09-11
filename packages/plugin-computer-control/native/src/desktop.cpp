@@ -22,7 +22,8 @@ Rect element_bounds(IUIAutomationElement* node) {
 }
 Rect window_bounds(HWND hwnd) {
   RECT rect;
-  check_hresult(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect)));
+  if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rect, sizeof(rect))))
+    require(GetWindowRect(hwnd, &rect), "target-unavailable", "Cannot read window bounds");
   auto result = rect_from(rect);
   require(result.width > 0 && result.height > 0, "target-unavailable", "Window has no visible bounds");
   return result;
@@ -59,7 +60,8 @@ Window& Desktop::target(const Json& params) {
 JsonArray Desktop::list_windows() {
   std::vector<HWND> handles;
   EnumWindows([](HWND hwnd, LPARAM ptr) -> BOOL {
-    if (IsWindowVisible(hwnd) && GetWindowTextLengthW(hwnd) > 0)
+    wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
+    if (IsWindowVisible(hwnd) && (GetWindowTextLengthW(hwnd) > 0 || std::wstring_view(name) == L"#32768"))
       reinterpret_cast<std::vector<HWND>*>(ptr)->push_back(hwnd);
     return reinterpret_cast<std::vector<HWND>*>(ptr)->size() < 256;
   }, reinterpret_cast<LPARAM>(&handles));
@@ -75,10 +77,12 @@ JsonArray Desktop::list_windows() {
       auto created = creation_time(pid);
       auto bounds = window_bounds(hwnd);
       wchar_t title[2049]{}; GetWindowTextW(hwnd, title, 2049);
+      wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
       auto id = identifier();
       windows.emplace(id, Window{hwnd, pid, created, window_generation(hwnd), std::move(root)});
       Json entry; entry.Insert(L"windowId", string_value(id)); entry.Insert(L"pid", numeric(pid));
       entry.Insert(L"title", string_value(title)); entry.Insert(L"bounds", rect_json(bounds));
+      entry.Insert(L"className", string_value(name));
       result.Append(entry);
     } catch (...) { /* Inaccessible/elevated/closing windows are not actionable targets. */ }
   }
@@ -204,7 +208,8 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else throw Error("unsupported", "Unknown Computer Use operation");
   auto& window = target(params);
   if (method == L"focus") {
-    require(SetForegroundWindow(window.hwnd), "focus-denied", "Windows denied focus; activate the window manually");
+    if (!has_target_focus(window.hwnd))
+      require(SetForegroundWindow(window.hwnd), "focus-denied", "Windows denied focus; activate the window manually");
     check_focus(window.hwnd); observation_id.clear(); capture_id.clear();
   } else if (method == L"observe") return observe(params, window);
   else if (method == L"screenshot") {

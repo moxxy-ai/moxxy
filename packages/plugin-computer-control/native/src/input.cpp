@@ -48,9 +48,22 @@ void check_active_desktop() {
   CloseDesktop(desktop);
   require(ok && _wcsicmp(name, L"Default") == 0, "secure-desktop", "Secure desktop and UAC cannot be automated");
 }
+bool has_target_focus(HWND window) {
+  if (!IsWindow(window) || IsIconic(window)) return false;
+  auto foreground = GetForegroundWindow();
+  if (foreground == window) return true;
+  // Native popup menus receive input while their owner remains foreground.
+  wchar_t name[256]{}; GetClassNameW(window, name, 256);
+  if (std::wstring_view(name) != L"#32768" || !foreground) return false;
+  auto thread = GetWindowThreadProcessId(window, nullptr);
+  if (!thread || thread != GetWindowThreadProcessId(foreground, nullptr)) return false;
+  GUITHREADINFO info{}; info.cbSize = sizeof(info);
+  return GetGUIThreadInfo(thread, &info) && (info.flags & GUI_INMENUMODE) &&
+    info.hwndMenuOwner && GetAncestor(info.hwndMenuOwner, GA_ROOT) == foreground;
+}
 void check_focus(HWND window) {
   check_active_desktop();
-  require(GetForegroundWindow() == window && IsWindow(window) && !IsIconic(window), "focus-changed", "Target lost focus; observe again");
+  require(has_target_focus(window), "focus-changed", "Target lost focus; observe again");
 }
 void click_point(HWND window, Point point, const std::wstring& button, int count) {
   no_user_modifiers();
