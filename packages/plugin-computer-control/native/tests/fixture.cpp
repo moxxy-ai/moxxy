@@ -74,6 +74,9 @@ LRESULT CALLBACK edit_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam
 void report() {
   wchar_t value[4097]{}; if (edit) GetWindowTextW(edit, value, 4097);
   Json result; result.Insert(L"text", string_value(value));
+  DWORD selection_start=0,selection_end=0;
+  if (edit) SendMessageW(edit,EM_GETSEL,reinterpret_cast<WPARAM>(&selection_start),reinterpret_cast<LPARAM>(&selection_end));
+  result.Insert(L"selectionStart",numeric(selection_start)); result.Insert(L"selectionEnd",numeric(selection_end));
   result.Insert(L"left", numeric(left)); result.Insert(L"right", numeric(right)); result.Insert(L"middle", numeric(middle));
   result.Insert(L"doubleClicks", numeric(double_clicks)); result.Insert(L"scrollX", numeric(wheel_x)); result.Insert(L"scrollY", numeric(wheel_y));
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
