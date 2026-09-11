@@ -23,8 +23,8 @@ class Desktop {
   int captured_width = 0, captured_height = 0;
   void acquire();
   Window& target(const Json& params);
-  Element& element(const Json& params, Window& window);
-  void fresh_observation(const Json& params, Window& window);
+  Element& element(const Json& params, Window& window, bool needs_focus = true);
+  void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
   Point point(const Json& params, const Json& coordinates, Window& window);
   JsonArray list_windows();
   Json observe(const Json& params, Window& window);

@@ -65,8 +65,7 @@ JsonArray Desktop::list_windows() {
       reinterpret_cast<std::vector<HWND>*>(ptr)->push_back(hwnd);
     return reinterpret_cast<std::vector<HWND>*>(ptr)->size() < 256;
   }, reinterpret_cast<LPARAM>(&handles));
-  // New inventory invalidates old references, even if an HWND was recycled.
-  windows.clear(); elements.clear(); observation_id.clear(); capture_id.clear();
+  std::set<std::wstring> live;
   JsonArray result;
   for (auto hwnd : handles) {
     try {
@@ -78,14 +77,26 @@ JsonArray Desktop::list_windows() {
       auto bounds = window_bounds(hwnd);
       wchar_t title[2049]{}; GetWindowTextW(hwnd, title, 2049);
       wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
-      auto id = identifier();
-      windows.emplace(id, Window{hwnd, pid, created, window_generation(hwnd), std::move(root)});
+      auto generation = window_generation(hwnd);
+      std::wstring id;
+      for (const auto& [known_id, known] : windows) {
+        if (known.hwnd != hwnd || known.pid != pid || known.created != created || known.generation != generation) continue;
+        BOOL same = FALSE;
+        if (SUCCEEDED(automation->CompareElements(known.root.get(), root.get(), &same)) && same) { id=known_id; break; }
+      }
+      if (id.empty()) {
+        id=identifier(); windows.emplace(id, Window{hwnd,pid,created,generation,std::move(root)});
+      }
+      live.insert(id);
       Json entry; entry.Insert(L"windowId", string_value(id)); entry.Insert(L"pid", numeric(pid));
       entry.Insert(L"title", string_value(title)); entry.Insert(L"bounds", rect_json(bounds));
       entry.Insert(L"className", string_value(name));
       result.Append(entry);
     } catch (...) { /* Inaccessible/elevated/closing windows are not actionable targets. */ }
   }
+  std::erase_if(windows, [&](const auto& item) { return !live.contains(item.first); });
+  if (!windows.contains(observed_window)) { elements.clear(); observation_id.clear(); }
+  if (!windows.contains(captured_window)) capture_id.clear();
   return result;
 }
 Json Desktop::observe(const Json& params, Window& window) {
@@ -147,17 +158,19 @@ Json Desktop::observe(const Json& params, Window& window) {
     }
   };
   walk(window.root, L"", 0);
-  require(observed_bounds == window_bounds(window.hwnd) && observed_epoch == focus_epoch.load(),
+  require(observed_bounds == window_bounds(window.hwnd),
     "stale-observation", "Window changed while observing; observe again");
   Json result; result.Insert(L"windowId", string_value(observed_window)); result.Insert(L"observationId", string_value(observation_id));
   result.Insert(L"bounds", rect_json(observed_bounds)); result.Insert(L"elements", output);
   result.Insert(L"focusedElementId", focused_id.empty() ? JsonValue::CreateNullValue() : string_value(focused_id));
   result.Insert(L"truncated", boolean(truncated)); return result;
 }
-void Desktop::fresh_observation(const Json& params, Window& window) {
+void Desktop::fresh_observation(const Json& params, Window& window, bool needs_focus) {
   require(text(params, L"windowId") == observed_window && text(params, L"observationId") == observation_id &&
-    !observation_id.empty() && observed_bounds == window_bounds(window.hwnd) && observed_epoch == focus_epoch.load(),
+    !observation_id.empty() && observed_bounds == window_bounds(window.hwnd),
     "stale-observation", "Observe again after window or focus changes");
+  if (!needs_focus) return;
+  require(observed_epoch == focus_epoch.load(), "focus-changed", "Focus changed; observe again");
   check_focus(window.hwnd);
   com_ptr<IUIAutomationElement> focused;
   check_hresult(automation->GetFocusedElement(focused.put()));
@@ -166,8 +179,8 @@ void Desktop::fresh_observation(const Json& params, Window& window) {
   check_hresult(automation->CompareElements(observed_focus.get(), focused.get(), &same));
   require(same, "focus-changed", "Focused control changed; observe again");
 }
-Element& Desktop::element(const Json& params, Window& window) {
-  fresh_observation(params, window);
+Element& Desktop::element(const Json& params, Window& window, bool needs_focus) {
+  fresh_observation(params, window, needs_focus);
   auto found = elements.find(text(params, L"elementId"));
   require(found != elements.end(), "stale-element", "Element reference is not in the current observation");
   auto& element = found->second;
@@ -224,7 +237,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     }
     auto capture = capture_window(window.hwnd, number(params, L"maxDim", 256, 3840), format == L"jpeg",
       number(params, L"quality", 40, 100), params.GetNamedBoolean(L"allowVisibleFallback"), crop);
-    require(bounds_before == window_bounds(window.hwnd) && epoch == focus_epoch.load(), "stale-capture", "Window changed during capture");
+    require(bounds_before == window_bounds(window.hwnd), "stale-capture", "Window changed during capture");
     captured_window_bounds = bounds_before;
     captured_bounds = capture.source; captured_width = capture.width; captured_height = capture.height;
     capture_id = identifier(); captured_window = text(params, L"windowId"); captured_epoch = epoch;
@@ -247,7 +260,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     }
   } else if (method == L"type" || method == L"set_value") {
     auto value = text(params, L"text", 4000);
-    auto& control = element(params, window);
+    auto& control = element(params, window, method != L"set_value");
     if (method == L"set_value") {
       com_ptr<IUIAutomationValuePattern> pattern;
       check_hresult(control.node->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(pattern.put())));
