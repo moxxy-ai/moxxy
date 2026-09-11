@@ -36,15 +36,17 @@ function Start-Peer {
   $peers.Add($peer)
   return $peer
 }
-function Request($peer, $method, $parameters, $version = 1) {
+function Request($peer, $method, $parameters, $version = 2) {
   $id = [guid]::NewGuid().ToString()
   $frame = @{ version=$version; id=$id; method=$method; params=$parameters } | ConvertTo-Json -Depth 20 -Compress
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
-  $read = $peer.StandardOutput.ReadLineAsync()
-  if (-not $read.Wait(15000)) { throw 'Helper response timeout (operation not retried)' }
-  if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
-  $response = $read.Result | ConvertFrom-Json
-  if ($response.id -ne $id -or $response.version -ne 1) { throw 'Invalid protocol response' }
+  do {
+    $read = $peer.StandardOutput.ReadLineAsync()
+    if (-not $read.Wait(15000)) { throw 'Helper response timeout (operation not retried)' }
+    if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
+    $response = $read.Result | ConvertFrom-Json
+    if ($response.id -ne $id -or $response.version -ne 2) { throw 'Invalid protocol response' }
+  } while ($response.event -eq 'control_state')
   return $response
 }
 function Call($method, $parameters) {
@@ -76,9 +78,9 @@ $exitCode = 1
 try {
   $script:helper = Start-Peer
   $status = Call 'status' @{}
-  Check ($status.protocolVersion -eq 1 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
+  Check ($status.protocolVersion -eq 2 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
   Test 'protocol rejects wrong version' {
-    $response = Request $script:helper 'status' @{} 2
+    $response = Request $script:helper 'status' @{} 1
     Check (-not $response.ok) 'Wrong version was accepted'
   }
   Test 'protocol rejects unknown parameters' {
@@ -161,7 +163,7 @@ try {
         Start-Sleep -Milliseconds 250
         Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
         $id=[guid]::NewGuid().ToString()
-        $frame=@{version=1;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $frame=@{version=2;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
         $read=$script:helper.StandardOutput.ReadLineAsync()
         Check ($read.Wait(5000)) 'No waiting state event'
@@ -292,7 +294,7 @@ try {
     Test 'cancellation during drag releases input and desktop lease' {
       Start-Sleep -Milliseconds 600
       $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{ version=1; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
+      $frame=@{ version=2; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
       $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
       Start-Sleep -Milliseconds 150
       $script:helper.StandardInput.Close()

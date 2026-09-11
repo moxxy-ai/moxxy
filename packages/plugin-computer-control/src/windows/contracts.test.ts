@@ -29,8 +29,8 @@ describe('Windows computer control contracts', () => {
     ]) expect(clickSchema.safeParse(input).success).toBe(false);
   });
   it('rejects protocol mismatches and malformed envelopes', () => {
-    expect(responseSchema.safeParse({ version: 2, id: '1', ok: true, result: {} }).success).toBe(false);
-    expect(responseSchema.safeParse({ version: 1, id: '1', ok: false }).success).toBe(false);
+    expect(responseSchema.safeParse({ version: 1, id: '1', ok: true, result: {} }).success).toBe(false);
+    expect(responseSchema.safeParse({ version: 2, id: '1', ok: false }).success).toBe(false);
   });
 });
 

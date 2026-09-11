@@ -59,13 +59,12 @@ int main(int argc, char** argv) {
     Handle stop(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     require(stop.value != nullptr, "native-error", "Cannot create cancellation event");
     stop_event = stop.value;
-    std::atomic<ULONGLONG> deadline{0};
     // EOF, parent death, or a blocked UIA call all terminate the lease holder.
     std::thread([&] {
       HANDLE handles[] = {parent.value, stop.value};
       for (;;) {
         DWORD result = WaitForMultipleObjects(2, handles, FALSE, 50);
-        auto until = deadline.load();
+        auto until = operation_deadline.load();
         if (result != WAIT_TIMEOUT || (until && GetTickCount64() > until)) {
           SetEvent(stop.value); release_input(); ExitProcess(stop_exit_code.load());
         }
@@ -119,20 +118,29 @@ int main(int argc, char** argv) {
       std::string line;
       { std::unique_lock lock(mutex); ready.wait(lock, [&] { return !frames.empty(); });
         line = std::move(frames.front()); frames.pop_front(); }
-      deadline = GetTickCount64() + 12000;
+      operation_deadline = GetTickCount64() + 12000;
+      input_may_have_run=false;
       Json response; response.Insert(L"version", numeric(protocol_version));
       std::wstring id = L"invalid";
       try {
         Json request = Json::Parse(to_hstring(line));
         fields(request, {L"version", L"id", L"method", L"params"});
         id = text(request, L"id"); require(!id.empty(), "invalid-input", "Missing request ID");
-        require(number(request, L"version", 1, 1) == protocol_version, "protocol-mismatch", "Update Computer Use extension");
+        request_id=id;
+        require(number(request, L"version", protocol_version, protocol_version) == protocol_version, "protocol-mismatch", "Update Computer Use extension");
         auto result = desktop.execute(text(request, L"method"), request.GetNamedObject(L"params"));
         response.Insert(L"ok", moxxy::boolean(true)); response.Insert(L"result", result);
       } catch (const Error& error) {
+        if (error.code == "needs-observation") {
+          Json result; result.Insert(L"status",string_value(L"needs_observation"));
+          result.Insert(L"delivered",moxxy::boolean(false)); result.Insert(L"verificationRequired",moxxy::boolean(true));
+          result.Insert(L"effect",string_value(input_may_have_run ? L"possible" : L"none"));
+          response.Insert(L"ok",moxxy::boolean(true)); response.Insert(L"result",result);
+        } else {
         Json detail; detail.Insert(L"code", string_value(to_hstring(error.code)));
         detail.Insert(L"message", string_value(to_hstring(error.what())));
         response.Insert(L"ok", moxxy::boolean(false)); response.Insert(L"error", detail);
+        }
       } catch (...) {
         Json detail; detail.Insert(L"code", string_value(L"native-error"));
         detail.Insert(L"message", string_value(L"Native operation failed or target became unavailable; observe again."));
@@ -142,7 +150,7 @@ int main(int argc, char** argv) {
       auto wire = to_string(response.Stringify());
       require(wire.size() <= frame_limit, "output-limit", "Response exceeds protocol limit");
       std::cout << wire << '\n' << std::flush;
-      deadline = 0;
+      operation_deadline = 0;
     }
   } catch (...) { return 1; }
 }

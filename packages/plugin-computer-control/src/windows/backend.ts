@@ -5,7 +5,7 @@ import { HelperTransport } from './transport.js';
 import { verifyHelperArtifact } from './artifact.js';
 import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,
-  observationSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
+  observationSchema, observationRequiredSchema, screenshotSchema, scrollSchema, statusSchema, targetSchema, typeSchema, windowSchema,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -52,12 +52,17 @@ export class WindowsBackend {
     const operation = <I extends z.ZodTypeAny, O extends z.ZodTypeAny>(
       name: string, description: string, inputSchema: I, outputSchema: O,
     ): ToolDef => defineTool({
-      name: `computer_${name}`, description, inputSchema, outputSchema,
+      name: `computer_${name}`, description, inputSchema, outputSchema: z.union([outputSchema, observationRequiredSchema]),
       permission: { action: 'prompt' }, icon: 'workspace',
-      isolation: { capabilities: { subprocess: true, commands: [helperPath], net: { mode: 'none' }, timeMs: 20_000 } },
+      // Active execution is bounded by the transport and native watchdog. A
+      // wall-clock capability deadline would cancel legitimate human waiting.
+      isolation: { capabilities: { subprocess: true, commands: [helperPath], net: { mode: 'none' } } },
       handler: async (input, ctx) => {
         const transport = await this.transport(ctx);
-        const result = outputSchema.parse(await transport.request(name, input, ctx.signal));
+        const raw = await transport.request(name, input, ctx.signal);
+        const interrupted = observationRequiredSchema.safeParse(raw);
+        if (interrupted.success) return interrupted.data;
+        const result = outputSchema.parse(raw);
         if (name === 'screenshot') {
           const capture = captureSchema.parse(result);
           const { base64: _pixels, ...metadata } = capture;
@@ -83,7 +88,7 @@ export class WindowsBackend {
       operation('clipboard', 'Read or write system clipboard text while the explicit target is focused.', clipboardSchema, z.object({ text: z.string().max(64000) }).strict()),
     ];
     return tools.map((tool) => tool.name === 'computer_screenshot'
-      ? { ...tool, outputSchema: captureSchema.extend({ forModel: z.string() }).strict() }
+      ? { ...tool, outputSchema: z.union([captureSchema.extend({ forModel: z.string() }).strict(), observationRequiredSchema]) }
       : tool);
   }
 }
