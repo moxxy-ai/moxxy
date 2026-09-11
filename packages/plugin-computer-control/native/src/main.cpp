@@ -1,4 +1,5 @@
 #include "desktop.hpp"
+#include "input-guard.hpp"
 #include <iostream>
 #include <thread>
 #include <mutex>
@@ -49,6 +50,7 @@ LRESULT CALLBACK indicator_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM l
 
 int main(int argc, char** argv) {
   using namespace moxxy;
+  if (argc>1 && std::string(argv[1])=="--input-guard") return run_input_guard(argc,argv);
   try {
     require(argc == 3 && std::string(argv[1]) == "--parent", "invalid-input", "Parent PID required");
     size_t consumed = 0;
@@ -128,6 +130,7 @@ int main(int argc, char** argv) {
       UnhookWinEvent(destroy_hook);
     }).detach();
     require(WaitForSingleObject(hooks_ready.value, 2000) == WAIT_OBJECT_0, "native-error", "Focus monitor unavailable");
+    start_input_guard(parent.value,stop.value);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     init_apartment(apartment_type::multi_threaded);
     Desktop desktop;

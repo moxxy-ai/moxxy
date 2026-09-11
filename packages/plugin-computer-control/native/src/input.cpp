@@ -1,11 +1,9 @@
 #include "common.hpp"
-#include <mutex>
+#include "input-guard.hpp"
 #include <map>
 
 namespace moxxy {
 namespace {
-std::mutex input_mutex;
-std::vector<INPUT> releases;
 INPUT mouse(DWORD flags, DWORD data = 0) { INPUT input{}; input.type = INPUT_MOUSE; input.mi.dwFlags = flags; input.mi.mouseData = data; return input; }
 INPUT key(WORD vk, bool up, WORD scan = 0) {
   INPUT input{}; input.type = INPUT_KEYBOARD; input.ki.wVk = vk; input.ki.wScan = scan;
@@ -13,11 +11,10 @@ INPUT key(WORD vk, bool up, WORD scan = 0) {
   return input;
 }
 void send(INPUT input) {
-  input_may_have_run=true;
-  require(SendInput(1, &input, sizeof(INPUT)) == 1, "input-denied", "Windows rejected input; check target privileges");
+  guarded_input(input);
 }
 void down(INPUT input, INPUT release) {
-  std::lock_guard guard(input_mutex); releases.push_back(release); send(input);
+  guarded_input(input,release);
 }
 struct Release { ~Release() { release_input(); } };
 void move(HWND window, Point point) {
@@ -38,9 +35,7 @@ void no_user_modifiers() {
 }
 }
 void release_input() noexcept {
-  std::lock_guard guard(input_mutex);
-  for (auto it = releases.rbegin(); it != releases.rend(); ++it) SendInput(1, &*it, sizeof(INPUT));
-  releases.clear();
+  guarded_release();
 }
 void check_active_desktop() {
   require(WaitForSingleObject(stop_event, 0) != WAIT_OBJECT_0, "cancelled", "Computer Use stopped");
