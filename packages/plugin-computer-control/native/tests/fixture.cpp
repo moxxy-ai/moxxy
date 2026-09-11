@@ -7,10 +7,18 @@
 using namespace moxxy;
 namespace {
 HWND edit = nullptr;
+WNDPROC edit_default = nullptr;
 std::filesystem::path report_path;
 int left = 0, right = 0, middle = 0, double_clicks = 0, wheel_x = 0, wheel_y = 0, drags = 0, saves = 0;
 bool dragging = false;
 POINT drag_start{};
+LRESULT CALLBACK edit_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  // A bare Win32 EDIT does not implement the application-level Ctrl+A shortcut.
+  if (message == WM_KEYDOWN && wparam == 'A' && (GetKeyState(VK_CONTROL)&0x8000)) {
+    SendMessageW(hwnd, EM_SETSEL, 0, -1); return 0;
+  }
+  return CallWindowProcW(edit_default, hwnd, message, wparam, lparam);
+}
 void report() {
   wchar_t value[4097]{}; if (edit) GetWindowTextW(edit, value, 4097);
   Json result; result.Insert(L"text", string_value(value));
@@ -44,12 +52,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
     case WM_CREATE:
       CreateWindowW(L"STATIC",L"Public text",WS_CHILD|WS_VISIBLE,20,15,140,22,hwnd,nullptr,nullptr,nullptr);
       edit = CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_MULTILINE|ES_AUTOVSCROLL,20,40,500,100,hwnd,reinterpret_cast<HMENU>(101),nullptr,nullptr);
+      edit_default = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(edit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(edit_proc)));
       CreateWindowW(L"EDIT",L"fixture-secret",WS_CHILD|WS_VISIBLE|ES_PASSWORD,20,160,250,25,hwnd,reinterpret_cast<HMENU>(102),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Save",WS_CHILD|WS_VISIBLE|WS_TABSTOP,20,205,120,35,hwnd,reinterpret_cast<HMENU>(103),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Open modal",WS_CHILD|WS_VISIBLE|WS_TABSTOP,155,205,130,35,hwnd,reinterpret_cast<HMENU>(104),nullptr,nullptr);
       CreateWindowW(L"MoxxyTestCanvas",L"Canvas",WS_CHILD|WS_VISIBLE|WS_TABSTOP,20,270,500,170,hwnd,nullptr,nullptr,nullptr);
-      SetTimer(hwnd,1,1500,nullptr); SetFocus(edit); report(); return 0;
+      SetTimer(hwnd,1,1500,nullptr); SetTimer(hwnd,2,100,nullptr); SetFocus(edit); report(); return 0;
     case WM_TIMER:
+      if (wparam==2) { report(); return 0; }
       KillTimer(hwnd,1); CreateWindowW(L"BUTTON",L"Delayed button",WS_CHILD|WS_VISIBLE,320,205,160,35,hwnd,nullptr,nullptr,nullptr); return 0;
     case WM_COMMAND:
       if (LOWORD(wparam)==103) ++saves;
