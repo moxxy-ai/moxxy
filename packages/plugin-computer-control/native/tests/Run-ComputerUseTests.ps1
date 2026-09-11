@@ -216,6 +216,16 @@ try {
         if (-not $other.HasExited) { $other.CloseMainWindow() | Out-Null; $other.WaitForExit(3000) | Out-Null }
       }
     }
+    Test 'observation supports a selected subtree and bounded element filters' {
+      $observation=Observe
+      $button=@($observation.elements | Where-Object { $_.name -eq 'Save' })[0]
+      $subtree=Call 'observe' @{windowId=$script:windowId;maxNodes=32;root=@{observationId=$observation.observationId;elementId=$button.elementId}}
+      Check ($subtree.elements.Count -eq 1 -and $subtree.elements[0].name -eq 'Save') 'Subtree did not stay inside requested control'
+      $filtered=Call 'observe' @{windowId=$script:windowId;maxNodes=32;filter=@{nameIncludes='save';controlType=50000}}
+      Check ($filtered.elements.Count -eq 1 -and $filtered.elements[0].name -eq 'Save') 'Observation ignored element filter'
+      $stale=Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=32;root=@{observationId=$observation.observationId;elementId=$button.elementId}}
+      Check (-not $stale.ok) 'Subtree accepted stale element reference'
+    }
     Test 'UIA set value preserves Polish and Unicode' {
       $observation = Observe
       $field = @($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
