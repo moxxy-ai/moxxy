@@ -142,6 +142,18 @@ the controlled upgrade smoke. See [the installer run](https://github.com/moxxy-a
 The Windows 10/11 client upgrade path still requires its own acceptance runs.
 Do not call the branch release-ready or equivalent to Codex.
 
+Regression checkpoint `7568f60c` additionally verifies the model-facing schema
+through the installed Codex provider and runs null-option observation, physical
+typing and screenshot through the installed plugin handlers. Both native and
+installed-resource suites passed 37 checks on Windows Server, including exact
+Polish multiline text in real Notepad. Offline upgrade/discovery also passed in
+[the regression installer run](https://github.com/moxxy-ai/moxxy/actions/runs/34665075178).
+The earlier red run reproduced unknown-reference misdiagnosis and Notepad focus
+waiting; explicit UIA focus now complements SetForegroundWindow. Test setup
+establishes the competing fixture's real focus through UIA rather than assuming
+process launch activates it. Paint with a real model and Windows 10/11 acceptance
+remain unverified. Existing dependency-security advisories remain unresolved.
+
 ## Reference boundary
 
 The locally installed `@oai/cua` 0.2.4 / `@oai/sky` 0.6.26 clients were inspected
