@@ -454,6 +454,56 @@ try {
       Call 'focus' @{ windowId=$script:windowId } | Out-Null
       Check ((Observe).elements.Count -gt 2) 'Parent not usable after modal'
     }
+    Test 'owned and nested dialogs expose their own controls and never wait on a disabled parent' {
+      $mainId=$script:windowId
+      $receipt=Accessible-Action 'Open editor' 'invoke'
+      Start-Sleep -Milliseconds 300
+      $inventory=Call 'windows' @{}
+      $dialog=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy test editor' })[0]
+      Check ($null -ne $dialog) 'Editor dialog did not open'
+      try {
+        $parentView=Observe
+        # Store evidence before closure so a failing assertion does not strand the fixture.
+        $parentBlocked=$parentView.blockingWindowId -eq $dialog.windowId
+        $parentIsolated=@($parentView.elements | Where-Object { $_.windowId -ne $mainId }).Count -eq 0
+        $ownerCorrect=$dialog.ownerWindowId -eq $mainId
+        $script:windowId=$dialog.windowId
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+        $view=Observe
+        $field=@($view.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        Check ($null -ne $field) 'Dialog edit field missing'
+        Call 'set_value' @{windowId=$script:windowId;observationId=$view.observationId;elementId=$field.elementId;text='123'} | Out-Null
+        $view=Observe
+        $field=@($view.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        $valueCorrect=$field.value -eq '123' -and $field.windowId -eq $dialog.windowId
+        $nestedReceipt=Accessible-Action 'Nested editor' 'invoke'
+        Start-Sleep -Milliseconds 300
+        $inventory=Call 'windows' @{}
+        $nested=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy nested editor' })[0]
+        Check ($null -ne $nested) 'Nested dialog did not open'
+        $nestedParentView=Observe
+        $nestedCorrect=$nested.ownerWindowId -eq $dialog.windowId -and $nestedParentView.blockingWindowId -eq $nested.windowId
+        $script:windowId=$nested.windowId
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+        $nestedView=Observe
+        $nestedField=@($nestedView.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        Call 'set_value' @{windowId=$script:windowId;observationId=$nestedView.observationId;elementId=$nestedField.elementId;text='255'} | Out-Null
+        $nestedText=@((Observe).elements | Where-Object controlType -eq 50004)[0].value
+        $close=Accessible-Action 'OK' 'invoke'; Await-Action $close; Await-Action $nestedReceipt
+        $script:windowId=$dialog.windowId
+        $freshParent=Observe
+        $stale=Request $script:helper 'set_value' @{windowId=$nested.windowId;observationId=$nestedView.observationId;elementId=$nestedField.elementId;text='999'}
+        Check (-not $stale.ok) 'Closed nested dialog accepted stale input'
+        Check ($null -eq $freshParent.blockingWindowId -and $nestedText -eq '255') 'Nested dialog did not restore parent correctly'
+      } finally {
+        $script:windowId=$dialog.windowId
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+        $close=Accessible-Action 'OK' 'invoke'; Await-Action $close; Await-Action $receipt
+        $script:windowId=$mainId
+        Call 'focus' @{windowId=$script:windowId} | Out-Null
+      }
+      Check ($ownerCorrect -and $parentBlocked -and $parentIsolated -and $valueCorrect -and $nestedCorrect) 'Dialog ownership/observation contract is missing or incorrect'
+    }
     Test 'delayed control appears in fresh observations' {
       $until=[DateTime]::UtcNow.AddSeconds(3)
       do {
