@@ -401,6 +401,21 @@ try {
         Check ((Fixture-State).$button -eq $before+1) "$button click missing"
       }
     }
+    Test 'full and cropped screenshots map to the exact received canvas pixel' {
+      foreach ($variant in @(@{maxDim=1280},@{maxDim=256},@{maxDim=256;region=@{x=10;y=40;width=500;height=440}})) {
+        $parameters=@{windowId=$script:windowId;maxDim=$variant.maxDim;format='png';quality=72;allowVisibleFallback=$false}
+        if ($variant.region) { $parameters.region=$variant.region }
+        $capture=Call 'screenshot' $parameters
+        $view=Observe
+        $canvas=@($view.elements | Where-Object name -eq 'Canvas')[0]
+        $point=Canvas-Point $capture 85 55
+        $expectedX=$capture.source.x+[math]::Floor($point.x*$capture.source.width/$capture.width)-$canvas.bounds.x
+        $expectedY=$capture.source.y+[math]::Floor($point.y*$capture.source.height/$capture.height)-$canvas.bounds.y
+        Call 'click' @{windowId=$script:windowId;captureId=$capture.captureId;x=$point.x;y=$point.y;button='left';count=1} | Out-Null
+        $state=Fixture-State
+        Check ([math]::Abs($state.clickX-$expectedX) -le 1 -and [math]::Abs($state.clickY-$expectedY) -le 1) "Image point landed at wrong pixel: got $($state.clickX),$($state.clickY); expected $expectedX,$expectedY"
+      }
+    }
     Test 'double click reaches the real canvas' {
       Start-Sleep -Milliseconds 600
       $before=(Fixture-State).doubleClicks
