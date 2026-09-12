@@ -324,6 +324,27 @@ try {
       $field=@((Observe).elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
       Check ($field.value.Replace("`r",'') -ceq $text) 'Observation omitted editable value'
     }
+    $emoji=[char]::ConvertFromUtf32(0x1F600)
+    $valueCases=@(
+      @{name='511 units';text=('A'*511);expected=('A'*511)},
+      @{name='512 units';text=('A'*512);expected=('A'*512)},
+      @{name='513 units';text=(('A'*512)+'B');expected=('A'*512)},
+      @{name='4096 units';text=('A'*4096);expected=('A'*512)},
+      @{name='emoji crossing cutoff';text=(('A'*511)+$emoji+'B');expected=('A'*511)},
+      @{name='emoji ending at cutoff';text=(('A'*510)+$emoji+'B');expected=(('A'*510)+$emoji)}
+    )
+    foreach ($case in $valueCases) {
+      Test ('bounded observation preserves actual control value: '+$case.name) {
+        $before=Observe
+        $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=$case.text} | Out-Null
+        $after=Observe
+        $actual=@($after.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        Check ($actual.value -ceq $case.expected) 'Bounded observation changed text or split a surrogate pair'
+        Check ((Fixture-State).text -ceq $case.text) 'Observation changed the real control text'
+        Check ((Call 'status' @{}).ready) 'Helper did not survive bounded text observation'
+      }
+    }
     Test 'protected control has no value/name disclosure' {
       $observation=Observe
       $secret=@($observation.elements | Where-Object { $_.protected })[0]
