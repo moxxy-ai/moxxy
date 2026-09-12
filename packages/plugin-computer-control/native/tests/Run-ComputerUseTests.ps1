@@ -96,17 +96,22 @@ function Fixture-State {
   } while ([DateTime]::UtcNow -lt $until)
   throw "Fixture did not publish a complete JSON report: $readError"
 }
-function Focus-TestFixture($process) {
+function Focus-TestFixture($process, [switch]$ProbeEvents) {
   # Simulate a real title-bar click outside the backend under test, and wait
   # for the actor's independent WinEvent witness before ending its process.
   $actor=Start-Process -FilePath $FixturePath -ArgumentList '--focus-test-window',([string]$process.Id) -PassThru
   try {
     if (-not $actor.WaitForExit(5000)) { $actor.Kill(); $actor.WaitForExit(); throw 'Test focus actor timed out' }
-    Check ($actor.ExitCode -eq 0) ('Test fixture could not acquire real foreground focus (actor exit '+$actor.ExitCode+')')
+    # Exit 11 means actual foreground was confirmed but the independent OS
+    # event receiver timed out. Other tests may rely on foreground alone.
+    Check ($actor.ExitCode -eq 0 -or $actor.ExitCode -eq 11) ('Test fixture could not acquire real foreground focus (actor exit '+$actor.ExitCode+')')
+    if ($ProbeEvents) { return $actor.ExitCode -eq 0 }
   } finally { $actor.Dispose() }
 }
 function Test($name, [scriptblock]$work) {
-  try { & $work; Record $name 'passed' } catch { Record $name 'failed' $_.Exception.Message }
+  try { & $work; Record $name 'passed' }
+  catch [System.PlatformNotSupportedException] { Record $name 'not-tested' $_.Exception.Message }
+  catch { Record $name 'failed' $_.Exception.Message }
 }
 $exitCode = 1
 try {
@@ -239,6 +244,10 @@ try {
       $fixtures.Add($human)
       try {
         Check ($approvalHost.WaitForInputIdle(10000) -and $human.WaitForInputIdle(10000)) 'Approval fixtures unavailable'
+        Focus-TestFixture $human
+        if (-not (Focus-TestFixture $approvalHost -ProbeEvents)) {
+          throw [System.PlatformNotSupportedException]::new('Independent foreground-event preflight unavailable: a physical title-bar click changed foreground but the fixture actor received no EVENT_SYSTEM_FOREGROUND. Approval return is NOT verified; repeat on the user Windows desktop. No backend failure is converted to a pass.')
+        }
         Focus-TestFixture $fixture
         Start-Sleep -Milliseconds 250
         $fieldSnapshot=Observe
