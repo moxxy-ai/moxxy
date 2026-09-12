@@ -97,8 +97,8 @@ function Fixture-State {
   throw "Fixture did not publish a complete JSON report: $readError"
 }
 function Focus-TestFixture($process) {
-  # Simulate the user's window switch with real UIA, outside the backend under
-  # test. Process launch alone is not a foreground guarantee after SendInput.
+  # Simulate a real title-bar click outside the backend under test, and wait
+  # for the actor's independent WinEvent witness before ending its process.
   $actor=Start-Process -FilePath $FixturePath -ArgumentList '--focus-test-window',([string]$process.Id) -PassThru
   try {
     if (-not $actor.WaitForExit(5000)) { $actor.Kill(); $actor.WaitForExit(); throw 'Test focus actor timed out' }
