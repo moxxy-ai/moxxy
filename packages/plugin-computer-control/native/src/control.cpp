@@ -18,11 +18,20 @@ Rect approval_bounds{};
 uint64_t approval_generation=0;
 DWORD approval_host=0;
 std::wstring approval_call;
+std::string approval_trace;
 }
 
 void approval_focus_changed(HWND window) {
   DWORD pid=0; GetWindowThreadProcessId(window,&pid);
   std::lock_guard lock(approval_mutex);
+  if (!approval_call.empty() && approval_trace.size()<1024) {
+    const auto current=GetForegroundWindow();
+    DWORD current_pid=0; GetWindowThreadProcessId(current,&current_pid);
+    const auto relation=[](HWND value,DWORD process) {
+      return value==approval_window ? "target" : process==approval_host ? "host" : "other";
+    };
+    approval_trace+=" [event="+std::string(relation(window,pid))+",actual="+relation(current,current_pid)+"]";
+  }
   approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
 }
 
@@ -39,6 +48,7 @@ bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElemen
     require(!approved,"invalid-input","An approval must begin undecided");
     approval_window=window; approval_bounds=window_bounds(window);
     approval_generation=window_generation(window); approval_call=call; approval_host=host;
+    approval_trace="begin-event-count="+std::to_string(focus_epoch.load());
     approval_state.begin(reinterpret_cast<uintptr_t>(window),host,reinterpret_cast<uintptr_t>(foreground));
     reason=approval_state.reason();
     return false;
@@ -67,6 +77,7 @@ bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElemen
       "; current-target="+std::to_string(foreground==window)+"; current-host="+std::to_string(pid==host)+
       "; seen-child-of-current="+std::to_string(GetAncestor(observed,GA_ROOT)==foreground)+
       "; event-count="+std::to_string(focus_epoch.load());
+    reason+="; "+approval_trace;
   }
   approval_call.clear();
   lock.unlock();
