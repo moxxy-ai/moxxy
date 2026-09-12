@@ -83,8 +83,14 @@ system-command backend with the same arguments.
   OS-governed return only if foreground changes involved that host and target.
   A human visit to another application, changed geometry, denial, pause or Stop
   prevents restoration. No injected shortcut, input-queue attachment or input
-  replay is used. Windows can still refuse activation; ordinary safe waiting
-  and fresh-observation requirements remain in force.
+  replay is used. A normal Win32 activation can use the verified window's UIA
+  focus action if necessary. Before accepting the pending input, the helper
+  revalidates the focused control's identity, value, bounds and accessibility
+  state. Image coordinates survive only an identical window recapture (same
+  pixels, source, size and geometry); a visible-desktop fallback is never reused
+  this way. A human focus change during validation still invalidates the result.
+  Windows can refuse activation; ordinary safe waiting and fresh-observation
+  requirements then remain in force.
 
 ## Distribution and updates
 

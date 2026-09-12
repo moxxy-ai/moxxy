@@ -374,7 +374,20 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   if (method==L"approval_focus") {
     fields(params,{L"windowId",L"stage",L"callId",L"hostPid",L"approved"});
     auto& window=target(params);
-    const bool restored=approval_focus(window.hwnd,window.root.get(),params);
+    auto focus_target=window.root;
+    if (text(params,L"stage")==L"finish" && observed_window==text(params,L"windowId") &&
+        observed_bounds==window_bounds(window.hwnd) && observed_focus) {
+      for (const auto& [element_id,value]:elements) {
+        BOOL same=FALSE; check_hresult(automation->CompareElements(value.node.get(),observed_focus.get(),&same));
+        if (!same) continue;
+        BOOL enabled=FALSE; check_hresult(value.node->get_CurrentIsEnabled(&enabled));
+        if (enabled && !protected_element(value.node.get()) && belongs_to_window(value.node.get(),window) &&
+            value.bounds==element_bounds(value.node.get()) && value.value==element_value(value.node.get()) &&
+            value.accessibility==accessibility_state(value.node.get())) focus_target=value.node;
+        break;
+      }
+    }
+    const bool restored=approval_focus(window.hwnd,focus_target.get(),params);
     if (restored) revalidate_approved_target(window);
     Json result; result.Insert(L"restored",boolean(restored));
     return result;
