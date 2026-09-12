@@ -17,6 +17,30 @@ std::wstring canvas_text;
 std::string panel_failure;
 POINT drag_start{};
 HWND create_fixture_window();
+void open_editor(HWND owner, bool nested);
+INT_PTR CALLBACK editor_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  if (message==WM_INITDIALOG) {
+    SetWindowTextW(hwnd,lparam ? L"Moxxy nested editor" : L"Moxxy test editor");
+    CreateWindowW(L"STATIC",L"Value",WS_CHILD|WS_VISIBLE,20,20,100,24,hwnd,nullptr,nullptr,nullptr);
+    auto field=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"0",WS_CHILD|WS_VISIBLE|WS_TABSTOP,130,20,160,24,hwnd,reinterpret_cast<HMENU>(301),nullptr,nullptr);
+    CreateWindowW(L"BUTTON",L"Nested editor",WS_CHILD|WS_VISIBLE|WS_TABSTOP,20,65,130,30,hwnd,reinterpret_cast<HMENU>(302),nullptr,nullptr);
+    CreateWindowW(L"BUTTON",L"OK",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,180,65,110,30,hwnd,reinterpret_cast<HMENU>(IDOK),nullptr,nullptr);
+    SetFocus(field); return FALSE;
+  }
+  if (message==WM_COMMAND) {
+    if (LOWORD(wparam)==302) { open_editor(hwnd,true); return TRUE; }
+    if (LOWORD(wparam)==IDOK || LOWORD(wparam)==IDCANCEL) { EndDialog(hwnd,LOWORD(wparam)); return TRUE; }
+  }
+  if (message==WM_CLOSE) { EndDialog(hwnd,IDCANCEL); return TRUE; }
+  return FALSE;
+}
+void open_editor(HWND owner, bool nested) {
+  // A real owned modal dialog with native EDIT controls, not a backend substitute.
+  struct Template { DLGTEMPLATE dialog; WORD menu, window_class, title; } source{};
+  source.dialog.style=WS_POPUP|WS_CAPTION|WS_SYSMENU|DS_MODALFRAME;
+  source.dialog.x=120; source.dialog.y=120; source.dialog.cx=220; source.dialog.cy=85;
+  DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&source.dialog,owner,editor_proc,nested ? 1 : 0);
+}
 int focus_test_window(DWORD pid) {
   try {
     struct Target { DWORD pid; HWND hwnd=nullptr; int count=0; } target{pid};
@@ -155,6 +179,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       CreateWindowW(L"BUTTON",L"Value later",WS_CHILD|WS_VISIBLE,185,488,150,28,hwnd,reinterpret_cast<HMENU>(109),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Minimize",WS_CHILD|WS_VISIBLE,350,488,150,28,hwnd,reinterpret_cast<HMENU>(110),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Rename later",WS_CHILD|WS_VISIBLE,560,450,240,30,hwnd,reinterpret_cast<HMENU>(111),nullptr,nullptr);
+      CreateWindowW(L"BUTTON",L"Open editor",WS_CHILD|WS_VISIBLE|WS_TABSTOP,560,488,240,28,hwnd,reinterpret_cast<HMENU>(112),nullptr,nullptr);
       CreateWindowW(L"BUTTON",L"Enable test option",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,560,40,240,30,hwnd,reinterpret_cast<HMENU>(201),nullptr,nullptr);
       {
         auto list=CreateWindowW(L"LISTBOX",L"Test choices",WS_CHILD|WS_VISIBLE|WS_TABSTOP|LBS_NOTIFY,560,100,240,90,hwnd,reinterpret_cast<HMENU>(202),nullptr,nullptr);
@@ -186,6 +211,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (LOWORD(wparam)==109) SetTimer(hwnd,6,3000,nullptr);
       if (LOWORD(wparam)==110) ShowWindow(hwnd,SW_MINIMIZE);
       if (LOWORD(wparam)==111) SetTimer(hwnd,7,3000,nullptr);
+      if (LOWORD(wparam)==112) open_editor(hwnd,false);
       if (LOWORD(wparam)==108) {
         HMENU menu=CreatePopupMenu(); AppendMenuW(menu,MF_STRING,180,L"Choose test action");
         POINT point{40,260}; ClientToScreen(hwnd,&point);
