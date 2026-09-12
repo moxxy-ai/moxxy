@@ -16,6 +16,7 @@ export interface WorkflowApprovalExecution {
     runId: string,
     signal: AbortSignal,
     task: (signal: AbortSignal) => Promise<T>,
+    expectedDefinition?: Workflow,
   ): Promise<T>;
 }
 
@@ -58,10 +59,13 @@ export function buildWorkflowApprovalExecution(
   return {
     approvals,
     execution: {
-      async run(name, runId, signal, task) {
+      async run(name, runId, signal, task, expectedDefinition) {
         await store.load();
         const entry = await store.get(name);
         if (!entry || !entry.workflow.enabled) throw new Error('Workflow is missing or disabled');
+        const revision = approvalFingerprint(definition(entry.workflow, store));
+        if (expectedDefinition && approvalFingerprint(definition(expectedDefinition, store)) !== revision)
+          throw new Error('Workflow definition changed; reload before starting or resuming it');
         const workflowId = approvalFingerprint([cwd, entry.path]);
         const inherited = current.getStore();
         if (inherited && inherited.scope.workflowId === workflowId)
@@ -72,7 +76,6 @@ export function buildWorkflowApprovalExecution(
           );
         const release = await claimWorkflowLease(join(approvalDir, 'leases'), workflowId, signal);
         try {
-          const revision = approvalFingerprint(definition(entry.workflow, store));
           const scope = { workflowId, workflowName: name, revision, runId };
           const controller = new AbortController();
           const effectiveSignal = AbortSignal.any([signal, controller.signal]);

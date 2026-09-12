@@ -109,7 +109,7 @@ export function buildWorkflowsIntegration(args: {
     skills: session.skills,
     tools: session.tools,
     toolsForTurn: ctx => createWorkflowToolRunner(session, ctx.turnId, ctx.subagents),
-    runScoped: (name, ctx, task) => execution.run(name, String(ctx.turnId), ctx.signal, task),
+    runScoped: (name, ctx, task, definition) => execution.run(name, String(ctx.turnId), ctx.signal, task, definition),
     subagentsForTurn: (turnId, signal) => createSubagentSpawner({ parentSession: session,
       parentTurnId: turnId, parentSignal: signal, parentModel: activeModel(session) }),
     getActiveExecutor: () => session.workflowExecutors.getActive(),

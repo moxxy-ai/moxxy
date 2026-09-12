@@ -11,6 +11,7 @@ import {
   type ToolDef,
   type TurnId,
   type WorkflowEventSubtype,
+  type Workflow,
   type WorkflowExecutorDef,
   type WorkflowRunDeps,
   type WorkflowToolRunner,
@@ -36,7 +37,7 @@ export interface WorkflowToolDeps {
   readonly tools: WorkflowToolRunner;
   readonly toolsForTurn?: (ctx: { turnId: TurnId; subagents: WorkflowRunDeps['spawner'] }) => WorkflowToolRunner;
   readonly subagentsForTurn?: (turnId: TurnId, signal: AbortSignal) => WorkflowRunDeps['spawner'];
-  readonly runScoped?: <T>(name: string, ctx: { turnId: TurnId; signal: AbortSignal }, task: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+  readonly runScoped?: <T>(name: string, ctx: { turnId: TurnId; signal: AbortSignal }, task: (signal: AbortSignal) => Promise<T>, definition: Workflow) => Promise<T>;
   readonly getActiveExecutor: () => WorkflowExecutorDef | null;
   /** Bound to `session.log.append` so lifecycle events land on the log. */
   readonly appendEvent?: (event: EmittedEvent) => unknown;
@@ -320,7 +321,7 @@ function runTool(deps: WorkflowToolDeps): ToolDef {
         ...(deps.runRecordDir !== undefined ? { recordDir: deps.runRecordDir } : {}),
       });
       };
-      const result = await (deps.runScoped ? deps.runScoped(name, ctx, execute) : execute());
+      const result = await (deps.runScoped ? deps.runScoped(name, ctx, execute, entry.workflow) : execute());
       return {
         ok: result.ok,
         output: result.output,

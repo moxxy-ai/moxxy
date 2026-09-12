@@ -127,7 +127,7 @@ export function buildWorkflowRunner(args: {
         );
       };
       const result = await (args.approvalExecution
-        ? args.approvalExecution.run(input.name, String(turnId), parentSignal, execute)
+        ? args.approvalExecution.run(input.name, String(turnId), parentSignal, execute, entry.workflow)
         : execute());
       // A `paused` result is NOT terminal: the run is parked on an awaitInput
       // step waiting for an operator reply (resume). Delivering it to the inbox
@@ -163,11 +163,10 @@ export function buildWorkflowRunner(args: {
     // workflow name: a resume drives the rest of the DAG (and delivers to the
     // inbox), so letting it race a concurrent runNow of the same workflow would
     // run two executions at once — doubling side effects and inbox deliveries.
-    const name = checkpoint?.workflow?.name;
     // A checkpoint with no identifiable workflow name (missing/corrupted/legacy)
     // can't be guarded by the in-flight set, so a resume would silently race a
     // concurrent runNow. Refuse rather than proceed unguarded.
-    if (!name) {
+    if (!checkpoint || !checkpoint.workflow.name) {
       return {
         ok: false,
         status: 'failed',
@@ -176,6 +175,7 @@ export function buildWorkflowRunner(args: {
         error: `no resumable run "${runId}"`,
       };
     }
+    const name = checkpoint.workflow.name;
     if (inFlight.has(name)) {
       return {
         ok: false,
@@ -223,7 +223,7 @@ export function buildWorkflowRunner(args: {
         );
       };
       const result = await (args.approvalExecution
-        ? args.approvalExecution.run(name, String(turnId), session.signal, execute)
+        ? args.approvalExecution.run(name, String(turnId), session.signal, execute, checkpoint.workflow)
         : execute());
       // A still-paused result (a second awaitInput) is non-terminal — withhold it
       // exactly like runNow. A completed/failed result IS terminal: deliver it.
@@ -238,7 +238,7 @@ export function buildWorkflowRunner(args: {
       }
       // Resolve the workflow name from the checkpoint for inbox delivery metadata.
       // `checkpoint.workflow` is guaranteed by the `!name` guard above.
-      await deliverToInbox(checkpoint!.workflow, result, logger);
+      await deliverToInbox(checkpoint.workflow, result, logger);
       return result;
     } finally {
       inFlight.delete(name);
