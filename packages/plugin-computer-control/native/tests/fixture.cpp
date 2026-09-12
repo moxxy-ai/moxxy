@@ -17,6 +17,11 @@ std::wstring canvas_text;
 std::string panel_failure;
 POINT drag_start{};
 POINT last_click{};
+HWND actor_focus_target=nullptr;
+bool actor_focus_observed=false;
+void CALLBACK actor_focus_event(HWINEVENTHOOK,DWORD,HWND window,LONG,LONG,DWORD,DWORD) {
+  if (window==actor_focus_target) actor_focus_observed=true;
+}
 HWND create_fixture_window();
 void open_editor(HWND owner, bool nested);
 INT_PTR CALLBACK editor_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -55,6 +60,16 @@ int focus_test_window(DWORD pid, bool activate=true) {
       return TRUE;
     },reinterpret_cast<LPARAM>(&target));
     if (target.count!=1) return 2;
+    const bool already_foreground=GetForegroundWindow()==target.hwnd;
+    actor_focus_target=target.hwnd;
+    struct EventHook {
+      HWINEVENTHOOK value=nullptr;
+      ~EventHook() { if (value) UnhookWinEvent(value); }
+    } hook;
+    if (activate && !already_foreground) {
+      hook.value=SetWinEventHook(EVENT_SYSTEM_FOREGROUND,EVENT_SYSTEM_FOREGROUND,nullptr,actor_focus_event,0,0,WINEVENT_OUTOFCONTEXT);
+      if (!hook.value) return 10;
+    }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     if (!activate && GetForegroundWindow()!=target.hwnd) return 3;
     // This actor represents the HUMAN changing windows, not a backend action.
@@ -83,7 +98,20 @@ int focus_test_window(DWORD pid, bool activate=true) {
       for (int i=0;i<20 && (GetAsyncKeyState(VK_LBUTTON)&0x8000);++i) Sleep(25);
     }
     for (int i=0;i<20 && GetForegroundWindow()!=target.hwnd;++i) Sleep(25);
-    return GetForegroundWindow()==target.hwnd ? 0 : 9;
+    if (GetForegroundWindow()!=target.hwnd) return 9;
+    if (hook.value) {
+      // Keep the input actor alive and pump its actual WinEvent notification.
+      // Exit 11 isolates a missing OS event from a backend monitor failure.
+      const auto until=GetTickCount64()+1000;
+      do {
+        MSG message;
+        while (PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+        if (actor_focus_observed) return 0;
+        Sleep(10);
+      } while (GetTickCount64()<until);
+      return 11;
+    }
+    return 0;
   } catch (...) { return 4; }
 }
 int test_control_panel(DWORD pid) {
