@@ -72,6 +72,8 @@ struct Handle {
   Handle& operator=(const Handle&) = delete;
 };
 extern std::atomic<uint64_t> focus_epoch;
+extern std::atomic<ULONGLONG> focus_monitor_tick;
+extern std::atomic<bool> focus_monitor_alive;
 extern HANDLE stop_event;
 extern std::atomic<bool> lease_active;
 extern std::atomic<DWORD> stop_exit_code;
