@@ -78,6 +78,8 @@ bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElemen
       "; seen-child-of-current="+std::to_string(GetAncestor(observed,GA_ROOT)==foreground)+
       "; event-count="+std::to_string(focus_epoch.load());
     reason+="; "+approval_trace;
+    reason+="; monitor-alive="+std::to_string(focus_monitor_alive.load())+
+      "; monitor-age-ms="+std::to_string(GetTickCount64()-focus_monitor_tick.load());
   }
   approval_call.clear();
   lock.unlock();

@@ -11,6 +11,8 @@
 
 namespace moxxy {
 std::atomic<uint64_t> focus_epoch{0};
+std::atomic<ULONGLONG> focus_monitor_tick{0};
+std::atomic<bool> focus_monitor_alive{false};
 HANDLE stop_event = nullptr;
 std::atomic<bool> lease_active{false};
 std::atomic<DWORD> stop_exit_code{2};
@@ -36,6 +38,7 @@ void CALLBACK focus_changed(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWORD
   moxxy::approval_focus_changed(window);
 }
 LRESULT CALLBACK indicator_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  if (message==WM_TIMER) { moxxy::focus_monitor_tick=GetTickCount64(); return 0; }
   return DefWindowProcW(hwnd,message,wparam,lparam);
 }
 }
@@ -113,9 +116,12 @@ int main(int argc, char** argv) {
       if (!hook) { SetEvent(stop.value); return; }
       auto destroy_hook=SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_DESTROY, nullptr, window_destroyed, 0, 0, WINEVENT_OUTOFCONTEXT);
       if (!destroy_hook) { SetEvent(stop.value); return; }
+      focus_monitor_tick=GetTickCount64(); focus_monitor_alive=true;
+      SetTimer(indicator,1,50,nullptr);
       SetEvent(hooks_ready.value);
       MSG message;
       while (GetMessageW(&message, nullptr, 0, 0) > 0) DispatchMessageW(&message);
+      focus_monitor_alive=false;
       UnhookWinEvent(hook);
       UnhookWinEvent(destroy_hook);
     }).detach();
