@@ -19,4 +19,8 @@ int main() {
   check(!state.finish(30, 20, true, false)); // geometry/identity changed
   state.begin(10, 20, 10);
   check(!state.finish(30, 20, true, true)); // foreground event not processed yet
+  check(state.reason()=="foreground-event-pending");
+  state.begin(10,20,10); state.changed(99,99); state.changed(30,20);
+  check(!state.finish(30,20,true,true));
+  check(state.reason()=="focus-left-approved-host");
 }

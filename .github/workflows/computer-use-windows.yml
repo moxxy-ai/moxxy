@@ -28,6 +28,18 @@ jobs:
           & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-report"
           if ($LASTEXITCODE -eq 2) { Write-Warning "GUI not tested: interactive desktop unavailable; Windows 10/11 reports required"; exit 0 }
           exit $LASTEXITCODE
+      - name: Repeat real desktop tests with fresh processes
+        shell: pwsh
+        run: |
+          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-repeat-report"
+          if ($LASTEXITCODE -eq 2) { Write-Warning "Repeated GUI tests not tested: interactive desktop unavailable"; exit 0 }
+          exit $LASTEXITCODE
+      - name: Upload repeated test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: computer-use-repeat-report
+          path: ${{ runner.temp }}/computer-use-repeat-report/report.*
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
