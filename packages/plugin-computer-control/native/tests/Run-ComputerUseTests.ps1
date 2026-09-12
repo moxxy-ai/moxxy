@@ -38,7 +38,7 @@ function Start-Peer {
   $peers.Add($peer)
   return $peer
 }
-function Request($peer, $method, $parameters, $version = 2) {
+function Request($peer, $method, $parameters, $version = 3) {
   $id = [guid]::NewGuid().ToString()
   $frame = @{ version=$version; id=$id; method=$method; params=$parameters } | ConvertTo-Json -Depth 20 -Compress
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
@@ -47,7 +47,7 @@ function Request($peer, $method, $parameters, $version = 2) {
     if (-not $read.Wait(15000)) { throw "Helper response timeout for $method (operation not retried)" }
     if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
     $response = $read.Result | ConvertFrom-Json
-    if ($response.id -ne $id -or $response.version -ne 2) { throw 'Invalid protocol response' }
+    if ($response.id -ne $id -or $response.version -ne 3) { throw 'Invalid protocol response' }
   } while ($response.event -eq 'control_state')
   return $response
 }
@@ -101,7 +101,7 @@ $exitCode = 1
 try {
   $script:helper = Start-Peer
   $status = Call 'status' @{}
-  Check ($status.protocolVersion -eq 2 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
+  Check ($status.protocolVersion -eq 3 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
   Test 'protocol rejects wrong version' {
     $response = Request $script:helper 'status' @{} 1
     Check (-not $response.ok) 'Wrong version was accepted'
@@ -227,9 +227,9 @@ try {
     Test 'explicit pause stays paused on foreground and resumes only by user command' {
       try {
         $before=Observe
-        $script:helper.StandardInput.WriteLine('{"version":2,"control":"pause"}'); $script:helper.StandardInput.Flush()
+        $script:helper.StandardInput.WriteLine('{"version":3,"control":"pause"}'); $script:helper.StandardInput.Flush()
         $id=[guid]::NewGuid().ToString()
-        $frame=@{version=2;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $frame=@{version=3;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
         $read=$script:helper.StandardOutput.ReadLineAsync()
         Check ($read.Wait(5000)) 'No paused state'
@@ -237,7 +237,7 @@ try {
         Check ($state.id -eq $id -and $state.state -eq 'paused_by_user') 'Explicit pause was not honored'
         $pending=$script:helper.StandardOutput.ReadLineAsync()
         Check (-not $pending.Wait(1200)) 'Pause auto-resumed while target was foreground'
-        $script:helper.StandardInput.WriteLine('{"version":2,"control":"resume"}'); $script:helper.StandardInput.Flush()
+        $script:helper.StandardInput.WriteLine('{"version":3,"control":"resume"}'); $script:helper.StandardInput.Flush()
         Check ($pending.Wait(5000)) 'Resume could not reach blocked helper'
         $state=$pending.Result | ConvertFrom-Json
         Check ($state.state -in @('foreground','background')) 'Missing resumed state'
@@ -264,7 +264,7 @@ try {
         Start-Sleep -Milliseconds 250
         Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
         $id=[guid]::NewGuid().ToString()
-        $frame=@{version=2;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $frame=@{version=3;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
         $read=$script:helper.StandardOutput.ReadLineAsync()
         Check ($read.Wait(5000)) 'No waiting state event'
@@ -467,6 +467,9 @@ try {
         $parentBlocked=$parentView.blockingWindowId -eq $dialog.windowId
         $parentIsolated=@($parentView.elements | Where-Object { $_.windowId -ne $mainId }).Count -eq 0
         $ownerCorrect=$dialog.ownerWindowId -eq $mainId
+        $blockedClock=[Diagnostics.Stopwatch]::StartNew()
+        $blocked=Call 'focus' @{windowId=$mainId}
+        Check ($blockedClock.ElapsedMilliseconds -lt 2000 -and $blocked.status -eq 'target_blocked' -and $blocked.blockingWindowId -eq $dialog.windowId -and -not $blocked.delivered) 'Disabled parent waited for focus or received input'
         $script:windowId=$dialog.windowId
         Call 'focus' @{windowId=$script:windowId} | Out-Null
         $view=Observe
@@ -483,6 +486,8 @@ try {
         Check ($null -ne $nested) 'Nested dialog did not open'
         $nestedParentView=Observe
         $nestedCorrect=$nested.ownerWindowId -eq $dialog.windowId -and $nestedParentView.blockingWindowId -eq $nested.windowId
+        $blocked=Call 'focus' @{windowId=$mainId}
+        Check ($blocked.status -eq 'target_blocked' -and $blocked.blockingWindowId -eq $nested.windowId) 'Nested modal was not selected as the blocking target'
         $script:windowId=$nested.windowId
         Call 'focus' @{windowId=$script:windowId} | Out-Null
         $nestedView=Observe
@@ -516,7 +521,7 @@ try {
     Test 'cancellation during drag releases input and desktop lease' {
       Start-Sleep -Milliseconds 600
       $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{ version=2; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
+      $frame=@{ version=3; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
       $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
       Start-Sleep -Milliseconds 150
       $script:helper.StandardInput.Close()
@@ -607,7 +612,7 @@ try {
     Test 'hard worker termination during drag releases only its held input' {
       Call 'focus' @{windowId=$script:windowId} | Out-Null
       $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{version=2;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
+      $frame=@{version=3;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
       $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
       Check ((Fixture-State).leftDown) 'Crash test never reached held mouse input'
       $script:helper.Kill(); Check ($script:helper.WaitForExit(3000)) 'Worker did not terminate'

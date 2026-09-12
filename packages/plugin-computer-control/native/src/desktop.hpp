@@ -36,6 +36,8 @@ class Desktop {
   void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
   Point point(const Json& params, const Json& coordinates, Window& window);
   JsonArray list_windows();
+  std::wstring window_id(HWND hwnd) const;
+  bool belongs_to_window(IUIAutomationElement* node, const Window& window);
   Json observe(const Json& params, Window& window);
   Json open(const Json& params);
 };

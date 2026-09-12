@@ -11,7 +11,7 @@ import {
   appCatalogInputSchema, appCatalogSchema, openSchema, openResultSchema,
   readTextSchema, selectTextSchema, textResultSchema,
   actionSchema, actionStatusSchema, actionResultSchema,
-  typeWindowSchema,
+  typeWindowSchema, targetBlockedSchema,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -63,8 +63,8 @@ export class WindowsBackend {
   tools(): ToolDef[] {
     const operation = <I extends z.ZodTypeAny, O extends z.ZodTypeAny>(
       name: string, description: string, inputSchema: I, outputSchema: O,
-    ): ToolDef => defineTool({
-      name: `computer_${name}`, description, inputSchema, outputSchema: z.union([outputSchema, observationRequiredSchema]),
+    ): ToolDef => defineTool<I, unknown>({
+      name: `computer_${name}`, description, inputSchema, outputSchema: z.union([outputSchema, observationRequiredSchema, targetBlockedSchema]),
       // Carry the bundled SDK's schema through older installed providers unchanged.
       inputJsonSchema: zodToJsonSchema(inputSchema),
       permission: { action: 'prompt' }, icon: 'workspace',
@@ -80,6 +80,8 @@ export class WindowsBackend {
         finally { this.controls.activity(ctx.sessionId, ctx.turnId, 'idle'); }
         const interrupted = observationRequiredSchema.safeParse(raw);
         if (interrupted.success) return interrupted.data;
+        const blocked = targetBlockedSchema.safeParse(raw);
+        if (blocked.success) return blocked.data;
         const result = outputSchema.parse(raw);
         if (name === 'screenshot') {
           const capture = captureSchema.parse(result);
