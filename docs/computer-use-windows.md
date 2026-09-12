@@ -11,6 +11,12 @@ system-command backend with the same arguments.
   Server CI does not establish support for either client OS.
 - Every operation still uses the tool permission pipeline. UI text is untrusted.
 - Enumerate windows, observe or capture the target, act, then observe again.
+  The first observation omits `root`/`filter` or passes explicit `null`; never
+  fabricate an observation ID. Whole-window screenshots similarly accept
+  `region: null`. The extension supplies its own model-facing JSON schemas,
+  including numeric/string limits and null alternatives, so older provider SDK
+  converters cannot erase those constraints. `unknown-observation` requires a
+  fresh unscoped observation, not a focus change.
   Focus is required for physical input, not for window observation. Window IDs
   remain stable within the helper when inventory is refreshed; element IDs are
   observation-scoped. Minimized windows expose null bounds and require `computer_restore`.

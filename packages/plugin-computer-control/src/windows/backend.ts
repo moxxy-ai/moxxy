@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineTool, type LifecycleHooks, type ToolContext, type ToolDef } from '@moxxy/sdk';
+import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { z } from 'zod';
 import { HelperTransport } from './transport.js';
 import { verifyHelperArtifact } from './artifact.js';
@@ -65,6 +65,8 @@ export class WindowsBackend {
       name: string, description: string, inputSchema: I, outputSchema: O,
     ): ToolDef => defineTool({
       name: `computer_${name}`, description, inputSchema, outputSchema: z.union([outputSchema, observationRequiredSchema]),
+      // Carry the bundled SDK's schema through older installed providers unchanged.
+      inputJsonSchema: zodToJsonSchema(inputSchema),
       permission: { action: 'prompt' }, icon: 'workspace',
       // Active execution is bounded by the transport and native watchdog. A
       // wall-clock capability deadline would cancel legitimate human waiting.

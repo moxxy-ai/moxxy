@@ -3,6 +3,9 @@ import { z } from 'zod';
 export const PROTOCOL_VERSION = 2;
 export const MAX_FRAME_BYTES = 3_000_000;
 export const idSchema = z.string().min(1).max(160);
+// Responses may require every field. Null explicitly means no optional selector;
+// malformed non-null references must still fail validation, never broaden the target.
+const optionalSelector = <S extends z.ZodTypeAny>(schema: S) => schema.nullable().optional().transform(value => value ?? undefined);
 export const controlStateSchema = z.object({
   version: z.literal(PROTOCOL_VERSION), event: z.literal('control_state'), id: idSchema,
   state: z.enum(['idle', 'background', 'foreground', 'waiting_for_focus', 'paused_by_user', 'recovering', 'stopped', 'failed']),
@@ -25,7 +28,7 @@ export const appCatalogSchema = z.object({
   truncated:z.boolean(),
   unavailableSources:z.array(z.literal('windows-shell')).max(1),
 }).strict();
-export const openSchema = z.object({appId:idSchema,instance:z.enum(['reuse','new']).default('reuse'),timeoutMs:z.number().int().min(500).max(8000).default(5000)}).strict();
+export const openSchema = z.object({appId:idSchema,instance:z.enum(['reuse','new']).default('reuse'),timeoutMs:z.number().int().min(500).max(8000).default(5000).describe('Window discovery timeout in milliseconds: 500 to 8000. Omit to use 5000.')}).strict();
 export const elementSchema = targetSchema.extend({ observationId: idSchema, elementId: idSchema }).strict();
 const clickOptions = { button: z.enum(['left', 'right', 'middle']).default('left'), count: z.number().int().min(1).max(3).default(1) };
 export const clickSchema = z.union([
@@ -33,8 +36,8 @@ export const clickSchema = z.union([
   targetSchema.extend({ captureId: idSchema, x: pixel.nonnegative(), y: pixel.nonnegative(), ...clickOptions }).strict(),
 ]);
 export const screenshotSchema = targetSchema.extend({
-  region: rectangleSchema.extend({ x: pixel.nonnegative(), y: pixel.nonnegative() }).strict().optional()
-    .describe('Optional crop in physical pixels relative to the window bounds, before resizing.'),
+  region: optionalSelector(rectangleSchema.extend({ x: pixel.nonnegative(), y: pixel.nonnegative() }).strict())
+    .describe('Omit or set null for the whole window. A crop uses physical pixels relative to window bounds, before resizing; width and height must be positive. Never guess a zero-sized crop.'),
   maxDim: z.number().int().min(256).max(3840).default(1280),
   format: z.enum(['png', 'jpeg']).default('jpeg'),
   quality: z.number().int().min(40).max(100).default(72),
@@ -42,8 +45,12 @@ export const screenshotSchema = targetSchema.extend({
 }).strict();
 export const observeSchema = targetSchema.extend({
   maxNodes: z.number().int().min(1).max(256).default(128),
-  root: z.object({observationId: idSchema, elementId: idSchema}).strict().optional(),
-  filter: z.object({nameIncludes: z.string().max(256).optional(), controlType: pixel.min(50000).max(60000).optional()}).strict().optional(),
+  root: optionalSelector(z.object({observationId: idSchema, elementId: idSchema}).strict())
+    .describe('Omit or set null for the FIRST observation and whenever a reference is stale. Only supply IDs copied from the latest successful observation to read that element subtree. Never invent IDs such as fresh, root, x or unused.'),
+  filter: optionalSelector(z.object({
+    nameIncludes: optionalSelector(z.string().max(256)),
+    controlType: optionalSelector(pixel.min(50000).max(60000)),
+  }).strict()).describe('Omit or set null to discover all controls. Optional filter fields may be null; controlType is a UIA number between 50000 and 60000, never 0.'),
 }).strict();
 export const typeSchema = elementSchema.extend({ text: z.string().max(4000) }).strict();
 export const typeWindowSchema = targetSchema.extend({observationId:idSchema,text:z.string().max(4000)}).strict();

@@ -104,9 +104,10 @@ jobs:
             $exe=Join-Path $installDir 'MoxxyAI Workspaces.exe'
             $env:ELECTRON_RUN_AS_NODE='1'
             $smokeScript=(Resolve-Path apps/desktop/scripts/smoke-computer-use.mjs).Path
+            $fixtureExe=(Resolve-Path computer-use-kit/moxxy-computer-fixture.exe).Path
             $smokeOut=Join-Path $env:RUNNER_TEMP 'computer-smoke-stdout.log'
             $smokeErr=Join-Path $env:RUNNER_TEMP 'computer-smoke-stderr.log'
-            $smoke=Start-Process -FilePath $exe -ArgumentList ('"'+$smokeScript+'"'),('"'+$resources+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
+            $smoke=Start-Process -FilePath $exe -ArgumentList ('"'+$smokeScript+'"'),('"'+$resources+'"'),('"'+$fixtureExe+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
             Get-Content -LiteralPath $smokeOut
             Get-Content -LiteralPath $smokeErr
             if ($smoke.ExitCode -ne 0) { throw 'Installed extension smoke failed' }
@@ -116,7 +117,7 @@ jobs:
             Get-Content -LiteralPath $smokeErr
             if ($update.ExitCode -ne 0) { throw 'Installed Computer Use upgrade smoke failed' }
             Remove-Item Env:ELECTRON_RUN_AS_NODE
-            & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
+            & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
             if ($LASTEXITCODE -eq 1) { throw 'Installed Computer Use GUI tests failed' }
           } finally {
             $uninstaller=Get-ChildItem -LiteralPath $installDir -Filter '*uninstall*.exe' | Select-Object -First 1
