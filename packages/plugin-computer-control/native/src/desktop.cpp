@@ -201,8 +201,10 @@ Json Desktop::observe(const Json& params, Window& window) {
 }
 void Desktop::fresh_observation(const Json& params, Window& window, bool needs_focus) {
   require(text(params, L"windowId") == observed_window && text(params, L"observationId") == observation_id &&
-    !observation_id.empty() && observed_bounds == window_bounds(window.hwnd),
-    "stale-observation", "Observe again after window or focus changes");
+    !observation_id.empty(),
+    "unknown-observation", "Reference is not the latest observation for this window. Call computer_observe with windowId and omit root (or set root:null); use only IDs returned by that call. Do not change focus to repair an unknown ID");
+  require(observed_bounds == window_bounds(window.hwnd),
+    "stale-observation", "Window geometry changed. Call computer_observe again without root before acting");
   if (!needs_focus) return;
   check_focus(window.hwnd);
   require(observed_epoch == focus_epoch.load(), "focus-changed", "Focus changed; observe again");
@@ -324,6 +326,13 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     }
   } else if (method == L"focus") {
     if (!has_target_focus(window.hwnd)) SetForegroundWindow(window.hwnd);
+    // Explicit focus requests may use the target's accessibility implementation.
+    // Do this once, never from the background/read path or the waiting loop.
+    if (!has_target_focus(window.hwnd)) {
+      input_may_have_run=true;
+      window.root->SetFocus();
+      target(params);
+    }
     check_focus(window.hwnd); observation_id.clear(); capture_id.clear();
   } else if (method == L"observe") return observe(params, window);
   else if (method == L"screenshot") {
