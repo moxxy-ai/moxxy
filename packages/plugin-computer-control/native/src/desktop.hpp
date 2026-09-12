@@ -24,6 +24,7 @@ class Desktop {
   com_ptr<IUIAutomationElement> observed_focus;
   std::map<std::wstring, Window> windows;
   std::map<std::wstring, Element> elements;
+  std::optional<Element> approval_control;
   Handle lease;
   bool owns_lease = false;
   std::wstring observed_window, observation_id, capture_id, captured_window;
@@ -42,6 +43,7 @@ class Desktop {
   Element& element(const Json& params, Window& window, bool needs_focus = true);
   void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
   void revalidate_approved_target(Window& window);
+  bool unchanged_control(const Element& element, Window& window);
   Point point(const Json& params, const Json& coordinates, Window& window);
   JsonArray list_windows();
   std::wstring window_id(HWND hwnd) const;
