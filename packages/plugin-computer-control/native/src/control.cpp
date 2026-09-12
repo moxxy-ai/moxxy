@@ -26,7 +26,7 @@ void approval_focus_changed(HWND window) {
   approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
 }
 
-bool approval_focus(HWND window, const Json& params) {
+bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params) {
   check_active_desktop();
   auto foreground=GetForegroundWindow();
   DWORD pid=0; GetWindowThreadProcessId(foreground,&pid);
@@ -34,7 +34,7 @@ bool approval_focus(HWND window, const Json& params) {
   const auto call=text(params,L"callId");
   const auto host=static_cast<DWORD>(number(params,L"hostPid",1,2147483647));
   const bool approved=params.GetNamedBoolean(L"approved");
-  std::lock_guard lock(approval_mutex);
+  std::unique_lock lock(approval_mutex);
   if (stage==L"begin") {
     require(!approved,"invalid-input","An approval must begin undecided");
     approval_window=window; approval_bounds=window_bounds(window);
@@ -49,11 +49,15 @@ bool approval_focus(HWND window, const Json& params) {
     !guard_paused() && !guard_stopped_by_user();
   const bool restore=approval_state.finish(reinterpret_cast<uintptr_t>(foreground),pid,approved,unchanged);
   approval_call.clear();
+  lock.unlock();
   if (!restore) return false;
   if (GetForegroundWindow()!=foreground) return false;
-  // A single OS-governed activation, never keyboard tricks or attaching input
-  // queues (which resets the user's key state). Windows may still refuse it.
-  return foreground==window || SetForegroundWindow(window)!=FALSE;
+  // Only this verified, one-use approval may return focus. Never inject Alt or
+  // attach input queues; the latter resets keys physically held by the user.
+  if (foreground==window) return true;
+  SetForegroundWindow(window);
+  if (GetForegroundWindow()==foreground && root) root->SetFocus();
+  return GetForegroundWindow()==window;
 }
 
 HWND blocking_window(HWND window) {

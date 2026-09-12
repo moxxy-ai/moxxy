@@ -276,6 +276,39 @@ Point Desktop::point(const Json& params, const Json& coordinates, Window& window
   return image_point(number(coordinates, L"x", 0, 3840), number(coordinates, L"y", 0, 3840),
     captured_width, captured_height, captured_bounds);
 }
+void Desktop::revalidate_approved_target(Window& window) {
+  // Foreground notifications are delivered on the helper's message thread.
+  // Let the return settle, then preserve only references whose state is still
+  // identical. A later user focus change still invalidates the new epoch.
+  require(WaitForSingleObject(stop_event,50)==WAIT_TIMEOUT,"cancelled","Approval return cancelled");
+  const auto epoch=focus_epoch.load();
+  const auto id=window_id(window.hwnd);
+  const auto stable=[&] { return has_target_focus(window.hwnd) && focus_epoch.load()==epoch; };
+  if (!stable()) return;
+  if (observed_window==id && !observation_id.empty() && observed_bounds==window_bounds(window.hwnd) && observed_focus) {
+    com_ptr<IUIAutomationElement> focused;
+    check_hresult(automation->GetFocusedElement(focused.put()));
+    BOOL same=FALSE;
+    if (focused) check_hresult(automation->CompareElements(observed_focus.get(),focused.get(),&same));
+    if (same) for (const auto& [element_id,value]:elements) {
+      same=FALSE; check_hresult(automation->CompareElements(value.node.get(),focused.get(),&same));
+      if (!same) continue;
+      BOOL enabled=FALSE; check_hresult(value.node->get_CurrentIsEnabled(&enabled));
+      if (enabled && !protected_element(value.node.get()) && belongs_to_window(value.node.get(),window) &&
+          value.bounds==element_bounds(value.node.get()) && value.value==element_value(value.node.get()) &&
+          value.accessibility==accessibility_state(value.node.get()) && stable()) observed_epoch=epoch;
+      break;
+    }
+  }
+  if (capture_reference && captured_window==id && !capture_id.empty() && captured_window_bounds==window_bounds(window.hwnd)) {
+    const auto& reference=*capture_reference;
+    // A window image may be revalidated, but never replace it silently with a
+    // visible-desktop capture. Any changed pixel requires a fresh model view.
+    auto current=capture_window(window.hwnd,reference.max_dim,reference.jpeg,reference.quality,false,reference.crop);
+    if (current.base64==reference.image && current.source==captured_bounds && current.width==captured_width &&
+        current.height==captured_height && captured_window_bounds==window_bounds(window.hwnd) && stable()) captured_epoch=epoch;
+  }
+}
 Json Desktop::open(const Json& params) {
   auto app_id=text(params,L"appId");
   const auto& app=catalog.get(app_id);
@@ -341,7 +374,9 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   if (method==L"approval_focus") {
     fields(params,{L"windowId",L"stage",L"callId",L"hostPid",L"approved"});
     auto& window=target(params);
-    Json result; result.Insert(L"restored",boolean(approval_focus(window.hwnd,params)));
+    const bool restored=approval_focus(window.hwnd,window.root.get(),params);
+    if (restored) revalidate_approved_target(window);
+    Json result; result.Insert(L"restored",boolean(restored));
     return result;
   }
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
@@ -404,12 +439,14 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
       auto region=params.GetNamedObject(L"region"); fields(region,{L"x",L"y",L"width",L"height"});
       crop=Rect{number(region,L"x",0,32768),number(region,L"y",0,32768),number(region,L"width",1,32768),number(region,L"height",1,32768)};
     }
-    auto capture = capture_window(window.hwnd, number(params, L"maxDim", 256, 3840), format == L"jpeg",
-      number(params, L"quality", 40, 100), params.GetNamedBoolean(L"allowVisibleFallback"), crop);
+    const auto max_dim=number(params,L"maxDim",256,3840), quality=number(params,L"quality",40,100);
+    auto capture = capture_window(window.hwnd,max_dim,format==L"jpeg",quality,params.GetNamedBoolean(L"allowVisibleFallback"),crop);
     require(bounds_before == window_bounds(window.hwnd), "stale-capture", "Window changed during capture");
     captured_window_bounds = bounds_before;
     captured_bounds = capture.source; captured_width = capture.width; captured_height = capture.height;
     capture_id = identifier(); captured_window = text(params, L"windowId"); captured_epoch = epoch;
+    capture_reference.reset();
+    if (!capture.fallback) capture_reference=CaptureReference{capture.base64,max_dim,quality,format==L"jpeg",crop};
     Json result; result.Insert(L"windowId", string_value(captured_window)); result.Insert(L"captureId", string_value(capture_id));
     result.Insert(L"source", rect_json(capture.source)); result.Insert(L"width", numeric(capture.width)); result.Insert(L"height", numeric(capture.height));
     result.Insert(L"mediaType", string_value(capture.media_type)); result.Insert(L"base64", string_value(to_hstring(capture.base64)));

@@ -30,10 +30,18 @@ class Desktop {
   Rect observed_bounds{}, captured_bounds{}, captured_window_bounds{};
   uint64_t observed_epoch = 0, captured_epoch = 0;
   int captured_width = 0, captured_height = 0;
+  struct CaptureReference {
+    std::string image;
+    int max_dim, quality;
+    bool jpeg;
+    std::optional<Rect> crop;
+  };
+  std::optional<CaptureReference> capture_reference;
   void acquire();
   Window& target(const Json& params, bool allow_minimized = false);
   Element& element(const Json& params, Window& window, bool needs_focus = true);
   void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
+  void revalidate_approved_target(Window& window);
   Point point(const Json& params, const Json& coordinates, Window& window);
   JsonArray list_windows();
   std::wstring window_id(HWND hwnd) const;
