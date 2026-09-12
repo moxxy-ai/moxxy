@@ -48,6 +48,9 @@ export const scheduleEntrySchema = z
     /** Audit marker for the legacy workflow createdAt=0 repair. */
     migratedAt: z.number().int().positive().optional(),
     lastRunAt: z.number().int().optional(),
+    lastStartedAt: z.number().int().positive().optional(),
+    lastSkippedAt: z.number().int().positive().optional(),
+    lastSkipReason: z.string().optional(),
     lastResult: z.enum(['ok', 'error']).optional(),
     lastError: z.string().optional(),
     source: scheduleSourceSchema.default('manual'),
@@ -412,6 +415,9 @@ export class ScheduleStore {
           enabled: current?.enabled ?? entry.enabled,
           ...(current ? {
             lastRunAt: current.lastRunAt,
+            lastStartedAt: current.lastStartedAt,
+            lastSkippedAt: current.lastSkippedAt,
+            lastSkipReason: current.lastSkipReason,
             lastResult: current.lastResult,
             lastError: current.lastError,
             migratedAt: current.migratedAt,

@@ -19,7 +19,8 @@ import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import { runnerSocketPath } from './socket-path.js';
-import { handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
+import { handleComputerApprovalFocus, handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
+import { handleWorkflowApprovals } from './handlers/workflow-handlers.js';
 import {
   MIN_COMPATIBLE_PROTOCOL_VERSION,
   RUNNER_PROTOCOL_VERSION,
@@ -241,6 +242,8 @@ export class RunnerServer {
     peer.handle(RunnerMethod.WorkflowSave, (raw) => handleWorkflowSave(ctx, raw));
     peer.handle(RunnerMethod.WorkflowGetRun, (raw) => handleWorkflowGetRun(ctx, raw));
     peer.handle(RunnerMethod.WorkflowResume, (raw) => handleWorkflowResume(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowApprovals, raw => handleWorkflowApprovals(ctx, raw));
+    peer.handle(RunnerMethod.ComputerApprovalFocus, raw => handleComputerApprovalFocus(ctx, raw));
     peer.handle(RunnerMethod.SurfaceList, () => handleSurfaceList(ctx));
     peer.handle(RunnerMethod.SurfaceOpen, (raw) => handleSurfaceOpen(ctx, raw));
     peer.handle(RunnerMethod.SurfaceInput, (raw) => handleSurfaceInput(ctx, raw));

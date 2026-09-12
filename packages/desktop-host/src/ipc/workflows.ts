@@ -13,6 +13,15 @@ import type { DeskStore } from '../desks';
 import { buildSessionNameResolver, handle, mustSession } from './shared';
 
 export function registerWorkflowsHandlers(pool: RunnerPool, desks?: DeskStore): void {
+  const approvals = (workspaceId: string) => {
+    const view = mustSession(pool, workspaceId).workflows?.approvals;
+    if (!view) throw new Error('Workflow approvals unavailable; update the runner');
+    return view;
+  };
+  handle('workflows.approvals', ({ workspaceId }) => approvals(workspaceId).list());
+  handle('workflows.decideApproval', ({ workspaceId, id, choice }) => approvals(workspaceId).decide(id, choice));
+  handle('workflows.revokeApproval', ({ workspaceId, id }) => approvals(workspaceId).revoke(id));
+  handle('workflows.cancelApprovalRun', ({ workspaceId, id }) => approvals(workspaceId).cancel(id));
   // ---- Workflows -----------------------------------------------------------
 
   handle('workflows.list', async () => {

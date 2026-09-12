@@ -1,12 +1,60 @@
 #include "common.hpp"
 #include "input-guard.hpp"
+#include "approval-focus.hpp"
 #include <iostream>
+#include <mutex>
 
 namespace moxxy {
 std::atomic<ULONGLONG> operation_deadline{0};
 std::atomic<bool> input_may_have_run{false};
 std::atomic<ControlState> control_state{ControlState::idle};
 std::wstring request_id;
+
+namespace {
+std::mutex approval_mutex;
+ApprovalFocus approval_state;
+HWND approval_window=nullptr;
+Rect approval_bounds{};
+uint64_t approval_generation=0;
+DWORD approval_host=0;
+std::wstring approval_call;
+}
+
+void approval_focus_changed(HWND window) {
+  DWORD pid=0; GetWindowThreadProcessId(window,&pid);
+  std::lock_guard lock(approval_mutex);
+  approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
+}
+
+bool approval_focus(HWND window, const Json& params) {
+  check_active_desktop();
+  auto foreground=GetForegroundWindow();
+  DWORD pid=0; GetWindowThreadProcessId(foreground,&pid);
+  const auto stage=text(params,L"stage");
+  const auto call=text(params,L"callId");
+  const auto host=static_cast<DWORD>(number(params,L"hostPid",1,2147483647));
+  const bool approved=params.GetNamedBoolean(L"approved");
+  std::lock_guard lock(approval_mutex);
+  if (stage==L"begin") {
+    require(!approved,"invalid-input","An approval must begin undecided");
+    approval_window=window; approval_bounds=window_bounds(window);
+    approval_generation=window_generation(window); approval_call=call; approval_host=host;
+    approval_state.begin(reinterpret_cast<uintptr_t>(window),host,reinterpret_cast<uintptr_t>(foreground));
+    return false;
+  }
+  require(stage==L"finish" && call==approval_call && window==approval_window && host==approval_host,
+    "invalid-input","Approval focus identity mismatch");
+  const bool unchanged=IsWindowEnabled(window) && !IsIconic(window) &&
+    window_generation(window)==approval_generation && window_bounds(window)==approval_bounds &&
+    !guard_paused() && !guard_stopped_by_user();
+  const bool restore=approval_state.finish(reinterpret_cast<uintptr_t>(foreground),pid,approved,unchanged);
+  approval_call.clear();
+  if (!restore) return false;
+  if (GetForegroundWindow()!=foreground) return false;
+  // A single OS-governed activation, never keyboard tricks or attaching input
+  // queues (which resets the user's key state). Windows may still refuse it.
+  return foreground==window || SetForegroundWindow(window)!=FALSE;
+}
 
 HWND blocking_window(HWND window) {
   if (!window || IsWindowEnabled(window)) return nullptr;

@@ -7,6 +7,24 @@ import {
   workflowResumeParamsSchema,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
+import { z } from 'zod';
+
+const approvalCommandSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('list') }).strict(),
+  z.object({ action: z.literal('decide'), id: z.string().uuid(), choice: z.enum(['allow_once', 'allow_always', 'deny']) }).strict(),
+  z.object({ action: z.literal('revoke'), id: z.string().uuid() }).strict(),
+  z.object({ action: z.literal('cancel'), id: z.string().uuid() }).strict(),
+]);
+
+export async function handleWorkflowApprovals(ctx: HandlerContext, raw: unknown): Promise<unknown> {
+  const command = approvalCommandSchema.parse(raw);
+  const view = ctx.session.workflows?.approvals;
+  if (!view) throw new Error('Workflow approvals unavailable; update the runner');
+  if (command.action === 'list') return view.list();
+  if (command.action === 'decide') return view.decide(command.id, command.choice);
+  if (command.action === 'cancel') return view.cancel(command.id);
+  return view.revoke(command.id);
+}
 
 // Workflows (delegates to session.workflows if the plugin is loaded). The
 // builder + resume slices are optional on the view (older hosts / pre-builder

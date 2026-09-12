@@ -1,5 +1,6 @@
 import {
   computerControlCommandSchema, computerControlSnapshotSchema,
+  computerApprovalFocusSchema,
   type ComputerControlService, type ComputerControlSnapshot, type ComputerControlState,
 } from '@moxxy/sdk';
 import type { HelperTransport } from './transport.js';
@@ -37,6 +38,14 @@ export class TurnControls {
 
   forSession(sessionId: string): ComputerControlService {
     return {
+      approvalFocus: async input => {
+        const command = computerApprovalFocusSchema.parse(input);
+        if (command.sessionId !== sessionId) throw new Error('Computer Use session mismatch');
+        const entry = this.entries.get(key(sessionId, command.turnId));
+        if (!entry || entry.transport.closed || entry.snapshot.state === 'stopped') return;
+        const { sessionId: _session, turnId: _turn, ...params } = command;
+        await entry.transport.request('approval_focus', params, AbortSignal.timeout(3000));
+      },
       snapshot: async () => [...this.entries.values()]
         .filter((entry) => entry.snapshot.sessionId === sessionId)
         .map(({ snapshot, transport }) => ({

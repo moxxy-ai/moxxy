@@ -159,7 +159,8 @@ import type {
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 12;
+/** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
+export const RUNNER_PROTOCOL_VERSION = 13;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -243,6 +244,8 @@ export const RunnerMethod = {
    * reported version so an older runner returns an actionable error.
    */
   WorkflowResume: 'workflow.resume',
+  WorkflowApprovals: 'workflow.approvals',
+  ComputerApprovalFocus: 'computer.approvalFocus',
   /** client->server: list available surface kinds + availability (v8). */
   SurfaceList: 'surface.list',
   /** client->server: open (or attach to the shared) surface instance (v8). */

@@ -51,6 +51,7 @@ import { jsonlEventStore } from './sessions/jsonl-event-store.js';
 import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
+import { currentPermissionScope } from './permissions/scope.js';
 import { evaluateToolRule, isSelectableMode } from '@moxxy/sdk';
 import type {
   ApprovalResolver,
@@ -462,8 +463,8 @@ export class Session implements ClientSession, SessionRuntime {
   }
 
   /**
-   * Graceful shutdown: fire every plugin's `onShutdown` hook, then abort
-   * the session. Idempotent — safe to call multiple times (subsequent
+   * Graceful shutdown: cancel in-flight work before awaiting plugin shutdown
+   * hooks. Idempotent — safe to call multiple times (subsequent
    * calls are no-ops once `closed` is set).
    *
    * Channels' SIGINT handlers should call this before exiting so plugins
@@ -472,6 +473,8 @@ export class Session implements ClientSession, SessionRuntime {
   async close(reason = 'shutdown'): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    // Stop deferred approvals/provider calls before disposers await them.
+    this.abort(reason);
     try {
       // Tear down any open surfaces (PTYs, browser screencasts) before the
       // plugin shutdown hooks dispose their underlying resources. Isolated in
@@ -677,11 +680,19 @@ function wrapWithPolicy(
         return async (call: PendingToolCall, ctx: PermissionContext) => {
           const decided = await policyDecision(call);
           if (decided) return decided;
-          return target.check(call, ctx);
+          return (currentPermissionScope() ?? target).check(call, ctx);
         };
       }
       if (prop === 'policyCheck') {
         return async (call: PendingToolCall) => policyDecision(call);
+      }
+      if (prop === 'mandatoryCheck') {
+        return async (call: PendingToolCall, ctx: PermissionContext) => {
+          const scoped = currentPermissionScope();
+          if (!scoped) return null;
+          const policy = await policyDecision(call);
+          return policy ?? scoped.check(call, ctx);
+        };
       }
       return Reflect.get(target, prop, receiver);
     },

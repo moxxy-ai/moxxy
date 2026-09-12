@@ -80,6 +80,14 @@ jobs:
         run: |
           cp apps/desktop/.env.example apps/desktop/.env
           pnpm build
+      - name: Test durable workflow approvals and real process ownership on Windows
+        shell: bash
+        run: |
+          pnpm --filter @moxxy/core exec vitest run src/permissions/workflow-approvals.test.ts src/permissions/workflow-lease.test.ts src/workflow-tool-runner.test.ts
+          pnpm --filter @moxxy/cli exec vitest run src/setup/scheduled-workflow-approval.test.ts
+          pnpm --filter @moxxy/plugin-scheduler exec vitest run src/workflow-wait.test.ts
+          pnpm --filter @moxxy/runner exec vitest run src/workflow-approvals.test.ts
+          pnpm --filter @moxxy/plugin-channel-mobile exec vitest run src/workflow-approvals.test.ts
       - run: pnpm --filter @moxxy/desktop run prepare:resources
       - name: Build test installer
         env:

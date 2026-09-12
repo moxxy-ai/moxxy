@@ -13,6 +13,7 @@ import {
   useDesks,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
+import { WorkflowApprovals } from './workflows/WorkflowApprovals';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
 import { useTheme } from '@/lib/useTheme';
 import { useHotkeyDispatcher, ShortcutsSheet } from './hotkeys';
@@ -407,6 +408,7 @@ export function App(): JSX.Element {
           background-agent modal is open — this fallback catches every other
           view so an ask is never invisible (and never double-rendered). */}
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
+      <WorkflowApprovals modal />
     </div>
   );
 }

@@ -21,6 +21,7 @@ export interface SchedulePromptResult {
 
 export interface SchedulePromptRunner {
   runPrompt(input: {
+    signal?: AbortSignal;
     prompt: string;
     model?: string;
     scheduleName: string;
@@ -87,10 +88,28 @@ export async function runSchedule(
   store: ScheduleStore,
   inboxOpts: InboxOptions = {},
 ): Promise<ScheduleRunOutcome> {
+  // Persist before side effects: a crashed one-shot must not replay merely
+  // because it never reached the completion write.
+  if (entry.source === 'workflow') await store.update(entry.id, { lastStartedAt: Date.now() });
+  const controller = new AbortController();
+  let checking = false;
+  const checkSchedule = async () => {
+    store.invalidate();
+    const current = await store.get(entry.id);
+    if (!current?.enabled) controller.abort('Workflow schedule disabled or deleted');
+  };
+  const monitor = entry.source === 'workflow' ? setInterval(() => {
+    if (checking) return;
+    checking = true;
+    void checkSchedule().catch(error => controller.abort(error)).finally(() => { checking = false; });
+  }, 200) : undefined;
+  monitor?.unref();
   let result: SchedulePromptResult;
   try {
+    if (entry.source === 'workflow') { await checkSchedule(); controller.signal.throwIfAborted(); }
     result = await runner.runPrompt({
       prompt: entry.prompt,
+      ...(entry.source === 'workflow' ? { signal: controller.signal } : {}),
       ...(entry.model ? { model: entry.model } : {}),
       scheduleName: entry.name,
       // A workflow-mirror row (source='workflow') reads as "Workflow ran";
@@ -105,6 +124,8 @@ export async function runSchedule(
       text: '',
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    clearInterval(monitor);
   }
 
   let inboxPath: string | undefined;

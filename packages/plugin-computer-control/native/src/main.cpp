@@ -31,8 +31,9 @@ void CALLBACK window_destroyed(HWINEVENTHOOK, DWORD, HWND hwnd, LONG object, LON
   std::lock_guard guard(moxxy::identity_mutex);
   if (auto found=moxxy::identity_generations.find(hwnd); found!=moxxy::identity_generations.end()) found->second=moxxy::next_generation++;
 }
-void CALLBACK focus_changed(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
+void CALLBACK focus_changed(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWORD, DWORD) {
   ++moxxy::focus_epoch;
+  moxxy::approval_focus_changed(window);
 }
 LRESULT CALLBACK indicator_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   return DefWindowProcW(hwnd,message,wparam,lparam);

@@ -8,6 +8,10 @@ import type { ToolCallVerdict } from './hooks.js';
 import type { CollectedToolUse } from './mode/collect-stream.js';
 import type { StuckLoopDetector, StuckSignal } from './mode/stuck-loop.js';
 
+export type ToolDispatchContext = Pick<ModeContext,
+  'sessionId' | 'turnId' | 'cwd' | 'env' | 'services' | 'log' | 'hooks' |
+  'permissions' | 'tools' | 'signal' | 'subagents' | 'emit'>;
+
 /**
  * Execute a single tool-use end-to-end: dispatch `dispatchToolCall` hooks, run
  * the permission check, invoke the tool, and emit the approved/denied/result
@@ -23,7 +27,7 @@ import type { StuckLoopDetector, StuckSignal } from './mode/stuck-loop.js';
  * then rejects on the next turn.
  */
 export async function* dispatchToolCall(
-  ctx: ModeContext,
+  ctx: ToolDispatchContext,
   t: CollectedToolUse,
   iteration: number,
 ): AsyncGenerator<MoxxyEvent, void, unknown> {
@@ -56,12 +60,32 @@ export async function* dispatchToolCall(
 
     const decision = await ctx.permissions.check(
       { callId: asToolCallId(t.id), name: t.name, input: actualInput },
-      { sessionId: String(ctx.sessionId), toolDescription: ctx.tools.get(t.name)?.description },
+      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId), toolDescription: ctx.tools.get(t.name)?.description },
     );
     if (decision.mode === 'deny') {
       yield* emitDenied(ctx, t, decision.reason ?? 'denied by resolver', 'resolver');
       return;
     }
+    // A deferred approval may outlive its turn, or policy may change while
+    // the operator is deciding. Neither permits a late side effect.
+    ctx.signal.throwIfAborted();
+    const mandatory = await ctx.permissions.mandatoryCheck?.(
+      { callId: asToolCallId(t.id), name: t.name, input: actualInput },
+      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+    );
+    if (mandatory?.mode === 'deny') {
+      yield* emitDenied(ctx, t, mandatory.reason ?? 'workflow approval denied', 'resolver');
+      return;
+    }
+    const policy = await ctx.permissions.policyCheck?.(
+      { callId: asToolCallId(t.id), name: t.name, input: actualInput },
+      { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+    );
+    if (policy?.mode === 'deny') {
+      yield* emitDenied(ctx, t, policy.reason ?? 'denied by policy', 'policy');
+      return;
+    }
+    ctx.signal.throwIfAborted();
     yield await ctx.emit({
       type: 'tool_call_approved',
       sessionId: ctx.sessionId,
@@ -129,7 +153,7 @@ function hookDeny(verdict: ToolCallVerdict): string | null {
 }
 
 async function* emitDenied(
-  ctx: ModeContext,
+  ctx: ToolDispatchContext,
   t: CollectedToolUse,
   reason: string,
   by: 'hook' | 'resolver' | 'policy',

@@ -22,7 +22,7 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  */
 export function cronBaseline(entry: ScheduleEntry): number {
   const baseline = entry.lastRunAt ?? entry.createdAt;
-  return entry.timingChangedAt === undefined ? baseline : Math.max(baseline, entry.timingChangedAt);
+  return Math.max(baseline, entry.timingChangedAt ?? baseline, entry.lastStartedAt ?? baseline, entry.lastSkippedAt ?? baseline);
 }
 
 /**
@@ -62,6 +62,7 @@ export function nextCronFire(entry: ScheduleEntry): Date | null {
 export function isDue(entry: ScheduleEntry, now: number): boolean {
   if (!entry.enabled) return false;
   if (entry.runAt && !entry.cron) {
+    if (entry.source === 'workflow' && (entry.lastStartedAt ?? 0) >= entry.runAt) return false;
     return entry.runAt <= now;
   }
   if (!entry.cron) return false;
@@ -132,6 +133,7 @@ export interface SchedulerPollerOptions {
  * clears the timer + waits for any in-flight tick to settle.
  */
 export class SchedulerPoller {
+  private readonly activeWorkflows = new Map<string, Promise<void>>();
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private tickPromise: Promise<void> = Promise.resolve();
@@ -180,6 +182,7 @@ export class SchedulerPoller {
       this.timer = null;
     }
     await this.tickPromise.catch(() => undefined);
+    await Promise.allSettled(this.activeWorkflows.values());
   }
 
   /** Fire any due schedules right now, ignoring the timer cadence.
@@ -253,6 +256,14 @@ export class SchedulerPoller {
         continue;
       }
       if (!due) continue;
+      if (entry.source === 'workflow' && this.activeWorkflows.has(entry.id)) {
+        await this.opts.store.update(entry.id, { lastSkippedAt: now,
+          lastSkipReason: 'Previous workflow execution is still running or awaiting approval' });
+        continue;
+      }
+      // Waiting approvals must not block every schedule, but neither may a
+      // large imported calendar launch unbounded concurrent model calls.
+      if (entry.source === 'workflow' && this.activeWorkflows.size >= 4) continue;
 
       // Owner gate: a schedule created inside a session belongs to that runner.
       // With several runners polling the same shared store, only the owner fires
@@ -314,6 +325,7 @@ export class SchedulerPoller {
       // cleanly".
       attempted += 1;
       if (fireKey !== null) this.rememberFired(fireKey);
+      const fire = async () => {
       try {
         // Route the fire through the shared per-id lock (when wired) so a
         // concurrent `schedule_run_now` for the same entry serializes behind
@@ -346,6 +358,11 @@ export class SchedulerPoller {
           });
         }
       }
+      };
+      if (entry.source === 'workflow') {
+        const running = fire().finally(() => { this.activeWorkflows.delete(entry.id); });
+        this.activeWorkflows.set(entry.id, running);
+      } else await fire();
     }
     // Reap expired cross-process markers so the lock dir can't grow without
     // bound. Best-effort and bounded (a readdir of a small dir); never let it

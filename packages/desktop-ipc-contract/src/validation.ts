@@ -350,6 +350,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     runId: z.string().min(1).max(120),
     reply: z.string().min(1).max(100_000),
   }),
+  'workflows.approvals': z.object({ workspaceId: z.string().min(1) }).strict(),
+  'workflows.decideApproval': z.object({ workspaceId: z.string().min(1), id: z.string().uuid(), choice: z.enum(['allow_once', 'allow_always', 'deny']) }).strict(),
+  'workflows.revokeApproval': z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }).strict(),
+  'workflows.cancelApprovalRun': z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }).strict(),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
