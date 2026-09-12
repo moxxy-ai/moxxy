@@ -141,8 +141,18 @@ void report() {
   result.Insert(L"leftDown", moxxy::boolean((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0));
   result.Insert(L"menuPicks", numeric(menu_picks));
   result.Insert(L"foreground", moxxy::boolean(edit && GetForegroundWindow()==GetAncestor(edit,GA_ROOT)));
-  std::ofstream output(report_path, std::ios::binary | std::ios::trunc);
-  output << to_string(result.Stringify());
+  // The reader runs concurrently with the 100ms report timer. Never expose
+  // the empty interval between truncating the file and writing its JSON.
+  auto pending=report_path; pending+=L".tmp";
+  {
+    std::ofstream output(pending, std::ios::binary | std::ios::trunc);
+    output << to_string(result.Stringify());
+    output.flush();
+    if (!output) return;
+  }
+  // A reader without FILE_SHARE_DELETE may briefly block replacement. Keep
+  // the previous complete report; the next timer tick retries publication.
+  MoveFileExW(pending.c_str(),report_path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
 }
 LRESULT CALLBACK canvas_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
