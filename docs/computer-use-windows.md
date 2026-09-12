@@ -91,6 +91,10 @@ system-command backend with the same arguments.
   this way. A human focus change during validation still invalidates the result.
   Windows can refuse activation; ordinary safe waiting and fresh-observation
   requirements then remain in force.
+  Foreground events are consumed in their actual delivery order; a bounded
+  wait may allow an asynchronous event to arrive, but never fabricates it from
+  a foreground query. Window captures exclude the human cursor, so moving it
+  to an approval button does not itself change application pixels.
 
 ## Distribution and updates
 

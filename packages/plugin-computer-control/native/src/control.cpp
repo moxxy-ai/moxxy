@@ -26,7 +26,7 @@ void approval_focus_changed(HWND window) {
   approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
 }
 
-bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElement* focused, const Json& params, std::string_view& reason) {
+bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElement* focused, const Json& params, std::string& reason) {
   check_active_desktop();
   auto foreground=GetForegroundWindow();
   DWORD pid=0; GetWindowThreadProcessId(foreground,&pid);
@@ -60,6 +60,14 @@ bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElemen
     !guard_paused() && !guard_stopped_by_user();
   const bool restore=approval_state.finish(reinterpret_cast<uintptr_t>(foreground),pid,approved,unchanged);
   reason=approval_state.reason();
+  if (reason=="foreground-event-pending") {
+    const auto observed=reinterpret_cast<HWND>(approval_state.foreground_observed());
+    DWORD observed_pid=0; GetWindowThreadProcessId(observed,&observed_pid);
+    reason+="; seen-target="+std::to_string(observed==window)+"; seen-host="+std::to_string(observed_pid==host)+
+      "; current-target="+std::to_string(foreground==window)+"; current-host="+std::to_string(pid==host)+
+      "; seen-child-of-current="+std::to_string(GetAncestor(observed,GA_ROOT)==foreground)+
+      "; event-count="+std::to_string(focus_epoch.load());
+  }
   approval_call.clear();
   lock.unlock();
   if (!restore) return false;

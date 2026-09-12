@@ -26,6 +26,7 @@ int main() {
   state.begin(10,20,10);
   check(state.awaiting_foreground(30));
   state.changed(30,20);
+  check(state.foreground_observed()==30);
   check(!state.awaiting_foreground(30));
   check(state.finish(30,20,true,true));
   state.begin(10,20,10); state.changed(99,99);

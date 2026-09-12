@@ -10,6 +10,7 @@ class ApprovalFocus {
   std::string_view last_reason="not-prepared";
  public:
   std::string_view reason() const { return last_reason; }
+  uintptr_t foreground_observed() const { return observed; }
   bool awaiting_foreground(uintptr_t foreground) const { return valid && observed!=foreground; }
   void begin(uintptr_t window, uint32_t host_pid, uintptr_t foreground) {
     target=window; host=host_pid; observed=foreground;
