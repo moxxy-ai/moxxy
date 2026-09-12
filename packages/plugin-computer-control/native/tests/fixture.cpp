@@ -16,6 +16,7 @@ bool recreating = false;
 std::wstring canvas_text;
 std::string panel_failure;
 POINT drag_start{};
+POINT last_click{};
 HWND create_fixture_window();
 void open_editor(HWND owner, bool nested);
 INT_PTR CALLBACK editor_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -136,6 +137,7 @@ void report() {
   result.Insert(L"left", numeric(left)); result.Insert(L"right", numeric(right)); result.Insert(L"middle", numeric(middle));
   result.Insert(L"doubleClicks", numeric(double_clicks)); result.Insert(L"scrollX", numeric(wheel_x)); result.Insert(L"scrollY", numeric(wheel_y));
   result.Insert(L"drags", numeric(drags)); result.Insert(L"saves", numeric(saves));
+  result.Insert(L"clickX",numeric(last_click.x)); result.Insert(L"clickY",numeric(last_click.y));
   result.Insert(L"leftDown", moxxy::boolean((GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0));
   result.Insert(L"menuPicks", numeric(menu_picks));
   result.Insert(L"foreground", moxxy::boolean(edit && GetForegroundWindow()==GetAncestor(edit,GA_ROOT)));
@@ -151,7 +153,7 @@ LRESULT CALLBACK canvas_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       HBRUSH brush = CreateSolidBrush(RGB(255,0,255)); FillRect(dc,&area,brush); DeleteObject(brush);
       SetBkMode(dc,TRANSPARENT); TextOutW(dc,15,15,L"Canvas: drag / click / scroll",28); EndPaint(hwnd,&paint); return 0;
     }
-    case WM_LBUTTONDOWN: ++left; dragging = true; drag_start = {GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; SetFocus(hwnd); break;
+    case WM_LBUTTONDOWN: ++left; dragging = true; drag_start = {GET_X_LPARAM(lparam),GET_Y_LPARAM(lparam)}; last_click=drag_start; SetFocus(hwnd); break;
     case WM_LBUTTONUP: if (dragging && (abs(GET_X_LPARAM(lparam)-drag_start.x)>20 || abs(GET_Y_LPARAM(lparam)-drag_start.y)>20)) ++drags; dragging=false; break;
     case WM_RBUTTONDOWN: ++right; break;
     case WM_MBUTTONDOWN: ++middle; break;

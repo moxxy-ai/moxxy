@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { verifyHelperArtifact } from './artifact.js';
 import { HelperTransport } from './transport.js';
+export { PROTOCOL_VERSION as COMPUTER_PROTOCOL_VERSION } from './contracts.js';
 
 /** Installer-only coordination; deliberately not exposed as a model tool. */
 export async function acquireComputerMaintenance(executable: string) {

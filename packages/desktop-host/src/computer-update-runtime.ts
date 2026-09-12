@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import { acquireComputerMaintenance } from '@moxxy/plugin-computer-control/maintenance';
+import { acquireComputerMaintenance, COMPUTER_PROTOCOL_VERSION } from '@moxxy/plugin-computer-control/maintenance';
 import {
   activateComputerUpdate, discardComputerUpdate, prepareComputerUpdate, recoverComputerUpdates,
   isBundledComputerCurrent,
@@ -16,7 +16,7 @@ if(!status || !plugin.tools.some(t=>t.name==='computer_open')) throw Error('Comp
 const context={sessionId:randomUUID(),turnId:randomUUID(),signal:new AbortController().signal};
 try {
   const result=await status.handler({},context);
-  if(result.protocolVersion!==2 || result.platform!=='win32' || result.architecture!=='x64') throw Error('Computer Use helper mismatch');
+  if(result.protocolVersion!==${COMPUTER_PROTOCOL_VERSION} || result.platform!=='win32' || result.architecture!=='x64') throw Error('Computer Use helper mismatch');
   console.log('MOXXY_COMPUTER_UPDATE_VERIFIED');
 } finally { await plugin.hooks.onShutdown(context); }
 `;

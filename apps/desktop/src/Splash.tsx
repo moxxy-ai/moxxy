@@ -5,12 +5,15 @@
  */
 
 import { MoxxyMark } from '@/components/MoxxyMark';
+import type { ReactNode } from 'react';
 import './styles.css';
 
 export function Splash({
   message = 'Getting things ready…',
+  children,
 }: {
   readonly message?: string;
+  readonly children?: ReactNode;
 }): JSX.Element {
   return (
     <div
@@ -24,6 +27,8 @@ export function Splash({
         alignItems: 'center',
         justifyContent: 'center',
         gap: '1.25rem',
+        padding: '2rem',
+        overflow: 'auto',
         // Match the chat surface bg so the cold-start splash feels
         // continuous with the app's first useful screen.
         background: 'var(--color-main-bg)',
@@ -42,6 +47,7 @@ export function Splash({
       >
         {message}
       </p>
+      {children}
     </div>
   );
 }
