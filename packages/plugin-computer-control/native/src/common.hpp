@@ -90,7 +90,7 @@ void check_focus(HWND window);
 bool has_target_focus(HWND window);
 HWND blocking_window(HWND window);
 void approval_focus_changed(HWND window);
-bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params, std::string_view& reason);
+bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElement* focused, const Json& params, std::string_view& reason);
 void click_point(HWND window, Point point, const std::wstring& button, int count);
 void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus);
 void key_press(HWND window, const Json& params);

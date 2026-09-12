@@ -26,7 +26,7 @@ void approval_focus_changed(HWND window) {
   approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
 }
 
-bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params, std::string_view& reason) {
+bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElement* focused, const Json& params, std::string_view& reason) {
   check_active_desktop();
   auto foreground=GetForegroundWindow();
   DWORD pid=0; GetWindowThreadProcessId(foreground,&pid);
@@ -58,14 +58,21 @@ bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params,
   // attach input queues; the latter resets keys physically held by the user.
   if (foreground==window) { reason="already-returned"; return true; }
   SetForegroundWindow(window);
-  if ((GetForegroundWindow()==foreground || GetForegroundWindow()==window) && root) root->SetFocus();
+  if (GetForegroundWindow()==foreground && root) root->SetFocus();
   // Cross-thread activation can complete after SetFocus returns. Wait only
   // for that one request; never repeat activation or input while waiting.
   const auto until=GetTickCount64()+500;
   do {
     check_active_desktop();
+    if (guard_paused() || guard_stopped_by_user()) { reason="target-changed-or-stopped"; return false; }
     auto current=GetForegroundWindow();
-    if (current==window) { reason="restored"; return true; }
+    if (current==window) {
+      // A child control's SetFocus does not necessarily activate its top-level
+      // window. Activate the window first, then restore the verified control.
+      if (focused && focused!=root) focused->SetFocus();
+      if (GetForegroundWindow()!=window) { reason="foreground-changed-during-return"; return false; }
+      reason="restored"; return true;
+    }
     if (current && current!=foreground) { reason="foreground-changed-during-return"; return false; }
     require(WaitForSingleObject(stop_event,25)==WAIT_TIMEOUT,"cancelled","Approval return cancelled");
   } while (GetTickCount64()<until);
