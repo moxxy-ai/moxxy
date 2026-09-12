@@ -83,7 +83,18 @@ function Canvas-Point($capture, $xOffset = 60, $yOffset = 60) {
 function Fixture-State {
   # Wait for real window messages to be processed, not for a model declaration.
   Start-Sleep -Milliseconds 200
-  return Get-Content -LiteralPath $script:statePath -Raw -Encoding UTF8 | ConvertFrom-Json
+  $until=[DateTime]::UtcNow.AddSeconds(2)
+  do {
+    try {
+      $raw=Get-Content -LiteralPath $script:statePath -Raw -Encoding UTF8
+      if (-not [string]::IsNullOrWhiteSpace($raw)) {
+        $snapshot=$raw | ConvertFrom-Json
+        if ($null -ne $snapshot) { return $snapshot }
+      }
+    } catch { $readError=$_.Exception.Message }
+    Start-Sleep -Milliseconds 10
+  } while ([DateTime]::UtcNow -lt $until)
+  throw "Fixture did not publish a complete JSON report: $readError"
 }
 function Focus-TestFixture($process) {
   # Simulate the user's window switch with real UIA, outside the backend under
