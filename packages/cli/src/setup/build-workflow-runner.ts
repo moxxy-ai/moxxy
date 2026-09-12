@@ -1,12 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
-import { createSubagentSpawner, type Session } from '@moxxy/core';
-import {
-  asPluginId,
-  type EmittedEvent,
-  type WorkflowRunResult,
-} from '@moxxy/sdk';
+import { createSubagentSpawner, createWorkflowToolRunner, type Session } from '@moxxy/core';
+import { asPluginId, type EmittedEvent, type WorkflowRunResult } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import {
   WORKFLOWS_PLUGIN_NAME,
@@ -15,6 +11,7 @@ import {
   resumeWorkflowRun,
   runWorkflow,
 } from '@moxxy/plugin-workflows';
+import type { WorkflowApprovalExecution } from './workflow-approval-scope.js';
 
 export interface MiniLogger {
   info?(msg: string, meta?: Record<string, unknown>): void;
@@ -26,6 +23,8 @@ const PLUGIN_ID = asPluginId(WORKFLOWS_PLUGIN_NAME);
 
 export interface WorkflowRunNowInput {
   name: string;
+  signal?: AbortSignal;
+  model?: string;
   inputs?: Record<string, unknown>;
   trigger?: string;
   /**
@@ -51,6 +50,8 @@ export function buildWorkflowRunner(args: {
   session: Session;
   store: WorkflowStore;
   logger?: MiniLogger;
+  approvalExecution?: WorkflowApprovalExecution;
+  recordDir?: string;
 }): WorkflowRunner {
   const { session, store, logger } = args;
   const inFlight = new Set<string>();
@@ -58,7 +59,13 @@ export function buildWorkflowRunner(args: {
   async function runNow(input: WorkflowRunNowInput): Promise<WorkflowRunResult> {
     const entry = await store.get(input.name);
     if (!entry) {
-      return { ok: false, status: 'failed', steps: [], output: '', error: `no workflow named "${input.name}"` };
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `no workflow named "${input.name}"`,
+      };
     }
     if (inFlight.has(input.name)) {
       return {
@@ -71,45 +78,57 @@ export function buildWorkflowRunner(args: {
     }
     inFlight.add(input.name);
     try {
+      const parentSignal = input.signal
+        ? AbortSignal.any([session.signal, input.signal])
+        : session.signal;
+      parentSignal.throwIfAborted();
       const turnId = session.startTurn().turnId;
-      const spawner = createSubagentSpawner({
-        parentSession: session,
-        parentTurnId: turnId,
-        parentSignal: session.signal,
-        parentModel: activeModel(session),
-      });
-      const result = await runWorkflow(
-        entry.workflow,
-        {
-          spawner,
-          tools: session.tools,
-          lookup: {
-            skill: (n) => session.skills.byName(n),
-            workflow: (n) => store.lookup(n),
+      const execute = (signal = parentSignal) => {
+        const spawner = createSubagentSpawner({
+          parentSession: session,
+          parentTurnId: turnId,
+          parentSignal: signal,
+          parentModel: input.model ?? activeModel(session),
+        });
+        return runWorkflow(
+          entry.workflow,
+          {
+            spawner,
+            tools: createWorkflowToolRunner(session, turnId, spawner),
+            lookup: {
+              skill: (n) => session.skills.byName(n),
+              workflow: (n) => store.lookup(n),
+            },
+            signal,
+            ...(input.inputs ? { inputs: input.inputs } : {}),
+            trigger: input.trigger ?? 'auto',
+            now: () => Date.now(),
+            emit: (subtype, payload) =>
+              void session.log.append({
+                type: 'plugin_event',
+                sessionId: session.id,
+                turnId,
+                source: 'plugin',
+                pluginId: PLUGIN_ID,
+                subtype,
+                // Stamp the causal chain onto the completion event so the
+                // afterWorkflow subscription can detect cycles/depth per-run.
+                payload:
+                  subtype === 'workflow_completed' && input.chain && input.chain.length > 0
+                    ? { ...(payload as Record<string, unknown>), triggerChain: [...input.chain] }
+                    : payload,
+              } as EmittedEvent),
+            ...(logger ? { logger } : {}),
           },
-          signal: session.signal,
-          ...(input.inputs ? { inputs: input.inputs } : {}),
-          trigger: input.trigger ?? 'auto',
-          now: () => Date.now(),
-          emit: (subtype, payload) =>
-            void session.log.append({
-              type: 'plugin_event',
-              sessionId: session.id,
-              turnId,
-              source: 'plugin',
-              pluginId: PLUGIN_ID,
-              subtype,
-              // Stamp the causal chain onto the completion event so the
-              // afterWorkflow subscription can detect cycles/depth per-run.
-              payload:
-                subtype === 'workflow_completed' && input.chain && input.chain.length > 0
-                  ? { ...(payload as Record<string, unknown>), triggerChain: [...input.chain] }
-                  : payload,
-            } as EmittedEvent),
-          ...(logger ? { logger } : {}),
-        },
-        { executor: session.workflowExecutors.getActive() },
-      );
+          {
+            executor: session.workflowExecutors.getActive(),
+            ...(args.recordDir ? { recordDir: args.recordDir } : {}),
+          },
+        );
+      };
+      const result = await (args.approvalExecution
+        ? args.approvalExecution.run(input.name, String(turnId), parentSignal, execute)
+        : execute());
       // A `paused` result is NOT terminal: the run is parked on an awaitInput
       // step waiting for an operator reply (resume). Delivering it to the inbox
       // would falsely present a half-done run as complete. Don't deliver, and
@@ -169,44 +188,52 @@ export function buildWorkflowRunner(args: {
     inFlight.add(name);
     try {
       const turnId = session.startTurn().turnId;
-      const spawner = createSubagentSpawner({
-        parentSession: session,
-        parentTurnId: turnId,
-        parentSignal: session.signal,
-        parentModel: activeModel(session),
-      });
-      const result = await resumeWorkflowRun(
-        runId,
-        reply,
-        {
-          spawner,
-          tools: session.tools,
-          lookup: {
-            skill: (n) => session.skills.byName(n),
-            workflow: (n) => store.lookup(n),
+      const execute = (signal = session.signal) => {
+        const spawner = createSubagentSpawner({
+          parentSession: session,
+          parentTurnId: turnId,
+          parentSignal: signal,
+          parentModel: activeModel(session),
+        });
+        return resumeWorkflowRun(
+          runId,
+          reply,
+          {
+            spawner,
+            tools: createWorkflowToolRunner(session, turnId, spawner),
+            lookup: {
+              skill: (n) => session.skills.byName(n),
+              workflow: (n) => store.lookup(n),
+            },
+            signal,
+            now: () => Date.now(),
+            emit: (subtype, payload) =>
+              void session.log.append({
+                type: 'plugin_event',
+                sessionId: session.id,
+                turnId,
+                source: 'plugin',
+                pluginId: PLUGIN_ID,
+                subtype,
+                payload,
+              } as EmittedEvent),
+            ...(logger ? { logger } : {}),
           },
-          signal: session.signal,
-          now: () => Date.now(),
-          emit: (subtype, payload) =>
-            void session.log.append({
-              type: 'plugin_event',
-              sessionId: session.id,
-              turnId,
-              source: 'plugin',
-              pluginId: PLUGIN_ID,
-              subtype,
-              payload,
-            } as EmittedEvent),
-          ...(logger ? { logger } : {}),
-        },
-        defaultWorkflowRunStore,
-      );
+          defaultWorkflowRunStore,
+        );
+      };
+      const result = await (args.approvalExecution
+        ? args.approvalExecution.run(name, String(turnId), session.signal, execute)
+        : execute());
       // A still-paused result (a second awaitInput) is non-terminal — withhold it
       // exactly like runNow. A completed/failed result IS terminal: deliver it.
       if (result.status === 'paused') {
-        logger?.warn?.('workflows: run paused again awaiting operator input; not delivering to inbox', {
-          runId: result.runId,
-        });
+        logger?.warn?.(
+          'workflows: run paused again awaiting operator input; not delivering to inbox',
+          {
+            runId: result.runId,
+          },
+        );
         return result;
       }
       // Resolve the workflow name from the checkpoint for inbox delivery metadata.
@@ -232,7 +259,9 @@ export function activeModel(session: Session): string {
   return session.lastResolvedModel ?? safeActiveProvider(session)?.models[0]?.id ?? 'default';
 }
 
-export function safeActiveProvider(session: Session): ReturnType<Session['providers']['getActive']> | null {
+export function safeActiveProvider(
+  session: Session,
+): ReturnType<Session['providers']['getActive']> | null {
   try {
     return session.providers.getActive();
   } catch {

@@ -268,6 +268,7 @@ export interface WorkflowSaveView {
  * stay capability-detectable — a channel must feature-check before calling.
  */
 export interface WorkflowsView {
+  readonly approvals?: import('./workflow-approval.js').WorkflowApprovalsView;
   list(): Promise<ReadonlyArray<WorkflowSummaryView>>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
   run(name: string): Promise<WorkflowRunView>;

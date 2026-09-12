@@ -45,6 +45,7 @@ export type { EventLogReader } from './log.js';
 export {
   computerControlStateSchema, computerControlOwnerSchema,
   computerControlCommandSchema, computerControlSnapshotSchema,
+  computerApprovalFocusSchema, type ComputerApprovalFocus,
 } from './computer-control.js';
 export type {
   ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
@@ -353,6 +354,7 @@ export {
   type CheckpointResult,
   type TurnCheckpoint,
 } from './mode-helpers.js';
+export type { WorkflowApprovalScope, WorkflowApprovalChoice, WorkflowApprovalItem, WorkflowApprovalsView } from './workflow-approval.js';
 export {
   dispatchToolCall,
   executeToolUses,
@@ -604,3 +606,4 @@ export {
 } from './install-hints.js';
 
 export { z } from 'zod';
+export { workflowApprovalItemSchema, workflowApprovalItemsSchema } from './workflow-approval.js';

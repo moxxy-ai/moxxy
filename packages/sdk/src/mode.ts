@@ -194,7 +194,7 @@ export interface ApprovalDecision {
 
 export interface ApprovalResolver {
   readonly name: string;
-  confirm(req: ApprovalRequest): Promise<ApprovalDecision>;
+  confirm(req: ApprovalRequest, context?: { readonly turnId: string }): Promise<ApprovalDecision>;
 }
 
 /**

@@ -338,6 +338,12 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     return actions.status(text(params,L"actionId"),number(params,L"waitMs",0,1000));
   }
   // Validate shape before acquiring a lease or executing any native operation.
+  if (method==L"approval_focus") {
+    fields(params,{L"windowId",L"stage",L"callId",L"hostPid",L"approved"});
+    auto& window=target(params);
+    Json result; result.Insert(L"restored",boolean(approval_focus(window.hwnd,params)));
+    return result;
+  }
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
   else if (method == L"observe") fields(params, {L"windowId", L"maxNodes", L"root", L"filter"});
   else if (method == L"screenshot") fields(params, {L"windowId", L"maxDim", L"format", L"quality", L"allowVisibleFallback", L"region"});

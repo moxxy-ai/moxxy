@@ -13,7 +13,7 @@ it('probes the installed package in a real process and rejects the previous nati
       tools:[{name:'computer_open'},{name:'computer_status',handler:async()=>({protocolVersion:${version},platform:'win32',architecture:'x64'})}],
       hooks:{onShutdown:async()=>{}}
     };`;
-    await writeFile(join(directory,'dist','index.js'),fixture(3));
+    await writeFile(join(directory,'dist','index.js'),fixture(4));
     await expect(probeInstalledComputerPackage(directory)).resolves.toBeUndefined();
     await writeFile(join(directory,'dist','index.js'),fixture(2));
     await expect(probeInstalledComputerPackage(directory)).rejects.toThrow('previous version retained');

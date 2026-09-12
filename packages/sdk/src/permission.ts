@@ -39,6 +39,7 @@ export interface PendingToolCall {
 }
 
 export interface PermissionContext {
+  readonly turnId?: string;
   readonly toolDescription?: string;
   readonly skillContext?: string;
   readonly sessionId: string;
@@ -47,6 +48,8 @@ export interface PermissionContext {
 export interface PermissionResolver {
   readonly name: string;
   check(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision>;
+  /** Host-scoped approval that unattended modes must not bypass. */
+  mandatoryCheck?(call: PendingToolCall, ctx: PermissionContext): Promise<PermissionDecision | null>;
   /**
    * Optional prompt-free policy probe. Returns the decision the persistent
    * policy layer would make for this call (user deny/allow rules from

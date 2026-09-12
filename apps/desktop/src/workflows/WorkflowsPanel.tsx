@@ -6,6 +6,7 @@ import { TargetSessionPicker } from '../apps/TargetSessionPicker';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { InstrumentBar } from '../shell/InstrumentBar';
+import { WorkflowApprovals } from './WorkflowApprovals';
 
 /** How the defined workflows are triggered, most common first. Derived from the
  *  definitions, which is the only thing this runner reports about them. */
@@ -115,6 +116,7 @@ export function WorkflowsPanel(): JSX.Element {
           gap: 'var(--space-16)',
         }}
       >
+      <WorkflowApprovals />
       {wf.error && (
         <p
           role="alert"

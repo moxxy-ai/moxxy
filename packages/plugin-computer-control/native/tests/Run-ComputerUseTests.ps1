@@ -38,7 +38,7 @@ function Start-Peer {
   $peers.Add($peer)
   return $peer
 }
-function Request($peer, $method, $parameters, $version = 3) {
+function Request($peer, $method, $parameters, $version = 4) {
   $id = [guid]::NewGuid().ToString()
   $frame = @{ version=$version; id=$id; method=$method; params=$parameters } | ConvertTo-Json -Depth 20 -Compress
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
@@ -47,7 +47,7 @@ function Request($peer, $method, $parameters, $version = 3) {
     if (-not $read.Wait(15000)) { throw "Helper response timeout for $method (operation not retried)" }
     if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
     $response = $read.Result | ConvertFrom-Json
-    if ($response.id -ne $id -or $response.version -ne 3) { throw 'Invalid protocol response' }
+    if ($response.id -ne $id -or $response.version -ne 4) { throw 'Invalid protocol response' }
   } while ($response.event -eq 'control_state')
   return $response
 }
@@ -112,7 +112,7 @@ $exitCode = 1
 try {
   $script:helper = Start-Peer
   $status = Call 'status' @{}
-  Check ($status.protocolVersion -eq 3 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
+  Check ($status.protocolVersion -eq 4 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
   Test 'protocol rejects wrong version' {
     $response = Request $script:helper 'status' @{} 1
     Check (-not $response.ok) 'Wrong version was accepted'
@@ -230,6 +230,38 @@ try {
         Call 'focus' @{windowId=$script:windowId} | Out-Null
       }
     }
+    Test 'permission focus returns only from the approval host and never after a human app switch' {
+      $hostPath=Join-Path $ReportDirectory 'approval-host-state.json'
+      $approvalHost=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$hostPath+'"') -PassThru
+      $fixtures.Add($approvalHost)
+      $humanPath=Join-Path $ReportDirectory 'human-app-state.json'
+      $human=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$humanPath+'"') -PassThru
+      $fixtures.Add($human)
+      try {
+        Check ($approvalHost.WaitForInputIdle(10000) -and $human.WaitForInputIdle(10000)) 'Approval fixtures unavailable'
+        Focus-TestFixture $fixture
+        Start-Sleep -Milliseconds 250
+        $approval=@{windowId=$script:windowId;callId=[guid]::NewGuid().ToString();hostPid=$approvalHost.Id}
+        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
+        Focus-TestFixture $approvalHost
+        Start-Sleep -Milliseconds 250
+        $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
+        Check ($restored.restored -and (Fixture-State).foreground) 'Approval-only return did not reach the original window'
+        $approval.callId=[guid]::NewGuid().ToString()
+        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
+        Focus-TestFixture $human
+        Start-Sleep -Milliseconds 250
+        Focus-TestFixture $approvalHost
+        Start-Sleep -Milliseconds 250
+        $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
+        Check (-not $restored.restored) 'Approval stole focus after a human app switch'
+        Check ((Get-Content -LiteralPath $hostPath -Raw | ConvertFrom-Json).foreground) 'Approval host lost foreground unexpectedly'
+      } finally {
+        $approvalHost.CloseMainWindow() | Out-Null; $human.CloseMainWindow() | Out-Null
+        $approvalHost.WaitForExit(3000) | Out-Null; $human.WaitForExit(3000) | Out-Null
+        Focus-TestFixture $fixture
+      }
+    }
     Test 'window-local crop retains source geometry' {
       $full=Screenshot
       $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
@@ -238,9 +270,9 @@ try {
     Test 'explicit pause stays paused on foreground and resumes only by user command' {
       try {
         $before=Observe
-        $script:helper.StandardInput.WriteLine('{"version":3,"control":"pause"}'); $script:helper.StandardInput.Flush()
+        $script:helper.StandardInput.WriteLine('{"version":4,"control":"pause"}'); $script:helper.StandardInput.Flush()
         $id=[guid]::NewGuid().ToString()
-        $frame=@{version=3;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $frame=@{version=4;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
         $read=$script:helper.StandardOutput.ReadLineAsync()
         Check ($read.Wait(5000)) 'No paused state'
@@ -248,7 +280,7 @@ try {
         Check ($state.id -eq $id -and $state.state -eq 'paused_by_user') 'Explicit pause was not honored'
         $pending=$script:helper.StandardOutput.ReadLineAsync()
         Check (-not $pending.Wait(1200)) 'Pause auto-resumed while target was foreground'
-        $script:helper.StandardInput.WriteLine('{"version":3,"control":"resume"}'); $script:helper.StandardInput.Flush()
+        $script:helper.StandardInput.WriteLine('{"version":4,"control":"resume"}'); $script:helper.StandardInput.Flush()
         Check ($pending.Wait(5000)) 'Resume could not reach blocked helper'
         $state=$pending.Result | ConvertFrom-Json
         Check ($state.state -in @('foreground','background')) 'Missing resumed state'
@@ -275,7 +307,7 @@ try {
         Start-Sleep -Milliseconds 250
         Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
         $id=[guid]::NewGuid().ToString()
-        $frame=@{version=3;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
+        $frame=@{version=4;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
         $read=$script:helper.StandardOutput.ReadLineAsync()
         Check ($read.Wait(5000)) 'No waiting state event'
@@ -547,7 +579,7 @@ try {
     Test 'cancellation during drag releases input and desktop lease' {
       Start-Sleep -Milliseconds 600
       $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{ version=3; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
+      $frame=@{ version=4; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
       $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
       Start-Sleep -Milliseconds 150
       $script:helper.StandardInput.Close()
@@ -638,7 +670,7 @@ try {
     Test 'hard worker termination during drag releases only its held input' {
       Call 'focus' @{windowId=$script:windowId} | Out-Null
       $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{version=3;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
+      $frame=@{version=4;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
       $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
       Check ((Fixture-State).leftDown) 'Crash test never reached held mouse input'
       $script:helper.Kill(); Check ($script:helper.WaitForExit(3000)) 'Worker did not terminate'

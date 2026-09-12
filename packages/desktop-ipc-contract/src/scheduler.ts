@@ -23,6 +23,9 @@ export interface ScheduleSummary {
   readonly targetSessionName?: string | null;
   readonly createdAt: number;
   readonly lastRunAt: number | null;
+  readonly lastStartedAt?: number | null;
+  readonly lastSkippedAt?: number | null;
+  readonly lastSkipReason?: string | null;
   readonly lastResult: 'ok' | 'error' | null;
   readonly lastError: string | null;
   readonly nextFireAt: number | null;

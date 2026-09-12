@@ -90,6 +90,10 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // `workflows.validateDraft`, `workflows.setEnabled`) is host-only — a paired
   // phone must not rewrite or re-enable the host's workflows.
   'workflows.list',
+  'workflows.approvals',
+  'workflows.decideApproval',
+  'workflows.revokeApproval',
+  'workflows.cancelApprovalRun',
   'workflows.run',
   'workflows.getRun',
   // Answer a paused workflow's awaitInput question. This is RESPOND-only — like

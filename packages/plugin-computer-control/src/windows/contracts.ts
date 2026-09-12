@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const MAX_FRAME_BYTES = 3_000_000;
 export const idSchema = z.string().min(1).max(160);
 // Responses may require every field. Null explicitly means no optional selector;

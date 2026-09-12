@@ -539,6 +539,10 @@ export interface IpcCommands {
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
+  'workflows.approvals': (args: { workspaceId: string }) => Promise<ReadonlyArray<import('@moxxy/sdk').WorkflowApprovalItem>>;
+  'workflows.decideApproval': (args: { workspaceId: string; id: string; choice: import('@moxxy/sdk').WorkflowApprovalChoice }) => Promise<void>;
+  'workflows.revokeApproval': (args: { workspaceId: string; id: string }) => Promise<void>;
+  'workflows.cancelApprovalRun': (args: { workspaceId: string; id: string }) => Promise<void>;
   'workflows.setEnabled': (args: { name: string; enabled: boolean }) => Promise<void>;
   'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
   // Visual builder (phase 2). Resolve null/throw gracefully when the workflows

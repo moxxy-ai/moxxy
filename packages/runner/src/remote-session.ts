@@ -9,7 +9,6 @@ import type {
   CommandsClientView,
   ModesClientView,
   MoxxyEvent,
-  PermissionContext,
   PermissionDecision,
   PendingToolCall,
   PermissionResolver,
@@ -293,16 +292,16 @@ export class RemoteSession implements ClientSession {
 
     // Server->client requests (the runner asks us to decide).
     this.peer.handle(RunnerMethod.PermissionCheck, (params) => {
-      const { call, ctx } = params as PermissionCheckParams;
+      const { call, ctx, turnId } = params as PermissionCheckParams;
       if (!this.permissionResolver) {
         return { mode: 'deny', reason: 'no permission resolver on client' } satisfies PermissionDecision;
       }
-      return this.permissionResolver.check(call as PendingToolCall, ctx as PermissionContext);
+      return this.permissionResolver.check(call as PendingToolCall, { ...ctx, turnId: String(turnId) });
     });
     this.peer.handle(RunnerMethod.ApprovalConfirm, (params) => {
-      const { request } = params as ApprovalConfirmParams;
+      const { request, turnId } = params as ApprovalConfirmParams;
       if (!this.approvalResolver) return defaultApproval(request);
-      return this.approvalResolver.confirm(request);
+      return this.approvalResolver.confirm(request, { turnId: String(turnId) });
     });
 
     // If the runner dies, fail any in-flight turns rather than hanging.

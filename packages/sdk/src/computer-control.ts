@@ -15,9 +15,15 @@ export const computerControlSnapshotSchema = computerControlOwnerSchema.extend({
 }).strict();
 
 export type ComputerControlState = z.infer<typeof computerControlStateSchema>;
+export const computerApprovalFocusSchema = computerControlOwnerSchema.extend({
+  windowId: identity, callId: identity, hostPid: z.number().int().min(1).max(2147483647),
+  stage: z.enum(['begin', 'finish']), approved: z.boolean(),
+}).strict();
+export type ComputerApprovalFocus = z.infer<typeof computerApprovalFocusSchema>;
 export type ComputerControlCommand = z.infer<typeof computerControlCommandSchema>;
 export type ComputerControlSnapshot = z.infer<typeof computerControlSnapshotSchema>;
 export interface ComputerControlService {
+  approvalFocus?(command: ComputerApprovalFocus): Promise<void>;
   /** Empty when this session has no live Computer Use turn. */
   snapshot(): Promise<ReadonlyArray<ComputerControlSnapshot>>;
   /** Human control only: never starts a helper or grants tool permission. */

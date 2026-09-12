@@ -35,7 +35,7 @@ system-command backend with the same arguments.
   and Stop buttons. Optional Ctrl+Alt+F11/F10/F12 equivalents register while it is
   visible, when those shortcuts are available. Normal turn cancellation also
   closes the helper. A failed/stopped connection cannot retry input in that turn.
-- Native protocol v3 reports local focus waiting and owned dialogs. Active request deadlines pause
+- Native protocol v4 reports local focus waiting, owned dialogs and a scoped permission-focus handshake. Active request deadlines pause
   during explicit waiting, but cancellation remains live. Target focus resumes
   focus-waiting; explicit Pause requires Resume. Resuming returns
   `needs_observation`, with `effect: none | possible`, never replayed input.
@@ -77,6 +77,14 @@ system-command backend with the same arguments.
   The desktop chat strip consumes this service only for an active Windows-capable
   turn; stale replies from another workspace/session/turn are not presented as
   controls for the current run. It does not replace the independent native panel.
+- Runner protocol v13 adds `computer.approvalFocus`. Before a manual permission
+  dialog, the helper records the original target, its geometry/lifetime and the
+  requesting desktop process. A one-use approved result can request a single
+  OS-governed return only if foreground changes involved that host and target.
+  A human visit to another application, changed geometry, denial, pause or Stop
+  prevents restoration. No injected shortcut, input-queue attachment or input
+  replay is used. Windows can still refuse activation; ordinary safe waiting
+  and fresh-observation requirements remain in force.
 
 ## Distribution and updates
 
