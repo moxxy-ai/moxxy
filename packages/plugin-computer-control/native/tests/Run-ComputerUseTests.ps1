@@ -241,12 +241,19 @@ try {
         Check ($approvalHost.WaitForInputIdle(10000) -and $human.WaitForInputIdle(10000)) 'Approval fixtures unavailable'
         Focus-TestFixture $fixture
         Start-Sleep -Milliseconds 250
+        $fieldSnapshot=Observe
+        $field=@($fieldSnapshot.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+        Call 'click' @{windowId=$script:windowId;observationId=$fieldSnapshot.observationId;elementId=$field.elementId;button='left';count=1} | Out-Null
+        $approvedSnapshot=Observe
+        $beforeText=(Fixture-State).text
         $approval=@{windowId=$script:windowId;callId=[guid]::NewGuid().ToString();hostPid=$approvalHost.Id}
         Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
         Focus-TestFixture $approvalHost
         Start-Sleep -Milliseconds 250
         $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
         Check ($restored.restored -and (Fixture-State).foreground) 'Approval-only return did not reach the original window'
+        Call 'key' @{windowId=$script:windowId;observationId=$approvedSnapshot.observationId;key='a';modifiers=@()} | Out-Null
+        Check ((Fixture-State).text.Length -eq $beforeText.Length+1) 'The approved key did not execute exactly once after focus restoration'
         $approval.callId=[guid]::NewGuid().ToString()
         Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
         Focus-TestFixture $human
