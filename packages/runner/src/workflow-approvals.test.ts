@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { Session, WorkflowApprovals } from '@moxxy/core';
@@ -14,8 +15,9 @@ it('serves durable background approvals across a real runner connection and reco
   const approvals = new WorkflowApprovals(join(dir, 'approvals'));
   session.workflows = { list: async () => [], setEnabled: async () => {},
     run: async () => ({ ok: true, output: '', steps: [] }), approvals };
-  const server = await startRunnerServer(session, { socketPath: join(dir, 'runner.sock') });
-  let remote = await connectRemoteSession({ socketPath: join(dir, 'runner.sock') });
+  const socketPath = process.platform === 'win32' ? '\\\\.\\pipe\\moxxy-workflow-approval-' + randomUUID() : join(dir, 'runner.sock');
+  const server = await startRunnerServer(session, { socketPath });
+  let remote = await connectRemoteSession({ socketPath });
   const abort = new AbortController();
   const pending = approvals.check({ workflowId: 'w', workflowName: 'Workflow', revision: 'r1', runId: 'run' },
     { callId: asToolCallId('a'), name: 'Write', input: { path: 'test' } }, abort.signal);
@@ -23,7 +25,7 @@ it('serves durable background approvals across a real runner connection and reco
     const deadline = Date.now() + 3000;
     while ((await approvals.list()).length === 0 && Date.now() < deadline) await delay(10);
     await remote.close();
-    remote = await connectRemoteSession({ socketPath: join(dir, 'runner.sock') });
+    remote = await connectRemoteSession({ socketPath });
     const view = remote.workflows.approvals;
     expect(view).toBeDefined();
     if (!view) throw new Error('Missing workflow approvals capability');
