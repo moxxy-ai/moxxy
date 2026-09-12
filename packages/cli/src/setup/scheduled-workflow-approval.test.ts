@@ -76,3 +76,19 @@ it('propagates workflow Stop to a nested execution even when its caller passes t
     expect(original.signal.aborted).toBe(false);
   } finally { original.abort(); await rm(dir, { recursive: true, force: true }); }
 });
+
+it('rejects a cached or resumed definition instead of authorizing it under the updated definition revision', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-stale-definition-'));
+  const store = new WorkflowStore({ cwd: dir, userDir: join(dir, 'user'), projectDir: join(dir, 'project') });
+  const yaml = 'name: cached\ndescription: test\nsteps:\n  - id: first\n    prompt: Original prompt\n';
+  const parsed = parseWorkflowYaml(yaml); if (!parsed.workflow) throw new Error('Invalid fixture');
+  const entry = await store.create(parsed.workflow, 'project');
+  const { execution } = buildWorkflowApprovalExecution(dir, store, join(dir, 'approvals'));
+  let ran = false;
+  try {
+    await writeFile(entry.path, yaml.replace('Original prompt', 'Changed prompt'));
+    await expect(execution.run('cached', 'run', new AbortController().signal,
+      async () => { ran = true; }, parsed.workflow)).rejects.toThrow(/definition changed/i);
+    expect(ran).toBe(false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
