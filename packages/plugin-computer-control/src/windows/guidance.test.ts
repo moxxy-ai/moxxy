@@ -18,6 +18,9 @@ it('injects Windows guidance only with available computer tools and without chan
   expect(result.system).toContain('"root":null,"filter":null');
   expect(result.system).toContain('unknown-observation');
   expect(result.system).toContain('Do not retype the whole text');
+  expect(result.system).toContain('blockingWindowId');
+  expect(result.system).toContain('target_blocked');
+  expect(result.system).toContain('selected color');
   expect(withWindowsComputerGuidance(result)).toBe(result);
   const noTools:ProviderRequest={model:'configured-model',messages:[]};
   expect(withWindowsComputerGuidance(noTools)).toBe(noTools);

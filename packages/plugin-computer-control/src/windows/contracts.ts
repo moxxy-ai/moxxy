@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const MAX_FRAME_BYTES = 3_000_000;
 export const idSchema = z.string().min(1).max(160);
 // Responses may require every field. Null explicitly means no optional selector;
@@ -15,6 +15,10 @@ export const controlCommandSchema = z.enum(['pause', 'resume', 'stop']);
 export const observationRequiredSchema = z.object({
   status: z.literal('needs_observation'), delivered: z.literal(false),
   effect: z.enum(['none', 'possible']), verificationRequired: z.literal(true),
+}).strict();
+export const targetBlockedSchema = z.object({
+  status: z.literal('target_blocked'), windowId: idSchema, blockingWindowId: idSchema,
+  delivered: z.literal(false), effect: z.literal('none'), verificationRequired: z.literal(true),
 }).strict();
 const pixel = z.number().finite().int();
 export const rectangleSchema = z.object({
@@ -83,7 +87,7 @@ export const clipboardSchema = z.discriminatedUnion('action', [
   targetSchema.extend({ action: z.literal('read') }).strict(),
   targetSchema.extend({ action: z.literal('write'), text: z.string().max(64000) }).strict(),
 ]);
-const windowIdentity = z.object({windowId:idSchema,pid:pixel.positive(),title:z.string().max(2048),className:z.string().max(255),kind:z.enum(['normal','modal','menu'])});
+const windowIdentity = z.object({windowId:idSchema,pid:pixel.positive(),title:z.string().max(2048),className:z.string().max(255),kind:z.enum(['normal','modal','menu']),ownerWindowId:idSchema.nullable().optional(),blockingWindowId:idSchema.nullable().optional()});
 export const windowSchema = z.discriminatedUnion('state',[
   windowIdentity.extend({state:z.literal('normal'),bounds:rectangleSchema}).strict(),
   windowIdentity.extend({state:z.literal('minimized'),bounds:z.null()}).strict(),
@@ -96,15 +100,17 @@ export const openResultSchema = z.discriminatedUnion('status',[
 ]);
 export const observationSchema = z.object({
   windowId: idSchema, observationId: idSchema, bounds: rectangleSchema,
+  blockingWindowId: idSchema.nullable(),
   focusedElementId: idSchema.nullable(), truncated: z.boolean(),
   elements: z.array(z.object({
-    elementId: idSchema, parentId: idSchema.nullable(), name: z.string().max(512),
+    windowId: idSchema, elementId: idSchema, parentId: idSchema.nullable(), name: z.string().max(512),
     controlType: pixel, bounds: rectangleSchema, enabled: z.boolean(), protected: z.boolean(),
     value: z.string().max(512).optional(),
     actions: z.array(accessibilityActionSchema).max(8).optional(),
     controlState: z.object({toggle:z.number().int().min(0).max(2).optional(),selected:z.boolean().optional(),expansion:z.number().int().min(0).max(3).optional()}).strict().optional(),
   }).strict()).max(256),
-}).strict();
+}).strict().refine(result => result.elements.every(element => element.windowId === result.windowId),
+  'Every control must belong to the observed window; observe its dialog separately');
 export const captureSchema = z.object({
   windowId: idSchema, captureId: idSchema, source: rectangleSchema,
   width: pixel.positive(), height: pixel.positive(),

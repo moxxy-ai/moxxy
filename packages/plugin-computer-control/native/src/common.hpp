@@ -19,7 +19,7 @@ namespace Windows = winrt::Windows;
 using namespace winrt;
 using namespace Windows::Data::Json;
 using Json = JsonObject;
-inline constexpr int protocol_version = 2;
+inline constexpr int protocol_version = 3;
 inline constexpr size_t frame_limit = 3'000'000;
 struct Error : std::runtime_error {
   std::string code;
@@ -88,6 +88,7 @@ void release_input() noexcept;
 void check_active_desktop();
 void check_focus(HWND window);
 bool has_target_focus(HWND window);
+HWND blocking_window(HWND window);
 void click_point(HWND window, Point point, const std::wstring& button, int count);
 void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus);
 void key_press(HWND window, const Json& params);

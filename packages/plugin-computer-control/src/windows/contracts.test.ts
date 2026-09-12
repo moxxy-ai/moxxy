@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema, observeSchema } from './contracts.js';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema, observeSchema, observationSchema } from './contracts.js';
 import { JsonLineDecoder } from './protocol.js';
 
 describe('Windows computer control contracts', () => {
   const geometry = { x: -1920, y: -200, width: 1920, height: 1080 };
+  it('preserves dialog ownership and binds every returned control to its observed window', () => {
+    const modal={windowId:'dialog',pid:42,title:'Editor',className:'#32770',state:'normal',kind:'modal',bounds:geometry,ownerWindowId:'parent',blockingWindowId:null};
+    expect(windowSchema.safeParse(modal).success).toBe(true);
+    const observation={windowId:'dialog',observationId:'o',bounds:geometry,focusedElementId:null,truncated:false,blockingWindowId:null,
+      elements:[{windowId:'dialog',elementId:'e',parentId:null,name:'Value',controlType:50004,bounds:geometry,enabled:true,protected:false}]};
+    expect(observationSchema.safeParse(observation).success).toBe(true);
+    expect(observationSchema.safeParse({...observation,elements:[{...observation.elements[0],windowId:'parent'}]}).success).toBe(false);
+  });
   it('requires an observation-scoped subtree and bounded literal filters', () => {
     const input={windowId:'w',root:{observationId:'o',elementId:'e'},filter:{nameIncludes:'Save',controlType:50000}};
     expect(observeSchema.safeParse(input).success).toBe(true);

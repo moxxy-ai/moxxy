@@ -8,6 +8,25 @@ std::atomic<bool> input_may_have_run{false};
 std::atomic<ControlState> control_state{ControlState::idle};
 std::wstring request_id;
 
+HWND blocking_window(HWND window) {
+  if (!window || IsWindowEnabled(window)) return nullptr;
+  struct Search { HWND owner, result=nullptr; DWORD pid=0; unsigned depth=0; } search{window};
+  GetWindowThreadProcessId(window,&search.pid);
+  EnumWindows([](HWND candidate, LPARAM data) -> BOOL {
+    auto& search=*reinterpret_cast<Search*>(data);
+    DWORD pid=0; GetWindowThreadProcessId(candidate,&pid);
+    if (pid!=search.pid || !IsWindowVisible(candidate) || IsIconic(candidate)) return TRUE;
+    auto owner=GetWindow(candidate,GW_OWNER);
+    for (unsigned depth=1;owner && depth<=32;++depth,owner=GetWindow(owner,GW_OWNER)) {
+      if (owner!=search.owner) continue;
+      if (depth>search.depth) { search.result=candidate; search.depth=depth; }
+      break;
+    }
+    return TRUE;
+  },reinterpret_cast<LPARAM>(&search));
+  return search.result;
+}
+
 void emit_control_state(ControlState state) {
   control_state = state;
   publish_guard_state(state);
@@ -19,6 +38,8 @@ void emit_control_state(ControlState state) {
 
 void wait_for_access(HWND window, bool needs_focus) {
   check_active_desktop();
+  if (needs_focus && window && !IsWindowEnabled(window))
+    throw Error("needs-observation","Target is disabled; observe it to discover its blocking dialog");
   if (!guard_paused() && (!needs_focus || has_target_focus(window))) return;
   // Never hold an injected key/button during an unbounded human wait.
   release_input();
@@ -36,6 +57,8 @@ void wait_for_access(HWND window, bool needs_focus) {
     DWORD current_pid=0;
     require(!window || (IsWindow(window) && GetWindowThreadProcessId(window,&current_pid)==thread && current_pid==pid && window_generation(window)==generation),
       "stale-window", "Target disappeared while waiting; list windows again");
+    if (needs_focus && window && !IsWindowEnabled(window))
+      throw Error("needs-observation","Target became disabled by a dialog while waiting; observe again");
     // Resume is an explicit user action, never an automatic focus-stealing loop.
     if (take_guard_resume()) {
       if (needs_focus && !has_target_focus(window)) SetForegroundWindow(window);

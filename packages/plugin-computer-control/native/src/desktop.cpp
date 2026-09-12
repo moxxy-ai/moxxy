@@ -75,7 +75,7 @@ JsonArray Desktop::list_windows() {
   std::vector<HWND> handles;
   EnumWindows([](HWND hwnd, LPARAM ptr) -> BOOL {
     wchar_t name[256]{}; GetClassNameW(hwnd, name, 256);
-    if (std::wstring_view(name)!=L"MoxxyComputerControlPanel" && IsWindowVisible(hwnd) && (GetWindowTextLengthW(hwnd) > 0 || std::wstring_view(name) == L"#32768"))
+    if (std::wstring_view(name)!=L"MoxxyComputerControlPanel" && IsWindowVisible(hwnd) && (GetWindowTextLengthW(hwnd) > 0 || GetWindow(hwnd,GW_OWNER) || std::wstring_view(name) == L"#32768"))
       reinterpret_cast<std::vector<HWND>*>(ptr)->push_back(hwnd);
     return reinterpret_cast<std::vector<HWND>*>(ptr)->size() < 256;
   }, reinterpret_cast<LPARAM>(&handles));
@@ -113,9 +113,42 @@ JsonArray Desktop::list_windows() {
     } catch (...) { /* Inaccessible/elevated/closing windows are not actionable targets. */ }
   }
   std::erase_if(windows, [&](const auto& item) { return !live.contains(item.first); });
+  // Resolve relationships after the complete inventory, not in EnumWindows order.
+  for (const auto& value : result) {
+    auto entry=value.GetObject();
+    auto hwnd=windows.at(text(entry,L"windowId")).hwnd;
+    auto owner=window_id(GetWindow(hwnd,GW_OWNER));
+    auto blocked=window_id(blocking_window(hwnd));
+    entry.Insert(L"ownerWindowId",owner.empty() ? JsonValue::CreateNullValue() : string_value(owner));
+    entry.Insert(L"blockingWindowId",blocked.empty() ? JsonValue::CreateNullValue() : string_value(blocked));
+  }
   if (!windows.contains(observed_window)) { elements.clear(); observation_id.clear(); }
   if (!windows.contains(captured_window)) capture_id.clear();
   return result;
+}
+std::wstring Desktop::window_id(HWND hwnd) const {
+  for (const auto& [id,window]:windows) if (window.hwnd==hwnd) return id;
+  return {};
+}
+bool Desktop::belongs_to_window(IUIAutomationElement* node, const Window& window) {
+  com_ptr<IUIAutomationTreeWalker> walker;
+  check_hresult(automation->get_RawViewWalker(walker.put()));
+  com_ptr<IUIAutomationElement> current; current.copy_from(node);
+  for (unsigned depth=0;current && depth<64;++depth) {
+    UIA_HWND native=nullptr;
+    check_hresult(current->get_CurrentNativeWindowHandle(&native));
+    if (native) {
+      auto hwnd=reinterpret_cast<HWND>(native);
+      DWORD pid=0; GetWindowThreadProcessId(hwnd,&pid);
+      // GA_ROOT deliberately excludes the owner: an owned dialog is a separate target.
+      return IsWindow(hwnd) && pid==window.pid && GetAncestor(hwnd,GA_ROOT)==window.hwnd;
+    }
+    BOOL same=FALSE; check_hresult(automation->CompareElements(current.get(),window.root.get(),&same));
+    if (same) return true;
+    com_ptr<IUIAutomationElement> parent;
+    check_hresult(walker->GetParentElement(current.get(),parent.put())); current=std::move(parent);
+  }
+  return false;
 }
 Json Desktop::observe(const Json& params, Window& window) {
   const auto limit = number(params, L"maxNodes", 1, 256);
@@ -149,6 +182,10 @@ Json Desktop::observe(const Json& params, Window& window) {
     if (!node) return;
     if (output.Size() >= static_cast<unsigned>(limit) || depth > 24 || visited>=1024) { truncated = true; return; }
     ++visited;
+    // UIA may nest owned dialog roots below a parent window. Do not publish
+    // those controls under the parent's identity, including virtual descendants.
+    UIA_HWND native=nullptr; check_hresult(node->get_CurrentNativeWindowHandle(&native));
+    if (native && GetAncestor(reinterpret_cast<HWND>(native),GA_ROOT)!=window.hwnd) return;
     auto rect = element_bounds(node.get());
     auto id = identifier();
     bool secret = protected_element(node.get());
@@ -167,6 +204,7 @@ Json Desktop::observe(const Json& params, Window& window) {
       auto accessibility=secret ? AccessibilityState{} : accessibility_state(node.get());
       elements.emplace(id, Element{node, rect, value, accessibility});
       Json entry; entry.Insert(L"elementId", string_value(id));
+      entry.Insert(L"windowId",string_value(observed_window));
       entry.Insert(L"parentId", parent.empty() ? JsonValue::CreateNullValue() : string_value(parent));
       entry.Insert(L"name", string_value(label)); entry.Insert(L"controlType", numeric(control));
       entry.Insert(L"bounds", rect_json(rect)); entry.Insert(L"enabled", boolean(enabled)); entry.Insert(L"protected", boolean(secret));
@@ -195,6 +233,8 @@ Json Desktop::observe(const Json& params, Window& window) {
   require(observed_bounds == window_bounds(window.hwnd),
     "stale-observation", "Window changed while observing; observe again");
   Json result; result.Insert(L"windowId", string_value(observed_window)); result.Insert(L"observationId", string_value(observation_id));
+  auto blocked=window_id(blocking_window(window.hwnd));
+  result.Insert(L"blockingWindowId",blocked.empty() ? JsonValue::CreateNullValue() : string_value(blocked));
   result.Insert(L"bounds", rect_json(observed_bounds)); result.Insert(L"elements", output);
   result.Insert(L"focusedElementId", focused_id.empty() ? JsonValue::CreateNullValue() : string_value(focused_id));
   result.Insert(L"truncated", boolean(truncated)); return result;
@@ -220,6 +260,7 @@ Element& Desktop::element(const Json& params, Window& window, bool needs_focus) 
   auto found = elements.find(text(params, L"elementId"));
   require(found != elements.end(), "stale-element", "Element reference is not in the current observation");
   auto& element = found->second;
+  require(belongs_to_window(element.node.get(),window),"stale-element","Control no longer belongs to this window; observe its actual dialog");
   require(element.bounds == element_bounds(element.node.get()), "stale-element", "Element moved; observe again");
   BOOL enabled = FALSE; check_hresult(element.node->get_CurrentIsEnabled(&enabled));
   require(enabled && !protected_element(element.node.get()), "protected-element", "Element disabled or protected");
@@ -311,8 +352,20 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   else if (method == L"drag") fields(params, {L"windowId", L"captureId", L"from", L"to", L"durationMs"});
   else if (method == L"clipboard") fields(params, {L"windowId", L"action", L"text"});
   else throw Error("unsupported", "Unknown Computer Use operation");
+  // Refresh only when an owned dialog blocks this target; ordinary actions do
+  // not pay for a full desktop enumeration. Reacquire references after refresh.
+  auto known=windows.find(text(params,L"windowId"));
+  if (known!=windows.end() && blocking_window(known->second.hwnd)) list_windows();
   auto& window = target(params,method==L"restore");
   wait_for_access(window.hwnd,false);
+  if (!IsWindowEnabled(window.hwnd) && method!=L"observe" && method!=L"screenshot") {
+    auto blocked=window_id(blocking_window(window.hwnd));
+    require(!blocked.empty(),"target-disabled","Target is disabled; list windows to find its dialog. No input was delivered");
+    Json result; result.Insert(L"status",string_value(L"target_blocked"));
+    result.Insert(L"windowId",params.GetNamedValue(L"windowId")); result.Insert(L"blockingWindowId",string_value(blocked));
+    result.Insert(L"delivered",boolean(false)); result.Insert(L"effect",string_value(L"none"));
+    result.Insert(L"verificationRequired",boolean(true)); return result;
+  }
   if (method == L"restore") {
     if (IsIconic(window.hwnd)) {
       input_may_have_run=true;

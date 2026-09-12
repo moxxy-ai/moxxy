@@ -41,7 +41,7 @@ let fixture;
 let directory;
 try {
   const result = await status.handler({}, context);
-  assert.equal(result.protocolVersion, 2);
+  assert.equal(result.protocolVersion, 3);
   assert.equal(result.architecture, 'x64');
   assert.equal(result.platform, 'win32');
   console.log('Installed Computer Use extension and native helper handshake passed');
