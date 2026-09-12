@@ -329,7 +329,7 @@ try {
       @{name='511 units';text=('A'*511);expected=('A'*511)},
       @{name='512 units';text=('A'*512);expected=('A'*512)},
       @{name='513 units';text=(('A'*512)+'B');expected=('A'*512)},
-      @{name='4096 units';text=('A'*4096);expected=('A'*512)},
+      @{name='4000 units';text=('A'*4000);expected=('A'*512)},
       @{name='emoji crossing cutoff';text=(('A'*511)+$emoji+'B');expected=('A'*511)},
       @{name='emoji ending at cutoff';text=(('A'*510)+$emoji+'B');expected=(('A'*510)+$emoji)}
     )
@@ -344,6 +344,15 @@ try {
         Check ((Fixture-State).text -ceq $case.text) 'Observation changed the real control text'
         Check ((Call 'status' @{}).ready) 'Helper did not survive bounded text observation'
       }
+    }
+    Test 'oversized text input remains rejected without changing the control' {
+      $before=Observe
+      $original=(Fixture-State).text
+      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
+      $denied=Request $script:helper 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=('A'*4001)}
+      Check (-not $denied.ok -and $denied.error.code -eq 'invalid-input') 'Oversized input was not rejected'
+      Check ((Fixture-State).text -ceq $original) 'Oversized input changed the control'
+      Check ((Call 'status' @{}).ready) 'Input rejection terminated the helper'
     }
     Test 'protected control has no value/name disclosure' {
       $observation=Observe

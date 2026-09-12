@@ -171,8 +171,9 @@ retry physical input to mask this failure.
 
 Native `json-string-*` tests exercise the real Windows Runtime, including slices,
 Unicode, embedded nulls and result lifetime. The portable/installed fixture suite
-checks 511, 512, 513 and 4096 code units plus emoji crossing/ending at the cutoff;
-it verifies both the bounded response and the unchanged full control value.
+checks 511, 512, 513 and 4000 code units plus emoji crossing/ending at the cutoff;
+it verifies both the bounded response and the unchanged full control value,
+and rejection of input exceeding the existing 4000-unit limit without mutation.
 The [test-only red run](https://github.com/moxxy-ai/moxxy/actions/runs/34703987275)
 failed five slice cases with the original `0xC0000409` before the fix.
 
