@@ -32,7 +32,9 @@ export class HelperTransport {
     this.child.stdin.on('error', () => this.fail(new Error('Computer Use pipe closed; action not retried.')));
     this.child.on('close', (code) => {
       if (code === 20) this.userStopped = true;
-      this.fail(new Error(`Computer Use helper exited (${code}); action not retried.`));
+      this.fail(new Error(this.userStopped
+        ? 'Computer Use stopped by user; action not retried.'
+        : `Computer Use helper exited (${code}); action not retried.`));
     });
     this.child.stdout.on('data', (bytes: Buffer) => {
       try {

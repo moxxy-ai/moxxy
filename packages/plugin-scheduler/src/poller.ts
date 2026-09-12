@@ -21,7 +21,8 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  * the UI's next-fire contradicts when the poller actually fires.
  */
 export function cronBaseline(entry: ScheduleEntry): number {
-  return entry.lastRunAt ?? entry.createdAt;
+  const baseline = entry.lastRunAt ?? entry.createdAt;
+  return entry.timingChangedAt === undefined ? baseline : Math.max(baseline, entry.timingChangedAt);
 }
 
 /**

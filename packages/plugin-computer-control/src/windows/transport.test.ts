@@ -7,6 +7,14 @@ const peer = `process.stdin.once('data', bytes => {
   process.stdout.write(JSON.stringify({version:2,id:request.id,ok:true,result:{received:request.method}})+'\\n');
 });`;
 describe('native helper transport', () => {
+  it('reports the native panel Stop exit as cancellation, not a helper crash', async () => {
+    const transport = new HelperTransport(process.execPath, ['-e', "process.stdin.once('data', () => process.exit(20))"]);
+    try {
+      await expect(transport.request('click', {}, new AbortController().signal)).rejects.toThrow('Computer Use stopped by user');
+      expect(transport.stoppedByUser).toBe(true);
+      await expect(transport.request('click', {}, new AbortController().signal)).rejects.toThrow(/closed/);
+    } finally { await transport.close(); }
+  });
   it('excludes explicit focus waiting from the active request timeout', async () => {
     const states: string[] = [];
     const transport = new HelperTransport(process.execPath, ['-e', `process.stdin.once('data', bytes => {
