@@ -26,7 +26,7 @@ void approval_focus_changed(HWND window) {
   approval_state.changed(reinterpret_cast<uintptr_t>(window),pid);
 }
 
-bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params) {
+bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params, std::string_view& reason) {
   check_active_desktop();
   auto foreground=GetForegroundWindow();
   DWORD pid=0; GetWindowThreadProcessId(foreground,&pid);
@@ -40,6 +40,7 @@ bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params)
     approval_window=window; approval_bounds=window_bounds(window);
     approval_generation=window_generation(window); approval_call=call; approval_host=host;
     approval_state.begin(reinterpret_cast<uintptr_t>(window),host,reinterpret_cast<uintptr_t>(foreground));
+    reason=approval_state.reason();
     return false;
   }
   require(stage==L"finish" && call==approval_call && window==approval_window && host==approval_host,
@@ -48,16 +49,27 @@ bool approval_focus(HWND window, IUIAutomationElement* root, const Json& params)
     window_generation(window)==approval_generation && window_bounds(window)==approval_bounds &&
     !guard_paused() && !guard_stopped_by_user();
   const bool restore=approval_state.finish(reinterpret_cast<uintptr_t>(foreground),pid,approved,unchanged);
+  reason=approval_state.reason();
   approval_call.clear();
   lock.unlock();
   if (!restore) return false;
-  if (GetForegroundWindow()!=foreground) return false;
+  if (GetForegroundWindow()!=foreground) { reason="foreground-changed-during-return"; return false; }
   // Only this verified, one-use approval may return focus. Never inject Alt or
   // attach input queues; the latter resets keys physically held by the user.
-  if (foreground==window) return true;
+  if (foreground==window) { reason="already-returned"; return true; }
   SetForegroundWindow(window);
-  if (GetForegroundWindow()==foreground && root) root->SetFocus();
-  return GetForegroundWindow()==window;
+  if ((GetForegroundWindow()==foreground || GetForegroundWindow()==window) && root) root->SetFocus();
+  // Cross-thread activation can complete after SetFocus returns. Wait only
+  // for that one request; never repeat activation or input while waiting.
+  const auto until=GetTickCount64()+500;
+  do {
+    check_active_desktop();
+    auto current=GetForegroundWindow();
+    if (current==window) { reason="restored"; return true; }
+    if (current && current!=foreground) { reason="foreground-changed-during-return"; return false; }
+    require(WaitForSingleObject(stop_event,25)==WAIT_TIMEOUT,"cancelled","Approval return cancelled");
+  } while (GetTickCount64()<until);
+  reason="activation-not-confirmed"; return false;
 }
 
 HWND blocking_window(HWND window) {

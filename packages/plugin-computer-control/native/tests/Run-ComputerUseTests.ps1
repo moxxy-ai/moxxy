@@ -247,11 +247,12 @@ try {
         $approvedSnapshot=Observe
         $beforeText=(Fixture-State).text
         $approval=@{windowId=$script:windowId;callId=[guid]::NewGuid().ToString();hostPid=$approvalHost.Id}
-        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
+        $prepared=Call 'approval_focus' ($approval+@{stage='begin';approved=$false})
+        Check ($prepared.reason -eq 'prepared') ('Approval setup rejected: '+($prepared | ConvertTo-Json -Compress))
         Focus-TestFixture $approvalHost
         Start-Sleep -Milliseconds 250
         $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
-        Check ($restored.restored -and (Fixture-State).foreground) 'Approval-only return did not reach the original window'
+        Check ($restored.restored -and (Fixture-State).foreground) ('Approval-only return did not reach the original window: '+($restored | ConvertTo-Json -Compress))
         Call 'key' @{windowId=$script:windowId;observationId=$approvedSnapshot.observationId;key='a';modifiers=@()} | Out-Null
         Check ((Fixture-State).text.Length -eq $beforeText.Length+1) 'The approved key did not execute exactly once after focus restoration'
         $canvasSnapshot=Observe

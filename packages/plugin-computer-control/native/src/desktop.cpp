@@ -390,10 +390,12 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     } else if (approval_control && unchanged_control(*approval_control,window)) {
       focus_target=approval_control->node;
     }
-    const bool restored=approval_focus(window.hwnd,focus_target.get(),params);
+    std::string_view reason;
+    const bool restored=approval_focus(window.hwnd,focus_target.get(),params,reason);
     if (!begin) approval_control.reset();
     if (restored) revalidate_approved_target(window);
     Json result; result.Insert(L"restored",boolean(restored));
+    result.Insert(L"reason",string_value(to_hstring(reason)));
     return result;
   }
   if (method == L"focus" || method == L"restore") fields(params, {L"windowId"});
