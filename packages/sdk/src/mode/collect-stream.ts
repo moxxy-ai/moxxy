@@ -2,6 +2,8 @@ import type { ProviderEvent, ProviderMessage, TokenUsage } from '../provider.js'
 import type { ModeContext } from '../mode.js';
 import type { StopReason } from '../provider-utils.js';
 import { applyLazyTools } from '../tool-gating.js';
+import type { ProviderCallTiming } from '../events.js';
+import { providerTiming } from './provider-timing.js';
 
 /**
  * Shared bits used by every loop strategy: a typed tool-use struct and a
@@ -38,6 +40,7 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 }
 
 export interface StreamResult {
+  readonly timing?: ProviderCallTiming;
   readonly text: string;
   readonly toolUses: ReadonlyArray<CollectedToolUse>;
   readonly stopReason: StopReason;
@@ -67,6 +70,7 @@ export async function collectProviderStream(
   ctx: ModeContext,
   messages: ReadonlyArray<ProviderMessage>,
   opts: {
+    projectionMs?: number;
     iteration?: number;
     includeTools?: boolean;
     maxTokens?: number;
@@ -89,6 +93,7 @@ export async function collectProviderStream(
     volatileTailCount?: number;
   } = {},
 ): Promise<StreamResult> {
+  const start=performance.now();
   const descriptor = ctx.provider.models.find((model) => model.id === ctx.model);
 
   // Tool schemas are useful only when both the caller requests them and the
@@ -148,6 +153,7 @@ export async function collectProviderStream(
     ...(reqReasoning ? { reasoning: reqReasoning } : {}),
     signal: ctx.signal,
   };
+  const prepared=performance.now();
   const transformed = await ctx.hooks.dispatchBeforeProviderCall(req, {
     sessionId: ctx.sessionId,
     // Thread the session's real cwd/env (mirrored on ModeContext) so path-based
@@ -160,6 +166,10 @@ export async function collectProviderStream(
     turnId: ctx.turnId,
     iteration: opts.iteration ?? 0,
   });
+  const hooked=performance.now();
+  let firstEvent:number|null=null;
+  let consumerMs=0;
+  const timing=() => providerTiming({start,prepared,hooked,end:performance.now(),firstEvent,consumerMs,projectionMs:opts.projectionMs ?? 0});
 
   let text = '';
   const toolUses = new Map<string, { name?: string; input?: unknown }>();
@@ -180,6 +190,7 @@ export async function collectProviderStream(
     stream = ctx.provider.stream(transformed);
   } catch (err) {
     return {
+      timing:timing(),
       text: '',
       toolUses: [],
       stopReason: 'error',
@@ -189,6 +200,9 @@ export async function collectProviderStream(
 
   try {
     for await (const event of stream) {
+      const processingStarted=performance.now();
+      if (firstEvent===null) firstEvent=processingStarted;
+      try {
       switch (event.type) {
         case 'text_delta': {
           text += event.delta;
@@ -247,6 +261,7 @@ export async function collectProviderStream(
         default:
           break;
       }
+      } finally { consumerMs+=performance.now()-processingStarted; }
     }
   } catch (err) {
     // A stream-level `error` event is the more authoritative classification —
@@ -259,6 +274,8 @@ export async function collectProviderStream(
       };
     }
   }
+
+  const measuredTiming=timing();
 
   const finalToolUses: CollectedToolUse[] = [];
   for (const [id, partial] of toolUses) {
@@ -277,6 +294,7 @@ export async function collectProviderStream(
         }
       : undefined;
   return {
+    timing:measuredTiming,
     text,
     toolUses: finalToolUses,
     stopReason,

@@ -35,6 +35,7 @@ export type {
   ElisionEvent,
   ProviderRequestEvent,
   ProviderResponseEvent,
+  ProviderCallTiming,
   ErrorEvent,
   AbortEvent,
   PluginEvent,
