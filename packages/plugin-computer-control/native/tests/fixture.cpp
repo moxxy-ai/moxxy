@@ -42,7 +42,7 @@ void open_editor(HWND owner, bool nested) {
   source.dialog.x=120; source.dialog.y=120; source.dialog.cx=220; source.dialog.cy=85;
   DialogBoxIndirectParamW(GetModuleHandleW(nullptr),&source.dialog,owner,editor_proc,nested ? 1 : 0);
 }
-int focus_test_window(DWORD pid) {
+int focus_test_window(DWORD pid, bool activate=true) {
   try {
     struct Target { DWORD pid; HWND hwnd=nullptr; int count=0; } target{pid};
     EnumWindows([](HWND hwnd, LPARAM data) -> BOOL {
@@ -55,12 +55,24 @@ int focus_test_window(DWORD pid) {
       return TRUE;
     },reinterpret_cast<LPARAM>(&target));
     if (target.count!=1) return 2;
-    init_apartment(apartment_type::multi_threaded);
-    com_ptr<IUIAutomation> automation;
-    check_hresult(CoCreateInstance(CLSID_CUIAutomation,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(automation.put())));
-    com_ptr<IUIAutomationElement> element;
-    check_hresult(automation->ElementFromHandle(target.hwnd,element.put()));
-    check_hresult(element->SetFocus());
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    if (!activate && GetForegroundWindow()!=target.hwnd) return 3;
+    // This actor represents the HUMAN changing windows, not a backend action.
+    // Raise only our identified fixture without activation, then really click
+    // its title bar so Windows emits the normal foreground-input transition.
+    if (activate && !SetWindowPos(target.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)) return 3;
+    RECT bounds{}; POINT client{};
+    if (!GetWindowRect(target.hwnd,&bounds) || !ClientToScreen(target.hwnd,&client)) return 3;
+    POINT point{(bounds.left+bounds.right)/2,(bounds.top+client.y)/2};
+    if (GetAncestor(WindowFromPoint(point),GA_ROOT)!=target.hwnd) return 3;
+    if (!SetCursorPos(point.x,point.y)) return 3;
+    if (activate) {
+      if (GetAsyncKeyState(VK_LBUTTON)&0x8000) return 3;
+      INPUT input[2]{}; input[0].type=INPUT_MOUSE; input[0].mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
+      input[1].type=INPUT_MOUSE; input[1].mi.dwFlags=MOUSEEVENTF_LEFTUP;
+      auto sent=SendInput(2,input,sizeof(INPUT));
+      if (sent!=2) { if (sent==1) SendInput(1,&input[1],sizeof(INPUT)); return 3; }
+    }
     for (int i=0;i<20 && GetForegroundWindow()!=target.hwnd;++i) Sleep(25);
     return GetForegroundWindow()==target.hwnd ? 0 : 3;
   } catch (...) { return 4; }
@@ -250,10 +262,11 @@ HWND create_fixture_window() {
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   int argc = 0;
   auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  if (argv && argc==3 && std::wstring_view(argv[1])==L"--focus-test-window") {
+  if (argv && argc==3 && (std::wstring_view(argv[1])==L"--focus-test-window" || std::wstring_view(argv[1])==L"--move-test-pointer")) {
+    const bool activate=std::wstring_view(argv[1])==L"--focus-test-window";
     wchar_t* end=nullptr; auto pid=wcstoul(argv[2],&end,10);
     if (!pid || !end || *end) { LocalFree(argv); return 2; }
-    LocalFree(argv); return focus_test_window(pid);
+    LocalFree(argv); return focus_test_window(pid,activate);
   }
   if (argv && argc==3 && std::wstring_view(argv[1])==L"--panel-test") { LocalFree(argv); return 2; }
   if (argv && argc==4 && std::wstring_view(argv[1])==L"--panel-test") {

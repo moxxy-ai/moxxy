@@ -286,6 +286,18 @@ try {
         Focus-TestFixture $fixture
       }
     }
+    Test 'window capture does not include a moving human pointer' {
+      $snapshot=Observe
+      $canvas=@($snapshot.elements | Where-Object name -eq 'Canvas')[0]
+      Call 'click' @{windowId=$script:windowId;observationId=$snapshot.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
+      $before=Screenshot
+      $actor=Start-Process -FilePath $FixturePath -ArgumentList '--move-test-pointer',([string]$fixture.Id) -PassThru
+      try {
+        Check ($actor.WaitForExit(5000) -and $actor.ExitCode -eq 0) 'Human pointer actor failed'
+        $after=Screenshot
+        Check ($before.base64 -eq $after.base64) 'Moving the pointer changed the captured window pixels'
+      } finally { if (-not $actor.HasExited) { $actor.Kill(); $actor.WaitForExit(3000) | Out-Null } }
+    }
     Test 'window-local crop retains source geometry' {
       $full=Screenshot
       $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
