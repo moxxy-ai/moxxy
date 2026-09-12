@@ -44,7 +44,7 @@ function Request($peer, $method, $parameters, $version = 2) {
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
   do {
     $read = $peer.StandardOutput.ReadLineAsync()
-    if (-not $read.Wait(15000)) { throw 'Helper response timeout (operation not retried)' }
+    if (-not $read.Wait(15000)) { throw "Helper response timeout for $method (operation not retried)" }
     if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
     $response = $read.Result | ConvertFrom-Json
     if ($response.id -ne $id -or $response.version -ne 2) { throw 'Invalid protocol response' }
@@ -583,17 +583,21 @@ try {
         $process=Get-Process -Id $window.pid
         try {
           Check ($process.ProcessName -eq 'notepad') 'Catalog launched the wrong application'
+          Write-Host 'Real Notepad: observe newly opened editor'
           $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
           $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
           Check ($null -ne $field) 'Notepad editor was not discovered'
+          Write-Host 'Real Notepad: focus editor window'
           Call 'focus' @{windowId=$window.windowId} | Out-Null
           $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
           $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
+          Write-Host 'Real Notepad: click editor control'
           Call 'click' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;button='left';count=1} | Out-Null
           $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
           $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
           Check ($null -ne $field) 'Notepad editor focus could not be observed'
           $expected='Za'+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+' g'+[char]0x119+[char]0x15B+'l'+[char]0x105+' ja'+[char]0x17A+[char]0x144+".`nTo jest test Moxxy na Windowsie.`nTrzecia linia: "+[char]0x2705
+          Write-Host 'Real Notepad: type three lines'
           Call 'type' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;text=$expected} | Out-Null
           $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
           $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
