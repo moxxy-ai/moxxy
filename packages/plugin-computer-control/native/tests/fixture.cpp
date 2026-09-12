@@ -72,17 +72,20 @@ int focus_test_window(DWORD pid, bool activate=true) {
     }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     if (!activate && GetForegroundWindow()!=target.hwnd) return 3;
-    // This actor represents the HUMAN changing windows, not a backend action.
-    // Reveal only our identified fixture and really click its title bar; UIA
-    // alone must not stand in for the user's input in the approval scenario.
+    // This actor represents a HUMAN click, not UIA activation. SetFocus can
+    // change the foreground without the WinEvent used by the approval monitor.
+    // Reveal only our fixture without activating it, then click its title bar.
+    struct Reveal {
+      HWND window=nullptr;
+      ~Reveal() {
+        if (window) SetWindowPos(window,HWND_NOTOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+      }
+    } reveal;
     if (activate) {
-      init_apartment(apartment_type::multi_threaded);
-      com_ptr<IUIAutomation> automation;
-      check_hresult(CoCreateInstance(CLSID_CUIAutomation,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(automation.put())));
-      com_ptr<IUIAutomationElement> element;
-      check_hresult(automation->ElementFromHandle(target.hwnd,element.put()));
-      check_hresult(element->SetFocus());
-      if (!SetWindowPos(target.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)) return 3;
+      if (!(GetWindowLongPtrW(target.hwnd,GWL_EXSTYLE)&WS_EX_TOPMOST)) {
+        if (!SetWindowPos(target.hwnd,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)) return 3;
+        reveal.window=target.hwnd;
+      }
     }
     RECT bounds{}; POINT client{};
     if (!GetWindowRect(target.hwnd,&bounds) || !ClientToScreen(target.hwnd,&client)) return 3;
