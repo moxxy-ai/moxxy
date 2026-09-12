@@ -258,7 +258,10 @@ try {
         $canvas=@($canvasSnapshot.elements | Where-Object name -eq 'Canvas')[0]
         Call 'click' @{windowId=$script:windowId;observationId=$canvasSnapshot.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
         $approvedCapture=Screenshot
-        $point=Canvas-Point $approvedCapture
+        # Do not perform an extra Observe here: image-only clients must also
+        # survive the approval round-trip without a hidden accessibility read.
+        $point=@{x=[math]::Floor(($canvas.bounds.x+60-$approvedCapture.source.x)*$approvedCapture.width/$approvedCapture.source.width);
+          y=[math]::Floor(($canvas.bounds.y+60-$approvedCapture.source.y)*$approvedCapture.height/$approvedCapture.source.height)}
         $beforeClicks=(Fixture-State).left
         $approval.callId=[guid]::NewGuid().ToString()
         Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
