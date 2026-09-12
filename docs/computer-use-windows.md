@@ -154,6 +154,34 @@ establishes the competing fixture's real focus through UIA rather than assuming
 process launch activates it. Paint with a real model and Windows 10/11 acceptance
 remain unverified. Existing dependency-security advisories remain unresolved.
 
+## Long-text observation crash regression
+
+On 2026-09-12, a direct helper probe on the user's Windows 10 x64 machine
+reproduced `0xC0000409` while observing Chrome 152's downloads page. The same
+helper could observe the Apollo page (41 elements). An unsaved Notepad document
+isolated the boundary: 512 ASCII characters succeeded; appending one character
+caused the same crash. These were direct backend tests, not successful agent tasks.
+
+The minidump reported fail-fast subcode 7. Observation truncates each control
+value to 512 UTF-16 code units; passing that substring directly to WinRT's
+`param::hstring` requires a terminator that the slice does not have. The shared
+JSON conversion must materialize an owning `winrt::hstring` first. Keep the
+existing size bound and surrogate-pair handling; do not remove truncation or
+retry physical input to mask this failure.
+
+Native `json-string-*` tests exercise the real Windows Runtime, including slices,
+Unicode, embedded nulls and result lifetime. The portable/installed fixture suite
+checks 511, 512, 513 and 4096 code units plus emoji crossing/ending at the cutoff;
+it verifies both the bounded response and the unchanged full control value.
+The [test-only red run](https://github.com/moxxy-ai/moxxy/actions/runs/34703987275)
+failed five slice cases with the original `0xC0000409` before the fix.
+
+After installing a repaired build, repeat Chrome downloads observation, a new
+tab/YouTube task, long-text Notepad and Paint through Moxxy itself. When observing
+via Moonlight, use windowed/direct mouse mode, read a fresh screenshot after
+actions, and do not operate the shared input while Moxxy is executing a task.
+Remote operator actions are setup/diagnostics, not proof of Moxxy's agent quality.
+
 ## Reference boundary
 
 The locally installed `@oai/cua` 0.2.4 / `@oai/sky` 0.6.26 clients were inspected

@@ -47,7 +47,10 @@ inline int number(const Json& object, std::wstring_view key, int minimum, int ma
     "invalid-input", "Number outside supported range");
   return static_cast<int>(value);
 }
-inline auto string_value(std::wstring_view value) { return JsonValue::CreateStringValue(value); }
+inline auto string_value(std::wstring_view value) {
+  // param::hstring aborts on unterminated slices; an owning hstring copies the exact range.
+  return JsonValue::CreateStringValue(winrt::hstring(value));
+}
 inline auto numeric(int value) { return JsonValue::CreateNumberValue(value); }
 inline auto boolean(bool value) { return JsonValue::CreateBooleanValue(value); }
 inline Json rect_json(Rect r) {
