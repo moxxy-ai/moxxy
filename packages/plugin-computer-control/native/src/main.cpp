@@ -103,6 +103,8 @@ int main(int argc, char** argv) {
     }).detach();
     Handle hooks_ready(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     std::thread([&] {
+      const auto apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+      if (FAILED(apartment)) { SetEvent(stop.value); return; }
       WNDCLASSW klass{}; klass.lpfnWndProc=indicator_proc; klass.hInstance=GetModuleHandleW(nullptr);
       klass.lpszClassName=L"MoxxyComputerControlIndicator"; RegisterClassW(&klass);
       // Clipboard ownership and focus hooks stay in the worker; visible controls
@@ -124,6 +126,7 @@ int main(int argc, char** argv) {
       focus_monitor_alive=false;
       UnhookWinEvent(hook);
       UnhookWinEvent(destroy_hook);
+      CoUninitialize();
     }).detach();
     require(WaitForSingleObject(hooks_ready.value, 2000) == WAIT_OBJECT_0, "native-error", "Focus monitor unavailable");
     start_input_guard(parent.value,stop.value);
