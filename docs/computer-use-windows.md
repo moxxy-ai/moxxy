@@ -35,10 +35,16 @@ system-command backend with the same arguments.
   and Stop buttons. Optional Ctrl+Alt+F11/F10/F12 equivalents register while it is
   visible, when those shortcuts are available. Normal turn cancellation also
   closes the helper. A failed/stopped connection cannot retry input in that turn.
-- Native protocol v2 reports local focus waiting. Active request deadlines pause
+- Native protocol v3 reports local focus waiting and owned dialogs. Active request deadlines pause
   during explicit waiting, but cancellation remains live. Target focus resumes
   focus-waiting; explicit Pause requires Resume. Resuming returns
   `needs_observation`, with `effect: none | possible`, never replayed input.
+- Window inventory reports `ownerWindowId` and `blockingWindowId`. A disabled
+  parent's observation excludes owned-dialog controls. Every element carries its
+  actual `windowId`; observe the dialog separately before using its controls.
+  An action against a disabled parent returns `target_blocked` and the dialog ID
+  without delivering input or waiting for impossible parent focus. Nested dialogs
+  follow the same contract. Closing a dialog invalidates its references.
 - Background `computer_set_value` currently supports verified standard EDIT
   controls through targeted messages. Generic UIA SetValue is **not** assumed
   focus-neutral. Changed values or editability invalidate stored element targets.
@@ -182,6 +188,29 @@ tab/YouTube task, long-text Notepad and Paint through Moxxy itself. When observi
 via Moonlight, use windowed/direct mouse mode, read a fresh screenshot after
 actions, and do not operate the shared input while Moxxy is executing a task.
 Remote operator actions are setup/diagnostics, not proof of Moxxy's agent quality.
+
+## Post-test diagnostics
+
+The owned/nested-dialog fixture failed on the previous contract in
+[the red run](https://github.com/moxxy-ai/moxxy/actions/runs/34714839333) and passed
+after the generic ownership fix in
+[the native verification run](https://github.com/moxxy-ai/moxxy/actions/runs/34715169809).
+This is real Windows Server desktop coverage, not a Windows 10 Paint benchmark.
+
+Desktop startup reports a stalled stage after 30 seconds without stage changes;
+where a connection snapshot exists, its technical details remain available.
+This does not automatically stop work, declare a restart required, or establish
+the cause of a previous startup hang.
+
+Shared ReAct `provider_response` events optionally include `timing` with
+`contextProjectionMs`, `preparationMs`, `hooksMs`, `firstEventMs`,
+`providerWaitMs`, `consumerMs`, and `totalMs`. Waiting includes provider adapter,
+network and remote work, **not just model compute**. Consumer time covers local
+stream-event handling. First event is not necessarily first text. Total sums
+measured stages and excludes tools, approvals, focus waiting, compaction and the
+request-event write. Cancellation before the response event may lack this record.
+Old events remain valid; replay and provider requests are unchanged. Use the
+same model and repeated trials to compare performance, not this metric alone.
 
 ## Reference boundary
 

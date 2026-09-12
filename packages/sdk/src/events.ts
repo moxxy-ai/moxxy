@@ -284,6 +284,21 @@ export interface ProviderResponseEvent extends EventBase {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
+  readonly timing?: ProviderCallTiming;
+}
+
+/** Local monotonic measurements, not a claim about server-side model compute. */
+export interface ProviderCallTiming {
+  readonly contextProjectionMs: number;
+  readonly preparationMs: number;
+  readonly hooksMs: number;
+  readonly firstEventMs: number | null;
+  /** Iterator waiting includes the provider adapter, network and remote work. */
+  readonly providerWaitMs: number;
+  /** Local processing of stream events, including event-log subscribers. */
+  readonly consumerMs: number;
+  /** Sum of measured stages; excludes tools, permissions and focus waits. */
+  readonly totalMs: number;
 }
 
 export interface ErrorEvent extends EventBase {
