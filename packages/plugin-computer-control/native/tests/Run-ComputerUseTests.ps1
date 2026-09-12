@@ -11,7 +11,7 @@ if (-not $NonInteractive) {
   Write-Host 'Test controls ONLY its own windows. Do not use the mouse or keyboard during the test.'
   Write-Host 'Use Stop Computer Use to stop. No data is uploaded.'
   if ($TestClipboard) { Write-Host 'Clipboard test is enabled: non-text clipboard contents may be replaced.' }
-  if ($TestInstalledApps) { Write-Host 'Installed-app test is enabled: a NEW Notepad window will be opened and closed without editing files.' }
+  if ($TestInstalledApps) { Write-Host 'Installed-app test is enabled: a NEW Notepad window will receive test text and close without saving files.' }
   if ((Read-Host 'Type START to continue') -cne 'START') { return }
 }
 New-Item -ItemType Directory -Path $ReportDirectory -Force | Out-Null
@@ -331,6 +331,15 @@ try {
       Check ((Fixture-State).saves -eq $savesBefore+1) 'Button did not receive exactly one click'
       Check (-not (Request $script:helper 'click' $input).ok) 'Stale element accepted'
     }
+    Test 'invented observation IDs are diagnosed without a focus-repair loop' {
+      $observation=Observe
+      foreach ($fake in @('unused','x','fresh')) {
+        $invalid=Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=120;root=@{observationId=$fake;elementId='root'}}
+        Check (-not $invalid.ok -and $invalid.error.code -eq 'unknown-observation') 'Invented reference was mistaken for a focus/geometry change'
+        Check ($invalid.error.message.Contains('omit root')) 'Recovery did not explain how to get the first observation'
+      }
+      Check ((Observe).elements.Count -gt 0) 'Cannot recover with an unscoped observation'
+    }
     Test 'SendInput typing and Ctrl+A affect the named focused control' {
       $observation=Observe
       $field=@($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
@@ -574,10 +583,29 @@ try {
         $process=Get-Process -Id $window.pid
         try {
           Check ($process.ProcessName -eq 'notepad') 'Catalog launched the wrong application'
-          Check ((Call 'observe' @{windowId=$window.windowId;maxNodes=64}).elements.Count -gt 0) 'Opened application cannot be observed'
+          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
+          $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
+          Check ($null -ne $field) 'Notepad editor was not discovered'
+          Call 'focus' @{windowId=$window.windowId} | Out-Null
+          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
+          $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
+          Call 'click' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;button='left';count=1} | Out-Null
+          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
+          $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
+          Check ($null -ne $field) 'Notepad editor focus could not be observed'
+          $expected='Za'+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+' g'+[char]0x119+[char]0x15B+'l'+[char]0x105+' ja'+[char]0x17A+[char]0x144+".`nTo jest test Moxxy na Windowsie.`nTrzecia linia: "+[char]0x2705
+          Call 'type' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;text=$expected} | Out-Null
+          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
+          $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
+          $read=Call 'read_text' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;maxChars=4000}
+          Check ($read.text.Replace("`r",'') -ceq $expected) ('Real Notepad text mismatch: '+($read.text|ConvertTo-Json -Compress))
           $invalid=Request $script:helper 'open' @{appId='notepad.exe & echo unexpected';instance='new';timeoutMs=500}
           Check (-not $invalid.ok -and $invalid.error.code -eq 'unknown-app') 'Unresolved command text was accepted'
-        } finally { $process.CloseMainWindow() | Out-Null; $process.WaitForExit(3000) | Out-Null; $process.Dispose() }
+        } finally {
+          # This verified new test process owns only our unsaved document.
+          if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit(3000) | Out-Null }
+          $process.Dispose()
+        }
       }
     } else { Record 'installed application launch' 'not-tested' 'Explicitly opt in with -TestInstalledApps; opens a new Notepad window.' }
     $exitCode=0
