@@ -85,6 +85,15 @@ function Fixture-State {
   Start-Sleep -Milliseconds 200
   return Get-Content -LiteralPath $script:statePath -Raw -Encoding UTF8 | ConvertFrom-Json
 }
+function Focus-TestFixture($process) {
+  # Simulate the user's window switch with real UIA, outside the backend under
+  # test. Process launch alone is not a foreground guarantee after SendInput.
+  $actor=Start-Process -FilePath $FixturePath -ArgumentList '--focus-test-window',([string]$process.Id) -PassThru
+  try {
+    if (-not $actor.WaitForExit(5000)) { $actor.Kill(); $actor.WaitForExit(); throw 'Test focus actor timed out' }
+    Check ($actor.ExitCode -eq 0) 'Test fixture could not acquire real foreground focus'
+  } finally { $actor.Dispose() }
+}
 function Test($name, [scriptblock]$work) {
   try { & $work; Record $name 'passed' } catch { Record $name 'failed' $_.Exception.Message }
 }
@@ -196,6 +205,7 @@ try {
       $fixtures.Add($other)
       try {
         Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
+        Focus-TestFixture $other
         Start-Sleep -Milliseconds 250
         Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
         Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='background updated'} | Out-Null
@@ -250,6 +260,7 @@ try {
       $fixtures.Add($other)
       try {
         Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
+        Focus-TestFixture $other
         Start-Sleep -Milliseconds 250
         Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
         $id=[guid]::NewGuid().ToString()
@@ -285,8 +296,7 @@ try {
       $stale=Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=32;root=@{observationId=$observation.observationId;elementId=$button.elementId}}
       Check (-not $stale.ok) 'Subtree accepted stale element reference'
     }
-    # Physical-input tests follow the initial foreground-launch preconditions.
-    # SendInput makes the helper, not the PowerShell launcher, the last input owner.
+    # Physical input uses a separate path from semantic background operations.
     Test 'window-targeted typing reaches a non-text canvas but refuses protected focus' {
       $observation=Observe
       $canvas=@($observation.elements | Where-Object name -eq 'Canvas')[0]

@@ -17,6 +17,29 @@ std::wstring canvas_text;
 std::string panel_failure;
 POINT drag_start{};
 HWND create_fixture_window();
+int focus_test_window(DWORD pid) {
+  try {
+    struct Target { DWORD pid; HWND hwnd=nullptr; int count=0; } target{pid};
+    EnumWindows([](HWND hwnd, LPARAM data) -> BOOL {
+      auto& target=*reinterpret_cast<Target*>(data);
+      DWORD owner=0; GetWindowThreadProcessId(hwnd,&owner);
+      wchar_t name[128]{}; GetClassNameW(hwnd,name,128);
+      if (owner==target.pid && IsWindowVisible(hwnd) && std::wstring_view(name)==L"MoxxyComputerFixture") {
+        target.hwnd=hwnd; ++target.count;
+      }
+      return TRUE;
+    },reinterpret_cast<LPARAM>(&target));
+    if (target.count!=1) return 2;
+    init_apartment(apartment_type::multi_threaded);
+    com_ptr<IUIAutomation> automation;
+    check_hresult(CoCreateInstance(CLSID_CUIAutomation,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(automation.put())));
+    com_ptr<IUIAutomationElement> element;
+    check_hresult(automation->ElementFromHandle(target.hwnd,element.put()));
+    check_hresult(element->SetFocus());
+    for (int i=0;i<20 && GetForegroundWindow()!=target.hwnd;++i) Sleep(25);
+    return GetForegroundWindow()==target.hwnd ? 0 : 3;
+  } catch (...) { return 4; }
+}
 int test_control_panel(DWORD pid) {
   try {
     init_apartment(apartment_type::multi_threaded);
@@ -189,6 +212,11 @@ HWND create_fixture_window() {
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   int argc = 0;
   auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (argv && argc==3 && std::wstring_view(argv[1])==L"--focus-test-window") {
+    wchar_t* end=nullptr; auto pid=wcstoul(argv[2],&end,10);
+    if (!pid || !end || *end) { LocalFree(argv); return 2; }
+    LocalFree(argv); return focus_test_window(pid);
+  }
   if (argv && argc==3 && std::wstring_view(argv[1])==L"--panel-test") { LocalFree(argv); return 2; }
   if (argv && argc==4 && std::wstring_view(argv[1])==L"--panel-test") {
     wchar_t* end=nullptr; auto pid=wcstoul(argv[2],&end,10);

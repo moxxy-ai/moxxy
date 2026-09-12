@@ -18,13 +18,14 @@ assert.ok(status, 'Installed extension did not expose status');
 assert.ok(plugin.tools.some((tool) => tool.name === 'computer_observe'));
 assert.ok(!plugin.tools.some((tool) => tool.name === 'computer_applescript'));
 assert.ok(plugin.tools.every((tool) => tool.permission.action === 'prompt'));
-const context = { sessionId: randomUUID(), turnId: randomUUID(), signal: new AbortController().signal };
+const context = { sessionId: randomUUID(), turnId: randomUUID(), signal: AbortSignal.timeout(60_000) };
 const tool = name => {
   const result = plugin.tools.find(item => item.name === name);
   assert.ok(result, 'Missing installed tool: ' + name);
   return result;
 };
 const call = async (name, input) => {
+  console.log('Installed tool smoke:', name);
   const definition = tool(name);
   // Exercise the same input normalization and output validation as the runner.
   return definition.outputSchema.parse(await definition.handler(definition.inputSchema.parse(input), context));

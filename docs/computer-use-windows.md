@@ -117,8 +117,9 @@ unique temporary report directory. Reports stay local; nothing is uploaded by th
 user script. If execution policy blocks the script, use your organization's
 approved procedure rather than disabling policy globally.
 
-`-TestInstalledApps` explicitly opts into opening and closing a new Notepad
-window without editing files. It is separate from tests confined to the fixture.
+`-TestInstalledApps` explicitly opts into opening a new Notepad, typing and
+reading back a Polish multiline sample, then closing the verified new process
+without saving a file. It is separate from tests confined to the fixture.
 The guardian panel is tested through actual UI Automation in the fixture probe.
 
 JSON/HTML reports distinguish passed, failed and not-tested. `releaseAccepted`
