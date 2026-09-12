@@ -102,7 +102,7 @@ function Focus-TestFixture($process) {
   $actor=Start-Process -FilePath $FixturePath -ArgumentList '--focus-test-window',([string]$process.Id) -PassThru
   try {
     if (-not $actor.WaitForExit(5000)) { $actor.Kill(); $actor.WaitForExit(); throw 'Test focus actor timed out' }
-    Check ($actor.ExitCode -eq 0) 'Test fixture could not acquire real foreground focus'
+    Check ($actor.ExitCode -eq 0) ('Test fixture could not acquire real foreground focus (actor exit '+$actor.ExitCode+')')
   } finally { $actor.Dispose() }
 }
 function Test($name, [scriptblock]$work) {

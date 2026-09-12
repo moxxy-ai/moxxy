@@ -58,23 +58,32 @@ int focus_test_window(DWORD pid, bool activate=true) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     if (!activate && GetForegroundWindow()!=target.hwnd) return 3;
     // This actor represents the HUMAN changing windows, not a backend action.
-    // Raise only our identified fixture without activation, then really click
-    // its title bar so Windows emits the normal foreground-input transition.
-    if (activate && !SetWindowPos(target.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)) return 3;
+    // Reveal only our identified fixture and really click its title bar; UIA
+    // alone must not stand in for the user's input in the approval scenario.
+    if (activate) {
+      init_apartment(apartment_type::multi_threaded);
+      com_ptr<IUIAutomation> automation;
+      check_hresult(CoCreateInstance(CLSID_CUIAutomation,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(automation.put())));
+      com_ptr<IUIAutomationElement> element;
+      check_hresult(automation->ElementFromHandle(target.hwnd,element.put()));
+      check_hresult(element->SetFocus());
+      if (!SetWindowPos(target.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)) return 3;
+    }
     RECT bounds{}; POINT client{};
     if (!GetWindowRect(target.hwnd,&bounds) || !ClientToScreen(target.hwnd,&client)) return 3;
     POINT point{(bounds.left+bounds.right)/2,(bounds.top+client.y)/2};
-    if (GetAncestor(WindowFromPoint(point),GA_ROOT)!=target.hwnd) return 3;
-    if (!SetCursorPos(point.x,point.y)) return 3;
+    if (GetAncestor(WindowFromPoint(point),GA_ROOT)!=target.hwnd) return 5;
+    if (!SetCursorPos(point.x,point.y)) return 6;
     if (activate) {
-      if (GetAsyncKeyState(VK_LBUTTON)&0x8000) return 3;
+      if (GetAsyncKeyState(VK_LBUTTON)&0x8000) return 7;
       INPUT input[2]{}; input[0].type=INPUT_MOUSE; input[0].mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
       input[1].type=INPUT_MOUSE; input[1].mi.dwFlags=MOUSEEVENTF_LEFTUP;
       auto sent=SendInput(2,input,sizeof(INPUT));
-      if (sent!=2) { if (sent==1) SendInput(1,&input[1],sizeof(INPUT)); return 3; }
+      if (sent!=2) { if (sent==1) SendInput(1,&input[1],sizeof(INPUT)); return 8; }
+      for (int i=0;i<20 && (GetAsyncKeyState(VK_LBUTTON)&0x8000);++i) Sleep(25);
     }
     for (int i=0;i<20 && GetForegroundWindow()!=target.hwnd;++i) Sleep(25);
-    return GetForegroundWindow()==target.hwnd ? 0 : 3;
+    return GetForegroundWindow()==target.hwnd ? 0 : 9;
   } catch (...) { return 4; }
 }
 int test_control_panel(DWORD pid) {
