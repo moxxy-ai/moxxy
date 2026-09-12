@@ -45,6 +45,16 @@ bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElemen
   }
   require(stage==L"finish" && call==approval_call && window==approval_window && host==approval_host,
     "invalid-input","Approval focus identity mismatch");
+  const auto event_deadline=GetTickCount64()+300;
+  while (approved && approval_state.awaiting_foreground(reinterpret_cast<uintptr_t>(foreground)) &&
+      (foreground==window || pid==host) && GetTickCount64()<event_deadline) {
+    // WinEvent is asynchronous. Wait for its actual ordered delivery, never
+    // fabricate an event from GetForegroundWindow or erase a human switch.
+    lock.unlock();
+    require(WaitForSingleObject(stop_event,25)==WAIT_TIMEOUT,"cancelled","Approval return cancelled");
+    foreground=GetForegroundWindow(); pid=0; GetWindowThreadProcessId(foreground,&pid);
+    lock.lock();
+  }
   const bool unchanged=IsWindowEnabled(window) && !IsIconic(window) &&
     window_generation(window)==approval_generation && window_bounds(window)==approval_bounds &&
     !guard_paused() && !guard_stopped_by_user();

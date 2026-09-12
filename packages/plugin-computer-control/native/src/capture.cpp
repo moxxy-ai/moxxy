@@ -30,6 +30,9 @@ std::vector<uint8_t> capture_graphics(HWND hwnd, Rect bounds) {
   auto pool = Direct3D11CaptureFramePool::CreateFreeThreaded(runtime_device, Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 1, item.Size());
   auto session = pool.CreateCaptureSession(item);
   struct Close { GraphicsCaptureSession session; Direct3D11CaptureFramePool pool; ~Close() { session.Close(); pool.Close(); } } close{session, pool};
+  // The user's pointer is not application content. Including it makes an
+  // unchanged window look different after a human clicks an approval dialog.
+  session.IsCursorCaptureEnabled(false);
   session.StartCapture();
   Direct3D11CaptureFrame frame{nullptr};
   for (int tries=0; tries<200 && !frame; ++tries) {
