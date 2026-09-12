@@ -254,6 +254,19 @@ try {
         Check ($restored.restored -and (Fixture-State).foreground) 'Approval-only return did not reach the original window'
         Call 'key' @{windowId=$script:windowId;observationId=$approvedSnapshot.observationId;key='a';modifiers=@()} | Out-Null
         Check ((Fixture-State).text.Length -eq $beforeText.Length+1) 'The approved key did not execute exactly once after focus restoration'
+        $canvasSnapshot=Observe
+        $canvas=@($canvasSnapshot.elements | Where-Object name -eq 'Canvas')[0]
+        Call 'click' @{windowId=$script:windowId;observationId=$canvasSnapshot.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
+        $approvedCapture=Screenshot
+        $point=Canvas-Point $approvedCapture
+        $beforeClicks=(Fixture-State).left
+        $approval.callId=[guid]::NewGuid().ToString()
+        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
+        Focus-TestFixture $approvalHost
+        Start-Sleep -Milliseconds 250
+        Call 'approval_focus' ($approval+@{stage='finish';approved=$true}) | Out-Null
+        Call 'click' @{windowId=$script:windowId;captureId=$approvedCapture.captureId;x=$point.x;y=$point.y;button='left';count=1} | Out-Null
+        Check ((Fixture-State).left -eq $beforeClicks+1) 'Approved image click did not execute exactly once'
         $approval.callId=[guid]::NewGuid().ToString()
         Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
         Focus-TestFixture $human
