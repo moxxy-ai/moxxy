@@ -23,7 +23,7 @@ export function buildSchedulerRunner(session: Session): SchedulePromptRunner {
             ...(model ? { model } : {}),
             ...(signal ? { signal } : {}),
           });
-          return { text: result.output, ...(result.error ? { error: result.error } : {}) };
+          return { text: result.output, ...(result.status === 'cancelled' ? { cancelled: true } : {}), ...(result.error ? { error: result.error } : {}) };
         } catch (error) {
           return { text: '', error: error instanceof Error ? error.message : String(error) };
         }

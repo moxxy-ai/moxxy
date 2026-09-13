@@ -26,7 +26,7 @@ export interface ScheduleSummary {
   readonly lastStartedAt?: number | null;
   readonly lastSkippedAt?: number | null;
   readonly lastSkipReason?: string | null;
-  readonly lastResult: 'ok' | 'error' | null;
+  readonly lastResult: 'ok' | 'error' | 'cancelled' | null;
   readonly lastError: string | null;
   readonly nextFireAt: number | null;
   readonly nextFireIso: string | null;

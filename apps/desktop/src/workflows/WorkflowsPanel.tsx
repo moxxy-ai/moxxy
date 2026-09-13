@@ -7,6 +7,7 @@ import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { InstrumentBar } from '../shell/InstrumentBar';
 import { WorkflowApprovals } from './WorkflowApprovals';
+import { WorkflowRunStatus } from './WorkflowRunStatus';
 
 /** How the defined workflows are triggered, most common first. Derived from the
  *  definitions, which is the only thing this runner reports about them. */
@@ -277,7 +278,7 @@ export function WorkflowsPanel(): JSX.Element {
               textTransform: 'uppercase',
             }}
           >
-            last run · {wf.lastRun.name}
+            last run · {wf.lastRun.name} · <WorkflowRunStatus result={wf.lastRun.result} />
           </header>
           <pre
             className="mono"

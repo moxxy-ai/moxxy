@@ -51,7 +51,7 @@ export const scheduleEntrySchema = z
     lastStartedAt: z.number().int().positive().optional(),
     lastSkippedAt: z.number().int().positive().optional(),
     lastSkipReason: z.string().optional(),
-    lastResult: z.enum(['ok', 'error']).optional(),
+    lastResult: z.enum(['ok', 'error', 'cancelled']).optional(),
     lastError: z.string().optional(),
     source: scheduleSourceSchema.default('manual'),
     /**

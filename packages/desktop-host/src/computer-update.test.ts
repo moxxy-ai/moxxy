@@ -7,13 +7,13 @@ import { prepareComputerUpdate, activateComputerUpdate, computerTreeHash, recove
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, {recursive:true,force:true}))); });
-async function fixture(code = 'export const ready = true;') {
+async function fixture(code = 'export const ready = true;', plugin = '@moxxy/plugin-computer-control') {
   const root = await mkdtemp(join(tmpdir(), 'moxxy-computer-update-')); roots.push(root);
   const resources = join(root, 'resources'); const home = join(root, 'home');
-  const source = join(resources,'plugins-seed','node_modules','@moxxy','plugin-computer-control');
-  const target = join(home,'plugins','node_modules','@moxxy','plugin-computer-control');
+  const source = join(resources,'plugins-seed','node_modules',plugin);
+  const target = join(home,'plugins','node_modules',plugin);
   for (const dir of [source,target]) await mkdir(join(dir,'dist'),{recursive:true});
-  await writeFile(join(source,'package.json'), JSON.stringify({name:'@moxxy/plugin-computer-control',version:'1.0.0',type:'module',dependencies:{'@moxxy/sdk':'1.0.0'}}));
+  await writeFile(join(source,'package.json'), JSON.stringify({name:plugin,version:'1.0.0',type:'module',dependencies:{'@moxxy/sdk':'1.0.0'}}));
   await writeFile(join(source,'dist','index.js'),code);
   const sdk=join(resources,'plugins-seed','node_modules','@moxxy','sdk');
   await mkdir(sdk,{recursive:true});
@@ -23,6 +23,31 @@ async function fixture(code = 'export const ready = true;') {
   await writeFile(join(home,'vault.json'),'preserve credentials');
   return {resourcesPath:resources,moxxyHome:home,target};
 }
+
+it.each(['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const)(
+  'updates %s with private dependencies and its own ledger, leaving credentials and other packages intact', async (plugin) => {
+    const options = { ...await fixture('export { revision } from "@moxxy/sdk";', plugin), plugin };
+    const plugins = join(options.moxxyHome, 'plugins');
+    const dependencies = { [plugin]: '0.38.0', untouched: '2.0.0' };
+    await writeFile(join(plugins, 'package.json'), JSON.stringify({ dependencies }));
+    await writeFile(join(plugins, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: {
+      '': { dependencies }, ['node_modules/' + plugin]: { version: '0.38.0' },
+      'node_modules/untouched': { version: '2.0.0', integrity: 'keep' },
+    } }));
+    const update = await prepareComputerUpdate(options);
+    expect(update.targetPath).toBe(options.target);
+    await activateComputerUpdate(update, update.installedHash, async directory => {
+      expect((await import(pathToFileURL(join(directory, 'dist/index.js')).href)).revision).toBe('bundled');
+    });
+    expect(await isBundledComputerCurrent(options)).toBe(true);
+    expect(JSON.parse(await readFile(join(plugins, 'package.json'), 'utf8')).dependencies).toEqual({ [plugin]: '1.0.0', untouched: '2.0.0' });
+    const lock = JSON.parse(await readFile(join(plugins, 'package-lock.json'), 'utf8'));
+    expect(lock.packages['node_modules/' + plugin + '/node_modules/@moxxy/sdk'].version).toBe('1.0.0');
+    expect(lock.packages['node_modules/untouched']).toEqual({ version: '2.0.0', integrity: 'keep' });
+    expect(await readFile(join(options.moxxyHome, 'vault.json'), 'utf8')).toBe('preserve credentials');
+    expect(await readFile(join(update.backupPath, 'dist/index.js'), 'utf8')).toBe('old user extension');
+  },
+);
 
 it('stages bundled dependency closure offline and replaces only the approved plugin', async () => {
   const options=await fixture('export { revision } from "@moxxy/sdk";');
@@ -36,6 +61,22 @@ it('stages bundled dependency closure offline and replaces only the approved plu
   });
   expect(await readFile(join(result.backupPath,'dist','index.js'),'utf8')).toBe('old user extension');
   expect(await readFile(join(options.moxxyHome,'vault.json'),'utf8')).toBe('preserve credentials');
+});
+
+it('preserves a ten-level dependency chain used by the bundled OpenAI SDK without relaxing package count limits', async () => {
+  const plugin = '@moxxy/plugin-provider-openai' as const;
+  const options = { ...await fixture('export { value } from "chain-0";', plugin), plugin };
+  const modules = join(options.resourcesPath, 'plugins-seed/node_modules');
+  await writeFile(join(modules, plugin, 'package.json'), JSON.stringify({ name: plugin, version: '1.0.0', type: 'module', dependencies: { 'chain-0': '1.0.0' } }));
+  for (let i = 0; i < 10; i++) {
+    const dir = join(modules, 'chain-' + i); await mkdir(dir);
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'chain-' + i, version: '1.0.0', type: 'module', exports: './index.js', dependencies: i < 9 ? { ['chain-' + (i + 1)]: '1.0.0' } : {} }));
+    await writeFile(join(dir, 'index.js'), i < 9 ? `export { value } from 'chain-${i + 1}';` : 'export const value = 42;');
+  }
+  const update = await prepareComputerUpdate(options);
+  await activateComputerUpdate(update, update.installedHash, async directory => {
+    expect((await import(pathToFileURL(join(directory, 'dist/index.js')).href)).value).toBe(42);
+  });
 });
 
 it('refuses changed user files or changed staging bytes before replacing anything', async () => {

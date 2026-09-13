@@ -6,6 +6,9 @@ import { writeFileAtomic } from '@moxxy/sdk/server';
 import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, type ComputerLedger } from './computer-update-ledger.js';
 
 const pluginName = '@moxxy/plugin-computer-control';
+const managedPackageSchema = z.enum([pluginName, '@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex']);
+export type ManagedPackage = z.infer<typeof managedPackageSchema>;
+interface UpdateOptions { resourcesPath: string; moxxyHome: string; plugin?: ManagedPackage }
 const packageName = /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/i;
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const manifestSchema = z.object({
@@ -24,6 +27,7 @@ const journalSchema = z.object({
 type Journal = z.infer<typeof journalSchema>;
 
 export interface PreparedComputerUpdate {
+  readonly plugin: ManagedPackage;
   readonly targetPath: string;
   readonly stagedPath: string;
   readonly backupPath: string;
@@ -37,12 +41,14 @@ export interface PreparedComputerUpdate {
 const prepared = new WeakSet<PreparedComputerUpdate>();
 const tails = new Map<string, Promise<unknown>>();
 
-function targetPath(home: string): string {
-  return path.join(home,'plugins','node_modules','@moxxy','plugin-computer-control');
+function targetPath(home: string, plugin: ManagedPackage = pluginName): string {
+  return path.join(home,'plugins','node_modules',managedPackageSchema.parse(plugin));
 }
-function updatesPath(home: string): string { return path.join(home,'desktop','computer-updates'); }
-async function journals(home:string):Promise<Array<{directory:string;file:string;record:Journal}>> {
-  const root=updatesPath(home);
+function updatesPath(home: string, plugin: ManagedPackage = pluginName): string {
+  return plugin === pluginName ? path.join(home,'desktop','computer-updates') : path.join(home,'desktop','provider-updates',managedPackageSchema.parse(plugin).slice('@moxxy/'.length));
+}
+async function journals(home:string, plugin: ManagedPackage = pluginName):Promise<Array<{directory:string;file:string;record:Journal}>> {
+  const root=updatesPath(home, plugin);
   await assertOwnedParents(home,root);
   if (!await exists(root)) return [];
   const names=await fs.readdir(root);
@@ -140,7 +146,7 @@ async function packageDependencies(from:string,seed:string):Promise<Array<{name:
   return result;
 }
 
-async function bundleFingerprint(resourcesPath:string):Promise<string> {
+async function bundleFingerprint(resourcesPath:string, plugin: ManagedPackage = pluginName):Promise<string> {
   const seed=path.join(path.resolve(resourcesPath),'plugins-seed');
   const seen=new Set<string>(), records:unknown[]=[];
   const relative=(file:string)=>path.relative(seed,file).split(path.sep).join('/');
@@ -155,36 +161,41 @@ async function bundleFingerprint(resourcesPath:string):Promise<string> {
     records.push([relative(directory),tree,dependencies.map(dep=>[dep.name,relative(dep.source)])]);
     for (const dependency of dependencies) await visit(dependency.source);
   }
-  await visit(path.join(seed,'node_modules',pluginName));
+  await visit(path.join(seed,'node_modules',plugin));
   return createHash('sha256').update(JSON.stringify(records)).digest('hex');
 }
 
-export async function isBundledComputerCurrent(options:{resourcesPath:string;moxxyHome:string}):Promise<boolean> {
+export async function isBundledComputerCurrent(options:UpdateOptions):Promise<boolean> {
+  const plugin = managedPackageSchema.parse(options.plugin ?? pluginName);
   const home=path.resolve(options.moxxyHome);
-  const records=await journals(home);
+  const records=await journals(home, plugin);
   if (records.some(({record})=>record.phase==='prepared' || record.phase==='activated')) return false;
   if (!records.some(({record})=>record.phase==='verified' && record.source)) return false;
-  await assertOwnedParents(home,targetPath(home));
-  const installed=await computerTreeHash(targetPath(home));
-  const source=await bundleFingerprint(options.resourcesPath);
+  await assertOwnedParents(home,targetPath(home, plugin));
+  const installed=await computerTreeHash(targetPath(home, plugin));
+  const source=await bundleFingerprint(options.resourcesPath, plugin);
   return records.some(({record})=>record.phase==='verified' && record.staged===installed && record.source===source);
 }
 
-export async function prepareComputerUpdate(options: {resourcesPath:string;moxxyHome:string}): Promise<PreparedComputerUpdate> {
+export async function prepareComputerUpdate(options: UpdateOptions): Promise<PreparedComputerUpdate> {
+  const plugin = managedPackageSchema.parse(options.plugin ?? pluginName);
   const home=path.resolve(options.moxxyHome);
-  const target=targetPath(home);
+  const target=targetPath(home, plugin);
   await assertOwnedParents(home,target);
-  await assertOwnedParents(home,updatesPath(home));
+  await assertOwnedParents(home,updatesPath(home, plugin));
   const seed=path.join(path.resolve(options.resourcesPath),'plugins-seed');
-  const source=path.join(seed,'node_modules',pluginName);
-  if ((await manifest(source)).name !== pluginName) throw new Error('Unexpected Computer Use package');
-  const sourceHash=await bundleFingerprint(options.resourcesPath);
-  await fs.mkdir(updatesPath(home),{recursive:true});
-  const transaction=await fs.mkdtemp(path.join(updatesPath(home),'update-'));
+  const source=path.join(seed,'node_modules',plugin);
+  if ((await manifest(source)).name !== plugin) throw new Error('Unexpected bundled package');
+  const sourceHash=await bundleFingerprint(options.resourcesPath, plugin);
+  await fs.mkdir(updatesPath(home, plugin),{recursive:true});
+  const transaction=await fs.mkdtemp(path.join(updatesPath(home, plugin),'update-'));
   const staged=path.join(transaction,'staged');
   let count=0;
   async function copy(from: string, to: string, ancestors: ReadonlySet<string>): Promise<void> {
-    if (++count > 64 || ancestors.size > 8 || ancestors.has(from)) throw new Error('Unsupported bundled dependency cycle or size');
+    // OpenAI's SDK has a legitimate nine-level transitive chain. Keep the
+    // existing Computer Use bound and the shared package/byte/cycle limits.
+    const maxDepth = plugin === pluginName ? 8 : 16;
+    if (++count > 64 || ancestors.size > maxDepth || ancestors.has(from)) throw new Error('Unsupported bundled dependency cycle or size');
     await assertOwnedParents(seed,from);
     await computerTreeHash(from);
     await fs.mkdir(path.dirname(to),{recursive:true});
@@ -198,13 +209,14 @@ export async function prepareComputerUpdate(options: {resourcesPath:string;moxxy
   }
   try {
     await copy(source,staged,new Set());
-    if (await bundleFingerprint(options.resourcesPath) !== sourceHash) throw new Error('Bundled Computer Use changed while staging');
+    if (await bundleFingerprint(options.resourcesPath, plugin) !== sourceHash) throw new Error('Bundled extension changed while staging');
     const stagedHash=await computerTreeHash(staged);
     if (!stagedHash) throw new Error('Missing staged Computer Use package');
     const installedHash=await computerTreeHash(target);
-    const verified=(await journals(home)).filter(({record})=>record.phase==='verified');
+    const verified=(await journals(home, plugin)).filter(({record})=>record.phase==='verified');
     const localChanges=verified.some(({record})=>record.staged===installedHash) ? 'unchanged' : verified.length ? 'changed' : 'untracked';
     const update:PreparedComputerUpdate=Object.freeze({
+      plugin,
       targetPath:target,stagedPath:staged,backupPath:path.join(transaction,'previous'),
       transactionPath:transaction, installedHash,stagedHash,sourceHash,localChanges,
       moxxyHome:home,
@@ -234,7 +246,7 @@ export async function activateComputerUpdate(
     await assertOwnedParents(update.moxxyHome,update.transactionPath);
     if (await computerTreeHash(update.targetPath) !== approvedInstalledHash) throw new Error('Installed Computer Use files changed after approval');
     if (await computerTreeHash(update.stagedPath) !== update.stagedHash) throw new Error('Staged Computer Use files changed');
-    const ledgers=await prepareComputerLedgers(update.moxxyHome,update.stagedPath,update.transactionPath);
+    const ledgers=await prepareComputerLedgers(update.moxxyHome,update.stagedPath,update.transactionPath,update.plugin);
     await writeJournal(update,'prepared',approvedInstalledHash,ledgers);
     let oldMoved=false, newMoved=false;
     try {
@@ -276,11 +288,12 @@ export async function discardComputerUpdate(update:PreparedComputerUpdate):Promi
 }
 
 /** Run before any runner starts, while holding the same maintenance lease. */
-export async function recoverComputerUpdates(moxxyHome: string): Promise<string[]> {
-  const home=path.resolve(moxxyHome), target=targetPath(home);
+export async function recoverComputerUpdates(moxxyHome: string, plugin: ManagedPackage = pluginName): Promise<string[]> {
+  managedPackageSchema.parse(plugin);
+  const home=path.resolve(moxxyHome), target=targetPath(home, plugin);
   await assertOwnedParents(home,target);
   const restored:string[]=[];
-  for (const {directory,file,record} of await journals(home)) {
+  for (const {directory,file,record} of await journals(home, plugin)) {
     if (record.phase === 'verified' || record.phase === 'rolled_back') continue;
     await applyComputerLedgers(home,directory,record.ledgers ?? [],true);
     const backup=path.join(directory,'previous');

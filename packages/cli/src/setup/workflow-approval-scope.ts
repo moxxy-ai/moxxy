@@ -81,13 +81,13 @@ export function buildWorkflowApprovalExecution(
           const effectiveSignal = AbortSignal.any([signal, controller.signal]);
           active.set(workflowId, runId);
           const valid = async () => {
+            if (await approvals.isCancelled(scope)) controller.abort('Workflow stopped');
             // Approval may stay open while an external editor changes the YAML.
             // Re-read authoritative definitions, not only the UI's cached registry.
             await store.load();
             const updated = await store.get(name);
             return (
               !effectiveSignal.aborted &&
-              !(await approvals.isCancelled(scope)) &&
               !!updated &&
               updated.workflow.enabled &&
               approvalFingerprint(definition(updated.workflow, store)) === revision
@@ -115,7 +115,11 @@ export function buildWorkflowApprovalExecution(
                   check: async (call) => {
                     if (!(await valid()))
                       return { mode: 'deny', reason: 'Workflow changed, disabled or cancelled' };
-                    return approvals.check(scope, call, effectiveSignal, valid);
+                    const decision = await approvals.check(scope, call, effectiveSignal, valid);
+                    // Stop can settle the permission waiter before the monitor ticks.
+                    // Propagate it before the executor classifies a denied tool call.
+                    if (await approvals.isCancelled(scope)) controller.abort('Workflow stopped');
+                    return decision;
                   },
                 },
                 () => task(effectiveSignal),
