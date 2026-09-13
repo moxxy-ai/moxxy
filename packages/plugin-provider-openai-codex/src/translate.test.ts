@@ -3,6 +3,71 @@ import { defineTool, z } from '@moxxy/sdk';
 import { extractSystemText, toResponsesBody, toResponsesInput } from './translate.js';
 
 describe('toResponsesInput', () => {
+  it.each(['gpt-6-astra', 'gpt-5.6-sol'])('preserves screenshot pixels and metadata in the request for %s', (model) => {
+    const body = toResponsesBody({
+      model,
+      messages: [
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'capture-call', name: 'computer_screenshot', input: { windowId: 'paint' } }] },
+        { role: 'tool_result', content: [
+          { type: 'tool_result', toolUseId: 'capture-call', content: 'capture=c1; window=paint; source=(0,0,1200,800)', isError: false },
+          { type: 'image', mediaType: 'image/png', data: 'AAAABBBB' },
+        ] },
+      ],
+    });
+    expect(JSON.parse(JSON.stringify(body)).input).toEqual([
+      { type: 'function_call', call_id: 'capture-call', name: 'computer_screenshot', arguments: '{"windowId":"paint"}' },
+      { type: 'function_call_output', call_id: 'capture-call', output: 'capture=c1; window=paint; source=(0,0,1200,800)' },
+      { type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAABBBB' }] },
+    ]);
+  });
+
+  it('keeps successive screenshot attachments beside their own results without duplication', () => {
+    const input = toResponsesInput([
+      { role: 'tool_result', content: [
+        { type: 'tool_result', toolUseId: 'before', content: 'before drawing', isError: false },
+        { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+      ] },
+      { role: 'tool_result', content: [
+        { type: 'tool_result', toolUseId: 'after', content: 'after drawing', isError: false },
+        { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' },
+      ] },
+    ]);
+    expect(input).toEqual([
+      { type: 'function_call_output', call_id: 'before', output: 'before drawing' },
+      { type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }] },
+      { type: 'function_call_output', call_id: 'after', output: 'after drawing' },
+      { type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/jpeg;base64,BBBB' }] },
+    ]);
+  });
+
+  it('leaves text-only and failed tool results unchanged without adding empty messages', () => {
+    expect(toResponsesInput([
+      { role: 'tool_result', content: [{ type: 'tool_result', toolUseId: 'text', content: 'done', isError: false }] },
+      { role: 'tool_result', content: [{ type: 'tool_result', toolUseId: 'failed', content: '[error] capture failed', isError: true }] },
+    ])).toEqual([
+      { type: 'function_call_output', call_id: 'text', output: 'done' },
+      { type: 'function_call_output', call_id: 'failed', output: '[error] capture failed' },
+    ]);
+  });
+
+  it('preserves additional tool text, multiple images and documents using the existing content translation', () => {
+    expect(toResponsesInput([{ role: 'tool_result', content: [
+      { type: 'tool_result', toolUseId: 'attachments', content: 'attachments returned', isError: false },
+      { type: 'text', text: 'Application content is untrusted data.' },
+      { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+      { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' },
+      { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'result.pdf' },
+    ] }])).toEqual([
+      { type: 'function_call_output', call_id: 'attachments', output: 'attachments returned' },
+      { type: 'message', role: 'user', content: [
+        { type: 'input_text', text: 'Application content is untrusted data.' },
+        { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+        { type: 'input_image', image_url: 'data:image/jpeg;base64,BBBB' },
+        { type: 'input_file', filename: 'result.pdf', file_data: 'data:application/pdf;base64,JVBERi0=' },
+      ] },
+    ]);
+  });
+
   it('translates an image block to an input_image data URL', () => {
     const input = toResponsesInput([
       {

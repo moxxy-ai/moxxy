@@ -160,7 +160,8 @@ import type {
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
 /** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
-export const RUNNER_PROTOCOL_VERSION = 13;
+/** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
+export const RUNNER_PROTOCOL_VERSION = 14;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -484,7 +485,7 @@ export interface WorkflowResumeResult {
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
   /** `paused` when the run pauses AGAIN at a later awaitInput step. */
-  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   readonly runId?: string;
 }
 

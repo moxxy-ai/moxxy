@@ -16,7 +16,7 @@ export interface WorkflowRunResult {
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
   /** `paused` when the run parked on an awaitInput step (resume via `runId`). */
-  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   readonly runId?: string;
 }
 export interface WorkflowValidateResult {

@@ -4,8 +4,6 @@ import * as path from 'node:path';
 import { z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 
-const plugin='@moxxy/plugin-computer-control';
-const prefix='node_modules/'+plugin;
 const hash=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
 export const computerLedgerSchema=z.object({
   file:z.enum(['package.json','package-lock.json']),
@@ -23,10 +21,13 @@ async function read(file:string):Promise<Buffer|null> {
   } catch(error) { if ((error as NodeJS.ErrnoException).code==='ENOENT') return null; throw error; }
 }
 
-export async function prepareComputerLedgers(home:string,staged:string,transaction:string):Promise<ComputerLedger[]> {
+export async function prepareComputerLedgers(home:string,staged:string,transaction:string,plugin='@moxxy/plugin-computer-control'):Promise<ComputerLedger[]> {
+  z.enum(['@moxxy/plugin-computer-control','@moxxy/plugin-provider-openai','@moxxy/plugin-provider-openai-codex']).parse(plugin);
+  const prefix='node_modules/'+plugin;
   const bytes=await read(path.join(staged,'package.json'));
   if (!bytes) throw new Error('Staged manifest missing');
   const pkg=object.parse(JSON.parse(bytes.toString('utf8')));
+  if (pkg.name !== plugin) throw new Error('Staged package identity mismatch');
   const version=z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/).parse(pkg.version);
   const changes:ComputerLedger[]=[];
   for (const file of ['package.json','package-lock.json'] as const) {

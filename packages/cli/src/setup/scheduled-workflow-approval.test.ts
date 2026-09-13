@@ -1,14 +1,115 @@
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
-import { Session } from '@moxxy/core';
+import { Session, createSubagentSpawner, createWorkflowToolRunner } from '@moxxy/core';
 import { asToolCallId, definePlugin, defineTool, z } from '@moxxy/sdk';
-import { WorkflowStore, parseWorkflowYaml } from '@moxxy/plugin-workflows';
+import { WorkflowStore, WorkflowRunStore, resumeWorkflowRun, parseWorkflowYaml, buildWorkflowsCommand } from '@moxxy/plugin-workflows';
 import { buildWorkflowRunner } from './build-workflow-runner.js';
 import { buildWorkflowApprovalExecution } from './workflow-approval-scope.js';
 import { buildSchedulerRunner } from './scheduler-runner.js';
+import { ScheduleStore } from '@moxxy/plugin-scheduler';
+import { runSchedule } from '@moxxy/plugin-scheduler';
+
+it('cancels a resumed checkpoint before invoking a child and removes its resumable state', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-resume-stop-'));
+  const session = new Session({ cwd: dir, silent: true });
+  const controller = new AbortController();
+  const parsed = parseWorkflowYaml('name: paused-stop\ndescription: test\nsteps:\n  - id: ask\n    prompt: Ask a question\n    awaitInput: true\n');
+  if (!parsed.workflow) throw new Error('Invalid fixture');
+  const store = new WorkflowRunStore(join(dir, 'checkpoints'));
+  const runId = await store.save({ workflow: parsed.workflow, trigger: 'manual', inputs: {},
+    states: { ask: { status: 'awaiting_input', output: 'Question?', startedAt: 1, endedAt: 2 } },
+    pendingStepId: 'ask', interactionAgentId: 'never-created-child', startedAt: 1 });
+  const turnId = session.startTurn().turnId;
+  const spawner = createSubagentSpawner({ parentSession: session, parentTurnId: turnId, parentSignal: controller.signal, parentModel: 'unused' });
+  const events: string[] = [];
+  controller.abort('Stopped by user');
+  try {
+    const result = await resumeWorkflowRun(runId, 'Reply', { spawner,
+      tools: createWorkflowToolRunner(session, turnId, spawner),
+      lookup: { skill: name => session.skills.byName(name), workflow: () => parsed.workflow },
+      signal: controller.signal, emit: subtype => { events.push(subtype); },
+    }, store);
+    expect(result.status).toBe('cancelled');
+    expect(result.steps[0]?.status).toBe('cancelled');
+    expect(events).toContain('workflow_cancelled');
+    expect(events).not.toContain('workflow_step_failed');
+    expect(await store.load(runId)).toBeNull();
+    expect(session.log.ofType('provider_request')).toHaveLength(0);
+  } finally { await session.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+it.each(['stop', 'deny'] as const)('reports %s distinctly while preserving the denied file and not starting downstream steps', async decision => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-stop-result-'));
+  const store = new WorkflowStore({ cwd: dir, userDir: join(dir, 'user'), projectDir: join(dir, 'project') });
+  const parsed = parseWorkflowYaml('name: stoppable\ndescription: test\ndelivery:\n  inbox: false\nsteps:\n  - id: write\n    tool: fixture_write\n  - id: next\n    needs: [write]\n    tool: fixture_write\n');
+  if (!parsed.workflow) throw new Error('Invalid fixture');
+  await store.create(parsed.workflow, 'project');
+  const session = new Session({ cwd: dir, silent: true });
+  session.pluginHost.registerStatic(definePlugin({ name: 'stop-fixture', tools: [
+    defineTool({ name: 'fixture_write', inputSchema: z.object({}), permission: { action: 'prompt' },
+      handler: async () => { await writeFile(join(dir, 'result.txt'), 'must not execute'); return 'written'; } }),
+  ] }));
+  const { approvals, execution } = buildWorkflowApprovalExecution(dir, store, join(dir, 'approvals'));
+  const runner = buildWorkflowRunner({ session, store, approvalExecution: execution, recordDir: join(dir, 'records') });
+  const task = runner.runNow({ name: 'stoppable', trigger: 'manual' });
+  try {
+    let requests = await approvals.list();
+    for (let i = 0; !requests.length && i < 100; i++) { await delay(5); requests = await approvals.list(); }
+    const request = requests[0]; if (!request) throw new Error('Missing approval request');
+    if (decision === 'stop') await approvals.cancel(request.id);
+    else await approvals.decide(request.id, 'deny');
+    const result = await task;
+    expect(result.status).toBe(decision === 'stop' ? 'cancelled' : 'failed');
+    expect(result.ok).toBe(false);
+    expect(result.steps.map(step => step.status)).toEqual([decision === 'stop' ? 'cancelled' : 'failed', 'skipped']);
+    await expect(readFile(join(dir, 'result.txt'))).rejects.toThrow();
+    const events = session.log.ofType('plugin_event').map(event => event.subtype);
+    expect(events).toContain(decision === 'stop' ? 'workflow_cancelled' : 'workflow_failed');
+    expect(events).not.toContain(decision === 'stop' ? 'workflow_failed' : 'workflow_cancelled');
+    const [record] = await readdir(join(dir, 'records')); if (!record) throw new Error('Missing run record');
+    const [header] = (await readFile(join(dir, 'records', record), 'utf8')).split('\n');
+    if (!header) throw new Error('Missing run header');
+    expect(JSON.parse(header).status).toBe(result.status);
+    const command = buildWorkflowsCommand({ store, runRecordDir: join(dir, 'records') });
+    const summary = await command.handler({ channel: 'tui', sessionId: session.id, session: {}, args: 'inspect stoppable' });
+    if (summary.kind !== 'text') throw new Error('Missing summary');
+    if (decision === 'stop') expect(summary.text).toContain('stopped');
+  } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+it('persists a stopped cron as cancelled across restart, not success or error', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-cron-stop-'));
+  const store = new WorkflowStore({ cwd: dir, userDir: join(dir, 'user'), projectDir: join(dir, 'project') });
+  const parsed = parseWorkflowYaml('name: scheduled-stop\ndescription: test\ndelivery:\n  inbox: false\nsteps:\n  - id: write\n    tool: fixture_write\n');
+  if (!parsed.workflow) throw new Error('Invalid fixture');
+  await store.create(parsed.workflow, 'project');
+  const session = new Session({ cwd: dir, silent: true });
+  session.pluginHost.registerStatic(definePlugin({ name: 'cron-stop-fixture', tools: [
+    defineTool({ name: 'fixture_write', inputSchema: z.object({}), permission: { action: 'prompt' },
+      handler: async () => { await writeFile(join(dir, 'result.txt'), 'unwanted'); return 'written'; } }),
+  ] }));
+  const { approvals, execution } = buildWorkflowApprovalExecution(dir, store, join(dir, 'approvals'));
+  session.services.register('workflowRunner', buildWorkflowRunner({ session, store, approvalExecution: execution, recordDir: join(dir, 'records') }));
+  const file = join(dir, 'schedules.json'), schedules = new ScheduleStore({ file });
+  await schedules.syncWorkflowSchedule('scheduled-stop', { id: '', name: 'scheduled-stop', workflowName: 'scheduled-stop', source: 'workflow', prompt: 'Run scheduled-stop', enabled: true, createdAt: 0, cron: '0 12 * * *' });
+  const [entry] = await schedules.list(); if (!entry) throw new Error('Missing schedule');
+  const task = runSchedule(entry, buildSchedulerRunner(session), schedules, { dir: join(dir, 'inbox') });
+  try {
+    let requests = await approvals.list();
+    for (let i = 0; !requests.length && i < 100; i++) { await delay(5); requests = await approvals.list(); }
+    const request = requests[0]; if (!request) throw new Error('Missing approval');
+    await approvals.cancel(request.id);
+    const result = await task;
+    expect(result).toMatchObject({ ok: false, cancelled: true });
+    expect(await new ScheduleStore({ file }).get(entry.id)).toMatchObject({ lastResult: 'cancelled' });
+    if (!result.inboxPath) throw new Error('Missing inbox record');
+    expect(await readFile(result.inboxPath, 'utf8')).toContain('outcome: cancelled');
+    await expect(readFile(join(dir, 'result.txt'))).rejects.toThrow();
+  } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }
+});
 
 it('runs the scheduled DAG without an extra model turn, but still waits before the real file write', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-real-'));

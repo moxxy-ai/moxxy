@@ -238,7 +238,7 @@ export interface WorkflowRunView {
    * with `runId`). Optional for back-compat — absent from older hosts that
    * never paused. A run/resume that completes or fails reports those.
    */
-  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   /** Set when `status` is `paused` — pass to {@link WorkflowsView.resume}. */
   readonly runId?: string;
 }

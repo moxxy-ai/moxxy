@@ -198,11 +198,13 @@ export type WorkflowEventSubtype =
   | 'workflow_step_completed'
   | 'workflow_step_skipped'
   | 'workflow_step_failed'
+  | 'workflow_step_cancelled'
   | 'workflow_step_awaiting_input'
   | 'workflow_paused'
   | 'workflow_resumed'
   | 'workflow_completed'
-  | 'workflow_failed';
+  | 'workflow_failed'
+  | 'workflow_cancelled';
 
 /**
  * Everything an executor needs to run a workflow, supplied by the caller.
@@ -231,9 +233,9 @@ export interface WorkflowRunDeps {
   readonly depth?: number;
 }
 
-export type WorkflowStepStatus = 'completed' | 'skipped' | 'failed' | 'awaiting_input';
+export type WorkflowStepStatus = 'completed' | 'skipped' | 'failed' | 'awaiting_input' | 'cancelled';
 
-export type WorkflowRunStatus = 'completed' | 'paused' | 'failed';
+export type WorkflowRunStatus = 'completed' | 'paused' | 'failed' | 'cancelled';
 
 export interface WorkflowStepResult {
   readonly id: string;

@@ -51,6 +51,7 @@ import {
   preferredCliEntry,
   seedPluginsFromResources,
   offerBundledComputerUpdate,
+  offerBundledProviderUpdate,
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
@@ -205,6 +206,33 @@ async function prepareRunnerEnvironment(): Promise<void> {
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
+      for (const plugin of ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const) {
+        try {
+          const status = await offerBundledProviderUpdate({
+            resourcesPath: process.resourcesPath, moxxyHome, plugin,
+            freshInstall: seed.copied.includes(plugin),
+            confirm: async ({ backupPath, localChanges, downgrade }) => {
+              const result = await dialog.showMessageBox({
+                type: 'question', title: 'Update model connection',
+                message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
+                detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
+                  (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
+                  'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. A backup will be kept at:\n' + backupPath,
+                buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
+              });
+              return result.response === 1;
+            },
+          });
+          console.log(`[moxxy] ${plugin} preparation: ${status}`);
+        } catch (error) {
+          // One optional connection update must not block other connections or chat.
+          console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
+          await dialog.showMessageBox({ type: 'warning', title: 'Connection update unavailable',
+            message: 'A bundled model connection could not be updated.',
+            detail: 'The previous version was retained. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.',
+          });
+        }
+      }
       if (process.platform === 'win32' && process.arch === 'x64') {
         await offerBundledComputerUpdate({
           resourcesPath:process.resourcesPath, moxxyHome,

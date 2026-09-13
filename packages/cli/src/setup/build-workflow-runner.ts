@@ -290,7 +290,7 @@ export async function deliverToInbox(
       `workflow: ${workflow.name}`,
       `firedAt: ${new Date().toISOString()}`,
       workflow.delivery?.channel ? `channel: ${workflow.delivery.channel}` : null,
-      `outcome: ${result.ok ? 'ok' : 'error'}`,
+      `outcome: ${result.status === 'cancelled' ? 'cancelled' : result.ok ? 'ok' : 'error'}`,
       '---',
       '',
     ]

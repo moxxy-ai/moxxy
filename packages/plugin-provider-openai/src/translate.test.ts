@@ -4,6 +4,51 @@ import { defineTool } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
 
 describe('toOpenAIMessages', () => {
+  it('preserves tool screenshot metadata and pixels without stringifying the image', () => {
+    expect(toOpenAIMessages([{ role: 'tool_result', content: [
+      { type: 'tool_result', toolUseId: 'capture', content: 'window=paint; capture=c1', isError: false },
+      { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+    ] }])).toEqual([
+      { role: 'tool', tool_call_id: 'capture', content: 'window=paint; capture=c1' },
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] },
+    ]);
+  });
+
+  it('keeps parallel tool replies contiguous before emitting their attachments', () => {
+    const out = toOpenAIMessages([
+      { role: 'assistant', content: [
+        { type: 'tool_use', id: 'first', name: 'computer_screenshot', input: {} },
+        { type: 'tool_use', id: 'second', name: 'computer_screenshot', input: {} },
+      ] },
+      { role: 'tool_result', content: [
+        { type: 'tool_result', toolUseId: 'first', content: 'first capture', isError: false },
+        { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+      ] },
+      { role: 'tool_result', content: [
+        { type: 'tool_result', toolUseId: 'second', content: 'second capture', isError: false },
+        { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' },
+        { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', name: 'result.pdf' },
+      ] },
+      { role: 'assistant', content: [{ type: 'text', text: 'verified' }] },
+    ]);
+    expect(out.slice(1)).toEqual([
+      { role: 'tool', tool_call_id: 'first', content: 'first capture' },
+      { role: 'tool', tool_call_id: 'second', content: 'second capture' },
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] },
+      { role: 'user', content: [
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,BBBB' } },
+        { type: 'file', file: { filename: 'result.pdf', file_data: 'data:application/pdf;base64,JVBERi0=' } },
+      ] },
+      { role: 'assistant', content: 'verified' },
+    ]);
+  });
+
+  it('does not add image or empty user messages to a failed tool reply', () => {
+    expect(toOpenAIMessages([{ role: 'tool_result', content: [
+      { type: 'tool_result', toolUseId: 'failed', content: '[error] screenshot failed', isError: true },
+    ] }])).toEqual([{ role: 'tool', tool_call_id: 'failed', content: '[error] screenshot failed' }]);
+  });
+
   it('flattens text into role+content', () => {
     const out = toOpenAIMessages([
       { role: 'system', content: [{ type: 'text', text: 'be terse' }] },
