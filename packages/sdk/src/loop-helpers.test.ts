@@ -222,6 +222,21 @@ describe('projectMessagesFromLog', () => {
     }
   });
 
+  it.each([
+    { mediaType: 'image/png', base64: 'AAAABBBB', forModel: 'capture=c1; window=w1; source=(-1920,0,1920,1080)' },
+    { type: 'image', mediaType: 'image/png', data: 'AAAABBBB', forModel: 'capture=c1; window=w1; source=(-1920,0,1920,1080)' },
+  ])('preserves image metadata as model-facing text without stringifying pixels', (output) => {
+    const log = reader([
+      event(0, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'computer_screenshot', input: {} }),
+      event(1, { type: 'tool_result', turnId: t1, source: 'tool', callId: 'c1', ok: true, output }),
+    ]);
+    const result = projectMessagesFromLog({ log }).find((message) => message.role === 'tool_result');
+    expect(result?.content).toEqual([
+      { type: 'tool_result', toolUseId: 'c1', content: output.forModel, isError: false },
+      { type: 'image', mediaType: 'image/png', data: 'AAAABBBB' },
+    ]);
+  });
+
   it('accepts the provider-native image shape { type:image, mediaType, data }', () => {
     const log = reader([
       event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'grab' }),

@@ -30,7 +30,7 @@ export interface WorkflowCommandDeps {
     readonly inputs?: Record<string, unknown>;
     readonly trigger?: string;
   }) => Promise<WorkflowRunResult>;
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
   readonly runRecordDir?: string;
   readonly userDir?: string;
 }
@@ -146,7 +146,8 @@ async function runCmd(deps: WorkflowCommandDeps, name: string): Promise<CommandO
     ].filter((l) => l !== '');
     return { kind: 'text', text: lines.join('\n') };
   }
-  const head = result.ok ? `✓ workflow "${name}" completed` : `✗ workflow "${name}" failed${result.error ? `: ${result.error}` : ''}`;
+  const head = result.status === 'cancelled' ? `■ workflow "${name}" stopped`
+    : result.ok ? `✓ workflow "${name}" completed` : `✗ workflow "${name}" failed${result.error ? `: ${result.error}` : ''}`;
   return { kind: 'text', text: `${head}\n${steps}\n\n${truncate(result.output, 1200)}` };
 }
 
@@ -211,12 +212,12 @@ async function rmCmd(deps: WorkflowCommandDeps, name: string): Promise<CommandOu
   if (!name) return { kind: 'error', message: 'usage: /workflows rm <name>' };
   const res = await deps.store.delete(name);
   if (!res.ok) return { kind: 'error', message: `cannot delete "${name}": ${res.reason}.` };
-  await deps.onChanged?.();
+  await deps.onChanged?.(name);
   return { kind: 'text', text: `deleted workflow "${name}".` };
 }
 
 function statusMark(status: string): string {
-  return status === 'completed' ? '✓' : status === 'skipped' ? '–' : status === 'failed' ? '✗' : '·';
+  return status === 'cancelled' ? '■' : status === 'completed' ? '✓' : status === 'skipped' ? '–' : status === 'failed' ? '✗' : '·';
 }
 
 /** Cap on candidate run-record files scanned per `/workflows inspect`. */
@@ -259,7 +260,7 @@ async function readLastRun(dir: string | undefined, name: string): Promise<strin
       const run = lines.find((l) => l.kind === 'run');
       if (run?.workflow !== name) continue; // a sibling workflow's record — skip
       const steps = lines.filter((l) => l.kind === 'step');
-      const head = `${run.ok ? '✓' : '✗'} ${new Date(Number(run.startedAt ?? 0)).toISOString()} (${String(run.trigger ?? '?')})`;
+      const head = `${run.status === 'cancelled' ? '■ stopped' : run.ok ? '✓' : '✗'} ${new Date(Number(run.startedAt ?? 0)).toISOString()} (${String(run.trigger ?? '?')})`;
       const stepLines = steps.map((s) => `  ${statusMark(String(s.status))} ${String(s.id)}`).join('\n');
       return `${head}\n${stepLines}`;
     } catch {

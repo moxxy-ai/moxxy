@@ -1,7 +1,7 @@
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { useState } from 'react';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
-import { Splash } from '@/Splash';
+import { StartupSplash } from './StartupSplash';
 import { Button } from '@moxxy/desktop-ui';
 
 /** Result of an in-app CLI update attempt. On success the caller (App.tsx)
@@ -56,7 +56,7 @@ export function ConnectionScreen({
 
   // Happy path: a continuous branded loading screen.
   if (!problem) {
-    return <Splash message={friendlyTitle(phase.phase)} />;
+    return <StartupSplash stage={phase.phase} message={friendlyTitle(phase.phase)} details={<TechnicalDetails snapshot={snapshot} phase={phase} />} />;
   }
 
   // Something's wrong — same near-white surface, but with a headline,

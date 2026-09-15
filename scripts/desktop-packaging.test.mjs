@@ -77,6 +77,28 @@ test('desktop resource verifier rejects a plugin seed without its package lock',
   }
 });
 
+test('Windows resources reject a computer extension without the native component', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-native-resource-test-'));
+  try {
+    await writeValidResources(root);
+    const seed = path.join(root, 'plugins-seed');
+    const name = '@moxxy/plugin-computer-control';
+    for (const filename of ['package.json', 'package-lock.json']) {
+      const file = path.join(seed, filename);
+      const json = JSON.parse(await readFile(file, 'utf8'));
+      const entry = filename === 'package.json' ? json : json.packages[''];
+      entry.dependencies[name] = '1.2.3';
+      await writeJson(file, json);
+    }
+    const plugin = path.join(seed, 'node_modules', name);
+    await mkdir(path.join(plugin, 'dist'), { recursive: true });
+    await writeJson(path.join(plugin, 'package.json'), { name, version: '1.2.3', moxxy: { plugin: { entry: './dist/index.js' } } });
+    await writeFile(path.join(plugin, 'dist/index.js'), 'export {};');
+    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'win32' }), /Computer Use/);
+    await verifyDesktopResources(root, { runCli: false, platform: 'darwin' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('packaged verifier locates Windows, Linux, and macOS resource roots', async () => {
   const releaseDir = await mkdtemp(path.join(tmpdir(), 'moxxy-release-layout-'));
   try {

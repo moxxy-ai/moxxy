@@ -23,7 +23,7 @@ export interface WorkflowRun {
   steps: ReadonlyArray<{ id: string; status: string; error?: string }>;
   /** `paused` when the run parked on an `awaitInput` step — answer it with
    *  `workflows.resume(runId, reply)` (human-in-the-loop). */
-  status?: 'completed' | 'paused' | 'failed';
+  status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   runId?: string;
 }
 

@@ -27,10 +27,15 @@ export function triggerSummary(on: import('@moxxy/sdk').WorkflowTrigger | undefi
 export function buildWorkflowsView(args: {
   store: WorkflowStore;
   runner: WorkflowRunner;
-  syncSchedules: () => Promise<void>;
+  syncSchedules: (deletedName?: string) => Promise<void>;
 }): WorkflowsView {
   const { store, runner, syncSchedules } = args;
   return {
+    delete: async name => {
+      const result = await store.delete(name);
+      if (!result.ok) throw new Error(`Cannot delete workflow: ${result.reason}`);
+      await syncSchedules(name);
+    },
     list: async () =>
       (await store.list()).map((w) => ({
         name: w.workflow.name,

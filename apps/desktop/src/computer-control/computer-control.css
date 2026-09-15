@@ -1,0 +1,25 @@
+.computer-control-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent, #ff5328);
+  border-radius: 10px;
+  background: var(--bg-elevated, #151e24);
+  color: var(--text-primary, #dce5ea);
+  font-size: 12px;
+}
+.computer-control-strip__buttons { display: flex; gap: 6px; margin-left: auto; }
+.computer-control-strip button {
+  padding: 5px 9px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.computer-control-strip button:focus-visible { outline: 2px solid var(--accent, #ff5328); outline-offset: 2px; }
+.computer-control-strip button:disabled { opacity: .5; cursor: default; }
+.computer-control-strip__error { flex-basis: 100%; }

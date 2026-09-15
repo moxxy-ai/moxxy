@@ -151,11 +151,18 @@ import type {
  * self-attributing records. Older clients simply omit it and their events stay
  * unattributed, exactly as before. (Additive: a v10 server ignores the key.)
  *
- * Every change v1→v11 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v12: adds session-owned `computer.snapshot` and `computer.control` human
+ * controls. The optional service does not affect ordinary chat. Clients gate
+ * these methods on the negotiated server version.
+ *
+ * Every change v1→v12 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 11;
+/** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
+/** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
+/** v15: explicit workflow deletion, including schedule retirement. */
+export const RUNNER_PROTOCOL_VERSION = 15;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -172,6 +179,8 @@ export const RunnerMethod = {
   Attach: 'attach',
   /** client->server: re-fetch the registry snapshot. */
   GetInfo: 'getInfo',
+  ComputerSnapshot: 'computer.snapshot',
+  ComputerControl: 'computer.control',
   /** client->server: start a turn; returns its turnId. Events stream separately. */
   RunTurn: 'runTurn',
   /** client->server: abort an in-flight turn. */
@@ -223,6 +232,7 @@ export const RunnerMethod = {
   WorkflowList: 'workflow.list',
   /** client->server: enable/disable a workflow. */
   WorkflowSetEnabled: 'workflow.setEnabled',
+  WorkflowDelete: 'workflow.delete',
   /** client->server: run a workflow now. */
   WorkflowRun: 'workflow.run',
   /** client->server: validate a draft workflow YAML (builder). */
@@ -237,6 +247,8 @@ export const RunnerMethod = {
    * reported version so an older runner returns an actionable error.
    */
   WorkflowResume: 'workflow.resume',
+  WorkflowApprovals: 'workflow.approvals',
+  ComputerApprovalFocus: 'computer.approvalFocus',
   /** client->server: list available surface kinds + availability (v8). */
   SurfaceList: 'surface.list',
   /** client->server: open (or attach to the shared) surface instance (v8). */
@@ -475,7 +487,7 @@ export interface WorkflowResumeResult {
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
   /** `paused` when the run pauses AGAIN at a later awaitInput step. */
-  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   readonly runId?: string;
 }
 

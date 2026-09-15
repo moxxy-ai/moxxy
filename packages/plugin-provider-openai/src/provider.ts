@@ -63,6 +63,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // (Responses-API only), so the flag mainly gates the config UI + effort there;
 // OpenAI-compatible reasoning backends (DeepSeek/z.ai/local) do stream it.
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
+  { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   // GPT-5.6 family (GA July 9, 2026): three-tier frontier class, knowledge
   // cutoff Feb 16, 2026. Sol = flagship, Terra = balanced, Luna = fast/cheap.
   // All share the 1,050,000-token window and 128k max output; pick by cost:

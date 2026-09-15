@@ -1,5 +1,6 @@
 import { RunnerMethod } from '../protocol.js';
 import type { ViewContext } from './context.js';
+import { workflowApprovalItemsSchema, type WorkflowApprovalsView } from '@moxxy/sdk';
 
 export interface WorkflowSummary {
   readonly name: string;
@@ -15,7 +16,7 @@ export interface WorkflowRunResult {
   readonly error?: string;
   readonly steps: ReadonlyArray<{ readonly id: string; readonly status: string; readonly error?: string }>;
   /** `paused` when the run parked on an awaitInput step (resume via `runId`). */
-  readonly status?: 'completed' | 'paused' | 'failed';
+  readonly status?: 'completed' | 'paused' | 'failed' | 'cancelled';
   readonly runId?: string;
 }
 export interface WorkflowValidateResult {
@@ -34,6 +35,8 @@ export interface WorkflowDetailResult {
   readonly yaml: string;
 }
 export interface WorkflowsClientView {
+  delete(name: string): Promise<void>;
+  readonly approvals: WorkflowApprovalsView;
   list(): Promise<ReadonlyArray<WorkflowSummary>>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
   run(name: string): Promise<WorkflowRunResult>;
@@ -46,6 +49,28 @@ export interface WorkflowsClientView {
 export function makeWorkflowsView(ctx: ViewContext): WorkflowsClientView {
   const { peer, requireServerProtocol } = ctx;
   return {
+    delete: async name => {
+      requireServerProtocol(15, 'Workflow deletion');
+      await peer.request(RunnerMethod.WorkflowDelete, { name });
+    },
+    approvals: {
+      cancel: async id => {
+        requireServerProtocol(13, 'Workflow approvals');
+        await peer.request(RunnerMethod.WorkflowApprovals, { action: 'cancel', id });
+      },
+      list: async () => {
+        requireServerProtocol(13, 'Workflow approvals');
+        return workflowApprovalItemsSchema.parse(await peer.request(RunnerMethod.WorkflowApprovals, { action: 'list' }));
+      },
+      decide: async (id, choice) => {
+        requireServerProtocol(13, 'Workflow approvals');
+        await peer.request(RunnerMethod.WorkflowApprovals, { action: 'decide', id, choice });
+      },
+      revoke: async id => {
+        requireServerProtocol(13, 'Workflow approvals');
+        await peer.request(RunnerMethod.WorkflowApprovals, { action: 'revoke', id });
+      },
+    },
     list: () =>
       peer.request<ReadonlyArray<WorkflowSummary>>(RunnerMethod.WorkflowList),
     setEnabled: async (name, enabled) => {

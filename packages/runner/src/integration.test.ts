@@ -702,16 +702,19 @@ describe('runner end-to-end', () => {
     const remote = await attach(socketPath);
 
     const titles: string[] = [];
+    const approvalTurns: string[] = [];
     remote.setApprovalResolver({
       name: 'test-approval',
-      confirm: async (req) => {
+      confirm: async (req, context) => {
         titles.push(req.title);
+        if (context) approvalTurns.push(context.turnId);
         return { optionId: 'yes' };
       },
     });
 
-    for await (const _event of remote.runTurn('go')) void _event;
+    for await (const _event of remote.runTurn('go', { turnId: asTurnId('approval-owner') })) void _event;
     expect(titles).toContain('proceed?');
+    expect(approvalTurns).toEqual(['approval-owner']);
   });
 
   it('takes the default option for a scoped turn whose client does not handle approvals (no host fallback pestered)', async () => {

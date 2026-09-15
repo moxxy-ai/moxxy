@@ -122,11 +122,14 @@ function convertSchema(schema: unknown, depth: number): unknown {
     const inner = (def as unknown as { schema: unknown }).schema;
     return zodToJsonSchema(inner, depth + 1);
   }
-  // ZodOptional / ZodNullable / ZodDefault / ZodBranded / ZodReadonly all
+  if (typeName === 'ZodNullable') {
+    const inner = (def as unknown as { innerType: unknown }).innerType;
+    return { anyOf: [zodToJsonSchema(inner, depth + 1), { type: 'null' }] };
+  }
+  // ZodOptional / ZodDefault / ZodBranded / ZodReadonly all
   // wrap an inner schema we want to unwrap for JSON-schema purposes.
   if (
     typeName === 'ZodOptional' ||
-    typeName === 'ZodNullable' ||
     typeName === 'ZodDefault' ||
     typeName === 'ZodBranded' ||
     typeName === 'ZodReadonly'
@@ -176,8 +179,30 @@ function convertSchema(schema: unknown, depth: number): unknown {
     }
     return { type: 'object', properties, required };
   }
-  if (typeName === 'ZodString') return { type: 'string' };
-  if (typeName === 'ZodNumber') return { type: 'number' };
+  if (typeName === 'ZodString' || typeName === 'ZodNumber') {
+    const checks = (def as unknown as { checks: ReadonlyArray<{ kind: string; value?: number; inclusive?: boolean; regex?: RegExp }> }).checks;
+    const result: Record<string, unknown> = { type: typeName === 'ZodString' ? 'string' : 'number' };
+    const bound = (key: string, value: number, lower: boolean) => {
+      const previous = result[key];
+      result[key] = typeof previous === 'number' ? (lower ? Math.max(previous, value) : Math.min(previous, value)) : value;
+    };
+    for (const check of checks) {
+      if (check.kind === 'int') result.type = 'integer';
+      if (typeName === 'ZodString' && check.regex && !check.regex.flags) {
+        // JSON Schema has no JS RegExp flags. Never misrepresent a flagged regex.
+        if (result.pattern === undefined) result.pattern = check.regex.source;
+      }
+      if (check.value === undefined) continue;
+      if (typeName === 'ZodString') {
+        if (check.kind === 'min' || check.kind === 'length') bound('minLength', check.value, true);
+        if (check.kind === 'max' || check.kind === 'length') bound('maxLength', check.value, false);
+      } else {
+        if (check.kind === 'min') bound(check.inclusive ? 'minimum' : 'exclusiveMinimum', check.value, true);
+        if (check.kind === 'max') bound(check.inclusive ? 'maximum' : 'exclusiveMaximum', check.value, false);
+      }
+    }
+    return result;
+  }
   if (typeName === 'ZodBoolean') return { type: 'boolean' };
   if (typeName === 'ZodEnum') {
     const values = (def as unknown as { values: ReadonlyArray<string> }).values;
@@ -202,7 +227,10 @@ function convertSchema(schema: unknown, depth: number): unknown {
   if (typeName === 'ZodArray') {
     // ZodArray._def.type is the element schema.
     const items = zodToJsonSchema((def as unknown as { type: unknown }).type, depth + 1);
-    return { type: 'array', items };
+    const limits = def as unknown as { minLength: { value: number } | null; maxLength: { value: number } | null; exactLength: { value: number } | null };
+    const minimum = limits.exactLength ?? limits.minLength;
+    const maximum = limits.exactLength ?? limits.maxLength;
+    return { type: 'array', items, ...(minimum ? { minItems: minimum.value } : {}), ...(maximum ? { maxItems: maximum.value } : {}) };
   }
   if (typeName === 'ZodRecord') {
     // `z.record(keyType, valueType)` — an open-ended object whose values share

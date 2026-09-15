@@ -1,5 +1,7 @@
 import type {
   ApprovalDecision,
+  ComputerControlCommand,
+  ComputerControlSnapshot,
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
@@ -247,6 +249,8 @@ export interface IpcCommands {
   /** Returns the runner's SessionInfo snapshot for the workspace.
    *  Defaults to the active workspace. */
   'session.info': (args?: { workspaceId?: string }) => Promise<SessionInfo | null>;
+  'computer.snapshot': (args: {workspaceId: string}) => Promise<{workspaceId: string; turns: ReadonlyArray<ComputerControlSnapshot>}>;
+  'computer.control': (args: ComputerControlCommand & {workspaceId: string}) => Promise<void>;
   /** Issue a new turn. Defaults to the active workspace; pass a
    *  workspaceId to start a turn in a background workspace. Events
    *  stream back via 'runner.event' tagged with the same id. */
@@ -535,7 +539,12 @@ export interface IpcCommands {
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;
+  'workflows.approvals': (args: { workspaceId: string }) => Promise<ReadonlyArray<import('@moxxy/sdk').WorkflowApprovalItem>>;
+  'workflows.decideApproval': (args: { workspaceId: string; id: string; choice: import('@moxxy/sdk').WorkflowApprovalChoice }) => Promise<void>;
+  'workflows.revokeApproval': (args: { workspaceId: string; id: string }) => Promise<void>;
+  'workflows.cancelApprovalRun': (args: { workspaceId: string; id: string }) => Promise<void>;
   'workflows.setEnabled': (args: { name: string; enabled: boolean }) => Promise<void>;
+  'workflows.delete': (args: { name: string }) => Promise<void>;
   'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
   // Visual builder (phase 2). Resolve null/throw gracefully when the workflows
   // plugin (or the builder-capable host) is absent — the renderer feature-checks.
