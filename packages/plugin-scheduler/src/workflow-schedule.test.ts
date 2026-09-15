@@ -8,6 +8,17 @@ import { isDue, nextCronFire } from './poller.js';
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 const noonDraft: ScheduleEntry = { id: '', name: 'wf-noon', workflowName: 'noon', prompt: 'run noon', source: 'workflow', enabled: true, createdAt: 0, cron: '0 12 * * *', timeZone: 'Europe/Warsaw' };
+it('keeps a deletion tombstone when a stale runner syncs a disabled definition', async () => {
+  const { store, file } = await fixture(() => Date.now());
+  await store.syncWorkflowSchedule('noon', noonDraft);
+  const [row] = await store.list();
+  if (!row) throw new Error('Missing fixture');
+  await store.delete(row.id);
+  await store.syncWorkflowSchedule('noon', null);
+  const restarted = new ScheduleStore({ file });
+  await restarted.syncWorkflowSchedule('noon', noonDraft);
+  expect(await restarted.list()).toEqual([]);
+});
 async function fixture(now: () => number) {
   const dir = await mkdtemp(path.join(tmpdir(), 'moxxy-workflow-clock-'));
   dirs.push(dir);

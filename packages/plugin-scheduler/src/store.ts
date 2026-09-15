@@ -427,6 +427,8 @@ export class ScheduleStore {
           workflowName,
         });
         filtered.push(repairWorkflowDate(existingDeleted ?? merged, now));
+      } else if (existingDeleted) {
+        filtered.push(existingDeleted);
       }
       return filtered;
     });

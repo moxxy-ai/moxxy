@@ -544,6 +544,7 @@ export interface IpcCommands {
   'workflows.revokeApproval': (args: { workspaceId: string; id: string }) => Promise<void>;
   'workflows.cancelApprovalRun': (args: { workspaceId: string; id: string }) => Promise<void>;
   'workflows.setEnabled': (args: { name: string; enabled: boolean }) => Promise<void>;
+  'workflows.delete': (args: { name: string }) => Promise<void>;
   'workflows.run': (args: { name: string }) => Promise<WorkflowRun>;
   // Visual builder (phase 2). Resolve null/throw gracefully when the workflows
   // plugin (or the builder-capable host) is absent — the renderer feature-checks.

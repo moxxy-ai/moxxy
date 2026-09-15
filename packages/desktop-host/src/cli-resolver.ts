@@ -15,7 +15,8 @@
  */
 
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { compareSemver, z } from '@moxxy/sdk';
 import path from 'node:path';
 import { delimiter } from 'node:path';
 import {
@@ -41,9 +42,8 @@ export interface ResolveOptions {
 }
 
 /**
- * The `dist/bin.js` path the desktop should run, preferring a writable,
- * user-updated copy under `<userDataDir>/cli` over the read-only one
- * bundled in resources. Mirrors the preference order the Electron main's
+ * The `dist/bin.js` path the desktop should run. A writable copy wins only
+ * when its package version is newer than the bundled floor. Mirrors the Electron main's
  * boot block applies to `MOXXY_CLI_ENTRY`, factored out so the in-app
  * "Update CLI" action can re-point at the freshly-installed copy without
  * duplicating the path logic. Returns null when neither exists.
@@ -59,7 +59,18 @@ export function preferredCliEntry(userDataDir: string, resourcesPath: string): s
     'bin.js',
   );
   const bundledCli = path.join(resourcesPath, 'moxxy-cli', 'dist', 'bin.js');
-  return [updatedCli, bundledCli].find((p) => existsSync(p)) ?? null;
+  if (!isReadableFile(bundledCli)) return isReadableFile(updatedCli) ? updatedCli : null;
+  if (!isReadableFile(updatedCli)) return bundledCli;
+  const version = (entry: string): string | null => {
+    try {
+      return z.object({ version: z.string().regex(/^\d+\.\d+\.\d+(?:[-+].+)?$/) })
+        .parse(JSON.parse(readFileSync(path.join(path.dirname(entry), '..', 'package.json'), 'utf8'))).version;
+    } catch { return null; }
+  };
+  const updated = version(updatedCli), bundled = version(bundledCli);
+  // Equal versions may be pre-release builds with different protocol floors.
+  // The CLI delivered with this desktop is the compatible default.
+  return updated && bundled && compareSemver(updated, bundled) > 0 ? updatedCli : bundledCli;
 }
 
 export function resolveMoxxyCli(opts: ResolveOptions = {}): CliInvocation | null {

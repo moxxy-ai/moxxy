@@ -45,6 +45,7 @@ import {
   handleMcpDetach,
   handleWorkflowList,
   handleWorkflowSetEnabled,
+  handleWorkflowDelete,
   handleWorkflowRun,
   handleWorkflowValidateDraft,
   handleWorkflowSave,
@@ -237,6 +238,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.McpDetach, (raw) => handleMcpDetach(ctx, raw));
     peer.handle(RunnerMethod.WorkflowList, () => handleWorkflowList(ctx));
     peer.handle(RunnerMethod.WorkflowSetEnabled, (raw) => handleWorkflowSetEnabled(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowDelete, (raw) => handleWorkflowDelete(ctx, raw));
     peer.handle(RunnerMethod.WorkflowRun, (raw) => handleWorkflowRun(ctx, raw));
     peer.handle(RunnerMethod.WorkflowValidateDraft, (raw) => handleWorkflowValidateDraft(ctx, raw));
     peer.handle(RunnerMethod.WorkflowSave, (raw) => handleWorkflowSave(ctx, raw));

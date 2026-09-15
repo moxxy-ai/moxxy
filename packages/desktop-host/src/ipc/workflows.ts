@@ -40,6 +40,11 @@ export function registerWorkflowsHandlers(pool: RunnerPool, desks?: DeskStore): 
     const session = mustSession(pool);
     if (session.workflows) await session.workflows.setEnabled(name, enabled);
   });
+  handle('workflows.delete', async ({ name }) => {
+    const view = mustSession(pool).workflows;
+    if (!view?.delete) throw new Error('Workflow deletion unavailable; update the runner');
+    await view.delete(name);
+  });
   handle('workflows.run', async ({ name }) => {
     const session = mustSession(pool);
     if (!session.workflows) throw new Error('workflows plugin not loaded');
