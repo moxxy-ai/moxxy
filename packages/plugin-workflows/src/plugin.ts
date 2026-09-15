@@ -38,7 +38,7 @@ export interface BuildWorkflowsPluginOptions {
   readonly listSkills?: WorkflowToolDeps['listSkills'];
   readonly listTools?: WorkflowToolDeps['listTools'];
   /** Re-sync triggers after a create/update/delete/toggle. */
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
   /** Runs a workflow now (autonomous runner) — backs `/workflows run`. */
   readonly runNow?: (input: {
     readonly name: string;

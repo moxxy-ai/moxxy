@@ -16,6 +16,13 @@ const approvalCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('cancel'), id: z.string().uuid() }).strict(),
 ]);
 
+export async function handleWorkflowDelete(ctx: HandlerContext, raw: unknown): Promise<void> {
+  const { name } = z.object({ name: z.string().min(1).max(120) }).strict().parse(raw);
+  const view = ctx.session.workflows;
+  if (!view?.delete) throw new Error('Workflow deletion unavailable; update the runner');
+  await view.delete(name);
+}
+
 export async function handleWorkflowApprovals(ctx: HandlerContext, raw: unknown): Promise<unknown> {
   const command = approvalCommandSchema.parse(raw);
   const view = ctx.session.workflows?.approvals;

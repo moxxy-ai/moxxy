@@ -161,7 +161,8 @@ import type {
  */
 /** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
-export const RUNNER_PROTOCOL_VERSION = 14;
+/** v15: explicit workflow deletion, including schedule retirement. */
+export const RUNNER_PROTOCOL_VERSION = 15;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -231,6 +232,7 @@ export const RunnerMethod = {
   WorkflowList: 'workflow.list',
   /** client->server: enable/disable a workflow. */
   WorkflowSetEnabled: 'workflow.setEnabled',
+  WorkflowDelete: 'workflow.delete',
   /** client->server: run a workflow now. */
   WorkflowRun: 'workflow.run',
   /** client->server: validate a draft workflow YAML (builder). */

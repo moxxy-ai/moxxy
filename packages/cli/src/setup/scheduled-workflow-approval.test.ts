@@ -140,7 +140,7 @@ it('runs the scheduled DAG without an extra model turn, but still waits before t
   } finally { session.abort(); await result; await session.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
-it('invalidates an outstanding approval when the workflow file is edited outside the app', async () => {
+it.each(['edited', 'deleted'])('invalidates an outstanding approval when the workflow file is %s outside the app', async change => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-external-edit-'));
   const store = new WorkflowStore({ cwd: dir, userDir: join(dir, 'user'), projectDir: join(dir, 'project') });
   const yaml = 'name: editable\ndescription: test\nsteps:\n  - id: first\n    prompt: Original prompt\n';
@@ -154,7 +154,8 @@ it('invalidates an outstanding approval when the workflow file is edited outside
     let requests = await approvals.list();
     for (let i = 0; !requests.length && i < 100; i++) { await delay(5); requests = await approvals.list(); }
     expect(requests).toHaveLength(1);
-    await writeFile(entry.path, yaml.replace('Original prompt', 'Changed prompt'));
+    if (change === 'deleted') await store.delete('editable');
+    else await writeFile(entry.path, yaml.replace('Original prompt', 'Changed prompt'));
     const result = await Promise.race([task, delay(750).then(() => null)]);
     expect(result).toMatchObject({ mode: 'deny' });
   } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }

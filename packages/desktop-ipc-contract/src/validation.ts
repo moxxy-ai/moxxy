@@ -322,6 +322,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'workflows.run': z.object({ name: workflowName }),
   'workflows.setEnabled': z.object({ name: workflowName, enabled: z.boolean() }),
+  'workflows.delete': z.object({ name: workflowName }).strict(),
   // Builder commands. validateDraft/save take full YAML — bound the size so a
   // hostile renderer can't OOM the host; save writes to disk so it's
   // filesystem-touching and gets a boundary check like the other writers.

@@ -51,7 +51,7 @@ export interface WorkflowToolDeps {
   readonly listSkills?: () => ReadonlyArray<DraftCatalogEntry>;
   readonly listTools?: () => ReadonlyArray<DraftCatalogEntry>;
   /** Called after a create/update/delete/toggle so triggers can re-sync. */
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
 }
 
 const PLUGIN_ID = asPluginId(WORKFLOWS_PLUGIN_NAME);
@@ -263,7 +263,7 @@ function deleteTool(deps: WorkflowToolDeps): ToolDef {
       const res = await deps.store.delete(name);
       if (!res.ok) throw new MoxxyError({ code: 'TOOL_ERROR', message: `workflow_delete: ${res.reason}.` });
       emitChange(deps, ctx, 'workflow_deleted', { name });
-      await deps.onChanged?.();
+      await deps.onChanged?.(name);
       return { name, deleted: true };
     },
   });

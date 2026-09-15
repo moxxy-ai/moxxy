@@ -35,6 +35,7 @@ export interface WorkflowDetailResult {
   readonly yaml: string;
 }
 export interface WorkflowsClientView {
+  delete(name: string): Promise<void>;
   readonly approvals: WorkflowApprovalsView;
   list(): Promise<ReadonlyArray<WorkflowSummary>>;
   setEnabled(name: string, enabled: boolean): Promise<void>;
@@ -48,6 +49,10 @@ export interface WorkflowsClientView {
 export function makeWorkflowsView(ctx: ViewContext): WorkflowsClientView {
   const { peer, requireServerProtocol } = ctx;
   return {
+    delete: async name => {
+      requireServerProtocol(15, 'Workflow deletion');
+      await peer.request(RunnerMethod.WorkflowDelete, { name });
+    },
     approvals: {
       cancel: async id => {
         requireServerProtocol(13, 'Workflow approvals');

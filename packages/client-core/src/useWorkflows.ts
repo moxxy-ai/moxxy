@@ -4,6 +4,7 @@ import { toErrorMessage } from './errors.js';
 import type { WorkflowRun, WorkflowSummary } from '@moxxy/desktop-ipc-contract';
 
 export interface UseWorkflows {
+  readonly remove: (name: string) => Promise<boolean>;
   readonly list: ReadonlyArray<WorkflowSummary>;
   readonly loading: boolean;
   readonly error: string | null;
@@ -89,5 +90,14 @@ export function useWorkflows(): UseWorkflows {
     [],
   );
 
-  return { list, loading, error, lastRun, refresh, setEnabled, setTargetSession, run };
+  const remove = useCallback(async (name: string): Promise<boolean> => {
+    try {
+      await api().invoke('workflows.delete', { name });
+      setList(current => current.filter(w => w.name !== name));
+      await refresh();
+      return true;
+    } catch (e) { setError(toErrorMessage(e)); return false; }
+  }, [refresh]);
+
+  return { list, loading, error, lastRun, refresh, setEnabled, setTargetSession, run, remove };
 }

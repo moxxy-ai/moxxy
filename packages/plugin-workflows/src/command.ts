@@ -30,7 +30,7 @@ export interface WorkflowCommandDeps {
     readonly inputs?: Record<string, unknown>;
     readonly trigger?: string;
   }) => Promise<WorkflowRunResult>;
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
   readonly runRecordDir?: string;
   readonly userDir?: string;
 }
@@ -212,7 +212,7 @@ async function rmCmd(deps: WorkflowCommandDeps, name: string): Promise<CommandOu
   if (!name) return { kind: 'error', message: 'usage: /workflows rm <name>' };
   const res = await deps.store.delete(name);
   if (!res.ok) return { kind: 'error', message: `cannot delete "${name}": ${res.reason}.` };
-  await deps.onChanged?.();
+  await deps.onChanged?.(name);
   return { kind: 'text', text: `deleted workflow "${name}".` };
 }
 

@@ -14,6 +14,7 @@ export {
 export {
   handleWorkflowList,
   handleWorkflowSetEnabled,
+  handleWorkflowDelete,
   handleWorkflowRun,
   handleWorkflowValidateDraft,
   handleWorkflowSave,

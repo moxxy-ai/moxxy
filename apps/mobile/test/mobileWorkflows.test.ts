@@ -41,6 +41,7 @@ const stableRun = async () => undefined;
 
 function coreWorkflows(overrides: Partial<UseWorkflows> = {}): UseWorkflows {
   return {
+    remove: async () => false,
     list: [sample],
     loading: false,
     error: null,
