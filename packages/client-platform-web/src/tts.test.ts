@@ -47,14 +47,6 @@ class FakeAudio {
   }
 }
 
-// vitest constructs a mock's implementation with `new`, which an arrow function
-// rejects. Constructor fakes must therefore be ordinary functions.
-function ctorMock<A extends unknown[], T>(create: (...args: A) => T) {
-  return vi.fn(function (...args: A): T {
-    return create(...args);
-  });
-}
-
 let revoked: string[];
 let created: string[];
 
@@ -64,19 +56,16 @@ beforeEach(() => {
   FakeAudio.last = undefined;
   FakeAudio.live = [];
   let n = 0;
-  // Only the object-URL statics are faked. URL itself must stay constructible:
-  // the test runtime builds URLs of its own while a test is running.
-  class StubURL extends globalThis.URL {
-    static createObjectURL = vi.fn(() => {
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => {
       const u = `blob:mock/${n++}`;
       created.push(u);
       return u;
-    });
-    static revokeObjectURL = vi.fn((u: string) => {
+    }),
+    revokeObjectURL: vi.fn((u: string) => {
       revoked.push(u);
-    });
-  }
-  vi.stubGlobal('URL', StubURL);
+    }),
+  });
   vi.stubGlobal('Blob', class {
     constructor(public parts: unknown[], public opts?: { type?: string }) {}
   });
@@ -221,7 +210,7 @@ describe('playAudioClip', () => {
     const close = vi.fn(async () => undefined);
     const resume = vi.fn(async () => undefined);
     const destination = { kind: 'destination' };
-    const AudioContext = ctorMock(() => ({
+    const AudioContext = vi.fn(() => ({
       createMediaElementSource: vi.fn(() => source),
       createAnalyser: vi.fn(() => analyser),
       destination,
@@ -257,7 +246,7 @@ describe('playAudioClip', () => {
     const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
     const close = vi.fn(async () => undefined);
     const resume = vi.fn(async () => undefined);
-    const AudioContext = ctorMock(() => ({
+    const AudioContext = vi.fn(() => ({
       createMediaElementSource: vi.fn(() => makeNode()),
       createAnalyser: vi.fn(() => makeNode()),
       destination: { kind: 'destination' },
@@ -294,7 +283,7 @@ describe('playAudioClip', () => {
     const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
     const close = vi.fn(async () => undefined);
     vi.stubGlobal('window', {
-      AudioContext: ctorMock(() => ({
+      AudioContext: vi.fn(() => ({
         createMediaElementSource: vi.fn(() => makeNode()),
         createAnalyser: vi.fn(() => makeNode()),
         destination: { kind: 'destination' },
@@ -338,7 +327,7 @@ describe('playAudioClip', () => {
     // feeding the CURRENT sentence would cut that sentence off.
     const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
     const closes: Array<ReturnType<typeof vi.fn>> = [];
-    const AudioContext = ctorMock(() => {
+    const AudioContext = vi.fn(() => {
       const close = vi.fn(async () => undefined);
       closes.push(close);
       return {
@@ -384,7 +373,7 @@ describe('playAudioClip', () => {
   it('retires an idle context on a device change straight away', async () => {
     const makeNode = () => ({ connect: vi.fn(), disconnect: vi.fn() });
     const closes: Array<ReturnType<typeof vi.fn>> = [];
-    const AudioContext = ctorMock(() => {
+    const AudioContext = vi.fn(() => {
       const close = vi.fn(async () => undefined);
       closes.push(close);
       return {
@@ -427,7 +416,7 @@ describe('playAudioClip', () => {
       return node;
     };
     const close = vi.fn(async () => undefined);
-    const AudioContext = ctorMock(() => ({
+    const AudioContext = vi.fn(() => ({
       createMediaElementSource: vi.fn(() => makeNode()),
       createAnalyser: vi.fn(() => makeNode()),
       destination: { kind: 'destination' },

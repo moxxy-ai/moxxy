@@ -25,13 +25,11 @@ vi.mock('./send-event', () => ({
 }));
 
 vi.mock('./session-driver', () => ({
-  SessionDriver: vi.fn().mockImplementation(function (session: unknown) {
-    return {
-      wraps: (candidate: unknown) => candidate === session,
-      dispose: vi.fn(),
-      attachWindow: vi.fn(() => vi.fn()),
-    };
-  }),
+  SessionDriver: vi.fn().mockImplementation((session: unknown) => ({
+    wraps: (candidate: unknown) => candidate === session,
+    dispose: vi.fn(),
+    attachWindow: vi.fn(() => vi.fn()),
+  })),
 }));
 
 import { bindWindow } from './ipc';

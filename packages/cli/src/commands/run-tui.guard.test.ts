@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
 import {
   looksLikeMoxxyRunner,
   readSocketHolderPid,
@@ -31,18 +30,11 @@ describe('looksLikeMoxxyRunner (kill guard)', () => {
     expect(await looksLikeMoxxyRunner(2_000_000_000)).toBe(false);
   });
 
-  it('does not match an unrelated live process (no blanket approval of a live PID)', async () => {
-    // The guard must not approve a PID merely because the process exists.
-    // `sleep` is used rather than the test runner itself: the runner's argv
-    // carries the absolute path of this checkout, which contains "moxxy".
-    const unrelated = spawn('sleep', ['30'], { stdio: 'ignore' });
-    try {
-      const pid = unrelated.pid;
-      expect(pid).toBeGreaterThan(0);
-      expect(await looksLikeMoxxyRunner(pid as number)).toBe(false);
-    } finally {
-      unrelated.kill('SIGKILL');
-    }
+  it('does not match the test runner process itself (not a moxxy runner)', async () => {
+    // The vitest/node process command line contains no "moxxy"/"serve", so the
+    // guard must return false — confirming it does not blanket-approve any live
+    // PID just because the process exists.
+    expect(await looksLikeMoxxyRunner(process.pid)).toBe(false);
   });
 });
 
