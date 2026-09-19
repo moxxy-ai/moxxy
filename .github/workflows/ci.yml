@@ -37,7 +37,18 @@ jobs:
     # Only PRs have a base branch to diff against, and only FEATURE PRs (those
     # targeting `development`) must add one. `main` is machine-advanced by the
     # release workflow (no PR), so nothing else reaches this gate.
-    if: github.event_name == 'pull_request' && github.base_ref == 'development'
+    #
+    # Dependabot is exempt because it cannot satisfy this: it never writes a
+    # changeset, so every one of its PRs failed here permanently and the red
+    # check stopped carrying information. A dependency bump that does change a
+    # published package still needs a changeset — that is the reviewer's call
+    # when merging, which is where the judgement belongs anyway. Keyed on the PR
+    # author rather than `github.actor`, so a human re-running the checks on a
+    # dependabot PR does not suddenly bring the gate back.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.base_ref == 'development'
+      && github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
