@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// vitest constructs a mock's implementation with `new`, which an arrow function
+// rejects. Constructor fakes must therefore be ordinary functions.
+function ctorMock<A extends unknown[], T>(create: (...args: A) => T) {
+  return vi.fn(function (...args: A): T {
+    return create(...args);
+  });
+}
+
 describe('focus-window', () => {
   afterEach(() => {
     vi.resetModules();
@@ -26,7 +34,7 @@ describe('focus-window', () => {
     };
 
     vi.doMock('electron', () => ({
-      BrowserWindow: vi.fn((options: Record<string, unknown>) => {
+      BrowserWindow: ctorMock((options: Record<string, unknown>) => {
         createdOptions.push(options);
         return fakeWindow;
       }),
@@ -83,7 +91,7 @@ describe('focus-window', () => {
     };
 
     vi.doMock('electron', () => ({
-      BrowserWindow: vi.fn(() => fakeWindow),
+      BrowserWindow: ctorMock(() => fakeWindow),
       screen: {
         getPrimaryDisplay: () => ({
           workArea: { x: 0, y: 0, width: 1000, height: 800 },
@@ -144,7 +152,7 @@ describe('focus-window', () => {
     };
 
     vi.doMock('electron', () => ({
-      BrowserWindow: vi.fn(() => fakeWindow),
+      BrowserWindow: ctorMock(() => fakeWindow),
       screen: {
         getPrimaryDisplay: () => ({
           workArea: { x: 0, y: 0, width: 1000, height: 800 },
@@ -206,7 +214,7 @@ describe('focus-window', () => {
     };
 
     vi.doMock('electron', () => ({
-      BrowserWindow: vi.fn(() => fakeWindow),
+      BrowserWindow: ctorMock(() => fakeWindow),
       screen: {
         getPrimaryDisplay: () => ({
           workArea: { x: 0, y: 0, width: 1000, height: 800 },
@@ -261,7 +269,7 @@ describe('focus-window', () => {
     };
 
     vi.doMock('electron', () => ({
-      BrowserWindow: vi.fn(() => fakeWindow),
+      BrowserWindow: ctorMock(() => fakeWindow),
       screen: {
         getPrimaryDisplay: () => ({
           workArea: { x: 0, y: 0, width: 1000, height: 800 },
