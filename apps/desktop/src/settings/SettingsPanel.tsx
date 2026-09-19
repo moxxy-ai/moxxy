@@ -48,6 +48,7 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
         onToggle={s.setProviderEnabled}
         onConfigure={s.configureProvider}
         onSetKey={s.setProviderKey}
+        onActivate={s.activateProvider}
         onRefresh={s.refresh}
         search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
       />

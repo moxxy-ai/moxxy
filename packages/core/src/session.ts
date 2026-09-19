@@ -11,6 +11,7 @@ import type {
   SessionId,
   SessionInfo,
   GovernanceInfo,
+  LLMProvider,
 } from '@moxxy/sdk';
 import { newSessionId, newTurnId } from './events/factory.js';
 import { runTurn as runTurnImpl } from './run-turn.js';
@@ -579,6 +580,15 @@ export class Session implements ClientSession, SessionRuntime {
       // No mode active yet (registry empty pre-boot) - report null.
     }
     const active = this.providers.getActiveName();
+    let activeProviderModels: LLMProvider['models'] | null = null;
+    if (active) {
+      try {
+        activeProviderModels = this.providers.getActive().models;
+      } catch {
+        // A definition can be registered/selected before credentials build an
+        // instance. Fall back to its declared catalog until activation lands.
+      }
+    }
     const ready = this.readyProviders;
     return {
       sessionId: this.id,
@@ -588,16 +598,9 @@ export class Session implements ClientSession, SessionRuntime {
       activeProvider: active,
       providers: this.providers.list().map((p) => ({
         name: p.name,
-        models: p.models,
+        models: p.name === active && activeProviderModels ? activeProviderModels : p.models,
         authKind: p.auth?.kind === 'oauth' ? 'oauth' : 'api-key',
-        // Built-in providers ship hard-coded model lists, so live
-        // discovery on /v1/models isn't required from the host. Admin-
-        // registered providers (kind: 'apiKey' without a builtin def)
-        // are the ones the desktop's "Fetch live" affordance targets;
-        // they advertise this via the provider-admin factory by
-        // setting `supportsLiveModelDiscovery: true` on their def.
-        supportsLiveModelDiscovery:
-          (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
+        supportsLiveModelDiscovery: p.supportsLiveModelDiscovery === true,
         enabled: this.providers.isEnabled(p.name),
       })),
       activeMode,

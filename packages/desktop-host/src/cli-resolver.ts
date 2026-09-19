@@ -18,6 +18,13 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { delimiter } from 'node:path';
+import {
+  executableCandidates,
+  findExecutable,
+  resolveExecutableTarget,
+} from '@moxxy/sdk/server';
+
+export { executableCandidates, findExecutable };
 
 export type CliInvocation =
   | { kind: 'direct'; bin: string }
@@ -27,6 +34,10 @@ export interface ResolveOptions {
   /** Extra directories to consult in addition to PATH. The main
    *  process passes the macOS GUI-launch fallbacks; tests pass none. */
   readonly extraPaths?: ReadonlyArray<string>;
+  /** Test seams for exercising Windows resolution on another host. */
+  readonly platform?: NodeJS.Platform;
+  readonly pathEnv?: string;
+  readonly pathext?: string;
 }
 
 /**
@@ -60,8 +71,14 @@ export function resolveMoxxyCli(opts: ResolveOptions = {}): CliInvocation | null
   const monorepo = walkUpForMonorepoCli();
   if (monorepo) return { kind: 'node', entry: monorepo };
 
-  const onPath = findExecutable('moxxy', opts.extraPaths ?? []);
-  if (onPath) return { kind: 'direct', bin: onPath };
+  const onPath = resolveExecutableTarget('moxxy', {
+    extraPaths: opts.extraPaths ?? [],
+    ...(opts.platform ? { platform: opts.platform } : {}),
+    ...(opts.pathEnv !== undefined ? { pathEnv: opts.pathEnv } : {}),
+    ...(opts.pathext !== undefined ? { pathext: opts.pathext } : {}),
+  });
+  if (onPath?.kind === 'node') return { kind: 'node', entry: onPath.entry };
+  if (onPath) return { kind: 'direct', bin: onPath.command };
 
   return null;
 }
@@ -214,45 +231,6 @@ function isReadableFile(p: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Filenames to try for executable `name` on `platform`. On Windows an
- * executable carries an extension (`node.exe`, `npm.cmd`), so a bare `node`
- * NEVER resolves — expand to the PATHEXT variants. Elsewhere the bare name IS
- * the executable. If `name` already has an extension it's used verbatim.
- */
-export function executableCandidates(
-  name: string,
-  platform: NodeJS.Platform = process.platform,
-  pathext: string | undefined = process.env.PATHEXT,
-): string[] {
-  if (platform !== 'win32' || path.extname(name)) return [name];
-  const exts = (pathext ?? '.COM;.EXE;.BAT;.CMD')
-    .split(';')
-    .map((e) => e.trim())
-    .filter(Boolean)
-    .map((e) => (e.startsWith('.') ? e : `.${e}`).toLowerCase());
-  // Bare name first (a few tools ship extensionless), then the PATHEXT variants.
-  return [name, ...exts.map((e) => name + e)];
-}
-
-/**
- * First `name` found in PATH (plus `extra` dirs), or null. Used both to resolve
- * `moxxy` and — by the installer/onboarding probe — to locate `node`/`npm` on a
- * GUI-launch PATH. Tries the platform's executable extensions (Windows).
- */
-export function findExecutable(name: string, extra: ReadonlyArray<string>): string | null {
-  const pathEnv = process.env.PATH ?? '';
-  const dirs = pathEnv.split(delimiter).concat(extra).filter(Boolean);
-  const candidates = executableCandidates(name);
-  for (const dir of dirs) {
-    for (const candidate of candidates) {
-      const full = path.join(dir, candidate);
-      if (isReadableFile(full)) return full;
-    }
-  }
-  return null;
 }
 
 function walkUpForMonorepoCli(): string | null {

@@ -55,6 +55,7 @@ function snapshotFrom(
     waitingSoundEnabled: call.waitingSoundEnabled,
     localPiperInstallRequired: call.localPiperInstallRequired,
     localPiperInstalling: call.localPiperInstalling,
+    localPiperInstallError: call.localPiperInstallError?.slice(0, 500) ?? null,
     queuedTurns: queuedTurns.slice(0, 32).map((turn) => ({
       id: turn.id.slice(0, 128),
       prompt: turn.prompt.slice(0, 4_096),
@@ -209,6 +210,7 @@ export function useDesktopVoiceCallBridge({
     localCall.microphoneMuted,
     localCall.localPiperInstallRequired,
     localCall.localPiperInstalling,
+    localCall.localPiperInstallError,
     localCall.phase,
     localCall.waitingSoundEnabled,
     queuedTurns,

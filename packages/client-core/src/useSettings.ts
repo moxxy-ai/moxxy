@@ -32,6 +32,9 @@ export interface UseSettings {
    *  re-probe credentials so the readiness dot flips live. Throws for
    *  inline error rendering. */
   readonly setProviderKey: (keyName: string, value: string) => Promise<void>;
+  /** Activate a provider through the runner and refresh only after the
+   *  activation has been confirmed. Throws for inline OAuth error rendering. */
+  readonly activateProvider: (name: string) => Promise<void>;
   readonly readSkill: (name: string) => Promise<string>;
   readonly writeSkill: (name: string, body: string) => Promise<void>;
   readonly deleteSkill: (name: string) => Promise<void>;
@@ -136,6 +139,14 @@ export function useSettings(): UseSettings {
     [refresh],
   );
 
+  const activateProvider = useCallback(
+    async (name: string): Promise<void> => {
+      await api().invoke('session.setProvider', { provider: name });
+      await refresh();
+    },
+    [refresh],
+  );
+
   const readSkill = useCallback(
     async (name: string): Promise<string> =>
       api().invoke('settings.readSkill', { name }),
@@ -199,6 +210,7 @@ export function useSettings(): UseSettings {
     setProviderEnabled,
     configureProvider,
     setProviderKey,
+    activateProvider,
     readSkill,
     writeSkill,
     deleteSkill,

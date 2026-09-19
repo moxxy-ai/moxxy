@@ -165,6 +165,7 @@ function ChatBridge({ children }: PropsWithChildren): React.JSX.Element {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   configurePlatform({});
   __setApiOverride(null);
 });
@@ -1089,6 +1090,182 @@ describe('useVoiceCall integration', () => {
     await waitFor(() => expect(audio.captures).toHaveLength(1));
   });
 
+  it('keeps post-install recovery alive while the runner disconnects and reconnects', async () => {
+    const installation = deferred<void>();
+    let installed = false;
+    let connected = true;
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') {
+        if (!connected) throw new Error('not connected to a runner');
+        return true;
+      }
+      if (channel === 'session.info') {
+        if (!connected) throw new Error('not connected to a runner');
+        return { activeSynthesizer: installed ? 'local-piper' : 'elevenlabs' };
+      }
+      if (channel === 'voice.isLocalPiperInstalled') return installed;
+      if (channel === 'voice.installLocalPiper') {
+        await installation.promise;
+        installed = true;
+        return undefined;
+      }
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result, rerender } = renderHook(
+      ({ ready }) => useVoiceCall({
+        workspaceId: 'workspace-reconnecting-during-piper-install',
+        ready,
+        chat: chat(),
+        inputRequired: false,
+      }),
+      { initialProps: { ready: true } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.localPiperInstallRequired).toBe(true));
+    act(() => result.current.installLocalPiper());
+    await waitFor(() => expect(result.current.localPiperInstalling).toBe(true));
+
+    connected = false;
+    rerender({ ready: false });
+    act(() => installation.resolve(undefined));
+
+    expect(result.current.localPiperInstalling).toBe(true);
+
+    connected = true;
+    rerender({ ready: true });
+
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    expect(result.current.localPiperInstalling).toBe(false);
+    expect(result.current.localPiperInstallRequired).toBe(false);
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+  });
+
+  it('waits beyond the runner socket timeout instead of exposing a premature retry', async () => {
+    const installation = deferred<void>();
+    let installed = false;
+    let connected = true;
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') {
+        if (!connected) throw new Error('runner socket is not ready');
+        return true;
+      }
+      if (channel === 'session.info') {
+        if (!connected) throw new Error('runner socket is not ready');
+        return { activeSynthesizer: installed ? 'local-piper' : 'elevenlabs' };
+      }
+      if (channel === 'voice.isLocalPiperInstalled') return installed;
+      if (channel === 'voice.installLocalPiper') {
+        await installation.promise;
+        installed = true;
+        return undefined;
+      }
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result, rerender } = renderHook(
+      ({ ready }) => useVoiceCall({
+        workspaceId: 'workspace-slow-runner-restart',
+        ready,
+        chat: chat(),
+        inputRequired: false,
+      }),
+      { initialProps: { ready: true } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.localPiperInstallRequired).toBe(true));
+    act(() => result.current.installLocalPiper());
+    await waitFor(() => expect(result.current.localPiperInstalling).toBe(true));
+
+    connected = false;
+    rerender({ ready: false });
+    vi.useFakeTimers();
+    await act(async () => {
+      installation.resolve(undefined);
+      await Promise.resolve();
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(21_000));
+    expect(result.current.localPiperInstalling).toBe(true);
+    expect(result.current.phase).toBe('checking');
+
+    connected = true;
+    rerender({ ready: true });
+    await act(async () => vi.advanceTimersByTimeAsync(8_000));
+
+    expect(result.current.phase).toBe('listening');
+    expect(result.current.localPiperInstalling).toBe(false);
+    expect(result.current.localPiperInstallRequired).toBe(false);
+    expect(audio.captures).toHaveLength(1);
+  });
+
+  it('keeps recovering while repeated runtime reloads outlast the retry window', async () => {
+    const installation = deferred<void>();
+    let installed = false;
+    let connected = true;
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') {
+        if (!connected) throw new Error('runtime is reloading');
+        return true;
+      }
+      if (channel === 'session.info') {
+        if (!connected) throw new Error('runtime is reloading');
+        return { activeSynthesizer: installed ? 'local-piper' : 'elevenlabs' };
+      }
+      if (channel === 'voice.isLocalPiperInstalled') return installed;
+      if (channel === 'voice.installLocalPiper') {
+        await installation.promise;
+        installed = true;
+        return undefined;
+      }
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result, rerender } = renderHook(
+      ({ ready }) => useVoiceCall({
+        workspaceId: 'workspace-repeated-runtime-reloads',
+        ready,
+        chat: chat(),
+        inputRequired: false,
+      }),
+      { initialProps: { ready: true } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.localPiperInstallRequired).toBe(true));
+    act(() => result.current.installLocalPiper());
+    await waitFor(() => expect(result.current.localPiperInstalling).toBe(true));
+
+    connected = false;
+    rerender({ ready: false });
+    vi.useFakeTimers();
+    await act(async () => {
+      installation.resolve(undefined);
+      await Promise.resolve();
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(result.current.localPiperInstalling).toBe(true);
+    expect(result.current.phase).toBe('checking');
+
+    connected = true;
+    rerender({ ready: true });
+    await act(async () => vi.advanceTimersByTimeAsync(4_000));
+
+    expect(result.current.phase).toBe('listening');
+    expect(result.current.localPiperInstalling).toBe(false);
+    expect(result.current.localPiperInstallRequired).toBe(false);
+    expect(audio.captures).toHaveLength(1);
+  });
+
   it('keeps the Local Piper installer available after an installation failure', async () => {
     const transport = createTransport();
     transport.invoke.mockImplementation(async (channel: string) => {
@@ -1114,6 +1291,7 @@ describe('useVoiceCall integration', () => {
     await waitFor(() => expect(result.current.localPiperInstalling).toBe(false));
     expect(result.current.phase).toBe('error');
     expect(result.current.localPiperInstallRequired).toBe(true);
+    expect(result.current.localPiperInstallError).toContain('npm download failed');
     expect(result.current.errorReason).toContain('npm download failed');
   });
 

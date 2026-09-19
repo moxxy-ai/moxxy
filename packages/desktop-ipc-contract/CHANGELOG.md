@@ -1,5 +1,12 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.14.22
+
+### Patch Changes
+
+- Updated dependencies [1d983d9]
+  - @moxxy/sdk@0.39.0
+
 ## 0.14.21
 
 ### Patch Changes

@@ -11,6 +11,7 @@
 export interface ProviderInfo {
   readonly name: string;
   readonly models: ReadonlyArray<{ readonly id: string }>;
+  readonly supportsLiveModelDiscovery?: boolean;
 }
 
 /**

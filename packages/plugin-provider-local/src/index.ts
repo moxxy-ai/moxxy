@@ -1,8 +1,19 @@
-import { definePlugin, MoxxyError, type ModelDescriptor } from '@moxxy/sdk';
 import {
-  defineOpenAICompatProvider,
+  classifyHttpStatus,
+  classifyNetworkError,
+  definePlugin,
+  defineProvider,
+  MoxxyError,
+  type LLMProvider,
+  type ModelDescriptor,
+} from '@moxxy/sdk';
+import {
+  OpenAIProvider,
+  openAICompatModelsURL,
+  pickOpenAICompatConfig,
   type OpenAICompatConfig,
 } from '@moxxy/plugin-provider-openai';
+import { z } from 'zod';
 
 /**
  * Default endpoint: Ollama's OpenAI-compatible server. Override with the
@@ -125,6 +136,309 @@ function resolveLocalBaseURL(cfg: OpenAICompatConfig): string {
   return raw;
 }
 
+const localModelsResponseSchema = z.object({
+  data: z.array(z.object({ id: z.unknown() }).passthrough()).nullable(),
+}).passthrough();
+
+const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+const OLLAMA_METADATA_TIMEOUT_MS = 2_000;
+const OLLAMA_UNLOADED_CONTEXT_FLOOR = 4_096;
+const MAX_CONTEXT_WINDOW = 10_000_000;
+
+export interface LocalModelDiscoveryOptions {
+  readonly signal?: AbortSignal;
+}
+
+const ollamaRunningResponseSchema = z.object({
+  models: z.array(z.object({
+    name: z.string().optional(),
+    model: z.string().optional(),
+    context_length: z.number().int().positive().max(MAX_CONTEXT_WINDOW).optional(),
+  }).passthrough()),
+}).passthrough();
+
+const ollamaShowResponseSchema = z.object({
+  model_info: z.record(z.string(), z.unknown()).optional(),
+  parameters: z.string().optional(),
+  modelfile: z.string().optional(),
+  capabilities: z.array(z.string()).optional(),
+}).passthrough();
+
+type OllamaRunningResponse = z.infer<typeof ollamaRunningResponseSchema>;
+type OllamaShowResponse = z.infer<typeof ollamaShowResponseSchema>;
+
+/**
+ * Read the model catalog exposed by Ollama or another OpenAI-compatible local
+ * server. IDs are returned byte-for-byte as advertised because tags, owner
+ * prefixes and `:cloud` suffixes are part of the model's public identifier.
+ */
+export async function discoverLocalModels(
+  config: OpenAICompatConfig = {},
+  options: LocalModelDiscoveryOptions = {},
+): Promise<ReadonlyArray<string>> {
+  const baseURL = resolveLocalBaseURL(config);
+  const modelsURL = openAICompatModelsURL(baseURL);
+  const signal = options.signal ?? AbortSignal.timeout(MODEL_DISCOVERY_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(modelsURL, {
+      headers: { accept: 'application/json' },
+      signal,
+    });
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'TimeoutError') {
+      throw new MoxxyError({
+        code: 'NETWORK_TIMEOUT',
+        message: `Local model discovery timed out at ${new URL(modelsURL).host}.`,
+        hint: 'Make sure Ollama is running, then try refreshing the model list.',
+        context: { provider: 'local', url: modelsURL },
+        cause,
+      });
+    }
+    const classified = classifyNetworkError(cause, { provider: 'local', url: modelsURL });
+    if (classified) throw classified;
+    throw MoxxyError.wrap(cause, {
+      code: 'NETWORK_UNREACHABLE',
+      message: `Could not reach the local model server at ${new URL(modelsURL).host}.`,
+      hint: 'Make sure Ollama is running, then try refreshing the model list.',
+      context: { provider: 'local', url: modelsURL },
+    });
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    const classified = classifyHttpStatus(response.status, {
+      provider: 'local',
+      url: modelsURL,
+      body,
+    });
+    if (classified) throw classified;
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: `Local model server returned HTTP ${response.status}.`,
+      context: { provider: 'local', url: modelsURL, status: response.status },
+    });
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (cause) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'Local model server returned invalid JSON from /v1/models.',
+      hint: 'Check that LOCAL_MODEL_BASE_URL points to an OpenAI-compatible endpoint.',
+      context: { provider: 'local', url: modelsURL },
+      cause,
+    });
+  }
+
+  const parsed = localModelsResponseSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'Local model server returned an invalid /v1/models response.',
+      hint: 'Check that LOCAL_MODEL_BASE_URL points to an OpenAI-compatible endpoint.',
+      context: { provider: 'local', url: modelsURL },
+      cause: parsed.error,
+    });
+  }
+
+  const ids = (parsed.data.data ?? [])
+    .map((model) => model.id)
+    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  return [...new Set(ids)].sort();
+}
+
+/**
+ * Enrich the live local catalog with Ollama-native runtime metadata. Servers
+ * that only implement the OpenAI-compatible surface retain the existing
+ * conservative descriptors; no Ollama endpoint is assumed from a model id.
+ */
+export async function discoverLocalModelDescriptors(
+  config: OpenAICompatConfig = {},
+  options: LocalModelDiscoveryOptions = {},
+): Promise<ReadonlyArray<ModelDescriptor>> {
+  const ids = await discoverLocalModels(config, options);
+  if (ids.length === 0) return [];
+  const baseURL = resolveLocalBaseURL(config);
+  const running = await readOllamaRunning(baseURL, options.signal);
+  if (!running) return ids.map(genericLocalDescriptor);
+
+  return Promise.all(ids.map(async (id) => {
+    const show = await readOllamaShow(baseURL, id, options.signal);
+    return ollamaDescriptor(id, running, show);
+  }));
+}
+
+async function discoverOllamaModelDescriptor(
+  model: string,
+  config: OpenAICompatConfig,
+  options: LocalModelDiscoveryOptions,
+): Promise<ModelDescriptor | null> {
+  const baseURL = resolveLocalBaseURL(config);
+  const running = await readOllamaRunning(baseURL, options.signal);
+  if (!running) return null;
+  const show = await readOllamaShow(baseURL, model, options.signal);
+  return ollamaDescriptor(model, running, show);
+}
+
+function genericLocalDescriptor(id: string): ModelDescriptor {
+  const seeded = localModels.find((model) => model.id === id);
+  return seeded ?? {
+    id,
+    contextWindow: LOCAL_CONTEXT_FLOOR,
+    supportsTools: true,
+    supportsStreaming: true,
+  };
+}
+
+function ollamaDescriptor(
+  id: string,
+  running: OllamaRunningResponse,
+  show: OllamaShowResponse | null,
+): ModelDescriptor {
+  const active = running.models.find((entry) => entry.name === id || entry.model === id);
+  const maximum = show ? modelMaximumContext(show.model_info) : null;
+  const configured = show ? configuredNumCtx(show) : null;
+  const contextWindow = active?.context_length
+    ?? clampConfiguredContext(configured, maximum)
+    ?? Math.min(maximum ?? OLLAMA_UNLOADED_CONTEXT_FLOOR, OLLAMA_UNLOADED_CONTEXT_FLOOR);
+  const capabilities = show?.capabilities;
+  const seeded = localModels.find((model) => model.id === id);
+  const supportsTools = capabilities
+    ? capabilities.includes('tools')
+    : (seeded?.supportsTools ?? true);
+  const supportsImages = capabilities?.includes('vision') === true;
+  return {
+    id,
+    contextWindow,
+    supportsTools,
+    supportsStreaming: true,
+    ...(supportsImages ? { supportsImages: true } : {}),
+  };
+}
+
+function modelMaximumContext(modelInfo: Record<string, unknown> | undefined): number | null {
+  if (!modelInfo) return null;
+  const values = Object.entries(modelInfo)
+    .filter(([key]) => key.endsWith('.context_length'))
+    .map(([, value]) => value)
+    .filter((value): value is number => (
+      typeof value === 'number'
+      && Number.isInteger(value)
+      && value > 0
+      && value <= MAX_CONTEXT_WINDOW
+    ));
+  return values.length > 0 ? Math.max(...values) : null;
+}
+
+function configuredNumCtx(show: OllamaShowResponse): number | null {
+  const sources = [show.parameters, show.modelfile].filter(
+    (value): value is string => typeof value === 'string',
+  );
+  for (const source of sources) {
+    const match = /(?:^|\n)\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\b/im.exec(source);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isInteger(value) && value > 0 && value <= MAX_CONTEXT_WINDOW) return value;
+  }
+  return null;
+}
+
+function clampConfiguredContext(configured: number | null, maximum: number | null): number | null {
+  if (!configured) return null;
+  return maximum ? Math.min(configured, maximum) : configured;
+}
+
+function ollamaNativeURL(baseURL: string, endpoint: 'ps' | 'show'): string {
+  const url = new URL(baseURL);
+  url.search = '';
+  url.hash = '';
+  let path = url.pathname.replace(/\/+$/, '');
+  if (path.endsWith('/v1/models')) path = path.slice(0, -'/v1/models'.length);
+  else if (path.endsWith('/v1')) path = path.slice(0, -'/v1'.length);
+  url.pathname = `${path}/api/${endpoint}`;
+  return url.toString();
+}
+
+function metadataSignal(signal?: AbortSignal): AbortSignal {
+  return signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(OLLAMA_METADATA_TIMEOUT_MS)])
+    : AbortSignal.timeout(OLLAMA_METADATA_TIMEOUT_MS);
+}
+
+async function readOllamaRunning(
+  baseURL: string,
+  signal?: AbortSignal,
+): Promise<OllamaRunningResponse | null> {
+  try {
+    const response = await fetch(ollamaNativeURL(baseURL, 'ps'), {
+      headers: { accept: 'application/json' },
+      signal: metadataSignal(signal),
+    });
+    if (!response.ok) return null;
+    const parsed = ollamaRunningResponseSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readOllamaShow(
+  baseURL: string,
+  model: string,
+  signal?: AbortSignal,
+): Promise<OllamaShowResponse | null> {
+  try {
+    const response = await fetch(ollamaNativeURL(baseURL, 'show'), {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({ model }),
+      signal: metadataSignal(signal),
+    });
+    if (!response.ok) return null;
+    const parsed = ollamaShowResponseSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+class OllamaAwareLocalProvider implements LLMProvider {
+  readonly name = 'local';
+  readonly models: ReadonlyArray<ModelDescriptor>;
+
+  constructor(
+    private readonly delegate: OpenAIProvider,
+    private readonly catalog: ModelDescriptor[],
+    private readonly config: OpenAICompatConfig,
+  ) {
+    this.models = catalog;
+  }
+
+  async prepareModel(
+    model: string,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<void> {
+    if (options.signal?.aborted) return;
+    const descriptor = await discoverOllamaModelDescriptor(model, this.config, options);
+    if (!descriptor || options.signal?.aborted) return;
+    const index = this.catalog.findIndex((candidate) => candidate.id === model);
+    if (index >= 0) this.catalog.splice(index, 1, descriptor);
+    else this.catalog.push(descriptor);
+  }
+
+  stream(req: Parameters<OpenAIProvider['stream']>[0]) {
+    return this.delegate.stream(req);
+  }
+
+  countTokens(req: Parameters<OpenAIProvider['countTokens']>[0]): Promise<number> {
+    return this.delegate.countTokens(req);
+  }
+}
+
 /**
  * Local models via any OpenAI-compatible server (Ollama, LM Studio, llama.cpp,
  * vLLM). Reuses the shared {@link defineOpenAICompatProvider} pointed at a
@@ -139,14 +453,23 @@ function resolveLocalBaseURL(cfg: OpenAICompatConfig): string {
  * (desktop / provider-admin direct `createClient`) don't — these `resolve*`
  * functions are the authoritative readers for them, with identical precedence.
  */
-export const localProviderDef = defineOpenAICompatProvider({
+export const localProviderDef = defineProvider({
   name: 'local',
-  baseURL: DEFAULT_LOCAL_BASE_URL,
-  defaultModel: LOCAL_DEFAULT_MODEL,
-  models: localModels,
-  validate: false,
-  resolveApiKey: (cfg) => cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
-  resolveBaseURL: resolveLocalBaseURL,
+  models: [...localModels],
+  supportsLiveModelDiscovery: true,
+  createClient: (config) => {
+    const cfg = pickOpenAICompatConfig(config);
+    const baseURL = resolveLocalBaseURL(cfg);
+    const catalog = [...localModels];
+    const delegate = new OpenAIProvider({
+      apiKey: cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
+      name: 'local',
+      baseURL,
+      defaultModel: cfg.defaultModel ?? LOCAL_DEFAULT_MODEL,
+      models: catalog,
+    });
+    return new OllamaAwareLocalProvider(delegate, catalog, { ...cfg, baseURL });
+  },
   auth: { kind: 'none' },
 });
 

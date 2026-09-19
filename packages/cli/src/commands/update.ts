@@ -12,8 +12,12 @@
  * never an error.
  */
 
-import { spawn } from 'node:child_process';
 import { confirm, isCancel } from '@clack/prompts';
+import {
+  resolveExecutableTarget,
+  spawnExecutableTarget,
+  type ExecutableSearchOptions,
+} from '@moxxy/sdk/server';
 
 import type { ParsedArgv } from '../argv.js';
 import { confirmedYes, hasBoolFlag, helpRequested } from '../argv-helpers.js';
@@ -46,16 +50,34 @@ const HELP = formatHelp({
   ],
 });
 
-/** Run a command, inheriting stdio so the user watches npm/pnpm output live. */
-async function runCommand(cmd: ReadonlyArray<string>): Promise<number> {
+export interface RunUpdateProcessOptions {
+  readonly resolution?: ExecutableSearchOptions;
+  readonly stderr?: (message: string) => void;
+}
+
+/** Run an update command without exposing its argv to a command shell. */
+export async function runUpdateProcess(
+  cmd: ReadonlyArray<string>,
+  opts: RunUpdateProcessOptions = {},
+): Promise<number> {
   const [bin, ...args] = cmd;
   if (!bin) return 1;
+  const writeError = opts.stderr ?? ((message: string) => process.stderr.write(`${message}\n`));
   return new Promise<number>((resolve) => {
-    const proc = spawn(bin, args, {
-      stdio: 'inherit',
-      // npm/pnpm/yarn/bun are `.cmd` shims on Windows — needs a shell to launch.
-      shell: process.platform === 'win32',
-    });
+    let target;
+    try {
+      target = resolveExecutableTarget(bin, opts.resolution);
+    } catch (error) {
+      writeError(error instanceof Error ? error.message : String(error));
+      resolve(127);
+      return;
+    }
+    if (!target) {
+      writeError(`Update command not found on PATH: ${bin}`);
+      resolve(127);
+      return;
+    }
+    const proc = spawnExecutableTarget(target, args, { stdio: 'inherit' });
     proc.on('error', () => resolve(127));
     proc.on('exit', (code) => resolve(code ?? 1));
   });
@@ -85,7 +107,7 @@ export async function runUpdateCommand(argv: ParsedArgv, deps: UpdateDeps = {}):
   const checkOnly = hasBoolFlag(argv, 'check') || hasBoolFlag(argv, 'dry-run');
   const check = deps.check ?? ((c) => checkForCliUpdate(c, { force: true }));
   const detect = deps.detect ?? (() => detectInstall());
-  const run = deps.run ?? runCommand;
+  const run = deps.run ?? runUpdateProcess;
 
   out(colors.dim('Checking for updates…\n'));
   const result = await check(current);

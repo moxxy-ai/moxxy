@@ -564,6 +564,7 @@ describe('FocusWidget stages', () => {
           waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
+          localPiperInstallError: null,
         },
       });
       owner.postMessage({
@@ -622,6 +623,7 @@ describe('FocusWidget stages', () => {
           waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
+          localPiperInstallError: null,
         },
       });
       await waitFor(() => {
@@ -677,6 +679,7 @@ describe('FocusWidget stages', () => {
           waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
+          localPiperInstallError: null,
           queuedTurns: [{ id: 'q-voice-1', prompt: 'Transcribed voice follow-up' }],
         },
       });

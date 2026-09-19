@@ -98,14 +98,23 @@ export function useContextUsage(workspaceId: string | null): ContextUsage {
   useEffect(() => {
     if (!workspaceId) return;
     let cancelled = false;
-    void api()
-      .invoke('session.info', { workspaceId })
-      .then((raw) => {
-        if (!cancelled) setInfo(raw);
-      })
-      .catch(() => {});
+    let request = 0;
+    const refresh = (): void => {
+      const current = ++request;
+      void api()
+        .invoke('session.info', { workspaceId })
+        .then((raw) => {
+          if (!cancelled && current === request) setInfo(raw);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const off = api().subscribe('session.info.changed', ({ workspaceId: changed }) => {
+      if (changed === workspaceId) refresh();
+    });
     return () => {
       cancelled = true;
+      off();
     };
   }, [workspaceId, model]);
 

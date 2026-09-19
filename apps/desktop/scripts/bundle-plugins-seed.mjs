@@ -18,13 +18,16 @@
  * IMPORTANT: build the workspace first — a package packed without dist/ is
  * silently skipped by plugin discovery at runtime.
  */
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { writeFileAtomicSync } from '@moxxy/sdk/server';
+import {
+  execExecutableTargetSync,
+  resolveExecutableTarget,
+  writeFileAtomicSync,
+} from '@moxxy/sdk/server';
 
 /** On-demand plugins seeded into the desktop. Extend as batches unbundle. */
 const SEED_PLUGINS = [
@@ -73,16 +76,16 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');
 const tarDir = mkdtempSync(path.join(tmpdir(), 'moxxy-seed-tars-'));
 
-// On Windows pnpm/npm are .cmd shims Node refuses to spawn directly
-// (CVE-2024-27980) — route through the shell there, quoting spaced args.
-const isWin = process.platform === 'win32';
-const winArg = (a) => (/\s/.test(a) ? `"${a}"` : a);
-const run = (cmd, args, opts = {}) =>
-  execFileSync(cmd, isWin ? args.map(winArg) : args, {
+const run = (cmd, args, opts = {}) => {
+  const target = resolveExecutableTarget(cmd, {
+    nodeEntryHint: packageManagerEntryHint(cmd),
+  });
+  if (!target) throw new Error(`Build command not found on PATH: ${cmd}`);
+  execExecutableTargetSync(target, args, {
     stdio: ['ignore', 'inherit', 'inherit'],
-    shell: isWin,
     ...opts,
   });
+};
 
 rmSync(seedDir, { recursive: true, force: true });
 mkdirSync(seedDir, { recursive: true });
@@ -136,4 +139,13 @@ function isTransientSeedTarball(spec) {
     spec.startsWith('file:') &&
     /(?:^|[\\/])moxxy-seed-tars-[^\\/]+[\\/][^\\/]+\.tgz$/i.test(spec.slice(5))
   );
+}
+
+function packageManagerEntryHint(command) {
+  const entry = process.env.npm_execpath;
+  if (!entry) return undefined;
+  const basename = path.basename(entry).toLowerCase();
+  if (command === 'pnpm' && (basename === 'pnpm.cjs' || basename === 'pnpm.js')) return entry;
+  if (command === 'npm' && (basename === 'npm-cli.js' || basename === 'npm.js')) return entry;
+  return undefined;
 }

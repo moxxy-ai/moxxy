@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { assertDefined, encodeLoginPrompt } from '@moxxy/sdk';
+import { assertDefined, encodeLoginAuthUrl, encodeLoginPrompt } from '@moxxy/sdk';
 
 const h = vi.hoisted(() => ({
   spawn: undefined as undefined | ((...args: unknown[]) => unknown),
@@ -32,8 +32,6 @@ vi.mock('./send-event', () => ({
   sendEvent: (_w: unknown, channel: string, payload: Record<string, unknown>) =>
     h.sent.push({ channel, payload }),
 }));
-vi.mock('./security', () => ({ assertSafeProviderName: () => undefined }));
-
 import {
   answerProviderLogin,
   cancelProviderLogin,
@@ -90,6 +88,48 @@ describe('provider-login relay', () => {
     });
     answerProviderLogin('idR', 'subscription-secret');
     expect(events('provider.login.output').flatMap((event) => Object.values(event))).not.toContain('subscription-secret');
+  });
+
+  it('opens a validated auth URL through the injected Electron callback and emits a renderer fallback event', async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const url = 'https://auth.example.test/authorize?state=opaque';
+    startProviderLogin('id-auth', 'openai-codex', fakeWindow, { openExternal });
+
+    current.stdout.emit('data', Buffer.from(encodeLoginAuthUrl(url)));
+
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith(url));
+    expect(events('provider.login.authUrl')[0]).toEqual({ loginId: 'id-auth', url });
+  });
+
+  it('keeps the renderer fallback available when the native browser opener throws synchronously', () => {
+    const openExternal = vi.fn((_url: string): Promise<void> => {
+      throw new Error('native opener unavailable');
+    });
+    const url = 'https://auth.example.test/authorize?state=opaque';
+    startProviderLogin('id-auth-fallback', 'openai-codex', fakeWindow, { openExternal });
+
+    expect(() => current.stdout.emit('data', Buffer.from(encodeLoginAuthUrl(url)))).not.toThrow();
+    expect(events('provider.login.authUrl')[0]).toEqual({ loginId: 'id-auth-fallback', url });
+    expect(events('provider.login.output').map((event) => event.text)).toContainEqual(
+      expect.stringContaining('Could not open the sign-in page automatically'),
+    );
+  });
+
+  it.each([
+    ['unsafe-file', 'file:///etc/passwd'],
+    ['unsafe-js', 'javascript:alert(1)'],
+    ['unsafe-creds', 'https://alice:secret@auth.example.test/authorize'],
+  ])('does not open or emit a forged unsafe auth URL marker: %s', (loginId, url) => {
+    const openExternal = vi.fn(async () => undefined);
+    startProviderLogin(loginId, 'openai-codex', fakeWindow, {
+      openExternal,
+    });
+    const forged = `\u0000${JSON.stringify({ tag: 'moxxy.login.auth_url', url })}\u0000`;
+
+    current.stdout.emit('data', Buffer.from(forged));
+
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(events('provider.login.authUrl')).toHaveLength(0);
   });
 
   it('writes one stdin line per answer (stripping embedded newlines)', () => {

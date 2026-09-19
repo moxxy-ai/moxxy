@@ -1,5 +1,12 @@
 # @moxxy/plugin-self-update
 
+## 0.39.0
+
+### Patch Changes
+
+- Updated dependencies [1d983d9]
+  - @moxxy/sdk@0.39.0
+
 ## 0.38.0
 
 ### Patch Changes

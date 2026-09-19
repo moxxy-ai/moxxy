@@ -20,8 +20,10 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { EventEmitter } from 'node:events';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { EventEmitter, once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -145,6 +147,33 @@ describe('session.setModel handler', () => {
   });
 });
 
+describe('session.setProvider handler', () => {
+  it('awaits runner activation and surfaces the exact activation failure', async () => {
+    const failure = new Error('Provider not registered: openai-codex');
+    const setActiveProvider = vi.fn().mockRejectedValue(failure);
+    const supervisor = {
+      remote: () => ({ setActiveProvider }),
+      refreshConnectedInfo: vi.fn(),
+    } as unknown as RunnerSupervisor;
+    const pool = {
+      activeWorkspaceId: () => 'ws-provider',
+      get: (id: string) => (id === 'ws-provider' ? supervisor : null),
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const setProviderHandler = handlers.get('session.setProvider');
+    assertDefined(setProviderHandler, 'session.setProvider handler');
+
+    await expect(
+      setProviderHandler({ workspaceId: 'ws-provider', provider: 'openai-codex' }),
+    ).rejects.toBe(failure);
+    expect(setActiveProvider).toHaveBeenCalledWith('openai-codex');
+    expect(supervisor.refreshConnectedInfo).not.toHaveBeenCalled();
+  });
+});
+
 describe('session.setAutoApprove handler', () => {
   it('updates the driver and broadcasts the shared auto-approve state to every surface', async () => {
     const events: Array<{ channel: keyof IpcEvents; payload: unknown }> = [];
@@ -225,6 +254,55 @@ describe('session.runTurn handler', () => {
       );
     } finally {
       drivers.delete('ws-inline');
+    }
+  });
+
+  it('uses the configured local model only when the live server advertises it', async () => {
+    const model = 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0';
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ id: model }] }));
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address() as AddressInfo;
+    const home = await mkdtemp(path.join(os.tmpdir(), 'moxxy-local-turn-'));
+    const previousHome = process.env.MOXXY_HOME;
+    const previousBaseURL = process.env.LOCAL_MODEL_BASE_URL;
+    process.env.MOXXY_HOME = home;
+    process.env.LOCAL_MODEL_BASE_URL = `http://127.0.0.1:${address.port}/v1`;
+    await writeFile(
+      path.join(home, 'config.yaml'),
+      `plugins:\n  provider:\n    items:\n      local:\n        model: ${model}\n`,
+    );
+
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-local' });
+    drivers.set('ws-local', { runTurn } as unknown as SessionDriver);
+    const remote = { getInfo: () => ({ ...sessionInfo('ws-local'), activeProvider: 'local' }) };
+    const pool = {
+      activeWorkspaceId: () => 'ws-local',
+      get: () => ({ getCwd: () => home, remote: () => remote }),
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await runTurnHandler({ workspaceId: 'ws-local', prompt: 'Cześć' });
+      expect(runTurn).toHaveBeenCalledWith('Cześć', model, undefined, undefined, undefined);
+    } finally {
+      drivers.delete('ws-local');
+      if (previousHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = previousHome;
+      if (previousBaseURL === undefined) delete process.env.LOCAL_MODEL_BASE_URL;
+      else process.env.LOCAL_MODEL_BASE_URL = previousBaseURL;
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+      await rm(home, { recursive: true, force: true });
     }
   });
 });

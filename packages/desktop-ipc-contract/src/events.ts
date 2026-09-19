@@ -79,6 +79,9 @@ export interface IpcEvents {
    *  asks for. The renderer renders an input (masked when `mask`) and replies
    *  via `provider.login.answer`. Loopback providers never emit this. */
   'provider.login.prompt': { loginId: string; question: string; mask: boolean };
+  /** A validated loopback-flow authorization URL. Electron main attempts to
+   *  open it; the renderer keeps it only to offer an explicit fallback. */
+  'provider.login.authUrl': { loginId: string; url: string };
   /** Streamed stdout/stderr text from a running provider login (progress, the
    *  authorize URL, the final summary). One event per chunk. */
   'provider.login.output': { loginId: string; text: string };

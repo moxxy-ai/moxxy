@@ -78,6 +78,7 @@ export function ProvidersTab({
   onToggle,
   onConfigure,
   onSetKey,
+  onActivate,
   onRefresh,
   search,
 }: {
@@ -88,6 +89,7 @@ export function ProvidersTab({
     patch: { baseURL?: string; defaultModel?: string },
   ) => Promise<void>;
   readonly onSetKey: (keyName: string, value: string) => Promise<void>;
+  readonly onActivate: (name: string) => Promise<void>;
   readonly onRefresh: () => Promise<void>;
   readonly search?: React.ReactNode;
 }): JSX.Element {
@@ -141,7 +143,11 @@ export function ProvidersTab({
                 trailing={
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                     {p.active && <Badge>Active</Badge>}
-                    <StatusDot ok={p.ready} okLabel="Ready" offLabel="Inactive" />
+                    <StatusDot
+                      ok={providerNeedsNoKey(p) ? p.connected === true : p.ready}
+                      okLabel={providerNeedsNoKey(p) ? 'Connected' : 'Ready'}
+                      offLabel={providerNeedsNoKey(p) ? 'Unavailable' : 'Inactive'}
+                    />
                     <IconButton
                       aria-label={`Configure ${p.name}`}
                       onClick={() => setConfiguring(p)}
@@ -184,7 +190,7 @@ export function ProvidersTab({
           provider={configuring}
           onConfigure={onConfigure}
           onSetKey={onSetKey}
-          onRefresh={onRefresh}
+          onActivate={onActivate}
           onClose={() => setConfiguring(null)}
         />
       )}
@@ -194,8 +200,12 @@ export function ProvidersTab({
 
 function subtitleFor(p: ProviderRow): string {
   if (!p.enabled) return 'Disabled · excluded from activation';
+  if (providerNeedsNoKey(p)) {
+    if (p.connected === true) return 'Connected · Ollama is available';
+    if (p.ready) return 'Configured · Ollama is not reachable';
+    return 'Inactive · start a local server to connect';
+  }
   if (p.ready) return 'Active · credentials resolved';
-  if (providerNeedsNoKey(p)) return 'Inactive · start a local server to connect';
   return p.authKind === 'oauth'
     ? 'Inactive · sign in to connect'
     : 'Inactive · add a key to use';
@@ -213,7 +223,7 @@ function ConfigureProviderModal({
   provider,
   onConfigure,
   onSetKey,
-  onRefresh,
+  onActivate,
   onClose,
 }: {
   readonly provider: ProviderRow;
@@ -222,7 +232,7 @@ function ConfigureProviderModal({
     patch: { baseURL?: string; defaultModel?: string },
   ) => Promise<void>;
   readonly onSetKey: (keyName: string, value: string) => Promise<void>;
-  readonly onRefresh: () => Promise<void>;
+  readonly onActivate: (name: string) => Promise<void>;
   readonly onClose: () => void;
 }): JSX.Element {
   const [key, setKey] = useState('');
@@ -268,9 +278,7 @@ function ConfigureProviderModal({
             </p>
             <OAuthSignIn
               provider={provider.name}
-              onSignedIn={() => {
-                void onRefresh();
-              }}
+              onSignedIn={() => onActivate(provider.name)}
             />
           </div>
         ) : providerNeedsNoKey(provider) ? (

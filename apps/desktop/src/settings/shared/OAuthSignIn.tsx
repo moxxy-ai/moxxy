@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, TextInput } from '@moxxy/desktop-ui';
 
-type Phase = 'idle' | 'running' | 'done' | 'error';
+type Phase = 'idle' | 'preparing' | 'running' | 'activating' | 'done' | 'error';
 
 export function OAuthSignIn({
   provider,
@@ -25,7 +25,7 @@ export function OAuthSignIn({
 }: {
   readonly provider: string;
   /** Called once the login exits 0 — the caller activates the provider. */
-  readonly onSignedIn?: () => void;
+  readonly onSignedIn?: () => void | Promise<void>;
   /** Override the initial button text (defaults to `Sign in with <provider>`). */
   readonly startLabel?: string;
 }): JSX.Element {
@@ -34,6 +34,7 @@ export function OAuthSignIn({
   const [prompt, setPrompt] = useState<{ question: string; mask: boolean } | null>(null);
   const [answer, setAnswer] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const loginIdRef = useRef<string | null>(null);
 
   // Keep the latest onSignedIn so the []-dep subscription below (which captures
@@ -62,13 +63,22 @@ export function OAuthSignIn({
         setPrompt({ question: p.question, mask: p.mask });
         setAnswer('');
       }),
+      api().subscribe('provider.login.authUrl', (p) => {
+        if (p.loginId === loginIdRef.current) setAuthUrl(p.url);
+      }),
       api().subscribe('provider.login.done', (p) => {
         if (p.loginId !== loginIdRef.current) return;
         loginIdRef.current = null;
         setPrompt(null);
+        setAuthUrl(null);
         if (p.code === 0) {
-          setPhase('done');
-          onSignedInRef.current?.();
+          setPhase('activating');
+          void Promise.resolve(onSignedInRef.current?.())
+            .then(() => setPhase('done'))
+            .catch((cause: unknown) => {
+              setError(toErrorMessage(cause));
+              setPhase('error');
+            });
         } else {
           setPhase('error');
           setError(`Sign-in did not complete (exit ${p.code}).`);
@@ -92,12 +102,16 @@ export function OAuthSignIn({
   const start = async (): Promise<void> => {
     const id = crypto.randomUUID();
     loginIdRef.current = id;
-    setPhase('running');
+    setPhase('preparing');
     setError(null);
     setLog([]);
     setPrompt(null);
+    setAuthUrl(null);
     try {
       await api().invoke('provider.login.start', { loginId: id, provider });
+      // A very fast child may complete before the start IPC reply crosses back
+      // to the renderer. Do not overwrite its activating/done/error phase.
+      if (loginIdRef.current === id) setPhase('running');
     } catch (e) {
       loginIdRef.current = null;
       setError(toErrorMessage(e));
@@ -123,6 +137,7 @@ export function OAuthSignIn({
     // outcome, and so unmount does not send the credential-free cancel twice.
     loginIdRef.current = null;
     setPrompt(null);
+    setAuthUrl(null);
     try {
       await api().invoke('provider.login.cancel', { loginId: id });
       setError('Sign-in cancelled.');
@@ -130,6 +145,18 @@ export function OAuthSignIn({
       setError(toErrorMessage(e));
     }
     setPhase('error');
+  };
+
+  const openAuthUrl = async (): Promise<void> => {
+    if (!authUrl) return;
+    try {
+      // The URL came from main, but it still crosses the renderer→main trust
+      // boundary again here. Reuse the existing validated openExternal command;
+      // never render it as a raw href or open it from renderer JavaScript.
+      await api().invoke('onboarding.openExternal', { url: authUrl });
+    } catch (e) {
+      setError(toErrorMessage(e));
+    }
   };
 
   // claude-code's first prompt offers "paste a token OR press Enter for the
@@ -152,6 +179,18 @@ export function OAuthSignIn({
           </p>
           <Button onClick={() => void start()}>Re-link {provider}</Button>
         </div>
+      )}
+
+      {phase === 'preparing' && (
+        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
+          Preparing Moxxy for first use…
+        </p>
+      )}
+
+      {phase === 'activating' && (
+        <p style={{ margin: 0, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
+          Activating {provider}…
+        </p>
       )}
 
       {(phase === 'running' || phase === 'error') && prompt && (
@@ -193,6 +232,11 @@ export function OAuthSignIn({
           <p style={{ margin: 0, flex: 1, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
             Opening your browser — complete the sign-in there…
           </p>
+          {authUrl && (
+            <Button variant="primary" onClick={() => void openAuthUrl()}>
+              Open sign-in page
+            </Button>
+          )}
           <Button onClick={() => void cancel()}>Cancel sign-in</Button>
         </div>
       )}

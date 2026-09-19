@@ -15,6 +15,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api, chatStore, useConnection } from '@moxxy/client-core';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 import { isSessionInfoReady } from '../../app-session-readiness';
+import { getModelPreference, setModelPreference } from './modelPreferences';
 
 /** Modes hidden from the chat mode picker — collaboration is launched from the
  *  Collaborate tab (single-flight), and its peer modes are internal. */
@@ -99,6 +100,15 @@ export function useAgentSession(
     };
   }, [workspaceId, disabled, connectedRefreshKey, runnerConnected]);
 
+  useEffect(() => {
+    const provider = info?.activeProvider;
+    if (!provider) return;
+    const persisted = getModelPreference(workspaceId, provider);
+    if (chatStore.getModel(workspaceId) === persisted) return;
+    chatStore.setModel(workspaceId, persisted);
+    void api().invoke('session.setModel', { workspaceId, model: persisted }).catch(() => {});
+  }, [info?.activeProvider, workspaceId]);
+
   const onMode = (next: string): void => {
     // Optimistic flip so the picker updates instantly — the IPC fires a
     // fire-and-forget RPC, then the refresh below confirms. Without this the
@@ -135,6 +145,7 @@ export function useAgentSession(
       return;
     }
     chatStore.setModel(workspaceId, model);
+    setModelPreference(workspaceId, provider, model);
     refresh();
   };
 

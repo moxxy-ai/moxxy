@@ -509,18 +509,10 @@ describe('runner end-to-end', () => {
       servers.push(server);
       const remote = await attach(socketPath);
 
-      remote.providers.setActive('fake2');
-      await waitFor(() => session.providers.getActiveName() === 'fake2');
+      await remote.setActiveProvider('fake2');
 
-      // Persisting `plugins.provider.default` is fire-and-forget inside the
-      // handler, so poll the config until the async write lands.
-      const deadline = Date.now() + 2000;
-      let persisted: string | null = null;
-      while (persisted !== 'fake2' && Date.now() < deadline) {
-        persisted = await loadActiveProvider();
-        if (persisted !== 'fake2') await new Promise((r) => setTimeout(r, 5));
-      }
-      expect(persisted).toBe('fake2');
+      expect(session.providers.getActiveName()).toBe('fake2');
+      expect(await loadActiveProvider()).toBe('fake2');
     } finally {
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
@@ -528,6 +520,15 @@ describe('runner end-to-end', () => {
       else process.env.USERPROFILE = prevUserProfile;
       await rm(home, { recursive: true, force: true });
     }
+  });
+
+  it('rejects an awaited provider activation when the runner cannot activate it', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
+    const remote = await attach(socketPath);
+
+    await expect(remote.setActiveProvider('missing-provider')).rejects.toThrow(
+      /provider not registered/i,
+    );
   });
 
   it('broadcasts a turn started by one client to other attached clients', async () => {

@@ -39,6 +39,7 @@ function voiceCall(overrides: Partial<UseVoiceCall> = {}): UseVoiceCall {
     waitingSoundEnabled: true,
     localPiperInstallRequired: false,
     localPiperInstalling: false,
+    localPiperInstallError: null,
     lastTranscript: null,
     inputAnalyser: null,
     outputAnalyser: null,
@@ -210,6 +211,7 @@ describe('useDesktopVoiceCallBridge', () => {
           active: true,
           phase: 'error',
           localPiperInstallRequired: true,
+          localPiperInstallError: 'Local Piper installation failed: download interrupted',
           installLocalPiper,
         }),
         port: mainPort,
@@ -224,6 +226,7 @@ describe('useDesktopVoiceCallBridge', () => {
     });
 
     await waitFor(() => expect(result.current.focus.localPiperInstallRequired).toBe(true));
+    expect(result.current.focus.localPiperInstallError).toContain('download interrupted');
     act(() => result.current.focus.installLocalPiper());
     expect(installLocalPiper).toHaveBeenCalledOnce();
   });
@@ -305,6 +308,7 @@ describe('useDesktopVoiceCallBridge', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        localPiperInstallError: null,
         queuedTurns: [],
       },
     } satisfies DesktopVoiceCallBridgeMessage));
@@ -348,6 +352,7 @@ describe('useDesktopVoiceCallBridge', () => {
           waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
+          localPiperInstallError: null,
           queuedTurns: [],
         },
       }));

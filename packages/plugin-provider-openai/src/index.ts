@@ -14,6 +14,7 @@ export { validateKey as validateOpenAICompatKey } from './validate.js';
 // construction + config narrowing + validateKey wiring in one place.
 export {
   defineOpenAICompatProvider,
+  openAICompatModelsURL,
   pickOpenAICompatConfig,
   type DefineOpenAICompatProviderSpec,
   type OpenAICompatConfig,

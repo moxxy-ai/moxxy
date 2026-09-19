@@ -1,6 +1,10 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { runUpdateCommand, type UpdateDeps } from './update.js';
+import { runUpdateCommand, runUpdateProcess, type UpdateDeps } from './update.js';
 import type { ParsedArgv } from '../argv.js';
 import type { InstallInfo } from '../update/detect-install.js';
 import type { CliUpdateCheck } from '../update/check.js';
@@ -124,5 +128,86 @@ describe('runUpdateCommand', () => {
     expect(code).toBe(0);
     expect(h.ran).toHaveLength(0);
     expect(h.out).toContain('npm install -g @moxxy/cli@latest');
+  });
+});
+
+describe('runUpdateProcess', () => {
+  it('runs npm.cmd through npm-cli.js and keeps metacharacters out of a shell', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'moxxy-update-npm-'));
+    try {
+      writeFileSync(path.join(root, 'npm.cmd'), '@echo off');
+      const cli = path.join(root, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(path.dirname(cli), { recursive: true });
+      writeFileSync(
+        cli,
+        "require('node:fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+      );
+      const observed = path.join(root, 'argv.json');
+      const args = [observed, 'A&B', 'two words', 'still|one'];
+
+      const code = await runUpdateProcess(['npm', ...args], {
+        resolution: {
+          platform: 'win32',
+          pathEnv: root,
+          pathext: '.CMD',
+          nodeCommand: process.execPath,
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual(args.slice(1));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['pnpm', 'yarn'] as const)(
+    'runs a Corepack %s.cmd launcher through its JavaScript entrypoint',
+    async (manager) => {
+      const root = mkdtempSync(path.join(tmpdir(), `moxxy-update-${manager}-`));
+      try {
+        writeFileSync(path.join(root, `${manager}.cmd`), '@echo off');
+        const cli = path.join(root, 'node_modules', 'corepack', 'dist', `${manager}.js`);
+        mkdirSync(path.dirname(cli), { recursive: true });
+        writeFileSync(
+          cli,
+          "require('node:fs').writeFileSync(process.argv[2], JSON.stringify(process.argv.slice(3)))",
+        );
+        const observed = path.join(root, 'argv.json');
+        const args = [observed, 'add', '-g', '@moxxy/cli@latest', 'A&B'];
+
+        const code = await runUpdateProcess([manager, ...args], {
+          resolution: {
+            platform: 'win32',
+            pathEnv: root,
+            pathext: '.CMD',
+            nodeCommand: process.execPath,
+          },
+        });
+
+        expect(code).toBe(0);
+        expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual(args.slice(1));
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('fails closed with an actionable error for an unknown Windows .cmd shim', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'moxxy-update-unknown-'));
+    try {
+      writeFileSync(path.join(root, 'custom.cmd'), '@echo off');
+      const errors: string[] = [];
+
+      const code = await runUpdateProcess(['custom', 'install', '@moxxy/cli@latest'], {
+        resolution: { platform: 'win32', pathEnv: root, pathext: '.CMD' },
+        stderr: (message) => errors.push(message),
+      });
+
+      expect(code).toBe(127);
+      expect(errors.join('\n')).toMatch(/refusing to execute unknown Windows command shim.*custom\.cmd/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

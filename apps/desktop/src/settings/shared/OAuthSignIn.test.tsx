@@ -18,10 +18,12 @@ afterEach(() => {
 
 type Handler = (payload: unknown) => void;
 
-function fakeApi(): { api: MoxxyApi; emit: (event: string, payload: unknown) => void } {
+function fakeApi(
+  invoke: ReturnType<typeof vi.fn> = vi.fn(async () => undefined),
+): { api: MoxxyApi; emit: (event: string, payload: unknown) => void } {
   const handlers = new Map<string, Set<Handler>>();
   const api = {
-    invoke: vi.fn(async () => undefined),
+    invoke,
     subscribe: (event: string, fn: Handler) => {
       const set = handlers.get(event) ?? new Set();
       set.add(fn);
@@ -35,7 +37,65 @@ function fakeApi(): { api: MoxxyApi; emit: (event: string, payload: unknown) => 
   return { api, emit };
 }
 
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve: (() => void) | undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return {
+    promise,
+    resolve: () => {
+      if (!resolve) throw new Error('deferred promise was not initialized');
+      resolve();
+    },
+  };
+}
+
 describe('OAuthSignIn', () => {
+  it('shows first-use preparation before claiming that the browser is opening', async () => {
+    const preparation = deferred();
+    const invoke = vi.fn((command: string) =>
+      command === 'provider.login.start' ? preparation.promise : Promise.resolve(undefined),
+    );
+    const { api } = fakeApi(invoke);
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-prepare' as `${string}-${string}-${string}-${string}-${string}`);
+    const { unmount } = render(<OAuthSignIn provider="openai-codex" />);
+
+    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+
+    expect(await screen.findByText('Preparing Moxxy for first use…')).toBeTruthy();
+    expect(screen.queryByText(/Opening your browser/)).toBeNull();
+
+    preparation.resolve();
+    expect(await screen.findByText(/Opening your browser/)).toBeTruthy();
+    // Finish this still-active run while the fake transport is installed; the
+    // component's unmount contract cancels any child it still owns.
+    unmount();
+  });
+
+  it('does not report success until provider activation finishes', async () => {
+    const activation = deferred();
+    const { api, emit } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-activate' as `${string}-${string}-${string}-${string}-${string}`);
+    const onSignedIn = vi.fn(() => activation.promise);
+    render(<OAuthSignIn provider="openai-codex" onSignedIn={onSignedIn} />);
+
+    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    await waitFor(() => expect(api.invoke).toHaveBeenCalledWith('provider.login.start', {
+      loginId: 'login-activate',
+      provider: 'openai-codex',
+    }));
+    act(() => emit('provider.login.done', { loginId: 'login-activate', code: 0 }));
+
+    expect(await screen.findByText('Activating openai-codex…')).toBeTruthy();
+    expect(screen.queryByText('Signed in to openai-codex.')).toBeNull();
+
+    activation.resolve();
+    expect(await screen.findByText('Signed in to openai-codex.')).toBeTruthy();
+  });
+
   it('reports successful CLI readiness and fires the latest onSignedIn', async () => {
     const { api, emit } = fakeApi();
     __setApiOverride(api);
@@ -94,6 +154,29 @@ describe('OAuthSignIn', () => {
       'provider.login.cancel', { loginId: 'login-cancel' },
     ));
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in cancelled.');
+  });
+
+  it('offers a renderer fallback that opens the validated auth URL through IPC', async () => {
+    const { api, emit } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-browser' as `${string}-${string}-${string}-${string}-${string}`);
+    render(<OAuthSignIn provider="openai-codex" />);
+
+    fireEvent.click(screen.getByText('Sign in with openai-codex'));
+    act(() =>
+      emit('provider.login.authUrl', {
+        loginId: 'login-browser',
+        url: 'https://auth.example.test/authorize?state=opaque',
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open sign-in page' }));
+    await waitFor(() =>
+      expect(api.invoke).toHaveBeenCalledWith('onboarding.openExternal', {
+        url: 'https://auth.example.test/authorize?state=opaque',
+      }),
+    );
+    act(() => emit('provider.login.done', { loginId: 'login-browser', code: 0 }));
   });
 
   it('reports a failed CLI sign-in and preserves diagnostic output', async () => {

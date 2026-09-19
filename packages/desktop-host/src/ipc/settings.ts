@@ -45,8 +45,16 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     const readySet = new Set(info.readyProviders ?? []);
     // Stored (runtime-registered) entries carry the configure-relevant
     // detail; providers without a stored entry are built-ins.
-    const { readAdminProviderDetails, builtinProviderKeyName } = await import('../provider-discovery');
+    const {
+      readAdminProviderDetails,
+      builtinProviderKeyName,
+      isProviderModelServerConnected,
+    } = await import('../provider-discovery');
     const admin = await readAdminProviderDetails();
+    const hasLocalProvider = info.providers.some((provider) => provider.name === 'local');
+    const localConnected = hasLocalProvider
+      ? await isProviderModelServerConnected('local')
+      : undefined;
     return info.providers.map((p) => {
       const detail = admin.get(p.name);
       return {
@@ -55,6 +63,9 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         // Older runners (pre-v7) omit `enabled` — treat absent as enabled.
         enabled: p.enabled !== false,
         active: info.activeProvider === p.name,
+        ...(p.name === 'local' && localConnected !== undefined
+          ? { connected: localConnected }
+          : {}),
         authKind: p.authKind,
         kind: detail ? ('admin' as const) : ('builtin' as const),
         keyName: detail?.keyName ?? builtinProviderKeyName(p.name),

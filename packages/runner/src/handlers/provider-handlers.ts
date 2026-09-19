@@ -26,7 +26,9 @@ export async function handleProviderSetActive(
   // (the desktop spawns one `moxxy serve` per workspace) boots back on the
   // default provider. Best-effort: a read-only home must not fail the RPC, and
   // the writer's own mutex serializes against the disabled-provider write.
-  void setCategoryDefault('provider', name).catch(() => undefined);
+  // Await the best-effort attempt so an acknowledged activation is durable
+  // before the desktop can immediately close or restart the runner.
+  await setCategoryDefault('provider', name).catch(() => undefined);
   broadcastInfo();
   return {};
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModelDescriptor } from '@moxxy/sdk';
 import {
   defineOpenAICompatProvider,
+  openAICompatModelsURL,
   pickOpenAICompatConfig,
 } from './compat.js';
 
@@ -28,6 +29,18 @@ describe('pickOpenAICompatConfig', () => {
       defaultModel: ['nope'],
     });
     expect(picked).toEqual({ apiKey: 'k', baseURL: undefined, defaultModel: undefined });
+  });
+});
+
+describe('openAICompatModelsURL', () => {
+  it.each([
+    ['http://localhost:11434', 'http://localhost:11434/v1/models'],
+    ['http://localhost:11434/v1', 'http://localhost:11434/v1/models'],
+    ['http://localhost:11434/v1/', 'http://localhost:11434/v1/models'],
+    ['https://vendor.example/api/v1', 'https://vendor.example/api/v1/models'],
+    ['https://vendor.example/v1/models', 'https://vendor.example/v1/models'],
+  ])('composes one /v1/models endpoint from %s', (baseURL, expected) => {
+    expect(openAICompatModelsURL(baseURL)).toBe(expected);
   });
 });
 

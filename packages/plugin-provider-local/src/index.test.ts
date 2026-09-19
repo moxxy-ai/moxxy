@@ -17,6 +17,10 @@ describe('@moxxy/plugin-provider-local', () => {
     expect(localProviderDef.validateKey).toBeUndefined();
   });
 
+  it('advertises provider-owned live model discovery', () => {
+    expect(localProviderDef.supportsLiveModelDiscovery).toBe(true);
+  });
+
   it('activates with no key — createClient supplies a placeholder and the Ollama base URL', () => {
     const client = localProviderDef.createClient({});
     expect(client.name).toBe('local');

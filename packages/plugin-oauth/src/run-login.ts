@@ -67,7 +67,9 @@ async function runBrowserFlow(
     ...(profile.extraAuthParams ? { extraAuthParams: profile.extraAuthParams } : {}),
     timeoutMs: DEFAULT_BROWSER_TIMEOUT_MS,
     ...(ctx.signal ? { signal: ctx.signal } : {}),
+    ...(ctx.noOpen ? { noOpen: true } : {}),
     onAuthUrl: (url) => {
+      ctx.onAuthUrl?.(url);
       ctx.write(
         `\nSign in to ${serviceName} to authorize moxxy\n\n` +
           `If your browser doesn't open automatically, paste this URL:\n\n  ${url}\n\n` +

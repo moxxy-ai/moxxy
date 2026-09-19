@@ -160,6 +160,16 @@ export interface ModelDescriptor {
 export interface LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /**
+   * Optional provider-owned metadata preparation for a dynamically selected
+   * model. The runtime awaits it before it calculates context budgets, so a
+   * provider whose catalog is discovered at runtime can publish the exact
+   * descriptor without trusting a client-supplied context-window value.
+   */
+  prepareModel?(
+    model: string,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<void>;
   stream(req: ProviderRequest): AsyncIterable<ProviderEvent>;
   countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number>;
 }
@@ -202,6 +212,18 @@ export interface ProviderAuthContext {
    * whether they're running inside a wizard or a one-shot command.
    */
   readonly write: (chunk: string) => void;
+  /**
+   * True when a GUI host owns browser opening. OAuth implementations still
+   * build the loopback URL and report it through {@link onAuthUrl}, but must not
+   * invoke their process-local browser helper.
+   */
+  readonly noOpen?: boolean;
+  /**
+   * Browser authorization URL produced by a loopback flow. GUI hosts relay it
+   * over their authenticated transport, validate it again, and open it using
+   * their native browser API.
+   */
+  readonly onAuthUrl?: (url: string) => void;
   /**
    * Optional single-line input prompt. Present when the host has an
    * interactive TTY; absent in headless runs. Flows that need the user to
@@ -305,6 +327,12 @@ export interface ProviderOAuthStatus {
 export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
+  /**
+   * True when the provider can return its current model catalog at runtime.
+   * Hosts use this capability signal to offer live discovery instead of
+   * presenting the provider's build-time fallback catalog as authoritative.
+   */
+  readonly supportsLiveModelDiscovery?: boolean;
   createClient(config: Record<string, unknown>): LLMProvider;
   /**
    * Optional provider-owned credential/config resolver. Hosts call this before

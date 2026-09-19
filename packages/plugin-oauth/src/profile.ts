@@ -124,6 +124,10 @@ export interface RunOauthLoginCtx {
   readonly headless: boolean;
   /** Progress-message sink. The host wires this to its preferred renderer. */
   readonly write: (chunk: string) => void;
+  /** Suppress the process-local browser opener when a GUI host owns it. */
+  readonly noOpen?: boolean;
+  /** Surface the complete browser authorization URL to that host. */
+  readonly onAuthUrl?: (url: string) => void;
   readonly signal?: AbortSignal;
 }
 

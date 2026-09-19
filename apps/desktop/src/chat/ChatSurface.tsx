@@ -233,6 +233,7 @@ export function ChatSurface({
             waitingSoundEnabled={voiceCall.waitingSoundEnabled}
             localPiperInstallRequired={voiceCall.localPiperInstallRequired}
             localPiperInstalling={voiceCall.localPiperInstalling}
+            localPiperInstallError={voiceCall.localPiperInstallError}
             errorReason={voiceCall.errorReason}
             inputAnalyser={voiceCall.inputAnalyser}
             outputAnalyser={voiceCall.outputAnalyser}

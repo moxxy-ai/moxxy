@@ -42,6 +42,7 @@ describe('settings Add buttons (agent-task flows)', () => {
         onToggle={() => Promise.resolve()}
         onConfigure={() => Promise.resolve()}
         onSetKey={() => Promise.resolve()}
+        onActivate={() => Promise.resolve()}
         onRefresh={() => Promise.resolve()}
       />,
     );

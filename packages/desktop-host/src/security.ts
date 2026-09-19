@@ -39,8 +39,12 @@ export function assertSafeProviderName(provider: string): void {
  */
 export function isSafeExternalUrl(url: string): boolean {
   try {
-    const { protocol } = new URL(url);
-    return protocol === 'http:' || protocol === 'https:';
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.username === '' &&
+      parsed.password === ''
+    );
   } catch {
     return false;
   }
@@ -48,7 +52,7 @@ export function isSafeExternalUrl(url: string): boolean {
 
 export function assertSafeExternalUrl(url: string): void {
   if (typeof url !== 'string' || !isSafeExternalUrl(url)) {
-    throw new Error(`refusing to open non-http(s) URL: ${JSON.stringify(url)}`);
+    throw new Error(`refusing to open unsafe external URL: ${JSON.stringify(url)}`);
   }
 }
 

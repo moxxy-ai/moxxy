@@ -19,6 +19,7 @@ export interface DesktopVoiceCallSnapshot {
   readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
+  readonly localPiperInstallError: string | null;
   readonly queuedTurns: ReadonlyArray<DesktopVoiceQueuedTurn>;
 }
 
@@ -110,6 +111,7 @@ const snapshotSchema = z.object({
   waitingSoundEnabled: z.boolean(),
   localPiperInstallRequired: z.boolean(),
   localPiperInstalling: z.boolean(),
+  localPiperInstallError: z.string().max(500).nullable(),
   queuedTurns: z.array(queuedTurnSchema).max(32).default([]),
 }).strict();
 function isUint8ArrayView(value: unknown): value is Uint8Array {

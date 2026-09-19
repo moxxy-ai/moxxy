@@ -20,6 +20,7 @@ describe('desktop voice-call bridge validation', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        localPiperInstallError: null,
       },
     })).not.toBeNull();
 
@@ -36,6 +37,7 @@ describe('desktop voice-call bridge validation', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        localPiperInstallError: null,
       },
     })).not.toBeNull();
 
@@ -52,6 +54,7 @@ describe('desktop voice-call bridge validation', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        localPiperInstallError: null,
       },
     })).toBeNull();
   });
@@ -112,6 +115,7 @@ describe('desktop voice-call bridge validation', () => {
         waitingSoundEnabled: true,
         localPiperInstallRequired: false,
         localPiperInstalling: false,
+        localPiperInstallError: null,
         queuedTurns: [{ id: 'q-1', prompt: 'Follow-up from the microphone' }],
       },
     });

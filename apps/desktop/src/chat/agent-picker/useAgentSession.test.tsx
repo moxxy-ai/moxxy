@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { __setApiOverride, connectionStore } from '@moxxy/client-core';
+import { __setApiOverride, chatStore, connectionStore } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { useAgentSession } from './useAgentSession';
 import type { SessionInfo } from './types';
@@ -27,6 +27,7 @@ function Probe({
     <div>
       <span>{agent.info.activeProvider}</span>
       <span data-testid="mode">{agent.info.activeMode}</span>
+      <span data-testid="selected-model">{agent.selectedModel ?? 'default'}</span>
       <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', 'gpt-5')}>
         pick
       </button>
@@ -50,6 +51,7 @@ afterEach(() => {
   vi.useRealTimers();
   __setApiOverride(null);
   connectionStore.setActive(null);
+  localStorage.clear();
 });
 
 describe('useAgentSession', () => {
@@ -154,5 +156,30 @@ describe('useAgentSession', () => {
         model: 'gpt-5',
       }),
     );
+  });
+
+  it('restores the exact provider model after the desktop restarts', async () => {
+    const workspaceId = 'restart-model';
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    const first = render(<Probe workspaceId={workspaceId} disabled={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pick' }));
+    await waitFor(() => expect(screen.getByTestId('selected-model')).toHaveTextContent('gpt-5'));
+    first.unmount();
+
+    chatStore.setModel(workspaceId, null);
+    invoke.mockClear();
+    render(<Probe workspaceId={workspaceId} disabled={false} />);
+
+    await waitFor(() => expect(screen.getByTestId('selected-model')).toHaveTextContent('gpt-5'));
+    expect(invoke).toHaveBeenCalledWith('session.setModel', {
+      workspaceId,
+      model: 'gpt-5',
+    });
   });
 });

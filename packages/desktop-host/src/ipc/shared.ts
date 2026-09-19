@@ -313,14 +313,12 @@ export function resolveCtx(
 }
 
 /**
- * Poll `session.getInfo()` until `predicate` holds or `timeoutMs`
- * elapses. setProvider / setMode on RemoteSession fire-and-forget the
- * RPC; without this wait, the IPC returns before the runner's
- * InfoChanged notification has updated RemoteSession's local cache,
- * and the renderer's follow-up `session.info` fetch reads the
- * pre-change state — making the picker visibly snap back to the old
- * value until the user clicks a second time. Cheap polling here is
- * the right trade-off vs. surgery on the runner client view.
+ * Poll `session.getInfo()` until `predicate` holds or `timeoutMs` elapses.
+ * Registry notifications update RemoteSession's local cache independently of
+ * the mutation reply; this settles that mirror before a renderer follow-up
+ * `session.info` fetch so the picker cannot visibly snap back. Mode activation
+ * still uses the synchronous SDK facade, while provider activation has an
+ * awaited RemoteSession command that also surfaces runner errors.
  */
 export async function waitForSessionState(
   session: NonNullable<ReturnType<RunnerSupervisor['remote']>>,

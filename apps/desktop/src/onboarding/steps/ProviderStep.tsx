@@ -123,15 +123,9 @@ export function ProviderStep({
 
   // OAuth providers sign in through the shared flow; once it reports success
   // we activate the provider (same vault→runner handoff as the key path).
-  const onOauthSignedIn = (): void => {
-    void (async () => {
-      try {
-        await activateProvider();
-        setDone(true);
-      } catch (e) {
-        setError(toErrorMessage(e));
-      }
-    })();
+  const onOauthSignedIn = async (): Promise<void> => {
+    await activateProvider();
+    setDone(true);
   };
 
   return (

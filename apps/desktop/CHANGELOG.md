@@ -1,5 +1,25 @@
 # @moxxy/desktop
 
+## 0.39.1
+
+### Patch Changes
+
+- 1d983d9: Fix Windows desktop packaging, shell-free command launchers across supported Node versions, first-launch plugin readiness, optional Local Piper installation without Git with accurate progress and automatic recovery, OAuth browser handoff, reliable provider activation, and live local-model discovery with persistent exact model selection and Ollama runtime context-window accounting.
+- Updated dependencies [1d983d9]
+  - @moxxy/sdk@0.39.0
+  - @moxxy/cli@0.39.0
+  - @moxxy/chat-model@0.4.8
+  - @moxxy/client-core@0.13.26
+  - @moxxy/client-platform-web@0.1.65
+  - @moxxy/desktop-host@0.14.17
+  - @moxxy/desktop-ipc-contract@0.14.22
+  - @moxxy/ipc-server-ws@0.1.64
+  - @moxxy/plugin-channel-mobile@0.39.0
+  - @moxxy/plugin-stt-whisper-codex@0.39.0
+  - @moxxy/plugin-vault@0.39.0
+  - @moxxy/runner@0.2.51
+  - @moxxy/workflows-builder@0.1.48
+
 ## 0.39.0
 
 ### Minor Changes

@@ -7,7 +7,10 @@ packages:
 # "<dep>": "catalog:" so the version is defined once here. pnpm rewrites
 # catalog: to the concrete version at publish time.
 catalog:
-  '@clack/prompts': ^1.4.0
+  # 1.1+ imports node:util.styleText (added in Node 20.12), while moxxy's
+  # published runtime floor is Node 20.10. Keep the last compatible release
+  # exact so a lockfile refresh cannot silently raise that minimum again.
+  '@clack/prompts': 1.0.1
   '@noble/ciphers': ^2.2.0
   '@noble/curves': ^2.2.0
   '@noble/hashes': ^2.2.0

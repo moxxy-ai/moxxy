@@ -207,6 +207,7 @@ describe('external-url validation', () => {
       'javascript:alert(1)',
       'data:text/html,<script>',
       'vbscript:msgbox',
+      'https://alice:secret@example.test/authorize',
       'not a url',
       '',
     ]) {

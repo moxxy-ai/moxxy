@@ -73,3 +73,14 @@ export {
   MOXXY_WS_SUBPROTOCOL,
   MOXXY_WS_BEARER_PROTOCOL_PREFIX,
 } from './channel-auth.js';
+export {
+  execExecutableTargetSync,
+  executableCandidates,
+  findExecutable,
+  resolveExecutableTarget,
+  spawnExecutableTarget,
+  type ExecutableSearchOptions,
+  type ExecutableTarget,
+  type SafeExecFileSyncOptions,
+  type SafeSpawnOptions,
+} from './process-invocation.js';

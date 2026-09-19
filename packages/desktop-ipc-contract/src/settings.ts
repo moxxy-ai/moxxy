@@ -15,6 +15,10 @@ export interface ProviderEntry {
   enabled: boolean;
   /** True when this is the runner's active provider (disable is refused). */
   active: boolean;
+  /** Runtime reachability for providers backed by a user-operated server.
+   *  `ready` may only mean configuration/credentials resolved; this field
+   *  distinguishes that from a server that actually answered a probe. */
+  connected?: boolean;
   /** 'oauth' providers authenticate via `moxxy login`, not a vault key. */
   authKind: 'oauth' | 'api-key';
   /** 'admin' = runtime-registered via providers.json (configurable);

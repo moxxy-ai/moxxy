@@ -53,12 +53,35 @@ describe('resolveMoxxyCli', () => {
     expect(resolveMoxxyCli()).toBeNull();
   });
 
-  it('finds moxxy on PATH and returns a `direct` invocation', () => {
+  it('finds an extensionless moxxy shim through the explicit POSIX resolver path', () => {
     const bin = path.join(tmp, 'moxxy');
     writeFileSync(bin, '#!/bin/sh\necho moxxy\n');
     chmodSync(bin, 0o755);
-    const result = resolveMoxxyCli();
-    expect(result).toEqual({ kind: 'direct', bin });
+    // Use a relative single-entry PATH so this POSIX contract is portable even
+    // when the test host itself has a drive-letter Windows path. Windows-native
+    // behavior is covered separately by the moxxy.cmd cases below.
+    const result = resolveMoxxyCli({ platform: 'linux', pathEnv: '.' });
+    expect(result?.kind).toBe('direct');
+    if (result?.kind !== 'direct') throw new Error('POSIX moxxy shim did not resolve directly');
+    expect(realpathSync(result.bin)).toBe(realpathSync(bin));
+  });
+
+  it('maps the Windows moxxy.cmd npm launcher to the installed JavaScript entry', () => {
+    writeFileSync(path.join(tmp, 'moxxy.cmd'), '@echo off');
+    const entry = path.join(tmp, 'node_modules', '@moxxy', 'cli', 'dist', 'bin.js');
+    mkdirSync(path.dirname(entry), { recursive: true });
+    writeFileSync(entry, '// installed moxxy cli');
+
+    expect(resolveMoxxyCli({ platform: 'win32', pathext: '.CMD' })).toEqual({
+      kind: 'node',
+      entry,
+    });
+  });
+
+  it('ignores an extensionless Unix npm shim on Windows', () => {
+    writeFileSync(path.join(tmp, 'moxxy'), '#!/usr/bin/env node');
+
+    expect(resolveMoxxyCli({ platform: 'win32', pathext: '.EXE;.CMD' })).toBeNull();
   });
 
   it('prefers the freshly built monorepo CLI over a global PATH installation', () => {
@@ -150,7 +173,8 @@ describe('executableCandidates (Windows .exe / PATHEXT resolution)', () => {
 
   it('expands to PATHEXT variants on Windows (so node → node.exe, npm → npm.cmd)', () => {
     const got = executableCandidates('node', 'win32', '.COM;.EXE;.BAT;.CMD');
-    expect(got).toEqual(['node', 'node.com', 'node.exe', 'node.bat', 'node.cmd']);
+    expect(got).toEqual(['node.com', 'node.exe', 'node.bat', 'node.cmd']);
+    expect(got).not.toContain('node');
     expect(executableCandidates('npm', 'win32', '.EXE;.CMD')).toContain('npm.cmd');
   });
 

@@ -7,6 +7,7 @@ import {
   asToolCallId,
   defineMode,
   definePlugin,
+  defineProvider,
   defineTool,
   z,
 } from '@moxxy/sdk';
@@ -158,6 +159,35 @@ describe('Session', () => {
     expect(info.hasTranscriber).toBe(false);
     // The snapshot must survive a JSON round-trip (it crosses the wire).
     expect(JSON.parse(JSON.stringify(info))).toEqual(info);
+  });
+
+  it('getInfo reports the active provider instance catalog after runtime preparation', () => {
+    const declared = [{
+      id: 'fallback',
+      contextWindow: 8_192,
+      supportsTools: true,
+      supportsStreaming: true,
+    }];
+    const prepared = [{
+      id: 'bielik',
+      contextWindow: 4_096,
+      supportsTools: true,
+      supportsStreaming: true,
+    }];
+    const s = new Session({ cwd: '/tmp', silent: true });
+    s.providers.register(defineProvider({
+      name: 'local',
+      models: declared,
+      createClient: () => ({
+        name: 'local',
+        models: prepared,
+        stream: async function* () {},
+        countTokens: async () => 0,
+      }),
+    }));
+    s.providers.setActive('local');
+
+    expect(s.getInfo().providers[0]?.models).toEqual(prepared);
   });
 
   it('getInfo surfaces the active mode badge (and null for unbadged modes)', () => {
