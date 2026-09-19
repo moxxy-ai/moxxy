@@ -12,6 +12,7 @@ import {
   topoSortPackages,
   moxxyDepPins,
   findShippedDepProblems,
+  retryRegistryRead,
 } from './safe-publish.mjs';
 
 const pkg = (name, version, fields = {}) => ({ dir: `/x/${name}`, pkg: { name, version, ...fields } });
@@ -123,4 +124,58 @@ test('findShippedDepProblems: unreadable manifest and unparseable spec are probl
   assert.equal(problems.length, 2);
   assert.match(problems[0].problem, /could not read/);
   assert.match(problems[1].problem, /unparseable/);
+});
+
+test('retryRegistryRead: returns the first non-null read without waiting', async () => {
+  let calls = 0;
+  const result = await retryRegistryRead(
+    () => {
+      calls += 1;
+      return { ok: true };
+    },
+    { attempts: 5, delayMs: 10_000, maxDelayMs: 10_000 },
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 1);
+});
+
+test('retryRegistryRead: keeps retrying while the registry has not caught up', async () => {
+  let calls = 0;
+  const result = await retryRegistryRead(
+    () => {
+      calls += 1;
+      return calls < 4 ? null : { ok: true };
+    },
+    { attempts: 6, delayMs: 1, maxDelayMs: 1 },
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 4);
+});
+
+test('retryRegistryRead: gives up after the last attempt so a truly missing version still fails', async () => {
+  let calls = 0;
+  const result = await retryRegistryRead(
+    () => {
+      calls += 1;
+      return null;
+    },
+    { attempts: 3, delayMs: 1, maxDelayMs: 1 },
+  );
+  assert.equal(result, null);
+  assert.equal(calls, 3);
+});
+
+test('retryRegistryRead: backs off exponentially up to the cap', async () => {
+  const waits = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => {
+    waits.push(ms);
+    return realSetTimeout(fn, 0);
+  };
+  try {
+    await retryRegistryRead(() => null, { attempts: 5, delayMs: 5000, maxDelayMs: 30_000 });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.deepEqual(waits, [5000, 10_000, 20_000, 30_000]);
 });

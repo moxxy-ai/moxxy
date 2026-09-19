@@ -270,28 +270,46 @@ export async function findShippedDepProblems(published, io) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** `npm view <name>@<version> --json` with retries (registry propagation lag). */
-async function fetchShippedManifest(name, version, { attempts = 3, delayMs = 5000 } = {}) {
+// npm accepts a publish minutes before every read path serves it, so a read
+// straight after publishing can 404 on a version that is genuinely live. The
+// old budget was 3 tries 5s apart, ~10s, and real lag has run past five
+// minutes: every release then failed its own consistency check and had to be
+// re-run by hand. Back off to ~2.5 minutes per package. This only buys the
+// registry time to catch up; a version that is actually missing still fails,
+// it just fails after the wait instead of before it.
+const REGISTRY_READ_RETRY = { attempts: 9, delayMs: 5000, maxDelayMs: 30000 };
+
+export async function retryRegistryRead(
+  read,
+  { attempts, delayMs, maxDelayMs } = REGISTRY_READ_RETRY,
+) {
+  let wait = delayMs;
   for (let i = 0; i < attempts; i += 1) {
-    const r = spawnSync('npm', ['view', `${name}@${version}`, '--json'], { encoding: 'utf8' });
-    if (r.status === 0 && r.stdout.trim()) {
-      try {
-        return JSON.parse(r.stdout);
-      } catch {
-        /* fall through to retry */
-      }
+    const result = read();
+    if (result != null) return result;
+    if (i < attempts - 1) {
+      await sleep(wait);
+      wait = Math.min(wait * 2, maxDelayMs);
     }
-    if (i < attempts - 1) await sleep(delayMs);
   }
   return null;
 }
 
-async function versionExistsWithRetry(name, version, { attempts = 3, delayMs = 5000 } = {}) {
-  for (let i = 0; i < attempts; i += 1) {
-    if (alreadyPublished(name, version)) return true;
-    if (i < attempts - 1) await sleep(delayMs);
-  }
-  return false;
+/** `npm view <name>@<version> --json`, waiting out registry propagation lag. */
+async function fetchShippedManifest(name, version, retry = REGISTRY_READ_RETRY) {
+  return await retryRegistryRead(() => {
+    const r = spawnSync('npm', ['view', `${name}@${version}`, '--json'], { encoding: 'utf8' });
+    if (r.status !== 0 || !r.stdout.trim()) return null;
+    try {
+      return JSON.parse(r.stdout);
+    } catch {
+      return null;
+    }
+  }, retry);
+}
+
+async function versionExistsWithRetry(name, version, retry = REGISTRY_READ_RETRY) {
+  return (await retryRegistryRead(() => alreadyPublished(name, version) || null, retry)) === true;
 }
 
 function announceTag(name, version) {
