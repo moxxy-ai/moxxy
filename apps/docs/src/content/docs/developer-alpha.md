@@ -9,7 +9,7 @@ resume the run without learning the runtime architecture.
 
 ## Supported path
 
-- Node.js 20.10 or newer on macOS and Linux;
+- Node.js 20.19 or newer on macOS and Linux;
 - Anthropic and OpenAI API keys;
 - ChatGPT OAuth and an existing Claude Code subscription session;
 - local read, edit, command, and search tools;

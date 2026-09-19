@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -30,7 +30,7 @@
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
   "license": "MIT",
   "engines": {
-    "node": ">=20.10.0"
+    "node": ">=20.19.0"
   },
   "type": "module",
   "main": "./dist/bin.js",

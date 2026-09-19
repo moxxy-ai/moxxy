@@ -12,7 +12,7 @@ Security vulnerabilities should not be reported in a public issue. Follow the pr
 
 ## Set up the repository
 
-Moxxy requires Node.js 20.10 or newer and uses the package manager version pinned in `package.json`.
+Moxxy requires Node.js 20.19 or newer and uses the package manager version pinned in `package.json`.
 
 ```sh
 corepack enable

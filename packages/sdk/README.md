@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/npm/v/@moxxy/sdk?logo=npm&logoColor=white" alt="npm" />
   </a>
   <a href="https://nodejs.org">
-    <img src="https://img.shields.io/badge/node-%3E%3D20.10-brightgreen?logo=node.js&logoColor=white" alt="Node ≥20.10" />
+    <img src="https://img.shields.io/badge/node-%3E%3D20.19-brightgreen?logo=node.js&logoColor=white" alt="Node ≥20.19" />
   </a>
   <a href="https://www.typescriptlang.org">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
@@ -74,7 +74,7 @@ npm install @moxxy/sdk zod
 
 `zod` is a peer dependency. The SDK does not ship it.
 
-Requirements: Node.js 20.10 or later. Strict TypeScript is recommended.
+Requirements: Node.js 20.19 or later. Strict TypeScript is recommended.
 
 ## Quickstart
 

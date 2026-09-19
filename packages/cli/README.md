@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/npm/v/@moxxy/cli?logo=npm&logoColor=white" alt="npm" />
   </a>
   <a href="https://nodejs.org">
-    <img src="https://img.shields.io/badge/node-%3E%3D20.10-brightgreen?logo=node.js&logoColor=white" alt="Node ≥20.10" />
+    <img src="https://img.shields.io/badge/node-%3E%3D20.19-brightgreen?logo=node.js&logoColor=white" alt="Node ≥20.19" />
   </a>
   <a href="https://www.typescriptlang.org">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
@@ -75,7 +75,7 @@ Or run it without installing:
 npx @moxxy/cli init
 ```
 
-Requirements: Node.js 20.10 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max subscription as described below.
+Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max subscription as described below.
 
 ### Claude Code (Pro/Max subscription, no API key)
 

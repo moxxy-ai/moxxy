@@ -4,7 +4,7 @@
  * pet (which hides the recording UI) must STOP an in-flight recording — not
  * leave the microphone capturing with no visible indicator (a privacy leak).
  */
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   __setApiOverride,
@@ -15,7 +15,7 @@ import {
 import { FocusWidget } from './FocusWidget';
 
 interface RecorderProbe {
-  readonly stop: ReturnType<typeof vi.fn>;
+  readonly stop: Mock<() => void>;
   starts: number;
 }
 

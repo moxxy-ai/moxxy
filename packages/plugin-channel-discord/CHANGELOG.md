@@ -1,5 +1,15 @@
 # @moxxy/plugin-channel-discord
 
+## 0.40.0
+
+### Patch Changes
+
+- Updated dependencies [7e47604]
+  - @moxxy/sdk@0.40.0
+  - @moxxy/channel-kit@0.40.0
+  - @moxxy/core@0.40.0
+  - @moxxy/plugin-vault@0.40.0
+
 ## 0.39.0
 
 ### Patch Changes

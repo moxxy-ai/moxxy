@@ -42,6 +42,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// vitest constructs a mock's implementation with `new`, which an arrow function
+// rejects. Constructor fakes must therefore be ordinary functions.
+function ctorMock<A extends unknown[], T>(create: (...args: A) => T) {
+  return vi.fn(function (...args: A): T {
+    return create(...args);
+  });
+}
+
 function fakeStream(stops: ReadonlyArray<() => void>): MediaStream {
   return {
     getTracks: () => stops.map((stop) => ({ stop, enabled: true })),
@@ -94,7 +102,7 @@ class FakeRecorder {
 }
 
 function installRecorder(rec: FakeRecorder): void {
-  const Ctor = vi.fn(() => rec) as unknown as typeof MediaRecorder;
+  const Ctor = ctorMock(() => rec) as unknown as typeof MediaRecorder;
   (Ctor as unknown as { isTypeSupported: () => boolean }).isTypeSupported = () => false;
   vi.stubGlobal('MediaRecorder', Ctor);
 }
@@ -142,7 +150,7 @@ describe('webAudioCapture.start', () => {
 
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
     vi.stubGlobal('window', {});
-    const Ctor = vi.fn(() => {
+    const Ctor = ctorMock(() => {
       throw new Error('unsupported mimeType');
     }) as unknown as typeof MediaRecorder;
     (Ctor as unknown as { isTypeSupported: () => boolean }).isTypeSupported = () => false;
@@ -172,7 +180,7 @@ describe('webAudioCapture.start', () => {
 
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
     // AudioContext ctor throws → analyser setup fails after rec.start() succeeded.
-    const AudioContextCtor = vi.fn(() => {
+    const AudioContextCtor = ctorMock(() => {
       throw new Error('audio context unavailable');
     });
     vi.stubGlobal('window', { AudioContext: AudioContextCtor });
@@ -240,7 +248,7 @@ describe('webAudioCapture.start', () => {
 
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
     vi.stubGlobal('window', {
-      AudioContext: vi.fn(() => ({
+      AudioContext: ctorMock(() => ({
         state: 'running',
         resume: vi.fn(async () => undefined),
         createAnalyser: () => analyser,
@@ -274,7 +282,7 @@ describe('webAudioCapture.start', () => {
     const first = new FakeRecorder();
     const second = new FakeRecorder();
     const recorders = [first, second];
-    const Ctor = vi.fn(() => {
+    const Ctor = ctorMock(() => {
       const next = recorders.shift();
       if (!next) throw new Error('unexpected recorder allocation');
       return next;
@@ -315,7 +323,7 @@ describe('webAudioCapture.start', () => {
     const first = new FakeRecorder();
     const second = new FakeRecorder();
     const recorders = [first, second];
-    const Ctor = vi.fn(() => {
+    const Ctor = ctorMock(() => {
       const next = recorders.shift();
       if (!next) throw new Error('unexpected recorder allocation');
       return next;
@@ -331,7 +339,7 @@ describe('webAudioCapture.start', () => {
     });
     const analyser = { fftSize: 0, smoothingTimeConstant: 0 };
     vi.stubGlobal('window', {
-      AudioContext: vi.fn(() => ({
+      AudioContext: ctorMock(() => ({
         get state() { return state; },
         resume,
         close: vi.fn(async () => undefined),
@@ -372,7 +380,7 @@ describe('webAudioCapture.start', () => {
     const onAnalyser = vi.fn();
     let state: AudioContextState = 'suspended';
     vi.stubGlobal('window', {
-      AudioContext: vi.fn(() => ({
+      AudioContext: ctorMock(() => ({
         get state() { return state; },
         resume: vi.fn(async () => {
           await resumeGate.promise;
@@ -411,7 +419,7 @@ describe('webAudioCapture.start', () => {
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
     let state: AudioContextState = 'running';
     vi.stubGlobal('window', {
-      AudioContext: vi.fn(() => ({
+      AudioContext: ctorMock(() => ({
         get state() { return state; },
         resume: vi.fn(async () => { throw new Error('audio device unavailable'); }),
         close: vi.fn(async () => undefined),
@@ -447,7 +455,7 @@ describe('webAudioCapture.start', () => {
       state = 'running';
     });
     vi.stubGlobal('window', {
-      AudioContext: vi.fn(() => ({
+      AudioContext: ctorMock(() => ({
         get state() { return state; },
         resume,
         close: vi.fn(async () => undefined),

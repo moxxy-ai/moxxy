@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml"><img src="https://github.com/moxxy-ai/moxxy/actions/workflows/ci.yml/badge.svg" alt="CI status" /></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20.10-brightgreen?logo=node.js&logoColor=white" alt="Node.js 20.10 or newer" /></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20.19-brightgreen?logo=node.js&logoColor=white" alt="Node.js 20.19 or newer" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/status-developer%20alpha-C426D7" alt="Developer alpha" />
 </p>
@@ -46,7 +46,7 @@ part of first-run setup. See the [product contract](PRODUCT.md) for the boundary
 
 ## Start in a project
 
-**Requirements:** Node.js 20.10 or newer and one supported model account.
+**Requirements:** Node.js 20.19 or newer and one supported model account.
 
 ```sh
 npm install -g @moxxy/cli
