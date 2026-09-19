@@ -13,6 +13,7 @@ import {
   useDesks,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
+import { WorkflowApprovals } from './workflows/WorkflowApprovals';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
 import { useTheme } from '@/lib/useTheme';
 import { useHotkeyDispatcher, ShortcutsSheet } from './hotkeys';
@@ -38,7 +39,7 @@ import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
-import { Splash } from './Splash';
+import { StartupSplash } from './connection/StartupSplash';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import {
   resolveActiveSessionShell,
@@ -223,7 +224,7 @@ export function App(): JSX.Element {
       <>
         <ConnectionBridge />
         <ChatStoreBridge />
-        <Splash message="Loading preferences…" />
+        <StartupSplash stage="preferences" message="Loading preferences…" />
       </>
     );
   }
@@ -250,7 +251,7 @@ export function App(): JSX.Element {
       <>
         <ConnectionBridge />
         <ChatStoreBridge />
-        <Splash />
+        <StartupSplash stage="workspace" message="Waiting for workspace information…" />
       </>
     );
   }
@@ -407,6 +408,7 @@ export function App(): JSX.Element {
           background-agent modal is open — this fallback catches every other
           view so an ask is never invisible (and never double-rendered). */}
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
+      <WorkflowApprovals modal />
     </div>
   );
 }

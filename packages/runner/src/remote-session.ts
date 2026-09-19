@@ -5,10 +5,10 @@ import type {
   ApprovalRequest,
   ApprovalResolver,
   ClientSession,
+  ComputerControlService,
   CommandsClientView,
   ModesClientView,
   MoxxyEvent,
-  PermissionContext,
   PermissionDecision,
   PendingToolCall,
   PermissionResolver,
@@ -32,6 +32,7 @@ import type {
   TurnId,
 } from '@moxxy/sdk';
 import { sleepWithAbort } from '@moxxy/sdk';
+import { makeComputerControlView } from './client-views/computer-control.js';
 import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { JsonRpcPeer } from './jsonrpc.js';
 import {
@@ -196,6 +197,7 @@ export class RemoteSession implements ClientSession {
   readonly permissions: PermissionsClientView;
   readonly mcpAdmin: McpAdminClientView;
   readonly providerAdmin: ProviderAdminClientView;
+  readonly computerControl: ComputerControlService;
   readonly workflows: WorkflowsClientView;
   /**
    * Turns that completed before their `runTurn` stream was registered. A fast
@@ -290,16 +292,16 @@ export class RemoteSession implements ClientSession {
 
     // Server->client requests (the runner asks us to decide).
     this.peer.handle(RunnerMethod.PermissionCheck, (params) => {
-      const { call, ctx } = params as PermissionCheckParams;
+      const { call, ctx, turnId } = params as PermissionCheckParams;
       if (!this.permissionResolver) {
         return { mode: 'deny', reason: 'no permission resolver on client' } satisfies PermissionDecision;
       }
-      return this.permissionResolver.check(call as PendingToolCall, ctx as PermissionContext);
+      return this.permissionResolver.check(call as PendingToolCall, { ...ctx, turnId: String(turnId) });
     });
     this.peer.handle(RunnerMethod.ApprovalConfirm, (params) => {
-      const { request } = params as ApprovalConfirmParams;
+      const { request, turnId } = params as ApprovalConfirmParams;
       if (!this.approvalResolver) return defaultApproval(request);
-      return this.approvalResolver.confirm(request);
+      return this.approvalResolver.confirm(request, { turnId: String(turnId) });
     });
 
     // If the runner dies, fail any in-flight turns rather than hanging.
@@ -332,6 +334,7 @@ export class RemoteSession implements ClientSession {
     this.permissions = makePermissionsView(view);
     this.mcpAdmin = makeMcpAdminView(view);
     this.providerAdmin = makeProviderAdminView(view);
+    this.computerControl = makeComputerControlView(view);
     this.workflows = makeWorkflowsView(view);
   }
 

@@ -10,6 +10,9 @@ import type { ModelDescriptor } from '@moxxy/sdk';
 // `supportsReasoning` — the request already sends `reasoning.summary: 'auto'`;
 // the per-provider toggle decides whether the summary is surfaced.
 export const codexModels: ReadonlyArray<ModelDescriptor> = [
+  // Astra's operational OAuth window: 272k less the agreed 5% safety margin.
+  // Output is a compaction reserve; the OAuth backend rejects max_output_tokens.
+  { id: 'gpt-6-astra', contextWindow: 258_400, maxOutputTokens: 16_384, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   // The ChatGPT-plan Codex backend enforces a ~400k window for the gpt-5-family
   // models it serves, well below the raw API ceiling. Advertising 1M here made
   // the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate

@@ -24,6 +24,7 @@ import { openAsk, cancelAsksFor } from './ask-broker.js';
 import { buildAttachments } from './attachments.js';
 import { sendEvent } from './send-event.js';
 import { wsEventBus } from './event-bus.js';
+import { withComputerApprovalFocus } from './computer-approval-focus.js';
 
 interface ActiveTurn {
   controller: AbortController;
@@ -96,7 +97,9 @@ export class SessionDriver {
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
         if (this.autoApprove) return { mode: 'allow' };
-        const res = await openAsk(
+        const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
+        const res = await withComputerApprovalFocus(this.session.computerControl,
+          String(this.session.id), call, ctx, signal, () => openAsk(
           {
             workspaceId,
             kind: 'permission',
@@ -107,7 +110,8 @@ export class SessionDriver {
             },
           },
           (channel, payload) => this.send(channel, payload),
-        );
+          signal,
+        ));
         // "Always allow" must persist so the runner's permission engine
         // skips the prompt on the next call. The resolver only decides
         // THIS call; without recording the rule, allow_always behaves
@@ -120,11 +124,14 @@ export class SessionDriver {
     });
     this.session.setApprovalResolver({
       name: 'desktop-ask',
-      confirm: async (request) => {
+      confirm: async (request, context) => {
+        const signal = context ? this.turns.get(context.turnId)?.controller.signal : undefined;
         const res = await openAsk(
           { workspaceId, kind: 'approval', approval: request },
           (channel, payload) => this.send(channel, payload),
+          signal,
         );
+        if (signal?.aborted) throw new Error('Approval cancelled with its turn');
         // The renderer always returns an `optionId` for an approval. A response
         // WITHOUT one means the ask was cancelled (broker teardown — the driver
         // was disposed / window closed). Cancelling must NOT fall through to the

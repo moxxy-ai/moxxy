@@ -31,6 +31,7 @@ export * from './composerDraftStore.js';
 // Hooks.
 export * from './useChat.js';
 export * from './useConnection.js';
+export * from './useWorkflowApprovals.js';
 export * from './usePrefs.js';
 export * from './useSettings.js';
 export * from './useDesks.js';

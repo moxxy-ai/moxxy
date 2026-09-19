@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-computer-control",
   "version": "0.40.0",
-  "description": "Programmatic control of the host computer (macOS only for now): screenshot, click, type, key, open, clipboard, applescript. Every tool prompts for permission.",
+  "description": "Permission-gated computer control with macOS tools and an independent Windows x64 native backend.",
   "keywords": [
     "moxxy",
     "agent",
@@ -31,12 +31,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./skills/*": "./skills/*"
+    "./skills/*": "./skills/*",
+    "./maintenance": {
+      "types": "./dist/windows/maintenance.d.ts",
+      "import": "./dist/windows/maintenance.js"
+    }
   },
   "files": [
     "dist",
     "src",
-    "skills"
+    "skills",
+    "bin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

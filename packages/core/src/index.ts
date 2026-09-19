@@ -1,4 +1,8 @@
 export { Session, type SessionOptions } from './session.js';
+export { createWorkflowToolRunner } from './workflow-tool-runner.js';
+export { WorkflowApprovals, approvalFingerprint } from './permissions/workflow-approvals.js';
+export { withPermissionScope } from './permissions/scope.js';
+export { claimWorkflowLease } from './permissions/workflow-lease.js';
 export { runTurn, collectTurn, type RunTurnOptions } from './run-turn.js';
 export {
   setupAgent,

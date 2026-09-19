@@ -42,49 +42,52 @@ function safeStringifyArgs(input: unknown): string {
   }
 }
 
+function toUserMessage(content: ProviderMessage['content']): OpenAIChatMessage {
+  const hasRichPart = content.some((c) => c.type === 'image' || c.type === 'document');
+  if (!hasRichPart) {
+    const text = content
+      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+      .map((c) => c.text)
+      .join('\n');
+    return { role: 'user', content: text };
+  }
+  // Keep the existing rich user format for both user and tool attachments.
+  const parts: OpenAIUserContentPart[] = [];
+  for (const c of content) {
+    if (c.type === 'text') {
+      parts.push({ type: 'text', text: c.text });
+    } else if (c.type === 'image') {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${c.mediaType};base64,${c.data}` },
+      });
+    } else if (c.type === 'document') {
+      parts.push({
+        type: 'file',
+        file: {
+          ...(c.name ? { filename: c.name } : {}),
+          file_data: `data:${c.mediaType};base64,${c.data}`,
+        },
+      });
+    }
+  }
+  return { role: 'user', content: parts };
+}
+
 export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): OpenAIChatMessage[] {
   const out: OpenAIChatMessage[] = [];
+  const attachments: OpenAIChatMessage[] = [];
   for (const msg of messages) {
+    // Chat Completions requires all parallel tool replies before the next
+    // user message. Defer pixels until the contiguous result batch is complete.
+    if (msg.role !== 'tool_result') out.push(...attachments.splice(0));
     if (msg.role === 'system') {
       const text = msg.content.find((c): c is { type: 'text'; text: string } => c.type === 'text')?.text ?? '';
       if (text) out.push({ role: 'system', content: text });
       continue;
     }
     if (msg.role === 'user') {
-      const hasRichPart = msg.content.some((c) => c.type === 'image' || c.type === 'document');
-      if (hasRichPart) {
-        // Vision/document user message: emit content as a parts array so
-        // base64 images and documents (PDFs) ride alongside text. Non-vision
-        // / non-document OpenAI models will 400 on this shape — callers gate
-        // by `supportsImages` / `supportsDocuments` on the model descriptor
-        // before attaching.
-        const parts: OpenAIUserContentPart[] = [];
-        for (const c of msg.content) {
-          if (c.type === 'text') {
-            parts.push({ type: 'text', text: c.text });
-          } else if (c.type === 'image') {
-            parts.push({
-              type: 'image_url',
-              image_url: { url: `data:${c.mediaType};base64,${c.data}` },
-            });
-          } else if (c.type === 'document') {
-            parts.push({
-              type: 'file',
-              file: {
-                ...(c.name ? { filename: c.name } : {}),
-                file_data: `data:${c.mediaType};base64,${c.data}`,
-              },
-            });
-          }
-        }
-        out.push({ role: 'user', content: parts });
-      } else {
-        const text = msg.content
-          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-          .map((c) => c.text)
-          .join('\n');
-        out.push({ role: 'user', content: text });
-      }
+      out.push(toUserMessage(msg.content));
       continue;
     }
     if (msg.role === 'assistant') {
@@ -127,8 +130,11 @@ export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): Open
           });
         }
       }
+      const content = msg.content.filter((block) => block.type === 'text' || block.type === 'image' || block.type === 'document');
+      if (content.length > 0) attachments.push(toUserMessage(content));
     }
   }
+  out.push(...attachments);
   return out;
 }
 
@@ -142,4 +148,3 @@ export function toOpenAITools(tools: ReadonlyArray<ToolDef>): OpenAIToolDef[] {
     },
   }));
 }
-

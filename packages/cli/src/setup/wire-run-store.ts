@@ -191,7 +191,7 @@ function globBaseDir(glob: string, cwd: string): string {
 
 export interface WorkflowTriggerWiring {
   /** (Re)sync schedule triggers + rebuild fs watchers. Idempotent. */
-  syncSchedules: () => Promise<void>;
+  syncSchedules: (deletedName?: string) => Promise<void>;
   /** Tear down the afterWorkflow subscription + all fs watchers. */
   stop: () => void;
 }
@@ -341,7 +341,16 @@ export function wireWorkflowTriggers(args: {
     }
   }
 
-  async function syncSchedules(): Promise<void> {
+  async function syncSchedules(deletedName?: string): Promise<void> {
+    // Persist a tombstone, so another runner with a cached definition cannot
+    // recreate the removed workflow's schedule. Never sweep other workspaces.
+    if (deletedName) {
+      for (const entry of await scheduleStore.list()) {
+        if (entry.source === 'workflow' && entry.workflowName === deletedName) {
+          await scheduleStore.delete(entry.id);
+        }
+      }
+    }
     const all = await store.list();
     // Static cycle guard: warn once per cycle and disable auto-refire for its
     // members (they stay runnable manually / on schedule).

@@ -4,6 +4,15 @@ import { REMOTE_ALLOWED_COMMANDS } from './index.js';
 import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('requires exact workspace, session and turn for Computer Use human commands', () => {
+    const command = 'computer.control' as IpcCommandName;
+    const args = {workspaceId:'workspace',sessionId:'session',turnId:'turn',command:'stop'};
+    expect(() => validateIpcInput(command, args)).not.toThrow();
+    expect(() => validateIpcInput(command, {...args, workspaceId:undefined})).toThrow();
+    expect(() => validateIpcInput(command, {...args, turnId:undefined})).toThrow();
+    expect(() => validateIpcInput(command, {...args, command:'restart'})).toThrow();
+    expect(() => validateIpcInput(command, {...args, executable:'other'})).toThrow();
+  });
   it('accepts no payload for the fixed Local Piper installer commands', () => {
     expect(() => validateIpcInput(
       'voice.isLocalPiperInstalled' as IpcCommandName,

@@ -17,10 +17,12 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
 export interface SchedulePromptResult {
   readonly text: string;
   readonly error?: string;
+  readonly cancelled?: boolean;
 }
 
 export interface SchedulePromptRunner {
   runPrompt(input: {
+    signal?: AbortSignal;
     prompt: string;
     model?: string;
     scheduleName: string;
@@ -35,6 +37,7 @@ export interface SchedulePromptRunner {
 
 export interface ScheduleRunOutcome {
   readonly ok: boolean;
+  readonly cancelled?: boolean;
   readonly inboxPath?: string;
   readonly text: string;
   readonly error?: string;
@@ -63,7 +66,7 @@ async function writeInbox(
     `firedAt: ${new Date().toISOString()}`,
     entry.cron ? `cron: "${entry.cron}"` : `runAt: ${entry.runAt}`,
     entry.channel ? `channel: ${entry.channel}` : null,
-    `outcome: ${result.error ? 'error' : 'ok'}`,
+    `outcome: ${result.cancelled ? 'cancelled' : result.error ? 'error' : 'ok'}`,
     `---`,
     '',
   ]
@@ -87,10 +90,28 @@ export async function runSchedule(
   store: ScheduleStore,
   inboxOpts: InboxOptions = {},
 ): Promise<ScheduleRunOutcome> {
+  // Persist before side effects: a crashed one-shot must not replay merely
+  // because it never reached the completion write.
+  if (entry.source === 'workflow') await store.update(entry.id, { lastStartedAt: Date.now() });
+  const controller = new AbortController();
+  let checking = false;
+  const checkSchedule = async () => {
+    store.invalidate();
+    const current = await store.get(entry.id);
+    if (!current?.enabled) controller.abort('Workflow schedule disabled or deleted');
+  };
+  const monitor = entry.source === 'workflow' ? setInterval(() => {
+    if (checking) return;
+    checking = true;
+    void checkSchedule().catch(error => controller.abort(error)).finally(() => { checking = false; });
+  }, 200) : undefined;
+  monitor?.unref();
   let result: SchedulePromptResult;
   try {
+    if (entry.source === 'workflow') { await checkSchedule(); controller.signal.throwIfAborted(); }
     result = await runner.runPrompt({
       prompt: entry.prompt,
+      ...(entry.source === 'workflow' ? { signal: controller.signal } : {}),
       ...(entry.model ? { model: entry.model } : {}),
       scheduleName: entry.name,
       // A workflow-mirror row (source='workflow') reads as "Workflow ran";
@@ -101,10 +122,12 @@ export async function runSchedule(
           : { kind: 'schedule', name: entry.name },
     });
   } catch (err) {
-    result = {
+    result = controller.signal.aborted ? { text: '', cancelled: true } : {
       text: '',
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    clearInterval(monitor);
   }
 
   let inboxPath: string | undefined;
@@ -118,14 +141,15 @@ export async function runSchedule(
   const isOneShot = !!entry.runAt && !entry.cron;
   const patch: Partial<ScheduleEntry> = {
     lastRunAt: now,
-    lastResult: result.error ? 'error' : 'ok',
+    lastResult: result.cancelled ? 'cancelled' : result.error ? 'error' : 'ok',
     ...(result.error ? { lastError: result.error.slice(0, 500) } : { lastError: undefined }),
     ...(isOneShot ? { enabled: false } : {}),
   };
   await store.update(entry.id, patch);
 
   return {
-    ok: !result.error,
+    ok: !result.cancelled && !result.error,
+    ...(result.cancelled ? { cancelled: true } : {}),
     text: result.text,
     ...(result.error ? { error: result.error } : {}),
     ...(inboxPath ? { inboxPath } : {}),

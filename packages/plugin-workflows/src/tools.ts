@@ -11,6 +11,7 @@ import {
   type ToolDef,
   type TurnId,
   type WorkflowEventSubtype,
+  type Workflow,
   type WorkflowExecutorDef,
   type WorkflowRunDeps,
   type WorkflowToolRunner,
@@ -34,6 +35,9 @@ export interface WorkflowToolDeps {
   readonly store: WorkflowStore;
   readonly skills: { byName(name: string): Skill | undefined };
   readonly tools: WorkflowToolRunner;
+  readonly toolsForTurn?: (ctx: { turnId: TurnId; subagents: WorkflowRunDeps['spawner'] }) => WorkflowToolRunner;
+  readonly subagentsForTurn?: (turnId: TurnId, signal: AbortSignal) => WorkflowRunDeps['spawner'];
+  readonly runScoped?: <T>(name: string, ctx: { turnId: TurnId; signal: AbortSignal }, task: (signal: AbortSignal) => Promise<T>, definition: Workflow) => Promise<T>;
   readonly getActiveExecutor: () => WorkflowExecutorDef | null;
   /** Bound to `session.log.append` so lifecycle events land on the log. */
   readonly appendEvent?: (event: EmittedEvent) => unknown;
@@ -47,7 +51,7 @@ export interface WorkflowToolDeps {
   readonly listSkills?: () => ReadonlyArray<DraftCatalogEntry>;
   readonly listTools?: () => ReadonlyArray<DraftCatalogEntry>;
   /** Called after a create/update/delete/toggle so triggers can re-sync. */
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
 }
 
 const PLUGIN_ID = asPluginId(WORKFLOWS_PLUGIN_NAME);
@@ -85,7 +89,7 @@ export function buildRunDeps(
     : undefined;
   return {
     spawner: ctx.subagents,
-    tools: deps.tools,
+    tools: deps.toolsForTurn ? deps.toolsForTurn(ctx) : deps.tools,
     lookup: {
       skill: (n) => deps.skills.byName(n),
       workflow: (n) => deps.store.lookup(n),
@@ -259,7 +263,7 @@ function deleteTool(deps: WorkflowToolDeps): ToolDef {
       const res = await deps.store.delete(name);
       if (!res.ok) throw new MoxxyError({ code: 'TOOL_ERROR', message: `workflow_delete: ${res.reason}.` });
       emitChange(deps, ctx, 'workflow_deleted', { name });
-      await deps.onChanged?.();
+      await deps.onChanged?.(name);
       return { name, deleted: true };
     },
   });
@@ -304,16 +308,20 @@ function runTool(deps: WorkflowToolDeps): ToolDef {
           message: 'workflow_run: no subagent spawner — must be invoked from a run-turn loop.',
         });
       }
+      const spawner = ctx.subagents;
+      const execute = (signal = ctx.signal) => {
       const runDeps = buildRunDeps(
         deps,
-        { sessionId: ctx.sessionId, turnId: ctx.turnId, signal: ctx.signal, subagents: ctx.subagents },
+        { sessionId: ctx.sessionId, turnId: ctx.turnId, signal, subagents: deps.subagentsForTurn ? deps.subagentsForTurn(ctx.turnId, signal) : spawner },
         inputs,
         'manual',
       );
-      const result = await runWorkflow(entry.workflow, runDeps, {
+      return runWorkflow(entry.workflow, runDeps, {
         executor: deps.getActiveExecutor(),
         ...(deps.runRecordDir !== undefined ? { recordDir: deps.runRecordDir } : {}),
       });
+      };
+      const result = await (deps.runScoped ? deps.runScoped(name, ctx, execute, entry.workflow) : execute());
       return {
         ok: result.ok,
         output: result.output,
@@ -411,4 +419,3 @@ function validateTool(deps: WorkflowToolDeps): ToolDef {
     },
   });
 }
-
