@@ -7,26 +7,42 @@ import path from 'node:path';
  *   - jsdom for renderer (React) tests under `src/`.
  *   - node for main-process tests under `electron/`.
  *
- * `environmentMatchGlobs` routes each test file to the right env so
- * we don't bloat node tests with a fake DOM.
+ * They are separate projects so each test file gets its environment without the
+ * node tests paying for a fake DOM.
  */
+const alias = {
+  '@': path.resolve(__dirname, 'src'),
+  '@shared': path.resolve(__dirname, 'electron/shared'),
+};
+
+const exclude = ['**/node_modules/**', '**/dist/**', '**/dist-electron/**'];
+
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@shared': path.resolve(__dirname, 'electron/shared'),
-    },
-  },
   test: {
-    globals: false,
-    setupFiles: ['./src/test-setup.ts'],
-    environmentMatchGlobs: [
-      ['src/**', 'jsdom'],
-      ['electron/**', 'node'],
+    projects: [
+      {
+        plugins: [react()],
+        resolve: { alias },
+        test: {
+          name: 'renderer',
+          globals: false,
+          environment: 'jsdom',
+          setupFiles: ['./src/test-setup.ts'],
+          include: ['src/**/*.test.{ts,tsx}'],
+          exclude,
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
+          name: 'main',
+          globals: false,
+          environment: 'node',
+          include: ['electron/**/*.test.ts'],
+          exclude,
+        },
+      },
     ],
-    include: ['src/**/*.test.{ts,tsx}', 'electron/**/*.test.ts'],
-    exclude: ['**/node_modules/**', '**/dist/**', '**/dist-electron/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

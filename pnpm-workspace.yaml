@@ -7,9 +7,9 @@ packages:
 # "<dep>": "catalog:" so the version is defined once here. pnpm rewrites
 # catalog: to the concrete version at publish time.
 catalog:
-  # 1.1+ imports node:util.styleText (added in Node 20.12), while moxxy's
-  # published runtime floor is Node 20.10. Keep the last compatible release
-  # exact so a lockfile refresh cannot silently raise that minimum again.
+  # Pinned when the runtime floor was Node 20.10, because 1.1+ imports
+  # node:util.styleText (added in Node 20.12). The floor is now 20.19, so the
+  # pin is no longer load-bearing and 1.1+ can be taken on its own merits.
   '@clack/prompts': 1.0.1
   '@noble/ciphers': ^2.2.0
   '@noble/curves': ^2.2.0
@@ -25,6 +25,6 @@ catalog:
   tsup: ^8.0.0
   tsx: ^4.23.12
   typescript: ^6.0.3
-  vitest: ^3.2.6
+  vitest: ^4.1.11
   ws: ^8.21.0
   zod: ^3.25.76
