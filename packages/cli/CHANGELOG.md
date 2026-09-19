@@ -1,5 +1,16 @@
 # @moxxy/cli
 
+## 0.40.0
+
+### Minor Changes
+
+- 7e47604: Raise the supported Node floor from 20.10 to 20.19. Node 20.10 through 20.18 are no longer supported; upgrade to Node 20.19 or newer (22.x and 24.x remain supported). The floor moved so the toolchain can take security-patched dependencies that require `node:util.styleText`, which landed in Node 20.12.
+
+### Patch Changes
+
+- Updated dependencies [7e47604]
+  - @moxxy/sdk@0.40.0
+
 ## 0.39.0
 
 ### Minor Changes
