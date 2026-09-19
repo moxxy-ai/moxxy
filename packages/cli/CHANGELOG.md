@@ -1,5 +1,41 @@
 # @moxxy/cli
 
+## 0.41.0
+
+### Minor Changes
+
+- 46136ab: Add an independent Windows x64 Computer Use helper with explicit window and observation targets, bounded UI Automation, capture metadata, input cancellation and desktop ownership. Preserve existing macOS operations and clean screenshot files after conversion failures.
+
+  Preserve unchanged window identities, reject changed control values, explicitly restore minimized windows, support verified background EDIT value changes, and wait locally for focus without replaying interrupted input. Native protocol v2 separates active execution deadlines from human waiting and supports explicit pause/resume. An independent guardian retains the injected-input ledger across worker termination.
+
+  Move accessible pause/resume/stop controls into a non-activating native guardian panel. Add an installed-application catalog and explicit reuse/new-instance launching with correlated window results instead of command-text interpolation.
+
+  Expose session/turn-owned Computer Use state and human controls through an optional SDK service, runner protocol v12 and validated workspace-specific desktop IPC. Preserve stopped-turn tombstones and ordinary chat compatibility when the service is absent.
+
+  Add filtered, observation-scoped accessibility reads and Windows-specific request guidance. Offer a consent-based offline Computer Use upgrade from full Windows installers with private dependencies, hash checks, backups, npm ledger alignment, isolated runtime verification and interrupted-update recovery; leave other extensions and user credentials untouched.
+
+  Add semantic UIA action receipts with modal-safe execution, bounded accessible text reading and literal selection, and explicit window typing that rejects protected focus. Distinguish native-panel Stop from a process failure and present exact-turn human controls in the desktop chat surface.
+
+### Patch Changes
+
+- c6ee82d: Preserve screenshot images and other attachments returned by tools in ChatGPT OAuth and OpenAI API requests, alongside their original call IDs and capture metadata, without interrupting parallel Chat Completions tool replies.
+- 01c926c: Keep Windows dialog controls bound to their actual window, expose modal ownership, and return a blocking dialog instead of waiting for focus on its disabled parent. Version the native helper contract together with the extension.
+- 9039517: Preserve model-facing schema bounds and null alternatives, ship Windows Computer Use schemas with the extension, and distinguish invalid observation references from focus changes. Add installed-tool and real Notepad typing regression coverage.
+- c6ee82d: Update bundled OpenAI connections transactionally with private dependencies, consent for local changes, and rollback; preserve workflow cancellation distinctly in execution results, persisted history, cron and desktop instead of reporting Stop as a failure.
+- b01809e: Record optional provider-call stage timings on response events to distinguish context preparation, hooks, local stream handling and adapter/network/provider waiting without changing model requests or tool execution.
+- ba2fd8f: Add GPT-6 Astra to the static OpenAI and ChatGPT OAuth model catalogs without changing selected models or provider transports. Use separate API and conservative OAuth context budgets.
+- 942df0d: Prevent Windows Computer Use from terminating when an observed control contains more than 512 UTF-16 code units. Preserve bounded Unicode text through an owning Windows Runtime string and cover truncation with native and installed-fixture regression tests.
+- bbd22ac: Repair legacy workflow schedule creation times and preserve schedule identity, run history and user pauses during synchronization. Distinguish native Computer Use panel Stop from a helper crash.
+- f13cda7: Add confirmed workflow deletion with schedule tombstones and prefer the bundled CLI over stale writable copies.
+- ba473d9: Persist workflow-scoped approvals and expose decisions/revocation in the desktop. Gate direct workflow tool steps with the shared dispatcher and cancel work before shutdown disposers. Coordinate permission-window focus without replaying input (native Computer Use protocol 4, runner protocol 13).
+- Updated dependencies [9039517]
+- Updated dependencies [c6ee82d]
+- Updated dependencies [b01809e]
+- Updated dependencies [46136ab]
+- Updated dependencies [f13cda7]
+- Updated dependencies [ba473d9]
+  - @moxxy/sdk@0.41.0
+
 ## 0.40.0
 
 ### Minor Changes
