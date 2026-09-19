@@ -41,10 +41,22 @@ function Start-Peer {
 function Request($peer, $method, $parameters, $version = 4) {
   $id = [guid]::NewGuid().ToString()
   $frame = @{ version=$version; id=$id; method=$method; params=$parameters } | ConvertTo-Json -Depth 20 -Compress
+  # A timed-out ReadLineAsync keeps running against the StreamReader. Reusing
+  # that peer then fails with "The stream is currently in use by a previous
+  # operation", or silently consumes the abandoned line as the answer to a
+  # later request, which surfaces as 'Invalid protocol response' somewhere
+  # unrelated. Both are the same bug, so a peer that times out is finished.
+  if ($peer.PSObject.Properties['MoxxyPeerPoisoned'] -and $peer.MoxxyPeerPoisoned) {
+    throw "Helper is unusable after an earlier timeout (no request was sent for $method)"
+  }
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
   do {
     $read = $peer.StandardOutput.ReadLineAsync()
-    if (-not $read.Wait(15000)) { throw "Helper response timeout for $method (operation not retried)" }
+    if (-not $read.Wait(15000)) {
+      Add-Member -InputObject $peer -NotePropertyName MoxxyPeerPoisoned -NotePropertyValue $true -Force
+      try { if (-not $peer.HasExited) { $peer.Kill() } } catch { }
+      throw "Helper response timeout for $method (operation not retried)"
+    }
     if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
     $response = $read.Result | ConvertFrom-Json
     if ($response.id -ne $id -or $response.version -ne 4) { throw 'Invalid protocol response' }
@@ -80,13 +92,14 @@ function Canvas-Point($capture, $xOffset = 60, $yOffset = 60) {
   return @{ x=[math]::Floor(($canvas.bounds.x+$xOffset-$capture.source.x)*$capture.width/$capture.source.width);
     y=[math]::Floor(($canvas.bounds.y+$yOffset-$capture.source.y)*$capture.height/$capture.source.height) }
 }
-function Fixture-State {
-  # Wait for real window messages to be processed, not for a model declaration.
-  Start-Sleep -Milliseconds 200
+# A fixture rewrites its report while the test reads it, so a bare Get-Content
+# races the writer and fails with "being used by another process", or catches a
+# half-written file. Every state read goes through this retry.
+function Read-StateFile($path) {
   $until=[DateTime]::UtcNow.AddSeconds(2)
   do {
     try {
-      $raw=Get-Content -LiteralPath $script:statePath -Raw -Encoding UTF8
+      $raw=Get-Content -LiteralPath $path -Raw -Encoding UTF8
       if (-not [string]::IsNullOrWhiteSpace($raw)) {
         $snapshot=$raw | ConvertFrom-Json
         if ($null -ne $snapshot) { return $snapshot }
@@ -94,7 +107,12 @@ function Fixture-State {
     } catch { $readError=$_.Exception.Message }
     Start-Sleep -Milliseconds 10
   } while ([DateTime]::UtcNow -lt $until)
-  throw "Fixture did not publish a complete JSON report: $readError"
+  throw "Fixture did not publish a complete JSON report at ${path}: $readError"
+}
+function Fixture-State {
+  # Wait for real window messages to be processed, not for a model declaration.
+  Start-Sleep -Milliseconds 200
+  return Read-StateFile $script:statePath
 }
 function Focus-TestFixture($process, [switch]$ProbeEvents) {
   # Simulate a real title-bar click outside the backend under test, and wait
@@ -223,12 +241,12 @@ try {
         Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
         Focus-TestFixture $other
         Start-Sleep -Milliseconds 250
-        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
+        Check ((Read-StateFile $otherPath).foreground) 'Second fixture was not foreground'
         Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='background updated'} | Out-Null
         Check ((Fixture-State).text -eq 'background updated') 'Background value not set'
         $image=Screenshot
         Check ($image.mode -eq 'window') 'Background capture used desktop fallback'
-        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Automation stole foreground'
+        Check ((Read-StateFile $otherPath).foreground) 'Automation stole foreground'
       } finally {
         $other.CloseMainWindow() | Out-Null
         $other.WaitForExit(3000) | Out-Null
@@ -288,7 +306,7 @@ try {
         Start-Sleep -Milliseconds 250
         $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
         Check (-not $restored.restored) 'Approval stole focus after a human app switch'
-        Check ((Get-Content -LiteralPath $hostPath -Raw | ConvertFrom-Json).foreground) 'Approval host lost foreground unexpectedly'
+        Check ((Read-StateFile $hostPath).foreground) 'Approval host lost foreground unexpectedly'
       } finally {
         $approvalHost.CloseMainWindow() | Out-Null; $human.CloseMainWindow() | Out-Null
         $approvalHost.WaitForExit(3000) | Out-Null; $human.WaitForExit(3000) | Out-Null
@@ -350,7 +368,7 @@ try {
         Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
         Focus-TestFixture $other
         Start-Sleep -Milliseconds 250
-        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).foreground) 'Second fixture was not foreground'
+        Check ((Read-StateFile $otherPath).foreground) 'Second fixture was not foreground'
         $id=[guid]::NewGuid().ToString()
         $frame=@{version=4;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
         $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
@@ -360,7 +378,7 @@ try {
         Check ($state.id -eq $id -and $state.event -eq 'control_state' -and $state.state -eq 'waiting_for_focus') 'Focus loss ended the operation instead of waiting locally'
         $pending=$script:helper.StandardOutput.ReadLineAsync()
         Check (-not $pending.Wait(1200)) 'Focus waiting ended prematurely'
-        Check ((Get-Content -LiteralPath $otherPath -Raw | ConvertFrom-Json).text -eq '') 'Input leaked into another window'
+        Check ((Read-StateFile $otherPath).text -eq '') 'Input leaked into another window'
         $other.CloseMainWindow() | Out-Null
         Check ($other.WaitForExit(3000)) 'Second fixture did not close'
         Check ($pending.Wait(5000)) 'Target focus did not resume waiting'

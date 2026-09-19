@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
+import { readBoundedFile } from './bounded-read.js';
 
 const hash=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
 export const computerLedgerSchema=z.object({
@@ -15,9 +16,7 @@ const dependencies=z.record(z.string());
 
 async function read(file:string):Promise<Buffer|null> {
   try {
-    const stat=await fs.lstat(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size>4_000_000) throw new Error('Invalid Computer Use package ledger');
-    return await fs.readFile(file);
+    return await readBoundedFile(file,4_000_000,'Invalid Computer Use package ledger');
   } catch(error) { if ((error as NodeJS.ErrnoException).code==='ENOENT') return null; throw error; }
 }
 

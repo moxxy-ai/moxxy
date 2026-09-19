@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
+import { readBoundedFile } from './bounded-read.js';
 import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, type ComputerLedger } from './computer-update-ledger.js';
 
 const pluginName = '@moxxy/plugin-computer-control';
@@ -59,9 +60,8 @@ async function journals(home:string, plugin: ManagedPackage = pluginName):Promis
     const directory=path.join(root,name),file=path.join(directory,'transaction.json');
     await assertOwnedParents(home,directory);
     if (!await exists(file)) continue;
-    const info=await fs.lstat(file);
-    if (!info.isFile() || info.isSymbolicLink() || info.size>4096) throw new Error('Invalid Computer Use recovery journal');
-    result.push({directory,file,record:journalSchema.parse(JSON.parse(await fs.readFile(file,'utf8')))});
+    const bytes=await readBoundedFile(file,4096,'Invalid Computer Use recovery journal');
+    result.push({directory,file,record:journalSchema.parse(JSON.parse(bytes.toString('utf8')))});
   }
   return result;
 }
@@ -83,8 +83,10 @@ export async function computerTreeHash(directory: string): Promise<string | null
       const names = (await fs.readdir(file)).sort();
       for (const name of names) await walk(path.join(file,name), relative ? relative+'/'+name : name);
     } else {
-      if (!stat.isFile() || ++files > 20000 || (bytes += stat.size) > 512_000_000) throw new Error('Computer Use package exceeds update limits');
-      records.push([relative,createHash('sha256').update(await fs.readFile(file)).digest('hex')]);
+      if (!stat.isFile() || ++files > 20000) throw new Error('Computer Use package exceeds update limits');
+      const content=await readBoundedFile(file,512_000_000-bytes,'Computer Use package exceeds update limits');
+      bytes += content.length;
+      records.push([relative,createHash('sha256').update(content).digest('hex')]);
     }
   }
   await walk(directory,'');
@@ -107,9 +109,8 @@ async function assertOwnedParents(home: string, target: string): Promise<void> {
 
 async function manifest(directory: string) {
   const file=path.join(directory,'package.json');
-  const stat=await fs.lstat(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512000) throw new Error('Invalid bundled package manifest');
-  return manifestSchema.parse(JSON.parse(await fs.readFile(file,'utf8')));
+  const bytes=await readBoundedFile(file,512000,'Invalid bundled package manifest');
+  return manifestSchema.parse(JSON.parse(bytes.toString('utf8')));
 }
 
 /** Resolve only within the installer seed; no PATH, registry or npm access. */
