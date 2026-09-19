@@ -1,5 +1,30 @@
 # @moxxy/sdk
 
+## 0.41.0
+
+### Minor Changes
+
+- b01809e: Record optional provider-call stage timings on response events to distinguish context preparation, hooks, local stream handling and adapter/network/provider waiting without changing model requests or tool execution.
+- 46136ab: Add an independent Windows x64 Computer Use helper with explicit window and observation targets, bounded UI Automation, capture metadata, input cancellation and desktop ownership. Preserve existing macOS operations and clean screenshot files after conversion failures.
+
+  Preserve unchanged window identities, reject changed control values, explicitly restore minimized windows, support verified background EDIT value changes, and wait locally for focus without replaying interrupted input. Native protocol v2 separates active execution deadlines from human waiting and supports explicit pause/resume. An independent guardian retains the injected-input ledger across worker termination.
+
+  Move accessible pause/resume/stop controls into a non-activating native guardian panel. Add an installed-application catalog and explicit reuse/new-instance launching with correlated window results instead of command-text interpolation.
+
+  Expose session/turn-owned Computer Use state and human controls through an optional SDK service, runner protocol v12 and validated workspace-specific desktop IPC. Preserve stopped-turn tombstones and ordinary chat compatibility when the service is absent.
+
+  Add filtered, observation-scoped accessibility reads and Windows-specific request guidance. Offer a consent-based offline Computer Use upgrade from full Windows installers with private dependencies, hash checks, backups, npm ledger alignment, isolated runtime verification and interrupted-update recovery; leave other extensions and user credentials untouched.
+
+  Add semantic UIA action receipts with modal-safe execution, bounded accessible text reading and literal selection, and explicit window typing that rejects protected focus. Distinguish native-panel Stop from a process failure and present exact-turn human controls in the desktop chat surface.
+
+- ba473d9: Persist workflow-scoped approvals and expose decisions/revocation in the desktop. Gate direct workflow tool steps with the shared dispatcher and cancel work before shutdown disposers. Coordinate permission-window focus without replaying input (native Computer Use protocol 4, runner protocol 13).
+
+### Patch Changes
+
+- 9039517: Preserve model-facing schema bounds and null alternatives, ship Windows Computer Use schemas with the extension, and distinguish invalid observation references from focus changes. Add installed-tool and real Notepad typing regression coverage.
+- c6ee82d: Update bundled OpenAI connections transactionally with private dependencies, consent for local changes, and rollback; preserve workflow cancellation distinctly in execution results, persisted history, cron and desktop instead of reporting Stop as a failure.
+- f13cda7: Add confirmed workflow deletion with schedule tombstones and prefer the bundled CLI over stale writable copies.
+
 ## 0.40.0
 
 ### Minor Changes

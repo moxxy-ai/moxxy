@@ -143,7 +143,7 @@ export async function runExecutorLoop(
       // run: stop scheduling the rest of the wave rather than burning
       // subagent/tool calls and emitting completed events for steps that ran
       // after the run had logically failed.
-      if (aborted) break;
+      if (aborted || deps.signal.aborted) break;
       const st = ctx.states.get(step.id);
       assertDefined(st, 'runExecutor initializes a state for every step');
       st.startedAt = ctx.now();
@@ -153,6 +153,13 @@ export async function runExecutorLoop(
       });
       const outcome = await runStep(step, scope, ctx);
       st.endedAt = ctx.now();
+
+      if (deps.signal.aborted) {
+        st.status = 'cancelled';
+        st.output = outcome.output;
+        await deps.emit?.('workflow_step_cancelled', { id: step.id });
+        break;
+      }
 
       if (outcome.paused) {
         const interactionAgentId = outcome.interactionAgentId;
@@ -224,6 +231,11 @@ export async function runExecutorLoop(
   // does not flip the run to failed — the per-step status still records it.
   const ok = !aborted;
   const output = sinkOutput(workflow, ctx.states);
+
+  if (deps.signal.aborted) {
+    await deps.emit?.('workflow_cancelled', { name: workflow.name });
+    return buildRunResult(ctx, 'cancelled', false, { output });
+  }
 
   if (ok) {
     // A run whose only remaining steps were all skipped by branch routing can
@@ -363,11 +375,13 @@ async function resumeWorkflowRunInner(
 
   const finalizePrompt = `Operator reply:\n${userMessage.trim()}${FINALIZE_REPLY_SUFFIX}`;
   try {
+    deps.signal.throwIfAborted();
     const child = await deps.spawner.continue({
       childSessionId: checkpoint.interactionAgentId as SessionId,
       prompt: finalizePrompt,
       label: step.label ?? step.id,
     });
+    deps.signal.throwIfAborted();
     if (child.error) throw new Error(child.error.message);
     st.status = 'completed';
     st.output = child.text;
@@ -377,6 +391,14 @@ async function resumeWorkflowRunInner(
       preview: child.text.slice(0, 280),
     });
   } catch (err) {
+    if (deps.signal.aborted) {
+      st.status = 'cancelled';
+      st.endedAt = ctx.now();
+      await store.remove(runId);
+      await deps.emit?.('workflow_step_cancelled', { id: step.id });
+      await deps.emit?.('workflow_cancelled', { runId, name: checkpoint.workflow.name });
+      return buildRunResult(ctx, 'cancelled', false, { runId });
+    }
     const message = err instanceof Error ? err.message : String(err);
     st.status = 'failed';
     st.error = message;

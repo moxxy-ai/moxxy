@@ -267,6 +267,7 @@ export async function* runReactLoop(
     // selected model can actually execute the loader. Unknown/dynamic model ids
     // retain the historical tool-capable behavior, matching collect-stream's
     // conservative capability fallback.
+    const projectionStarted=performance.now();
     const descriptor = ctx.provider.models.find((candidate) => candidate.id === ctx.model);
     const availableSkills = descriptor?.supportsTools === false ? [] : ctx.skills.list();
     const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, availableSkills);
@@ -275,6 +276,7 @@ export async function* runReactLoop(
       ...(volatileText ? { trailingUserText: volatileText } : {}),
     });
 
+    const projectionMs=performance.now()-projectionStarted;
     yield await ctx.emit({
       type: 'provider_request',
       sessionId: ctx.sessionId,
@@ -284,11 +286,12 @@ export async function* runReactLoop(
       model: ctx.model,
     });
 
-    const { text, toolUses, stopReason, error, usage, reasoning } = await collectProviderStream(
+    const { text, toolUses, stopReason, error, usage, reasoning, timing } = await collectProviderStream(
       ctx,
       messages,
       {
         iteration,
+        projectionMs,
         stablePrefixIndex,
         // Volatile text is injected for this call only, never appended to the
         // log — the cache strategy must keep its rolling tail breakpoint
@@ -317,6 +320,7 @@ export async function* runReactLoop(
       provider: ctx.provider.name,
       model: ctx.model,
       ...usageEventFields(usage),
+      ...(timing ? {timing} : {}),
     });
 
     if (error) {

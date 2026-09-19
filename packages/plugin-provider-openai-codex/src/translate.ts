@@ -145,6 +145,11 @@ export function toResponsesInput(messages: ReadonlyArray<ProviderMessage>): Resp
           });
         }
       }
+      // SDK projection puts screenshot pixels beside the tool_result block.
+      // Keep Codex's string result and send its attachments using the existing
+      // user-content format; otherwise the model receives only capture metadata.
+      const content = contentBlocksToInputText('user', msg.content);
+      if (content.length > 0) out.push({ type: 'message', role: 'user', content });
     }
   }
   return out;

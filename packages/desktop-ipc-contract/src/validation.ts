@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
 
@@ -229,6 +229,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // with an oversized string. All currently-valid payloads (a short turn id, an
   // optional workspace slug, an optional desk id, or no arg at all) still pass.
   'session.info': z.object({ workspaceId: optionalWorkspace }).optional(),
+  'computer.snapshot': z.object({workspaceId: z.string().min(1).max(160)}).strict(),
+  'computer.control': computerControlCommandSchema.extend({workspaceId: z.string().min(1).max(160)}).strict(),
   'session.abortTurn': z.object({
     workspaceId: optionalWorkspace,
     turnId: z.string().min(1).max(256),
@@ -320,6 +322,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'workflows.run': z.object({ name: workflowName }),
   'workflows.setEnabled': z.object({ name: workflowName, enabled: z.boolean() }),
+  'workflows.delete': z.object({ name: workflowName }).strict(),
   // Builder commands. validateDraft/save take full YAML — bound the size so a
   // hostile renderer can't OOM the host; save writes to disk so it's
   // filesystem-touching and gets a boundary check like the other writers.
@@ -348,6 +351,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     runId: z.string().min(1).max(120),
     reply: z.string().min(1).max(100_000),
   }),
+  'workflows.approvals': z.object({ workspaceId: z.string().min(1) }).strict(),
+  'workflows.decideApproval': z.object({ workspaceId: z.string().min(1), id: z.string().uuid(), choice: z.enum(['allow_once', 'allow_always', 'deny']) }).strict(),
+  'workflows.revokeApproval': z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }).strict(),
+  'workflows.cancelApprovalRun': z.object({ workspaceId: z.string().min(1), id: z.string().uuid() }).strict(),
   // Security-sensitive: this bypasses the approval sheet, so validate it at
   // the boundary like the other dangerous commands.
   'session.setAutoApprove': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),

@@ -1,4 +1,5 @@
-import { definePlugin, type Plugin, type ToolDef } from '@moxxy/sdk';
+import { definePlugin, defineTool, z, type Plugin, type ToolDef } from '@moxxy/sdk';
+import { WindowsBackend } from './windows/backend.js';
 import { IS_DARWIN } from './shell.js';
 import { applescriptTool } from './tools/applescript.js';
 import { clickTool } from './tools/click.js';
@@ -33,21 +34,29 @@ export const computerControlTools: ReadonlyArray<ToolDef> = [
  * computer (mouse, keyboard, screenshot, clipboard, app launching,
  * AppleScript escape hatch).
  *
- * Currently macOS-only: every tool shells out to built-in binaries
- * (`screencapture`, `osascript`, `open`, `pbpaste`, `pbcopy`). On any
- * other platform the plugin still registers — the tools' handlers
- * throw a clear "macOS only" error — so the model's tool list stays
- * stable across hosts (avoids "tool disappeared on Linux" confusion).
+ * macOS retains its system-binary backend; Windows x64 uses our bundled
+ * native helper. Unsupported hosts expose status only.
  *
  * Every tool is `permission: 'prompt'`. There is intentionally no
  * "allow always" shortcut for these — granting blanket permission to
  * drive the user's screen + keyboard is exactly the wrong default.
  */
-export const computerControlPlugin: Plugin = definePlugin({
-  name: '@moxxy/plugin-computer-control',
-  version: '0.0.0',
-  tools: [...computerControlTools],
-});
+export function createComputerControlPlugin(platform: NodeJS.Platform = process.platform, arch: string = process.arch): Plugin {
+  const backend = platform === 'win32' && arch === 'x64' ? new WindowsBackend() : undefined;
+  const status = defineTool({
+    name: 'computer_status', description: 'Report Computer Use platform capabilities and limitations.',
+    inputSchema: z.object({}).strict(), permission: { action: 'prompt' },
+    handler: () => ({ platform, architecture: arch, ready: platform === 'darwin',
+      limitations: platform === 'darwin' ? ['Requires Screen Recording and Accessibility permissions'] : ['Unsupported platform or architecture'] }),
+  });
+  return definePlugin({
+    name: '@moxxy/plugin-computer-control', version: '0.0.0',
+    tools: backend ? backend.tools() : platform === 'darwin' ? [...computerControlTools, status] : [status],
+    ...(backend ? { hooks: backend.hooks } : {}),
+  });
+}
+
+export const computerControlPlugin = createComputerControlPlugin();
 
 export default computerControlPlugin;
 

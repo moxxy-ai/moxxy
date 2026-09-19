@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/sdk",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "Typed public surface for the moxxy framework: event types, define* factories, lifecycle hook signatures.",
   "keywords": [
     "moxxy",
@@ -52,6 +52,10 @@
     "./tool-display": {
       "types": "./dist/tool-display.d.ts",
       "import": "./dist/tool-display.js"
+    },
+    "./workflow-approval": {
+      "types": "./dist/workflow-approval.d.ts",
+      "import": "./dist/workflow-approval.js"
     },
     "./transcriber": {
       "types": "./dist/transcriber.d.ts",

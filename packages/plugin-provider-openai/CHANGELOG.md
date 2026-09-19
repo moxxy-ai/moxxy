@@ -1,5 +1,18 @@
 # @moxxy/plugin-provider-openai
 
+## 0.41.0
+
+### Patch Changes
+
+- c6ee82d: Preserve screenshot images and other attachments returned by tools in ChatGPT OAuth and OpenAI API requests, alongside their original call IDs and capture metadata, without interrupting parallel Chat Completions tool replies.
+- Updated dependencies [9039517]
+- Updated dependencies [c6ee82d]
+- Updated dependencies [b01809e]
+- Updated dependencies [46136ab]
+- Updated dependencies [f13cda7]
+- Updated dependencies [ba473d9]
+  - @moxxy/sdk@0.41.0
+
 ## 0.40.0
 
 ### Patch Changes

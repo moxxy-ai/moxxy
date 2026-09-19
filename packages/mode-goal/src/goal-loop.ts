@@ -84,6 +84,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   const sessionResolver = ctx.permissions;
   const autoApprove: PermissionResolver = {
     name: 'goal-auto-approve',
+    ...(sessionResolver.mandatoryCheck ? { mandatoryCheck: sessionResolver.mandatoryCheck.bind(sessionResolver) } : {}),
     check: async (call, permCtx) => {
       const policy = (await sessionResolver.policyCheck?.(call, permCtx)) ?? null;
       if (policy) return policy;

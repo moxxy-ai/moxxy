@@ -59,7 +59,7 @@ describe('zodToJsonSchema', () => {
   it('unwraps ZodOptional / ZodDefault / ZodNullable', () => {
     expect(zodToJsonSchema(z.string().optional())).toEqual({ type: 'string' });
     expect(zodToJsonSchema(z.number().default(0))).toEqual({ type: 'number' });
-    expect(zodToJsonSchema(z.string().nullable())).toEqual({ type: 'string' });
+    expect(zodToJsonSchema(z.string().nullable())).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
   });
 
   it('converts ZodEnum to string + enum list', () => {

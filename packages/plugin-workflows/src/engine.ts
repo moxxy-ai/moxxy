@@ -102,6 +102,7 @@ async function writeRunRecord(
       startedAt,
       trigger: deps.trigger ?? 'manual',
       ok: result.ok,
+      status: result.status,
       ...(result.error ? { error: result.error } : {}),
     }),
     ...result.steps.map((s) => JSON.stringify({ kind: 'step', ...s })),

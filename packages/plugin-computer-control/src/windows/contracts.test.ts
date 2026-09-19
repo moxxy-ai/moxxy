@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest';
+import { clickSchema, imagePointToScreen, rectangleSchema, responseSchema, screenshotSchema, windowSchema, openResultSchema, observeSchema, observationSchema } from './contracts.js';
+import { JsonLineDecoder } from './protocol.js';
+
+describe('Windows computer control contracts', () => {
+  const geometry = { x: -1920, y: -200, width: 1920, height: 1080 };
+  it('preserves dialog ownership and binds every returned control to its observed window', () => {
+    const modal={windowId:'dialog',pid:42,title:'Editor',className:'#32770',state:'normal',kind:'modal',bounds:geometry,ownerWindowId:'parent',blockingWindowId:null};
+    expect(windowSchema.safeParse(modal).success).toBe(true);
+    const observation={windowId:'dialog',observationId:'o',bounds:geometry,focusedElementId:null,truncated:false,blockingWindowId:null,
+      elements:[{windowId:'dialog',elementId:'e',parentId:null,name:'Value',controlType:50004,bounds:geometry,enabled:true,protected:false}]};
+    expect(observationSchema.safeParse(observation).success).toBe(true);
+    expect(observationSchema.safeParse({...observation,elements:[{...observation.elements[0],windowId:'parent'}]}).success).toBe(false);
+  });
+  it('requires an observation-scoped subtree and bounded literal filters', () => {
+    const input={windowId:'w',root:{observationId:'o',elementId:'e'},filter:{nameIncludes:'Save',controlType:50000}};
+    expect(observeSchema.safeParse(input).success).toBe(true);
+    expect(observeSchema.safeParse({...input,root:{elementId:'e'}}).success).toBe(false);
+    expect(observeSchema.safeParse({...input,filter:{nameIncludes:'x'.repeat(257)}}).success).toBe(false);
+    expect(observeSchema.safeParse({...input,filter:{xpath:'//button'}}).success).toBe(false);
+  });
+  it('does not call an ambiguous or unlaunched application an opened window', () => {
+    const window={windowId:'w',pid:42,title:'App',className:'Fixture',state:'normal',kind:'normal',bounds:geometry};
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:true,windows:[window]}).success).toBe(true);
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:false,windows:[window]}).success).toBe(false);
+    expect(openResultSchema.safeParse({appId:'a',status:'opened',launched:true,windows:[window,window]}).success).toBe(false);
+    expect(openResultSchema.safeParse({appId:'a',status:'no_window',launched:true,windows:[]}).success).toBe(true);
+  });
+  it('does not expose minimized window bounds as actionable screen geometry', () => {
+    const target={windowId:'w',pid:42,title:'Minimized',className:'Fixture',state:'minimized',kind:'normal',bounds:null};
+    expect(windowSchema.safeParse(target).success).toBe(true);
+    expect(windowSchema.safeParse({...target,bounds:geometry}).success).toBe(false);
+    expect(windowSchema.safeParse({...target,state:'normal',bounds:geometry}).success).toBe(true);
+    expect(windowSchema.safeParse({...target,state:'normal'}).success).toBe(false);
+  });
+  it('maps image pixels into physical screen coordinates, including negative origins', () => {
+    expect(imagePointToScreen({ x: 640, y: 360 }, { width: 1280, height: 720 }, geometry))
+      .toEqual({ x: -960, y: 340 });
+    expect(imagePointToScreen({ x: 0, y: 0 }, { width: 1280, height: 720 }, geometry))
+      .toEqual({ x: -1920, y: -200 });
+  });
+  it('rejects image bounds, non-finite geometry and zero-sized captures', () => {
+    expect(() => imagePointToScreen({ x: 1280, y: 0 }, { width: 1280, height: 720 }, geometry)).toThrow();
+    expect(rectangleSchema.safeParse({ ...geometry, width: 0 }).success).toBe(false);
+    expect(rectangleSchema.safeParse({ ...geometry, x: Infinity }).success).toBe(false);
+  });
+  it('accepts a window-local crop, never a negative or empty crop', () => {
+    expect(screenshotSchema.safeParse({ windowId: 'w', region: { x: 10, y: 20, width: 200, height: 100 } }).success).toBe(true);
+    expect(screenshotSchema.safeParse({ windowId: 'w', region: { x: -1, y: 20, width: 200, height: 100 } }).success).toBe(false);
+  });
+  it('requires exactly one fresh target reference for a click', () => {
+    expect(clickSchema.safeParse({ windowId: 'w1', captureId: 'c1', x: 10, y: 20 }).success).toBe(true);
+    expect(clickSchema.safeParse({ windowId: 'w1', observationId: 'o1', elementId: 'e1', button: 'right' }).success).toBe(true);
+    for (const input of [
+      { x: 10, y: 20 }, { windowId: 'w1', x: 10, y: 20 },
+      { windowId: 'w1', captureId: 'c1', x: 10, y: 20, elementId: 'e1', observationId: 'o1' },
+      { windowId: 'w1', observationId: 'o1', elementId: 'e1', count: 4 },
+    ]) expect(clickSchema.safeParse(input).success).toBe(false);
+  });
+  it('rejects protocol mismatches and malformed envelopes', () => {
+    expect(responseSchema.safeParse({ version: 1, id: '1', ok: true, result: {} }).success).toBe(false);
+    expect(responseSchema.safeParse({ version: 2, id: '1', ok: false }).success).toBe(false);
+  });
+});
+
+describe('bounded JSON lines', () => {
+  it('decodes split UTF-8 and multiple frames without losing bytes', () => {
+    const decoder = new JsonLineDecoder(128);
+    const bytes = Buffer.from('{"text":"żółć"}\n{}\n');
+    const result: unknown[] = [];
+    for (const byte of bytes) result.push(...decoder.push(Buffer.from([byte])));
+    expect(result).toEqual([{ text: 'żółć' }, {}]);
+  });
+  it('rejects oversize, malformed and incomplete messages', () => {
+    expect(() => new JsonLineDecoder(3).push(Buffer.from('1234'))).toThrow(/limit/);
+    expect(() => new JsonLineDecoder(100).push(Buffer.from('{bad}\n'))).toThrow();
+    const decoder = new JsonLineDecoder(100);
+    decoder.push(Buffer.from('{'));
+    expect(() => decoder.finish()).toThrow(/incomplete/);
+  });
+});

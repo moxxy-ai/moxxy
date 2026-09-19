@@ -1,0 +1,161 @@
+name: Computer Use Windows
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'packages/plugin-computer-control/**'
+      - '.github/workflows/computer-use-windows.yml'
+  workflow_dispatch:
+    inputs:
+      installer:
+        description: Build an NSIS test installer (does not publish a release)
+        type: boolean
+        default: false
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and stage Windows x64 helper and fixture
+        shell: pwsh
+        run: packages/plugin-computer-control/native/Build-Windows.ps1
+      - name: Real desktop preflight and fixture tests
+        shell: pwsh
+        run: |
+          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-report"
+          if ($LASTEXITCODE -eq 2) { Write-Warning "GUI not tested: interactive desktop unavailable; Windows 10/11 reports required"; exit 0 }
+          exit $LASTEXITCODE
+      - name: Repeat real desktop tests with fresh processes
+        shell: pwsh
+        run: |
+          & packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath packages/plugin-computer-control/native/build/Release/moxxy-computer.exe -FixturePath packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/computer-use-repeat-report"
+          if ($LASTEXITCODE -eq 2) { Write-Warning "Repeated GUI tests not tested: interactive desktop unavailable"; exit 0 }
+          exit $LASTEXITCODE
+      - name: Upload repeated test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: computer-use-repeat-report
+          path: ${{ runner.temp }}/computer-use-repeat-report/report.*
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: computer-use-report
+          path: ${{ runner.temp }}/computer-use-report/report.*
+      - name: Upload native test components
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: moxxy-computer-native
+          path: packages/plugin-computer-control/bin/win32-x64/
+          if-no-files-found: error
+      - name: Assemble portable test kit
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/computer-use-kit" -Force | Out-Null
+          Copy-Item packages/plugin-computer-control/bin/win32-x64/* "$env:RUNNER_TEMP/computer-use-kit/"
+          Copy-Item packages/plugin-computer-control/native/build/Release/moxxy-computer-fixture.exe "$env:RUNNER_TEMP/computer-use-kit/"
+          Copy-Item packages/plugin-computer-control/native/tests/Run-ComputerUseTests.ps1 "$env:RUNNER_TEMP/computer-use-kit/"
+      - name: Upload portable test kit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: moxxy-computer-use-windows-x64
+          path: ${{ runner.temp }}/computer-use-kit/
+          if-no-files-found: error
+  installer:
+    if: github.event_name == 'workflow_dispatch' && inputs.installer
+    needs: native
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.30.0
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+          cache: pnpm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: moxxy-computer-native
+          path: packages/plugin-computer-control/bin/win32-x64/
+      - run: pnpm install --frozen-lockfile
+      - name: Build with isolated test desktop configuration
+        shell: bash
+        run: |
+          cp apps/desktop/.env.example apps/desktop/.env
+          pnpm build
+      - name: Test durable workflow approvals and real process ownership on Windows
+        shell: bash
+        run: |
+          pnpm --filter @moxxy/core exec vitest run src/permissions/workflow-approvals.test.ts src/permissions/workflow-lease.test.ts src/workflow-tool-runner.test.ts
+          pnpm --filter @moxxy/cli exec vitest run src/setup/scheduled-workflow-approval.test.ts
+          pnpm --filter @moxxy/plugin-scheduler exec vitest run src/workflow-wait.test.ts
+          pnpm --filter @moxxy/runner exec vitest run src/workflow-approvals.test.ts
+          pnpm --filter @moxxy/plugin-channel-mobile exec vitest run src/workflow-approvals.test.ts
+      - run: pnpm --filter @moxxy/desktop run prepare:resources
+      - name: Verify offline provider updates from real installer packages
+        env:
+          MOXXY_TEST_PROVIDER_RESOURCES: ${{ github.workspace }}/apps/desktop/resources
+        run: pnpm --filter @moxxy/desktop-host exec vitest run src/provider-update-runtime.test.ts src/computer-update.test.ts
+      - name: Build test installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm --filter @moxxy/desktop exec electron-builder --win nsis --publish never
+      - name: Download real fixture test kit
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: moxxy-computer-use-windows-x64
+          path: computer-use-kit/
+      - name: Test extension from installed NSIS resources
+        shell: pwsh
+        run: |
+          $setup=(Get-ChildItem apps/desktop/release/*-setup.exe | Select-Object -First 1).FullName
+          if (-not $setup) { throw 'Installer missing' }
+          $installDir=Join-Path $env:RUNNER_TEMP ('moxxy-cu-installed-'+[guid]::NewGuid())
+          New-Item -ItemType Directory $installDir | Out-Null
+          try {
+            $install=Start-Process -FilePath $setup -ArgumentList '/S',("/D="+$installDir) -Wait -PassThru
+            if ($install.ExitCode -ne 0) { throw 'Installer failed' }
+            $resources=Join-Path $installDir 'resources'
+            $exe=Join-Path $installDir 'MoxxyAI Workspaces.exe'
+            $env:ELECTRON_RUN_AS_NODE='1'
+            $smokeScript=(Resolve-Path apps/desktop/scripts/smoke-computer-use.mjs).Path
+            $fixtureExe=(Resolve-Path computer-use-kit/moxxy-computer-fixture.exe).Path
+            $smokeOut=Join-Path $env:RUNNER_TEMP 'computer-smoke-stdout.log'
+            $smokeErr=Join-Path $env:RUNNER_TEMP 'computer-smoke-stderr.log'
+            $smoke=Start-Process -FilePath $exe -ArgumentList ('"'+$smokeScript+'"'),('"'+$resources+'"'),('"'+$fixtureExe+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
+            Get-Content -LiteralPath $smokeOut
+            Get-Content -LiteralPath $smokeErr
+            if ($smoke.ExitCode -ne 0) { throw 'Installed extension smoke failed' }
+            $updateScript=(Resolve-Path apps/desktop/scripts/smoke-computer-update.mjs).Path
+            $update=Start-Process -FilePath $exe -ArgumentList ('"'+$updateScript+'"'),('"'+$resources+'"') -Wait -PassThru -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr
+            Get-Content -LiteralPath $smokeOut
+            Get-Content -LiteralPath $smokeErr
+            if ($update.ExitCode -ne 0) { throw 'Installed Computer Use upgrade smoke failed' }
+            Remove-Item Env:ELECTRON_RUN_AS_NODE
+            & computer-use-kit/Run-ComputerUseTests.ps1 -NonInteractive -TestClipboard -TestInstalledApps -HelperPath (Join-Path $resources 'plugins-seed/node_modules/@moxxy/plugin-computer-control/bin/win32-x64/moxxy-computer.exe') -FixturePath computer-use-kit/moxxy-computer-fixture.exe -ReportDirectory "$env:RUNNER_TEMP/installed-computer-report"
+            if ($LASTEXITCODE -eq 1) { throw 'Installed Computer Use GUI tests failed' }
+          } finally {
+            $uninstaller=Get-ChildItem -LiteralPath $installDir -Filter '*uninstall*.exe' | Select-Object -First 1
+            if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait }
+            if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
+          }
+      - name: Upload installed resource test report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-computer-report
+          path: ${{ runner.temp }}/installed-computer-report/report.*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: moxxy-computer-use-test-installer
+          path: apps/desktop/release/*-setup.exe
+          if-no-files-found: error

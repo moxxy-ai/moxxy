@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/windows/artifact.js';
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
@@ -55,6 +56,13 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
       await requireFile(path.resolve(path.dirname(manifestPath), entry), `${dependency} entrypoint`);
     }
     if (dependency === CODEX_PROVIDER) providerManifest = manifest;
+    if (dependency === '@moxxy/plugin-computer-control' && (options.platform ?? process.platform) === 'win32') {
+      try {
+        await verifyHelperArtifact(path.join(path.dirname(manifestPath), 'bin', 'win32-x64', 'moxxy-computer.exe'));
+      } catch (error) {
+        throw new Error('Windows Computer Use component missing or incompatible in desktop resources', { cause: error });
+      }
+    }
   }
   if (!providerManifest?.moxxy?.plugin) {
     throw new Error(`${CODEX_PROVIDER} is installed but is not a discoverable plugin`);

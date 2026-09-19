@@ -1,4 +1,4 @@
-import { type Session } from '@moxxy/core';
+import { createSubagentSpawner, createWorkflowToolRunner, type Session } from '@moxxy/core';
 import { type Plugin } from '@moxxy/sdk';
 import { CrossProcessFireLock, moxxyPath } from '@moxxy/sdk/server';
 import type { ScheduleStore } from '@moxxy/plugin-scheduler';
@@ -17,6 +17,7 @@ import {
   type MiniLogger,
 } from './build-workflow-runner.js';
 import { buildWorkflowsView } from './build-workflow-tools.js';
+import { buildWorkflowApprovalExecution } from './workflow-approval-scope.js';
 import {
   applyAfterWorkflowCycleGuard,
   detectAfterWorkflowCycles,
@@ -76,7 +77,10 @@ export function buildWorkflowsIntegration(args: {
     ...(logger ? { logger } : {}),
   });
 
-  const runner = buildWorkflowRunner({ session, store, ...(logger ? { logger } : {}) });
+  const { approvals, execution } = buildWorkflowApprovalExecution(session.cwd, store);
+  session.services.register('workflowApprovalExecution', execution);
+  const runner = buildWorkflowRunner({ session, store, approvalExecution: execution, ...(logger ? { logger } : {}) });
+  session.services.register('workflowRunner', runner);
 
   // Short-TTL fire-once lock for fileChanged triggers, ONLY when this is a
   // multi-runner context (an owner id is present). The TTL bounds the window in
@@ -98,12 +102,16 @@ export function buildWorkflowsIntegration(args: {
     ...(logger ? { logger } : {}),
   });
 
-  const view = buildWorkflowsView({ store, runner, syncSchedules: triggers.syncSchedules });
+  const view = { ...buildWorkflowsView({ store, runner, syncSchedules: triggers.syncSchedules }), approvals };
 
   const built = buildWorkflowsPlugin({
     store,
     skills: session.skills,
     tools: session.tools,
+    toolsForTurn: ctx => createWorkflowToolRunner(session, ctx.turnId, ctx.subagents),
+    runScoped: (name, ctx, task, definition) => execution.run(name, String(ctx.turnId), ctx.signal, task, definition),
+    subagentsForTurn: (turnId, signal) => createSubagentSpawner({ parentSession: session,
+      parentTurnId: turnId, parentSignal: signal, parentModel: activeModel(session) }),
     getActiveExecutor: () => session.workflowExecutors.getActive(),
     appendEvent: (e) => session.log.append(e),
     ...(logger ? { logger } : {}),

@@ -7,7 +7,7 @@
  *   - the IPC wiring
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
 
 // Set the user-facing app name BEFORE app.whenReady so the macOS
 // menu bar / Dock and Windows taskbar pick it up. Falls through to
@@ -50,6 +50,8 @@ import {
   installAccountPortalRecovery,
   preferredCliEntry,
   seedPluginsFromResources,
+  offerBundledComputerUpdate,
+  offerBundledProviderUpdate,
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
@@ -199,13 +201,57 @@ async function prepareRunnerEnvironment(): Promise<void> {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
     try {
-      await seedPluginsFromResources({
+      const seed = await seedPluginsFromResources({
         resourcesPath: process.resourcesPath,
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
+      for (const plugin of ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const) {
+        try {
+          const status = await offerBundledProviderUpdate({
+            resourcesPath: process.resourcesPath, moxxyHome, plugin,
+            freshInstall: seed.copied.includes(plugin),
+            confirm: async ({ backupPath, localChanges, downgrade }) => {
+              const result = await dialog.showMessageBox({
+                type: 'question', title: 'Update model connection',
+                message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
+                detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
+                  (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
+                  'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. A backup will be kept at:\n' + backupPath,
+                buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
+              });
+              return result.response === 1;
+            },
+          });
+          console.log(`[moxxy] ${plugin} preparation: ${status}`);
+        } catch (error) {
+          // One optional connection update must not block other connections or chat.
+          console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
+          await dialog.showMessageBox({ type: 'warning', title: 'Connection update unavailable',
+            message: 'A bundled model connection could not be updated.',
+            detail: 'The previous version was retained. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.',
+          });
+        }
+      }
+      if (process.platform === 'win32' && process.arch === 'x64') {
+        await offerBundledComputerUpdate({
+          resourcesPath:process.resourcesPath, moxxyHome,
+          freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
+          confirm:async ({backupPath,localChanges}) => {
+            const result=await dialog.showMessageBox({
+              type:'question',title:'Update Computer Use',
+              message:'Install the Computer Use package included with this Moxxy installer?',
+              detail:(localChanges==='changed' ? 'The extension has changed since a managed installation. ' : localChanges==='untracked' ? 'The existing extension has no verified update record and may contain local changes. ' : '')+
+                'Only Computer Use, its private dependencies and its npm entry will be updated. Chats, OAuth and other extensions are unchanged. A copy will be kept at:\n'+backupPath,
+              buttons:['Later','Update Computer Use'],defaultId:0,cancelId:0,noLink:true,
+            });
+            return result.response===1;
+          },
+          log:(message)=>console.log(`[moxxy] ${message}`),
+        });
+      }
     } catch (err) {
-      console.warn('[moxxy] plugins-seed copy failed:', err);
+      console.warn('[moxxy] bundled plugin preparation failed:', err);
     }
   }
 

@@ -19,6 +19,8 @@ import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import { runnerSocketPath } from './socket-path.js';
+import { handleComputerApprovalFocus, handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
+import { handleWorkflowApprovals } from './handlers/workflow-handlers.js';
 import {
   MIN_COMPATIBLE_PROTOCOL_VERSION,
   RUNNER_PROTOCOL_VERSION,
@@ -43,6 +45,7 @@ import {
   handleMcpDetach,
   handleWorkflowList,
   handleWorkflowSetEnabled,
+  handleWorkflowDelete,
   handleWorkflowRun,
   handleWorkflowValidateDraft,
   handleWorkflowSave,
@@ -213,6 +216,8 @@ export class RunnerServer {
     // and per-turn state). Every domain handler delegates to its module.
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
     peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
+    peer.handle(RunnerMethod.ComputerSnapshot, (raw) => handleComputerSnapshot(ctx, raw));
+    peer.handle(RunnerMethod.ComputerControl, (raw) => handleComputerControl(ctx, raw));
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
@@ -233,11 +238,14 @@ export class RunnerServer {
     peer.handle(RunnerMethod.McpDetach, (raw) => handleMcpDetach(ctx, raw));
     peer.handle(RunnerMethod.WorkflowList, () => handleWorkflowList(ctx));
     peer.handle(RunnerMethod.WorkflowSetEnabled, (raw) => handleWorkflowSetEnabled(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowDelete, (raw) => handleWorkflowDelete(ctx, raw));
     peer.handle(RunnerMethod.WorkflowRun, (raw) => handleWorkflowRun(ctx, raw));
     peer.handle(RunnerMethod.WorkflowValidateDraft, (raw) => handleWorkflowValidateDraft(ctx, raw));
     peer.handle(RunnerMethod.WorkflowSave, (raw) => handleWorkflowSave(ctx, raw));
     peer.handle(RunnerMethod.WorkflowGetRun, (raw) => handleWorkflowGetRun(ctx, raw));
     peer.handle(RunnerMethod.WorkflowResume, (raw) => handleWorkflowResume(ctx, raw));
+    peer.handle(RunnerMethod.WorkflowApprovals, raw => handleWorkflowApprovals(ctx, raw));
+    peer.handle(RunnerMethod.ComputerApprovalFocus, raw => handleComputerApprovalFocus(ctx, raw));
     peer.handle(RunnerMethod.SurfaceList, () => handleSurfaceList(ctx));
     peer.handle(RunnerMethod.SurfaceOpen, (raw) => handleSurfaceOpen(ctx, raw));
     peer.handle(RunnerMethod.SurfaceInput, (raw) => handleSurfaceInput(ctx, raw));

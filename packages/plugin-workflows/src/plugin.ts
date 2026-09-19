@@ -26,6 +26,9 @@ export interface BuildWorkflowsPluginOptions {
   readonly store: WorkflowStore;
   readonly skills: { byName(name: string): Skill | undefined };
   readonly tools: WorkflowToolRunner;
+  readonly toolsForTurn?: WorkflowToolDeps['toolsForTurn'];
+  readonly runScoped?: WorkflowToolDeps['runScoped'];
+  readonly subagentsForTurn?: WorkflowToolDeps['subagentsForTurn'];
   readonly getActiveExecutor: () => WorkflowExecutorDef | null;
   readonly appendEvent?: (event: EmittedEvent) => unknown;
   readonly logger?: WorkflowLogger;
@@ -35,7 +38,7 @@ export interface BuildWorkflowsPluginOptions {
   readonly listSkills?: WorkflowToolDeps['listSkills'];
   readonly listTools?: WorkflowToolDeps['listTools'];
   /** Re-sync triggers after a create/update/delete/toggle. */
-  readonly onChanged?: () => void | Promise<void>;
+  readonly onChanged?: (deletedName?: string) => void | Promise<void>;
   /** Runs a workflow now (autonomous runner) — backs `/workflows run`. */
   readonly runNow?: (input: {
     readonly name: string;
@@ -55,6 +58,9 @@ export function buildWorkflowsPlugin(opts: BuildWorkflowsPluginOptions): {
     store: opts.store,
     skills: opts.skills,
     tools: opts.tools,
+    ...(opts.toolsForTurn ? { toolsForTurn: opts.toolsForTurn } : {}),
+    ...(opts.runScoped ? { runScoped: opts.runScoped } : {}),
+    ...(opts.subagentsForTurn ? { subagentsForTurn: opts.subagentsForTurn } : {}),
     getActiveExecutor: opts.getActiveExecutor,
     ...(opts.appendEvent ? { appendEvent: opts.appendEvent } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),

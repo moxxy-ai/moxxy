@@ -10,6 +10,7 @@ import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
 import { TargetSessionPicker } from './TargetSessionPicker';
 import { InstrumentBar } from '../shell/InstrumentBar';
+import { ScheduleHistory } from './ScheduleHistory';
 
 function whenLabel(s: ScheduleSummary): string {
   if (s.cron) return `cron ${s.cron}${s.timeZone ? ` (${s.timeZone})` : ''}`;
@@ -150,12 +151,7 @@ export function SchedulesPanel(): JSX.Element {
                   />
                   <span className="data-row__name" role="cell">
                     {s.name}
-                    <small>
-                      {s.source === 'workflow' && s.workflowName
-                        ? `workflow · ${s.workflowName}`
-                        : s.source}
-                      {s.lastResult ? ` · last ${s.lastResult}` : ''}
-                    </small>
+                    <ScheduleHistory schedule={s} />
                   </span>
                   <span className="data-row__meta" role="cell">
                     {whenLabel(s)}

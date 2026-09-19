@@ -146,6 +146,16 @@ export class MobileSessionHost {
   /** Register the `IpcCommands` subset the mobile client drives. */
   register(): void {
     this.bus.handle('connection.snapshotAll', async () => this.connectionSnapshots());
+    const workflowApprovals = (workspaceId: string) => {
+      if (workspaceId !== this.workspaceId) throw new IpcError('not-connected', 'Workflow approval workspace is not served by this host');
+      const view = this.session.workflows;
+      if (!view?.approvals) throw new IpcError('not-connected', 'Workflow approvals require an updated runner');
+      return view.approvals;
+    };
+    this.bus.handle('workflows.approvals', async ({ workspaceId }) => workflowApprovals(workspaceId).list());
+    this.bus.handle('workflows.decideApproval', async ({ workspaceId, id, choice }) => workflowApprovals(workspaceId).decide(id, choice));
+    this.bus.handle('workflows.revokeApproval', async ({ workspaceId, id }) => workflowApprovals(workspaceId).revoke(id));
+    this.bus.handle('workflows.cancelApprovalRun', async ({ workspaceId, id }) => workflowApprovals(workspaceId).cancel(id));
     this.bus.handle('connection.activeWorkspace', async () => this.activeWorkspaceId());
     this.bus.handle('connection.retry', async () => {});
     this.bus.handle('desks.list', async () => this.desksOverview());

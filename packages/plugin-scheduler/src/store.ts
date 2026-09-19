@@ -43,8 +43,15 @@ export const scheduleEntrySchema = z
     model: z.string().optional(),
     enabled: z.boolean().default(true),
     createdAt: z.number().int(),
+    /** New timing definition starts here without overwriting run history. */
+    timingChangedAt: z.number().int().positive().optional(),
+    /** Audit marker for the legacy workflow createdAt=0 repair. */
+    migratedAt: z.number().int().positive().optional(),
     lastRunAt: z.number().int().optional(),
-    lastResult: z.enum(['ok', 'error']).optional(),
+    lastStartedAt: z.number().int().positive().optional(),
+    lastSkippedAt: z.number().int().positive().optional(),
+    lastSkipReason: z.string().optional(),
+    lastResult: z.enum(['ok', 'error', 'cancelled']).optional(),
     lastError: z.string().optional(),
     source: scheduleSourceSchema.default('manual'),
     /**
@@ -106,6 +113,7 @@ const fileSchema = z.object({
 });
 
 export interface ScheduleStoreOptions {
+  readonly now?: () => number;
   /** Override path — primarily for tests. Defaults to ~/.moxxy/schedules.json. */
   readonly file?: string;
   /**
@@ -129,8 +137,10 @@ export class ScheduleStore {
   // file is quarantined (renamed to `<file>.corrupt-<ts>`) and the store resets
   // to empty so the data loss is observable; an unreadable file resets to empty.
   private readonly store: JsonFileStore<ScheduleEntry>;
+  private readonly now: () => number;
 
   constructor(opts: ScheduleStoreOptions = {}) {
+    this.now = opts.now ?? Date.now;
     const file = opts.file ?? defaultSchedulesFile();
     const logger = opts.logger;
     this.store = createJsonFileStore<ScheduleEntry>({
@@ -194,10 +204,12 @@ export class ScheduleStore {
   }
 
   async list(): Promise<ReadonlyArray<ScheduleEntry>> {
+    await this.migrateWorkflowDates();
     return (await this.store.read()).filter(isVisibleSchedule);
   }
 
   async get(id: string): Promise<ScheduleEntry | null> {
+    await this.migrateWorkflowDates();
     const entry = await this.store.get(id);
     return entry && isVisibleSchedule(entry) ? entry : null;
   }
@@ -381,6 +393,8 @@ export class ScheduleStore {
    */
   async syncWorkflowSchedule(workflowName: string, entry: ScheduleEntry | null): Promise<void> {
     await this.store.mutate((schedules) => {
+      const now = this.now();
+      const current = schedules.find((s) => s.source === 'workflow' && s.workflowName === workflowName);
       const existingDeleted = schedules.find(
         (s) => s.source === 'workflow' && s.workflowName === workflowName && !isVisibleSchedule(s),
       );
@@ -393,19 +407,47 @@ export class ScheduleStore {
         // and silently strand every workflow schedule. A prior soft-deleted row
         // (its deletion marker kept durable) takes precedence so a user delete
         // isn't resurrected on the next sync.
-        filtered.push(
-          existingDeleted ??
-            scheduleEntrySchema.parse({
-              ...entry,
-              id: entry.id || ulid(),
-              source: 'workflow',
-              workflowName,
-            }),
-        );
+        const timingChanged = current && (current.cron !== entry.cron || current.runAt !== entry.runAt || current.timeZone !== entry.timeZone);
+        const merged = scheduleEntrySchema.parse({
+          ...entry,
+          id: current?.id ?? (entry.id || ulid()),
+          createdAt: current?.createdAt ?? (entry.createdAt > 0 ? entry.createdAt : now),
+          enabled: current?.enabled ?? entry.enabled,
+          ...(current ? {
+            lastRunAt: current.lastRunAt,
+            lastStartedAt: current.lastStartedAt,
+            lastSkippedAt: current.lastSkippedAt,
+            lastSkipReason: current.lastSkipReason,
+            lastResult: current.lastResult,
+            lastError: current.lastError,
+            migratedAt: current.migratedAt,
+            timingChangedAt: timingChanged ? now : current.timingChangedAt,
+          } : {}),
+          source: 'workflow',
+          workflowName,
+        });
+        filtered.push(repairWorkflowDate(existingDeleted ?? merged, now));
+      } else if (existingDeleted) {
+        filtered.push(existingDeleted);
       }
       return filtered;
     });
   }
+
+  private async migrateWorkflowDates(): Promise<void> {
+    const rows = await this.store.read();
+    if (!rows.some((entry) => entry.source === 'workflow' && entry.createdAt <= 0)) return;
+    await this.store.mutate((entries) => entries.map((entry) => repairWorkflowDate(entry, this.now())));
+  }
+}
+
+function repairWorkflowDate(entry: ScheduleEntry, now: number): ScheduleEntry {
+  if (entry.source !== 'workflow' || entry.createdAt > 0) return entry;
+  return scheduleEntrySchema.parse({
+    ...entry,
+    createdAt: entry.lastRunAt && entry.lastRunAt > 0 ? entry.lastRunAt : now,
+    migratedAt: now,
+  });
 }
 
 function isVisibleSchedule(entry: ScheduleEntry): boolean {

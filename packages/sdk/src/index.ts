@@ -35,12 +35,21 @@ export type {
   ElisionEvent,
   ProviderRequestEvent,
   ProviderResponseEvent,
+  ProviderCallTiming,
   ErrorEvent,
   AbortEvent,
   PluginEvent,
 } from './events.js';
 
 export type { EventLogReader } from './log.js';
+export {
+  computerControlStateSchema, computerControlOwnerSchema,
+  computerControlCommandSchema, computerControlSnapshotSchema,
+  computerApprovalFocusSchema, type ComputerApprovalFocus,
+} from './computer-control.js';
+export type {
+  ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
+} from './computer-control.js';
 
 // Identity. The type + pure helpers ride the main barrel; the OS resolver needs
 // `node:os` and is exported from `@moxxy/sdk/server`.
@@ -149,6 +158,7 @@ export type {
   ToolContext,
   ToolDef,
   HostedTool,
+  ToolImageResult,
   ToolCompactPresentation,
   BrokeredFs,
   BrokeredStat,
@@ -344,6 +354,7 @@ export {
   type CheckpointResult,
   type TurnCheckpoint,
 } from './mode-helpers.js';
+export type { WorkflowApprovalScope, WorkflowApprovalChoice, WorkflowApprovalItem, WorkflowApprovalsView } from './workflow-approval.js';
 export {
   dispatchToolCall,
   executeToolUses,
@@ -595,3 +606,4 @@ export {
 } from './install-hints.js';
 
 export { z } from 'zod';
+export { workflowApprovalItemSchema, workflowApprovalItemsSchema } from './workflow-approval.js';
