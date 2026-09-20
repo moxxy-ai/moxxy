@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-computer-control",
-  "version": "0.41.0",
+  "version": "0.41.1",
   "description": "Permission-gated computer control with macOS tools and an independent Windows x64 native backend.",
   "keywords": [
     "moxxy",

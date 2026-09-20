@@ -1,5 +1,11 @@
 # @moxxy/cli
 
+## 0.41.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.41.1
+
 ## 0.41.0
 
 ### Minor Changes

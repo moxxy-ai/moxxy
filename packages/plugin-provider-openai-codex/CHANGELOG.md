@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-openai-codex
 
+## 0.41.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.41.1
+- @moxxy/plugin-browser@0.41.1
+- @moxxy/plugin-oauth@0.41.1
+
 ## 0.41.0
 
 ### Patch Changes

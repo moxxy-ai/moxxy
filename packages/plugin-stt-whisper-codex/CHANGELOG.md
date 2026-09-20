@@ -1,5 +1,13 @@
 # @moxxy/plugin-stt-whisper-codex
 
+## 0.41.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.41.1
+- @moxxy/plugin-provider-openai-codex@0.41.1
+- @moxxy/plugin-stt-whisper@0.41.1
+
 ## 0.41.0
 
 ### Patch Changes

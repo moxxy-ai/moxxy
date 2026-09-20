@@ -1,5 +1,12 @@
 # @moxxy/e2e
 
+## 0.41.1
+
+### Patch Changes
+
+- 8809331: Bump @noble/hashes to ^2.4.0.
+  - @moxxy/sdk@0.41.1
+
 ## 0.41.0
 
 ### Patch Changes
