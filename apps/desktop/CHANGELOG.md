@@ -1,5 +1,23 @@
 # @moxxy/desktop
 
+## 0.40.1
+
+### Patch Changes
+
+- @moxxy/plugin-channel-mobile@0.41.1
+- @moxxy/cli@0.41.1
+- @moxxy/desktop-host@0.14.20
+- @moxxy/sdk@0.41.1
+- @moxxy/plugin-stt-whisper-codex@0.41.1
+- @moxxy/plugin-vault@0.41.1
+- @moxxy/chat-model@0.4.11
+- @moxxy/client-core@0.13.29
+- @moxxy/client-platform-web@0.1.68
+- @moxxy/desktop-ipc-contract@0.14.25
+- @moxxy/ipc-server-ws@0.1.67
+- @moxxy/runner@0.2.54
+- @moxxy/workflows-builder@0.1.51
+
 ## 0.40.0
 
 ### Minor Changes
