@@ -16,6 +16,7 @@ import type {
   SurfaceSize,
   TranscriptionResult,
   UserPromptAttachment,
+  SynthesisUsage,
 } from '@moxxy/sdk';
 
 /**
@@ -163,7 +164,8 @@ import type {
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
 /** v15: explicit workflow deletion, including schedule retirement. */
 /** v16: synthesis requests can be cancelled while the runner is generating audio. */
-export const RUNNER_PROTOCOL_VERSION = 16;
+/** v17: synthesis results may include the provider's token usage totals. */
+export const RUNNER_PROTOCOL_VERSION = 17;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -715,6 +717,8 @@ export interface SynthesizeResult {
   /** Base64-encoded audio bytes. */
   readonly audio: string;
   readonly mimeType: string;
+  /** Provider-reported accounting; absent for synthesizers that don't report it. */
+  readonly usage?: SynthesisUsage;
 }
 
 export const mcpEnableAndAttachParamsSchema = z.object({ name: z.string() });

@@ -69,6 +69,7 @@ export async function handleSynthesize(
     return {
       audio: Buffer.from(result.audio).toString('base64'),
       mimeType: result.mimeType,
+      ...(result.usage ? { usage: result.usage } : {}),
     };
   } finally {
     if (params.requestId && activeSyntheses.get(params.requestId) === controller) {

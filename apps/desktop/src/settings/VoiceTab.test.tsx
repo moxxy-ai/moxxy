@@ -11,6 +11,13 @@ describe('VoiceTab', () => {
       if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
       if (command === 'settings.vaultEntries') return [];
       if (command === 'voice.isLocalPiperInstalled') return true;
+      if (command === 'voice.getUsage') return {
+        requestCount: 2,
+        inputTextTokens: 200,
+        outputAudioTokens: 750,
+        estimatedCostUsd: 0.0046,
+        updatedAt: '2026-09-25T12:00:00.000Z',
+      };
       if (command === 'voice.listGeminiVoices') {
         return [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
       }
@@ -22,6 +29,7 @@ describe('VoiceTab', () => {
     expect(screen.getByText(/played one sentence at a time, with up to two upcoming sentences prepared ahead/i))
       .toBeTruthy();
     await screen.findByText('Current voice: Local · Piper');
+    expect(await screen.findByText('$0.004600')).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Gemini API key/u), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.vaultSet', {

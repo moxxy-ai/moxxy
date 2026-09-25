@@ -57,6 +57,15 @@ export interface GeminiVoiceInfo {
   readonly description?: string;
 }
 
+/** Locally accumulated Gemini TTS token usage and current-rate cost estimate. */
+export interface GeminiTtsUsageSnapshot {
+  readonly requestCount: number;
+  readonly inputTextTokens: number;
+  readonly outputAudioTokens: number;
+  readonly estimatedCostUsd: number;
+  readonly updatedAt: string | null;
+}
+
 export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */

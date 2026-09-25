@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
-import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
+import type { GeminiTtsUsageSnapshot, GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
 
 const GEMINI_API_KEY = 'GEMINI_API_KEY';
 
@@ -10,6 +10,8 @@ export interface VoiceSettingsState {
   readonly hasGeminiKey: boolean;
   readonly apiKeyDraft: string;
   readonly voices: ReadonlyArray<GeminiVoiceInfo>;
+  readonly usage: GeminiTtsUsageSnapshot | null;
+  readonly loadingUsage: boolean;
   readonly selectedVoiceId: string;
   readonly localPiperInstalled: boolean;
   readonly loadingVoices: boolean;
@@ -19,6 +21,7 @@ export interface VoiceSettingsState {
   readonly setSelectedVoiceId: (value: string) => void;
   readonly saveGeminiApiKey: () => Promise<void>;
   readonly loadVoices: () => Promise<void>;
+  readonly refreshUsage: () => Promise<void>;
   readonly useGeminiVoice: () => Promise<void>;
   readonly useLocalPiper: () => Promise<void>;
 }
@@ -31,11 +34,24 @@ export function useVoiceSettings(): VoiceSettingsState {
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [voices, setVoices] = useState<ReadonlyArray<GeminiVoiceInfo>>([]);
+  const [usage, setUsage] = useState<GeminiTtsUsageSnapshot | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(true);
   const [selectedVoiceId, setSelectedVoiceId] = useState('Fola');
   const [localPiperInstalled, setLocalPiperInstalled] = useState(false);
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshUsage = useCallback(async () => {
+    setLoadingUsage(true);
+    try {
+      setUsage(await api().invoke('voice.getUsage'));
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setLoadingUsage(false);
+    }
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -56,6 +72,8 @@ export function useVoiceSettings(): VoiceSettingsState {
     });
     return () => { current = false; };
   }, []);
+
+  useEffect(() => { void refreshUsage(); }, [refreshUsage]);
 
   const loadVoices = useCallback(async () => {
     setLoadingVoices(true);
@@ -132,6 +150,8 @@ export function useVoiceSettings(): VoiceSettingsState {
     hasGeminiKey,
     apiKeyDraft,
     voices,
+    usage,
+    loadingUsage,
     selectedVoiceId,
     localPiperInstalled,
     loadingVoices,
@@ -141,6 +161,7 @@ export function useVoiceSettings(): VoiceSettingsState {
     setSelectedVoiceId,
     saveGeminiApiKey,
     loadVoices,
+    refreshUsage,
     useGeminiVoice,
     useLocalPiper,
   };

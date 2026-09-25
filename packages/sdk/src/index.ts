@@ -549,6 +549,7 @@ export type {
   SynthesizerDef,
   SynthesizerCreateContext,
   SynthesisResult,
+  SynthesisUsage,
   SynthesizeOptions,
 } from './synthesizer.js';
 

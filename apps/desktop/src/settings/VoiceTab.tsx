@@ -21,6 +21,20 @@ const fieldStyle: React.CSSProperties = {
   color: 'var(--color-text)',
 };
 
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 6,
+  maximumFractionDigits: 6,
+});
+
+const tokenFormatter = new Intl.NumberFormat('en-US');
+
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
 /** Render-only surface for voice preferences; IPC and lifecycle live in the hook. */
 export function VoiceTab(): JSX.Element {
   const voice = useVoiceSettings();
@@ -85,6 +99,47 @@ export function VoiceTab(): JSX.Element {
           >
             {voice.busy && voice.backend !== 'gemini-tts' ? 'Setting up…' : 'Use Gemini voice'}
           </Button>
+          <section
+            aria-labelledby="gemini-tts-usage-title"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              padding: 12,
+              background: 'var(--color-panel-bg, var(--color-input-bg, var(--color-card-bg)))',
+              border: '1px solid var(--color-card-border)',
+              borderRadius: 'var(--radius-block)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <h4 id="gemini-tts-usage-title" style={{ margin: 0, fontSize: 'var(--type-meta)' }}>
+                Estimated Gemini usage
+              </h4>
+              <Button variant="secondary" disabled={voice.loadingUsage} onClick={() => void voice.refreshUsage()}>
+                {voice.loadingUsage ? 'Refreshing…' : 'Refresh'}
+              </Button>
+            </div>
+            <output
+              aria-live="polite"
+              style={{ fontSize: 'var(--type-title)', fontWeight: 700, color: 'var(--color-text)' }}
+            >
+              {voice.loadingUsage && !voice.usage ? 'Loading…' : usdFormatter.format(voice.usage?.estimatedCostUsd ?? 0)}
+            </output>
+            <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
+              {voice.usage
+                ? `${tokenFormatter.format(voice.usage.inputTextTokens)} text tokens · ${tokenFormatter.format(voice.usage.outputAudioTokens)} audio tokens · ${tokenFormatter.format(voice.usage.requestCount)} requests`
+                : 'No Gemini usage has been recorded on this device yet.'}
+            </div>
+            {voice.usage?.updatedAt && (
+              <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
+                Last recorded {dateFormatter.format(new Date(voice.usage.updatedAt))}
+              </div>
+            )}
+            <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
+              Paid Standard estimate through Dec 31, 2026: $0.50 / 1M text tokens + $6 / 1M audio tokens.
+              Google free-tier credits and interrupted requests without returned usage data are not included.
+            </div>
+          </section>
         </section>
 
         <section style={cardStyle} aria-labelledby="voice-local-title">

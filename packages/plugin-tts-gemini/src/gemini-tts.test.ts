@@ -34,6 +34,10 @@ const audioResponse = {
       data: Buffer.from('RIFFaudio').toString('base64'),
     }],
   }],
+  usage: {
+    total_input_tokens: 9,
+    total_output_tokens: 75,
+  },
 };
 
 describe('GeminiTtsSynthesizer', () => {
@@ -48,6 +52,7 @@ describe('GeminiTtsSynthesizer', () => {
 
     expect(result.mimeType).toBe('audio/wav');
     expect(Buffer.from(result.audio).toString()).toBe('RIFFaudio');
+    expect(result.usage).toEqual({ inputTextTokens: 9, outputAudioTokens: 75 });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
     expect((calls[0]?.init.headers as Record<string, string>)['x-goog-api-key']).toBe('test-key');

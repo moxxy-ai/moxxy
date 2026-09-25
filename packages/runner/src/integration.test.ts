@@ -861,6 +861,37 @@ describe('runner end-to-end', () => {
     expect(settled).toBeInstanceOf(Error);
   });
 
+  it('preserves synthesis usage metadata across the runner protocol', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'runner-test-tts-usage',
+      synthesizers: [defineSynthesizer({
+        name: 'usage-tts',
+        create: () => ({
+          name: 'usage-tts',
+          synthesize: async () => ({
+            audio: new Uint8Array([1, 2, 3]),
+            mimeType: 'audio/wav',
+            usage: { inputTextTokens: 9, outputAudioTokens: 75 },
+          }),
+        }),
+      })],
+    }));
+    session.synthesizers.setActive('usage-tts');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const synthesizer = remote.synthesizers.tryGetActive();
+    expect(synthesizer).not.toBeNull();
+    if (!synthesizer) throw new Error('usage synthesizer was not registered');
+
+    await expect(synthesizer.synthesize('Short speech.')).resolves.toMatchObject({
+      mimeType: 'audio/wav',
+      usage: { inputTextTokens: 9, outputAudioTokens: 75 },
+    });
+  });
+
   it('session.reset clears the runner, every mirror, and the persisted JSONL', async () => {
     // Regression for A10: /new on an attached client used to clear only the
     // local mirror — the runner kept the full context (resurrecting it on the

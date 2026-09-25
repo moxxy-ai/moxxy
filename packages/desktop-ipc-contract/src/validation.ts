@@ -182,6 +182,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }).strict(),
   'voice.useLocalPiper': z.undefined(),
   'voice.getSettings': z.undefined(),
+  'voice.getUsage': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.

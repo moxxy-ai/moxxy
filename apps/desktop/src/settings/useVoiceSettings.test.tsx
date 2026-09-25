@@ -11,6 +11,13 @@ describe('useVoiceSettings', () => {
       if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
       if (command === 'settings.vaultEntries') return [];
       if (command === 'voice.isLocalPiperInstalled') return true;
+      if (command === 'voice.getUsage') return {
+        requestCount: 2,
+        inputTextTokens: 200,
+        outputAudioTokens: 750,
+        estimatedCostUsd: 0.0046,
+        updatedAt: '2026-09-25T12:00:00.000Z',
+      };
       if (command === 'voice.listGeminiVoices') {
         return [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
       }
@@ -26,6 +33,7 @@ describe('useVoiceSettings', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.backend).toBe('local-piper');
     expect(result.current.hasGeminiKey).toBe(false);
+    await waitFor(() => expect(result.current.usage?.estimatedCostUsd).toBe(0.0046));
 
     act(() => result.current.setApiKeyDraft('secret-key'));
     await act(async () => result.current.saveGeminiApiKey());

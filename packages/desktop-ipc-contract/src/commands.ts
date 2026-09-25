@@ -30,6 +30,7 @@ import type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
+  GeminiTtsUsageSnapshot,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';
@@ -328,6 +329,8 @@ export interface IpcCommands {
   'voice.useLocalPiper': () => Promise<void>;
   /** Read the active backend and the saved Gemini voice selection. */
   'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
+  /** Read the locally accumulated Gemini TTS usage estimate. */
+  'voice.getUsage': () => Promise<GeminiTtsUsageSnapshot>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;

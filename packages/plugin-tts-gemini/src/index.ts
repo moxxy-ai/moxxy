@@ -121,7 +121,12 @@ export class GeminiTtsSynthesizer implements Synthesizer {
 
     const rawAudio = Buffer.from(audioPart.data, 'base64');
     const encodedAudio = wrapLinearPcmAsWav(rawAudio, audioPart.mime_type || 'audio/wav');
-    return { audio: new Uint8Array(encodedAudio.audio), mimeType: encodedAudio.mimeType };
+    const usage = parseTtsUsage(payload.usage);
+    return {
+      audio: new Uint8Array(encodedAudio.audio),
+      mimeType: encodedAudio.mimeType,
+      ...(usage ? { usage } : {}),
+    };
   }
 
   private async resolveKey(): Promise<string> {
@@ -287,6 +292,11 @@ function trimTrailingSlashes(value: string): string {
   return value.slice(0, end);
 }
 
+interface ModalityTokenCount {
+  readonly modality?: string;
+  readonly tokens?: number;
+}
+
 interface InteractionsResponse {
   readonly steps?: ReadonlyArray<{
     readonly content?: ReadonlyArray<{
@@ -295,6 +305,45 @@ interface InteractionsResponse {
       readonly mime_type?: string;
     }>;
   }>;
+  readonly usage?: {
+    readonly input_tokens_by_modality?: ReadonlyArray<ModalityTokenCount>;
+    readonly output_tokens_by_modality?: ReadonlyArray<ModalityTokenCount>;
+    readonly total_input_tokens?: number;
+    readonly total_output_tokens?: number;
+  };
+}
+
+function parseTtsUsage(usage: InteractionsResponse['usage']):
+  | { readonly inputTextTokens: number; readonly outputAudioTokens: number }
+  | undefined {
+  if (!usage) return undefined;
+  const inputTextTokens = tokensForModality(usage.input_tokens_by_modality, 'text')
+    ?? validTokenCount(usage.total_input_tokens);
+  const outputAudioTokens = tokensForModality(usage.output_tokens_by_modality, 'audio')
+    ?? validTokenCount(usage.total_output_tokens);
+  if (inputTextTokens === undefined || outputAudioTokens === undefined) return undefined;
+  return { inputTextTokens, outputAudioTokens };
+}
+
+function tokensForModality(
+  counts: ReadonlyArray<ModalityTokenCount> | undefined,
+  modality: string,
+): number | undefined {
+  if (!counts) return undefined;
+  let total = 0;
+  let found = false;
+  for (const item of counts) {
+    if (item.modality !== modality) continue;
+    const count = validTokenCount(item.tokens);
+    if (count === undefined) return undefined;
+    total += count;
+    found = true;
+  }
+  return found && Number.isSafeInteger(total) ? total : undefined;
+}
+
+function validTokenCount(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 interface VoicesListResponse {

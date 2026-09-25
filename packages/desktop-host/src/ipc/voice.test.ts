@@ -9,6 +9,7 @@ import type { RunnerSupervisor } from '../runner-supervisor';
 import { setActiveBus } from './shared';
 import { registerVoiceHandlers } from './voice';
 import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
+import type { GeminiTtsUsageSnapshot } from '@moxxy/desktop-ipc-contract';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -20,6 +21,7 @@ function register(options: {
   readonly useGeminiTts?: (voiceId: string) => Promise<void>;
   readonly useLocalPiper?: () => Promise<void>;
   readonly getSettings?: () => Promise<{ backend: string | null; voiceId: string }>;
+  readonly getUsage?: () => Promise<GeminiTtsUsageSnapshot>;
 }) {
   const handlers = new Map<string, Handler>();
   const bus = {
@@ -42,6 +44,7 @@ function register(options: {
     ...(options.useGeminiTts ? { useGeminiTts: options.useGeminiTts } : {}),
     ...(options.useLocalPiper ? { useLocalPiper: options.useLocalPiper } : {}),
     ...(options.getSettings ? { getSettings: options.getSettings } : {}),
+    ...(options.getUsage ? { getUsage: options.getUsage } : {}),
   });
   return { handlers, install, restart };
 }
@@ -86,12 +89,21 @@ describe('registerVoiceHandlers', () => {
     const useGeminiTts = vi.fn(async (_voiceId: string) => undefined);
     const useLocalPiper = vi.fn(async () => undefined);
     const getSettings = vi.fn(async () => ({ backend: 'gemini-tts', voiceId: 'Fola' }));
+    const usage = {
+      requestCount: 1,
+      inputTextTokens: 10,
+      outputAudioTokens: 75,
+      estimatedCostUsd: 0.000455,
+      updatedAt: '2026-09-25T12:00:00.000Z',
+    } satisfies GeminiTtsUsageSnapshot;
+    const getUsage = vi.fn(async () => usage);
     const { handlers } = register({
       installed: true,
       listGeminiVoices,
       useGeminiTts,
       useLocalPiper,
       getSettings,
+      getUsage,
     });
 
     await expect(handlers.get('voice.listGeminiVoices')?.()).resolves.toEqual(voices);
@@ -100,6 +112,7 @@ describe('registerVoiceHandlers', () => {
     await expect(handlers.get('voice.getSettings')?.()).resolves.toEqual({
       backend: 'gemini-tts', voiceId: 'Fola',
     });
+    await expect(handlers.get('voice.getUsage')?.()).resolves.toEqual(usage);
     expect(useGeminiTts).toHaveBeenCalledWith('Fola');
     expect(useLocalPiper).toHaveBeenCalledOnce();
   });
