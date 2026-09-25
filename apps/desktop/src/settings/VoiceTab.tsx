@@ -33,7 +33,7 @@ export function VoiceTab(): JSX.Element {
   return (
     <Section
       title="Voice"
-      description="Choose how Moxxy speaks in voice conversations. Generated speech is requested one sentence at a time, with at most one sentence prepared ahead."
+      description="Choose how Moxxy speaks in voice conversations. Speech is played one sentence at a time, with up to two upcoming sentences prepared ahead to reduce pauses."
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         <section style={cardStyle} aria-labelledby="voice-cloud-title">

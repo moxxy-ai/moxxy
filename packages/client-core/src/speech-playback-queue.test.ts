@@ -23,6 +23,46 @@ async function waitForPhase(
 }
 
 describe('SpeechPlaybackQueue voice-call policy', () => {
+  it('prepares at most two upcoming sentences while the current sentence synthesizes', async () => {
+    const synthesisRequests: Array<{ readonly text: string; readonly requestId: string }> = [];
+    const invoke = vi.fn((channel: string, payload: { text?: string; requestId?: string }) => {
+      if (channel === 'session.synthesize') {
+        synthesisRequests.push({ text: payload.text ?? '', requestId: payload.requestId ?? '' });
+        return new Promise<{ audioBase64: string; mimeType: string }>(() => undefined);
+      }
+      return Promise.resolve(undefined);
+    });
+    configurePlatform({
+      tts: {
+        isSupported: () => true,
+        speak: vi.fn(),
+        cancel: vi.fn(),
+        playClip: vi.fn(() => ({ stop: vi.fn() })),
+      },
+    });
+    __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
+    const queue = new SpeechPlaybackQueue('workspace-a', { requireSynthesizer: true });
+
+    queue.enqueue('First sentence.');
+    queue.enqueue('Second sentence.');
+    queue.enqueue('Third sentence.');
+    queue.enqueue('Fourth sentence.');
+
+    const deadline = Date.now() + 1_000;
+    while (synthesisRequests.length < 3 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(synthesisRequests.map((request) => request.text)).toEqual([
+      'First sentence.',
+      'Second sentence.',
+      'Third sentence.',
+    ]);
+    queue.cancel();
+    expect(invoke.mock.calls.filter(([channel]) => channel === 'session.cancelSynthesis'))
+      .toHaveLength(3);
+  });
+
   it('cancels active Gemini synthesis when voice output is interrupted', async () => {
     const synthesizeRequest = vi.fn((_channel: string, _payload: unknown) =>
       new Promise<never>(() => undefined),

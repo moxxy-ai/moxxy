@@ -19,6 +19,8 @@ describe('VoiceTab', () => {
     __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
     render(<VoiceTab />);
 
+    expect(screen.getByText(/played one sentence at a time, with up to two upcoming sentences prepared ahead/i))
+      .toBeTruthy();
     await screen.findByText('Current voice: Local · Piper');
     fireEvent.change(screen.getByLabelText(/Gemini API key/u), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save key' }));

@@ -59,6 +59,7 @@ const IDLE_SNAPSHOT: SpeechPlaybackSnapshot = Object.freeze({
 
 let activeQueue: SpeechPlaybackQueue | null = null;
 let nextSynthesisRequest = 0;
+const PREFETCH_SENTENCE_COUNT = 2;
 
 function claimPlayback(queue: SpeechPlaybackQueue): void {
   if (activeQueue === queue) return;
@@ -72,7 +73,7 @@ function releasePlayback(queue: SpeechPlaybackQueue): void {
 
 /**
  * Serial audio player with bounded prefetch. Playback remains strictly ordered
- * while Piper prepares exactly one sentence ahead of the current audio.
+ * while up to two upcoming sentences are synthesized ahead of the current audio.
  */
 export class SpeechPlaybackQueue {
   private readonly listeners = new Set<() => void>();
@@ -162,7 +163,7 @@ export class SpeechPlaybackQueue {
     if (this.snapshot.phase === 'idle' || this.snapshot.phase === 'error') {
       this.setSnapshot('synthesizing', null, kind);
     }
-    if (this.activeClip || this.systemSpeaking) this.prepareNext();
+    if (this.preparing || this.activeClip || this.systemSpeaking) this.prepareAhead();
     void this.pump(this.generation);
   }
 
@@ -221,7 +222,9 @@ export class SpeechPlaybackQueue {
     this.preparing = true;
     this.preparingItem = item;
     this.setSnapshot('synthesizing', null, item.kind);
-    const prepared = await this.prepare(item);
+    const preparing = this.prepare(item);
+    this.prepareAhead();
+    const prepared = await preparing;
     if (generation !== this.generation) return;
     this.preparing = false;
     this.preparingItem = null;
@@ -286,7 +289,7 @@ export class SpeechPlaybackQueue {
           return;
         }
         this.activeClip = clip;
-        this.prepareNext();
+        this.prepareAhead();
         return;
       }
 
@@ -298,7 +301,7 @@ export class SpeechPlaybackQueue {
         onend: finish,
         onerror: failPlayback,
       });
-      this.prepareNext();
+      this.prepareAhead();
     } catch (error) {
       if (item.kind === 'cue') {
         this.activeClip = null;
@@ -365,10 +368,11 @@ export class SpeechPlaybackQueue {
     return `${item.language}\u0000${item.prosody.rate}\u0000${item.text}`;
   }
 
-  /** Keep exactly one sentence warm while the current sentence is playing. */
-  private prepareNext(): void {
-    const next = this.items[0];
-    if (next) void this.prepare(next);
+  /** Prepare a small bounded window; all additional sentences stay text-only. */
+  private prepareAhead(): void {
+    for (const item of this.items.slice(0, PREFETCH_SENTENCE_COUNT)) {
+      if (!item.cancelled) void this.prepare(item);
+    }
   }
 
   private pauseBeforeNext(durationMs: number, generation: number): void {
