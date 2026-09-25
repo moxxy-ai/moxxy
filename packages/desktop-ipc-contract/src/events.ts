@@ -63,7 +63,7 @@ export interface IpcEvents {
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
   /** The shared per-session model override changed. */
-  'session.model.changed': { workspaceId: string; model: string | null };
+  'session.model.changed': { workspaceId: string; model: string | null; contextWindow?: number };
   /** The shared per-session auto-approve flag changed. */
   'session.autoApprove.changed': { workspaceId: string; enabled: boolean };
   /** The workspace transcript was cleared by another attached surface. */

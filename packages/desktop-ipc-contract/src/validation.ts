@@ -253,6 +253,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.setModel': z.object({
     workspaceId: optionalWorkspace,
     model: z.string().min(1).max(256).nullable(),
+    contextWindow: z.number().int().positive().max(10_000_000).nullable().optional(),
   }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
   'session.newSession': z.object({ workspaceId: optionalWorkspace }),

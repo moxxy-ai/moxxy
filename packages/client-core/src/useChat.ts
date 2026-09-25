@@ -158,8 +158,12 @@ export function ChatStoreBridge(): null {
     );
     const offModel = api().subscribe(
       'session.model.changed',
-      ({ workspaceId, model }: { workspaceId: string; model: string | null }) => {
-        chatStore.setModel(workspaceId, model);
+      ({ workspaceId, model, contextWindow }: {
+        workspaceId: string;
+        model: string | null;
+        contextWindow?: number;
+      }) => {
+        chatStore.setModel(workspaceId, model, contextWindow ?? null);
       },
     );
     const offAutoApprove = api().subscribe(

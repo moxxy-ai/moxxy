@@ -31,6 +31,12 @@ function Probe({
       <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', 'gpt-5')}>
         pick
       </button>
+      <button
+        type="button"
+        onClick={() => void agent.onPickProviderModel('openai-codex', 'vendor/model-v2', 200_000)}
+      >
+        pick custom
+      </button>
     </div>
   );
 }
@@ -154,8 +160,28 @@ describe('useAgentSession', () => {
       expect(invoke).toHaveBeenCalledWith('session.setModel', {
         workspaceId: 'session-model',
         model: 'gpt-5',
+        contextWindow: null,
       }),
     );
+  });
+
+  it('persists custom model context metadata through session.setModel', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    render(<Probe workspaceId="custom-model-context" disabled={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pick custom' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('session.setModel', {
+      workspaceId: 'custom-model-context',
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
+    }));
+    expect(chatStore.getModelContextWindow('custom-model-context')).toBe(200_000);
   });
 
   it('restores the exact provider model after the desktop restarts', async () => {
@@ -180,6 +206,33 @@ describe('useAgentSession', () => {
     expect(invoke).toHaveBeenCalledWith('session.setModel', {
       workspaceId,
       model: 'gpt-5',
+      contextWindow: null,
+    });
+  });
+
+  it('restores the custom model context window after the desktop restarts', async () => {
+    const workspaceId = 'restart-custom-model';
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    const first = render(<Probe workspaceId={workspaceId} disabled={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pick custom' }));
+    await waitFor(() => expect(chatStore.getModelContextWindow(workspaceId)).toBe(200_000));
+    first.unmount();
+
+    chatStore.setModel(workspaceId, null);
+    invoke.mockClear();
+    render(<Probe workspaceId={workspaceId} disabled={false} />);
+
+    await waitFor(() => expect(chatStore.getModelContextWindow(workspaceId)).toBe(200_000));
+    expect(invoke).toHaveBeenCalledWith('session.setModel', {
+      workspaceId,
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
     });
   });
 });

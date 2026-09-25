@@ -547,9 +547,13 @@ export class RemoteSession implements ClientSession {
   }
 
   async *runTurn(prompt: string, opts: RunTurnOptions = {}): AsyncIterable<MoxxyEvent> {
+    if (opts.contextWindow !== undefined) {
+      this.requireServerProtocol(19, 'Custom model context windows');
+    }
     const result = await this.peer.request<RunTurnResult>(RunnerMethod.RunTurn, {
       prompt,
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.contextWindow !== undefined ? { contextWindow: opts.contextWindow } : {}),
       ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.maxIterations ? { maxIterations: opts.maxIterations } : {}),
       ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),

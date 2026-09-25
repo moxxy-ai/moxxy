@@ -570,6 +570,16 @@ describe('IPC payload validation', () => {
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: null }),
     ).not.toThrow();
     expect(() =>
+      validateIpcInput('session.setModel', {
+        workspaceId: 'workspace-1', model: 'vendor/model-v2', contextWindow: 200_000,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.setModel', {
+        workspaceId: 'workspace-1', model: 'vendor/model-v2', contextWindow: 10_000_001,
+      }),
+    ).toThrow();
+    expect(() =>
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: '' }),
     ).toThrow();
   });

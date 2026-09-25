@@ -139,6 +139,19 @@ export function resolveModelContext(
     ? ctx.provider.models.find((model) => model.id === baseId)
     : undefined;
   const descriptor = exact ?? variant ?? ctx.provider.models[0];
+  const override = ctx.contextWindowOverride;
+  if (
+    override !== undefined && Number.isSafeInteger(override)
+    && override > 0 && override <= 10_000_000
+  ) {
+    const matchingDescriptor = exact ?? variant;
+    const reserveForOutput = matchingDescriptor?.maxOutputTokens
+      ?? Math.floor(override * 0.1);
+    return {
+      contextWindow: override,
+      reserveForOutput: Math.min(reserveForOutput, Math.floor(override * 0.5)),
+    };
+  }
   const contextWindow = descriptor?.contextWindow;
   if (!contextWindow || contextWindow <= 0) return null;
   // Signal (once) when the exact-id lookup missed and we fell back to the first

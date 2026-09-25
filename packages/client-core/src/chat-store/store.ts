@@ -157,6 +157,10 @@ class ChatStore {
     return this.slots.get(workspaceId)?.model ?? null;
   }
 
+  getModelContextWindow(workspaceId: string): number | null {
+    return this.slots.get(workspaceId)?.modelContextWindow ?? null;
+  }
+
   /** Token accounting folded from this workspace's provider responses.
    *  Reference-stable until the next response lands (safe for useSyncExternalStore). */
   getUsage(workspaceId: string): UsageSnapshot {
@@ -190,10 +194,11 @@ class ChatStore {
     this.emit();
   }
 
-  setModel(workspaceId: string, model: string | null): void {
+  setModel(workspaceId: string, model: string | null, contextWindow: number | null = null): void {
     const slot = this.ensure(workspaceId);
-    if (slot.model === model) return;
+    if (slot.model === model && slot.modelContextWindow === contextWindow) return;
     slot.model = model;
+    slot.modelContextWindow = contextWindow;
     this.emit();
   }
 

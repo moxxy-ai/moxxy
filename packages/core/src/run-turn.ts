@@ -118,6 +118,7 @@ export async function* runTurn(
       env: appCtx.env,
       services: appCtx.services,
       model,
+      ...(opts.contextWindow !== undefined ? { contextWindowOverride: opts.contextWindow } : {}),
       systemPrompt: opts.systemPrompt,
       provider,
       tools: session.tools,

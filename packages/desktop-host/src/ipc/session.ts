@@ -23,7 +23,11 @@ import { authorizeAttachments, rememberPickedAttachment } from '../attachment-au
 import { persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
 import { assertDefined } from '@moxxy/sdk';
-import { getSessionModel, setSessionModel } from '../session-models.js';
+import {
+  getSessionModel,
+  getSessionModelContextWindow,
+  setSessionModel,
+} from '../session-models.js';
 import { recordGeminiTtsUsage } from '../gemini-tts-usage.js';
 import {
   getInProcessPlugins,
@@ -114,7 +118,10 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       selectedModel = await resolveLocalModelForTurn();
       setSessionModel(id, selectedModel);
     }
-    return driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility);
+    const contextWindow = getSessionModelContextWindow(id);
+    return contextWindow === undefined
+      ? driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility)
+      : driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility, contextWindow);
   });
   handle('session.activeTurn', async (args) => ({
     turnId: resolveDriver(pool, args?.workspaceId)?.activeForegroundTurnId() ?? null,
@@ -127,14 +134,14 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
     await session.setActiveProvider(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
-    setSessionModel(id, null, { force: true });
+    setSessionModel(id, null, { force: true, contextWindow: null });
     // Re-emit the connection phase so the renderer sees the new activeProvider
     // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
     supervisor.refreshConnectedInfo();
   });
-  handle('session.setModel', async ({ workspaceId, model }) => {
+  handle('session.setModel', async ({ workspaceId, model, contextWindow }) => {
     const { workspaceId: id } = resolveCtx(pool, { workspaceId }, { requireSession: false });
-    setSessionModel(id, model, { force: true });
+    setSessionModel(id, model, { force: true, contextWindow });
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
     const { session, supervisor } = resolveCtx(pool, { workspaceId });

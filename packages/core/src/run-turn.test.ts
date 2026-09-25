@@ -59,6 +59,36 @@ function buildSession(): Session {
 }
 
 describe('runTurn turnId filtering', () => {
+  it('forwards a custom model context window into the mode context', async () => {
+    let observedWindow: number | undefined;
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'custom-model-context-test',
+      version: '0.0.0',
+      providers: [makeNoopProvider()],
+      modes: [defineMode({
+        name: 'custom-window-echo',
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          observedWindow = ctx.contextWindowOverride;
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: 'ok',
+            stopReason: 'end_turn',
+          });
+        },
+      })],
+    }));
+    session.providers.setActive('noop');
+    session.modes.setActive('custom-window-echo');
+
+    await collectTurn(session, 'hello', { model: 'vendor/model-v2', contextWindow: 200_000 });
+
+    expect(observedWindow).toBe(200_000);
+  });
+
   it('prepares dynamic provider metadata before the mode receives its context', async () => {
     const fallbackModels = [{
       id: 'fallback',

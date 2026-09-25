@@ -47,7 +47,7 @@ export function Telemetry({
   readonly info: SessionInfo;
   readonly selectedModel: string | null;
   readonly disabled: boolean;
-  readonly onPick: (provider: string, model: string | null) => void;
+  readonly onPick: (provider: string, model: string | null, contextWindow?: number) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const usage = useContextUsage(workspaceId);

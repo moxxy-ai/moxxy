@@ -278,6 +278,7 @@ export interface IpcCommands {
   'session.setModel': (args: {
     workspaceId?: string;
     model: string | null;
+    contextWindow?: number | null;
   }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { workspaceId?: string; mode: string }) => Promise<void>;

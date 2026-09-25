@@ -351,6 +351,7 @@ export class RunnerServer {
       turnId,
       signal: controller.signal,
       ...(params.model ? { model: params.model } : {}),
+      ...(params.contextWindow !== undefined ? { contextWindow: params.contextWindow } : {}),
       ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
       ...(params.maxIterations ? { maxIterations: params.maxIterations } : {}),
       ...(params.attachments

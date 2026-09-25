@@ -84,6 +84,8 @@ export interface ModeContext {
   readonly cwd: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly model: string;
+  /** User-supplied context-window estimate for a custom model, if known. */
+  readonly contextWindowOverride?: number;
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;
   readonly tools: ToolRegistry;

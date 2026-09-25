@@ -78,14 +78,14 @@ const fakeInfo: SessionInfo = {
  * A minimal fake server peer over the wire end the client doesn't hold. It
  * answers `attach` and lets the test push raw notifications + answer `runTurn`.
  */
-function fakeServer(serverT: Transport): {
+function fakeServer(serverT: Transport, protocolVersion = 8): {
   peer: JsonRpcPeer;
   completeTurn: (turnId: string, error?: string) => void;
 } {
   const peer = new JsonRpcPeer(serverT);
   peer.handle(RunnerMethod.Attach, () => ({
     sessionId: 'fake',
-    protocolVersion: 8,
+    protocolVersion,
     info: fakeInfo,
   }));
   return {
@@ -106,6 +106,48 @@ function completedTurnsSize(session: RemoteSession): number {
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('RemoteSession.completedTurns', () => {
+  it('forwards a custom context window to a protocol-v19 runner', async () => {
+    const [clientT, serverT] = makePair();
+    const server = fakeServer(serverT, 19);
+    let received: unknown;
+    server.peer.handle(RunnerMethod.RunTurn, (raw) => {
+      received = raw;
+      server.completeTurn('custom-context-turn');
+      return { turnId: 'custom-context-turn' };
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('driver', 0);
+
+    for await (const _event of client.runTurn('hello', {
+      turnId: 'custom-context-turn' as TurnId,
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
+    })) { /* drain */ }
+
+    expect(received).toMatchObject({ model: 'vendor/model-v2', contextWindow: 200_000 });
+    clientT.close();
+  });
+
+  it('requires a v19 runner before sending a custom context window', async () => {
+    const [clientT, serverT] = makePair();
+    const server = fakeServer(serverT, 18);
+    let received = false;
+    server.peer.handle(RunnerMethod.RunTurn, () => {
+      received = true;
+      return { turnId: 'old-runner-turn' };
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('driver', 0);
+
+    await expect(async () => {
+      for await (const _event of client.runTurn('hello', { model: 'vendor/model-v2', contextWindow: 200_000 })) {
+        /* drain */
+      }
+    }).rejects.toThrow(/update the (moxxy )?CLI/i);
+    expect(received).toBe(false);
+    clientT.close();
+  });
+
   it('stays bounded under many turn.complete notifications with no matching runTurn', async () => {
     const [clientT, serverT] = makePair();
     const server = fakeServer(serverT);

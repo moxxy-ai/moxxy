@@ -18,6 +18,8 @@ import type { ComputerControlService } from './computer-control.js';
  */
 export interface RunTurnOptions {
   readonly model?: string;
+  /** Optional context-window estimate for a custom model that is not in the provider catalog. */
+  readonly contextWindow?: number;
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
   /**

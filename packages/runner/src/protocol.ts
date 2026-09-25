@@ -166,7 +166,8 @@ import type {
 /** v16: synthesis requests can be cancelled while the runner is generating audio. */
 /** v17: synthesis results may include the provider's token usage totals. */
 /** v18: synthesis usage may identify counts estimated from text and audio duration. */
-export const RUNNER_PROTOCOL_VERSION = 18;
+/** v19: runTurn accepts an optional custom-model context window for compaction. */
+export const RUNNER_PROTOCOL_VERSION = 19;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -350,6 +351,8 @@ export interface AttachResult {
 export interface RunTurnParams {
   readonly prompt: string;
   readonly model?: string;
+  /** User-supplied context-window estimate for a custom model. */
+  readonly contextWindow?: number;
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
@@ -598,6 +601,7 @@ export const attachParamsSchema = z.object({
 export const runTurnParamsSchema = z.object({
   prompt: z.string(),
   model: z.string().optional(),
+  contextWindow: z.number().int().positive().max(10_000_000).optional(),
   systemPrompt: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
   attachments: z.array(attachmentSchema).optional(),

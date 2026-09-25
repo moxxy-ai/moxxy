@@ -15,7 +15,11 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api, chatStore, useConnection } from '@moxxy/client-core';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 import { isSessionInfoReady } from '../../app-session-readiness';
-import { getModelPreference, setModelPreference } from './modelPreferences';
+import {
+  getModelContextWindowPreference,
+  getModelPreference,
+  setModelPreference,
+} from './modelPreferences';
 
 /** Modes hidden from the chat mode picker — collaboration is launched from the
  *  Collaborate tab (single-flight), and its peer modes are internal. */
@@ -40,6 +44,7 @@ export interface AgentSession {
   readonly onPickProviderModel: (
     provider: string,
     model: string | null,
+    contextWindow?: number,
   ) => Promise<void>;
 }
 
@@ -104,9 +109,17 @@ export function useAgentSession(
     const provider = info?.activeProvider;
     if (!provider) return;
     const persisted = getModelPreference(workspaceId, provider);
-    if (chatStore.getModel(workspaceId) === persisted) return;
-    chatStore.setModel(workspaceId, persisted);
-    void api().invoke('session.setModel', { workspaceId, model: persisted }).catch(() => {});
+    const contextWindow = getModelContextWindowPreference(workspaceId, provider);
+    if (
+      chatStore.getModel(workspaceId) === persisted
+      && chatStore.getModelContextWindow(workspaceId) === contextWindow
+    ) return;
+    chatStore.setModel(workspaceId, persisted, contextWindow);
+    void api().invoke('session.setModel', {
+      workspaceId,
+      model: persisted,
+      contextWindow,
+    }).catch(() => {});
   }, [info?.activeProvider, workspaceId]);
 
   const onMode = (next: string): void => {
@@ -131,6 +144,7 @@ export function useAgentSession(
   const onPickProviderModel = async (
     provider: string,
     model: string | null,
+    contextWindow?: number,
   ): Promise<void> => {
     if (info && provider !== info.activeProvider) {
       try {
@@ -140,12 +154,16 @@ export function useAgentSession(
       }
     }
     try {
-      await api().invoke('session.setModel', { workspaceId, model });
+      await api().invoke('session.setModel', {
+        workspaceId,
+        model,
+        contextWindow: contextWindow ?? null,
+      });
     } catch {
       return;
     }
-    chatStore.setModel(workspaceId, model);
-    setModelPreference(workspaceId, provider, model);
+    chatStore.setModel(workspaceId, model, contextWindow ?? null);
+    setModelPreference(workspaceId, provider, model, contextWindow ?? null);
     refresh();
   };
 

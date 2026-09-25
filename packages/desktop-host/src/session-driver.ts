@@ -195,6 +195,7 @@ export class SessionDriver {
     attachments?: ReadonlyArray<{ path: string; name: string }>,
     inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
     visibility: RunTurnVisibility = 'foreground',
+    contextWindow?: number,
   ): Promise<{ turnId: string }> {
     const id = randomUUID();
     const controller = new AbortController();
@@ -221,6 +222,7 @@ export class SessionDriver {
           // uuid to the SDK's TurnId without widening the field's type.
           turnId: asTurnId(id),
           ...(model ? { model } : {}),
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
           ...(promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
         };
         // RemoteSession's runTurn forwards opts.attachments verbatim

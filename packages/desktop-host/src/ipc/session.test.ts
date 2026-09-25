@@ -148,11 +148,11 @@ describe('session.setModel handler', () => {
 
     const setModelHandler = handlers.get('session.setModel');
     assertDefined(setModelHandler, 'session.setModel handler');
-    await setModelHandler({ workspaceId: 'ws-model', model: 'gpt-5.4' });
+    await setModelHandler({ workspaceId: 'ws-model', model: 'gpt-5.4', contextWindow: 200_000 });
 
     expect(events).toContainEqual({
       channel: 'session.model.changed',
-      payload: { workspaceId: 'ws-model', model: 'gpt-5.4' },
+      payload: { workspaceId: 'ws-model', model: 'gpt-5.4', contextWindow: 200_000 },
     });
     off();
   });
@@ -265,6 +265,43 @@ describe('session.runTurn handler', () => {
       );
     } finally {
       drivers.delete('ws-inline');
+    }
+  });
+
+  it('forwards the selected custom model context window to the runner driver', async () => {
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-custom-context' });
+    drivers.set('ws-custom-context', { runTurn } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'ws-custom-context',
+      get: (id: string) => id === 'ws-custom-context'
+        ? ({ getCwd: () => '/tmp/moxxy-test', remote: () => null } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const setModelHandler = handlers.get('session.setModel');
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(setModelHandler, 'session.setModel handler');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await setModelHandler({
+        workspaceId: 'ws-custom-context',
+        model: 'vendor/model-v2',
+        contextWindow: 200_000,
+      });
+      await runTurnHandler({
+        workspaceId: 'ws-custom-context',
+        prompt: 'hello',
+        model: 'vendor/model-v2',
+      });
+
+      expect(runTurn).toHaveBeenCalledWith(
+        'hello', 'vendor/model-v2', undefined, undefined, undefined, 200_000,
+      );
+    } finally {
+      drivers.delete('ws-custom-context');
     }
   });
 

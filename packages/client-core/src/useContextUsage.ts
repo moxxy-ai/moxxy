@@ -90,6 +90,9 @@ export function useContextUsage(workspaceId: string | null): ContextUsage {
   const model = useSyncExternalStore(chatStore.subscribe, () =>
     workspaceId ? chatStore.getModel(workspaceId) : null,
   );
+  const contextWindowOverride = useSyncExternalStore(chatStore.subscribe, () =>
+    workspaceId ? chatStore.getModelContextWindow(workspaceId) : null,
+  );
 
   // The context window is a property of the active provider/model, not the
   // log — fetch it once per (workspace, model). A provider switch resets the
@@ -119,7 +122,10 @@ export function useContextUsage(workspaceId: string | null): ContextUsage {
   }, [workspaceId, model]);
 
   const summary = useMemo(() => summarize(usage), [usage]);
-  const contextWindow = useMemo(() => resolveContextWindow(info, model), [info, model]);
+  const contextWindow = useMemo(
+    () => contextWindowOverride ?? resolveContextWindow(info, model),
+    [contextWindowOverride, info, model],
+  );
 
   const fraction =
     contextWindow && contextWindow > 0

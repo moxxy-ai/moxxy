@@ -55,6 +55,7 @@ export interface Slot {
   readonly rt: ChatRuntime;
   snap: ChatSnapshot | null;
   model: string | null;
+  modelContextWindow: number | null;
   /** Auto-approve ("yolo") on for this workspace — mirrors the runner-side
    *  driver flag so the composer chip can show ON/OFF and re-apply on connect. */
   autoApprove: boolean;
@@ -113,6 +114,7 @@ export function createSlot(): Slot {
     rt: createRuntime(),
     snap: null,
     model: null,
+    modelContextWindow: null,
     autoApprove: false,
     lastSeenRev: 0,
     queue: EMPTY_QUEUE,

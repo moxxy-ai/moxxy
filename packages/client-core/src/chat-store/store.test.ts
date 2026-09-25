@@ -211,6 +211,17 @@ describe('chatStore setters bump rev only on change', () => {
       unsub();
     }
   });
+
+  it('stores a custom context window together with the selected model', () => {
+    const id = ws();
+    chatStore.setModel(id, 'vendor/model-v2', 200_000);
+
+    expect(chatStore.getModel(id)).toBe('vendor/model-v2');
+    expect(chatStore.getModelContextWindow(id)).toBe(200_000);
+
+    chatStore.setModel(id, 'gpt-6-luna');
+    expect(chatStore.getModelContextWindow(id)).toBeNull();
+  });
 });
 
 describe('chatStore snapshot caching', () => {
