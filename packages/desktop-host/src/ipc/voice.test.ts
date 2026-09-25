@@ -91,6 +91,7 @@ describe('registerVoiceHandlers', () => {
     const getSettings = vi.fn(async () => ({ backend: 'gemini-tts', voiceId: 'Fola' }));
     const usage = {
       requestCount: 1,
+      estimatedRequestCount: 0,
       inputTextTokens: 10,
       outputAudioTokens: 75,
       estimatedCostUsd: 0.000455,

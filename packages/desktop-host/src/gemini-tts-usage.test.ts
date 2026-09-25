@@ -27,6 +27,7 @@ describe('Gemini TTS usage', () => {
 
     await expect(store.read()).resolves.toEqual({
       requestCount: 2,
+      estimatedRequestCount: 0,
       inputTextTokens: 200,
       outputAudioTokens: 750,
       estimatedCostUsd: 0.0046,
@@ -37,6 +38,36 @@ describe('Gemini TTS usage', () => {
       requestCount: 2,
       inputTextTokens: 200,
       outputAudioTokens: 750,
+    });
+  });
+
+  it('tracks when usage was estimated because Gemini omitted token statistics', async () => {
+    const store = createGeminiTtsUsageStore(file);
+    await store.record({ inputTextTokens: 6, outputAudioTokens: 25, estimated: true });
+
+    await expect(store.read()).resolves.toMatchObject({
+      requestCount: 1,
+      estimatedRequestCount: 1,
+      inputTextTokens: 6,
+      outputAudioTokens: 25,
+    });
+  });
+
+  it('reads the existing usage-file shape without losing previously collected tokens', async () => {
+    await writeFile(file, JSON.stringify({
+      version: 1,
+      requestCount: 3,
+      inputTextTokens: 40,
+      outputAudioTokens: 250,
+      updatedAt: '2026-09-25T12:00:00.000Z',
+    }));
+    const store = createGeminiTtsUsageStore(file);
+
+    await expect(store.read()).resolves.toMatchObject({
+      requestCount: 3,
+      estimatedRequestCount: 0,
+      inputTextTokens: 40,
+      outputAudioTokens: 250,
     });
   });
 

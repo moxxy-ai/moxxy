@@ -60,6 +60,7 @@ export interface GeminiVoiceInfo {
 /** Locally accumulated Gemini TTS token usage and current-rate cost estimate. */
 export interface GeminiTtsUsageSnapshot {
   readonly requestCount: number;
+  readonly estimatedRequestCount: number;
   readonly inputTextTokens: number;
   readonly outputAudioTokens: number;
   readonly estimatedCostUsd: number;

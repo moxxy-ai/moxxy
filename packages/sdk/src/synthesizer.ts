@@ -42,6 +42,8 @@ export interface SynthesisResult {
 export interface SynthesisUsage {
   readonly inputTextTokens: number;
   readonly outputAudioTokens: number;
+  /** True when the provider omitted usage and counts were inferred from text/audio. */
+  readonly estimated?: boolean;
 }
 
 export interface Synthesizer {

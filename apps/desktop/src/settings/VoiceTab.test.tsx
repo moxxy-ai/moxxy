@@ -13,6 +13,7 @@ describe('VoiceTab', () => {
       if (command === 'voice.isLocalPiperInstalled') return true;
       if (command === 'voice.getUsage') return {
         requestCount: 2,
+        estimatedRequestCount: 1,
         inputTextTokens: 200,
         outputAudioTokens: 750,
         estimatedCostUsd: 0.0046,
@@ -30,6 +31,7 @@ describe('VoiceTab', () => {
       .toBeTruthy();
     await screen.findByText('Current voice: Local · Piper');
     expect(await screen.findByText('$0.004600')).toBeTruthy();
+    expect(screen.getByText(/1 estimated/u)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Gemini API key/u), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.vaultSet', {

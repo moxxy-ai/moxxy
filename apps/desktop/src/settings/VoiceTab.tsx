@@ -127,7 +127,7 @@ export function VoiceTab(): JSX.Element {
             </output>
             <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
               {voice.usage
-                ? `${tokenFormatter.format(voice.usage.inputTextTokens)} text tokens · ${tokenFormatter.format(voice.usage.outputAudioTokens)} audio tokens · ${tokenFormatter.format(voice.usage.requestCount)} requests`
+                ? `${tokenFormatter.format(voice.usage.inputTextTokens)} text tokens · ${tokenFormatter.format(voice.usage.outputAudioTokens)} audio tokens · ${tokenFormatter.format(voice.usage.requestCount)} requests${voice.usage.estimatedRequestCount > 0 ? ` · ${tokenFormatter.format(voice.usage.estimatedRequestCount)} estimated` : ''}`
                 : 'No Gemini usage has been recorded on this device yet.'}
             </div>
             {voice.usage?.updatedAt && (
@@ -137,7 +137,7 @@ export function VoiceTab(): JSX.Element {
             )}
             <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
               Paid Standard estimate through Dec 31, 2026: $0.50 / 1M text tokens + $6 / 1M audio tokens.
-              Google free-tier credits and interrupted requests without returned usage data are not included.
+              If Google omits usage stats, text tokens are estimated from text length and audio tokens from clip duration. Free-tier credits and interrupted requests without a completed clip are not included.
             </div>
           </section>
         </section>

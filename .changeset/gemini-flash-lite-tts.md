@@ -5,4 +5,4 @@
 '@moxxy/sdk': minor
 ---
 
-Add Google Gemini Flash-Lite speech synthesis with configurable cloud voices, interruption-aware sentence playback, and a local estimate of reported token usage.
+Add Google Gemini Flash-Lite speech synthesis with configurable cloud voices, interruption-aware sentence playback, local usage estimates, and speech cleanup for links and file paths.

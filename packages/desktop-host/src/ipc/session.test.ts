@@ -44,6 +44,17 @@ const { codexTranscribe, vaultGet } = vi.hoisted(() => ({
   codexTranscribe: vi.fn(),
   vaultGet: vi.fn(),
 }));
+const { recordGeminiTtsUsage } = vi.hoisted(() => ({
+  recordGeminiTtsUsage: vi.fn(async () => ({
+    requestCount: 0,
+    estimatedRequestCount: 0,
+    inputTextTokens: 0,
+    outputAudioTokens: 0,
+    estimatedCostUsd: 0,
+    updatedAt: null,
+  })),
+}));
+vi.mock('../gemini-tts-usage.js', () => ({ recordGeminiTtsUsage }));
 vi.mock('../in-process-plugins', () => ({
   buildInProcessPlugins: () => ({
     vault: { get: vaultGet },
@@ -526,6 +537,52 @@ describe('session.synthesize prosody', () => {
       rate: 1.06,
       signal: expect.any(AbortSignal),
     });
+  });
+
+  it('records provider-estimated Gemini usage after a successful cloud synthesis', async () => {
+    recordGeminiTtsUsage.mockClear();
+    const usage = { inputTextTokens: 8, outputAudioTokens: 25, estimated: true };
+    const snapshot = {
+      requestCount: 1,
+      estimatedRequestCount: 1,
+      inputTextTokens: 8,
+      outputAudioTokens: 25,
+      estimatedCostUsd: 0.000154,
+      updatedAt: '2026-09-25T12:01:00.000Z',
+    };
+    recordGeminiTtsUsage.mockResolvedValue(snapshot);
+    const synthesize = vi.fn(async () => ({
+      audio: new Uint8Array([82, 73, 70, 70]),
+      mimeType: 'audio/wav',
+      usage,
+    }));
+    const remote = {
+      synthesizers: {
+        tryGetActive: () => ({ name: 'gemini-tts', synthesize }),
+      },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-gemini-usage',
+      get: (id: string) => id === 'ws-gemini-usage'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    const emittedEvents: Array<{ channel: string; payload: unknown }> = [];
+    const unsubscribe = desktopEventBus.addSink({
+      broadcast: (channel, payload) => emittedEvents.push({ channel, payload }),
+    });
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const handler = handlers.get('session.synthesize');
+    assertDefined(handler, 'session.synthesize handler');
+    const result = await handler({ workspaceId: 'ws-gemini-usage', text: 'A short sentence.' });
+    unsubscribe();
+    expect(result).toEqual({ audioBase64: 'UklGRg==', mimeType: 'audio/wav' });
+    expect(recordGeminiTtsUsage).toHaveBeenCalledWith(usage);
+    expect(emittedEvents).toContainEqual({ channel: 'voice.usage.changed', payload: snapshot });
+    unsubscribe();
   });
 
   it('aborts the matching in-flight synthesizer request', async () => {

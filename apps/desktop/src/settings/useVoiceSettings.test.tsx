@@ -5,14 +5,17 @@ import { useVoiceSettings } from './useVoiceSettings';
 
 describe('useVoiceSettings', () => {
   let invoke: ReturnType<typeof vi.fn>;
+  let eventHandlers: Map<string, (payload: unknown) => void>;
 
   beforeEach(() => {
+    eventHandlers = new Map();
     invoke = vi.fn(async (command: string) => {
       if (command === 'voice.getSettings') return { backend: 'local-piper', voiceId: 'Fola' };
       if (command === 'settings.vaultEntries') return [];
       if (command === 'voice.isLocalPiperInstalled') return true;
       if (command === 'voice.getUsage') return {
         requestCount: 2,
+        estimatedRequestCount: 0,
         inputTextTokens: 200,
         outputAudioTokens: 750,
         estimatedCostUsd: 0.0046,
@@ -23,7 +26,13 @@ describe('useVoiceSettings', () => {
       }
       return undefined;
     });
-    __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
+    __setApiOverride({
+      invoke,
+      subscribe: (channel: string, handler: (payload: unknown) => void) => {
+        eventHandlers.set(channel, handler);
+        return () => { eventHandlers.delete(channel); };
+      },
+    } as never);
   });
 
   afterEach(() => __setApiOverride(null));
@@ -54,5 +63,22 @@ describe('useVoiceSettings', () => {
     expect(invoke).toHaveBeenCalledWith('voice.useGeminiTts', { voiceId: 'Fola' });
     await act(async () => result.current.useLocalPiper());
     expect(invoke).toHaveBeenCalledWith('voice.useLocalPiper');
+  });
+
+  it('updates usage when a Gemini synthesis completes without refreshing the tab', async () => {
+    const { result } = renderHook(() => useVoiceSettings());
+    await waitFor(() => expect(result.current.loadingUsage).toBe(false));
+    const completedUsage = {
+      requestCount: 3,
+      estimatedRequestCount: 1,
+      inputTextTokens: 240,
+      outputAudioTokens: 900,
+      estimatedCostUsd: 0.00552,
+      updatedAt: '2026-09-25T12:01:00.000Z',
+    };
+
+    act(() => eventHandlers.get('voice.usage.changed')?.(completedUsage));
+
+    expect(result.current.usage).toEqual(completedUsage);
   });
 });

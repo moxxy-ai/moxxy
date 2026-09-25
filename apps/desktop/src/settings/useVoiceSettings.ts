@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import type { GeminiTtsUsageSnapshot, GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
 
@@ -41,11 +41,14 @@ export function useVoiceSettings(): VoiceSettingsState {
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const usageEventVersion = useRef(0);
 
   const refreshUsage = useCallback(async () => {
+    const eventVersion = usageEventVersion.current;
     setLoadingUsage(true);
     try {
-      setUsage(await api().invoke('voice.getUsage'));
+      const snapshot = await api().invoke('voice.getUsage');
+      if (usageEventVersion.current === eventVersion) setUsage(snapshot);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -72,6 +75,12 @@ export function useVoiceSettings(): VoiceSettingsState {
     });
     return () => { current = false; };
   }, []);
+
+  useEffect(() => api().subscribe('voice.usage.changed', (snapshot) => {
+    usageEventVersion.current += 1;
+    setUsage(snapshot);
+    setLoadingUsage(false);
+  }), []);
 
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
 

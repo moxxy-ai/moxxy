@@ -10,6 +10,7 @@ import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
 import type { BrowserTabInfo } from './browser.js';
+import type { GeminiTtsUsageSnapshot } from './settings.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -127,6 +128,8 @@ export interface IpcEvents {
    *  or its public Request URL became available) — the Channels panel re-renders
    *  that channel's card without polling. */
   'channels.status': ChannelRuntimeStatus;
+  /** Updated local Gemini TTS accounting after a successful cloud synthesis. */
+  'voice.usage.changed': GeminiTtsUsageSnapshot;
   /** A live event from the dedicated collaboration coordinator (`moxxy collab`),
    *  forwarded off its own runner. The Collaborate panel folds these into its
    *  view; they NEVER enter a chat session's `runner.event` stream — that is what

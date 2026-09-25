@@ -40,6 +40,20 @@ const audioResponse = {
   },
 };
 
+function audioResponseWithoutUsage(seconds: number): unknown {
+  const pcm16 = Buffer.alloc(24_000 * 2 * seconds);
+  return {
+    steps: [{
+      type: 'model_output',
+      content: [{
+        type: 'audio',
+        mime_type: 'audio/L16;codec=pcm;rate=24000',
+        data: pcm16.toString('base64'),
+      }],
+    }],
+  };
+}
+
 describe('GeminiTtsSynthesizer', () => {
   it('requests one short text chunk through Interactions and returns the WAV', async () => {
     const { fetchImpl, calls } = makeFetch(audioResponse);
@@ -66,6 +80,19 @@ describe('GeminiTtsSynthesizer', () => {
       response_format: { type: 'audio' },
       generation_config: { speech_config: [{ voice: 'Fola' }] },
     });
+  });
+
+  it('estimates usage from input text and generated audio when Google omits usage metadata', async () => {
+    const { fetchImpl } = makeFetch(audioResponseWithoutUsage(1));
+    const synth = new GeminiTtsSynthesizer({ apiKey: 'test-key', fetchImpl });
+
+    const result = await synth.synthesize('A short sentence.');
+
+    expect(result.usage).toMatchObject({
+      outputAudioTokens: 25,
+      estimated: true,
+    });
+    expect(result.usage?.inputTextTokens).toBeGreaterThan(0);
   });
 
   it('resolves the API key lazily from the vault and honors cancellation', async () => {

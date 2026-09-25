@@ -383,7 +383,8 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       const result = await synth.synthesize(text, options);
       if (synth.name === 'gemini-tts' && result.usage) {
         try {
-          await recordGeminiTtsUsage(result.usage);
+          const usage = await recordGeminiTtsUsage(result.usage);
+          broadcastHostEvent('voice.usage.changed', usage);
         } catch (error) {
           // Usage persistence must not turn successfully generated speech into
           // a playback failure (e.g. when the disk is full).

@@ -14,6 +14,7 @@ const MAX_USAGE_FILE_BYTES = 16_384;
 interface PersistedUsage {
   readonly version: 1;
   readonly requestCount: number;
+  readonly estimatedRequestCount: number;
   readonly inputTextTokens: number;
   readonly outputAudioTokens: number;
   readonly updatedAt: string | null;
@@ -22,6 +23,7 @@ interface PersistedUsage {
 const persistedUsageSchema = z.object({
   version: z.literal(1),
   requestCount: z.number().int().nonnegative(),
+  estimatedRequestCount: z.number().int().nonnegative().default(0),
   inputTextTokens: z.number().int().nonnegative(),
   outputAudioTokens: z.number().int().nonnegative(),
   updatedAt: z.string().datetime().nullable(),
@@ -30,6 +32,7 @@ const persistedUsageSchema = z.object({
 const emptyUsage: PersistedUsage = {
   version: 1,
   requestCount: 0,
+  estimatedRequestCount: 0,
   inputTextTokens: 0,
   outputAudioTokens: 0,
   updatedAt: null,
@@ -38,6 +41,7 @@ const emptyUsage: PersistedUsage = {
 export interface GeminiTtsUsageCounts {
   readonly inputTextTokens: number;
   readonly outputAudioTokens: number;
+  readonly estimated?: boolean;
 }
 
 export interface GeminiTtsUsageStore {
@@ -79,6 +83,7 @@ export function createGeminiTtsUsageStore(
   function snapshot(usage: PersistedUsage): GeminiTtsUsageSnapshot {
     return {
       requestCount: usage.requestCount,
+      estimatedRequestCount: usage.estimatedRequestCount,
       inputTextTokens: usage.inputTextTokens,
       outputAudioTokens: usage.outputAudioTokens,
       estimatedCostUsd: estimateGeminiTtsCostUsd(usage.inputTextTokens, usage.outputAudioTokens),
@@ -98,6 +103,7 @@ export function createGeminiTtsUsageStore(
         const next: PersistedUsage = {
           version: 1,
           requestCount: current.requestCount + 1,
+          estimatedRequestCount: current.estimatedRequestCount + (usage.estimated ? 1 : 0),
           inputTextTokens: current.inputTextTokens + inputTextTokens,
           outputAudioTokens: current.outputAudioTokens + outputAudioTokens,
           updatedAt: now().toISOString(),
@@ -117,6 +123,6 @@ export function getGeminiTtsUsage(): Promise<GeminiTtsUsageSnapshot> {
   return defaultStore.read();
 }
 
-export async function recordGeminiTtsUsage(usage: GeminiTtsUsageCounts): Promise<void> {
-  await defaultStore.record(usage);
+export async function recordGeminiTtsUsage(usage: GeminiTtsUsageCounts): Promise<GeminiTtsUsageSnapshot> {
+  return defaultStore.record(usage);
 }

@@ -165,7 +165,8 @@ import type {
 /** v15: explicit workflow deletion, including schedule retirement. */
 /** v16: synthesis requests can be cancelled while the runner is generating audio. */
 /** v17: synthesis results may include the provider's token usage totals. */
-export const RUNNER_PROTOCOL_VERSION = 17;
+/** v18: synthesis usage may identify counts estimated from text and audio duration. */
+export const RUNNER_PROTOCOL_VERSION = 18;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
