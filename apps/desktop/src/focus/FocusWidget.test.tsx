@@ -877,7 +877,7 @@ describe('FocusWidget stages', () => {
 
     const retry = await screen.findByRole('button', { name: /retry voice mode/i });
     expect(screen.getByRole('button', { name: /end voice mode/i })).toBeTruthy();
-    expect(screen.getByRole('alert').textContent).toMatch(/local piper is not active/i);
+    expect(screen.getByRole('alert').textContent).toMatch(/gemini tts or local piper/i);
 
     fireEvent.click(retry);
     await waitFor(() => {

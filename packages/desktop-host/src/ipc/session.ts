@@ -41,6 +41,15 @@ import {
  *  malformed payload AT the boundary instead of feeding the transcriber junk. */
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
+/** Active speech requests are keyed by their resolved workspace and opaque
+ *  renderer request id. This lets barge-in stop the network fetch already in
+ *  progress instead of merely discarding its eventual audio. */
+const synthesisRequests = new Map<string, AbortController>();
+
+function synthesisRequestKey(workspaceId: string, requestId: string): string {
+  return `${workspaceId}\u0000${requestId}`;
+}
+
 // The collaboration on-disk layout (lock path + runs dir) and the defensive
 // lock parse/liveness probe are the coordinator's contract, owned by
 // `@moxxy/mode-collaborative`'s collab-store. The Collaborate tab reads them
@@ -344,27 +353,47 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
-  handle('session.synthesize', async ({ workspaceId, text, language, rate }) => {
+  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice }) => {
     // Text-to-speech routes through the RUNNER's active synthesizer (unlike
     // STT, which uses the in-process Codex transcriber): a user-authored TTS
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
     // Returns null only when no synthesizer is active. A present-but-failing
     // synthesizer surfaces its error; silently switching voices would hide a
     // broken local Piper installation from the user.
-    const session = resolveSupervisor(pool, workspaceId)?.remote();
-    const synth = session?.synthesizers.tryGetActive();
-    if (!synth) return null;
-    const options = language || rate !== undefined
-      ? {
-          ...(language ? { language } : {}),
-          ...(rate !== undefined ? { rate } : {}),
-        }
-      : undefined;
-    const result = await synth.synthesize(text, options);
-    return {
-      audioBase64: Buffer.from(result.audio).toString('base64'),
-      mimeType: result.mimeType,
-    };
+    const resolvedWorkspaceId = workspaceId ?? pool.activeWorkspaceId();
+    const key = resolvedWorkspaceId && requestId
+      ? synthesisRequestKey(resolvedWorkspaceId, requestId)
+      : null;
+    if (key && synthesisRequests.has(key)) {
+      throw new IpcError('runner-error', 'speech synthesis request id is already active');
+    }
+    const controller = new AbortController();
+    if (key) synthesisRequests.set(key, controller);
+    try {
+      const session = resolveSupervisor(pool, workspaceId)?.remote();
+      const synth = session?.synthesizers.tryGetActive();
+      if (!synth) return null;
+      const options = {
+        ...(language ? { language } : {}),
+        ...(rate !== undefined ? { rate } : {}),
+        ...(voice ? { voice } : {}),
+        signal: controller.signal,
+      };
+      const result = await synth.synthesize(text, options);
+      return {
+        audioBase64: Buffer.from(result.audio).toString('base64'),
+        mimeType: result.mimeType,
+      };
+    } finally {
+      if (key && synthesisRequests.get(key) === controller) synthesisRequests.delete(key);
+    }
+  });
+  handle('session.cancelSynthesis', async ({ workspaceId, requestId }) => {
+    const resolvedWorkspaceId = workspaceId ?? pool.activeWorkspaceId();
+    if (!resolvedWorkspaceId) return;
+    synthesisRequests.get(synthesisRequestKey(resolvedWorkspaceId, requestId))?.abort(
+      new DOMException('Speech synthesis was interrupted.', 'AbortError'),
+    );
   });
   handle('session.pickAttachment', async () => {
     const window =

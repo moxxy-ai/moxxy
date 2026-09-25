@@ -321,6 +321,7 @@ export class RemoteSession implements ClientSession {
       requireInfo: () => this.requireInfo(),
       requireServerProtocol: (minVersion, feature) =>
         this.requireServerProtocol(minVersion, feature),
+      serverProtocolVersion: () => this.serverProtocolVersion,
     };
     this.providers = makeProvidersView(view);
     this.modes = makeModesView(view);

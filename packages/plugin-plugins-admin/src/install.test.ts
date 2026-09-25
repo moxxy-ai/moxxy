@@ -16,6 +16,7 @@ import {
   buildUninstallPluginTool,
   installPluginPackage,
   removePluginPackage,
+  truncateNpmError,
   userPluginsDir,
 } from './install.js';
 
@@ -30,6 +31,14 @@ const noopDeps = {
     channels: [],
   }),
 };
+
+describe('truncateNpmError', () => {
+  it('keeps the end of npm output where the actual failure is reported', () => {
+    const output = `${'npm warn Unknown config\n'.repeat(30)}npm error code E404`;
+
+    expect(truncateNpmError(output, 80)).toContain('npm error code E404');
+  });
+});
 
 describe('install_plugin tool', () => {
 

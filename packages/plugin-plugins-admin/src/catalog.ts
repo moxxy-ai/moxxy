@@ -244,6 +244,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'synthesizer', name: 'local-piper' }],
   },
   {
+    id: 'tts-gemini',
+    label: 'Gemini Flash-Lite cloud voice',
+    description:
+      'Cloud text-to-speech via Gemini 3.8 Flash-Lite. Add GEMINI_API_KEY in Voice settings and choose a voice from your Google voice library.',
+    packageName: '@moxxy/plugin-tts-gemini',
+    installSpec: '@moxxy/plugin-tts-gemini',
+    provides: [{ category: 'synthesizer', name: 'gemini-tts' }],
+  },
+  {
     id: 'stt-local',
     label: 'Local voice input (offline STT)',
     description:

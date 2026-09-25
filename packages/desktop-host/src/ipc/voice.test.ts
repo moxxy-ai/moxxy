@@ -8,6 +8,7 @@ import type { RunnerPool } from '../runner-pool';
 import type { RunnerSupervisor } from '../runner-supervisor';
 import { setActiveBus } from './shared';
 import { registerVoiceHandlers } from './voice';
+import type { GeminiVoiceInfo } from '@moxxy/desktop-ipc-contract';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -15,6 +16,10 @@ function register(options: {
   readonly installed: boolean;
   readonly install?: () => Promise<void>;
   readonly setRealtimeCaptureActive?: (active: boolean) => Promise<void>;
+  readonly listGeminiVoices?: () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
+  readonly useGeminiTts?: (voiceId: string) => Promise<void>;
+  readonly useLocalPiper?: () => Promise<void>;
+  readonly getSettings?: () => Promise<{ backend: string | null; voiceId: string }>;
 }) {
   const handlers = new Map<string, Handler>();
   const bus = {
@@ -33,6 +38,10 @@ function register(options: {
     isInstalled: async () => options.installed,
     install,
     setRealtimeCaptureActive: options.setRealtimeCaptureActive ?? (async () => undefined),
+    ...(options.listGeminiVoices ? { listGeminiVoices: options.listGeminiVoices } : {}),
+    ...(options.useGeminiTts ? { useGeminiTts: options.useGeminiTts } : {}),
+    ...(options.useLocalPiper ? { useLocalPiper: options.useLocalPiper } : {}),
+    ...(options.getSettings ? { getSettings: options.getSettings } : {}),
   });
   return { handlers, install, restart };
 }
@@ -69,5 +78,29 @@ describe('registerVoiceHandlers', () => {
 
     expect(setRealtimeCaptureActive).toHaveBeenNthCalledWith(1, true);
     expect(setRealtimeCaptureActive).toHaveBeenNthCalledWith(2, false);
+  });
+
+  it('exposes the user voice library and routes backend/voice choices', async () => {
+    const voices = [{ id: 'Fola', displayName: 'Fola', languageCode: 'en-US' }];
+    const listGeminiVoices = vi.fn(async () => voices);
+    const useGeminiTts = vi.fn(async (_voiceId: string) => undefined);
+    const useLocalPiper = vi.fn(async () => undefined);
+    const getSettings = vi.fn(async () => ({ backend: 'gemini-tts', voiceId: 'Fola' }));
+    const { handlers } = register({
+      installed: true,
+      listGeminiVoices,
+      useGeminiTts,
+      useLocalPiper,
+      getSettings,
+    });
+
+    await expect(handlers.get('voice.listGeminiVoices')?.()).resolves.toEqual(voices);
+    await expect(handlers.get('voice.useGeminiTts')?.({ voiceId: 'Fola' })).resolves.toBeUndefined();
+    await expect(handlers.get('voice.useLocalPiper')?.()).resolves.toBeUndefined();
+    await expect(handlers.get('voice.getSettings')?.()).resolves.toEqual({
+      backend: 'gemini-tts', voiceId: 'Fola',
+    });
+    expect(useGeminiTts).toHaveBeenCalledWith('Fola');
+    expect(useLocalPiper).toHaveBeenCalledOnce();
   });
 });

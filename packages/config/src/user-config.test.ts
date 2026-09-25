@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import {
   applyInitConfig,
+  loadCategoryDefault,
+  loadCategoryItemConfig,
+  setCategoryDefault,
   loadDisabledProviders,
+  setCategoryItemConfig,
   setPluginEnabled,
   setProviderEnabled,
 } from './user-config.js';
@@ -27,6 +31,41 @@ async function readParsed(): Promise<Record<string, unknown>> {
   const raw = await fs.readFile(configPath, 'utf8');
   return parseYaml(raw) as Record<string, unknown>;
 }
+
+describe('category item configuration', () => {
+  it('reads the persisted selected backend and treats missing config as unset', async () => {
+    await expect(loadCategoryDefault('synthesizer', { configPath })).resolves.toBeNull();
+    await setCategoryDefault('synthesizer', 'gemini-tts', { configPath });
+    await expect(loadCategoryDefault('synthesizer', { configPath })).resolves.toBe('gemini-tts');
+  });
+
+  it('persists synthesizer options without replacing other category items', async () => {
+    await setCategoryItemConfig('synthesizer', 'gemini-tts', { voice: 'Fola' }, { configPath });
+    await setCategoryItemConfig('synthesizer', 'local-piper', { voice: 'en_US-amy-medium' }, { configPath });
+
+    await expect(loadCategoryItemConfig('synthesizer', 'gemini-tts', { configPath }))
+      .resolves.toEqual({ voice: 'Fola' });
+    expect(await readParsed()).toMatchObject({
+      plugins: {
+        synthesizer: {
+          items: {
+            'gemini-tts': { voice: 'Fola' },
+            'local-piper': { voice: 'en_US-amy-medium' },
+          },
+        },
+      },
+    });
+  });
+
+  it('merges options for one synthesizer and rejects unknown categories', async () => {
+    await setCategoryItemConfig('synthesizer', 'gemini-tts', { voice: 'Fola' }, { configPath });
+    await setCategoryItemConfig('synthesizer', 'gemini-tts', { rate: 1.1 }, { configPath });
+    await expect(loadCategoryItemConfig('synthesizer', 'gemini-tts', { configPath }))
+      .resolves.toEqual({ voice: 'Fola', rate: 1.1 });
+    await expect(setCategoryItemConfig('not-a-category', 'x', {}, { configPath }))
+      .rejects.toThrow(/unknown plugin category/);
+  });
+});
 
 describe('applyInitConfig', () => {
   it('writes the unified plugins tree the clean-slate schema reads', async () => {

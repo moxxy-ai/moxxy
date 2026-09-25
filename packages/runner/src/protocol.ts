@@ -162,7 +162,8 @@ import type {
 /** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
 /** v15: explicit workflow deletion, including schedule retirement. */
-export const RUNNER_PROTOCOL_VERSION = 15;
+/** v16: synthesis requests can be cancelled while the runner is generating audio. */
+export const RUNNER_PROTOCOL_VERSION = 16;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -222,6 +223,8 @@ export const RunnerMethod = {
   Transcribe: 'transcribe',
   /** client->server: synthesize text to audio using the runner's active synthesizer. */
   Synthesize: 'synthesize',
+  /** client->server: cancel an in-flight synthesizer request (v16). */
+  CancelSynthesize: 'synthesize.cancel',
   /** client->server: list every MCP server the runner knows about. */
   McpListServers: 'mcp.listServers',
   /** client->server: enable an MCP server + attach its tools. */
@@ -696,10 +699,15 @@ export const transcribeParamsSchema = z.object({
 });
 
 export const synthesizeParamsSchema = z.object({
+  requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9-]+$/).optional(),
   text: z.string().max(MAX_SYNTHESIZE_TEXT_BYTES),
   voice: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
   language: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
   rate: z.number().optional(),
+});
+
+export const cancelSynthesizeParamsSchema = z.object({
+  requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9-]+$/),
 });
 
 /** Wire result for `synthesize`: base64-encoded audio + its MIME type. */

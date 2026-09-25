@@ -29,6 +29,7 @@ import type {
   ProviderEntry,
   McpServerEntry,
   VaultEntryName,
+  GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';
@@ -311,12 +312,22 @@ export interface IpcCommands {
    *  transcriber plugin (e.g. local Whisper), OR stored Codex OAuth creds back
    *  the in-process fallback. UI uses this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** Cancel an in-flight generated speech request for interruption/barge-in. */
+  'session.cancelSynthesis': (args: { workspaceId?: string; requestId: string }) => Promise<void>;
   /** True when the desktop's optional on-device Piper synthesizer package is
    *  complete on disk. Host-only: remote clients must not inspect plugins. */
   'voice.isLocalPiperInstalled': () => Promise<boolean>;
   /** Install, enable and select the fixed first-party Local Piper package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
   'voice.installLocalPiper': () => Promise<void>;
+  /** Read the authenticated Gemini voice library through the main process. */
+  'voice.listGeminiVoices': () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
+  /** Select cloud TTS and persist the chosen voice ID. */
+  'voice.useGeminiTts': (args: { voiceId: string }) => Promise<void>;
+  /** Select the local Piper backend. */
+  'voice.useLocalPiper': () => Promise<void>;
+  /** Read the active backend and the saved Gemini voice selection. */
+  'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
@@ -382,9 +393,11 @@ export interface IpcCommands {
    *  `rate` is a bounded speaking-rate multiplier. */
   'session.synthesize': (args: {
     workspaceId?: string;
+    requestId?: string;
     text: string;
     language?: string;
     rate?: number;
+    voice?: string;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */

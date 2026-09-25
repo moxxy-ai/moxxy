@@ -20,6 +20,7 @@ import { makeSkillsView } from './skills.js';
 import { makePermissionsView } from './permissions.js';
 import { makeMcpAdminView } from './mcp-admin.js';
 import { makeProviderAdminView } from './provider-admin.js';
+import { makeSynthesizersView } from './synthesizers.js';
 import { makeWorkflowsView } from './workflows.js';
 import { fakeProvider, fakeProviderDef, fakeMode, fakeTool, fakeSkill } from './fakes.js';
 
@@ -108,6 +109,7 @@ function ctxFor(
         throw new Error(`${feature} is not supported by this runner`);
       }
     },
+    serverProtocolVersion: () => serverVersion,
   };
 }
 
@@ -138,6 +140,34 @@ describe('client-views: snapshot-backed reads', () => {
     // `info` has no channels restriction → visible everywhere; `compact` only on tui.
     expect(view.listForChannel('telegram').map((c) => c.name)).toEqual(['info']);
     expect(view.listForChannel('tui').map((c) => c.name)).toEqual(['info', 'compact']);
+  });
+});
+
+describe('client-views: cancellable synthesis protocol', () => {
+  it('sends remote cancellation only to protocol v16+ runners', async () => {
+    for (const serverVersion of [15, 16]) {
+      const { peer, sent } = recordingPeer();
+      const info = { ...baseInfo, hasSynthesizer: true, activeSynthesizer: 'gemini-tts' };
+      const synthesizers = makeSynthesizersView(ctxFor(peer, info, serverVersion));
+      const synth = synthesizers.tryGetActive();
+      if (!synth) throw new Error('expected active synthesizer proxy');
+      const controller = new AbortController();
+      const result = synth.synthesize('One sentence.', { signal: controller.signal })
+        .then(() => null, (error: unknown) => error);
+      controller.abort(new Error('interrupted'));
+      await result;
+
+      expect(sent[0]?.method).toBe(RunnerMethod.Synthesize);
+      const synthParams = sent[0]?.params as Record<string, unknown>;
+      if (serverVersion >= 16) {
+        expect(synthParams.requestId).toMatch(/^[A-Za-z0-9-]+$/);
+        expect(sent[1]?.method).toBe(RunnerMethod.CancelSynthesize);
+        expect(sent[1]?.params).toEqual({ requestId: synthParams.requestId });
+      } else {
+        expect(synthParams.requestId).toBeUndefined();
+        expect(sent.some((request) => request.method === RunnerMethod.CancelSynthesize)).toBe(false);
+      }
+    }
   });
 });
 

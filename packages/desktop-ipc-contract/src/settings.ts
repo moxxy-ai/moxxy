@@ -49,6 +49,14 @@ export interface VaultEntryName {
   name: string;
 }
 
+/** A voice returned by Google's authenticated Gemini Voices endpoint. */
+export interface GeminiVoiceInfo {
+  readonly id: string;
+  readonly displayName: string;
+  readonly languageCode?: string;
+  readonly description?: string;
+}
+
 export interface SkillFile {
   name: string;
   /** True if the file is editable (lives under ~/.moxxy/skills/). */

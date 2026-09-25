@@ -23,6 +23,38 @@ async function waitForPhase(
 }
 
 describe('SpeechPlaybackQueue voice-call policy', () => {
+  it('cancels active Gemini synthesis when voice output is interrupted', async () => {
+    const synthesizeRequest = vi.fn((_channel: string, _payload: unknown) =>
+      new Promise<never>(() => undefined),
+    );
+    const invoke = vi.fn(async (channel: string, payload: unknown) => {
+      if (channel === 'session.synthesize') return await synthesizeRequest(channel, payload);
+      return undefined;
+    });
+    configurePlatform({
+      tts: {
+        isSupported: () => true,
+        speak: vi.fn(),
+        cancel: vi.fn(),
+        playClip: vi.fn(() => ({ stop: vi.fn() })),
+      },
+    });
+    __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
+    const queue = new SpeechPlaybackQueue('workspace-a', { requireSynthesizer: true });
+
+    queue.enqueue('First sentence.');
+    await Promise.resolve();
+    await Promise.resolve();
+    queue.cancel();
+
+    const request = synthesizeRequest.mock.calls[0]?.[1] as { requestId: string };
+    expect(request.requestId).toMatch(/^[A-Za-z0-9-]+$/);
+    expect(invoke).toHaveBeenCalledWith('session.cancelSynthesis', {
+      workspaceId: 'workspace-a',
+      requestId: request.requestId,
+    });
+  });
+
   it('does not synthesize fenced code in the voice-conversation policy', async () => {
     const invoke = vi.fn(async () => ({ audioBase64: 'AQID', mimeType: 'audio/wav' }));
     configurePlatform({
@@ -211,12 +243,12 @@ describe('SpeechPlaybackQueue voice-call policy', () => {
     queue.enqueue('Świetnie!');
     await waitForPhase(queue, 'speaking');
 
-    expect(invoke).toHaveBeenCalledWith('session.synthesize', {
+    expect(invoke).toHaveBeenCalledWith('session.synthesize', expect.objectContaining({
       workspaceId: 'workspace-a',
       text: 'Świetnie!',
       language: 'pl',
       rate: 1.06,
-    });
+    }));
     queue.cancel();
   });
 

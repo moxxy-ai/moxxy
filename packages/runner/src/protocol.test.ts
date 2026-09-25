@@ -3,6 +3,7 @@ import {
   surfaceInputParamsSchema,
   transcribeParamsSchema,
   synthesizeParamsSchema,
+  cancelSynthesizeParamsSchema,
   commandRunParamsSchema,
   MAX_TRANSCRIBE_AUDIO_B64_BYTES,
   MAX_SYNTHESIZE_TEXT_BYTES,
@@ -134,6 +135,12 @@ describe('media + command param size caps (hostile-input rejection)', () => {
     expect(
       synthesizeParamsSchema.safeParse({ text: 'x'.repeat(MAX_SYNTHESIZE_TEXT_BYTES) }).success,
     ).toBe(true);
+  });
+
+  it('validates bounded synthesis cancellation ids', () => {
+    expect(cancelSynthesizeParamsSchema.safeParse({ requestId: 'speech-id-1' }).success).toBe(true);
+    expect(cancelSynthesizeParamsSchema.safeParse({ requestId: 'id with spaces' }).success).toBe(false);
+    expect(synthesizeParamsSchema.safeParse({ requestId: 'speech-id-1', text: 'sentence' }).success).toBe(true);
   });
 
   it('rejects an empty or over-long command name/channel', () => {

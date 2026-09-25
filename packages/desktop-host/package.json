@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@moxxy/core": "workspace:*",
+    "@moxxy/config": "workspace:*",
     "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
@@ -37,6 +38,7 @@
     "@moxxy/plugin-provider-local": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
+    "@moxxy/plugin-tts-gemini": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/runner": "workspace:*",

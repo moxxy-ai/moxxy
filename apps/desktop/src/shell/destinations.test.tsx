@@ -79,13 +79,14 @@ describe('ChannelsIndex', () => {
 describe('SettingsIndex', () => {
   it('groups the sections by what they are about', () => {
     render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
-    for (const group of ['agent', 'extend', 'trust', 'app']) {
+    for (const group of ['agent', 'extend', 'voice', 'trust', 'app']) {
       expect(screen.getByText(group)).toBeTruthy();
     }
     // A flat row gave "Vault" and "Skills" the same standing, when one is a
     // secret store and the other a capability.
     expect(screen.getByTestId('settings-tab-vault')).toBeTruthy();
     expect(screen.getByTestId('settings-tab-skills')).toBeTruthy();
+    expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
   });
 
   it('splits extensions from application settings in the product navigation', () => {
@@ -105,6 +106,7 @@ describe('SettingsIndex', () => {
     );
     expect(screen.getByText('trust')).toBeTruthy();
     expect(screen.getByText('app')).toBeTruthy();
+    expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
     expect(screen.queryByTestId('settings-tab-skills')).toBeNull();
   });
 

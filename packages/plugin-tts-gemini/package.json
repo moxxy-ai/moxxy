@@ -1,0 +1,48 @@
+{
+  "name": "@moxxy/plugin-tts-gemini",
+  "version": "0.41.1",
+  "description": "Google Gemini Flash-Lite text-to-speech extension for moxxy.",
+  "keywords": ["moxxy", "agent", "tts", "text-to-speech", "gemini", "google"],
+  "homepage": "https://moxxy.ai",
+  "bugs": { "url": "https://github.com/moxxy-ai/moxxy/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-tts-gemini"
+  },
+  "author": "Moxxy contributors",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "synthesizer"
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

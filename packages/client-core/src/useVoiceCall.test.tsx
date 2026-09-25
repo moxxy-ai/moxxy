@@ -982,7 +982,33 @@ describe('useVoiceCall integration', () => {
     }));
   });
 
-  it('refuses to start when Local Piper is not the active synthesizer', async () => {
+  it('allows Gemini TTS to start Voice Mode', async () => {
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') return true;
+      if (channel === 'session.info') return { activeSynthesizer: 'gemini-tts' };
+      if (channel === 'session.synthesize') {
+        return { audioBase64: 'AQIDBA==', mimeType: 'audio/wav' };
+      }
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-gemini-tts',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    expect(transport.invoke).not.toHaveBeenCalledWith('voice.isLocalPiperInstalled');
+  });
+
+  it('refuses to start when an unsupported synthesizer is active', async () => {
     const transport = createTransport();
     transport.invoke.mockImplementation(async (channel: string) => {
       if (channel === 'session.hasTranscriber') return true;

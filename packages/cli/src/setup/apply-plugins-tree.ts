@@ -7,7 +7,7 @@ type WarnLogger = { warn(msg: string, meta?: Record<string, unknown>): void };
 /** The minimal active-def surface the apply loop drives. */
 interface ActiveLike {
   has(name: string): boolean;
-  setActive(name: string): unknown;
+  setActive(name: string, config?: Record<string, unknown>): unknown;
   getActiveName(): string | null;
 }
 
@@ -154,7 +154,8 @@ export function applyPluginsTree(session: Session, config: MoxxyConfig, logger: 
 
     if (reg.has(name)) {
       try {
-        reg.setActive(name);
+        const options = config.plugins?.[key]?.items?.[name];
+        reg.setActive(name, options);
       } catch (err) {
         logger.warn(`failed to activate ${key} '${name}'; keeping the protected default`, {
           err: err instanceof Error ? err.message : String(err),

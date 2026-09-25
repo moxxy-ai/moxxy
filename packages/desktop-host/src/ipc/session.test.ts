@@ -524,7 +524,77 @@ describe('session.synthesize prosody', () => {
     expect(synthesize).toHaveBeenCalledWith('Świetnie!', {
       language: 'pl',
       rate: 1.06,
+      signal: expect.any(AbortSignal),
     });
+  });
+
+  it('aborts the matching in-flight synthesizer request', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let rejectSynthesis: ((reason?: unknown) => void) | undefined;
+    const synthesize = vi.fn((_text: string, options?: { signal?: AbortSignal }) => {
+      observedSignal = options?.signal;
+      return new Promise<never>((_resolve, reject) => { rejectSynthesis = reject; });
+    });
+    const remote = {
+      synthesizers: { tryGetActive: () => ({ name: 'gemini-tts', synthesize }) },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-cancel',
+      get: (id: string) => id === 'ws-cancel'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const synthesizeHandler = handlers.get('session.synthesize');
+    const cancelHandler = handlers.get('session.cancelSynthesis');
+    assertDefined(synthesizeHandler, 'session.synthesize handler');
+    assertDefined(cancelHandler, 'session.cancelSynthesis handler');
+    const request = synthesizeHandler({
+      workspaceId: 'ws-cancel', requestId: 'speech-abort-1', text: 'Przerwij.', voice: 'Fola',
+    });
+    await Promise.resolve();
+    expect(observedSignal).toBeDefined();
+    await cancelHandler({ workspaceId: 'ws-cancel', requestId: 'speech-abort-1' });
+    expect(observedSignal?.aborted).toBe(true);
+    rejectSynthesis?.(new Error('aborted'));
+    await expect(request).rejects.toThrow('aborted');
+  });
+
+  it('rejects a duplicate active speech request id without replacing its cancellation target', async () => {
+    let observedSignal: AbortSignal | undefined;
+    const synthesize = vi.fn((_text: string, options?: { signal?: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        observedSignal = options?.signal;
+        options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      }),
+    );
+    const remote = {
+      synthesizers: { tryGetActive: () => ({ name: 'gemini-tts', synthesize }) },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-duplicate',
+      get: (id: string) => id === 'ws-duplicate'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+    const synthesizeHandler = handlers.get('session.synthesize');
+    const cancelHandler = handlers.get('session.cancelSynthesis');
+    assertDefined(synthesizeHandler, 'session.synthesize handler');
+    assertDefined(cancelHandler, 'session.cancelSynthesis handler');
+    const args = { workspaceId: 'ws-duplicate', requestId: 'speech-duplicate', text: 'Sentence.' };
+
+    const first = synthesizeHandler(args);
+    await expect(synthesizeHandler(args)).rejects.toThrow(/already active/u);
+    await cancelHandler({ workspaceId: 'ws-duplicate', requestId: 'speech-duplicate' });
+
+    expect(observedSignal?.aborted).toBe(true);
+    await expect(first).rejects.toThrow('aborted');
   });
 });
 

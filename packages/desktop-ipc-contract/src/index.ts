@@ -89,6 +89,7 @@ export type {
   ProviderEntry,
   McpServerEntry,
   VaultEntryName,
+  GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';

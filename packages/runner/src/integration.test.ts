@@ -23,6 +23,7 @@ import {
   definePlugin,
   defineProvider,
   defineSurface,
+  defineSynthesizer,
   defineTool,
   defineTranscriber,
   z,
@@ -815,6 +816,49 @@ describe('runner end-to-end', () => {
       mimeType: 'audio/ogg',
     });
     expect(result.text).toBe('transcribed on the runner');
+  });
+
+  it('propagates speech cancellation from a client to the runner synthesizer', async () => {
+    const socketPath = tmpSocket();
+    let runnerSignal: AbortSignal | undefined;
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'runner-test-tts',
+      synthesizers: [defineSynthesizer({
+        name: 'blocking-tts',
+        create: () => ({
+          name: 'blocking-tts',
+          synthesize: async (_text, options) => {
+            runnerSignal = options?.signal;
+            return new Promise((resolve) => {
+              options?.signal?.addEventListener('abort', () => resolve({
+                audio: new Uint8Array([1, 2, 3]), mimeType: 'audio/wav',
+              }), { once: true });
+              setTimeout(() => resolve({ audio: new Uint8Array([4]), mimeType: 'audio/wav' }), 100);
+            });
+          },
+        }),
+      })],
+    }));
+    session.synthesizers.setActive('blocking-tts');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const synthesizer = remote.synthesizers.tryGetActive();
+    expect(synthesizer).not.toBeNull();
+    if (!synthesizer) throw new Error('blocking synthesizer was not registered');
+    const controller = new AbortController();
+    const result = synthesizer.synthesize('Krótka kwestia.', { signal: controller.signal })
+      .then(() => null, (error: unknown) => error);
+    const deadline = Date.now() + 1_000;
+    while (!runnerSignal && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runnerSignal).toBeDefined();
+    controller.abort(new Error('interrupted'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runnerSignal?.aborted).toBe(true);
+    const settled = await result;
+    expect(settled).toBeInstanceOf(Error);
   });
 
   it('session.reset clears the runner, every mirror, and the persisted JSONL', async () => {

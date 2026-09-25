@@ -176,6 +176,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // accepted, preventing package-spec / CLI-argument injection.
   'voice.isLocalPiperInstalled': z.undefined(),
   'voice.installLocalPiper': z.undefined(),
+  'voice.listGeminiVoices': z.undefined(),
+  'voice.useGeminiTts': z.object({
+    voiceId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  }).strict(),
+  'voice.useLocalPiper': z.undefined(),
+  'voice.getSettings': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
@@ -218,11 +224,17 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.synthesize': z
     .object({
       workspaceId: optionalWorkspace,
+      requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/).optional(),
       text: z.string().max(MAX_SYNTHESIZE_TEXT),
       language: speechLanguage.optional(),
       rate: speechRate.optional(),
+      voice: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
     })
     .strict(),
+  'session.cancelSynthesis': z.object({
+    workspaceId: optionalWorkspace,
+    requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/),
+  }).strict(),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
   // bridge — they carry free-form ids/workspaceId, so bound them like the
   // sibling validated commands so a hostile remote can't OOM/log-bloat the host

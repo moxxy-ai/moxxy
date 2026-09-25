@@ -114,6 +114,23 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('validates speech cancellation IDs and selected Gemini voice IDs', () => {
+    expect(() => validateIpcInput('session.cancelSynthesis', {
+      workspaceId: 'workspace-1',
+      requestId: 'request-123',
+    })).not.toThrow();
+    expect(() => validateIpcInput('session.cancelSynthesis', {
+      requestId: '../cancel-all',
+    })).toThrow();
+    expect(() => validateIpcInput('voice.useGeminiTts', { voiceId: 'voice_abc123' })).not.toThrow();
+    expect(() => validateIpcInput('voice.useGeminiTts', { voiceId: '../bad' })).toThrow();
+    expect(() => validateIpcInput('session.synthesize', {
+      text: 'Hello.',
+      requestId: 'request-123',
+      voice: 'Fola',
+    })).not.toThrow();
+  });
+
   it('whitelists prefs.update fields (rejects unknown keys)', () => {
     expect(() => validateIpcInput('prefs.update', { onboardingComplete: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { version: 99 })).toThrow();

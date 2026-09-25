@@ -76,6 +76,8 @@ export interface UseVoiceCall {
 }
 
 const LOCAL_PIPER = 'local-piper';
+const GEMINI_TTS = 'gemini-tts';
+const VOICE_MODE_SYNTHESIZERS = new Set([LOCAL_PIPER, GEMINI_TTS]);
 const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
 const POST_INSTALL_RELOAD_POLL_MS = 500;
 const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
@@ -106,6 +108,10 @@ async function readVoicePreflightStatus(workspaceId: string): Promise<VoicePrefl
     hasTranscriber,
     activeSynthesizer: info ? info.activeSynthesizer : null,
   };
+}
+
+function supportsVoiceMode(synthesizer: string | null): boolean {
+  return synthesizer !== null && VOICE_MODE_SYNTHESIZERS.has(synthesizer);
 }
 
 function waitForPreflightRetry(delayMs: number): Promise<void> {
@@ -315,7 +321,7 @@ export function useVoiceCall({
           lastReadError = null;
           if (
             !retryRunnerRestart
-            || (status.hasTranscriber && status.activeSynthesizer === LOCAL_PIPER)
+            || (status.hasTranscriber && supportsVoiceMode(status.activeSynthesizer))
           ) break;
         } catch (error) {
           lastReadError = error;
@@ -337,7 +343,7 @@ export function useVoiceCall({
         dispatch({ type: 'failed', reason: 'Voice transcription is unavailable.' });
         return;
       }
-      if (status.activeSynthesizer !== LOCAL_PIPER) {
+      if (!supportsVoiceMode(status.activeSynthesizer)) {
         const installed = await api().invoke('voice.isLocalPiperInstalled');
         if (generation !== generationRef.current) return;
         setLocalPiperInstallRequired(!installed);
@@ -345,8 +351,8 @@ export function useVoiceCall({
         dispatch({
           type: 'failed',
           reason: installed
-            ? 'Local Piper is not active. Select local-piper as the synthesizer and try again.'
-            : 'Local Piper is not installed.',
+            ? 'Voice Mode needs Gemini TTS or Local Piper. Select one as the synthesizer and try again.'
+            : 'Voice Mode needs an active synthesizer. Install Local Piper or select Gemini TTS.',
         });
         return;
       }

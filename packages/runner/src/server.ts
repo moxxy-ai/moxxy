@@ -40,6 +40,8 @@ import {
   handleProviderConfigure,
   handleTranscribe,
   handleSynthesize,
+  handleCancelSynthesize,
+  abortActiveSyntheses,
   handleMcpListServers,
   handleMcpEnableAndAttach,
   handleMcpDetach,
@@ -191,6 +193,7 @@ export class RunnerServer {
     this.logClearUnsub();
     this.modesUnsub();
     this.surfacesUnsub();
+    abortActiveSyntheses();
     void this.session.surfaces.closeAll();
     for (const client of this.clients) client.peer.close();
     this.clients.clear();
@@ -233,6 +236,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));
     peer.handle(RunnerMethod.Transcribe, (raw) => handleTranscribe(ctx, raw));
     peer.handle(RunnerMethod.Synthesize, (raw) => handleSynthesize(ctx, raw));
+    peer.handle(RunnerMethod.CancelSynthesize, (raw) => handleCancelSynthesize(raw));
     peer.handle(RunnerMethod.McpListServers, () => handleMcpListServers(ctx));
     peer.handle(RunnerMethod.McpEnableAndAttach, (raw) => handleMcpEnableAndAttach(ctx, raw));
     peer.handle(RunnerMethod.McpDetach, (raw) => handleMcpDetach(ctx, raw));
