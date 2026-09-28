@@ -43,6 +43,15 @@ describe('EventBlockView — ambient trigger marker', () => {
     expect(screen.getByText(/PAYLOAD-BODY-12345/)).toBeTruthy();
   });
 
+  it('folds voice conversation held during a task into one collapsed block', () => {
+    render(<EventBlockView event={userPrompt({ origin: { kind: 'voice', name: '3 exchanges while the agent worked' } })} />);
+    expect(screen.getByTestId('block-trigger')).toBeTruthy();
+    expect(screen.queryByTestId('block-user')).toBeNull();
+    expect(screen.getByText(/Voice conversation/)).toBeTruthy();
+    expect(screen.getByText(/3 exchanges while the agent worked/)).toBeTruthy();
+    expect(screen.queryByText(/PAYLOAD-BODY-12345/)).toBeNull();
+  });
+
   it('renders an ordinary user bubble when there is no origin', () => {
     render(<EventBlockView event={userPrompt({})} />);
     expect(screen.getByTestId('block-user')).toBeTruthy();

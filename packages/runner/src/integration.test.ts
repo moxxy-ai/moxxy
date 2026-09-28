@@ -1704,6 +1704,11 @@ describe('session.recordExchange (protocol v16)', () => {
       userText: 'Dobra, masz chwilę?',
       assistantText: 'Jeszcze sprawdzam.',
     });
+    const second = await remote.recordExchange({
+      userText: 'Jak idzie praca?',
+      assistantText: 'Agent wciąż sprawdza skrzynkę.',
+    });
+    expect(second.turnId).toBe(turnId);
     expect(session.log.byTurn(asTurnId(turnId))).toEqual([]);
 
     release();
@@ -1712,7 +1717,15 @@ describe('session.recordExchange (protocol v16)', () => {
     expect(seenByRunningTurn).toEqual(['Sprawdź skrzynkę.']);
     const events = session.log.slice();
     const voice = events.filter((event) => event.turnId === turnId);
-    expect(voice.map((event) => event.type)).toEqual(['user_prompt', 'assistant_message']);
+    expect(voice).toHaveLength(1);
+    expect(voice[0]).toMatchObject({
+      type: 'user_prompt',
+      origin: { kind: 'voice', name: '2 exchanges while the agent worked' },
+    });
+    const text = voice[0]?.type === 'user_prompt' ? voice[0].text : '';
+    expect(text).toMatch(/not a request/i);
+    expect(text).toContain('User: Dobra, masz chwilę?\nMoxxy Voice: Jeszcze sprawdzam.');
+    expect(text).toContain('User: Jak idzie praca?\nMoxxy Voice: Agent wciąż sprawdza skrzynkę.');
     const lastOfRunningTurn = Math.max(
       ...events.filter((event) => event.turnId !== turnId).map((event) => event.seq),
     );

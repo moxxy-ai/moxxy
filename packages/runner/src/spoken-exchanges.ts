@@ -7,17 +7,23 @@ export interface SpokenExchange {
   readonly assistantText?: string;
 }
 
+interface HeldConversation {
+  readonly turnId: TurnId;
+  readonly exchanges: SpokenExchange[];
+}
+
 /**
  * Voice conversation recorded into the chat (`session.recordExchange`).
  *
  * The agent re-reads the whole log before every model call, so an exchange
  * appended while a turn runs would land inside that turn's context, between
- * its tool steps. Exchanges spoken during a turn are held and appended, in
- * order, once no turn is running — the same rule typed messages follow in the
- * chat queue.
+ * its tool steps. Exchanges spoken during a turn are held and, once no turn
+ * runs, appended as ONE transcript prompt (`origin.kind: 'voice'`) — context
+ * for later turns, not a request, rendered as a single collapsed block.
+ * Conversation while the agent is idle is recorded as ordinary turns.
  */
 export class SpokenExchanges {
-  private readonly held: Array<{ readonly turnId: TurnId; readonly exchange: SpokenExchange }> = [];
+  private held: HeldConversation | null = null;
 
   constructor(
     private readonly session: Session,
@@ -25,26 +31,34 @@ export class SpokenExchanges {
   ) {}
 
   async record(exchange: SpokenExchange): Promise<TurnId> {
-    const turnId = newTurnId();
-    if (this.turnRunning() || this.held.length > 0) {
-      this.held.push({ turnId, exchange });
-      await this.flush();
-      return turnId;
+    if (this.turnRunning()) {
+      this.held ??= { turnId: newTurnId(), exchanges: [] };
+      this.held.exchanges.push(exchange);
+      return this.held.turnId;
     }
-    await this.append(turnId, exchange);
+    await this.flush();
+    const turnId = newTurnId();
+    await this.appendExchange(turnId, exchange);
     return turnId;
   }
 
-  /** Append what was held; call once a turn has finished. */
+  /** Append the conversation held during the turn that just finished. */
   async flush(): Promise<void> {
-    while (!this.turnRunning()) {
-      const next = this.held.shift();
-      if (!next) return;
-      await this.append(next.turnId, next.exchange);
-    }
+    const held = this.held;
+    if (!held || this.turnRunning()) return;
+    this.held = null;
+    const count = held.exchanges.length;
+    await this.session.log.append({
+      sessionId: this.session.id,
+      turnId: held.turnId,
+      type: 'user_prompt',
+      source: 'user',
+      text: voiceTranscript(held.exchanges),
+      origin: { kind: 'voice', name: `${count} ${count === 1 ? 'exchange' : 'exchanges'} while the agent worked` },
+    });
   }
 
-  private async append(turnId: TurnId, { userText, assistantText }: SpokenExchange): Promise<void> {
+  private async appendExchange(turnId: TurnId, { userText, assistantText }: SpokenExchange): Promise<void> {
     const base = { sessionId: this.session.id, turnId } as const;
     if (userText?.trim()) {
       await this.session.log.append({ ...base, type: 'user_prompt', source: 'user', text: userText });
@@ -59,4 +73,16 @@ export class SpokenExchanges {
       });
     }
   }
+}
+
+function voiceTranscript(exchanges: ReadonlyArray<SpokenExchange>): string {
+  const lines = exchanges.map(({ userText, assistantText }) =>
+    [
+      userText?.trim() ? `User: ${userText.trim()}` : null,
+      assistantText?.trim() ? `Moxxy Voice: ${assistantText.trim()}` : null,
+    ].filter((line) => line !== null).join('\n'));
+  return [
+    'Voice conversation with Moxxy Voice while the agent was working (a record for context, not a request):',
+    ...lines,
+  ].join('\n\n');
 }

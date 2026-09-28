@@ -23,8 +23,10 @@ involved. Calls draw on your ChatGPT voice allowance.
   into the chat as ordinary turns (visible, persisted, and context for later
   agent turns). Speech it never answered is recorded when the call closes.
   Conversation spoken while the agent is working is held by the runner and
-  appears in the chat after that turn ends, so it never lands in the middle of
-  the agent's task (the agent re-reads the whole log before every model call).
+  appears after that turn ends as **one collapsed "Voice conversation" block**
+  (expand it to read the transcript), so it never lands in the middle of the
+  agent's task (the agent re-reads the whole log before every model call).
+  Later agent turns see it as context, not as a request.
 - **Hands explicit tasks to the agent — in your words.** When you explicitly
   ask Moxxy to do, run, create, change, check or find something, GPT-Live
   delegates. Moxxy does not use GPT-Live's paraphrase: it takes the final
@@ -82,9 +84,11 @@ GptLiveCallClient (packages/plugin-provider-openai-codex/src/live/)
   (mobile / WS bridge) allow-list.
 - The runner method `session.recordExchange` (protocol **v16**) appends
   `user_prompt` + `assistant_message` under one new turn id without running a
-  model or tools. While a turn is running the exchange is held
-  (`packages/runner/src/spoken-exchanges.ts`) and appended, in order, once no
-  turn runs — before that turn's `turn.complete`. Older runners reject it with an "update the CLI" error, and
+  model or tools. While a turn is running exchanges are held
+  (`packages/runner/src/spoken-exchanges.ts`) and appended once no turn runs —
+  before that turn's `turn.complete` — as one `user_prompt` transcript with
+  `origin: { kind: 'voice' }`, which the desktop and TUI render as a collapsed
+  marker (like webhook / schedule prompts). Older runners reject it with an "update the CLI" error, and
   Voice Mode stops rather than silently losing the conversation.
 - Delegated tasks go through the normal chat send path (`chat.send`), so they
   queue, stream, ask for permissions and persist like any typed prompt. The

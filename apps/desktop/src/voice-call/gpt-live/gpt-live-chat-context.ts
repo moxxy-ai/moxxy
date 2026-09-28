@@ -14,7 +14,10 @@ export function chatEventToGptLiveContext(
   ownTurnIds: ReadonlySet<string>,
 ): string | null {
   if (ownTurnIds.has(event.turnId)) return null;
-  if (event.type === 'user_prompt' && event.origin?.kind !== 'checkpoint') {
+  // Checkpoint feedback is mid-turn plumbing; a voice transcript is talk
+  // GPT-Live already had.
+  const origin = event.type === 'user_prompt' ? event.origin?.kind : undefined;
+  if (event.type === 'user_prompt' && origin !== 'checkpoint' && origin !== 'voice') {
     return summarize('The user wrote in the Moxxy chat: ', event.text);
   }
   if (event.type === 'assistant_message') {

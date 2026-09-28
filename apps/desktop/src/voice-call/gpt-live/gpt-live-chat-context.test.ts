@@ -37,6 +37,18 @@ describe('chatEventToGptLiveContext', () => {
     )).toBe('The Moxxy agent replied in the chat: Testy przeszły.');
   });
 
+  it('does not echo the voice conversation it already had back to GPT-Live', () => {
+    expect(chatEventToGptLiveContext(
+      event('voice', {
+        type: 'user_prompt',
+        source: 'user',
+        text: 'User: Jak idzie praca?\nMoxxy Voice: Agent wciąż sprawdza.',
+        origin: { kind: 'voice', name: '1 exchange while the agent worked' },
+      }),
+      new Set(),
+    )).toBeNull();
+  });
+
   it('skips the voice exchanges this call recorded itself', () => {
     expect(chatEventToGptLiveContext(
       event('voice-turn', { type: 'user_prompt', source: 'user', text: 'Halo?' }),

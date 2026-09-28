@@ -18,6 +18,8 @@ const KIND_META: Record<TriggerOrigin['kind'], { readonly icon: IconName; readon
   // Mid-turn feedback injected by the ReAct loop's turn-end checkpoint gate
   // (lint report, reviewer verdict) — chip label reads "Checkpoint intervened".
   checkpoint: { icon: 'check', verb: 'intervened' },
+  // Voice conversation held while the agent worked — "Voice conversation".
+  voice: { icon: 'mic', verb: 'conversation' },
 };
 
 function titleCase(s: string): string {
