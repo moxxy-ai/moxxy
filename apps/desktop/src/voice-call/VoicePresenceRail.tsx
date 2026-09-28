@@ -51,8 +51,6 @@ export function VoicePresenceRail({
   onUnmuteMicrophone,
   onToggleWaitingSound,
   onClose,
-  pendingTask = null,
-  onCancelPendingTask,
 }: {
   readonly phase: VoiceCallPhase;
   readonly status: VoiceModeStatus;
@@ -71,9 +69,6 @@ export function VoicePresenceRail({
   readonly onUnmuteMicrophone: () => void;
   readonly onToggleWaitingSound: () => void;
   readonly onClose: () => void;
-  /** A voice task waiting for the agent to be free (GPT-Live engine). */
-  readonly pendingTask?: string | null;
-  readonly onCancelPendingTask?: () => void;
 }): JSX.Element {
   const pulseRef = useVoicePulse({ phase, inputAnalyser, outputAnalyser });
   const [showInstallDetails, setShowInstallDetails] = useState(false);
@@ -179,19 +174,6 @@ export function VoicePresenceRail({
               <Icon name="spark" size={15} />
             </span>
             <span className="voice-rail-operation-label">No tools running</span>
-          </span>
-        )}
-        {pendingTask && (
-          <span className="voice-rail-pending" data-testid="voice-rail-pending">
-            <span className="voice-rail-pending-label" title={pendingTask}>Next: {pendingTask}</span>
-            <button
-              type="button"
-              className="voice-rail-action"
-              aria-label="Cancel the waiting voice task"
-              onClick={onCancelPendingTask}
-            >
-              Cancel
-            </button>
           </span>
         )}
       </div>

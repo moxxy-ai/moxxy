@@ -154,43 +154,17 @@ describe('GptLiveDelegations progress', () => {
   });
 });
 
-describe('GptLiveDelegations waiting slot', () => {
-  it('holds one task while the agent is busy and hands it over when asked', () => {
+describe('GptLiveDelegations while the agent is busy', () => {
+  it('refuses a new task with an honest result and does not keep it for later', () => {
     const delegations = new GptLiveDelegations();
+    agentWorking(delegations);
 
-    expect(delegations.hold('item_2', 'Zrób deploy.')).toEqual({
-      held: true,
-      notice: expect.stringMatching(/waiting.*start automatically.*has not started/i),
-    });
-    expect(delegations.heldPrompt).toBe('Zrób deploy.');
-    expect(delegations.takeHeld()).toEqual({ itemId: 'item_2', prompt: 'Zrób deploy.' });
-    expect(delegations.heldPrompt).toBeNull();
-    expect(delegations.takeHeld()).toBeNull();
-  });
+    const refused = delegations.refuseWhileBusy('item_2');
 
-  it('refuses a second waiting task and names the one already waiting', () => {
-    const delegations = new GptLiveDelegations();
-    delegations.hold('item_2', 'Zrób deploy.');
-
-    const refused = delegations.hold('item_3', 'Wyślij raport.');
-
-    expect(refused.held).toBe(false);
-    expect(refused.notice).toMatch(/Zrób deploy\./);
-    expect(refused.notice).toMatch(/not started/i);
-    expect(delegations.heldPrompt).toBe('Zrób deploy.');
-  });
-
-  it('cancels the waiting task with an honest result for GPT-Live', () => {
-    const delegations = new GptLiveDelegations();
-    delegations.hold('item_2', 'Zrób deploy.');
-
-    expect(delegations.cancelHeld('the user cancelled it')).toEqual({
-      prompt: 'Zrób deploy.',
-      result: {
-        itemId: 'item_2',
-        text: 'The waiting task was not run: the user cancelled it.',
-      },
-    });
-    expect(delegations.cancelHeld('again')).toBeNull();
+    expect(refused.itemId).toBe('item_2');
+    expect(refused.text).toMatch(/not started/i);
+    expect(refused.text).toMatch(/must finish/i);
+    expect(refused.text).toMatch(/answer it yourself/i);
+    expect(delegations.inFlight).toBe(1);
   });
 });

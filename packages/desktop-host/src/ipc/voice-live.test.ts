@@ -178,7 +178,8 @@ describe('GPT-Live voice handlers', () => {
     expect(instructions).toMatch(/never say or imply the work is done/i);
     expect(instructions).toMatch(/until the delegation result arrives/i);
     expect(instructions).toMatch(/progress.*answer.*yourself.*never delegate/i);
-    expect(instructions).toMatch(/waiting.*has not started/i);
+    expect(instructions).toMatch(/one task at a time.*must finish/i);
+    expect(instructions).not.toMatch(/queued/i);
   });
 
   it('records a spoken exchange into the workspace session as one ordinary turn', async () => {

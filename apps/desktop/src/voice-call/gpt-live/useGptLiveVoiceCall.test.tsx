@@ -314,7 +314,7 @@ describe('useGptLiveVoiceCall', () => {
     }));
   });
 
-  it('holds a task asked for while the agent is busy and starts it once the agent is free', async () => {
+  it('refuses a new task while the agent is still working on one, and never runs it later', async () => {
     const { ipc, transport, hook, chat } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
     delegate(transport, 'turn_u1', 'run tests', 'item_1');
@@ -324,21 +324,22 @@ describe('useGptLiveVoiceCall', () => {
     act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u2')));
 
     expect(chat.send).toHaveBeenCalledTimes(1);
-    expect(hook.result.current.pendingTask).toBe('Zrób deploy.');
-    expect(delegationTexts(transport, 'commentary', 'item_2')).toEqual([
-      expect.stringMatching(/waiting.*has not started/i),
-    ]);
+    expect(speakableResults(transport, 'item_2')).toEqual([expect.stringMatching(/Not started.*must finish/i)]);
+    expect(delegationTexts(transport, 'commentary')).toEqual([]);
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
+      workspaceId: 'workspace-1',
+      userText: 'Zrób deploy.',
+      assistantText: 'Not started: the Moxxy agent was still working on another task.',
+    }));
 
     finishAgentTurn(ipc, 'agent_1', 'Uruchom testy.', 'Testy przeszły.');
 
     expect(speakableResults(transport, 'item_1')).toEqual(['The Moxxy agent finished. Its reply: Testy przeszły.']);
-    await waitFor(() => expect(chat.send).toHaveBeenLastCalledWith('Zrób deploy.'));
-    expect(hook.result.current.pendingTask).toBeNull();
-    finishAgentTurn(ipc, 'agent_2', 'Zrób deploy.', 'Deploy gotowy.');
-    expect(speakableResults(transport, 'item_2')).toEqual(['The Moxxy agent finished. Its reply: Deploy gotowy.']);
+    expect(chat.send).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.phase).toBe('listening');
   });
 
-  it('waits for a typed turn that is already running before starting a voice task', async () => {
+  it('refuses a voice task while a typed turn is running', async () => {
     const { transport, hook, chat } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
     const busyChat = { ...chat, sending: true, activeTurnId: 'typed_turn' };
@@ -346,57 +347,51 @@ describe('useGptLiveVoiceCall', () => {
 
     delegate(transport, 'turn_u1', 'run tests');
     act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
-    expect(chat.send).not.toHaveBeenCalled();
-    expect(hook.result.current.pendingTask).toBe('Uruchom testy.');
-
     hook.rerender({ inputRequired: false, chat: { ...busyChat, sending: false, activeTurnId: null } });
 
-    await waitFor(() => expect(chat.send).toHaveBeenCalledWith('Uruchom testy.'));
+    expect(chat.send).not.toHaveBeenCalled();
+    expect(speakableResults(transport, 'item_1')).toEqual([expect.stringMatching(/Not started/i)]);
   });
 
-  it('refuses a second waiting task and keeps the request in the chat', async () => {
+  it('never talks over GPT-Live: context waits until it has finished speaking', async () => {
     const { ipc, transport, hook } = await openCall();
     await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'a', 'item_1');
+    delegate(transport, 'turn_u1', 'run tests');
     act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
-    delegate(transport, 'turn_u2', 'b', 'item_2');
-    act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u2')));
+    act(() => transport.receive({ type: 'turn.created', turn: { id: 't_ack', role: 'assistant', transcript: '' } }));
 
-    delegate(transport, 'turn_u3', 'c', 'item_3');
-    act(() => transport.receive(turnDone('user', 'Wyślij raport.', 'turn_u3')));
+    act(() => {
+      ipc.emit('runner.event', {
+        workspaceId: 'workspace-1',
+        event: runnerEvent('agent_1', { type: 'user_prompt', source: 'user', text: 'Uruchom testy.' }),
+      });
+      ipc.emit('runner.event', {
+        workspaceId: 'workspace-1',
+        event: runnerEvent('agent_1', {
+          type: 'tool_call_requested',
+          source: 'model',
+          callId: 'call_1',
+          name: 'bash',
+          input: { command: 'pnpm test' },
+        }),
+      });
+      ipc.emit('runner.event', {
+        workspaceId: 'workspace-1',
+        event: runnerEvent('typed', { type: 'user_prompt', source: 'user', text: 'Dopisz też changelog.' }),
+      });
+    });
+    finishAgentTurn(ipc, 'agent_1', 'Uruchom testy.', 'Testy przeszły.');
 
-    expect(speakableResults(transport, 'item_3')).toEqual([
-      expect.stringMatching(/Not started.*Zrób deploy\./),
+    expect(transport.sent).toEqual([]);
+
+    act(() => transport.receive(turnDone('assistant', 'Jasne, przekazuję.', 't_ack')));
+
+    expect(transport.sent.map((message) => (message as { channel?: string }).channel)).toEqual([
+      'developer',
+      'developer',
+      'speakable',
     ]);
-    expect(hook.result.current.pendingTask).toBe('Zrób deploy.');
-    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
-      workspaceId: 'workspace-1',
-      userText: 'Wyślij raport.',
-      assistantText: 'Not started: another voice task was already waiting.',
-    }));
-  });
-
-  it('cancels the waiting task', async () => {
-    const { ipc, transport, hook, chat } = await openCall();
-    await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'a', 'item_1');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
-    delegate(transport, 'turn_u2', 'b', 'item_2');
-    act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u2')));
-
-    act(() => hook.result.current.cancelPendingTask());
-
-    expect(hook.result.current.pendingTask).toBeNull();
-    expect(speakableResults(transport, 'item_2')).toEqual([
-      'The waiting task was not run: the user cancelled it.',
-    ]);
-    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
-      workspaceId: 'workspace-1',
-      userText: 'Zrób deploy.',
-      assistantText: 'Cancelled before it started.',
-    }));
-    finishAgentTurn(ipc, 'agent_1', 'Uruchom testy.', 'OK.');
-    expect(chat.send).toHaveBeenCalledTimes(1);
+    expect(speakableResults(transport, 'item_1')).toEqual(['The Moxxy agent finished. Its reply: Testy przeszły.']);
   });
 
   it('keeps GPT-Live and the rail informed about what the agent is doing', async () => {
@@ -428,25 +423,6 @@ describe('useGptLiveVoiceCall', () => {
       content: [{ type: 'input_text', text: 'Progress of the running Moxxy task: the agent is running checks or tests.' }],
     });
     expect(hook.result.current.activeOperations.map((operation) => operation.kind)).toEqual(['verification']);
-  });
-
-  it('does not start a waiting task once the call has ended', async () => {
-    const { ipc, transport, hook, chat } = await openCall();
-    await waitFor(() => expect(hook.result.current.phase).toBe('listening'));
-    delegate(transport, 'turn_u1', 'a', 'item_1');
-    act(() => transport.receive(turnDone('user', 'Uruchom testy.', 'turn_u1')));
-    delegate(transport, 'turn_u2', 'b', 'item_2');
-    act(() => transport.receive(turnDone('user', 'Zrób deploy.', 'turn_u2')));
-
-    act(() => hook.result.current.close());
-    finishAgentTurn(ipc, 'agent_1', 'Uruchom testy.', 'OK.');
-
-    expect(chat.send).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('session.recordVoiceExchange', {
-      workspaceId: 'workspace-1',
-      userText: 'Zrób deploy.',
-      assistantText: 'Not started: the voice call ended first.',
-    }));
   });
 
   it('mutes the microphone and pauses', async () => {

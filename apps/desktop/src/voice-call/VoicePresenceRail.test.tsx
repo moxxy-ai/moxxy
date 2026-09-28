@@ -49,21 +49,6 @@ describe('VoicePresenceRail', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the voice task waiting for the agent and lets it be cancelled', () => {
-    const onCancelPendingTask = vi.fn();
-    renderRail({ phase: 'working', pendingTask: 'Zrób deploy.', onCancelPendingTask });
-
-    expect(screen.getByTestId('voice-rail-pending')).toHaveTextContent('Next: Zrób deploy.');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel the waiting voice task' }));
-    expect(onCancelPendingTask).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows no waiting task by default', () => {
-    renderRail();
-
-    expect(screen.queryByTestId('voice-rail-pending')).toBeNull();
-  });
-
   it('offers to unmute once the microphone is off, and says so', () => {
     const { onUnmuteMicrophone } = renderRail({ microphoneMuted: true });
 

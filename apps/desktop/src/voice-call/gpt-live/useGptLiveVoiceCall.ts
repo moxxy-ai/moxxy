@@ -19,9 +19,9 @@ import {
   type GptLiveExchange,
   type GptLiveExchangeState,
 } from './gpt-live-exchange';
+import { GptLiveOutbox } from './gpt-live-outbox';
 import {
   GPT_LIVE_SESSION_CLOSE,
-  buildGptLiveDelegationNotice,
   buildGptLiveDelegationResult,
   buildGptLiveDeveloperContext,
   parseGptLiveEvent,
@@ -43,19 +43,12 @@ export interface UseGptLiveVoiceCallOptions {
   readonly transport?: GptLiveTransport;
 }
 
-export interface UseGptLiveVoiceCall extends UseVoiceCall {
-  /** The one voice task waiting for the agent to be free, if any. */
-  readonly pendingTask: string | null;
-  readonly cancelPendingTask: () => void;
-}
-
 interface TaskState {
   readonly inFlight: number;
-  readonly held: string | null;
   readonly operations: ReadonlyArray<VoiceActiveOperation>;
 }
 
-const NO_TASKS: TaskState = Object.freeze({ inFlight: 0, held: null, operations: [] });
+const NO_TASKS: TaskState = Object.freeze({ inFlight: 0, operations: [] });
 
 interface CallState {
   readonly active: boolean;
@@ -89,9 +82,10 @@ function restingPhase(muted: boolean, tasks: number, inputRequired: boolean): Vo
  * turn's real final reply is handed back for GPT-Live to read out. Talk it
  * answers itself is recorded into the chat as it happens.
  *
- * Voice never feeds the chat queue: a task asked for while the agent is busy
- * waits in one visible slot and starts when the agent is free; only typed
- * messages queue.
+ * Voice never feeds the chat queue: one task runs at a time, and a task asked
+ * for while the agent is busy is refused so the agent finishes what it is
+ * doing. Only typed messages queue. Nothing is sent to GPT-Live while it
+ * speaks — an append would cut its answer off.
  */
 export function useGptLiveVoiceCall({
   workspaceId,
@@ -99,7 +93,7 @@ export function useGptLiveVoiceCall({
   chat,
   inputRequired,
   transport: transportOverride,
-}: UseGptLiveVoiceCallOptions): UseGptLiveVoiceCall {
+}: UseGptLiveVoiceCallOptions): UseVoiceCall {
   const transport = useMemo(
     () => transportOverride ?? new BrowserGptLiveTransport(),
     [transportOverride],
@@ -116,6 +110,7 @@ export function useGptLiveVoiceCall({
   const exchangeRef = useRef<GptLiveExchangeState>(EMPTY_GPT_LIVE_EXCHANGE);
   const mirrorRef = useRef(new GptLiveChatMirror());
   const delegationsRef = useRef(new GptLiveDelegations());
+  const outboxRef = useRef(new GptLiveOutbox());
   const mutedRef = useRef(false);
   const failRef = useRef<(message: string) => void>(NOOP);
   const chatRef = useRef(chat);
@@ -126,23 +121,24 @@ export function useGptLiveVoiceCall({
   chatBusyRef.current = chatBusy;
 
   const rest = useCallback((): VoiceCallPhase => {
-    const delegations = delegationsRef.current;
-    const tasksOpen = delegations.inFlight + (delegations.heldPrompt === null ? 0 : 1);
-    return restingPhase(mutedRef.current, tasksOpen, inputRequiredRef.current);
+    return restingPhase(mutedRef.current, delegationsRef.current.inFlight, inputRequiredRef.current);
   }, []);
 
   const syncTasks = useCallback((): void => {
     const delegations = delegationsRef.current;
     setTasks({
       inFlight: delegations.inFlight,
-      held: delegations.heldPrompt,
       operations: delegations.activeOperations,
     });
   }, []);
 
-  const send = useCallback((messages: ReadonlyArray<unknown>): void => {
+  const transmit = useCallback((messages: ReadonlyArray<unknown>): void => {
     for (const message of messages) connectionRef.current?.send(message);
   }, []);
+
+  const send = useCallback((messages: ReadonlyArray<unknown>): void => {
+    transmit(outboxRef.current.offer(messages));
+  }, [transmit]);
 
   /** A conversation the chat cannot keep must stop the call, not vanish. The
    *  final flush on close has no call left to stop, so it is best-effort. */
@@ -181,23 +177,16 @@ export function useGptLiveVoiceCall({
     });
   }, [deliver, rest, syncTasks]);
 
-  /** Start now if the agent is free; otherwise take the single waiting slot. */
+  /** One task at a time: the agent finishes what it is doing before another starts. */
   const requestTask = useCallback((itemId: string, prompt: string): void => {
     const delegations = delegationsRef.current;
     if (delegations.inFlight === 0 && !chatBusyRef.current) {
       dispatch(itemId, prompt);
       return;
     }
-    const outcome = delegations.hold(itemId, prompt);
-    if (outcome.held) {
-      send(buildGptLiveDelegationNotice(itemId, outcome.notice));
-      syncTasks();
-      setState((current) => ({ ...current, phase: rest() }));
-      return;
-    }
-    deliver({ itemId, text: outcome.notice });
-    record({ userText: prompt, assistantText: 'Not started: another voice task was already waiting.' }, true);
-  }, [deliver, dispatch, record, rest, send, syncTasks]);
+    deliver(delegations.refuseWhileBusy(itemId));
+    record({ userText: prompt, assistantText: 'Not started: the Moxxy agent was still working on another task.' }, true);
+  }, [deliver, dispatch, record]);
 
   const release = useCallback((): void => {
     generationRef.current += 1;
@@ -209,8 +198,6 @@ export function useGptLiveVoiceCall({
     }
     record(flushGptLiveExchange(exchangeRef.current), false);
     exchangeRef.current = EMPTY_GPT_LIVE_EXCHANGE;
-    const held = delegationsRef.current.takeHeld();
-    if (held) record({ userText: held.prompt, assistantText: 'Not started: the voice call ended first.' }, false);
     setTasks(NO_TASKS);
     setInputAnalyser(null);
     setOutputAnalyser(null);
@@ -237,9 +224,12 @@ export function useGptLiveVoiceCall({
   const handleEvent = useCallback((event: GptLiveEvent): void => {
     switch (event.type) {
       case 'turn-started':
-        if (event.role === 'assistant') setState((current) => ({ ...current, phase: 'speaking' }));
+        if (event.role !== 'assistant') return;
+        outboxRef.current.speakingStarted();
+        setState((current) => ({ ...current, phase: 'speaking' }));
         return;
       case 'turn-done': {
+        if (event.role === 'assistant') transmit(outboxRef.current.speakingFinished());
         if (event.role === 'user') {
           setLastTranscript(event.text);
           const itemId = event.text ? delegationsRef.current.takeWaitingFor(event.turnId) : null;
@@ -270,7 +260,7 @@ export function useGptLiveVoiceCall({
         return;
       default:
     }
-  }, [fail, handleDelegation, record, requestTask, rest]);
+  }, [fail, handleDelegation, record, requestTask, rest, transmit]);
 
   const open = useCallback((): void => {
     release();
@@ -278,6 +268,7 @@ export function useGptLiveVoiceCall({
     generationRef.current = generation;
     mirrorRef.current = new GptLiveChatMirror();
     delegationsRef.current = new GptLiveDelegations();
+    outboxRef.current = new GptLiveOutbox();
     mutedRef.current = false;
     setLastTranscript(null);
     setState({ active: true, phase: 'checking', errorReason: null, microphoneMuted: false });
@@ -353,21 +344,6 @@ export function useGptLiveVoiceCall({
     };
   }, [deliver, send, state.active, syncTasks, workspaceId]);
 
-  // The waiting task starts as soon as the agent is free — after its own
-  // voice task and after anything typed that was already running or queued.
-  useEffect(() => {
-    if (!state.active || tasks.held === null || tasks.inFlight > 0 || chatBusy) return;
-    const held = delegationsRef.current.takeHeld();
-    if (held) dispatch(held.itemId, held.prompt);
-  }, [chatBusy, dispatch, state.active, tasks.held, tasks.inFlight]);
-
-  const cancelPendingTask = useCallback((): void => {
-    const cancelled = delegationsRef.current.cancelHeld('the user cancelled it');
-    if (!cancelled) return;
-    deliver(cancelled.result);
-    record({ userText: cancelled.prompt, assistantText: 'Cancelled before it started.' }, true);
-  }, [deliver, record]);
-
   useEffect(() => {
     if (!state.active || state.phase === 'error' || delegationsRef.current.inFlight === 0) return;
     if (inputRequired) send(buildGptLiveDeveloperContext(APPROVAL_CONTEXT));
@@ -414,7 +390,5 @@ export function useGptLiveVoiceCall({
     finishUtterance: NOOP,
     restartListening: NOOP,
     bargeIn: NOOP,
-    pendingTask: tasks.held,
-    cancelPendingTask,
   };
 }

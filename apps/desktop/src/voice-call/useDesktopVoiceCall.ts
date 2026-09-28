@@ -17,12 +17,6 @@ import { useGptLiveVoiceCall } from './gpt-live/useGptLiveVoiceCall';
 import type { GptLiveTransport } from './gpt-live/gpt-live-transport';
 import { useVoiceEnginePreference } from './useVoiceEngine';
 
-export interface DesktopVoiceCall extends DesktopVoiceCallBridgeResult {
-  /** The GPT-Live task waiting for the agent to be free; null for the local engine. */
-  readonly pendingVoiceTask: string | null;
-  readonly cancelPendingVoiceTask: () => void;
-}
-
 export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'> & {
   readonly surface: DesktopVoiceCallSurface;
   /** WebRTC seam for tests; production uses the browser transport. */
@@ -32,7 +26,7 @@ export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'
 /** Desktop adapter shared by the full chat and the compact Focus surface. */
 export function useDesktopVoiceCall(
   options: UseDesktopVoiceCallOptions,
-): DesktopVoiceCall {
+): DesktopVoiceCallBridgeResult {
   const { surface, gptLiveTransport, ...callOptions } = options;
   const engine = useVoiceEnginePreference();
   const localCall = useVoiceCall({ ...callOptions, waitingTone: VOICE_WAITING_TONE });
@@ -74,16 +68,11 @@ export function useDesktopVoiceCall(
     onNoSpeech: localCall.restartListening,
   });
 
-  const bridged = useDesktopVoiceCallBridge({
+  return useDesktopVoiceCallBridge({
     surface,
     workspaceId: callOptions.workspaceId,
     localCall: call,
     queuedTurns,
     dropQueuedTurn,
   });
-  return {
-    ...bridged,
-    pendingVoiceTask: engine === 'gpt-live' ? liveCall.pendingTask : null,
-    cancelPendingVoiceTask: liveCall.cancelPendingTask,
-  };
 }

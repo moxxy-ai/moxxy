@@ -25,12 +25,6 @@ interface AgentTurn {
   lastProgress: VoiceOperationKind | null;
 }
 
-export interface GptLiveHoldResult {
-  /** False when another task already waits; the notice then is the final result. */
-  readonly held: boolean;
-  readonly notice: string;
-}
-
 const PROGRESS: Readonly<Record<VoiceOperationKind, string>> = {
   'web-search': 'searching the web',
   'project-read': 'reading the project',
@@ -57,9 +51,8 @@ const ANY_TURN = Symbol('any user turn');
  * 4. When that turn completes, its final reply (or failure) becomes the result
  *    GPT-Live reads back. Nothing is reported before the agent has finished.
  *
- * A task asked for while the agent is busy waits in a single visible slot and
- * starts when the agent is free; a second one is refused rather than queued
- * out of sight.
+ * One task runs at a time: a task asked for while the agent is busy is refused,
+ * never queued, so the agent always finishes what it is working on.
  */
 export class GptLiveDelegations {
   private readonly waiting = new Map<string | typeof ANY_TURN, string>();
@@ -67,46 +60,19 @@ export class GptLiveDelegations {
   private readonly agentTurns = new Map<string, AgentTurn>();
   private readonly operations = new Map<string, VoiceActiveOperation & { readonly turnId: string }>();
   private operationOrdinal = 0;
-  private held: Dispatch | null = null;
 
   get inFlight(): number {
     return this.dispatches.length + this.agentTurns.size;
-  }
-
-  get heldPrompt(): string | null {
-    return this.held ? this.held.prompt : null;
   }
 
   get activeOperations(): ReadonlyArray<VoiceActiveOperation> {
     return [...this.operations.values()].map(({ callId, kind, ordinal }) => ({ callId, kind, ordinal }));
   }
 
-  hold(itemId: string, prompt: string): GptLiveHoldResult {
-    if (this.held) {
-      return {
-        held: false,
-        notice: `Not started: the Moxxy agent is busy and another voice task is already waiting ("${this.held.prompt}"). Tell the user this one was not queued and they can ask again when the agent is free.`,
-      };
-    }
-    this.held = { itemId, prompt };
+  refuseWhileBusy(itemId: string): GptLiveDelegationResult {
     return {
-      held: true,
-      notice: 'Queued: the Moxxy agent is busy with another task. This task is waiting and will start automatically when the current task finishes. It has not started yet.',
-    };
-  }
-
-  takeHeld(): Dispatch | null {
-    const held = this.held;
-    this.held = null;
-    return held;
-  }
-
-  cancelHeld(reason: string): { readonly prompt: string; readonly result: GptLiveDelegationResult } | null {
-    const held = this.takeHeld();
-    if (!held) return null;
-    return {
-      prompt: held.prompt,
-      result: { itemId: held.itemId, text: `The waiting task was not run: ${reason}.` },
+      itemId,
+      text: 'Not started: the Moxxy agent is still working on another task and must finish it first. If this was a question you can answer from the conversation or the progress you were given, answer it yourself; otherwise tell the user it was not started and they can ask again once the current task is done.',
     };
   }
 
