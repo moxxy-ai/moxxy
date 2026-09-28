@@ -36,7 +36,7 @@
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.18",
-    "react": "^19.1.0",
+    "react": "^19.3.0",
     "react-dom": "^19.1.0",
     "react-native": "^0.81.5",
     "react-native-gesture-handler": "~2.28.0",
@@ -51,7 +51,7 @@
     "@babel/plugin-transform-react-jsx": "7.29.7",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@types/node": "catalog:",
-    "@types/react": "~19.1.10",
+    "@types/react": "~19.3.0",
     "babel-preset-expo": "54.0.11",
     "typescript": "catalog:",
     "vitest": "catalog:"
