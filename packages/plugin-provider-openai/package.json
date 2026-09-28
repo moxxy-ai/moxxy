@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "openai": "^4.80.0"
+    "openai": "^7.23.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
