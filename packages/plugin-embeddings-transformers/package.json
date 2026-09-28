@@ -29,7 +29,7 @@
     }
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
+    "@huggingface/transformers": "^4.3.0",
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
