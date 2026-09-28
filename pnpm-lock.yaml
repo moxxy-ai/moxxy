@@ -1014,6 +1014,9 @@ importers:
       '@moxxy/plugin-provider-openai':
         specifier: workspace:*
         version: link:../plugin-provider-openai
+      '@moxxy/plugin-provider-openai-codex':
+        specifier: workspace:*
+        version: link:../plugin-provider-openai-codex
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler

@@ -162,7 +162,8 @@ import type {
 /** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
 /** v15: explicit workflow deletion, including schedule retirement. */
-export const RUNNER_PROTOCOL_VERSION = 15;
+/** v16: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
+export const RUNNER_PROTOCOL_VERSION = 16;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -200,6 +201,13 @@ export const RunnerMethod = {
    * reported version and falls back to its NDJSON store against an older runner.
    */
   SessionLoadHistory: 'session.loadHistory',
+  /**
+   * client->server: append a conversation exchange that happened outside the
+   * agent loop (v16) — e.g. a GPT-Live voice turn — as one ordinary turn, so
+   * every mirror renders it and later agent turns see it as context.
+   * `{ userText?, assistantText? }` → `{ turnId }`. Runs no model and no tools.
+   */
+  SessionRecordExchange: 'session.recordExchange',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
@@ -408,6 +416,15 @@ export interface SessionLoadHistoryParams {
 export interface SessionLoadHistoryResult {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly prevCursor: number | null;
+}
+
+/** Params for `session.recordExchange` (v16). At least one side carries text. */
+export interface SessionRecordExchangeParams {
+  readonly userText?: string;
+  readonly assistantText?: string;
+}
+export interface SessionRecordExchangeResult {
+  readonly turnId: string;
 }
 
 export interface ProviderSetActiveParams {
@@ -624,6 +641,17 @@ export const sessionLoadHistoryParamsSchema = z.object({
   before: z.number().int().nonnegative().nullable(),
   limit: z.number().int().positive().max(MAX_HISTORY_PAGE_LIMIT),
 });
+
+/** Bounds one recorded side to the transcript size a single spoken turn can reach. */
+export const MAX_RECORDED_EXCHANGE_CHARS = 100_000;
+const recordedText = z.string().max(MAX_RECORDED_EXCHANGE_CHARS).optional();
+export const sessionRecordExchangeParamsSchema = z
+  .object({ userText: recordedText, assistantText: recordedText })
+  .strict()
+  .refine(
+    ({ userText, assistantText }) => Boolean(userText?.trim() || assistantText?.trim()),
+    { message: 'An exchange needs user or assistant text' },
+  );
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),

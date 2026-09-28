@@ -32,6 +32,7 @@ export {
   handleModeSetActive,
   handleSessionSetReasoning,
   handleSessionLoadHistory,
+  handleSessionRecordExchange,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

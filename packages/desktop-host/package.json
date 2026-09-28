@@ -34,6 +34,7 @@
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-computer-control": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/plugin-provider-openai-codex": "workspace:*",
     "@moxxy/plugin-provider-local": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",

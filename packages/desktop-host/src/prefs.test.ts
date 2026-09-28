@@ -54,6 +54,12 @@ describe('readPrefs', () => {
     expect((p as { focusMiniTextSize?: unknown }).focusMiniTextSize).toBeNull();
   });
 
+  it('defaults Voice Mode to the local engine and keeps a chosen GPT-Live engine', () => {
+    expect(readPrefs().voiceEngine).toBe('local');
+    writePrefsFile({ voiceEngine: 'gpt-live' });
+    expect(readPrefs().voiceEngine).toBe('gpt-live');
+  });
+
   it('forces version to 1 even if a stale file claims otherwise', () => {
     writePrefsFile({ version: 99 });
     expect(readPrefs().version).toBe(1);

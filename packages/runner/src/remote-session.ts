@@ -69,6 +69,8 @@ import {
   type RunTurnResult,
   type SessionLoadHistoryParams,
   type SessionLoadHistoryResult,
+  type SessionRecordExchangeParams,
+  type SessionRecordExchangeResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
   type TurnCompleteNotification,
@@ -484,6 +486,23 @@ export class RemoteSession implements ClientSession {
       before,
       limit,
     } satisfies SessionLoadHistoryParams);
+  }
+
+  /**
+   * Record a conversation exchange that happened outside the agent loop (v16),
+   * e.g. a GPT-Live voice turn. The runner appends it as one ordinary turn:
+   * every mirror renders it and later agent turns see it as context. Runs no
+   * model and no tools. GATED on protocol v16 so an older runner reports an
+   * actionable "update the CLI" error instead of a raw method-not-found.
+   */
+  async recordExchange(
+    exchange: SessionRecordExchangeParams,
+  ): Promise<SessionRecordExchangeResult> {
+    this.requireServerProtocol(16, 'Recording a voice conversation');
+    return this.peer.request<SessionRecordExchangeResult>(
+      RunnerMethod.SessionRecordExchange,
+      exchange,
+    );
   }
 
   getInfo(): SessionInfo {

@@ -65,6 +65,9 @@ before the next API call goes out — the CLI's setup wires this for you.
 - `readStoredTokens`, `persistCodexTokens`, `ensureFreshCodexTokens` — vault
   helpers in the `CodexTokens` shape (delegate to `@moxxy/plugin-oauth`'s
   generic storage under `oauth/openai-codex/*`)
+- `GptLiveCallClient`, `buildGptLiveHistory`, `GPT_LIVE_MODEL` — negotiate a
+  GPT-Live WebRTC voice call over the same ChatGPT login (used by the desktop's
+  GPT-Live Voice Mode; see `docs/voice-gpt-live.md` in the repository)
 
 ## See also
 

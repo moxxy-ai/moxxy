@@ -43,6 +43,31 @@ describe('IPC payload validation', () => {
     )).toThrow();
   });
 
+  it('pins the GPT-Live voice commands to host-owned, bounded payloads', () => {
+    const offer = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
+    expect(() => validateIpcInput('voice.live.preflight', undefined)).not.toThrow();
+    expect(() => validateIpcInput('voice.live.preflight', { force: true })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: offer })).not.toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: 'nope' })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: offer, instructions: 'x' })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { sdp: offer })).toThrow();
+  });
+
+  it('bounds a recorded voice exchange and requires its workspace', () => {
+    const command = 'session.recordVoiceExchange';
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'hi', assistantText: 'hello' })).not.toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', assistantText: 'hello' })).not.toThrow();
+    expect(() => validateIpcInput(command, { userText: 'hi' })).toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'x'.repeat(100_001) })).toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'hi', turnId: 'smuggled' })).toThrow();
+  });
+
+  it('accepts only the known voice engines in prefs', () => {
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'gpt-live' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'local' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'cloud' })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();

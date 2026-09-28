@@ -1,12 +1,14 @@
-import { pageEvents, readSessionEventPage } from '@moxxy/core';
+import { newTurnId, pageEvents, readSessionEventPage } from '@moxxy/core';
 import {
   commandRunParamsSchema,
   modeSetActiveParamsSchema,
   permissionAddAllowParamsSchema,
   sessionLoadHistoryParamsSchema,
+  sessionRecordExchangeParamsSchema,
   sessionSetReasoningParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
+  type SessionRecordExchangeResult,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
 
@@ -67,6 +69,34 @@ export async function handleSessionLoadHistory(
   // Tail-seeded / partial in-memory log: read one page off disk instead so the
   // oldest history (below the in-memory base) is still reachable.
   return readSessionEventPage(String(ctx.session.id), { before, limit }, ctx.sessionsDir);
+}
+
+/**
+ * Append an exchange that was produced outside the agent loop (v16). A realtime
+ * voice model answers the user itself; recording both sides as one ordinary
+ * turn keeps the runner log the complete authoritative history — every mirror
+ * renders it, and the next agent turn projects it as conversation context.
+ */
+export async function handleSessionRecordExchange(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<SessionRecordExchangeResult> {
+  const { userText, assistantText } = sessionRecordExchangeParamsSchema.parse(raw);
+  const turnId = newTurnId();
+  const base = { sessionId: ctx.session.id, turnId } as const;
+  if (userText?.trim()) {
+    await ctx.session.log.append({ ...base, type: 'user_prompt', source: 'user', text: userText });
+  }
+  if (assistantText?.trim()) {
+    await ctx.session.log.append({
+      ...base,
+      type: 'assistant_message',
+      source: 'model',
+      content: assistantText,
+      stopReason: 'end_turn',
+    });
+  }
+  return { turnId };
 }
 
 export async function handlePermissionAddAllow(

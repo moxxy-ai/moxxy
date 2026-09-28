@@ -56,7 +56,7 @@ export type { ConnectionPhase, ConnectionSnapshot } from './connection.js';
 export type { OnboardingStatus, NodeProbe } from './onboarding.js';
 
 // ---------- Desktop preferences (first-run + auth state) -------------------
-export type { ThemePreference, DesktopPrefs } from './prefs.js';
+export type { ThemePreference, VoiceEnginePreference, DesktopPrefs } from './prefs.js';
 
 // ---------- Workflows ------------------------------------------------------
 export type {

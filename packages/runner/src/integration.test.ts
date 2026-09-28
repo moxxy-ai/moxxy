@@ -1624,3 +1624,63 @@ describe('principal attribution over the wire (v11)', () => {
     transport.close();
   });
 });
+
+describe('session.recordExchange (protocol v16)', () => {
+  it('appends a spoken exchange as one turn that every client sees without running the agent', async () => {
+    const provider = new FakeProvider({ script: [textReply('unused')] });
+    const { session, socketPath } = await serve(provider);
+    const speaker = await attach(socketPath, 'speaker');
+    const observer = await attach(socketPath, 'observer');
+
+    const { turnId } = await speaker.recordExchange({
+      userText: 'Jaka jest stolica Francji?',
+      assistantText: 'Stolicą Francji jest Paryż.',
+    });
+
+    const recorded = session.log.byTurn(asTurnId(turnId));
+    expect(recorded.map((event) => event.type)).toEqual(['user_prompt', 'assistant_message']);
+    expect(recorded[0]).toMatchObject({ source: 'user', text: 'Jaka jest stolica Francji?' });
+    expect(recorded[1]).toMatchObject({
+      source: 'model',
+      content: 'Stolicą Francji jest Paryż.',
+      stopReason: 'end_turn',
+    });
+    await waitFor(() => observer.log.byTurn(asTurnId(turnId)).length === 2);
+    expect(provider.received).toHaveLength(0);
+  });
+
+  it('records an assistant-only utterance without inventing a user prompt', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const remote = await attach(socketPath);
+
+    const { turnId } = await remote.recordExchange({ assistantText: 'Cześć, słucham.' });
+
+    expect(session.log.byTurn(asTurnId(turnId)).map((event) => event.type)).toEqual([
+      'assistant_message',
+    ]);
+  });
+
+  it('rejects an exchange with no spoken text', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const remote = await attach(socketPath);
+
+    await expect(remote.recordExchange({ userText: '   ', assistantText: '' })).rejects.toThrow();
+    expect(session.log.length).toBe(0);
+  });
+
+  it('feeds the recorded exchange into the next agent turn as conversation context', async () => {
+    const provider = new FakeProvider({ script: [textReply('Masz rację.')] });
+    const { socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+
+    await remote.recordExchange({
+      userText: 'Moje sekretne słowo to pomarańcza.',
+      assistantText: 'Zapamiętam: pomarańcza.',
+    });
+    for await (const _event of remote.runTurn('Jakie było sekretne słowo?')) void _event;
+
+    const request = JSON.stringify(provider.received[0]?.messages ?? []);
+    expect(request).toContain('Moje sekretne słowo to pomarańcza.');
+    expect(request).toContain('Zapamiętam: pomarańcza.');
+  });
+});

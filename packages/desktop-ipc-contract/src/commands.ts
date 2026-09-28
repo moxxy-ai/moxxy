@@ -320,6 +320,24 @@ export interface IpcCommands {
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
+  /** Whether GPT-Live can reuse the existing ChatGPT OAuth login. Never starts
+   *  a login and never returns credential material. Local desktop IPC only. */
+  'voice.live.preflight': () => Promise<{ readonly authenticated: boolean }>;
+  /** Exchange a renderer-created WebRTC offer for a GPT-Live call answer. The
+   *  host pins the endpoint, OAuth token, instructions and the workspace's chat
+   *  history; the renderer only ever sees the SDP answer and call id. */
+  'voice.live.start': (args: {
+    readonly workspaceId: string;
+    readonly sdp: string;
+  }) => Promise<{ readonly sdp: string; readonly callId: string }>;
+  /** Append one GPT-Live exchange (the user's transcribed speech and/or the
+   *  model's spoken reply) to the workspace session as an ordinary turn, so the
+   *  chat shows it and later agent turns see it. Runs no model and no tools. */
+  'session.recordVoiceExchange': (args: {
+    readonly workspaceId: string;
+    readonly userText?: string;
+    readonly assistantText?: string;
+  }) => Promise<void>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
    *  the Collaborate tab uses it to disable Start while one is running. */
