@@ -48,7 +48,7 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
-    "@babel/plugin-transform-react-jsx": "7.29.7",
+    "@babel/plugin-transform-react-jsx": "8.0.1",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "~19.1.10",
