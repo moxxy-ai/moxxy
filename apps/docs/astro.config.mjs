@@ -7,7 +7,6 @@ export default defineConfig({
     starlight({
       title: 'moxxy',
       description: 'A local AI agent for developers: simple to start, extensible when needed, ready to govern.',
-      tagline: 'Your local agent. Simple to start. Ready to govern.',
       social: [
         {
           icon: 'github',
