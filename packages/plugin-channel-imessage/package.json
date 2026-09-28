@@ -83,7 +83,7 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "socket.io-client": "^4.8.1",
+    "socket.io-client": "^4.8.4",
     "zod": "catalog:"
   },
   "devDependencies": {

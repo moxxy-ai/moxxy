@@ -10,21 +10,21 @@ catalog:
   # Pinned when the runtime floor was Node 20.10, because 1.1+ imports
   # node:util.styleText (added in Node 20.12). The floor is now 20.19, so the
   # pin is no longer load-bearing and 1.1+ can be taken on its own merits.
-  '@clack/prompts': 1.0.1
-  '@noble/ciphers': ^2.2.0
-  '@noble/curves': ^2.2.0
+  '@clack/prompts': 1.8.1
+  '@noble/ciphers': ^2.4.0
+  '@noble/curves': ^2.4.0
   '@noble/hashes': ^2.4.0
-  '@types/node': ^22.10.0
+  '@types/node': ^22.20.4
   '@types/react': ^18.3.0
   '@types/react-dom': ^18.3.0
   '@types/ws': ^8.5.0
-  esbuild: ^0.25.0
+  esbuild: ^0.28.2
   ink: ^5.0.0
   react: ^18.3.0
   react-dom: ^18.3.0
   tsup: ^8.0.0
-  tsx: ^4.23.12
+  tsx: ^4.23.15
   typescript: ^6.0.3
   vitest: ^4.1.11
-  ws: ^8.21.0
+  ws: ^8.21.3
   zod: ^3.25.76
