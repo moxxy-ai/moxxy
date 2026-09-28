@@ -22,6 +22,9 @@ involved. Calls draw on your ChatGPT voice allowance.
   conversation are answered by GPT-Live directly. Those exchanges are recorded
   into the chat as ordinary turns (visible, persisted, and context for later
   agent turns). Speech it never answered is recorded when the call closes.
+  Conversation spoken while the agent is working is held by the runner and
+  appears in the chat after that turn ends, so it never lands in the middle of
+  the agent's task (the agent re-reads the whole log before every model call).
 - **Hands explicit tasks to the agent — in your words.** When you explicitly
   ask Moxxy to do, run, create, change, check or find something, GPT-Live
   delegates. Moxxy does not use GPT-Live's paraphrase: it takes the final
@@ -79,7 +82,9 @@ GptLiveCallClient (packages/plugin-provider-openai-codex/src/live/)
   (mobile / WS bridge) allow-list.
 - The runner method `session.recordExchange` (protocol **v16**) appends
   `user_prompt` + `assistant_message` under one new turn id without running a
-  model or tools. Older runners reject it with an "update the CLI" error, and
+  model or tools. While a turn is running the exchange is held
+  (`packages/runner/src/spoken-exchanges.ts`) and appended, in order, once no
+  turn runs — before that turn's `turn.complete`. Older runners reject it with an "update the CLI" error, and
   Voice Mode stops rather than silently losing the conversation.
 - Delegated tasks go through the normal chat send path (`chat.send`), so they
   queue, stream, ask for permissions and persist like any typed prompt. The
@@ -133,6 +138,10 @@ undocumented preview contract. Verified against the live service on
 - Whether a request counts as a task is GPT-Live's call, steered by the host
   instructions in `packages/desktop-host/src/ipc/voice.ts`. What runs is always
   the user's own transcript, never the model's paraphrase.
+- Sometimes a call is accepted (`201` with an SDP answer) but its media server
+  never answers ICE checks, so the call cannot open; a call a few minutes later
+  works (seen 2026-09-29). Voice Mode then stops with "Couldn't reach the
+  GPT-Live voice server" after 30 seconds.
 - Only the WebRTC transport works with a ChatGPT login, so GPT-Live is desktop
   only.
 - OpenAI's terms say nothing explicit about third-party clients using the

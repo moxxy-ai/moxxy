@@ -1,5 +1,6 @@
 import type { Session } from '@moxxy/core';
 import type { Mutex } from '@moxxy/sdk';
+import type { SpokenExchanges } from '../spoken-exchanges.js';
 
 /**
  * The slice of {@link RunnerServer} state a per-domain handler needs.
@@ -23,6 +24,8 @@ export interface HandlerContext {
   readonly prefsMutex: Mutex;
   /** Push the fresh registry snapshot to every attached client. */
   readonly broadcastInfo: () => void;
+  /** Voice exchanges, held while a turn runs so they stay out of its context. */
+  readonly spokenExchanges: SpokenExchanges;
   /**
    * Directory holding the persisted session JSONLs. Used by
    * `session.loadHistory` (v10) ONLY as the disk fallback when the runner's

@@ -492,7 +492,8 @@ export class RemoteSession implements ClientSession {
    * Record a conversation exchange that happened outside the agent loop (v16),
    * e.g. a GPT-Live voice turn. The runner appends it as one ordinary turn:
    * every mirror renders it and later agent turns see it as context. Runs no
-   * model and no tools. GATED on protocol v16 so an older runner reports an
+   * model and no tools; an exchange spoken during a running turn is appended
+   * after that turn. GATED on protocol v16 so an older runner reports an
    * actionable "update the CLI" error instead of a raw method-not-found.
    */
   async recordExchange(

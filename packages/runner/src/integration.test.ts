@@ -1668,6 +1668,57 @@ describe('session.recordExchange (protocol v16)', () => {
     expect(session.log.length).toBe(0);
   });
 
+  it('holds an exchange spoken while a turn runs until that turn is over, out of its context', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const seenByRunningTurn: string[] = [];
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-voice-gate',
+        modes: [
+          defineMode({
+            name: 'gated-mode',
+            run: async function* (modeCtx) {
+              await gate;
+              for (const event of modeCtx.log.slice()) {
+                if (event.type === 'user_prompt') seenByRunningTurn.push(event.text);
+              }
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('gated-mode');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    const running = (async () => {
+      for await (const _event of remote.runTurn('Sprawdź skrzynkę.')) void _event;
+    })();
+    await waitFor(() => session.log.length > 0);
+
+    const { turnId } = await remote.recordExchange({
+      userText: 'Dobra, masz chwilę?',
+      assistantText: 'Jeszcze sprawdzam.',
+    });
+    expect(session.log.byTurn(asTurnId(turnId))).toEqual([]);
+
+    release();
+    await running;
+
+    expect(seenByRunningTurn).toEqual(['Sprawdź skrzynkę.']);
+    const events = session.log.slice();
+    const voice = events.filter((event) => event.turnId === turnId);
+    expect(voice.map((event) => event.type)).toEqual(['user_prompt', 'assistant_message']);
+    const lastOfRunningTurn = Math.max(
+      ...events.filter((event) => event.turnId !== turnId).map((event) => event.seq),
+    );
+    expect(voice[0]?.seq).toBeGreaterThan(lastOfRunningTurn);
+  });
+
   it('feeds the recorded exchange into the next agent turn as conversation context', async () => {
     const provider = new FakeProvider({ script: [textReply('Masz rację.')] });
     const { socketPath } = await serve(provider);

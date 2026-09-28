@@ -108,6 +108,28 @@ describe('BrowserGptLiveTransport', () => {
     expect(h.audioContext.close).toHaveBeenCalledOnce();
   });
 
+  it('explains a call whose voice server never answers, and releases the microphone', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = createHarness();
+      const connecting = h.transport.connect({
+        negotiate: async () => ({ sdp: 'v=0\r\no=answer\r\n', callId: 'rtc_1' }),
+        onEvent: vi.fn(),
+      });
+      const outcome = expect(connecting).rejects.toThrow(
+        /couldn't reach the GPT-Live voice server.*usually temporary.*try again/i,
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await outcome;
+      expect(h.track.stop).toHaveBeenCalledOnce();
+      expect(h.peer.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports a dropped connection', async () => {
     const h = createHarness();
     const onConnectionError = vi.fn();

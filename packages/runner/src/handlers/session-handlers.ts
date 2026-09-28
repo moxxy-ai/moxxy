@@ -1,4 +1,4 @@
-import { newTurnId, pageEvents, readSessionEventPage } from '@moxxy/core';
+import { pageEvents, readSessionEventPage } from '@moxxy/core';
 import {
   commandRunParamsSchema,
   modeSetActiveParamsSchema,
@@ -81,22 +81,8 @@ export async function handleSessionRecordExchange(
   ctx: HandlerContext,
   raw: unknown,
 ): Promise<SessionRecordExchangeResult> {
-  const { userText, assistantText } = sessionRecordExchangeParamsSchema.parse(raw);
-  const turnId = newTurnId();
-  const base = { sessionId: ctx.session.id, turnId } as const;
-  if (userText?.trim()) {
-    await ctx.session.log.append({ ...base, type: 'user_prompt', source: 'user', text: userText });
-  }
-  if (assistantText?.trim()) {
-    await ctx.session.log.append({
-      ...base,
-      type: 'assistant_message',
-      source: 'model',
-      content: assistantText,
-      stopReason: 'end_turn',
-    });
-  }
-  return { turnId };
+  const exchange = sessionRecordExchangeParamsSchema.parse(raw);
+  return { turnId: await ctx.spokenExchanges.record(exchange) };
 }
 
 export async function handlePermissionAddAllow(

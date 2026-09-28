@@ -206,6 +206,8 @@ export const RunnerMethod = {
    * agent loop (v16) — e.g. a GPT-Live voice turn — as one ordinary turn, so
    * every mirror renders it and later agent turns see it as context.
    * `{ userText?, assistantText? }` → `{ turnId }`. Runs no model and no tools.
+   * Spoken while a turn runs, it is appended once that turn is over (before its
+   * `turn.complete`), so it never lands inside the running turn's context.
    */
   SessionRecordExchange: 'session.recordExchange',
   /** client->server: declare which resolvers this client will answer. */

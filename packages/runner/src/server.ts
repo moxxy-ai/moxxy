@@ -18,6 +18,7 @@ import type {
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
+import { SpokenExchanges } from './spoken-exchanges.js';
 import { runnerSocketPath } from './socket-path.js';
 import { handleComputerApprovalFocus, handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
 import { handleWorkflowApprovals } from './handlers/workflow-handlers.js';
@@ -156,6 +157,7 @@ export class RunnerServer {
       session,
       prefsMutex: this.prefsMutex,
       broadcastInfo: () => this.broadcastInfo(),
+      spokenExchanges: new SpokenExchanges(session, () => this.turnControllers.size > 0),
     };
     this.fallbackPermission = session.resolver;
     this.fallbackApproval = session.approvalResolver;
@@ -388,6 +390,9 @@ export class RunnerServer {
           // as a normal event. No-op on the normal sealed path. Awaited so the
           // event is on the wire/disk before clients learn the turn finished.
           await this.sealUnsealedStreamedText(turnId);
+          // Before turn.complete, so a queued turn the client starts next
+          // cannot begin ahead of the voice conversation spoken during this one.
+          await this.handlerCtx.spokenExchanges.flush();
           this.broadcast(RunnerNotification.TurnComplete, {
             turnId,
             ...(error ? { error } : {}),

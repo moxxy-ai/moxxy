@@ -200,7 +200,12 @@ export class BrowserGptLiveTransport implements GptLiveTransport {
 function waitForChannelOpen(channel: DataChannelLike): Promise<void> {
   if (channel.readyState === 'open') return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => finish(new Error('GPT-Live data channel timed out.')), CHANNEL_OPEN_TIMEOUT_MS);
+    // The call was accepted but its media server never completed the
+    // connection — seen intermittently on the live service; a later call works.
+    const timeout = setTimeout(
+      () => finish(new Error("Couldn't reach the GPT-Live voice server. This is usually temporary — try again in a minute.")),
+      CHANNEL_OPEN_TIMEOUT_MS,
+    );
     const onOpen = (): void => finish();
     const onError = (): void => finish(new Error('GPT-Live data channel failed.'));
     const onClose = (): void => finish(new Error('GPT-Live data channel closed before opening.'));
