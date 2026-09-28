@@ -30,6 +30,9 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-empty-object-type': 'warn',
       '@typescript-eslint/no-unsafe-function-type': 'warn',
+      // New in @eslint/js 10 recommended.
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'warn',
       'no-console': 'off',
       // Off where the rule conflicts with intentional, correct patterns:
       'no-control-regex': 'off', // ANSI / control-char handling (TUI, strip)
