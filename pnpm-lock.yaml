@@ -58,8 +58,8 @@ catalogs:
       specifier: ^8.21.0
       version: 8.21.0
     zod:
-      specifier: ^3.25.76
-      version: 3.25.76
+      specifier: ^4.6.5
+      version: 4.6.5
 
 overrides:
   '@hono/node-server': 2.1.0
@@ -233,7 +233,7 @@ importers:
         version: 4.0.1
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/client-transport-ws':
         specifier: workspace:*
@@ -343,7 +343,7 @@ importers:
         version: link:../../packages/tools-builtin
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -610,7 +610,7 @@ importers:
         version: 6.28.0
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@clack/prompts':
         specifier: 'catalog:'
@@ -899,7 +899,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -930,7 +930,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -970,7 +970,7 @@ importers:
     dependencies:
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1074,7 +1074,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1266,7 +1266,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1322,7 +1322,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/mode-default:
     dependencies:
@@ -1353,7 +1353,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/mode-goal:
     dependencies:
@@ -1362,7 +1362,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1393,7 +1393,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1520,7 +1520,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1575,7 +1575,7 @@ importers:
         version: 4.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1667,7 +1667,7 @@ importers:
         version: 1.5.4
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -1713,7 +1713,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -1747,7 +1747,7 @@ importers:
         version: 8.21.0
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -1811,7 +1811,7 @@ importers:
         version: 1.5.4
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/mode-default':
         specifier: workspace:*
@@ -1900,7 +1900,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -1950,7 +1950,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2022,13 +2022,13 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(zod@3.25.76)
+        version: 1.30.0(zod@4.6.5)
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2053,7 +2053,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2081,7 +2081,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2112,7 +2112,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2146,10 +2146,10 @@ importers:
         version: link:../sdk
       openai:
         specifier: ^4.80.0
-        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@3.25.76)
+        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.6.5)
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2202,7 +2202,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-claude-code:
     dependencies:
@@ -2236,7 +2236,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-google:
     dependencies:
@@ -2264,7 +2264,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-local:
     dependencies:
@@ -2276,7 +2276,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2301,7 +2301,7 @@ importers:
         version: link:../sdk
       openai:
         specifier: ^4.80.0
-        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@3.25.76)
+        version: 4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.6.5)
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2320,7 +2320,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-openai-codex:
     dependencies:
@@ -2351,7 +2351,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-xai:
     dependencies:
@@ -2379,7 +2379,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-provider-zai:
     dependencies:
@@ -2410,7 +2410,7 @@ importers:
         version: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/plugin-scheduler:
     dependencies:
@@ -2422,7 +2422,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2447,7 +2447,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2472,7 +2472,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2581,7 +2581,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2815,7 +2815,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2844,7 +2844,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2872,7 +2872,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -2906,7 +2906,7 @@ importers:
         version: 3.0.2
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*
@@ -2937,7 +2937,7 @@ importers:
         version: 2.8.3
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*
@@ -2965,7 +2965,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -3002,7 +3002,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/mode-default':
         specifier: workspace:*
@@ -3045,7 +3045,7 @@ importers:
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
 
   packages/skills-builtin:
     dependencies:
@@ -3101,7 +3101,7 @@ importers:
         version: link:../sdk
       zod:
         specifier: 'catalog:'
-        version: 3.25.76
+        version: 4.6.5
     devDependencies:
       '@moxxy/core':
         specifier: workspace:*
@@ -4036,6 +4036,7 @@ packages:
   '@clerk/clerk-react@5.61.9':
     resolution: {integrity: sha512-PRIodE1QVem/eV3wrjicJJiJ2pkGiZfI6t1vekE/+04cIHciXyvUezQ/468gGPl31xd7BiCNO3uKNM14TXEKZQ==}
     engines: {node: '>=18.17.0'}
+    deprecated: 'This package is no longer supported. Please use @clerk/react instead. See the upgrade guide for more info: https://clerk.com/docs/guides/development/upgrading/upgrade-guides/core-3'
     peerDependencies:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
@@ -12423,9 +12424,6 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
-
   zod@4.6.5:
     resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
@@ -12652,7 +12650,7 @@ snapshots:
     dependencies:
       sitemap: 9.0.1
       stream-replace-string: 2.0.0
-      zod: 4.4.3
+      zod: 4.6.5
 
   '@astrojs/starlight@0.41.7(astro@7.3.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@22.19.18)(idb-keyval@6.3.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.12)(yaml@2.8.3))(typescript@6.0.3)':
     dependencies:
@@ -14577,7 +14575,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 2.1.0(hono@4.13.8)
       ajv: 8.20.0
@@ -14594,8 +14592,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.5
+      zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
 
@@ -17937,8 +17935,8 @@ snapshots:
       '@babel/parser': 7.29.7
       eslint: 9.39.5(jiti@2.7.0)
       hermes-parser: 0.25.1
-      zod: 4.4.3
-      zod-validation-error: 4.0.2(zod@4.4.3)
+      zod: 4.6.5
+      zod-validation-error: 4.0.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
 
@@ -21068,6 +21066,21 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
+  openai@4.104.0(encoding@0.1.13)(ws@8.21.0)(zod@4.6.5):
+    dependencies:
+      '@types/node': 18.19.130
+      '@types/node-fetch': 2.6.13
+      abort-controller: 3.0.0
+      agentkeepalive: 4.6.0
+      form-data-encoder: 1.7.2
+      formdata-node: 4.4.1
+      node-fetch: 2.7.0(encoding@0.1.13)
+    optionalDependencies:
+      ws: 8.21.0
+      zod: 4.6.5
+    transitivePeerDependencies:
+      - encoding
+
   opencollective-postinstall@2.0.3: {}
 
   optionator@0.9.4:
@@ -23622,17 +23635,16 @@ snapshots:
 
   zlibjs@0.3.1: {}
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.6.5):
     dependencies:
-      zod: 3.25.76
+      zod: 4.6.5
 
-  zod-validation-error@4.0.2(zod@4.4.3):
+  zod-validation-error@4.0.2(zod@4.6.5):
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.5
 
-  zod@3.25.76: {}
-
-  zod@4.4.3: {}
+  zod@3.25.76:
+    optional: true
 
   zod@4.6.5: {}
 
