@@ -20,7 +20,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 import bz2 from 'unbzip2-stream';
-import { extract as tarExtract, type Headers } from 'tar-stream';
+import { extract as tarExtract, type ExtractEvents, type Header } from 'tar-stream';
 
 import { ModelFetchError } from './errors.js';
 
@@ -94,7 +94,7 @@ export async function extractTarBz2(
   // and its 'finish' (which resolves the pipeline) only fires after the last
   // entry's `next()`, i.e. after every file has been fully written.
   const extractor = tarExtract();
-  extractor.on('entry', (header: Headers, stream, next) => {
+  extractor.on('entry', (header: Header, stream, next) => {
     handleEntry(header, stream, tmpDir, seenDirs)
       .then((wrote) => {
         if (wrote) {
@@ -136,8 +136,8 @@ export async function extractTarBz2(
  *  the entry was a drained meta-header. Throws `UNSAFE_ENTRY` for anything that
  *  could escape (validated BEFORE any write). */
 async function handleEntry(
-  header: Headers,
-  stream: NodeJS.ReadableStream,
+  header: Header,
+  stream: ExtractEvents['entry'][1],
   root: string,
   seenDirs: Set<string>,
 ): Promise<boolean> {
