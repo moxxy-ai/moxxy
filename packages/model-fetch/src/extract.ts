@@ -116,7 +116,7 @@ export async function extractTarBz2(
   });
 
   try {
-    await pipeline(openRead(archivePath), bz2() as unknown as NodeJS.ReadWriteStream, extractor);
+    await pipeline(openRead(archivePath), bz2() as unknown as NodeJS.ReadWriteStream, extractor as unknown as NodeJS.WritableStream);
   } catch (err) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     if (err instanceof ModelFetchError) throw err;
