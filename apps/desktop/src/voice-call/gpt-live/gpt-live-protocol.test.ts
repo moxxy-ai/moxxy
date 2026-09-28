@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GPT_LIVE_SESSION_CLOSE,
+  buildGptLiveDelegationNotice,
   buildGptLiveDelegationResult,
   buildGptLiveDeveloperContext,
   parseGptLiveEvent,
@@ -92,6 +93,15 @@ describe('outbound GPT-Live messages', () => {
       expect(new TextEncoder().encode(message.content[0].text).byteLength).toBeLessThanOrEqual(500);
     }
     expect(messages.map((message) => message.content[0].text).join('')).toBe('ó'.repeat(300));
+  });
+
+  it('tells GPT-Live a delegation is waiting on the commentary channel, leaving it open', () => {
+    expect(buildGptLiveDelegationNotice('item_1', 'Queued.')).toEqual([{
+      type: 'delegation.context.append',
+      delegation_item_id: 'item_1',
+      channel: 'commentary',
+      content: [{ type: 'input_text', text: 'Queued.' }],
+    }]);
   });
 
   it('closes the session explicitly', () => {

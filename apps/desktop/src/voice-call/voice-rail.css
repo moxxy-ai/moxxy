@@ -190,6 +190,21 @@
 }
 .voice-rail-work-copy--error strong { color: var(--color-red-text); }
 
+.voice-rail-pending {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-rail-pending-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-dim);
+  font-size: var(--type-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .voice-rail-action {
   flex: 0 0 auto;
   padding: 5px 11px;

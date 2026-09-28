@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   toErrorMessage,
+  useQueuedTurns,
   type UseVoiceCall,
+  type VoiceActiveOperation,
   type VoiceCallChat,
   type VoiceCallPhase,
 } from '@moxxy/client-core';
@@ -19,6 +21,7 @@ import {
 } from './gpt-live-exchange';
 import {
   GPT_LIVE_SESSION_CLOSE,
+  buildGptLiveDelegationNotice,
   buildGptLiveDelegationResult,
   buildGptLiveDeveloperContext,
   parseGptLiveEvent,
@@ -40,6 +43,20 @@ export interface UseGptLiveVoiceCallOptions {
   readonly transport?: GptLiveTransport;
 }
 
+export interface UseGptLiveVoiceCall extends UseVoiceCall {
+  /** The one voice task waiting for the agent to be free, if any. */
+  readonly pendingTask: string | null;
+  readonly cancelPendingTask: () => void;
+}
+
+interface TaskState {
+  readonly inFlight: number;
+  readonly held: string | null;
+  readonly operations: ReadonlyArray<VoiceActiveOperation>;
+}
+
+const NO_TASKS: TaskState = Object.freeze({ inFlight: 0, held: null, operations: [] });
+
 interface CallState {
   readonly active: boolean;
   readonly phase: VoiceCallPhase;
@@ -54,13 +71,12 @@ const IDLE: CallState = Object.freeze({
   microphoneMuted: false,
 });
 const NOOP = (): void => undefined;
-const NO_OPERATIONS = Object.freeze([]);
 const APPROVAL_CONTEXT =
   'The Moxxy agent is paused, waiting for the user to approve a step in the Moxxy window. If the user asks about the task, tell them to check that approval on screen.';
 
 /** Where the call rests between spoken turns. */
-function restingPhase(muted: boolean, tasksInFlight: number, inputRequired: boolean): VoiceCallPhase {
-  if (tasksInFlight > 0) return inputRequired ? 'waiting-for-input' : 'working';
+function restingPhase(muted: boolean, tasks: number, inputRequired: boolean): VoiceCallPhase {
+  if (tasks > 0) return inputRequired ? 'waiting-for-input' : 'working';
   return muted ? 'paused' : 'listening';
 }
 
@@ -72,6 +88,10 @@ function restingPhase(muted: boolean, tasksInFlight: number, inputRequired: bool
  * transcribed words run as an ordinary agent turn in this chat, and only that
  * turn's real final reply is handed back for GPT-Live to read out. Talk it
  * answers itself is recorded into the chat as it happens.
+ *
+ * Voice never feeds the chat queue: a task asked for while the agent is busy
+ * waits in one visible slot and starts when the agent is free; only typed
+ * messages queue.
  */
 export function useGptLiveVoiceCall({
   workspaceId,
@@ -79,7 +99,7 @@ export function useGptLiveVoiceCall({
   chat,
   inputRequired,
   transport: transportOverride,
-}: UseGptLiveVoiceCallOptions): UseVoiceCall {
+}: UseGptLiveVoiceCallOptions): UseGptLiveVoiceCall {
   const transport = useMemo(
     () => transportOverride ?? new BrowserGptLiveTransport(),
     [transportOverride],
@@ -88,6 +108,9 @@ export function useGptLiveVoiceCall({
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [inputAnalyser, setInputAnalyser] = useState<unknown | null>(null);
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
+  const [tasks, setTasks] = useState<TaskState>(NO_TASKS);
+  const queuedTurns = useQueuedTurns(workspaceId);
+  const chatBusy = chat.sending || chat.activeTurnId !== null || queuedTurns.length > 0;
   const generationRef = useRef(0);
   const connectionRef = useRef<GptLiveConnection | null>(null);
   const exchangeRef = useRef<GptLiveExchangeState>(EMPTY_GPT_LIVE_EXCHANGE);
@@ -97,14 +120,29 @@ export function useGptLiveVoiceCall({
   const failRef = useRef<(message: string) => void>(NOOP);
   const chatRef = useRef(chat);
   const inputRequiredRef = useRef(inputRequired);
+  const chatBusyRef = useRef(chatBusy);
   chatRef.current = chat;
   inputRequiredRef.current = inputRequired;
+  chatBusyRef.current = chatBusy;
 
-  const rest = useCallback((): VoiceCallPhase => restingPhase(
-    mutedRef.current,
-    delegationsRef.current.inFlight,
-    inputRequiredRef.current,
-  ), []);
+  const rest = useCallback((): VoiceCallPhase => {
+    const delegations = delegationsRef.current;
+    const tasksOpen = delegations.inFlight + (delegations.heldPrompt === null ? 0 : 1);
+    return restingPhase(mutedRef.current, tasksOpen, inputRequiredRef.current);
+  }, []);
+
+  const syncTasks = useCallback((): void => {
+    const delegations = delegationsRef.current;
+    setTasks({
+      inFlight: delegations.inFlight,
+      held: delegations.heldPrompt,
+      operations: delegations.activeOperations,
+    });
+  }, []);
+
+  const send = useCallback((messages: ReadonlyArray<unknown>): void => {
+    for (const message of messages) connectionRef.current?.send(message);
+  }, []);
 
   /** A conversation the chat cannot keep must stop the call, not vanish. The
    *  final flush on close has no call left to stop, so it is best-effort. */
@@ -123,17 +161,17 @@ export function useGptLiveVoiceCall({
 
   const deliver = useCallback((result: GptLiveDelegationResult | null): void => {
     if (!result) return;
-    for (const message of buildGptLiveDelegationResult(result.itemId, result.text)) {
-      connectionRef.current?.send(message);
-    }
+    send(buildGptLiveDelegationResult(result.itemId, result.text));
+    syncTasks();
     setState((current) => ({ ...current, phase: rest() }));
-  }, [rest]);
+  }, [rest, send, syncTasks]);
 
   const dispatch = useCallback((itemId: string, prompt: string): void => {
     delegationsRef.current.dispatched(itemId, prompt);
     // The agent's own user_prompt / reply for this turn reach GPT-Live as the
     // delegation result, not a second time as chat context.
     mirrorRef.current.expectRecorded({ userText: prompt });
+    syncTasks();
     setState((current) => ({ ...current, phase: rest() }));
     const delegations = delegationsRef.current;
     void chatRef.current.send(prompt).catch((error: unknown) => {
@@ -141,7 +179,25 @@ export function useGptLiveVoiceCall({
         deliver(delegations.failDispatch(itemId, toErrorMessage(error)));
       }
     });
-  }, [deliver, rest]);
+  }, [deliver, rest, syncTasks]);
+
+  /** Start now if the agent is free; otherwise take the single waiting slot. */
+  const requestTask = useCallback((itemId: string, prompt: string): void => {
+    const delegations = delegationsRef.current;
+    if (delegations.inFlight === 0 && !chatBusyRef.current) {
+      dispatch(itemId, prompt);
+      return;
+    }
+    const outcome = delegations.hold(itemId, prompt);
+    if (outcome.held) {
+      send(buildGptLiveDelegationNotice(itemId, outcome.notice));
+      syncTasks();
+      setState((current) => ({ ...current, phase: rest() }));
+      return;
+    }
+    deliver({ itemId, text: outcome.notice });
+    record({ userText: prompt, assistantText: 'Not started: another voice task was already waiting.' }, true);
+  }, [deliver, dispatch, record, rest, send, syncTasks]);
 
   const release = useCallback((): void => {
     generationRef.current += 1;
@@ -153,6 +209,9 @@ export function useGptLiveVoiceCall({
     }
     record(flushGptLiveExchange(exchangeRef.current), false);
     exchangeRef.current = EMPTY_GPT_LIVE_EXCHANGE;
+    const held = delegationsRef.current.takeHeld();
+    if (held) record({ userText: held.prompt, assistantText: 'Not started: the voice call ended first.' }, false);
+    setTasks(NO_TASKS);
     setInputAnalyser(null);
     setOutputAnalyser(null);
   }, [record]);
@@ -168,12 +227,12 @@ export function useGptLiveVoiceCall({
     const claimed = turnId ? claimGptLiveUserTurn(exchangeRef.current, turnId) : null;
     if (claimed?.text) {
       exchangeRef.current = claimed.state;
-      dispatch(itemId, claimed.text);
+      requestTask(itemId, claimed.text);
       return;
     }
     // Usually the delegation lands before the user's turn is final.
     delegationsRef.current.waitForUserTurn(itemId, userTurnId);
-  }, [dispatch]);
+  }, [requestTask]);
 
   const handleEvent = useCallback((event: GptLiveEvent): void => {
     switch (event.type) {
@@ -185,7 +244,7 @@ export function useGptLiveVoiceCall({
           setLastTranscript(event.text);
           const itemId = event.text ? delegationsRef.current.takeWaitingFor(event.turnId) : null;
           if (itemId) {
-            dispatch(itemId, event.text);
+            requestTask(itemId, event.text);
             return;
           }
         }
@@ -211,7 +270,7 @@ export function useGptLiveVoiceCall({
         return;
       default:
     }
-  }, [dispatch, fail, handleDelegation, record, rest]);
+  }, [fail, handleDelegation, record, requestTask, rest]);
 
   const open = useCallback((): void => {
     release();
@@ -278,10 +337,11 @@ export function useGptLiveVoiceCall({
     const offEvent = api().subscribe('runner.event', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
       const event = payload.event as MoxxyEvent;
-      delegationsRef.current.observe(event);
+      const progress = delegationsRef.current.observe(event);
+      if (progress) send(buildGptLiveDeveloperContext(progress));
+      if (event.type === 'tool_call_requested' || event.type === 'tool_result') syncTasks();
       const context = mirrorRef.current.contextFor(event);
-      if (!context) return;
-      for (const message of buildGptLiveDeveloperContext(context)) connectionRef.current?.send(message);
+      if (context) send(buildGptLiveDeveloperContext(context));
     });
     const offComplete = api().subscribe('runner.turn.complete', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
@@ -291,13 +351,26 @@ export function useGptLiveVoiceCall({
       offEvent();
       offComplete();
     };
-  }, [deliver, state.active, workspaceId]);
+  }, [deliver, send, state.active, syncTasks, workspaceId]);
+
+  // The waiting task starts as soon as the agent is free — after its own
+  // voice task and after anything typed that was already running or queued.
+  useEffect(() => {
+    if (!state.active || tasks.held === null || tasks.inFlight > 0 || chatBusy) return;
+    const held = delegationsRef.current.takeHeld();
+    if (held) dispatch(held.itemId, held.prompt);
+  }, [chatBusy, dispatch, state.active, tasks.held, tasks.inFlight]);
+
+  const cancelPendingTask = useCallback((): void => {
+    const cancelled = delegationsRef.current.cancelHeld('the user cancelled it');
+    if (!cancelled) return;
+    deliver(cancelled.result);
+    record({ userText: cancelled.prompt, assistantText: 'Cancelled before it started.' }, true);
+  }, [deliver, record]);
 
   useEffect(() => {
     if (!state.active || state.phase === 'error' || delegationsRef.current.inFlight === 0) return;
-    if (inputRequired) {
-      for (const message of buildGptLiveDeveloperContext(APPROVAL_CONTEXT)) connectionRef.current?.send(message);
-    }
+    if (inputRequired) send(buildGptLiveDeveloperContext(APPROVAL_CONTEXT));
     setState((current) => (current.phase === 'speaking' ? current : { ...current, phase: rest() }));
     // Re-run only when an approval starts or ends, not on every phase change.
   }, [inputRequired]);
@@ -320,7 +393,7 @@ export function useGptLiveVoiceCall({
     active: state.active,
     phase: state.phase,
     activity: null,
-    activeOperations: NO_OPERATIONS,
+    activeOperations: tasks.operations,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
     waitingSoundEnabled: false,
@@ -341,5 +414,7 @@ export function useGptLiveVoiceCall({
     finishUtterance: NOOP,
     restartListening: NOOP,
     bargeIn: NOOP,
+    pendingTask: tasks.held,
+    cancelPendingTask,
   };
 }

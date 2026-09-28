@@ -248,6 +248,8 @@ export function ChatSurface({
             onUnmuteMicrophone={voiceCall.unmuteMicrophone}
             onToggleWaitingSound={voiceCall.toggleWaitingSound}
             onClose={voiceCall.close}
+            pendingTask={voiceCall.pendingVoiceTask}
+            onCancelPendingTask={voiceCall.cancelPendingVoiceTask}
           />
         </div>
       )}

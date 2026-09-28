@@ -32,6 +32,19 @@ involved. Calls draw on your ChatGPT voice allowance.
   handed back and GPT-Live reads it out. It is instructed never to claim the
   work is done before the result arrives. If the agent stops for an approval,
   the rail shows "Needs your input" and GPT-Live is told to point you to it.
+- **Knows what the agent is doing.** While a task runs, each change in the
+  agent's activity (reading the project, running tests, editing files, …) is
+  sent to GPT-Live as silent context, and the same operations show on the
+  Voice Mode rail. "How is it going?" is answered by GPT-Live itself instead of
+  becoming another task.
+- **Voice never feeds the chat queue.** If you ask for a new task while the
+  agent is busy (with a voice task, or with something typed that is running or
+  queued), it waits in **one** voice slot, shown on the rail as "Next: …" with a
+  Cancel button. GPT-Live tells you it is queued and has not started; it starts
+  on its own when the agent is free and its real result is read back as usual.
+  A second task while the slot is taken is refused (and kept in the chat as a
+  note), cancelling the slot or ending the call means it never runs. Typed
+  messages keep queueing exactly as before, and the Local engine is unchanged.
 - **No duplicates.** A delegated request appears in the chat once, as the
   agent turn; acknowledgements and read-back results are not recorded again.
 
@@ -43,7 +56,7 @@ renderer: apps/desktop/src/voice-call/gpt-live/
   gpt-live-transport       WebRTC peer, microphone, `oai-events` data channel
   gpt-live-protocol        parse server events, build client events
   gpt-live-exchange        pair finished turns into recorded exchanges
-  gpt-live-delegation      delegation → agent turn → result
+  gpt-live-delegation      delegation → agent turn → result; progress; waiting slot
   gpt-live-chat-context    forward new chat messages as silent context
 
 main process: packages/desktop-host/src/ipc/
@@ -99,7 +112,8 @@ undocumented preview contract. Verified against the live service on
   and answered aloud; the `developer` channel adds context silently.
 - A task result goes back as `delegation.context.append` with the delegation
   `item.id` and `channel: "speakable"`, chunked to 500 bytes; GPT-Live then
-  speaks it.
+  speaks it. An interim status on `channel: "commentary"` (used for "queued")
+  leaves the delegation open; its speakable result can follow much later.
 
 ## Risks
 

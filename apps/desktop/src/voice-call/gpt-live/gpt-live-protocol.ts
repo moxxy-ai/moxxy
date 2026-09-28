@@ -35,7 +35,7 @@ export interface GptLiveContextAppend {
 export interface GptLiveDelegationAppend {
   readonly type: 'delegation.context.append';
   readonly delegation_item_id: string;
-  readonly channel: 'speakable';
+  readonly channel: 'speakable' | 'commentary';
   readonly content: readonly [{ readonly type: 'input_text'; readonly text: string }];
 }
 
@@ -125,10 +125,23 @@ export function buildGptLiveDeveloperContext(value: string): GptLiveContextAppen
 
 /** The delegation's result, which GPT-Live then tells the user (speakable). */
 export function buildGptLiveDelegationResult(itemId: string, value: string): GptLiveDelegationAppend[] {
+  return delegationAppends(itemId, value, 'speakable');
+}
+
+/** An interim status for a delegation that stays open (commentary). */
+export function buildGptLiveDelegationNotice(itemId: string, value: string): GptLiveDelegationAppend[] {
+  return delegationAppends(itemId, value, 'commentary');
+}
+
+function delegationAppends(
+  itemId: string,
+  value: string,
+  channel: GptLiveDelegationAppend['channel'],
+): GptLiveDelegationAppend[] {
   return chunkUtf8(value, MAX_CONTEXT_APPEND_BYTES).map((chunk) => ({
     type: 'delegation.context.append',
     delegation_item_id: itemId,
-    channel: 'speakable',
+    channel,
     content: [{ type: 'input_text', text: chunk }],
   }));
 }

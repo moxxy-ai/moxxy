@@ -75,6 +75,15 @@ describe('useDesktopVoiceCall engine selection', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('voice.setRealtimeCaptureActive', { active: true }));
   });
 
+  it('exposes the GPT-Live waiting task only for the GPT-Live engine', async () => {
+    const invoke = installApi('local');
+    const { result } = render(new InMemoryGptLiveTransport());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('prefs.read'));
+
+    expect(result.current.pendingVoiceTask).toBeNull();
+    expect(typeof result.current.cancelPendingVoiceTask).toBe('function');
+  });
+
   it('keeps the local engine by default', async () => {
     const invoke = installApi('local');
     const { result } = render(new InMemoryGptLiveTransport());

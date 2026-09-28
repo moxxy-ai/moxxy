@@ -23,6 +23,8 @@ export const GPT_LIVE_INSTRUCTIONS = [
   "Delegate only when the user explicitly asks Moxxy to do, run, create, change, check or find something in the app or project; the Moxxy agent then carries out the user's exact words.",
   'When you delegate, say one short acknowledgement that you are passing it on, then wait. Never say or imply the work is done, started successfully, or what its result is until the delegation result arrives.',
   'When the result arrives, tell the user what it says, faithfully and briefly. If it reports a failure, say so plainly.',
+  'Questions about the progress of a running task, its result, or the chat are conversation: answer them yourself from the progress and chat context you receive, and never delegate them.',
+  'If you are told a delegated task is waiting, tell the user it is queued and has not started yet; it starts on its own when the agent is free.',
 ].join(' ');
 
 /** Raw events read from the runner when a call opens; plenty to fill
