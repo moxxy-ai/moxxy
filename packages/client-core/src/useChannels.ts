@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
-import type { ChannelEntry, ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
+import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
 
 export interface UseChannels {
   readonly list: ReadonlyArray<ChannelEntry>;
@@ -13,6 +13,23 @@ export interface UseChannels {
   readonly saveConfig: (channelId: string, values: Record<string, string>) => Promise<void>;
   readonly start: (channelId: string) => Promise<void>;
   readonly stop: (channelId: string) => Promise<void>;
+  /** Set the bot's own model (`provider::model`), or `null` for the default. */
+  readonly setModel: (channelId: string, model: string | null) => Promise<void>;
+  /** Choose how the bot runs (manual / with the app / background service). */
+  readonly setRunMode: (channelId: string, mode: ChannelRunMode) => Promise<void>;
+}
+
+/** Host-derived status fields the supervisor's runtime push doesn't carry. */
+function keepHostState(prev: ChannelRuntimeStatus, next: ChannelRuntimeStatus): ChannelRuntimeStatus {
+  const model = next.model ?? prev.model;
+  const runMode = next.runMode ?? prev.runMode;
+  const background = next.background ?? prev.background;
+  return {
+    ...next,
+    ...(model ? { model } : {}),
+    ...(runMode ? { runMode } : {}),
+    ...(background ? { background } : {}),
+  };
 }
 
 /**
@@ -27,8 +44,15 @@ export function useChannels(): UseChannels {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Command replies are authoritative (a reset clears `model`); the supervisor's
+  // `channels.status` push only knows the process, so it keeps the host state.
   const applyStatus = useCallback((status: ChannelRuntimeStatus): void => {
     setList((cur) => cur.map((e) => (e.descriptor.id === status.id ? { ...e, status } : e)));
+  }, []);
+  const applyRuntimePush = useCallback((status: ChannelRuntimeStatus): void => {
+    setList((cur) =>
+      cur.map((e) => (e.descriptor.id === status.id ? { ...e, status: keepHostState(e.status, status) } : e)),
+    );
   }, []);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -49,7 +73,7 @@ export function useChannels(): UseChannels {
   }, [refresh]);
 
   // Live updates (start / stop / crash / Request URL ready) — no polling.
-  useEffect(() => api().subscribe('channels.status', applyStatus), [applyStatus]);
+  useEffect(() => api().subscribe('channels.status', applyRuntimePush), [applyRuntimePush]);
 
   const saveConfig = useCallback(
     async (channelId: string, values: Record<string, string>): Promise<void> => {
@@ -90,5 +114,31 @@ export function useChannels(): UseChannels {
     [applyStatus],
   );
 
-  return { list, loading, error, refresh, saveConfig, start, stop };
+  const setModel = useCallback(
+    async (channelId: string, model: string | null): Promise<void> => {
+      try {
+        applyStatus(await api().invoke('channels.setModel', { channelId, model }));
+        setError(null);
+      } catch (e) {
+        setError(toErrorMessage(e));
+        throw e;
+      }
+    },
+    [applyStatus],
+  );
+
+  const setRunMode = useCallback(
+    async (channelId: string, mode: ChannelRunMode): Promise<void> => {
+      try {
+        applyStatus(await api().invoke('channels.setRunMode', { channelId, mode }));
+        setError(null);
+      } catch (e) {
+        setError(toErrorMessage(e));
+        throw e;
+      }
+    },
+    [applyStatus],
+  );
+
+  return { list, loading, error, refresh, saveConfig, start, stop, setModel, setRunMode };
 }

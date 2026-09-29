@@ -82,6 +82,7 @@ export type {
   ChannelDescriptor,
   ChannelRuntimeStatus,
   ChannelEntry,
+  ChannelRunMode,
 } from './channels.js';
 
 // ---------- Settings -------------------------------------------------------

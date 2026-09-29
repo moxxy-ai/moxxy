@@ -64,3 +64,14 @@ export {
   type VoiceToggleInput,
   type VoiceToggleResult,
 } from './voice-reply.js';
+export {
+  applyModelChoice,
+  findModelOptions,
+  formatModelChoice,
+  listModelOptions,
+  parseModelChoice,
+  type ApplyModelResult,
+  type ModelChoice,
+  type ModelOption,
+  type ModelSwitchSession,
+} from './model-choice.js';

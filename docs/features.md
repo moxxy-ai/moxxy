@@ -18,7 +18,7 @@ Moxxy ships as a useful agent and as a framework whose main blocks can be replac
 | Workflows and scheduling | Chain skills, prompts, and tools into reusable DAGs, then run them directly, on a cron, or at a specific time. |
 | Verified webhooks | External systems can trigger prompts with HMAC or bearer verification, filters, replay protection, idempotency, and tunnel support. |
 | Type-safe SDK | `@moxxy/sdk` is the zero-runtime-dependency public contract for plugin authors. |
-| Background services | Run channels independently through launchd or systemd, or serve the complete configured stack from one process. |
+| Background services | Run channels independently through launchd or systemd (`moxxy service install telegram` or `discord`, or Channels → Discord → Run mode → Always in the desktop), or serve the complete configured stack from one process. Switching the run mode back, or `moxxy service uninstall <name>`, removes the service. |
 
 ## Channels
 
@@ -29,7 +29,7 @@ Choose the interface that fits the task while keeping the same underlying sessio
 | TUI | Interactive, keyboard-driven terminal interface | `moxxy` |
 | Desktop | Native multi-workspace Electron app | [Download](https://moxxy.ai) |
 | Telegram | Text and voice access with six-digit account pairing | `moxxy telegram` |
-| Discord | Text and voice access over DMs with code pairing; the agent can push progress DMs to you from any session (`discord_send_message`) | `moxxy channels discord` |
+| Discord | Text and voice access over DMs with code pairing; its own model (`/model` or Channels → Discord); the agent can push progress DMs to you from any session (`discord_send_message`) | `moxxy channels discord` |
 | HTTP | Authenticated JSON, SSE streaming, and raw-audio endpoints | `moxxy channels http` |
 | Cron | Prompts triggered by cron expressions or one-shot timestamps | `moxxy schedule add ...` |
 | Webhooks | Prompts triggered by verified and filtered external POST requests | `moxxy serve` |

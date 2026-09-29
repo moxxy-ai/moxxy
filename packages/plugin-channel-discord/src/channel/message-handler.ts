@@ -44,6 +44,8 @@ export interface MessageHandlerCallbacks {
   readonly setYolo: (value: boolean) => void;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   readonly voice: (arg: string) => Promise<string>;
+  /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
+  readonly model: (arg: string) => Promise<string>;
   readonly runUserTurn: (ctx: InboundContext, text: string) => Promise<void>;
   /** Handle audio attachments (voice messages). Returns true when it consumed
    *  the message (so the text path is skipped). */
@@ -134,6 +136,7 @@ export async function handleInboundMessage(
     const reply = await runSlash(head.slice(1), rest.join(' '), state.session, {
       toggleYolo: cb.toggleYolo,
       voice: cb.voice,
+      model: cb.model,
       performSessionAction: (action, notice) =>
         performSessionAction(action, notice, state, deps, cb),
     });

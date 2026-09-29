@@ -562,6 +562,12 @@ importers:
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
@@ -1506,6 +1512,9 @@ importers:
         specifier: ^14.27.0
         version: 14.27.0
     devDependencies:
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

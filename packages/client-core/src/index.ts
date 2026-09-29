@@ -40,6 +40,7 @@ export * from './useWorkflows.js';
 export * from './useScheduler.js';
 export * from './useWebhooks.js';
 export * from './useChannels.js';
+export * from './useChannelTranscript.js';
 export * from './usePausedWorkflows.js';
 export * from './useWorkflowBuilder.js';
 export * from './useActionCatalog.js';

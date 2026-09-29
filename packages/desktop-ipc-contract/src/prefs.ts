@@ -1,5 +1,7 @@
 // ---------- Desktop preferences (first-run + auth state) -------------------
 
+import type { ChannelRunMode } from './channels.js';
+
 /** The user's color-scheme choice. `system` follows the OS (the default). */
 export type ThemePreference = 'light' | 'dark' | 'system';
 
@@ -35,5 +37,9 @@ export interface DesktopPrefs {
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;
+  /** How each desktop-runnable channel runs (`channels.setRunMode`); a missing
+   *  entry is `manual`. Host-owned — not writable through `prefs.update`,
+   *  because changing it installs/removes an OS background service. */
+  channelRunModes: Readonly<Record<string, ChannelRunMode>>;
   version: 1;
 }

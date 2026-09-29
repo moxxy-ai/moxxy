@@ -6,7 +6,7 @@ import type { AllowListStore } from './allow-list-store.js';
 import type { ChannelLogger } from './discord-like.js';
 import type { AwaitingApprovalText } from './message-handler.js';
 import type { PairingHandler } from './pairing-handler.js';
-import { runSlash } from './slash-handler.js';
+import { APP_COMMAND_ARG_OPTION, runSlash } from './slash-handler.js';
 
 /**
  * Structural slice of a discord.js Interaction the handler needs — buttons
@@ -20,6 +20,8 @@ export interface InteractionLike {
   readonly customId?: string;
   /** Slash-command name. */
   readonly commandName?: string;
+  /** Slash-command options (chat-input commands only). */
+  readonly options?: { getString(name: string): string | null };
   readonly user: { readonly id: string };
   readonly channelId?: string | null;
   readonly guildId?: string | null;
@@ -49,6 +51,8 @@ export interface InteractionCallbacks {
   readonly toggleYolo: () => boolean;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   readonly voice: (arg: string) => Promise<string>;
+  /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
+  readonly model: (arg: string) => Promise<string>;
   readonly performSessionAction: (
     action: 'new' | 'clear' | 'exit',
     notice: string | undefined,
@@ -178,9 +182,11 @@ async function handleSlashCommand(
     await safeReply(interaction, 'Session is not ready yet.', deps.logger);
     return;
   }
-  const reply = await runSlash(name, '', state.session, {
+  const arg = interaction.options?.getString(APP_COMMAND_ARG_OPTION) ?? '';
+  const reply = await runSlash(name, arg, state.session, {
     toggleYolo: cb.toggleYolo,
     voice: cb.voice,
+    model: cb.model,
     performSessionAction: cb.performSessionAction,
   });
   await safeReply(interaction, reply.length > 1_900 ? reply.slice(0, 1_899) + '…' : reply, deps.logger);

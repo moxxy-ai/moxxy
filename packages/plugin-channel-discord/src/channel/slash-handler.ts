@@ -6,6 +6,8 @@ export interface SlashCallbacks {
   toggleYolo(): boolean;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   voice(arg: string): Promise<string>;
+  /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
+  model(arg: string): Promise<string>;
   /** Apply a `session-action` result emitted from a registered command. */
   performSessionAction(action: 'new' | 'clear' | 'exit', notice: string | undefined): Promise<string>;
 }
@@ -56,6 +58,8 @@ export async function runSlash(
     }
     case 'voice':
       return cb.voice(args);
+    case 'model':
+      return cb.model(args);
     case 'tools': {
       const list = session.tools
         .list()
@@ -78,10 +82,22 @@ export async function runSlash(
 /** Discord application-command name constraint. */
 const COMMAND_NAME_RE = /^[a-z0-9_-]{1,32}$/;
 
+/** A chat-input command option (Discord API: type 3 = STRING). */
+export interface AppCommandOptionJson {
+  readonly type: 3;
+  readonly name: string;
+  readonly description: string;
+  readonly required: boolean;
+}
+
 export interface AppCommandJson {
   readonly name: string;
   readonly description: string;
+  readonly options?: ReadonlyArray<AppCommandOptionJson>;
 }
+
+/** The option chat-input commands read their argument from (`/model name:…`). */
+export const APP_COMMAND_ARG_OPTION = 'name';
 
 /**
  * Build the application-command list to publish: the shared registry commands
@@ -94,6 +110,18 @@ export function buildAppCommands(session: Session): AppCommandJson[] {
   const LOCAL: AppCommandJson[] = [
     { name: 'yolo', description: 'Toggle auto-approve mode' },
     { name: 'voice', description: 'Toggle spoken voice replies' },
+    {
+      name: 'model',
+      description: 'Show or switch the model this bot uses',
+      options: [
+        {
+          type: 3,
+          name: APP_COMMAND_ARG_OPTION,
+          description: 'provider::model, a model id, or "default"',
+          required: false,
+        },
+      ],
+    },
     { name: 'tools', description: 'List the tools the active session can call' },
     { name: 'skills', description: 'List the discovered skills' },
     { name: 'cancel', description: 'Abort the current turn' },
@@ -107,7 +135,10 @@ export function buildAppCommands(session: Session): AppCommandJson[] {
   return [...shared, ...LOCAL.filter((c) => !seen.has(c.name))]
     .filter((c) => COMMAND_NAME_RE.test(c.name))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => ({ name: c.name, description: (c.description || c.name).slice(0, 100) || c.name }));
+    .map((c) => ({
+      ...c,
+      description: (c.description || c.name).slice(0, 100) || c.name,
+    }));
 }
 
 /** The slice of a discord.js application-command manager we publish through. */

@@ -24,7 +24,7 @@ import type {
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { MobileGatewayStatus } from './mobile.js';
-import type { ChannelEntry, ChannelRuntimeStatus } from './channels.js';
+import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
   McpServerEntry,
@@ -654,6 +654,28 @@ export interface IpcCommands {
   'channels.start': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
   /** Stop the channel's dedicated-runner subprocess. */
   'channels.stop': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
+  /** Set the model a channel's bot runs (`provider::model`), or `null` for the
+   *  default. Channel-scoped: never changes the global default. The running bot
+   *  picks it up on its next turn. Rejects for channels without `supportsModel`. */
+  'channels.setModel': (args: {
+    channelId: string;
+    model: string | null;
+  }) => Promise<ChannelRuntimeStatus>;
+  /** Choose how the bot runs: `manual`, `app` (starts with the desktop) or
+   *  `background` (OS service, 24/7). Leaving `background` removes the service.
+   *  Rejects for channels without `supportsBackground`. */
+  /** Page the bot's conversation (its sticky dedicated-runner session log),
+   *  read-only — works whether the bot runs from the app, as a background
+   *  service, or not at all. `null` until the bot has a conversation. */
+  'channels.history': (args: {
+    channelId: string;
+    before: number | null;
+    limit: number;
+  }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
+  'channels.setRunMode': (args: {
+    channelId: string;
+    mode: ChannelRunMode;
+  }) => Promise<ChannelRuntimeStatus>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are

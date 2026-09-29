@@ -331,7 +331,15 @@ export function App(): JSX.Element {
       />
       {/* One index column per destination: the rail says where you are, the
           column says what is in here. */}
-      {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
+      {view === 'chat' && (
+        <WorkspaceSidebar
+          onOpenRun={() => onView('chat')}
+          onOpenChannel={(id) => {
+            setChannelId(id);
+            onView('channels');
+          }}
+        />
+      )}
       {view === 'automations' && (
         <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
       )}

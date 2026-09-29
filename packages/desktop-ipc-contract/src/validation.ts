@@ -440,6 +440,20 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'channels.start': z.object({ channelId }),
   'channels.stop': z.object({ channelId }),
+  'channels.history': z.object({
+    channelId,
+    before: z.number().int().nonnegative().nullable(),
+    limit: z.number().int().positive().max(2000),
+  }),
+  'channels.setRunMode': z.object({ channelId, mode: z.enum(['manual', 'app', 'background']) }),
+  'channels.setModel': z.object({
+    channelId,
+    model: z
+      .string()
+      .max(256)
+      .regex(/^[^:\s][^\s]*::[^\s]+$/, 'expected provider::model')
+      .nullable(),
+  }),
   // Anonymizer: parseDocument reads a file (bound the path), saveRedacted writes
   // one (bound name + cap content so a renderer can't OOM main). pickDocument
   // takes nothing — pin it to "nothing" so no args can be smuggled across.

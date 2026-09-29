@@ -500,6 +500,34 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('accepts channels.setModel only as provider::model or null (reset to default)', () => {
+    const ok = (model: unknown) => () => validateIpcInput('channels.setModel', { channelId: 'discord', model });
+    expect(ok('openai-codex::gpt-5.6-luna')).not.toThrow();
+    expect(ok(null)).not.toThrow();
+    expect(ok('gpt-5.6-luna')).toThrow();
+    expect(ok('::m')).toThrow();
+    expect(ok('p::')).toThrow();
+    expect(ok(`p::${'m'.repeat(300)}`)).toThrow();
+    expect(() =>
+      validateIpcInput('channels.setModel', { channelId: '../x', model: 'p::m' }),
+    ).toThrow();
+  });
+
+  it('bounds channels.history like chat.loadHistory', () => {
+    const page = (args: unknown) => () => validateIpcInput('channels.history', args);
+    expect(page({ channelId: 'discord', before: null, limit: 200 })).not.toThrow();
+    expect(page({ channelId: 'discord', before: 10, limit: 2001 })).toThrow();
+    expect(page({ channelId: '../x', before: null, limit: 10 })).toThrow();
+  });
+
+  it('accepts channels.setRunMode only for the three known modes', () => {
+    for (const mode of ['manual', 'app', 'background']) {
+      expect(() => validateIpcInput('channels.setRunMode', { channelId: 'discord', mode })).not.toThrow();
+    }
+    expect(() => validateIpcInput('channels.setRunMode', { channelId: 'discord', mode: 'forever' })).toThrow();
+    expect(() => validateIpcInput('channels.setRunMode', { channelId: '../x', mode: 'app' })).toThrow();
+  });
+
   it('bounds anonymizer.parseDocument path + pins pickDocument to no payload', () => {
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '/a/b.txt' })).not.toThrow();
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '' })).toThrow();

@@ -60,6 +60,8 @@ import {
   sendEvent,
   readPrefs,
   updatePrefs,
+  autostartConfiguredChannels,
+  watchChannelConversations,
   type LoopbackServer,
   type SelfSignedCert,
 } from '@moxxy/desktop-host';
@@ -870,6 +872,7 @@ app.whenReady().then(async () => {
   // Push live workspace updates to every surface when a runner changes a session
   // file (e.g. the first prompt becomes the session's title).
   watchSessionsForChanges(desks);
+  watchChannelConversations();
   // The Electron transport is always present. The WebSocket bridge (remote
   // clients / the mobile app) is now controllable at RUNTIME from Settings →
   // Mobile (the "mobile gateway"), so the bus + module are loaded unconditionally
@@ -976,9 +979,16 @@ app.whenReady().then(async () => {
   // First paint is complete. Seed plugins, sweep stale sockets, and connect the
   // active runner in the background while the renderer shows the persisted
   // shell/transcript. User-triggered runner creation shares this same gate.
-  void primeInitialRunner(pool, desks).catch((err) => {
-    console.error('[moxxy] initial runner startup failed:', err);
-  });
+  void primeInitialRunner(pool, desks)
+    .catch((err) => {
+      console.error('[moxxy] initial runner startup failed:', err);
+    })
+    // After the first runner so bundled plugins are seeded before a channel
+    // (e.g. Discord, run mode "with the app") boots its own runner.
+    .then(() => autostartConfiguredChannels())
+    .catch((err) => {
+      console.error('[moxxy] channel autostart failed:', err);
+    });
 
   if (wsBridge && wsBus && wsConfig && mobileGateway) {
     // The opt-in env bridge is independent of first paint. Hand the running

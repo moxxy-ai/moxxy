@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { useChannels } from '@moxxy/client-core';
+import { useActiveWorkspaceId, useChannelTranscript, useChannels } from '@moxxy/client-core';
 import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
 import { ChannelActions, ChannelPage, ledState, useChannelPage } from '../apps/ChannelsPanel';
 import { IndexColumn } from '../shell/IndexColumn';
 import { InstrumentBar } from '../shell/InstrumentBar';
+import { ChannelConversation } from './ChannelConversation';
+import { ChannelModelSection } from './ChannelModelSection';
+import { ChannelRunModeSection } from './ChannelRunModeSection';
+import { useChannelModel } from './useChannelModel';
+import { useChannelRunMode } from './useChannelRunMode';
 
 /**
  * Channels: one page per channel, picked from a collapsible group in the index
@@ -217,6 +222,20 @@ function ChannelView({
 }): JSX.Element {
   const channels = useChannels();
   const state = useChannelPage(entry, channels);
+  const workspaceId = useActiveWorkspaceId();
+  const model = useChannelModel({
+    channelId: entry.descriptor.id,
+    model: entry.status.model,
+    workspaceId,
+    setModel: channels.setModel,
+  });
+  const runMode = useChannelRunMode({
+    channelId: entry.descriptor.id,
+    runMode: entry.status.runMode,
+    background: entry.status.background,
+    setRunMode: channels.setRunMode,
+  });
+  const transcript = useChannelTranscript(entry.descriptor.id);
   return (
     <>
       <InstrumentBar crumbs={['Channels', entry.descriptor.name]}>
@@ -228,6 +247,23 @@ function ChannelView({
       <div style={PANE}>
         {error}
         <ChannelPage entry={entry} state={state} />
+        {entry.descriptor.supportsBackground && (
+          <div style={{ marginTop: 'var(--space-20)' }}>
+            <ChannelRunModeSection state={runMode} />
+          </div>
+        )}
+        {entry.descriptor.supportsModel && (
+          <div style={{ marginTop: 'var(--space-20)' }}>
+            <ChannelModelSection state={model} />
+          </div>
+        )}
+        <div style={{ marginTop: 'var(--space-20)' }}>
+          <ChannelConversation
+            channelName={entry.descriptor.name}
+            channelId={entry.descriptor.id}
+            transcript={transcript}
+          />
+        </div>
       </div>
     </>
   );

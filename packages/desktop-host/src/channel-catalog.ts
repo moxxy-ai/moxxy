@@ -18,6 +18,9 @@ export interface ChannelCatalogEntry {
   readonly vaultKeys: Readonly<Record<string, string>>;
   /** Vault keys that MUST be present for the channel to count as configured. */
   readonly requiredKeys: ReadonlyArray<string>;
+  /** Vault key holding the channel's own model (`provider::model`); set only
+   *  for channels whose descriptor declares `supportsModel`. */
+  readonly modelVaultKey?: string;
 }
 
 export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
@@ -189,9 +192,12 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
         openable: true,
         openLabel: 'Open Discord authorization',
       },
+      supportsModel: true,
+      supportsBackground: true,
     },
     vaultKeys: { botToken: 'discord_bot_token' },
     requiredKeys: ['discord_bot_token'],
+    modelVaultKey: 'discord_model',
   },
   imessage: {
     descriptor: {

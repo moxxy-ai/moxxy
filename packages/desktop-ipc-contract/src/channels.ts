@@ -7,6 +7,15 @@
 // the renderer-facing contract for that. Host-only (NOT remote-allowed): running a
 // local subprocess is a desktop operation, like the apps gallery.
 
+/**
+ * How a channel's bot runs:
+ *  - `manual`     — only while started from the panel (Start / Stop).
+ *  - `app`        — starts by itself whenever the desktop app opens; stops with it.
+ *  - `background` — an OS background service (launchd / systemd), online 24/7
+ *                   even with the app closed. Switching away removes the service.
+ */
+export type ChannelRunMode = 'manual' | 'app' | 'background';
+
 /** One secret/setting a channel needs, rendered as a labelled form field. */
 export interface ChannelConfigField {
   /** Logical field id the renderer keys its form value by (e.g. `botToken`). */
@@ -64,6 +73,11 @@ export interface ChannelDescriptor {
   /** How to render the post-start connect step (QR / URL / instructions). When
    *  present, the renderer uses this instead of the bare `hasWebhookUrl` URL row. */
   readonly connect?: ChannelConnectStep;
+  /** The channel runs its own model (`channels.setModel`), independent of the
+   *  global default the desktop/TUI use. */
+  readonly supportsModel?: boolean;
+  /** The channel can run as an OS background service (`moxxy service`). */
+  readonly supportsBackground?: boolean;
 }
 
 /** Live runtime status of a channel's dedicated runner. */
@@ -86,6 +100,12 @@ export interface ChannelRuntimeStatus {
   readonly connected?: boolean;
   /** Last spawn/runtime error, surfaced so the UI can show why it stopped. */
   readonly error?: string;
+  /** The channel's own model as `provider::model`; absent = the default model. */
+  readonly model?: string;
+  /** How the bot runs; absent for channels without run-mode support. */
+  readonly runMode?: ChannelRunMode;
+  /** The OS background service's state, reported while `runMode` is `background`. */
+  readonly background?: { readonly installed: boolean; readonly running: boolean };
 }
 
 /** A channel descriptor paired with its live status, as `channels.list` returns. */

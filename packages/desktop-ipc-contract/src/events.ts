@@ -128,6 +128,9 @@ export interface IpcEvents {
    *  or its public Request URL became available) — the Channels panel re-renders
    *  that channel's card without polling. */
   'channels.status': ChannelRuntimeStatus;
+  /** A channel bot's conversation log changed (a message, reply or tool call
+   *  landed) — the read-only conversation view re-reads `channels.history`. */
+  'channels.historyChanged': { readonly channelId: string };
   /** Updated local Gemini TTS accounting after a successful cloud synthesis. */
   'voice.usage.changed': GeminiTtsUsageSnapshot;
   /** A live event from the dedicated collaboration coordinator (`moxxy collab`),

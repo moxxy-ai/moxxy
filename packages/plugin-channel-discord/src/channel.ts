@@ -46,6 +46,7 @@ import { askForApproval } from './channel/approval-prompt.js';
 import { publishAppCommands } from './channel/slash-handler.js';
 import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
+import { resolveChannelModel, runModelCommand } from './channel/model-command.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 
 /** Cap on waiting for the gateway READY event (bot identity → invite link).
@@ -405,6 +406,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           this.yolo = value;
         },
         voice: (arg) => this.voiceCommand(arg),
+        model: (arg) => this.modelCommand(arg),
         runUserTurn: (c, text) => this.runUserTurn(c, text),
         runVoiceMessage: (c) =>
           handleVoiceMessage(
@@ -437,6 +439,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           return this.yolo;
         },
         voice: (arg) => this.voiceCommand(arg),
+        model: (arg) => this.modelCommand(arg),
         performSessionAction: (action, notice) =>
           performSessionAction(
             action,
@@ -477,6 +480,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     this.currentChannel = ctx.channel;
     this.lastChannel = ctx.channel;
     try {
+      const channelModel = await resolveChannelModel({ session: this.session, vault: this.opts.vault });
+      if (channelModel.warning) await ctx.reply(channelModel.warning);
       await runDiscordTurn(
         {
           session: this.session,
@@ -486,7 +491,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
           onFinalReply: (finalText) => this.sendVoiceReply(ctx.channel, finalText),
         },
-        { text, model: this.model, controller: lease.controller, turnId: lease.turnId },
+        {
+          text,
+          model: channelModel.model ?? this.model,
+          controller: lease.controller,
+          turnId: lease.turnId,
+        },
       );
     } finally {
       lease.end();
@@ -506,6 +516,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     });
     if (result.persist) await this.setVoiceReplies(result.enabled);
     return result.reply;
+  }
+
+  /** Handle `/model [name|default]` (plain-text and application-command paths). */
+  private async modelCommand(arg: string): Promise<string> {
+    if (!this.session) return 'Session is not ready yet.';
+    return runModelCommand(arg, { session: this.session, vault: this.opts.vault });
   }
 
   private async setVoiceReplies(on: boolean): Promise<void> {

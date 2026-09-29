@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
+import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import type { PendingToolCall, PermissionContext } from '@moxxy/sdk';
 import { DISCORD_AUTHORIZED_USER_KEY } from '../keys.js';
 import { DiscordApprovalResolver } from '../approval.js';
@@ -70,7 +71,12 @@ function buttonInteraction(customId: string, userId = PAIRED): FakeInteraction {
 
 function slashInteraction(
   commandName: string,
-  opts: { userId?: string; guildId?: string | null; channelId?: string | null } = {},
+  opts: {
+    userId?: string;
+    guildId?: string | null;
+    channelId?: string | null;
+    stringOptions?: Record<string, string>;
+  } = {},
 ): FakeInteraction {
   const replies: Array<{ content: string; ephemeral?: boolean }> = [];
   return {
@@ -82,6 +88,7 @@ function slashInteraction(
     user: { id: opts.userId ?? PAIRED },
     guildId: opts.guildId ?? null,
     channelId: opts.channelId ?? null,
+    options: { getString: (name: string) => opts.stringOptions?.[name] ?? null },
     reply: async (p) => {
       replies.push(p);
     },
@@ -208,5 +215,18 @@ describe('handleInteraction — slash commands', () => {
     await handleInteraction(interaction, { session: null, turnController: controller }, deps(), callbacks());
     expect(controller.signal.aborted).toBe(true);
     expect(interaction.replies[0]?.content).toMatch(/cancelling/);
+  });
+});
+
+describe('handleInteraction — command arguments', () => {
+  it('passes the /model "name" option through to the model command', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const model = vi.fn(async (arg: string) => `model:${arg}`);
+    const interaction = slashInteraction('model', { stringOptions: { name: 'beta::b-fast' } });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), model });
+
+    expect(model).toHaveBeenCalledWith('beta::b-fast');
+    expect(interaction.replies[0]?.content).toBe('model:beta::b-fast');
   });
 });
