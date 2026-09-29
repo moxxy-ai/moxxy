@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
   asPluginId,
+  asTurnId,
   assertDefined,
   defineMode,
   definePlugin,
@@ -454,6 +455,59 @@ describe('SessionDriver shared auto-approve', () => {
     const { driver, autoApproveFrames } = await attachDriver(socketPath);
 
     expect(autoApproveFrames()).toEqual([{ workspaceId: 'ws-chat', enabled: true }]);
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver, a turn another client runs', () => {
+  /** A conversation whose turns block until aborted — the Discord bot hosts it. */
+  async function serveBlocking(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'driver-test-blocking',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+            description: 'blocks until aborted',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              await new Promise<void>((resolve) => {
+                if (ctx.signal.aborted) return resolve();
+                ctx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  it('shows the bot’s turn as running, can stop it, and shows it done', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+    const frames = (channel: string) => sent.filter((f) => f.channel === channel).map((f) => f.payload);
+
+    const turn = (async () => {
+      for await (const _event of session.runTurn('from discord', { turnId: asTurnId('bot-turn') })) void _event;
+    })();
+    await waitFor(() => frames('runner.turn.started').length > 0);
+    expect(frames('runner.turn.started')).toEqual([
+      { workspaceId: 'ws-chat', turnId: 'bot-turn', visibility: 'foreground' },
+    ]);
+    expect(driver.activeForegroundTurnId()).toBe('bot-turn');
+
+    driver.abortTurn('bot-turn');
+    await turn;
+    await waitFor(() => frames('runner.turn.complete').length > 0);
+    expect(frames('runner.turn.complete')).toEqual([{ workspaceId: 'ws-chat', turnId: 'bot-turn', error: null }]);
+    expect(driver.activeForegroundTurnId()).toBeNull();
     driver.dispose();
   });
 });

@@ -28,6 +28,7 @@ function stubSession(): Session {
     approvalResolver: null,
     setPermissionResolver: () => undefined,
     setApprovalResolver: () => undefined,
+    runTurn: () => undefined,
     log: { subscribe: () => noopUnsub, onClear: () => noopUnsub },
     modes: { onActiveChange: () => noopUnsub },
     surfaces: { onData: () => noopUnsub, closeAll: () => undefined },

@@ -527,6 +527,12 @@ export class RemoteSession implements ClientSession {
    * a turn). Fires after the local `getInfo()` mirror has been updated, so a
    * listener can re-read it synchronously. Returns an unsubscribe fn.
    */
+  /** Stop a running turn, also one another client or the runner itself
+   *  started (a channel bot). A finished or unknown turn is ignored. */
+  async abortTurn(turnId: string): Promise<void> {
+    await this.peer.request(RunnerMethod.Abort, { turnId });
+  }
+
   onInfoChanged(fn: (info: SessionInfo) => void): () => void {
     this.infoListeners.add(fn);
     return () => this.infoListeners.delete(fn);

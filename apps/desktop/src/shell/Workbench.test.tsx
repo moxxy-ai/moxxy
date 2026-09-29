@@ -12,7 +12,22 @@ vi.mock('./surfaces/FilesPane', () => ({ FilesPane: () => <div data-testid="pane
 vi.mock('./surfaces/FilesExplorerPane', () => ({
   FilesExplorerPane: () => <div data-testid="pane-explorer" />,
 }));
-vi.mock('./surfaces/BrowserPane', () => ({ BrowserPane: () => <div data-testid="pane-browser" /> }));
+// The browser pane counts its mounts: unmounting it destroys its pages.
+const browserLife = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+vi.mock('./surfaces/BrowserPane', async () => {
+  const { useEffect } = await import('react');
+  return {
+    BrowserPane: () => {
+      useEffect(() => {
+        browserLife.mounts += 1;
+        return () => {
+          browserLife.unmounts += 1;
+        };
+      }, []);
+      return <div data-testid="pane-browser" />;
+    },
+  };
+});
 
 /**
  * The workbench replaced a drawer that was undiscoverable when closed and could
@@ -99,6 +114,43 @@ describe('Workbench, open', () => {
       (id) => screen.getByTestId(`bench-tab-${id}`).getAttribute('aria-selected') === 'true',
     );
     expect(selected).toEqual(['files']);
+  });
+});
+
+describe('Workbench, the browser', () => {
+  beforeEach(() => {
+    browserLife.mounts = 0;
+    browserLife.unmounts = 0;
+  });
+
+  const bench = (tab: 'terminal' | 'browser' | null) => (
+    <Workbench tab={tab} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />
+  );
+  const shown = () => screen.getByTestId('pane-browser').closest('[data-shown]')?.getAttribute('data-shown');
+
+  it('keeps its pages when the workbench is collapsed and opened again', () => {
+    const { rerender } = render(bench('browser'));
+    rerender(bench(null));
+    expect(shown()).toBe('false');
+    rerender(bench('browser'));
+
+    expect(shown()).toBe('true');
+    expect(browserLife).toEqual({ mounts: 1, unmounts: 0 });
+  });
+
+  it('keeps its pages while another pane is shown', () => {
+    const { rerender } = render(bench('browser'));
+    rerender(bench('terminal'));
+    expect(screen.getByTestId('pane-terminal')).toBeTruthy();
+    expect(shown()).toBe('false');
+    rerender(bench('browser'));
+
+    expect(browserLife).toEqual({ mounts: 1, unmounts: 0 });
+  });
+
+  it('is not started before it is first opened', () => {
+    render(bench('terminal'));
+    expect(screen.queryByTestId('pane-browser')).toBeNull();
   });
 });
 

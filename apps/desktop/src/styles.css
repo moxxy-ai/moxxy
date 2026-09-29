@@ -1099,6 +1099,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
+/* The browser stays mounted once opened (its pages die with the element).
+ * Hidden, it is parked off-screen rather than `display:none`, which would stop
+ * Chromium painting it. */
+.bench__browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bench__browser[data-shown='false'] {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  height: 100vh;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* --- Browser pane ---------------------------------------------- */
 
 /* The agent's browser. Chrome only — the page is a Chromium view the window

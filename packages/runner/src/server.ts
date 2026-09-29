@@ -12,6 +12,8 @@ import type {
   PermissionDecision,
   PermissionResolver,
   Principal,
+  RunTurnOptions,
+  SessionInfo,
   TurnId,
   UserPromptAttachment,
 } from '@moxxy/sdk';
@@ -97,10 +99,11 @@ interface TurnScope {
   readonly turnId: TurnId;
 }
 
-/** An in-flight turn: its abort controller plus the connection that started it. */
+/** An in-flight turn: its abort controller plus the connection that started it
+ *  (null for a turn run inside the runner, e.g. by a channel bot hosting it). */
 interface TurnEntry {
   readonly controller: AbortController;
-  readonly owner: ConnectedClient;
+  readonly owner: ConnectedClient | null;
 }
 
 /**
@@ -165,6 +168,7 @@ export class RunnerServer {
     this.fallbackPermission = session.resolver;
     this.fallbackApproval = session.approvalResolver;
     this.installRoutingResolvers();
+    this.trackLocalTurns();
     this.transport.onConnection((t) => this.onConnection(t));
     this.logUnsub = session.log.subscribe((event) => {
       this.broadcastEvent(event);
@@ -229,7 +233,7 @@ export class RunnerServer {
     // Turn / attach / resolver routing stay on the class (they touch per-client
     // and per-turn state). Every domain handler delegates to its module.
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
-    peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
+    peer.handle(RunnerMethod.GetInfo, () => this.info());
     peer.handle(RunnerMethod.ComputerSnapshot, (raw) => handleComputerSnapshot(ctx, raw));
     peer.handle(RunnerMethod.ComputerControl, (raw) => handleComputerControl(ctx, raw));
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
@@ -340,7 +344,7 @@ export class RunnerServer {
     return {
       sessionId: this.session.id,
       protocolVersion: RUNNER_PROTOCOL_VERSION,
-      info: this.session.getInfo(),
+      info: this.info(),
     };
   }
 
@@ -359,6 +363,7 @@ export class RunnerServer {
     const controller = new AbortController();
     this.turnControllers.set(turnId, { controller, owner: client });
     client.turns.add(turnId);
+    this.broadcastInfo();
 
     const opts = {
       turnId,
@@ -443,12 +448,12 @@ export class RunnerServer {
       // for single-client deployments.
       this.session.logger.warn('cross-client abort', {
         turnId: params.turnId,
-        ownerRole: entry.owner.role,
+        ownerRole: entry.owner?.role ?? 'runner',
         abortingRole: client.role,
       });
       if (process.env.MOXXY_RUNNER_STRICT_ABORT === '1') {
         throw new Error(
-          `turn ${params.turnId} was started by '${entry.owner.role}'; cross-client abort denied (MOXXY_RUNNER_STRICT_ABORT=1)`,
+          `turn ${params.turnId} was started by '${entry.owner?.role ?? 'runner'}'; cross-client abort denied (MOXXY_RUNNER_STRICT_ABORT=1)`,
         );
       }
     }
@@ -533,8 +538,51 @@ export class RunnerServer {
     return {};
   }
 
+  /** The session's snapshot plus the turns running now, whoever started them. */
+  private info(): SessionInfo {
+    return { ...this.session.getInfo(), runningTurns: [...this.turnControllers.keys()] };
+  }
+
   private broadcastInfo(): void {
-    this.broadcast(RunnerNotification.InfoChanged, { info: this.session.getInfo() });
+    this.broadcast(RunnerNotification.InfoChanged, { info: this.info() });
+  }
+
+  /**
+   * A turn run inside the runner — a channel bot hosting it calls
+   * `session.runTurn` directly — is registered like a client's turn: attached
+   * clients see it running (`SessionInfo.runningTurns`) and may abort it. Turns
+   * the server drives for a client already run inside a scope and pass through.
+   */
+  private trackLocalTurns(): void {
+    const runTurn = this.session.runTurn.bind(this.session);
+    this.session.runTurn = (prompt, opts = {}) =>
+      this.scope.getStore() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
+  }
+
+  private async *runLocalTurn(
+    runTurn: Session['runTurn'],
+    prompt: string,
+    opts: RunTurnOptions,
+  ): AsyncIterable<MoxxyEvent> {
+    const turnId = opts.turnId ?? newTurnId();
+    const controller = new AbortController();
+    const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+    this.turnControllers.set(turnId, { controller, owner: null });
+    this.broadcastInfo();
+    try {
+      yield* runTurn(prompt, { ...opts, turnId, signal });
+    } finally {
+      this.turnControllers.delete(turnId);
+      try {
+        await this.handlerCtx.spokenExchanges.flush();
+        this.broadcastInfo();
+      } catch (err) {
+        this.session.logger.error('runner: post-turn finalization failed', {
+          turnId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   // --- resolver routing ----------------------------------------------------

@@ -34,6 +34,9 @@ interface ActiveTurn {
 
 export class SessionDriver {
   private readonly turns = new Map<string, ActiveTurn>();
+  /** Turns another client of the conversation runs (a channel bot, the TUI),
+   *  as the runner reports them in `SessionInfo.runningTurns`. */
+  private readonly otherTurns = new Set<string>();
   private readonly disposes: Array<() => void> = [];
   /** Auto-approve ("yolo"): when true, tool calls run without opening the
    *  renderer's approval sheet. Toggled via the `session.setAutoApprove` IPC
@@ -76,8 +79,10 @@ export class SessionDriver {
     const infoUnsub = this.session.onInfoChanged(() => {
       this.send('session.info.changed', { workspaceId });
       this.syncAutoApprove();
+      this.syncOtherTurns();
     });
     this.syncAutoApprove();
+    this.syncOtherTurns();
     this.disposes.push(infoUnsub);
 
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
@@ -263,6 +268,7 @@ export class SessionDriver {
    * interrupted pre-restart turn cannot be mistaken for running work. */
   activeForegroundTurnId(): string | null {
     let active: string | null = null;
+    for (const turnId of this.otherTurns) active = turnId;
     for (const [turnId, turn] of this.turns) {
       if (turn.visibility === 'foreground') active = turnId;
     }
@@ -270,7 +276,9 @@ export class SessionDriver {
   }
 
   abortTurn(turnId: string): void {
-    this.turns.get(turnId)?.controller.abort();
+    const own = this.turns.get(turnId);
+    if (own) own.controller.abort();
+    else if (this.otherTurns.has(turnId)) void this.session.abortTurn(turnId).catch(() => undefined);
   }
 
   /** Abort every in-flight turn in this workspace without disposing the driver.
@@ -291,6 +299,24 @@ export class SessionDriver {
   async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
     if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);
+  }
+
+  /** Show a turn another client runs as this chat's running turn — so it can
+   *  be stopped here — and as done once the runner no longer lists it. */
+  private syncOtherTurns(): void {
+    const running = this.session.getInfo().runningTurns;
+    if (!running) return;
+    const others = new Set(running.filter((turnId) => !this.turns.has(turnId)));
+    for (const turnId of others) {
+      if (this.otherTurns.has(turnId)) continue;
+      this.otherTurns.add(turnId);
+      this.send('runner.turn.started', { workspaceId: this.workspaceId, turnId, visibility: 'foreground' });
+    }
+    for (const turnId of [...this.otherTurns]) {
+      if (others.has(turnId)) continue;
+      this.otherTurns.delete(turnId);
+      this.send('runner.turn.complete', { workspaceId: this.workspaceId, turnId, error: null });
+    }
   }
 
   /** Adopt the conversation's auto-approve when another client (a channel

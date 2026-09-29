@@ -168,7 +168,8 @@ import type {
 /** v19: runTurn accepts an optional custom-model context window for compaction. */
 /** v20: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
 /** v21: `session.setAutoApprove` switches the conversation's auto-approve; `SessionInfo.autoApprove` reports it (additive). */
-export const RUNNER_PROTOCOL_VERSION = 21;
+/** v22: `SessionInfo.runningTurns` lists every running turn, including one a channel bot runs inside the runner, and `abort` reaches such a turn (additive). */
+export const RUNNER_PROTOCOL_VERSION = 22;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

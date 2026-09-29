@@ -155,6 +155,9 @@ export interface SessionInfo {
   /** Tool calls run without asking in this conversation (see `auto-approve.ts`).
    *  Absent from runners that predate the shared switch. */
   readonly autoApprove?: boolean;
+  /** Turns running now, whichever client (or in-process channel) started them.
+   *  Reported by a runner to its clients; absent from runners that predate it. */
+  readonly runningTurns?: ReadonlyArray<string>;
 }
 
 /**

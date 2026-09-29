@@ -1877,3 +1877,60 @@ describe('conversation auto-approve (protocol v21)', () => {
     expect(remote.log.ofType('tool_result').length).toBeGreaterThan(0);
   });
 });
+
+describe('running turns (protocol v22)', () => {
+  /** A conversation whose turns block until they are aborted. */
+  async function serveBlocking(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-running',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+            run: async function* (modeCtx) {
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  /** A channel bot hosting the runner runs a turn in-process. */
+  function botTurn(session: Session, id: string): Promise<void> {
+    return (async () => {
+      for await (const _event of session.runTurn('from discord', { turnId: asTurnId(id) })) void _event;
+    })();
+  }
+
+  it('a turn the hosting bot runs shows as running to attached clients until it ends', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const desktop = await attach(socketPath, 'desktop');
+
+    const turn = botTurn(session, 'bot-turn');
+    await waitFor(() => desktop.getInfo().runningTurns?.includes('bot-turn') === true);
+
+    await desktop.abortTurn('bot-turn');
+    await turn;
+    await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
+  });
+
+  it('a client attaching in the middle of a turn sees it running', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const turn = botTurn(session, 'bot-turn');
+
+    const desktop = await attach(socketPath, 'desktop');
+
+    expect(desktop.getInfo().runningTurns).toEqual(['bot-turn']);
+    await desktop.abortTurn('bot-turn');
+    await turn;
+  });
+});

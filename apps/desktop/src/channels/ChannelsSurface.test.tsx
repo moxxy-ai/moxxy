@@ -193,4 +193,20 @@ describe('ChannelsSurface', () => {
 
     expect((await screen.findByTestId('bench-tab-browser')).getAttribute('aria-selected')).toBe('true');
   });
+
+  it('lets you stop the bot’s agent while it works on a Discord request', async () => {
+    const host = installHost();
+    renderSurface();
+    await screen.findByTestId('composer-input');
+
+    act(() => host.emit('runner.turn.started', { workspaceId: CHAT_ID, turnId: 'bot-turn', visibility: 'foreground' }));
+    fireEvent.click(await screen.findByTestId('composer-abort'));
+
+    await waitFor(() =>
+      expect(host).toHaveBeenCalledWith('session.abortTurn', { workspaceId: CHAT_ID, turnId: 'bot-turn' }),
+    );
+    act(() => host.emit('runner.turn.complete', { workspaceId: CHAT_ID, turnId: 'bot-turn', error: null }));
+    expect(await screen.findByTestId('composer-send')).toBeTruthy();
+  });
 });
+
