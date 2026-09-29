@@ -1502,6 +1502,9 @@ importers:
       '@moxxy/channel-kit':
         specifier: workspace:*
         version: link:../channel-kit
+      '@moxxy/chat-model':
+        specifier: workspace:*
+        version: link:../chat-model
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core
@@ -16191,7 +16194,7 @@ snapshots:
       obug: 2.1.4
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@8.2.1(@types/node@22.19.18)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
+      vitest: 4.1.11(@types/node@22.19.18)(@vitest/coverage-v8@4.1.11)(jsdom@25.0.1)(vite@6.4.3(@types/node@22.19.18)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.23.15)(yaml@2.8.3))
 
   '@vitest/expect@4.1.11':
     dependencies:

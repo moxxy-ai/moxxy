@@ -23,9 +23,11 @@ the agent answers, and the answer is read aloud. You can interrupt it.
 - An utterance ends after about 1.2 s of silence. What it heard is posted to
   your DMs as `heard: …`, and the agent's reply appears there as text too.
 - Replies are spoken with the active voice (Settings → Voice) and kept short
-  and speakable.
-- **Interrupting:** talk over a reply for a moment and the bot stops speaking
-  and listens. As in the desktop's Voice Mode, this stops only the speech; the
+  and speakable. The bot starts talking as soon as the agent has written its
+  first sentence, and voices the next two while one plays — the same sentence
+  splitting as the desktop's Voice Mode.
+- **Interrupting:** talk over a reply for a moment and the bot stops speaking,
+  drops the rest of that reply, and listens. As in the desktop's Voice Mode, this stops only the speech; the
   agent's work goes on. Things you say while the agent works are answered in
   order.
 

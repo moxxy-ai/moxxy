@@ -75,6 +75,7 @@
     "@clack/prompts": "catalog:",
     "@discordjs/voice": "^0.19.2",
     "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",

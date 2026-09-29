@@ -1,3 +1,5 @@
+import { SpokenReply } from './spoken-reply.js';
+
 /**
  * The Discord voice connection as a call needs it. The adapter over
  * `@discordjs/voice` implements it; tests stand in for it.
@@ -20,9 +22,9 @@ export interface VoiceLink {
 export interface VoiceCallDeps {
   /** Speech to text for one utterance. */
   transcribe(packets: ReadonlyArray<Uint8Array>): Promise<string>;
-  /** Run the utterance as an agent turn; the reply to say, or null for none. */
-  answer(text: string): Promise<string | null>;
-  /** Text to an Ogg/Opus clip, or null when it cannot be voiced. */
+  /** Run the utterance as an agent turn, handing over the reply as it is written. */
+  answer(text: string, write: (delta: string) => void): Promise<void>;
+  /** One sentence to an Ogg/Opus clip, or null when it cannot be voiced. */
   speak(text: string): Promise<Uint8Array | null>;
   /** How long the owner must talk over a reply before it stops. */
   bargeInMs?: number;
@@ -36,18 +38,17 @@ const DEFAULT_MIN_PACKETS = 15;
 
 /**
  * One live call, turn by turn: the owner speaks, the utterance is transcribed
- * and answered by the agent, the reply is voiced. Utterances are answered one
- * at a time in the order they were said. Talking over a reply that is being
- * voiced or played stops it (barge-in) — the agent's turn itself runs on, as in
- * the desktop's Voice Mode.
+ * and answered by the agent, and the reply is said sentence by sentence while
+ * the agent is still writing it. Utterances are answered one at a time in the
+ * order they were said. Talking over a reply that is being voiced or played
+ * stops it and drops the rest (barge-in) — the agent's turn itself runs on, as
+ * in the desktop's Voice Mode.
  */
 export class VoiceCall {
   private ended = false;
   private capturing = false;
-  /** A reply is being synthesized or played — the span barge-in applies to. */
-  private voicing = false;
-  /** Bumped on barge-in, so a reply voiced before it is never played. */
-  private generation = 0;
+  /** The reply being said, if any. */
+  private reply: SpokenReply | null = null;
   private bargeInTimer: ReturnType<typeof setTimeout> | null = null;
   private queue: Promise<void> = Promise.resolve();
   private readonly endedListeners = new Set<() => void>();
@@ -79,7 +80,12 @@ export class VoiceCall {
 
   /** Say something of the call's own, in turn with the replies. */
   say(text: string): Promise<void> {
-    return this.enqueue(() => this.voice(text));
+    return this.enqueue(async () => {
+      const reply = this.startReply();
+      reply.write(text);
+      reply.end();
+      await this.finishReply(reply);
+    });
   }
 
   hangUp(): void {
@@ -89,11 +95,10 @@ export class VoiceCall {
 
   private speechStarted(): void {
     if (this.ended) return;
-    if (this.voicing && !this.bargeInTimer) {
+    if (this.reply?.audible && !this.bargeInTimer) {
       this.bargeInTimer = setTimeout(() => {
         this.bargeInTimer = null;
-        this.generation += 1;
-        this.link.stop();
+        if (this.reply?.audible) this.reply.cancel();
       }, this.bargeInMs);
     }
     if (!this.capturing) void this.capture();
@@ -127,20 +132,27 @@ export class VoiceCall {
   private async respond(packets: ReadonlyArray<Uint8Array>): Promise<void> {
     const text = (await this.deps.transcribe(packets)).trim();
     if (!text || this.ended) return;
-    const reply = await this.deps.answer(text);
-    if (!reply || this.ended) return;
-    await this.voice(reply);
+    const reply = this.startReply();
+    try {
+      await this.deps.answer(text, (delta) => reply.write(delta));
+    } finally {
+      reply.end();
+    }
+    await this.finishReply(reply);
   }
 
-  private async voice(text: string): Promise<void> {
-    const generation = this.generation;
-    this.voicing = true;
+  private startReply(): SpokenReply {
+    const reply = new SpokenReply(this.link, (sentence) => this.deps.speak(sentence));
+    this.reply = reply;
+    if (this.ended) reply.cancel();
+    return reply;
+  }
+
+  private async finishReply(reply: SpokenReply): Promise<void> {
     try {
-      const clip = await this.deps.speak(text);
-      if (!clip || this.ended || generation !== this.generation) return;
-      await this.link.play(clip);
+      await reply.done;
     } finally {
-      this.voicing = false;
+      if (this.reply === reply) this.reply = null;
       this.cancelBargeIn();
     }
   }
@@ -149,6 +161,7 @@ export class VoiceCall {
     if (this.ended) return;
     this.ended = true;
     this.cancelBargeIn();
+    this.reply?.cancel();
     for (const unsubscribe of this.unsubscribes) unsubscribe();
     for (const listener of this.endedListeners) listener();
   }

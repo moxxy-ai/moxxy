@@ -224,3 +224,39 @@ describe('runDiscordTurn — a turn answered out loud in a call', () => {
     expect(prompts[1]).not.toMatch(/voice call/i);
   });
 });
+
+describe('runDiscordTurn — the reply as it is written, for a call to speak', () => {
+  it('passes each streamed piece on, and marks where one message ends', async () => {
+    const { channel } = recordedChannel();
+    const spoken: string[] = [];
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'assistant_chunk', delta: 'Już ' });
+      await emit({ type: 'assistant_chunk', delta: 'sprawdzam.' });
+      await emit({ type: 'assistant_message', content: 'Już sprawdzam.' });
+      await emit({ type: 'assistant_chunk', delta: 'Gotowe' });
+      await emit({ type: 'assistant_message', content: 'Gotowe' });
+    });
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200, onSpokenText: (d) => spoken.push(d) },
+      { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-stream') },
+    );
+
+    expect(spoken).toEqual(['Już ', 'sprawdzam.', '\n\n', 'Gotowe', '\n\n']);
+  });
+
+  it('passes a whole message on when the model did not stream it', async () => {
+    const { channel } = recordedChannel();
+    const spoken: string[] = [];
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'assistant_message', content: 'Cała odpowiedź.' });
+    });
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200, onSpokenText: (d) => spoken.push(d) },
+      { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-whole') },
+    );
+
+    expect(spoken).toEqual(['Cała odpowiedź.', '\n\n']);
+  });
+});

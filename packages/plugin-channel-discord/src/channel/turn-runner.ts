@@ -31,6 +31,12 @@ export interface RunDiscordTurnDeps {
    * reply. Best-effort — its failure is logged and never breaks the text turn.
    */
   readonly onFinalReply?: (text: string) => Promise<void>;
+  /**
+   * The reply as it is written, piece by piece (a call speaks it sentence by
+   * sentence). A blank line marks where one assistant message ends, so text
+   * before and after a tool call never runs into one sentence.
+   */
+  readonly onSpokenText?: (delta: string) => void;
 }
 
 /**
@@ -77,7 +83,7 @@ export async function runDiscordTurn(
   deps: RunDiscordTurnDeps,
   opts: RunDiscordTurnOptions,
 ): Promise<void> {
-  const { session, channel, typing, editFrameMs, logger, onFinalReply } = deps;
+  const { session, channel, typing, editFrameMs, logger, onFinalReply, onSpokenText } = deps;
   const { text, model, controller, turnId } = opts;
 
   const renderer = new DiscordTurnRenderer();
@@ -121,8 +127,18 @@ export async function runDiscordTurn(
   });
 
   typing.start(channel);
+  let streamed = false;
   const unsubscribe = subscribeTurn(session, turnId, (event) => {
     if (renderer.accept(event)) pump.scheduleEdit();
+    if (!onSpokenText) return;
+    if (event.type === 'assistant_chunk') {
+      streamed = true;
+      onSpokenText(event.delta);
+    } else if (event.type === 'assistant_message') {
+      if (!streamed && event.content) onSpokenText(event.content);
+      streamed = false;
+      onSpokenText('\n\n');
+    }
   });
 
   try {

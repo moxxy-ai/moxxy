@@ -94,14 +94,19 @@ function fakeLink() {
 
 /** The speech-to-text, agent and text-to-speech services, which the call
  *  reaches through plain functions. */
+type Answer = (text: string, write: (delta: string) => void) => Promise<void>;
+
 function services(overrides: Partial<{
   transcribe: (p: ReadonlyArray<Uint8Array>) => Promise<string>;
-  answer: (text: string) => Promise<string | null>;
+  answer: Answer;
   speak: (text: string) => Promise<Uint8Array | null>;
 }> = {}) {
+  const answer: Answer = async (text, write) => {
+    write(`odpowiedź na: ${text}`);
+  };
   return {
     transcribe: vi.fn(overrides.transcribe ?? (async () => 'cześć')),
-    answer: vi.fn(overrides.answer ?? (async (text: string) => `odpowiedź na: ${text}`)),
+    answer: vi.fn(overrides.answer ?? answer),
     speak: vi.fn(overrides.speak ?? (async (text: string) => new TextEncoder().encode(text))),
   };
 }
@@ -119,7 +124,7 @@ describe('a Discord voice call', () => {
     await voice.say();
 
     await until(() => voice.played.length === 1);
-    expect(deps.answer).toHaveBeenCalledWith('cześć');
+    expect(deps.answer).toHaveBeenCalledWith('cześć', expect.any(Function));
     expect(voice.played).toEqual(['odpowiedź na: cześć']);
   });
 
@@ -199,11 +204,14 @@ describe('a Discord voice call', () => {
 
   it('says nothing more once the call is hung up', async () => {
     const voice = fakeLink();
-    let answered: ((text: string) => void) | null = null;
+    let answered: (() => void) | null = null;
     const deps = services({
-      answer: () =>
+      answer: (_text, write) =>
         new Promise((resolve) => {
-          answered = resolve;
+          answered = () => {
+            write('Już po rozmowie.');
+            resolve();
+          };
         }),
     });
     const call = startCall(voice.link, deps);
@@ -211,7 +219,7 @@ describe('a Discord voice call', () => {
     await until(() => answered !== null);
 
     call.hangUp();
-    answered?.('już po rozmowie');
+    answered?.();
     await sleep(10);
 
     expect(voice.closed).toBe(true);
@@ -238,5 +246,71 @@ describe('a Discord voice call', () => {
 
     await until(() => voice.played.length === 1);
     expect(voice.played).toEqual(['Hej, skończyłem zadanie.']);
+  });
+});
+
+describe('a reply said while the agent is still writing it', () => {
+  it('starts talking before the agent has finished', async () => {
+    const voice = fakeLink();
+    startCall(voice.link, services({ answer: (_text, write) => new Promise(() => write('Już sprawdzam. ')) }));
+
+    await voice.say();
+
+    await until(() => voice.played.length === 1);
+    expect(voice.played).toEqual(['Już sprawdzam.']);
+  });
+
+  it('talking over it also drops what the agent writes afterwards', async () => {
+    const voice = fakeLink();
+    let more: (() => void) | null = null;
+    startCall(
+      voice.link,
+      services({
+        answer: (_text, write) =>
+          new Promise((resolve) => {
+            write('Pierwsze. ');
+            more = () => {
+              write('Drugie. ');
+              resolve();
+            };
+          }),
+      }),
+    );
+    await voice.say();
+    await until(() => voice.playing);
+
+    voice.startSpeaking();
+    await sleep(BARGE_IN_MS * 3);
+    more?.();
+    await sleep(10);
+
+    expect(voice.played).toEqual(['Pierwsze.']);
+  });
+
+  it('does not cut off a reply that has not started, and says it once it comes', async () => {
+    const voice = fakeLink();
+    let reply: (() => void) | null = null;
+    startCall(
+      voice.link,
+      services({
+        answer: (_text, write) =>
+          new Promise((resolve) => {
+            reply = () => {
+              write('Gotowe.');
+              resolve();
+            };
+          }),
+      }),
+    );
+    await voice.say();
+    await until(() => reply !== null);
+
+    voice.startSpeaking();
+    await sleep(BARGE_IN_MS * 3);
+    voice.stopSpeaking();
+    reply?.();
+
+    await until(() => voice.played.length === 1);
+    expect(voice.played).toEqual(['Gotowe.']);
   });
 });

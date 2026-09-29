@@ -518,7 +518,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         if (!session) return Promise.resolve('');
         return transcribeForCall(session, packets);
       },
-      answer: (text) => this.answerCall(text),
+      answer: (text, write) => this.answerCall(text, write),
       speak: (text) => (this.session ? speakForCall(this.session, text) : Promise.resolve(null)),
       onError: (err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -531,25 +531,27 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   }
 
   /** One utterance of a call: echoed and answered in the owner's DM like a
-   *  voice message; the final reply is what the call says back. */
-  private async answerCall(text: string): Promise<string | null> {
+   *  voice message, while the call says the reply as it is written. */
+  private async answerCall(text: string, write: (delta: string) => void): Promise<void> {
     const dm = await this.openOwnerDm();
-    if (!dm) return null;
+    if (!dm) return;
     await dm.send(`*heard:* ${text}`);
-    let reply: string | null = null;
     await this.runUserTurn({ channel: dm, reply: (t) => dm.send(t) }, text, {
       spoken: true,
-      onFinalReply: async (finalText) => {
-        reply = finalText;
-      },
+      // Said out loud already — no reply.ogg on top of it.
+      onFinalReply: async () => undefined,
+      onSpokenText: write,
     });
-    return reply;
   }
 
   private async runUserTurn(
     ctx: Pick<InboundContext, 'channel' | 'reply'>,
     text: string,
-    opts: { readonly spoken?: boolean; readonly onFinalReply?: (finalText: string) => Promise<void> } = {},
+    opts: {
+      readonly spoken?: boolean;
+      readonly onFinalReply?: (finalText: string) => Promise<void>;
+      readonly onSpokenText?: (delta: string) => void;
+    } = {},
   ): Promise<void> {
     if (!this.session) throw new Error('DiscordChannel.start() must be called first');
     // Atomic single-flight guard: `begin` claims the slot synchronously so a
@@ -574,6 +576,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           editFrameMs: this.editFrameMs,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
           onFinalReply: opts.onFinalReply ?? ((finalText) => this.sendVoiceReply(ctx.channel, finalText)),
+          ...(opts.onSpokenText ? { onSpokenText: opts.onSpokenText } : {}),
         },
         {
           text,
