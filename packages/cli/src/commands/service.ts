@@ -1,6 +1,6 @@
 import type { ParsedArgv } from '../argv.js';
 import { colors } from '../colors.js';
-import { helpRequested, stringFlag } from '../argv-helpers.js';
+import { hasBoolFlag, helpRequested, stringFlag } from '../argv-helpers.js';
 import { formatHelp } from './help-format.js';
 import {
   getServiceStatus,
@@ -21,6 +21,7 @@ import {
  *
  * Currently shipped catalog:
  *   - telegram  → `moxxy telegram --no-wizard`     (bot stays online for the paired chat)
+ *   - discord   → `moxxy discord --no-wizard`      (bot stays online for the paired account)
  *   - http      → `moxxy channels http`            (HTTP channel listener)
  *   - scheduler → `moxxy schedule daemon`          (cron / one-shot prompt firing)
  *
@@ -48,6 +49,14 @@ const CATALOG: ReadonlyArray<ServiceSpec> = [
     execArgs: ['telegram', '--no-wizard'],
   },
   {
+    id: 'discord',
+    description: 'moxxy discord channel — keeps the paired bot online in the background',
+    execArgs: ['discord', '--no-wizard'],
+    // Same headless profile the desktop's "Start" uses: no web surface on :4040
+    // and no core self-update from an unattended background unit.
+    env: { MOXXY_NO_WEB_SURFACE: '1', MOXXY_NO_CORE_UPDATE: '1' },
+  },
+  {
     id: 'http',
     description: 'moxxy HTTP channel — serves /v1/turn for remote requests',
     execArgs: ['channels', 'http'],
@@ -72,7 +81,7 @@ const HELP = formatHelp({
         ['start <name>', 'start an already-installed service'],
         ['stop <name>', 'stop a running service (does not uninstall)'],
         ['restart <name>', 'stop then start'],
-        ['status [<name>]', 'one-line summary for one service, or all if omitted'],
+        ['status [<name>] [--json]', 'one-line summary for one service, or all if omitted'],
         ['logs <name> [--lines N]', 'tail the service log (default 40 lines)'],
         ['path <name>', 'print the unit file path'],
       ],
@@ -196,6 +205,20 @@ async function runStatus(argv: ParsedArgv): Promise<number> {
     return 2;
   }
   const s = await getServiceStatus(spec);
+  if (hasBoolFlag(argv, 'json')) {
+    process.stdout.write(
+      JSON.stringify({
+        service: spec.id,
+        platform: s.platform,
+        installed: s.installed,
+        running: s.running,
+        cmd: 'moxxy ' + spec.execArgs.join(' '),
+        log: s.logPath,
+        ...(s.unitPath ? { unit: s.unitPath } : {}),
+      }) + '\n',
+    );
+    return 0;
+  }
   const rows: Array<[string, string]> = [
     ['service', spec.id],
     ['platform', s.platform],
