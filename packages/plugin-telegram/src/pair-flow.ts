@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
+import { finishPairing, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { TelegramChannel } from './channel.js';
 
@@ -21,7 +21,8 @@ const dim = (s: string): string => (ANSI ? `\x1b[2m${s}\x1b[22m` : s);
  *   4. Render that deep link as a scannable QR (+ the plain link).
  *   5. The user scans / opens the link and taps START (or sends the 6 digits);
  *      the bot authorizes that chat and `onPaired` fires.
- *   6. Hand off SIGINT to keep the bot running until the user Ctrl-Cs.
+ *   6. Stop the pairing bot (it ran on the provider-less probe session) and
+ *      start the channel for real with the configured model (`finishPairing`).
  */
 export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number> {
   const session = ctx.session;
@@ -78,7 +79,7 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
   await printPairQr(url);
   log.info('Scan the QR with your phone (or open the link and tap START) — your chat pairs automatically.');
 
-  // Graceful Ctrl-C while waiting (or once running): stop the bot and exit.
+  // Graceful Ctrl-C while waiting for the pairing: stop the bot and exit.
   let stopping = false;
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
@@ -96,26 +97,11 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
   const chatId = await paired;
   spin.stop(`Paired ✓ — chat ${chatId} is authorized.`);
 
-  if (exitAfterPairRequested(ctx)) {
-    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
-    // starts the bot under its own service afterwards. Our SIGINT handlers
-    // would `process.exit` the orchestrator, so drop them first.
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-    await stopBot();
-    return 0;
-  }
-
-  log.info('Bot is running. Press Ctrl+C to stop.');
-  try {
-    // Only reached if the bot stops on its own (a signal path exits via
-    // shutdown()); remove our handlers so they don't outlive this flow.
-    await handle.running;
-    return 0;
-  } finally {
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-  }
+  // Drop the pairing-only Ctrl+C handlers first: their `process.exit` would
+  // otherwise cut the real channel (or an orchestrator) short.
+  process.removeListener('SIGINT', onSignal);
+  process.removeListener('SIGTERM', onSignal);
+  return finishPairing(ctx, stopBot);
 }
 
 /** Render the pairing deep link as a scannable terminal QR + the plain link. */

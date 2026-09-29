@@ -1,5 +1,5 @@
-import { isCancel, log, outro, spinner, text } from '@clack/prompts';
-import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
+import { isCancel, log, outro, text } from '@clack/prompts';
+import { finishPairing, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { DiscordChannel } from './channel.js';
 
@@ -21,7 +21,8 @@ const MAX_CODE_ATTEMPTS = 5;
  *      the bot replies to that DM with a one-time code.
  *   4. Prompt for the code here; on match that account is authorized and
  *      persisted.
- *   5. Keep the bot running until Ctrl+C (mirrors the Telegram pair flow).
+ *   5. Stop the pairing bot (it ran on the provider-less probe session) and
+ *      start the channel for real with the configured model (`finishPairing`).
  */
 export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number> {
   const session = ctx.session;
@@ -61,7 +62,7 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
     'Now DM the bot from YOUR Discord account (any message). It replies with a one-time code — paste that code below.',
   );
 
-  // Graceful Ctrl-C while waiting (or once running): stop the bot and exit.
+  // Graceful Ctrl-C while waiting for the pairing: stop the bot and exit.
   let stopping = false;
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
@@ -100,23 +101,11 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
       await stopBot();
       return 1;
     }
-
-    if (exitAfterPairRequested(ctx)) {
-      // Orchestrated pairing (`moxxy onboard`): hand control back — the
-      // caller starts the bot under its own service afterwards.
-      await stopBot();
-      return 0;
-    }
-
-    const spin = spinner();
-    spin.start('Bot is running. Press Ctrl+C to stop.');
-    // Only reached if the bot stops on its own (a signal path exits via
-    // shutdown()).
-    await handle.running;
-    spin.stop('bot stopped.');
-    return 0;
   } finally {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
   }
+  // Only after the pairing-only Ctrl+C handlers are gone, so the real channel's own
+  // shutdown owns the process from here.
+  return finishPairing(ctx, stopBot);
 }

@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
+import { finishPairing, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { WhatsAppChannel } from './channel.js';
 import { CONSENT_REQUIRED_MESSAGE } from './consent.js';
@@ -97,26 +97,13 @@ export async function runWhatsAppPairFlow(ctx: ChannelSubcommandContext): Promis
   const ownerJid = await paired;
   spin.stop(`Linked as ${ownerJid}. Your Note-to-Self chat now talks to moxxy.`);
 
-  if (exitAfterPairRequested(ctx)) {
-    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
-    // starts the channel under its own service afterwards. Our SIGINT
-    // handlers would `process.exit` the orchestrator, so drop them first.
-    unsubscribeConnect();
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-    await stopChannel();
-    return 0;
-  }
-
-  log.info('Channel is running. Press Ctrl+C to stop.');
-  try {
-    await handle.running;
-    return 0;
-  } finally {
-    unsubscribeConnect();
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-  }
+  // Drop the pairing-only handlers first: their `process.exit` would otherwise
+  // cut the real channel (or an orchestrator) short. The linked credentials are
+  // persisted, so the restarted channel reconnects without a new QR.
+  unsubscribeConnect();
+  process.removeListener('SIGINT', onSignal);
+  process.removeListener('SIGTERM', onSignal);
+  return finishPairing(ctx, stopChannel);
 }
 
 /** Render the rotating pairing payload as a scannable terminal QR. */
