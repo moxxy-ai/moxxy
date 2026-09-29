@@ -85,6 +85,10 @@ export class SessionDriver {
     this.syncOtherTurns();
     this.disposes.push(infoUnsub);
 
+    // `/new` from another client of the conversation (a channel bot, the TUI)
+    // wiped the runner's log: clear this chat too, or it keeps the old one.
+    this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));
+
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
     // renderer's pane can render them. Tagged with workspaceId so a background
     // workspace's surface never paints into the foreground one (v8).

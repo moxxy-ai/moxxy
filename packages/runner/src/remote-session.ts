@@ -223,6 +223,8 @@ export class RemoteSession implements ClientSession {
   private info: SessionInfo | null = null;
   /** Subscribers to `info.changed` pushes (see {@link onInfoChanged}). */
   private readonly infoListeners = new Set<(info: SessionInfo) => void>();
+  /** Subscribers to `session.reset` pushes (see {@link onReset}). */
+  private readonly resetListeners = new Set<() => void>();
   /** Subscribers to `surface.data` frames (see {@link onSurfaceData}). */
   private readonly surfaceDataListeners = new Set<(data: SurfaceDataMessage) => void>();
   /**
@@ -290,6 +292,13 @@ export class RemoteSession implements ClientSession {
       // accepted exactly when the mirror is empty again. The mirror's own
       // clear listeners fire, letting channel UIs observe the wipe.
       this.mirror.clear();
+      for (const fn of this.resetListeners) {
+        try {
+          fn();
+        } catch {
+          /* a bad subscriber must not break the mirror */
+        }
+      }
     });
 
     // Server->client requests (the runner asks us to decide).
@@ -527,6 +536,13 @@ export class RemoteSession implements ClientSession {
    * a turn). Fires after the local `getInfo()` mirror has been updated, so a
    * listener can re-read it synchronously. Returns an unsubscribe fn.
    */
+  /** The runner started a new conversation (`/new` from any client, such as
+   *  a channel bot). Fires after the local mirror was cleared. */
+  onReset(fn: () => void): () => void {
+    this.resetListeners.add(fn);
+    return () => this.resetListeners.delete(fn);
+  }
+
   /** Stop a running turn, also one another client or the runner itself
    *  started (a channel bot). A finished or unknown turn is ignored. */
   async abortTurn(turnId: string): Promise<void> {

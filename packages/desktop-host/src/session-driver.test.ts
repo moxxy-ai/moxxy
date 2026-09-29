@@ -364,6 +364,7 @@ function fakeRemote(options: {
       return () => infoListeners.delete(fn);
     },
     onSurfaceData: () => () => undefined,
+    onReset: () => () => undefined,
     // A runner that predates the shared auto-approve switch reports none.
     getInfo: () => ({}),
   };
@@ -445,6 +446,20 @@ describe('SessionDriver shared auto-approve', () => {
     await driver.setAutoApprove(true);
 
     expect(session.getInfo().autoApprove).toBe(true);
+    driver.dispose();
+  });
+
+  it('clears the chat when another client starts a new conversation (a channel bot’s /new)', async () => {
+    const { session, socketPath } = await serveConversation();
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+
+    await session.reset();
+
+    await waitFor(() => sent.some((f) => f.channel === 'chat.cleared'));
+    expect(sent.filter((f) => f.channel === 'chat.cleared').map((f) => f.payload)).toEqual([{ workspaceId: 'ws-chat' }]);
     driver.dispose();
   });
 
