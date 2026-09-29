@@ -41,7 +41,9 @@ involved. Calls draw on your ChatGPT voice allowance.
   agent's activity (reading the project, running tests, editing files, …) is
   sent to GPT-Live as silent context, and the same operations show on the
   Voice Mode rail. "How is it going?" is answered by GPT-Live itself instead of
-  becoming another task.
+  becoming another task. Between tool calls — one model call can run for
+  minutes — the rail says "Agent thinking · m:ss" or "Agent writing a reply"
+  instead of "No tools running" (both voice engines).
 - **One task at a time; voice never feeds the chat queue.** If you ask for a
   new task while the agent is busy (with a voice task, or with something typed
   that is running or queued), it is **not started** and never runs later: the
