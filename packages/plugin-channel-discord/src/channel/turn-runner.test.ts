@@ -178,3 +178,27 @@ describe('runDiscordTurn — send-once-then-edit streaming', () => {
     expect(sends.join(' ')).toMatch(/Turn failed: provider exploded/);
   });
 });
+
+describe('runDiscordTurn — what the model is told about Discord', () => {
+  it('tells the model local file links cannot be opened here and to attach files with discord_send_message', async () => {
+    const { channel } = recordedChannel();
+    let systemPrompt: string | undefined;
+    const session = {
+      log: { subscribe: () => () => undefined },
+      runTurn: (_prompt: string, opts: { systemPrompt?: string }) => {
+        systemPrompt = opts.systemPrompt;
+        return (async function* () {})();
+      },
+    } as unknown as Session;
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200 },
+      { text: 'send me the photo', controller: new AbortController(), turnId: asTurnId('t-files') },
+    );
+
+    expect(systemPrompt).toMatch(/Discord/);
+    expect(systemPrompt).toMatch(/file:\/\//);
+    expect(systemPrompt).toMatch(/discord_send_message/);
+    expect(systemPrompt).toMatch(/files/);
+  });
+});

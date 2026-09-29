@@ -46,6 +46,8 @@ export interface DriveTurnOptions {
   readonly turnId: TurnId;
   readonly prompt: string;
   readonly model?: string | undefined;
+  /** Context for the model about the surface the turn runs on. */
+  readonly systemPrompt?: string;
   readonly signal: AbortSignal;
 }
 
@@ -58,6 +60,7 @@ export async function driveTurn(session: TurnSession, opts: DriveTurnOptions): P
   for await (const _event of session.runTurn(opts.prompt, {
     turnId: opts.turnId,
     ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
     signal: opts.signal,
   })) {
     void _event;

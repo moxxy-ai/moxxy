@@ -33,6 +33,17 @@ export interface RunDiscordTurnDeps {
   readonly onFinalReply?: (text: string) => Promise<void>;
 }
 
+/**
+ * What the model must know about replying on Discord: a `file://` link or a
+ * local path is dead text there, so a file the user asks for has to go out as
+ * an attachment through `discord_send_message`.
+ */
+export const DISCORD_TURN_CONTEXT =
+  'You are replying in a Discord chat. The user cannot open local paths or file:// links there. ' +
+  'To give them a file from this computer (an image, a document, a video), call ' +
+  '`discord_send_message` with `files: ["<absolute path>"]` — it arrives in their Discord DMs as an ' +
+  'attachment they can open or download (10 MB per message at most) — then say briefly that you sent it.';
+
 export interface RunDiscordTurnOptions {
   readonly text: string;
   readonly model?: string | undefined;
@@ -112,6 +123,7 @@ export async function runDiscordTurn(
       turnId,
       prompt: text,
       ...(model ? { model } : {}),
+      systemPrompt: DISCORD_TURN_CONTEXT,
       signal: controller.signal,
     });
     await pump.flush(true);

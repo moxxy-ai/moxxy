@@ -103,6 +103,25 @@ describe('driveTurn', () => {
       signal: new AbortController().signal,
     });
     expect(receivedOpts && 'model' in receivedOpts).toBe(false);
+    expect(receivedOpts && 'systemPrompt' in receivedOpts).toBe(false);
+  });
+
+  it('forwards the surface context the channel gives the model', async () => {
+    let receivedOpts: Record<string, unknown> | undefined;
+    const session = {
+      log: new FakeLog(),
+      runTurn(_prompt: string, opts: Record<string, unknown>) {
+        receivedOpts = opts;
+        return (async function* () {})();
+      },
+    };
+    await driveTurn(session, {
+      turnId: asTurnId('t3'),
+      prompt: 'hi',
+      systemPrompt: 'You are on Discord.',
+      signal: new AbortController().signal,
+    });
+    expect(receivedOpts).toMatchObject({ systemPrompt: 'You are on Discord.' });
   });
 });
 
