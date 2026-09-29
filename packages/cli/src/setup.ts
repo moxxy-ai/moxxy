@@ -29,6 +29,7 @@ import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
 import { buildSecretResolver, vaultSecretProvider } from './setup/secrets.js';
+import { applyTranscriberDefault } from './setup/apply-transcriber.js';
 import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
@@ -306,6 +307,9 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // never throws at boot. provider/embedder/isolator are applied by their
   // bespoke callers above/below.
   applyPluginsTree(session, config, logger);
+  // Voice input: the configured transcriber, else Codex when logged in with
+  // ChatGPT — so a channel bot hears voice notes like the desktop mic does.
+  await applyTranscriberDefault(session, config, vault, logger);
   // Fail loud if any non-nullable slot ended up empty (a broken build/seed) —
   // never let the user hit a half-initialized app.
   assertCriticalFloors(session);
