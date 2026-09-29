@@ -27,10 +27,13 @@ export class SpokenReply {
   private cancelled = false;
   private playing = false;
   private wake: (() => void) | null = null;
+  private wasAudible = false;
 
   constructor(
     private readonly output: SpeechOutput,
     private readonly speak: (text: string) => Promise<Uint8Array | null>,
+    /** Told whenever {@link audible} flips. */
+    private readonly onAudible?: (audible: boolean) => void,
   ) {
     this.done = this.run();
   }
@@ -46,6 +49,12 @@ export class SpokenReply {
     this.add(this.segmenter.push(delta));
   }
 
+  /** A whole sentence of the call's own, said in turn with the reply. */
+  interject(sentence: string): void {
+    if (this.cancelled || this.ended) return;
+    this.add([sentence]);
+  }
+
   /** No more text: say what is left, even an unfinished sentence. */
   end(): void {
     if (this.cancelled || this.ended) return;
@@ -59,12 +68,21 @@ export class SpokenReply {
     this.cancelled = true;
     this.output.stop();
     this.notify();
+    this.syncAudible();
   }
 
   private add(texts: ReadonlyArray<string>): void {
     for (const text of texts) this.sentences.push({ text, clip: null });
     this.prepare();
     this.notify();
+    this.syncAudible();
+  }
+
+  private syncAudible(): void {
+    const audible = this.audible;
+    if (audible === this.wasAudible) return;
+    this.wasAudible = audible;
+    this.onAudible?.(audible);
   }
 
   /** Start voicing the next sentence and the ones after it, up to the prefetch. */
@@ -97,12 +115,16 @@ export class SpokenReply {
       const clip = await sentence.clip;
       this.next += 1;
       if (this.cancelled) return;
-      if (!clip) continue;
+      if (!clip) {
+        this.syncAudible();
+        continue;
+      }
       this.playing = true;
       try {
         await this.output.play(clip);
       } finally {
         this.playing = false;
+        this.syncAudible();
       }
     }
   }

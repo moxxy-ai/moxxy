@@ -26,7 +26,15 @@ the agent answers, and the answer is read aloud. You can interrupt it.
   and speakable. The bot starts talking as soon as the agent has written its
   first sentence, and voices the next two while one plays — the same sentence
   splitting as the desktop's Voice Mode.
-- **Interrupting:** talk over a reply for a moment and the bot stops speaking,
+- **While the agent works** you are not left in silence: the agent is asked to
+  say in one short sentence what it is about to do and, before each further
+  step, what it is checking now. If it starts a step without a word, the bot
+  names the kind of step itself ("Przeglądam pliki.", "Sprawdzam, czy wszystko
+  działa.", "Szukam w internecie."), and during a long step it says it is still
+  at it (after 10 s, 40 s, then every 90 s). It never repeats itself within 8 s
+  of speaking and never reads out commands or paths. This is the desktop's
+  Voice Mode feedback (shared in `@moxxy/chat-model`) with the step names on.
+ talk over a reply for a moment and the bot stops speaking,
   drops the rest of that reply, and listens. As in the desktop's Voice Mode, this stops only the speech; the
   agent's work goes on. Things you say while the agent works are answered in
   order.

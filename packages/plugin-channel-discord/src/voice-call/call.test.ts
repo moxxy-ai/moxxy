@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { VoiceCall, type VoiceLink } from './call.js';
+import { VoiceCall, type CallTurnListener, type VoiceLink } from './call.js';
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -94,15 +94,15 @@ function fakeLink() {
 
 /** The speech-to-text, agent and text-to-speech services, which the call
  *  reaches through plain functions. */
-type Answer = (text: string, write: (delta: string) => void) => Promise<void>;
+type Answer = (text: string, turn: CallTurnListener) => Promise<void>;
 
 function services(overrides: Partial<{
   transcribe: (p: ReadonlyArray<Uint8Array>) => Promise<string>;
   answer: Answer;
   speak: (text: string) => Promise<Uint8Array | null>;
 }> = {}) {
-  const answer: Answer = async (text, write) => {
-    write(`odpowiedź na: ${text}`);
+  const answer: Answer = async (text, turn) => {
+    turn.text(`odpowiedź na: ${text}`);
   };
   return {
     transcribe: vi.fn(overrides.transcribe ?? (async () => 'cześć')),
@@ -124,7 +124,7 @@ describe('a Discord voice call', () => {
     await voice.say();
 
     await until(() => voice.played.length === 1);
-    expect(deps.answer).toHaveBeenCalledWith('cześć', expect.any(Function));
+    expect(deps.answer).toHaveBeenCalledWith('cześć', expect.objectContaining({ text: expect.any(Function) }));
     expect(voice.played).toEqual(['odpowiedź na: cześć']);
   });
 
@@ -206,10 +206,10 @@ describe('a Discord voice call', () => {
     const voice = fakeLink();
     let answered: (() => void) | null = null;
     const deps = services({
-      answer: (_text, write) =>
+      answer: (_text, turn) =>
         new Promise((resolve) => {
           answered = () => {
-            write('Już po rozmowie.');
+            turn.text('Już po rozmowie.');
             resolve();
           };
         }),
@@ -252,7 +252,7 @@ describe('a Discord voice call', () => {
 describe('a reply said while the agent is still writing it', () => {
   it('starts talking before the agent has finished', async () => {
     const voice = fakeLink();
-    startCall(voice.link, services({ answer: (_text, write) => new Promise(() => write('Już sprawdzam. ')) }));
+    startCall(voice.link, services({ answer: (_text, turn) => new Promise(() => turn.text('Już sprawdzam. ')) }));
 
     await voice.say();
 
@@ -266,11 +266,11 @@ describe('a reply said while the agent is still writing it', () => {
     startCall(
       voice.link,
       services({
-        answer: (_text, write) =>
+        answer: (_text, turn) =>
           new Promise((resolve) => {
-            write('Pierwsze. ');
+            turn.text('Pierwsze. ');
             more = () => {
-              write('Drugie. ');
+              turn.text('Drugie. ');
               resolve();
             };
           }),
@@ -293,10 +293,10 @@ describe('a reply said while the agent is still writing it', () => {
     startCall(
       voice.link,
       services({
-        answer: (_text, write) =>
+        answer: (_text, turn) =>
           new Promise((resolve) => {
             reply = () => {
-              write('Gotowe.');
+              turn.text('Gotowe.');
               resolve();
             };
           }),
@@ -312,5 +312,57 @@ describe('a reply said while the agent is still writing it', () => {
 
     await until(() => voice.played.length === 1);
     expect(voice.played).toEqual(['Gotowe.']);
+  });
+});
+
+describe('a call while the agent works', () => {
+  it('says which step it is on when the agent works without a word', async () => {
+    const voice = fakeLink();
+    let finish: (() => void) | null = null;
+    startCall(
+      voice.link,
+      services({
+        transcribe: async () => 'Sprawdź proszę pliki projektu.',
+        answer: (_text, turn) =>
+          new Promise((resolve) => {
+            turn.toolStarted('c1', 'Read', { file_path: 'src/index.ts' });
+            finish = () => {
+              turn.toolFinished('c1', true);
+              turn.text('Wszystko w porządku.');
+              resolve();
+            };
+          }),
+      }),
+    );
+    await voice.say();
+
+    await until(() => voice.played.length === 1);
+    finish?.();
+    voice.finishPlaying();
+    await until(() => voice.played.length === 2);
+
+    expect(voice.played).toEqual(['Przeglądam pliki.', 'Wszystko w porządku.']);
+  });
+
+  it('adds no step of its own right after the agent said what it is doing', async () => {
+    const voice = fakeLink();
+    startCall(
+      voice.link,
+      services({
+        transcribe: async () => 'Sprawdź proszę logi.',
+        answer: (_text, turn) =>
+          new Promise(() => {
+            turn.text('Dobrze, sprawdzam logi.\n\n');
+            turn.toolStarted('c1', 'Bash', { command: 'tail app.log' });
+          }),
+      }),
+    );
+    await voice.say();
+
+    await until(() => voice.played.length === 1);
+    voice.finishPlaying();
+    await sleep(20);
+
+    expect(voice.played).toEqual(['Dobrze, sprawdzam logi.']);
   });
 });

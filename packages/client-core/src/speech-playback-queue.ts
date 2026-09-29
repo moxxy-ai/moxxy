@@ -1,3 +1,4 @@
+import type { SpeechPlaybackKind, SpeechPlaybackPhase } from '@moxxy/chat-model';
 import { toErrorMessage } from './errors.js';
 import { getPlatform, type AudioClipHandle } from './platform.js';
 import { toSpeakableText } from './speech.js';
@@ -5,8 +6,7 @@ import { planSpeechProsody, type SpeechProsody } from './speech-prosody.js';
 import { detectSpeechLanguage, type SpeechLanguage } from './streaming-speech.js';
 import { api } from './transport.js';
 
-export type SpeechPlaybackPhase = 'idle' | 'synthesizing' | 'speaking' | 'error';
-export type SpeechPlaybackKind = 'assistant' | 'cue';
+export type { SpeechPlaybackKind, SpeechPlaybackPhase };
 
 export interface SpeechPlaybackSnapshot {
   readonly phase: SpeechPlaybackPhase;

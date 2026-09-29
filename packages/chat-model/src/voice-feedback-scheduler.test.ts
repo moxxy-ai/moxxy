@@ -4,6 +4,7 @@ import {
   categorizeVoiceToolActivity,
   type VoiceFeedbackClock,
   type VoiceFeedbackCue,
+  type VoiceFeedbackSchedulerOptions,
 } from './voice-feedback-scheduler.js';
 
 interface ScheduledTask {
@@ -50,7 +51,7 @@ class ManualClock implements VoiceFeedbackClock {
   }
 }
 
-function setup() {
+function setup(options: Partial<VoiceFeedbackSchedulerOptions> = {}) {
   const clock = new ManualClock();
   const cues: Array<VoiceFeedbackCue & { readonly at: number }> = [];
   const waitingToneStarts: number[] = [];
@@ -66,6 +67,7 @@ function setup() {
     cancelPendingCues: () => {
       cancelled += 1;
     },
+    ...options,
   });
   return {
     clock,
@@ -78,6 +80,56 @@ function setup() {
 }
 
 describe('VoiceFeedbackScheduler', () => {
+  it('announces each step it starts when asked to, in the language of the request', () => {
+    const polish = setup({ announceSteps: true });
+    polish.scheduler.beginTurn('Sprawdź proszę, czy testy przechodzą.');
+    polish.scheduler.toolApproved('call-1', 'Bash', { command: 'pnpm test' });
+
+    const english = setup({ announceSteps: true });
+    english.scheduler.beginTurn('Please look at the config file for me.');
+    english.scheduler.toolApproved('call-1', 'Read', { file_path: 'moxxy.config.ts' });
+
+    expect(polish.cues.map(({ kind, text, at }) => ({ kind, text, at }))).toEqual([
+      { kind: 'step', text: 'Sprawdzam, czy wszystko działa.', at: 0 },
+    ]);
+    expect(english.cues.map(({ kind, text }) => ({ kind, text }))).toEqual([
+      { kind: 'step', text: 'Looking through the files.' },
+    ]);
+  });
+
+  it('does not announce a step right after something was said or while speech plays', () => {
+    const { clock, cues, scheduler } = setup({ announceSteps: true });
+
+    scheduler.beginTurn('Poszukaj proszę w internecie i w projekcie.');
+    scheduler.toolApproved('call-1', 'Read', {});
+    scheduler.toolResult('call-1', true);
+    clock.advanceTo(3_000);
+    scheduler.toolApproved('call-2', 'Grep', { pattern: 'x' });
+    scheduler.toolResult('call-2', true);
+    clock.advanceTo(9_000);
+    scheduler.setPlayback('speaking', 'assistant');
+    scheduler.toolApproved('call-3', 'Bash', { command: 'ls' });
+    scheduler.toolResult('call-3', true);
+    scheduler.setPlayback('idle', null);
+    clock.advanceTo(17_000);
+    scheduler.toolApproved('call-4', 'web_search', { query: 'moxxy' });
+
+    expect(cues.map(({ text, at }) => ({ text, at }))).toEqual([
+      { text: 'Przeglądam pliki.', at: 0 },
+      { text: 'Szukam w internecie.', at: 17_000 },
+    ]);
+  });
+
+  it('keeps steps quiet unless asked to announce them', () => {
+    const { clock, cues, scheduler } = setup();
+
+    scheduler.beginTurn('Sprawdź proszę, czy testy przechodzą.');
+    scheduler.toolApproved('call-1', 'Bash', { command: 'pnpm test' });
+    clock.advanceTo(5_000);
+
+    expect(cues).toEqual([]);
+  });
+
   it('starts the waiting tone during transcription and keeps it running when text arrives', () => {
     const { clock, waitingToneStarts, scheduler, waitingToneStops } = setup();
 

@@ -4,6 +4,7 @@ import { FramePump, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import { DiscordTurnRenderer, splitForDiscord } from '../render.js';
 import type { ChannelLogger, SendableChannelLike, SentMessageLike } from './discord-like.js';
 import type { TypingIndicator } from './typing-indicator.js';
+import type { CallTurnListener } from '../voice-call/call.js';
 
 /**
  * Discord's per-channel edit budget is ~5 edits / 5s; the streaming edit
@@ -32,11 +33,12 @@ export interface RunDiscordTurnDeps {
    */
   readonly onFinalReply?: (text: string) => Promise<void>;
   /**
-   * The reply as it is written, piece by piece (a call speaks it sentence by
-   * sentence). A blank line marks where one assistant message ends, so text
-   * before and after a tool call never runs into one sentence.
+   * A call listening to the turn: the reply as it is written, piece by piece
+   * (spoken sentence by sentence), and each approved step as it starts and
+   * ends. A blank line marks where one assistant message ends, so text before
+   * and after a tool call never runs into one sentence.
    */
-  readonly onSpokenText?: (delta: string) => void;
+  readonly spokenTurn?: CallTurnListener;
 }
 
 /**
@@ -53,7 +55,10 @@ export const DISCORD_TURN_CONTEXT =
 /** Added when the reply is said out loud in a voice call. */
 export const DISCORD_CALL_CONTEXT =
   'This message was spoken in a voice call and your reply will be read aloud: answer briefly, in ' +
-  'plain spoken sentences, without markdown, code blocks, tables or links.';
+  'plain spoken sentences, without markdown, code blocks, tables or links. The caller hears nothing ' +
+  'while you work, so before you use tools, say in one short sentence what you are about to do ' +
+  '(for example "Dobrze, sprawdzam logi."), and before each further step say in a few words what ' +
+  'you are checking now. Speak in the language of the request.';
 
 export interface RunDiscordTurnOptions {
   readonly text: string;
@@ -83,7 +88,7 @@ export async function runDiscordTurn(
   deps: RunDiscordTurnDeps,
   opts: RunDiscordTurnOptions,
 ): Promise<void> {
-  const { session, channel, typing, editFrameMs, logger, onFinalReply, onSpokenText } = deps;
+  const { session, channel, typing, editFrameMs, logger, onFinalReply, spokenTurn } = deps;
   const { text, model, controller, turnId } = opts;
 
   const renderer = new DiscordTurnRenderer();
@@ -128,16 +133,38 @@ export async function runDiscordTurn(
 
   typing.start(channel);
   let streamed = false;
+  const requested = new Map<string, { readonly name: string; readonly input: unknown }>();
+  const running = new Set<string>();
   const unsubscribe = subscribeTurn(session, turnId, (event) => {
     if (renderer.accept(event)) pump.scheduleEdit();
-    if (!onSpokenText) return;
-    if (event.type === 'assistant_chunk') {
-      streamed = true;
-      onSpokenText(event.delta);
-    } else if (event.type === 'assistant_message') {
-      if (!streamed && event.content) onSpokenText(event.content);
-      streamed = false;
-      onSpokenText('\n\n');
+    if (!spokenTurn) return;
+    switch (event.type) {
+      case 'assistant_chunk':
+        streamed = true;
+        spokenTurn.text(event.delta);
+        break;
+      case 'assistant_message':
+        if (!streamed && event.content) spokenTurn.text(event.content);
+        streamed = false;
+        spokenTurn.text('\n\n');
+        break;
+      case 'tool_call_requested':
+        requested.set(String(event.callId), { name: event.name, input: event.input });
+        break;
+      case 'tool_call_approved': {
+        const callId = String(event.callId);
+        const call = requested.get(callId);
+        requested.delete(callId);
+        if (!call) break;
+        running.add(callId);
+        spokenTurn.toolStarted(callId, call.name, call.input);
+        break;
+      }
+      case 'tool_result':
+        if (running.delete(String(event.callId))) spokenTurn.toolFinished(String(event.callId), event.ok);
+        break;
+      default:
+        break;
     }
   });
 

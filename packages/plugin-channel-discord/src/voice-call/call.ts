@@ -1,3 +1,4 @@
+import { VoiceFeedbackScheduler } from '@moxxy/chat-model';
 import { SpokenReply } from './spoken-reply.js';
 
 /**
@@ -19,11 +20,20 @@ export interface VoiceLink {
   close(): void;
 }
 
+/** What a call hears of the agent's turn while it runs. */
+export interface CallTurnListener {
+  /** The reply as it is written, piece by piece. */
+  text(delta: string): void;
+  /** An approved tool call starts; `input` only picks how the step is named. */
+  toolStarted(callId: string, name: string, input: unknown): void;
+  toolFinished(callId: string, ok: boolean): void;
+}
+
 export interface VoiceCallDeps {
   /** Speech to text for one utterance. */
   transcribe(packets: ReadonlyArray<Uint8Array>): Promise<string>;
-  /** Run the utterance as an agent turn, handing over the reply as it is written. */
-  answer(text: string, write: (delta: string) => void): Promise<void>;
+  /** Run the utterance as an agent turn, telling the call what happens as it runs. */
+  answer(text: string, turn: CallTurnListener): Promise<void>;
   /** One sentence to an Ogg/Opus clip, or null when it cannot be voiced. */
   speak(text: string): Promise<Uint8Array | null>;
   /** How long the owner must talk over a reply before it stops. */
@@ -42,7 +52,9 @@ const DEFAULT_MIN_PACKETS = 15;
  * the agent is still writing it. Utterances are answered one at a time in the
  * order they were said. Talking over a reply that is being voiced or played
  * stops it and drops the rest (barge-in) — the agent's turn itself runs on, as
- * in the desktop's Voice Mode.
+ * in the desktop's Voice Mode. While the agent works in silence the call says
+ * which step it is on and, during a long one, that it is still at it (the
+ * desktop's voice feedback, with steps announced).
  */
 export class VoiceCall {
   private ended = false;
@@ -51,6 +63,13 @@ export class VoiceCall {
   private reply: SpokenReply | null = null;
   private bargeInTimer: ReturnType<typeof setTimeout> | null = null;
   private queue: Promise<void> = Promise.resolve();
+  private readonly feedback = new VoiceFeedbackScheduler({
+    announceSteps: true,
+    emitCue: (cue) => this.reply?.interject(cue.text),
+    startWaitingTone: () => undefined,
+    stopWaitingTone: () => undefined,
+    cancelPendingCues: () => undefined,
+  });
   private readonly endedListeners = new Set<() => void>();
   private readonly unsubscribes: Array<() => void>;
   private readonly bargeInMs: number;
@@ -133,16 +152,29 @@ export class VoiceCall {
     const text = (await this.deps.transcribe(packets)).trim();
     if (!text || this.ended) return;
     const reply = this.startReply();
+    this.feedback.beginTurn(text);
     try {
-      await this.deps.answer(text, (delta) => reply.write(delta));
+      await this.deps.answer(text, {
+        text: (delta) => {
+          if (delta.trim()) this.feedback.assistantSpeechQueued();
+          reply.write(delta);
+        },
+        toolStarted: (callId, name, input) => this.feedback.toolApproved(callId, name, input),
+        toolFinished: (callId, ok) => this.feedback.toolResult(callId, ok),
+      });
     } finally {
+      this.feedback.endTurn();
       reply.end();
     }
     await this.finishReply(reply);
   }
 
   private startReply(): SpokenReply {
-    const reply = new SpokenReply(this.link, (sentence) => this.deps.speak(sentence));
+    const reply = new SpokenReply(
+      this.link,
+      (sentence) => this.deps.speak(sentence),
+      (audible) => this.feedback.setPlayback(audible ? 'speaking' : 'idle', audible ? 'assistant' : null),
+    );
     this.reply = reply;
     if (this.ended) reply.cancel();
     return reply;
@@ -161,6 +193,7 @@ export class VoiceCall {
     if (this.ended) return;
     this.ended = true;
     this.cancelBargeIn();
+    this.feedback.close();
     this.reply?.cancel();
     for (const unsubscribe of this.unsubscribes) unsubscribe();
     for (const listener of this.endedListeners) listener();

@@ -111,4 +111,25 @@ describe('a reply spoken sentence by sentence', () => {
 
     expect(s.played).toEqual(['Dobry.']);
   });
+
+  it('says a sentence of its own in turn and tells when it is heard', async () => {
+    const s = speaker();
+    const heard: boolean[] = [];
+    const reply = new SpokenReply(s.output, s.speak, (audible) => heard.push(audible));
+
+    reply.write('Najpierw to. Potem ');
+    reply.interject('Przeglądam pliki.');
+    await until(() => s.voiced.length === 2);
+    s.voice('Najpierw to.');
+    s.voice('Przeglądam pliki.');
+    await until(() => s.played.length === 1);
+    s.finishPlaying();
+    await until(() => s.played.length === 2);
+    s.finishPlaying();
+    await sleep(10);
+
+    expect(s.played).toEqual(['Najpierw to.', 'Przeglądam pliki.']);
+    expect(heard).toEqual([true, false]);
+  });
 });
+

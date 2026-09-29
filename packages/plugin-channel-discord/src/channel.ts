@@ -56,6 +56,7 @@ import { AutoApproveSwitch } from './channel/auto-approve-switch.js';
 import { Calls, pickCallChannel, type CallPorts } from './voice-call/calls.js';
 import { connectVoice, onOwnerMoved, viewGuilds } from './voice-call/discord-voice.js';
 import { speakForCall, transcribeForCall } from './voice-call/speech.js';
+import type { CallTurnListener } from './voice-call/call.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 import { MirrorTarget } from './channel/mirror-target.js';
 
@@ -518,7 +519,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         if (!session) return Promise.resolve('');
         return transcribeForCall(session, packets);
       },
-      answer: (text, write) => this.answerCall(text, write),
+      answer: (text, turn) => this.answerCall(text, turn),
       speak: (text) => (this.session ? speakForCall(this.session, text) : Promise.resolve(null)),
       onError: (err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -532,7 +533,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
 
   /** One utterance of a call: echoed and answered in the owner's DM like a
    *  voice message, while the call says the reply as it is written. */
-  private async answerCall(text: string, write: (delta: string) => void): Promise<void> {
+  private async answerCall(text: string, turn: CallTurnListener): Promise<void> {
     const dm = await this.openOwnerDm();
     if (!dm) return;
     await dm.send(`*heard:* ${text}`);
@@ -540,7 +541,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       spoken: true,
       // Said out loud already — no reply.ogg on top of it.
       onFinalReply: async () => undefined,
-      onSpokenText: write,
+      spokenTurn: turn,
     });
   }
 
@@ -550,7 +551,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     opts: {
       readonly spoken?: boolean;
       readonly onFinalReply?: (finalText: string) => Promise<void>;
-      readonly onSpokenText?: (delta: string) => void;
+      readonly spokenTurn?: CallTurnListener;
     } = {},
   ): Promise<void> {
     if (!this.session) throw new Error('DiscordChannel.start() must be called first');
@@ -576,7 +577,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           editFrameMs: this.editFrameMs,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
           onFinalReply: opts.onFinalReply ?? ((finalText) => this.sendVoiceReply(ctx.channel, finalText)),
-          ...(opts.onSpokenText ? { onSpokenText: opts.onSpokenText } : {}),
+          ...(opts.spokenTurn ? { spokenTurn: opts.spokenTurn } : {}),
         },
         {
           text,
