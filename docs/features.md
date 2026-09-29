@@ -29,6 +29,7 @@ Choose the interface that fits the task while keeping the same underlying sessio
 | TUI | Interactive, keyboard-driven terminal interface | `moxxy` |
 | Desktop | Native multi-workspace Electron app | [Download](https://moxxy.ai) |
 | Telegram | Text and voice access with six-digit account pairing | `moxxy telegram` |
+| Discord | Text and voice access over DMs with code pairing; the agent can push progress DMs to you from any session (`discord_send_message`) | `moxxy channels discord` |
 | HTTP | Authenticated JSON, SSE streaming, and raw-audio endpoints | `moxxy channels http` |
 | Cron | Prompts triggered by cron expressions or one-shot timestamps | `moxxy schedule add ...` |
 | Webhooks | Prompts triggered by verified and filtered external POST requests | `moxxy serve` |

@@ -12,6 +12,7 @@ import {
 } from './keys.js';
 import { runDiscordWizard } from './setup-wizard.js';
 import { runPairFlow } from './pair-flow.js';
+import { buildDiscordSendMessageTool } from './tools/send-message.js';
 
 export {
   DiscordChannel,
@@ -243,5 +244,6 @@ function makeDiscordPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): 
         },
       }),
     ],
+    tools: [buildDiscordSendMessageTool({ getVault })],
   });
 }

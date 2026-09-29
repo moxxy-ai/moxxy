@@ -222,6 +222,7 @@ network:
 | Variable | Effect |
 |---|---|
 | `MOXXY_TELEGRAM_TOKEN` | Overrides the vault-stored Telegram bot token. |
+| `MOXXY_DISCORD_TOKEN` | Overrides the vault-stored Discord bot token (channel and `discord_send_message`). |
 | `MOXXY_HTTP_TOKEN` | Sets the bearer token for the HTTP channel. |
 | `MOXXY_WEB_TOKEN` | Sets the authentication token for the web surface. |
 | `MOXXY_NO_WEB_SURFACE=1` | Prevents `moxxy serve` from starting the web surface. |
