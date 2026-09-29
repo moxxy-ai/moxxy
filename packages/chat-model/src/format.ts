@@ -79,6 +79,12 @@ function stringField(input: unknown, key: string): string | null {
   return typeof value === 'string' && value.trim() ? oneLine(value) : null;
 }
 
+/** A Bash call started as a background job (`background: true`): it returns at
+ *  once while the command keeps running, so it must not read as finished. */
+function isBackgroundJob(input: unknown): boolean {
+  return typeof input === 'object' && input !== null && (input as Record<string, unknown>)['background'] === true;
+}
+
 /**
  * A tool call split into the two parts a TABULAR surface needs: the tool's own
  * name, and what it was called on.
@@ -110,7 +116,15 @@ export function describeToolCall(
     return { name, detail: stringField(input, 'pattern') ?? 'files' };
   }
   if (normalized === 'bash') {
-    return { name, detail: stringField(input, 'command') ?? 'command' };
+    const command = stringField(input, 'command') ?? 'command';
+    return { name, detail: isBackgroundJob(input) ? `${command} · in the background` : command };
+  }
+  if (normalized === 'wait') {
+    const until = stringField(input, 'until');
+    return { name, detail: `${stringField(input, 'jobId') ?? 'any job'}${until ? ` · until ${until}` : ''}` };
+  }
+  if (normalized === 'stopjob') {
+    return { name, detail: stringField(input, 'jobId') ?? 'job' };
   }
   if (normalized.includes('search')) {
     return { name, detail: stringField(input, 'query') ?? summarizeArgs(input) };
@@ -128,7 +142,17 @@ export function formatToolActivity(name: string, input: unknown, running: boolea
     return `${running ? 'Searching for' : 'Searched for'} ${pattern}${cwd ? ` in ${cwd}` : ''}`;
   }
   if (normalized === 'glob') return `${running ? 'Listing' : 'Listed'} ${stringField(input, 'pattern') ?? 'files'}`;
-  if (normalized === 'bash') return `${running ? 'Running' : 'Ran'} ${stringField(input, 'command') ?? 'command'}`;
+  if (normalized === 'bash') {
+    const command = stringField(input, 'command') ?? 'command';
+    if (isBackgroundJob(input)) return `${running ? 'Starting' : 'Started'} ${command} in the background`;
+    return `${running ? 'Running' : 'Ran'} ${command}`;
+  }
+  if (normalized === 'wait') {
+    const until = stringField(input, 'until');
+    const job = stringField(input, 'jobId') ?? 'any background job';
+    return `${running ? 'Waiting for' : 'Waited for'} ${job}${until ? ` to print ${until}` : ''}`;
+  }
+  if (normalized === 'stopjob') return `${running ? 'Stopping' : 'Stopped'} ${stringField(input, 'jobId') ?? 'job'}`;
   if (normalized.includes('search')) {
     return `${running ? 'Searching for' : 'Searched for'} ${stringField(input, 'query') ?? summarizeArgs(input)}`;
   }
