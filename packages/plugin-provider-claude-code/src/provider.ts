@@ -12,11 +12,12 @@ const NON_TEXT_BLOCK_TOKENS = 256;
  *
  * This is deliberately independent of the Anthropic API catalog: the CLI has
  * its own availability policy, and this adapter only preserves streamed text.
- * Unsupported capabilities are explicit so every host sees the same text-only
- * contract rather than relying on how it interprets absent optional flags.
+ * moxxy tools ride a text protocol (see protocol.ts). Unsupported capabilities
+ * are explicit so every host sees the same contract rather than relying on how
+ * it interprets absent optional flags.
  */
 const textOnlyCapabilities = {
-  supportsTools: false,
+  supportsTools: true,
   supportsStreaming: true,
   supportsImages: false,
   supportsDocuments: false,
@@ -63,7 +64,7 @@ export interface ClaudeCodeProviderConfig {
 
 export class ClaudeCodeProvider implements LLMProvider {
   readonly name = CLAUDE_CODE_PROVIDER_ID;
-  readonly models = claudeCodeModels;
+  readonly models: ReadonlyArray<ModelDescriptor>;
 
   private readonly executable: string;
   private readonly defaultModel: string;
@@ -82,6 +83,11 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.executable = config.executable ?? 'claude';
     this.defaultModel = config.defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL;
     this.nativeTools = config.mode === 'native-tools';
+    // Native-tools mode hands the task to Claude's own tools; moxxy tools are
+    // only offered through the text transport.
+    this.models = this.nativeTools
+      ? claudeCodeModels.map((model) => ({ ...model, supportsTools: false }))
+      : claudeCodeModels;
     this.webSearch = config.webSearch !== false;
     if (config.permissionMode) this.permissionMode = config.permissionMode;
     this.allowedTools = config.allowedTools ?? [];
@@ -97,17 +103,21 @@ export class ClaudeCodeProvider implements LLMProvider {
     const model = req.model || this.defaultModel;
     yield { type: 'message_start', model };
 
+    // Native WebSearch replaces moxxy's web_search fallback when it is enabled.
+    const tools = this.webSearch
+      ? req.tools?.filter((tool) => tool.hosted?.type !== 'web_search')
+      : req.tools;
     let prompt: string;
     try {
       assertSupportedModel(model);
-      assertTextOnlyRequest(req);
-      prompt = serializeClaudePrompt(req);
+      assertTextOnlyRequest(req, this.nativeTools);
+      prompt = serializeClaudePrompt({ ...req, ...(tools ? { tools } : {}) });
     } catch (error) {
       yield nonRetryableError(error);
       return;
     }
 
-    const state = createProtocolState();
+    const state = createProtocolState({ toolCalls: (tools?.length ?? 0) > 0 });
     let terminal = false;
     let lines: ReturnType<typeof runClaudeProcess> | undefined;
     try {
@@ -199,9 +209,9 @@ function assertSupportedModel(model: string): void {
   );
 }
 
-function assertTextOnlyRequest(req: ProviderRequest): void {
-  if (req.tools && req.tools.length > 0) {
-    throw new Error('Claude CLI text transport does not support tools');
+function assertTextOnlyRequest(req: ProviderRequest, nativeTools: boolean): void {
+  if (nativeTools && req.tools && req.tools.length > 0) {
+    throw new Error('Claude CLI native-tools transport does not support moxxy tools');
   }
   if (req.reasoning) {
     throw new Error('Claude CLI text transport does not support reasoning');
