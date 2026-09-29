@@ -18,7 +18,8 @@
  * IMPORTANT: build the workspace first — a package packed without dist/ is
  * silently skipped by plugin discovery at runtime.
  */
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +108,8 @@ run('npm', [
   ...tarballs,
 ]);
 
+if (process.platform === 'darwin') installOtherDarwinArchPackages();
+
 // npm records direct local tarballs exactly as `file:/tmp/moxxy-seed-tars-*`.
 // The tar directory is intentionally removed below, so persisting those specs
 // would poison every later `npm install` in the user's copied plugin tree.
@@ -132,6 +135,38 @@ writeFileAtomicSync(seedManifestPath, `${JSON.stringify(seedManifest, null, 2)}\
 
 rmSync(tarDir, { recursive: true, force: true });
 console.log(`plugins-seed assembled at ${seedDir} (${SEED_PLUGINS.length} plugins + closure)`);
+
+// npm only installs optional platform packages for the host arch, but the
+// macOS app is universal: an arm64 build runner must also ship the x64 native
+// packages (keyring, sharp) or Intel Macs silently lose them. The lockfile
+// pins every platform variant with its integrity, so fetch the missing ones.
+function installOtherDarwinArchPackages() {
+  const lock = JSON.parse(readFileSync(path.join(seedDir, 'package-lock.json'), 'utf8'));
+  const packRoot = mkdtempSync(path.join(tmpdir(), 'moxxy-seed-darwin-'));
+  let fetched = 0;
+  for (const [lockPath, entry] of Object.entries(lock.packages ?? {})) {
+    if (!lockPath || entry.link || !entry.os?.includes('darwin')) continue;
+    if (!entry.cpu?.some((cpu) => cpu === 'x64' || cpu === 'arm64')) continue;
+    const dest = path.join(seedDir, lockPath);
+    if (existsSync(dest)) continue;
+    const name = entry.name ?? lockPath.slice(lockPath.lastIndexOf('node_modules/') + 13);
+    if (typeof entry.version !== 'string' || typeof entry.integrity !== 'string') {
+      throw new Error(`Seed lockfile entry ${lockPath} has no pinned version/integrity`);
+    }
+    const packDir = path.join(packRoot, String(fetched++));
+    mkdirSync(packDir);
+    run('npm', ['pack', `${name}@${entry.version}`, '--pack-destination', packDir]);
+    const [tarball] = readdirSync(packDir).map((f) => path.join(packDir, f));
+    const digest = `sha512-${createHash('sha512').update(readFileSync(tarball)).digest('base64')}`;
+    if (digest !== entry.integrity) {
+      throw new Error(`Integrity mismatch for ${name}@${entry.version}: ${digest}`);
+    }
+    mkdirSync(dest, { recursive: true });
+    run('tar', ['-xzf', tarball, '-C', dest, '--strip-components=1']);
+  }
+  rmSync(packRoot, { recursive: true, force: true });
+  console.log(`plugins-seed: fetched ${fetched} other-arch darwin package(s)`);
+}
 
 function isTransientSeedTarball(spec) {
   return (

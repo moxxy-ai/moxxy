@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-admin
 
+## 0.41.2
+
+### Patch Changes
+
+- @moxxy/sdk@0.41.2
+- @moxxy/config@0.41.2
+- @moxxy/plugin-provider-openai@0.41.2
+
 ## 0.41.1
 
 ### Patch Changes

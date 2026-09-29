@@ -1,5 +1,12 @@
 # @moxxy/cli
 
+## 0.41.2
+
+### Patch Changes
+
+- d5324c4: Update non-major dependencies (Anthropic SDK, MCP SDK, grammy, esbuild, tar-stream and others).
+  - @moxxy/sdk@0.41.2
+
 ## 0.41.1
 
 ### Patch Changes

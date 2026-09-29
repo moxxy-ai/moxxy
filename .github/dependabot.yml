@@ -16,6 +16,20 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Moved together by an Expo SDK upgrade (npx expo install --fix), never one by one.
+      - dependency-name: 'expo'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'expo-*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'react-native'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      # Tracks the minimum supported Node (engines >=20.19), not the latest release.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # ink >=6 needs React 19; waits for the React 19 migration.
+      - dependency-name: 'ink'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
@@ -26,3 +40,8 @@ updates:
       time: '05:30'
       timezone: Europe/Warsaw
     open-pull-requests-limit: 10
+    groups:
+      # init and analyze must run the same version or Analyze fails.
+      codeql-action:
+        patterns:
+          - 'github/codeql-action*'

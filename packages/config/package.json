@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/config",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "description": "defineConfig + moxxy.config.ts loader. Walks the file tree from cwd, also reads ~/.moxxy/config.{ts,js,mjs}, merges by precedence, and resolves the final shape the CLI consumes.",
   "keywords": [
     "moxxy",
@@ -43,7 +43,7 @@
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
     "jiti": "^2.4.2",
-    "yaml": "^2.6.0",
+    "yaml": "^2.9.1",
     "zod": "catalog:"
   },
   "devDependencies": {

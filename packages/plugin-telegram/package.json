@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-telegram",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "description": "Telegram channel for moxxy via grammy. Treats Telegram chats as a bidirectional channel: prompts in, assistant + tool prompts out, inline-keyboard permission flow, QR deep-link chat pairing.",
   "keywords": [
     "moxxy",
@@ -77,7 +77,7 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "grammy": "^1.30.0",
+    "grammy": "^1.46.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
