@@ -4,8 +4,8 @@ import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
-import type { CollaborationHub } from '@moxxy/plugin-collab';
-import { runCollaborative, sleep, type CollabDeps } from './collab-loop.js';
+import { createCollaborationHub, type CollaborationHub } from '@moxxy/plugin-collab';
+import { runCollaborative, waitForAgent, waitForAgents, type CollabDeps } from './collab-loop.js';
 import { listRunRecords } from './archive.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
@@ -107,6 +107,7 @@ function fakeSupervisor(hub: CollaborationHub): Supervisor {
     shutdownAll: async () => undefined,
     stderrOf: () => [],
     hasExited: () => false,
+    onExit: () => () => undefined,
   };
 }
 
@@ -143,6 +144,7 @@ function partiallyFailingSupervisor(hub: CollaborationHub, failingId: string): S
     shutdownAll: async () => undefined,
     stderrOf: () => ['boom: simulated crash'],
     hasExited: (id) => exited.has(id),
+    onExit: () => () => undefined,
   };
 }
 
@@ -233,6 +235,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -284,6 +287,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -463,6 +467,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -489,6 +494,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -544,6 +550,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -558,21 +565,93 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
   });
 });
 
-describe('sleep (poll helper)', () => {
-  it('does not leak abort listeners on the normal-timeout path', async () => {
-    // A collaboration polls every ~500ms for up to its wall-clock guard
-    // (30 min default) — thousands of sleeps on ONE long-lived signal. A leak
-    // here means a MaxListenersExceededWarning + unbounded listener growth.
-    const ac = new AbortController();
-    for (let i = 0; i < 20; i++) await sleep(0, ac.signal);
-    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
+describe('waiting on agents', () => {
+  async function liveHub(ids: ReadonlyArray<string>): Promise<CollaborationHub> {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-wait-'));
+    const hub = await createCollaborationHub({
+      socketPath: join(dir, 'hub.sock'),
+      task: 'wait probe',
+      roster: ids.map((id) => ({ id, name: id, role: 'implementer' as const, subtask: 'noop' })),
+    });
+    cleanups.push(() => {
+      void hub.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    return hub;
+  }
+
+  /** The peer processes' exit signal, driven by the test. */
+  function processes() {
+    const exited = new Set<string>();
+    const listeners = new Set<(agentId: string) => void>();
+    return {
+      hasExited: (id: string) => exited.has(id),
+      onExit(fn: (agentId: string) => void) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+      exit(id: string) {
+        exited.add(id);
+        for (const fn of listeners) fn(id);
+      },
+      listenerCount: () => listeners.size,
+    };
+  }
+
+  const WALL_CLOCK = 60_000;
+
+  it('notices an agent finishing the moment the hub reports it, not on a poll tick', async () => {
+    const hub = await liveHub(['a']);
+    const startedAt = Date.now();
+    setTimeout(() => hub.state.markDone('a', 'built it'), 20);
+
+    const ok = await waitForAgent(hub, processes(), 'a', new AbortController().signal, WALL_CLOCK);
+
+    expect(ok).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(300);
   });
 
-  it('still resolves and cleans up when aborted mid-sleep', async () => {
-    const ac = new AbortController();
-    const p = sleep(10_000, ac.signal);
-    ac.abort();
-    await p; // resolves immediately on abort rather than waiting out the timer
-    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
+  it('fails fast the moment an agent process exits without finishing', async () => {
+    const hub = await liveHub(['a']);
+    const peers = processes();
+    const startedAt = Date.now();
+    setTimeout(() => peers.exit('a'), 20);
+
+    const ok = await waitForAgent(hub, peers, 'a', new AbortController().signal, WALL_CLOCK);
+
+    expect(ok).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
+  it('returns as soon as the last of several agents settles', async () => {
+    const hub = await liveHub(['a', 'b']);
+    const peers = processes();
+    const startedAt = Date.now();
+    setTimeout(() => hub.state.markDone('a', 'done'), 20);
+    setTimeout(() => peers.exit('b'), 40);
+
+    await waitForAgents(hub, peers, ['a', 'b'], new AbortController().signal, WALL_CLOCK);
+
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
+  it('leaves no listener behind once the wait is over', async () => {
+    const hub = await liveHub(['a']);
+    const peers = processes();
+    const turn = new AbortController();
+    setTimeout(() => hub.state.markDone('a', 'done'), 10);
+
+    await waitForAgent(hub, peers, 'a', turn.signal, WALL_CLOCK);
+
+    expect(peers.listenerCount()).toBe(0);
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('stops waiting when the run is aborted', async () => {
+    const hub = await liveHub(['a']);
+    const turn = new AbortController();
+    setTimeout(() => turn.abort(), 20);
+
+    await expect(waitForAgent(hub, processes(), 'a', turn.signal, WALL_CLOCK)).resolves.toBe(false);
   });
 });

@@ -50,7 +50,20 @@ Switch modes from the TUI with `/mode` or set the default in configuration.
 
 ## Tools and integrations
 
-Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, and Sleep. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
+Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait, and StopJob. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
+
+### Waiting on work
+
+The agent waits on events, not on a clock. A long command — a dev server, a watcher, a slow build — runs as a background job: `Bash` with `background: true` returns a job id at once and the command keeps running. `Wait` then blocks until that job finishes, or until it prints output matching `until` (for example `ready on \d+`), and wakes the instant that happens instead of sleeping a fixed number of seconds and checking again. Each `Wait` returns only the output printed since the previous one.
+
+- `timeoutSeconds` only bounds a wait. When it passes, the job is still running; the agent can wait again, do other work, or end it with `StopJob`.
+- `Wait` without a job id wakes on whichever running job finishes first.
+- Stopping the turn ends the wait but not the job. Closing the conversation stops every job it started, and so does quitting moxxy — including Ctrl+C or `kill` on a `moxxy -p` run, which now closes the session before exiting instead of leaving its commands running.
+- A blank `until`, or one that matches empty output (like `.*`), is ignored, and a blank job id means "any running job" — models often send such placeholders for optional fields.
+- `Sleep` stays for a real pause, or for re-checking something that cannot report when it is ready (a UI settling, an external service with no status stream).
+
+A collaborative run's coordinator works the same way: it resumes the moment an agent reports done or its process exits, not on a half-second poll.
+
 
 Skills are Markdown playbooks that teach the agent repeatable procedures without adding runtime code. When no skill fits, the agent can author and register a new one.
 

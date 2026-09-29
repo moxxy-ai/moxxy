@@ -57,6 +57,9 @@ export interface Supervisor {
    *  spawn itself failed). Lets the coordinator fail fast instead of polling the
    *  wall-clock for an agent whose process is already gone. */
   hasExited(agentId: string): boolean;
+  /** Called with the agent id whenever a peer process exits or fails to spawn;
+   *  returns the unsubscribe. Lets the coordinator wake on it instead of polling. */
+  onExit(listener: (agentId: string) => void): () => void;
 }
 
 interface PeerProc {
@@ -67,6 +70,7 @@ interface PeerProc {
 
 export class PeerSupervisor implements Supervisor {
   private readonly peers = new Map<string, PeerProc>();
+  private readonly exitListeners = new Set<(agentId: string) => void>();
   private shuttingDown = false;
   private readonly cliEntry: string;
 
@@ -125,19 +129,26 @@ export class PeerSupervisor implements Supervisor {
       }
       if (proc.stderr.length > STDERR_RING_HIGH) proc.stderr.splice(0, proc.stderr.length - STDERR_RING);
     });
-    child.on('exit', () => {
+    const exited = (): void => {
       proc.exited = true;
-    });
+      for (const listener of [...this.exitListeners]) listener(args.entry.id);
+    };
+    child.on('exit', exited);
     // A failed spawn (bad path, ENOENT — plausible when re-invoking the CLI
     // under a packaged/Electron host) emits 'error'; with NO listener Node
     // re-throws it as an uncaught exception that takes down the whole
     // coordinator/runner. Capture it as a normal exit + stderr line so the
     // coordinator surfaces it and fails fast instead of crashing.
     child.on('error', (err: Error) => {
-      proc.exited = true;
       proc.stderr.push(`spawn error: ${err.message}`);
+      exited();
     });
     return { socket };
+  }
+
+  onExit(listener: (agentId: string) => void): () => void {
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
   }
 
   /** True once the child has exited or its spawn failed. */

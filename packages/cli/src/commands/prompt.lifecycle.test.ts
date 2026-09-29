@@ -129,4 +129,34 @@ describe('runPromptCommand lifecycle', () => {
     const restored = await core.restoreSessionEvents(harness.id, harness.dir);
     expect(restored.at(-1)).toMatchObject({ text: 'last before crash' });
   });
+
+  it('closes the session before exiting when the run is interrupted by a signal', async () => {
+    let turnStarted!: () => void;
+    const started = new Promise<void>((resolve) => (turnStarted = resolve));
+    runTurnImpl = async function* () {
+      turnStarted();
+      await new Promise(() => undefined); // a turn still waiting on a background job
+      yield undefined;
+    };
+    let exited!: (code: number | undefined) => void;
+    const exitCode = new Promise<number | undefined>((resolve) => (exited = resolve));
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => exited(code)) as never);
+    const signalListeners = process.listenerCount('SIGTERM');
+
+    void runPromptCommand(argv());
+    await started;
+    process.emit('SIGTERM');
+
+    await expect(exitCode).resolves.toBe(143);
+    expect(harness.onShutdown).toHaveBeenCalledTimes(1);
+    expect(process.listenerCount('SIGTERM')).toBe(signalListeners);
+  });
+
+  it('leaves no signal handler behind after a normal run', async () => {
+    const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+
+    await runPromptCommand(argv());
+
+    expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(before);
+  });
 });

@@ -396,6 +396,11 @@ describe('sleepTool', () => {
     });
   });
 
+  it('accepts a zero part next to a positive one, as models often send `ms: 0`', () => {
+    expect(sleepTool.inputSchema.safeParse({ seconds: 3, ms: 0 }).success).toBe(true);
+    expect(sleepTool.inputSchema.safeParse({ seconds: 0, ms: 0 }).success).toBe(false);
+  });
+
   it('resolves after the requested delay', async () => {
     const start = Date.now();
     const out = (await sleepTool.handler({ ms: 20 }, baseCtx())) as string;

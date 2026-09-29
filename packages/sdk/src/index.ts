@@ -301,6 +301,7 @@ export type {
 export type { ChannelRunStatus } from './channel-status.js';
 export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';
 export { createMutex, type Mutex } from './mutex.js';
+export { waitFor, wakeAfter, type WaitForOptions, type WaitOutcome, type WakeSource } from './wait-for.js';
 export {
   createJsonFileStore,
   type JsonFileStore,

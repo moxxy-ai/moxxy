@@ -19,25 +19,29 @@ export const sleepTool = defineTool({
   name: 'Sleep',
   icon: 'settings',
   description:
-    'Pause for a set duration before continuing. Use it to wait for an external/async process ' +
-    '(a build, a deploy, a server warming up) before re-checking, instead of busy-looping. ' +
-    'Give `seconds` and/or `ms` (they sum); capped at 5 minutes per call. Interruptible.',
+    'Pause for a set duration before continuing — for a real delay, or to re-check something that ' +
+    'cannot tell you when it is ready (a UI settling, an external service with no status stream). ' +
+    'For a command you started yourself, run it with Bash `background: true` and use Wait instead: ' +
+    'it returns the moment the job finishes. Give `seconds` and/or `ms` (they sum); capped at 5 minutes ' +
+    'per call. Interruptible.',
   inputSchema: z
     .object({
       seconds: z
         .number()
-        .positive()
+        .nonnegative()
         .optional()
         .describe('Seconds to pause. Summed with `ms` when both are given.'),
       ms: z
         .number()
         .int()
-        .positive()
+        .nonnegative()
         .optional()
         .describe('Milliseconds to pause. Summed with `seconds` when both are given.'),
     })
-    .refine((v) => v.seconds !== undefined || v.ms !== undefined, {
-      message: 'Provide `seconds` and/or `ms`.',
+    // Each part may be 0 (models often send `ms: 0` beside `seconds`); only the
+    // sum has to be a real pause.
+    .refine((v) => (v.seconds ?? 0) + (v.ms ?? 0) > 0, {
+      message: 'Provide a positive `seconds` and/or `ms`.',
     }),
   // No side effects — safe to auto-allow without a permission prompt.
   permission: { action: 'allow' },

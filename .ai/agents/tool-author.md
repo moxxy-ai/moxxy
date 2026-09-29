@@ -79,7 +79,8 @@ For end-to-end (model invokes the tool): register the tool on a `Session`, drive
 - Forgetting `await` on async `handler` — the result becomes a Promise instead of the value.
 - Using `inputSchema` defaults but typing the handler param as `T | undefined` — `z.output<S>` gives you the resolved type. `defineTool` already wires this; if you see `undefined` where a default should apply, you're fighting zod.
 - Returning structured data without `outputSchema` — the model receives `JSON.stringify(value)`. For complex outputs add `outputSchema` for type-safety, but for the model just consider returning a formatted string.
-- Spawning child processes without a SIGKILL escalation. If `ctx.signal.aborted` fires, send SIGTERM, then SIGKILL after ~2s if the child hasn't exited. See `tools-builtin/src/bash.ts` for the pattern.
+- Spawning child processes without a SIGKILL escalation. If `ctx.signal.aborted` fires, send SIGTERM, then SIGKILL after ~2s if the child hasn't exited. See `tools-builtin/src/shell.ts` for the pattern.
+- Polling inside a handler (`while (!done) await sleep(500)`) to wait for something that can tell you it finished. Wake on its signal with `waitFor` from `@moxxy/sdk` (subscribe-then-check, deadline = "still running"); see `tools-builtin/src/wait.ts`. Work that outlives one call belongs in a background job the model waits on with `Wait`, not in a tool that blocks for minutes.
 - Reading the full file when only a slice is needed — for huge files this OOMs. Stream by line or stat-cap first.
 
 ## Don't

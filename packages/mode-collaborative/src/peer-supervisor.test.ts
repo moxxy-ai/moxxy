@@ -73,4 +73,19 @@ describe('PeerSupervisor', () => {
     expect(existsSync(out)).toBe(true);
     expect(readFileSync(out, 'utf8')).toBe('7');
   });
+
+  it('tells listeners the moment a peer process exits', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-sup-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const script = join(dir, 'quit.js');
+    writeFileSync(script, 'process.exit(0);');
+    const sup = new PeerSupervisor(baseOpts({ cliEntry: script }));
+    cleanups.push(() => void sup.shutdownAll('test done'));
+
+    const exited = new Promise<string>((resolve) => sup.onExit(resolve));
+    sup.spawn({ entry, cwd: dir, mode: 'collab-peer' });
+
+    await expect(exited).resolves.toBe('peer1');
+    expect(sup.hasExited('peer1')).toBe(true);
+  });
 });
