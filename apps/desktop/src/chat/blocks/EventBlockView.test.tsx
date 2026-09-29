@@ -52,6 +52,15 @@ describe('EventBlockView — ambient trigger marker', () => {
     expect(screen.queryByText(/PAYLOAD-BODY-12345/)).toBeNull();
   });
 
+  it('renders a neutral marker (instead of crashing the app) for an origin kind this build does not know', () => {
+    // History written by another build can carry a kind outside today's union.
+    const origin = { kind: 'telepathy', name: 'from-the-future' } as unknown as { kind: 'webhook'; name: string };
+    render(<EventBlockView event={userPrompt({ origin })} />);
+    expect(screen.getByTestId('block-trigger')).toBeTruthy();
+    expect(screen.getByText(/Telepathy trigger/)).toBeTruthy();
+    expect(screen.getByText(/from-the-future/)).toBeTruthy();
+  });
+
   it('renders an ordinary user bubble when there is no origin', () => {
     render(<EventBlockView event={userPrompt({})} />);
     expect(screen.getByTestId('block-user')).toBeTruthy();
