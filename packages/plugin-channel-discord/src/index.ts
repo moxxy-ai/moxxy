@@ -13,6 +13,7 @@ import {
 import { runDiscordWizard } from './setup-wizard.js';
 import { runPairFlow } from './pair-flow.js';
 import { buildDiscordSendMessageTool } from './tools/send-message.js';
+import { buildDiscordCallTool } from './tools/call.js';
 
 export {
   DiscordChannel,
@@ -98,6 +99,9 @@ export const discordPlugin: Plugin = (() => {
 export default discordPlugin;
 
 function makeDiscordPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Plugin {
+  // The bot this plugin started in this process — `discord_call` places calls
+  // through its live gateway and voice connection.
+  let liveChannel: DiscordChannel | null = null;
   return definePlugin({
     name: '@moxxy/plugin-channel-discord',
     version: '0.0.0',
@@ -138,15 +142,17 @@ function makeDiscordPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): 
             openLabel: 'Open Discord authorization',
           },
         },
-        create: (deps) =>
-          new DiscordChannel({
+        create: (deps) => {
+          liveChannel = new DiscordChannel({
             vault: getVault(),
             token: (deps.options?.['token'] as string | undefined) ?? undefined,
             logger: deps.logger as never,
             ...(typeof deps.options?.['editFrameMs'] === 'number'
               ? { editFrameMs: deps.options['editFrameMs'] as number }
               : {}),
-          }),
+          });
+          return liveChannel;
+        },
         isAvailable: async () => {
           // Env-first: a fully env-configured bot is available even in a probe
           // context (e.g. the `moxxy channels` listing) where onInit has not
@@ -244,6 +250,9 @@ function makeDiscordPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): 
         },
       }),
     ],
-    tools: [buildDiscordSendMessageTool({ getVault })],
+    tools: [
+      buildDiscordSendMessageTool({ getVault }),
+      buildDiscordCallTool({ placeCall: (reason) => liveChannel?.placeCall(reason) ?? null }),
+    ],
   });
 }

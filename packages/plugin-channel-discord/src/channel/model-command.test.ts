@@ -196,3 +196,10 @@ describe('the /auto-approve application command', () => {
     expect(names).not.toContain('yolo');
   });
 });
+
+describe('the voice call application commands', () => {
+  it('publishes /call and /hangup', () => {
+    const names = buildAppCommands(session).map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['call', 'hangup']));
+  });
+});

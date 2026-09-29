@@ -8,6 +8,10 @@ export interface SlashCallbacks {
   voice(arg: string): Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
   model(arg: string): Promise<string>;
+  /** `/call` — start a voice call; returns where it is (or why not). */
+  call(): Promise<string>;
+  /** `/hangup` — end the voice call. */
+  hangup(): string;
   /** Apply a `session-action` result emitted from a registered command. */
   performSessionAction(action: 'new' | 'clear' | 'exit', notice: string | undefined): Promise<string>;
 }
@@ -61,6 +65,10 @@ export async function runSlash(
       return cb.voice(args);
     case 'model':
       return cb.model(args);
+    case 'call':
+      return cb.call();
+    case 'hangup':
+      return cb.hangup();
     case 'tools': {
       const list = session.tools
         .list()
@@ -126,6 +134,8 @@ export function buildAppCommands(session: Session): AppCommandJson[] {
         },
       ],
     },
+    { name: 'call', description: 'Start a voice call with the bot' },
+    { name: 'hangup', description: 'End the voice call' },
     { name: 'tools', description: 'List the tools the active session can call' },
     { name: 'skills', description: 'List the discovered skills' },
     { name: 'cancel', description: 'Abort the current turn' },

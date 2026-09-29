@@ -202,3 +202,25 @@ describe('runDiscordTurn — what the model is told about Discord', () => {
     expect(systemPrompt).toMatch(/files/);
   });
 });
+
+describe('runDiscordTurn — a turn answered out loud in a call', () => {
+  it('asks the model for a short, speakable reply', async () => {
+    const { channel } = recordedChannel();
+    const prompts: Array<string | undefined> = [];
+    const session = {
+      log: { subscribe: () => () => undefined },
+      runTurn: (_prompt: string, opts: { systemPrompt?: string }) => {
+        prompts.push(opts.systemPrompt);
+        return (async function* () {})();
+      },
+    } as unknown as Session;
+    const deps = { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200 };
+
+    await runDiscordTurn(deps, { text: 'hej', spoken: true, controller: new AbortController(), turnId: asTurnId('t-call') });
+    await runDiscordTurn(deps, { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-text') });
+
+    expect(prompts[0]).toMatch(/voice call/i);
+    expect(prompts[0]).toMatch(/discord_send_message/);
+    expect(prompts[1]).not.toMatch(/voice call/i);
+  });
+});

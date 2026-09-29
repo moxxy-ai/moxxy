@@ -44,8 +44,15 @@ export const DISCORD_TURN_CONTEXT =
   '`discord_send_message` with `files: ["<absolute path>"]` — it arrives in their Discord DMs as an ' +
   'attachment they can open or download (10 MB per message at most) — then say briefly that you sent it.';
 
+/** Added when the reply is said out loud in a voice call. */
+export const DISCORD_CALL_CONTEXT =
+  'This message was spoken in a voice call and your reply will be read aloud: answer briefly, in ' +
+  'plain spoken sentences, without markdown, code blocks, tables or links.';
+
 export interface RunDiscordTurnOptions {
   readonly text: string;
+  /** The reply will be said out loud in a voice call. */
+  readonly spoken?: boolean;
   readonly model?: string | undefined;
   readonly controller: AbortController;
   /** Pre-minted turn id; the channel records it as an own-turn id. */
@@ -123,7 +130,7 @@ export async function runDiscordTurn(
       turnId,
       prompt: text,
       ...(model ? { model } : {}),
-      systemPrompt: DISCORD_TURN_CONTEXT,
+      systemPrompt: opts.spoken ? `${DISCORD_TURN_CONTEXT}\n\n${DISCORD_CALL_CONTEXT}` : DISCORD_TURN_CONTEXT,
       signal: controller.signal,
     });
     await pump.flush(true);

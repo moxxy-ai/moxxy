@@ -46,6 +46,9 @@ export interface MessageHandlerCallbacks {
   readonly voice: (arg: string) => Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
   readonly model: (arg: string) => Promise<string>;
+  /** `/call` and `/hangup` — voice calls with the bot. */
+  readonly call: () => Promise<string>;
+  readonly hangup: () => string;
   readonly runUserTurn: (ctx: InboundContext, text: string) => Promise<void>;
   /** Handle audio attachments (voice messages). Returns true when it consumed
    *  the message (so the text path is skipped). */
@@ -137,6 +140,8 @@ export async function handleInboundMessage(
       toggleYolo: cb.toggleYolo,
       voice: cb.voice,
       model: cb.model,
+      call: cb.call,
+      hangup: cb.hangup,
       performSessionAction: (action, notice) =>
         performSessionAction(action, notice, state, deps, cb),
     });

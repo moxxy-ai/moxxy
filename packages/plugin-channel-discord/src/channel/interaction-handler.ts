@@ -62,6 +62,9 @@ export interface InteractionCallbacks {
   readonly voice: (arg: string) => Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
   readonly model: (arg: string) => Promise<string>;
+  /** `/call` and `/hangup` — voice calls with the bot. */
+  readonly call: () => Promise<string>;
+  readonly hangup: () => string;
   /** Suggestions for `/model name:` as the user types. */
   readonly modelSuggestions: (query: string) => Promise<ModelSuggestion[]>;
   readonly performSessionAction: (
@@ -223,6 +226,8 @@ async function handleSlashCommand(
     toggleYolo: cb.toggleYolo,
     voice: cb.voice,
     model: cb.model,
+    call: cb.call,
+    hangup: cb.hangup,
     performSessionAction: cb.performSessionAction,
   });
   await safeReply(interaction, reply.length > 1_900 ? reply.slice(0, 1_899) + '…' : reply, deps.logger);

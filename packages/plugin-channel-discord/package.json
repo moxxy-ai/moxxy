@@ -56,7 +56,7 @@
     ],
     "setup": {
       "title": "Discord bot",
-      "description": "Create an application at https://discord.com/developers/applications, add a Bot, and under Bot \u2192 Privileged Gateway Intents enable MESSAGE CONTENT INTENT (required \u2014 without it the bot receives empty messages). Then paste the bot token below.",
+      "description": "Create an application at https://discord.com/developers/applications, add a Bot, and under Bot → Privileged Gateway Intents enable MESSAGE CONTENT INTENT (required — without it the bot receives empty messages). Then paste the bot token below.",
       "required": true,
       "fields": [
         {
@@ -65,19 +65,21 @@
           "kind": "secret",
           "vaultKey": "discord_bot_token",
           "required": true,
-          "placeholder": "MTIz\u2026abc.def\u2026",
-          "description": "Developer Portal \u2192 your app \u2192 Bot \u2192 Reset Token. Remember to enable the MESSAGE CONTENT privileged intent on the same page."
+          "placeholder": "MTIz…abc.def…",
+          "description": "Developer Portal → your app → Bot → Reset Token. Remember to enable the MESSAGE CONTENT privileged intent on the same page."
         }
       ]
     }
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
+    "@discordjs/voice": "^0.19.2",
     "@moxxy/channel-kit": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "discord.js": "^14.27.0"
+    "discord.js": "^14.27.0",
+    "opus-decoder": "^0.7.12"
   },
   "devDependencies": {
     "@moxxy/testing": "workspace:*",

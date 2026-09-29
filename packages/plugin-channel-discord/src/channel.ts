@@ -53,6 +53,9 @@ import {
   type ModelSuggestion,
 } from './channel/model-command.js';
 import { AutoApproveSwitch } from './channel/auto-approve-switch.js';
+import { Calls, pickCallChannel, type CallPorts } from './voice-call/calls.js';
+import { connectVoice, onOwnerMoved, viewGuilds } from './voice-call/discord-voice.js';
+import { speakForCall, transcribeForCall } from './voice-call/speech.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 import { MirrorTarget } from './channel/mirror-target.js';
 
@@ -62,8 +65,8 @@ import { MirrorTarget } from './channel/mirror-target.js';
 const READY_TIMEOUT_MS = 15_000;
 
 /** Minimal permission bits for the invite link: View Channels + Send Messages
- *  + Read Message History. */
-const INVITE_PERMISSIONS = 1024 + 2048 + 65536;
+ *  + Read Message History, plus Connect + Speak for voice calls. */
+const INVITE_PERMISSIONS = 1024 + 2048 + 65536 + 1048576 + 2097152;
 
 /**
  * Install guidance shown when enabling `/voice` with no active synthesizer —
@@ -127,6 +130,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private model: string | undefined;
   /** `/auto-approve` — the conversation's shared switch (see AutoApproveSwitch). */
   private readonly autoApprove = new AutoApproveSwitch(() => this.session);
+  /** `/call`, `/hangup` and the agent's `discord_call`. */
+  private readonly calls = new Calls(this.callPorts());
   // When true, the final assistant reply of each turn is also synthesized (via
   // the session's active Synthesizer) and sent as an audio attachment.
   // Persisted per paired account in the vault (`discord_voice_replies`),
@@ -235,6 +240,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
+        // Voice calls: where the owner is, and when they join or leave.
+        GatewayIntentBits.GuildVoiceStates,
       ],
       partials: [Partials.Channel],
     });
@@ -319,6 +326,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         // executing the moment the operator asks to shut down; then reject
         // pending prompts so no caller hangs (audit: TuiChannel.stop hang).
         this.turns.abort(reason);
+        this.calls.hangUp();
         this.permissionResolver.abortAll(reason);
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
@@ -413,6 +421,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setYolo: () => this.autoApprove.forgetLocal(),
         voice: (arg) => this.voiceCommand(arg),
         model: (arg) => this.modelCommand(arg),
+        call: () => this.calls.start(),
+        hangup: () => this.calls.hangUp(),
         runUserTurn: (c, text) => this.runUserTurn(c, text),
         runVoiceMessage: (c) =>
           handleVoiceMessage(
@@ -443,6 +453,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         toggleYolo: () => this.autoApprove.toggle(),
         voice: (arg) => this.voiceCommand(arg),
         model: (arg) => this.modelCommand(arg),
+        call: () => this.calls.start(),
+        hangup: () => this.calls.hangUp(),
         modelSuggestions: (query) => this.modelSuggestions(query),
         performSessionAction: (action, notice) =>
           performSessionAction(
@@ -468,7 +480,77 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     );
   }
 
-  private async runUserTurn(ctx: InboundContext, text: string): Promise<void> {
+  /**
+   * Place a call from the agent (`discord_call`): the bot joins or rings the
+   * owner and says `reason` first. Null while the bot is not running.
+   */
+  placeCall(reason: string): Promise<string> | null {
+    if (!this.client) return null;
+    return this.calls.start({ greeting: reason });
+  }
+
+  private callPorts(): CallPorts {
+    const owner = (): string | null => this.pairing.authorizedUserId();
+    return {
+      findChannel: async () => {
+        const client = this.client;
+        const ownerId = owner();
+        if (!client || !ownerId) return null;
+        return pickCallChannel(await viewGuilds(client, ownerId));
+      },
+      connect: async (channel) => {
+        const client = this.client;
+        const ownerId = owner();
+        if (!client || !ownerId) throw new Error('the bot is not running or not paired');
+        return connectVoice(client, channel, ownerId);
+      },
+      notifyOwner: async (text) => {
+        const dm = await this.openOwnerDm();
+        await dm?.send(text);
+      },
+      onOwnerMoved: (listener) => {
+        const client = this.client;
+        const ownerId = owner();
+        return client && ownerId ? onOwnerMoved(client, ownerId, listener) : () => undefined;
+      },
+      transcribe: (packets) => {
+        const session = this.session;
+        if (!session) return Promise.resolve('');
+        return transcribeForCall(session, packets);
+      },
+      answer: (text) => this.answerCall(text),
+      speak: (text) => (this.session ? speakForCall(this.session, text) : Promise.resolve(null)),
+      onError: (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.opts.logger?.warn('discord call failed', { err: message });
+        void this.openOwnerDm()
+          .then((dm) => dm?.send(`⚠ call: ${message}`))
+          .catch(() => undefined);
+      },
+    };
+  }
+
+  /** One utterance of a call: echoed and answered in the owner's DM like a
+   *  voice message; the final reply is what the call says back. */
+  private async answerCall(text: string): Promise<string | null> {
+    const dm = await this.openOwnerDm();
+    if (!dm) return null;
+    await dm.send(`*heard:* ${text}`);
+    let reply: string | null = null;
+    await this.runUserTurn({ channel: dm, reply: (t) => dm.send(t) }, text, {
+      spoken: true,
+      onFinalReply: async (finalText) => {
+        reply = finalText;
+      },
+    });
+    return reply;
+  }
+
+  private async runUserTurn(
+    ctx: Pick<InboundContext, 'channel' | 'reply'>,
+    text: string,
+    opts: { readonly spoken?: boolean; readonly onFinalReply?: (finalText: string) => Promise<void> } = {},
+  ): Promise<void> {
     if (!this.session) throw new Error('DiscordChannel.start() must be called first');
     // Atomic single-flight guard: `begin` claims the slot synchronously so a
     // concurrently dispatched second turn can't slip past the busy check. The
@@ -491,10 +573,11 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           typing: this.typing,
           editFrameMs: this.editFrameMs,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
-          onFinalReply: (finalText) => this.sendVoiceReply(ctx.channel, finalText),
+          onFinalReply: opts.onFinalReply ?? ((finalText) => this.sendVoiceReply(ctx.channel, finalText)),
         },
         {
           text,
+          ...(opts.spoken ? { spoken: true } : {}),
           model: channelModel.model ?? this.model,
           controller: lease.controller,
           turnId: lease.turnId,

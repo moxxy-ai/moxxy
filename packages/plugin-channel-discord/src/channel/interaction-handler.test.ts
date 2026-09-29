@@ -129,6 +129,8 @@ function callbacks() {
     voice: vi.fn(async () => ''),
     model: vi.fn(async () => ''),
     modelSuggestions: vi.fn(async () => [] as Array<{ name: string; value: string }>),
+    call: vi.fn(async () => '📞 calling'),
+    hangup: vi.fn(() => '📴 ended'),
     performSessionAction: vi.fn(async () => '✓ done'),
   };
 }
@@ -323,5 +325,29 @@ describe('handleInteraction — /model suggestions', () => {
 
     expect(modelSuggestions).not.toHaveBeenCalled();
     expect(responses).toEqual([[]]);
+  });
+});
+
+describe('handleInteraction — voice calls', () => {
+  it('/call starts a call and says where', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const call = vi.fn(async () => '📞 On a call in <#lobby>');
+    const interaction = slashInteraction('call');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), call });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toBe('📞 On a call in <#lobby>');
+  });
+
+  it('/hangup ends it', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const hangup = vi.fn(() => '📴 Call ended.');
+    const interaction = slashInteraction('hangup');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), hangup });
+
+    expect(hangup).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toBe('📴 Call ended.');
   });
 });
