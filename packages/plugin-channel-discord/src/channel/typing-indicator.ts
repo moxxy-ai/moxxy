@@ -14,9 +14,11 @@ export class TypingIndicator {
   start(channel: SendableChannelLike): void {
     this.stop();
     if (!channel.sendTyping) return;
-    const sendTyping = channel.sendTyping;
+    // Called ON the channel: discord.js's `sendTyping` is a prototype method
+    // that reaches the REST client through `this`; a detached call rejects and
+    // the swallowed error hid the indicator entirely.
     const ping = (): void => {
-      void sendTyping().catch(() => undefined);
+      void channel.sendTyping?.().catch(() => undefined);
     };
     ping();
     this.timer = setInterval(ping, REFRESH_MS);
