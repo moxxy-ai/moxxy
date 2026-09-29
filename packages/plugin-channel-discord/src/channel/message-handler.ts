@@ -40,7 +40,7 @@ export interface MessageHandlerDeps {
 
 export interface MessageHandlerCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
-  readonly toggleYolo: () => boolean;
+  readonly toggleYolo: () => Promise<boolean>;
   readonly setYolo: (value: boolean) => void;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   readonly voice: (arg: string) => Promise<string>;

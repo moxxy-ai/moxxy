@@ -96,4 +96,7 @@ export interface ClientSession extends SessionLike {
   readonly synthesizers: SynthesizersClientView;
   readonly requirements: RequirementsClientView;
   readonly permissions: PermissionsClientView;
+  /** Switch the conversation's auto-approve (read it from `getInfo().autoApprove`).
+   *  Optional: a client of a runner without the shared switch has none. */
+  setAutoApprove?(enabled: boolean): Promise<void>;
 }

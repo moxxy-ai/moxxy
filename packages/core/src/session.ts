@@ -52,7 +52,13 @@ import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
 import { currentPermissionScope } from './permissions/scope.js';
-import { evaluateToolRule, isSelectableMode } from '@moxxy/sdk';
+import {
+  AUTO_APPROVE_PLUGIN_ID,
+  AUTO_APPROVE_SUBTYPE,
+  autoApproveFromEvents,
+  evaluateToolRule,
+  isSelectableMode,
+} from '@moxxy/sdk';
 import type {
   ApprovalResolver,
   CredentialResolver,
@@ -347,6 +353,7 @@ export class Session implements ClientSession, SessionRuntime {
       this.permissions,
       (name) => this.tools.get(name)?.permission,
       this.cwd,
+      () => this.autoApprove,
     );
     this.dispatcher = new HookDispatcherImpl({
       logger: this.logger,
@@ -421,7 +428,29 @@ export class Session implements ClientSession, SessionRuntime {
       this.permissions,
       (name) => this.tools.get(name)?.permission,
       this.cwd,
+      () => this.autoApprove,
     );
+  }
+
+  /** Whether tool calls run without asking: a fold over the log, so a reset
+   *  conversation starts with it off and a resumed one keeps its last switch. */
+  get autoApprove(): boolean {
+    return autoApproveFromEvents(this.log.slice());
+  }
+
+  /** Switch auto-approve for this conversation. Recorded in the log so every
+   *  attached client (desktop, TUI, channel bot) sees the same state. */
+  async setAutoApprove(enabled: boolean): Promise<void> {
+    if (this.autoApprove === enabled) return;
+    await this.log.append({
+      type: 'plugin_event',
+      sessionId: this.id,
+      turnId: newTurnId(),
+      source: 'user',
+      pluginId: AUTO_APPROVE_PLUGIN_ID,
+      subtype: AUTO_APPROVE_SUBTYPE,
+      payload: { enabled },
+    });
   }
 
   /** Install/replace the generic approval resolver. Pass null to clear. */
@@ -639,6 +668,7 @@ export class Session implements ClientSession, SessionRuntime {
       activeTranscriber: this.transcribers.getActiveName(),
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
+      autoApprove: this.autoApprove,
     };
   }
 }
@@ -659,6 +689,7 @@ function wrapWithPolicy(
   engine: PermissionEngine,
   getToolRule: (name: string) => PermissionRule | undefined,
   cwd: string,
+  isAutoApprove: () => boolean,
 ): PermissionResolver {
   // The policy-only decision: user policy (permissions.json) wins, then the
   // tool's own declared rule (so a tool marked `allow` is never blocked in
@@ -680,7 +711,11 @@ function wrapWithPolicy(
         return async (call: PendingToolCall, ctx: PermissionContext) => {
           const decided = await policyDecision(call);
           if (decided) return decided;
-          return (currentPermissionScope() ?? target).check(call, ctx);
+          // Auto-approve replaces only the asking: policy denies above still
+          // win, and a scoped resolver (subagent, goal run) keeps its own say.
+          const scoped = currentPermissionScope();
+          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve' };
+          return (scoped ?? target).check(call, ctx);
         };
       }
       if (prop === 'policyCheck') {

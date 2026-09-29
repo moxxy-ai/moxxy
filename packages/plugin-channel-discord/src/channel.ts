@@ -52,6 +52,7 @@ import {
   runModelCommand,
   type ModelSuggestion,
 } from './channel/model-command.js';
+import { AutoApproveSwitch } from './channel/auto-approve-switch.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 import { MirrorTarget } from './channel/mirror-target.js';
 
@@ -124,7 +125,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
-  private yolo = false;
+  /** `/auto-approve` — the conversation's shared switch (see AutoApproveSwitch). */
+  private readonly autoApprove = new AutoApproveSwitch(() => this.session);
   // When true, the final assistant reply of each turn is also synthesized (via
   // the session's active Synthesizer) and sent as an audio attachment.
   // Persisted per paired account in the vault (`discord_voice_replies`),
@@ -407,13 +409,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        toggleYolo: () => {
-          this.yolo = !this.yolo;
-          return this.yolo;
-        },
-        setYolo: (value) => {
-          this.yolo = value;
-        },
+        toggleYolo: () => this.autoApprove.toggle(),
+        setYolo: () => this.autoApprove.forgetLocal(),
         voice: (arg) => this.voiceCommand(arg),
         model: (arg) => this.modelCommand(arg),
         runUserTurn: (c, text) => this.runUserTurn(c, text),
@@ -443,10 +440,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        toggleYolo: () => {
-          this.yolo = !this.yolo;
-          return this.yolo;
-        },
+        toggleYolo: () => this.autoApprove.toggle(),
         voice: (arg) => this.voiceCommand(arg),
         model: (arg) => this.modelCommand(arg),
         modelSuggestions: (query) => this.modelSuggestions(query),
@@ -467,9 +461,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
               setAwaitingApprovalText: (state) => {
                 this.awaitingApprovalText = state;
               },
-              setYolo: (value) => {
-                this.yolo = value;
-              },
+              setYolo: () => this.autoApprove.forgetLocal(),
             },
           ),
       },
@@ -609,7 +601,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       channel: this.currentChannel,
       session: this.session,
       resolver: this.permissionResolver,
-      yolo: this.yolo,
+      yolo: this.autoApprove.enabled,
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     });
   }

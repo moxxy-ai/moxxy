@@ -38,6 +38,7 @@ export {
   handleSessionSetReasoning,
   handleSessionLoadHistory,
   handleSessionRecordExchange,
+  handleSessionSetAutoApprove,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

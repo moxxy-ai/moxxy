@@ -1823,3 +1823,57 @@ describe('session.recordExchange (protocol v20)', () => {
     expect(request).toContain('Zapamiętam: pomarańcza.');
   });
 });
+
+describe('conversation auto-approve (protocol v21)', () => {
+  it('a client switches it on and every attached client sees it', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+    const bot = await attach(socketPath, 'discord');
+
+    await desktop.setAutoApprove(true);
+
+    expect(session.getInfo().autoApprove).toBe(true);
+    await waitFor(() => bot.getInfo().autoApprove === true);
+  });
+
+  it('a switch made inside the runner (a channel bot hosting it) reaches attached clients', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+
+    await session.setAutoApprove(true);
+
+    await waitFor(() => desktop.getInfo().autoApprove === true);
+  });
+
+  it('a new conversation turns it off for every client', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+    await session.setAutoApprove(true);
+    await waitFor(() => desktop.getInfo().autoApprove === true);
+
+    await session.reset();
+
+    await waitFor(() => desktop.getInfo().autoApprove === false);
+  });
+
+  it("a client's turn runs its tools without asking that client while it is on", async () => {
+    const { socketPath } = await serve(
+      new FakeProvider({ script: [toolUseReply('echo', { text: 'yo' }), textReply('done')] }),
+    );
+    const remote = await attach(socketPath);
+    const asked: string[] = [];
+    remote.setPermissionResolver({
+      name: 'test-resolver',
+      check: async (call) => {
+        asked.push(call.name);
+        return { mode: 'deny', reason: 'would have asked' };
+      },
+    });
+    await remote.setAutoApprove(true);
+
+    for await (const _event of remote.runTurn('use echo')) void _event;
+
+    expect(asked).toEqual([]);
+    expect(remote.log.ofType('tool_result').length).toBeGreaterThan(0);
+  });
+});

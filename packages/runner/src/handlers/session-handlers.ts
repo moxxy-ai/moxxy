@@ -5,6 +5,7 @@ import {
   permissionAddAllowParamsSchema,
   sessionLoadHistoryParamsSchema,
   sessionRecordExchangeParamsSchema,
+  sessionSetAutoApproveParamsSchema,
   sessionSetReasoningParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
@@ -83,6 +84,16 @@ export async function handleSessionRecordExchange(
 ): Promise<SessionRecordExchangeResult> {
   const exchange = sessionRecordExchangeParamsSchema.parse(raw);
   return { turnId: await ctx.spokenExchanges.record(exchange) };
+}
+
+/** Switch the conversation's auto-approve (v21); the log records it for every client. */
+export async function handleSessionSetAutoApprove(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<Record<string, never>> {
+  const { enabled } = sessionSetAutoApproveParamsSchema.parse(raw);
+  await ctx.session.setAutoApprove(enabled);
+  return {};
 }
 
 export async function handlePermissionAddAllow(

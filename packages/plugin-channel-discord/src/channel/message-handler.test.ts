@@ -104,7 +104,7 @@ function makeCallbacks(overrides: Partial<MessageHandlerCallbacks> = {}): Messag
   const runVoiceMessage = vi.fn(async () => false);
   return {
     setAwaitingApprovalText: () => undefined,
-    toggleYolo: () => false,
+    toggleYolo: async () => false,
     setYolo: () => undefined,
     runUserTurn,
     runVoiceMessage,

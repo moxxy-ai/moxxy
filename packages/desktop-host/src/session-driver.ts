@@ -35,10 +35,11 @@ interface ActiveTurn {
 export class SessionDriver {
   private readonly turns = new Map<string, ActiveTurn>();
   private readonly disposes: Array<() => void> = [];
-  /** Auto-approve ("yolo"): when true, the permission resolver allows every
-   *  tool call without opening the renderer's approval sheet. Toggled via the
-   *  `session.setAutoApprove` IPC (goal mode turns it on). Defaults off and is
-   *  not persisted across driver recreation — the renderer re-applies it on
+  /** Auto-approve ("yolo"): when true, tool calls run without opening the
+   *  renderer's approval sheet. Toggled via the `session.setAutoApprove` IPC
+   *  (goal mode turns it on). On a runner with the shared switch (v21) this
+   *  mirrors the conversation's state, which any client of it may change; on
+   *  an older runner it lives here only and the renderer re-applies it on
    *  reconnect. */
   private autoApprove = false;
   /** Every window subscribed to this driver's events. Mutated by
@@ -74,7 +75,9 @@ export class SessionDriver {
     // require an app restart to show up.
     const infoUnsub = this.session.onInfoChanged(() => {
       this.send('session.info.changed', { workspaceId });
+      this.syncAutoApprove();
     });
+    this.syncAutoApprove();
     this.disposes.push(infoUnsub);
 
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
@@ -282,10 +285,21 @@ export class SessionDriver {
     return n;
   }
 
-  /** Toggle auto-approve. When on, the permission resolver allows every tool
-   *  call without opening the renderer's approval sheet. */
-  setAutoApprove(on: boolean): void {
+  /** Toggle auto-approve. When on, tool calls run without opening the
+   *  renderer's approval sheet — for the whole conversation when the runner
+   *  shares the switch, for this driver only on an older runner. */
+  async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
+    if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);
+  }
+
+  /** Adopt the conversation's auto-approve when another client (a channel
+   *  bot, the TUI) switched it, and tell the renderer. */
+  private syncAutoApprove(): void {
+    const shared = this.session.getInfo().autoApprove;
+    if (shared === undefined || shared === this.autoApprove) return;
+    this.autoApprove = shared;
+    this.send('session.autoApprove.changed', { workspaceId: this.workspaceId, enabled: shared });
   }
 
   dispose(): void {

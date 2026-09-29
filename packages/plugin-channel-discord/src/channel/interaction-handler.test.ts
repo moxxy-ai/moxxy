@@ -125,7 +125,7 @@ function deps() {
 function callbacks() {
   return {
     setAwaitingApprovalText: vi.fn(),
-    toggleYolo: vi.fn(() => true),
+    toggleYolo: vi.fn(async () => true),
     voice: vi.fn(async () => ''),
     model: vi.fn(async () => ''),
     modelSuggestions: vi.fn(async () => [] as Array<{ name: string; value: string }>),
@@ -260,7 +260,7 @@ describe('handleInteraction — command arguments', () => {
 describe('handleInteraction — /auto-approve', () => {
   it('turns auto-approve on and says so', async () => {
     const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
-    const toggleYolo = vi.fn(() => true);
+    const toggleYolo = vi.fn(async () => true);
     const interaction = slashInteraction('auto-approve');
 
     await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), toggleYolo });
@@ -275,7 +275,7 @@ describe('handleInteraction — /auto-approve', () => {
 
     await handleInteraction(interaction, { session, turnController: null }, deps(), {
       ...callbacks(),
-      toggleYolo: () => false,
+      toggleYolo: async () => false,
     });
 
     expect(interaction.replies[0]?.content).toMatch(/auto-approve OFF/);

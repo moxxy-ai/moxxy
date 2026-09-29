@@ -292,9 +292,11 @@ export interface IpcCommands {
   'session.newSession': (args: { workspaceId?: string }) => Promise<void>;
   /** Toggle auto-approve ("yolo") for the workspace's session: when
    *  enabled, tool calls are allowed WITHOUT showing the approval sheet.
-   *  Goal mode turns this on for hands-off autonomous runs. Lives on the
-   *  per-workspace SessionDriver, so it resets to off if the runner
-   *  reconnects (the renderer re-applies it on connect). */
+   *  Goal mode turns this on for hands-off autonomous runs. Belongs to the
+   *  conversation: every client of it (a channel bot, the TUI) shares the
+   *  switch and `session.autoApprove.changed` reports changes from any of
+   *  them. On a runner without the shared switch it lives on the driver and
+   *  the renderer re-applies it on connect. */
   'session.setAutoApprove': (args: {
     workspaceId?: string;
     enabled: boolean;

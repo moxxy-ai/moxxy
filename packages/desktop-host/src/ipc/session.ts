@@ -159,9 +159,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   handle('session.setAutoApprove', async ({ workspaceId, enabled }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) return;
-    // The flag lives on the driver (where the permission resolver is set up),
-    // not on the RemoteSession — so target the driver directly.
-    mustDriver(id).setAutoApprove(enabled);
+    // The driver shares the switch with the conversation on the runner (and
+    // keeps it itself for an older runner that has no shared switch).
+    await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {

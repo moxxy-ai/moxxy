@@ -57,7 +57,7 @@ export interface InteractionDeps {
 
 export interface InteractionCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
-  readonly toggleYolo: () => boolean;
+  readonly toggleYolo: () => Promise<boolean>;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   readonly voice: (arg: string) => Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */

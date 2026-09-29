@@ -131,6 +131,13 @@ export type {
   ClientChromeItem,
 } from './client-chrome.js';
 
+export {
+  AUTO_APPROVE_PLUGIN_ID,
+  AUTO_APPROVE_SUBTYPE,
+  autoApproveFromEvents,
+  autoApproveSwitch,
+} from './auto-approve.js';
+
 export type {
   ClientSession,
   ProvidersClientView,

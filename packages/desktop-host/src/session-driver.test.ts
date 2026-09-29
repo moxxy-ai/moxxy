@@ -363,6 +363,8 @@ function fakeRemote(options: {
       return () => infoListeners.delete(fn);
     },
     onSurfaceData: () => () => undefined,
+    // A runner that predates the shared auto-approve switch reports none.
+    getInfo: () => ({}),
   };
   return {
     remote: remote as unknown as RemoteSession,
@@ -403,6 +405,56 @@ describe('SessionDriver auto-approve', () => {
     driver.dispose();
     const res = await p;
     expect(res.mode).toBe('deny');
+  });
+});
+
+describe('SessionDriver shared auto-approve', () => {
+  async function serveConversation(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('ok')] }));
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  async function attachDriver(socketPath: string) {
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+    const autoApproveFrames = () =>
+      sent.filter((f) => f.channel === 'session.autoApprove.changed').map((f) => f.payload);
+    return { driver, autoApproveFrames };
+  }
+
+  it('shows auto-approve switched on by another client of the conversation (a channel bot)', async () => {
+    const { session, socketPath } = await serveConversation();
+    const { driver, autoApproveFrames } = await attachDriver(socketPath);
+
+    await session.setAutoApprove(true);
+
+    await waitFor(() => autoApproveFrames().length > 0);
+    expect(autoApproveFrames()).toEqual([{ workspaceId: 'ws-chat', enabled: true }]);
+    driver.dispose();
+  });
+
+  it('switching it in the app switches it for the whole conversation', async () => {
+    const { session, socketPath } = await serveConversation();
+    const { driver } = await attachDriver(socketPath);
+
+    await driver.setAutoApprove(true);
+
+    expect(session.getInfo().autoApprove).toBe(true);
+    driver.dispose();
+  });
+
+  it('opens a conversation that already has it on with it shown on', async () => {
+    const { session, socketPath } = await serveConversation();
+    await session.setAutoApprove(true);
+
+    const { driver, autoApproveFrames } = await attachDriver(socketPath);
+
+    expect(autoApproveFrames()).toEqual([{ workspaceId: 'ws-chat', enabled: true }]);
+    driver.dispose();
   });
 });
 

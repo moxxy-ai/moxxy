@@ -3,7 +3,7 @@ import type { ChannelLogger } from './discord-like.js';
 
 export interface SlashCallbacks {
   /** Toggle auto-approve and return its new value (so we can echo the right message). */
-  toggleYolo(): boolean;
+  toggleYolo(): Promise<boolean>;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   voice(arg: string): Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
@@ -52,7 +52,7 @@ export async function runSlash(
   switch (name) {
     case 'auto-approve':
     case 'yolo': {
-      const enabled = cb.toggleYolo();
+      const enabled = await cb.toggleYolo();
       return enabled
         ? '⚠ auto-approve ON — tool calls run without asking for the rest of this session'
         : 'auto-approve OFF — tool prompts will resume';

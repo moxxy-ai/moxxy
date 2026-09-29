@@ -152,6 +152,9 @@ export interface SessionInfo {
   /** Name of the active synthesizer, or null. Lets a thin client proxy TTS
    *  (the desktop routes "Read aloud" through it; null → OS voice fallback). */
   readonly activeSynthesizer: string | null;
+  /** Tool calls run without asking in this conversation (see `auto-approve.ts`).
+   *  Absent from runners that predate the shared switch. */
+  readonly autoApprove?: boolean;
 }
 
 /**

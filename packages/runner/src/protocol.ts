@@ -167,7 +167,8 @@ import type {
 /** v18: synthesis usage may identify counts estimated from text and audio duration (removed with v17's field). */
 /** v19: runTurn accepts an optional custom-model context window for compaction. */
 /** v20: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
-export const RUNNER_PROTOCOL_VERSION = 20;
+/** v21: `session.setAutoApprove` switches the conversation's auto-approve; `SessionInfo.autoApprove` reports it (additive). */
+export const RUNNER_PROTOCOL_VERSION = 21;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -214,6 +215,11 @@ export const RunnerMethod = {
    * `turn.complete`), so it never lands inside the running turn's context.
    */
   SessionRecordExchange: 'session.recordExchange',
+  /**
+   * client->server: switch the conversation's auto-approve (v21). Shared by
+   * every client of the session; the change arrives as an `info.changed`.
+   */
+  SessionSetAutoApprove: 'session.setAutoApprove',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
@@ -435,6 +441,11 @@ export interface SessionRecordExchangeParams {
 }
 export interface SessionRecordExchangeResult {
   readonly turnId: string;
+}
+
+/** Params for `session.setAutoApprove` (v21). */
+export interface SessionSetAutoApproveParams {
+  readonly enabled: boolean;
 }
 
 export interface ProviderSetActiveParams {
@@ -663,6 +674,8 @@ export const sessionRecordExchangeParamsSchema = z
     ({ userText, assistantText }) => Boolean(userText?.trim() || assistantText?.trim()),
     { message: 'An exchange needs user or assistant text' },
   );
+
+export const sessionSetAutoApproveParamsSchema = z.object({ enabled: z.boolean() }).strict();
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),

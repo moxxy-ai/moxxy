@@ -42,7 +42,7 @@ describe('runSlash routes /voice to the channel callback', () => {
     const args: string[] = [];
     const session = { commands: { get: () => undefined } } as unknown as Session;
     const reply = await runSlash('voice', 'on', session, {
-      toggleYolo: () => false,
+      toggleYolo: async () => false,
       voice: async (a) => {
         args.push(a);
         return '🔊 Voice replies ON';

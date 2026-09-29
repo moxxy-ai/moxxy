@@ -507,6 +507,16 @@ export class RemoteSession implements ClientSession {
     );
   }
 
+  /**
+   * Switch the conversation's auto-approve for every client of this runner
+   * (v21). The new state arrives with the next `info.changed`. GATED so an
+   * older runner reports an actionable "update the CLI" error.
+   */
+  async setAutoApprove(enabled: boolean): Promise<void> {
+    this.requireServerProtocol(21, 'Sharing auto-approve with the runner');
+    await this.peer.request(RunnerMethod.SessionSetAutoApprove, { enabled });
+  }
+
   getInfo(): SessionInfo {
     return this.requireInfo();
   }

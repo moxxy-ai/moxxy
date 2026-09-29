@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
 import { newTurnId } from '@moxxy/core';
-import { asTurnId, createMutex } from '@moxxy/sdk';
+import { asTurnId, autoApproveSwitch, createMutex } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -63,6 +63,7 @@ import {
   handleSessionSetReasoning,
   handleSessionLoadHistory,
   handleSessionRecordExchange,
+  handleSessionSetAutoApprove,
   handlePermissionAddAllow,
   handleCommandRun,
   type HandlerContext,
@@ -165,15 +166,22 @@ export class RunnerServer {
     this.fallbackApproval = session.approvalResolver;
     this.installRoutingResolvers();
     this.transport.onConnection((t) => this.onConnection(t));
-    this.logUnsub = session.log.subscribe((event) => this.broadcastEvent(event));
+    this.logUnsub = session.log.subscribe((event) => {
+      this.broadcastEvent(event);
+      // Auto-approve is read from the info snapshot; refresh it on every
+      // switch, whichever client (or in-process channel) made it.
+      if (autoApproveSwitch(event) !== null) this.broadcastInfo();
+    });
     // Mirror a log wipe to every attached client. Subscribing to the log's
     // clear listener (rather than broadcasting inside handleSessionReset)
     // covers BOTH reset paths — the session.reset RPC and a self-hosting
     // channel clearing the local log directly — so mirrors can never desync
     // against a wiped log whose next event restarts at seq 0.
-    this.logClearUnsub = session.log.onClear(() =>
-      this.broadcast(RunnerNotification.SessionReset, {}),
-    );
+    this.logClearUnsub = session.log.onClear(() => {
+      this.broadcast(RunnerNotification.SessionReset, {});
+      // A fresh conversation starts with auto-approve off.
+      this.broadcastInfo();
+    });
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
@@ -229,6 +237,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SessionLoadHistory, (raw) => handleSessionLoadHistory(ctx, raw));
     peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
+    peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
