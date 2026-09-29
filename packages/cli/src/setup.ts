@@ -307,9 +307,6 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // never throws at boot. provider/embedder/isolator are applied by their
   // bespoke callers above/below.
   applyPluginsTree(session, config, logger);
-  // Voice input: the configured transcriber, else Codex when logged in with
-  // ChatGPT — so a channel bot hears voice notes like the desktop mic does.
-  await applyTranscriberDefault(session, config, vault, logger);
   // Fail loud if any non-nullable slot ended up empty (a broken build/seed) —
   // never let the user hit a half-initialized app.
   assertCriticalFloors(session);
@@ -351,6 +348,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // which the runner it attaches to already owns.
   if (!opts.skipInitHooks) {
     await session.dispatcher.dispatchInit(session.appContext());
+    // Voice input: the configured transcriber, else Codex when logged in with
+    // ChatGPT — so a channel bot hears voice notes like the desktop mic does.
+    // After onInit: activating builds the client, which may need services
+    // wired there (Codex resolves the vault in its onInit).
+    await applyTranscriberDefault(session, config, vault, logger);
   }
   progress({ kind: 'init-hooks-done' });
   progress({ kind: 'ready' });

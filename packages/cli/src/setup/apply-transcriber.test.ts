@@ -73,4 +73,22 @@ describe('applyTranscriberDefault (voice input for channel bots and the TUI)', (
 
     expect(session.transcribers.getActiveName()).toBe('local-whisper');
   });
+
+  it('reports a backend that cannot start instead of silently leaving voice off', async () => {
+    const session = new Session({ cwd: '/tmp', logger: silentLogger, permissionResolver: autoAllowResolver });
+    session.transcribers.register(
+      defineTranscriber({
+        name: CODEX,
+        createClient: () => {
+          throw new Error('the "vault" service is unavailable');
+        },
+      }),
+    );
+    const { logger, warns } = warnings();
+
+    await applyTranscriberDefault(session, {} as MoxxyConfig, LOGGED_IN, logger);
+
+    expect(session.transcribers.getActiveName()).toBeNull();
+    expect(warns.join('\n')).toMatch(/vault/u);
+  });
 });
