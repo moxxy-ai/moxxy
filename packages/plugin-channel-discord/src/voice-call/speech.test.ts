@@ -54,4 +54,24 @@ describe('speech in a call', () => {
   it('has nothing to play when no voice is set up', async () => {
     expect(await speakForCall(conversation(), 'Gotowe.')).toBeNull();
   });
+
+  it('tells why a sentence could not be voiced', async () => {
+    const session = conversation();
+    session.synthesizers.register(
+      defineSynthesizer({
+        name: 'tts',
+        create: () => ({
+          name: 'tts',
+          synthesize: async () => {
+            throw new Error('HTTP 429: quota exceeded');
+          },
+        }),
+      }),
+    );
+    session.synthesizers.setActive('tts');
+    const reasons: string[] = [];
+
+    expect(await speakForCall(session, 'Gotowe.', (reason) => reasons.push(reason))).toBeNull();
+    expect(reasons).toEqual([expect.stringMatching(/429: quota exceeded/)]);
+  });
 });

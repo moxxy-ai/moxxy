@@ -14,8 +14,10 @@ const PREFETCH_SENTENCES = 2;
  * A reply said while it is still being written: text arrives in deltas, is
  * split into sentences (the same segmenter as the desktop's Voice Mode), and
  * each sentence is voiced and played in order — the first one as soon as it
- * is complete, the next two voiced while it plays. `cancel` (barge-in) stops
- * the speech and drops everything after it.
+ * is complete, the next two voiced while it plays. `interrupt` (barge-in)
+ * stops what is being said and skips the rest of that message — the agent's
+ * next message (its result) and the call's own sentences are still said;
+ * `cancel` (hang-up) stops everything.
  */
 export class SpokenReply {
   /** Settles once every sentence was played, or the reply was cancelled. */
@@ -28,6 +30,10 @@ export class SpokenReply {
   private playing = false;
   private wake: (() => void) | null = null;
   private wasAudible = false;
+  /** Talked over: what the agent writes is skipped until its message ends. */
+  private skipping = false;
+  /** Bumped by `interrupt`, so a sentence voiced before it is not played after. */
+  private generation = 0;
 
   constructor(
     private readonly output: SpeechOutput,
@@ -45,8 +51,18 @@ export class SpokenReply {
   }
 
   write(delta: string): void {
-    if (this.cancelled || this.ended) return;
+    if (this.cancelled || this.ended || this.skipping) return;
     this.add(this.segmenter.push(delta));
+  }
+
+  /** One message of the agent is complete: say its unfinished last sentence. */
+  endMessage(): void {
+    if (this.cancelled || this.ended) return;
+    if (this.skipping) {
+      this.skipping = false;
+      return;
+    }
+    this.add(this.segmenter.flush());
   }
 
   /** A whole sentence of the call's own, said in turn with the reply. */
@@ -61,6 +77,18 @@ export class SpokenReply {
     this.add(this.segmenter.flush());
     this.ended = true;
     this.notify();
+  }
+
+  /** Barge-in: stop what is being said and skip the rest of this message. */
+  interrupt(): void {
+    if (this.cancelled) return;
+    this.skipping = true;
+    this.generation += 1;
+    this.segmenter.reset();
+    this.next = this.sentences.length;
+    this.output.stop();
+    this.notify();
+    this.syncAudible();
   }
 
   cancel(): void {
@@ -112,9 +140,11 @@ export class SpokenReply {
         continue;
       }
       this.prepare();
+      const generation = this.generation;
       const clip = await sentence.clip;
-      this.next += 1;
       if (this.cancelled) return;
+      if (generation !== this.generation) continue;
+      this.next += 1;
       if (!clip) {
         this.syncAudible();
         continue;

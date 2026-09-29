@@ -19,10 +19,20 @@ export async function transcribeForCall(
   return text.trim();
 }
 
-/** A reply as an Ogg/Opus clip for the call, or null when it cannot be voiced. */
-export async function speakForCall(session: SpeechSession, text: string): Promise<Uint8Array | null> {
+/** A reply as an Ogg/Opus clip for the call, or null when it cannot be voiced
+ *  (`onUnvoiced` hears why — a call otherwise just goes quiet). */
+export async function speakForCall(
+  session: SpeechSession,
+  text: string,
+  onUnvoiced?: (reason: string) => void,
+): Promise<Uint8Array | null> {
   const voiced = await synthesizeReply(session, text);
-  if (!voiced.ok) return null;
+  if (!voiced.ok) {
+    onUnvoiced?.(voiced.error ?? voiced.reason);
+    return null;
+  }
   const clip = await ensureOggOpus(voiced.audio, voiced.mimeType);
-  return clip.isOpus ? clip.audio : null;
+  if (clip.isOpus) return clip.audio;
+  onUnvoiced?.(`the voice is ${voiced.mimeType}, not Ogg/Opus`);
+  return null;
 }

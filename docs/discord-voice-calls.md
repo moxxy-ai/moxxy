@@ -34,10 +34,14 @@ the agent answers, and the answer is read aloud. You can interrupt it.
   at it (after 10 s, 40 s, then every 90 s). It never repeats itself within 8 s
   of speaking and never reads out commands or paths. This is the desktop's
   Voice Mode feedback (shared in `@moxxy/chat-model`) with the step names on.
- talk over a reply for a moment and the bot stops speaking,
-  drops the rest of that reply, and listens. As in the desktop's Voice Mode, this stops only the speech; the
-  agent's work goes on. Things you say while the agent works are answered in
-  order.
+- **Interrupting:** talk over a reply for a moment and the bot stops speaking,
+  skips the rest of what it was saying, and listens. This stops only the
+  speech: the agent's work goes on, and what it says next — the next step, and
+  its result at the end — is still said. Things you say while the agent works
+  are answered in order.
+- **When a sentence cannot be voiced** (for example the text-to-speech service
+  refused it), the bot skips it and logs the reason as
+  `discord call: a sentence could not be voiced`.
 
 ## Requirements
 

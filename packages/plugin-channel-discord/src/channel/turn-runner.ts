@@ -153,7 +153,7 @@ export async function runDiscordTurn(
       case 'assistant_message':
         if (!streamed && event.content) spokenTurn.text(event.content);
         streamed = false;
-        spokenTurn.text('\n\n');
+        spokenTurn.messageEnded();
         break;
       case 'tool_call_requested':
         requested.set(String(event.callId), { name: event.name, input: event.input });

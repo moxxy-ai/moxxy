@@ -242,6 +242,7 @@ function heardTurn() {
     spoken,
     listener: {
       text: (delta: string) => spoken.push(delta),
+      messageEnded: () => spoken.push('<end of message>'),
       toolStarted: (callId: string, name: string, input: unknown) => heard.push(['started', callId, name, input]),
       toolFinished: (callId: string, ok: boolean) => heard.push(['finished', callId, ok]),
     },
@@ -265,7 +266,7 @@ describe('runDiscordTurn — the reply as it is written, for a call to speak', (
       { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-stream') },
     );
 
-    expect(spoken).toEqual(['Już ', 'sprawdzam.', '\n\n', 'Gotowe', '\n\n']);
+    expect(spoken).toEqual(['Już ', 'sprawdzam.', '<end of message>', 'Gotowe', '<end of message>']);
   });
 
   it('passes a whole message on when the model did not stream it', async () => {
@@ -280,7 +281,7 @@ describe('runDiscordTurn — the reply as it is written, for a call to speak', (
       { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-whole') },
     );
 
-    expect(spoken).toEqual(['Cała odpowiedź.', '\n\n']);
+    expect(spoken).toEqual(['Cała odpowiedź.', '<end of message>']);
   });
 
   it('tells the call when an approved step starts and when it ends', async () => {

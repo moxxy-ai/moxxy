@@ -520,7 +520,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         return transcribeForCall(session, packets);
       },
       answer: (text, turn) => this.answerCall(text, turn),
-      speak: (text) => (this.session ? speakForCall(this.session, text) : Promise.resolve(null)),
+      speak: (text) =>
+        this.session
+          ? speakForCall(this.session, text, (reason) =>
+              this.opts.logger?.warn('discord call: a sentence could not be voiced', { reason }),
+            )
+          : Promise.resolve(null),
       onError: (err) => {
         const message = err instanceof Error ? err.message : String(err);
         this.opts.logger?.warn('discord call failed', { err: message });

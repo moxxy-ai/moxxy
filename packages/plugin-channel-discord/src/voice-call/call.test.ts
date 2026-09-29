@@ -260,7 +260,7 @@ describe('a reply said while the agent is still writing it', () => {
     expect(voice.played).toEqual(['Już sprawdzam.']);
   });
 
-  it('talking over it also drops what the agent writes afterwards', async () => {
+  it('talking over it also drops the rest of that message', async () => {
     const voice = fakeLink();
     let more: (() => void) | null = null;
     startCall(
@@ -285,6 +285,37 @@ describe('a reply said while the agent is still writing it', () => {
     await sleep(10);
 
     expect(voice.played).toEqual(['Pierwsze.']);
+  });
+
+  it('after being talked over, still says what the agent reports once it is done', async () => {
+    const voice = fakeLink();
+    let done: (() => void) | null = null;
+    startCall(
+      voice.link,
+      services({
+        answer: (_text, turn) =>
+          new Promise((resolve) => {
+            turn.text('Jasne, szukam kanału. Zaraz ');
+            done = () => {
+              turn.text('go otworzę.');
+              turn.messageEnded();
+              turn.text('Otworzyłem kanał, jest pusty.');
+              turn.messageEnded();
+              resolve();
+            };
+          }),
+      }),
+    );
+    await voice.say();
+    await until(() => voice.playing);
+
+    voice.startSpeaking();
+    await sleep(BARGE_IN_MS * 3);
+    voice.stopSpeaking();
+    done?.();
+
+    await until(() => voice.played.length === 2);
+    expect(voice.played).toEqual(['Jasne, szukam kanału.', 'Otworzyłem kanał, jest pusty.']);
   });
 
   it('does not cut off a reply that has not started, and says it once it comes', async () => {

@@ -24,6 +24,8 @@ export interface VoiceLink {
 export interface CallTurnListener {
   /** The reply as it is written, piece by piece. */
   text(delta: string): void;
+  /** One message of the reply is complete. */
+  messageEnded(): void;
   /** An approved tool call starts; `input` only picks how the step is named. */
   toolStarted(callId: string, name: string, input: unknown): void;
   toolFinished(callId: string, ok: boolean): void;
@@ -51,8 +53,8 @@ const DEFAULT_MIN_PACKETS = 15;
  * and answered by the agent, and the reply is said sentence by sentence while
  * the agent is still writing it. Utterances are answered one at a time in the
  * order they were said. Talking over a reply that is being voiced or played
- * stops it and drops the rest (barge-in) — the agent's turn itself runs on, as
- * in the desktop's Voice Mode. While the agent works in silence the call says
+ * stops it and skips the rest of that message (barge-in) — the agent's turn
+ * runs on, and what it says next, such as its result, is still said. While the agent works in silence the call says
  * which step it is on and, during a long one, that it is still at it (the
  * desktop's voice feedback, with steps announced).
  */
@@ -117,7 +119,7 @@ export class VoiceCall {
     if (this.reply?.audible && !this.bargeInTimer) {
       this.bargeInTimer = setTimeout(() => {
         this.bargeInTimer = null;
-        if (this.reply?.audible) this.reply.cancel();
+        if (this.reply?.audible) this.reply.interrupt();
       }, this.bargeInMs);
     }
     if (!this.capturing) void this.capture();
@@ -159,6 +161,7 @@ export class VoiceCall {
           if (delta.trim()) this.feedback.assistantSpeechQueued();
           reply.write(delta);
         },
+        messageEnded: () => reply.endMessage(),
         toolStarted: (callId, name, input) => this.feedback.toolApproved(callId, name, input),
         toolFinished: (callId, ok) => this.feedback.toolResult(callId, ok),
       });

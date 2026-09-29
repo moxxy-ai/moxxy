@@ -131,5 +131,56 @@ describe('a reply spoken sentence by sentence', () => {
     expect(s.played).toEqual(['Najpierw to.', 'Przeglądam pliki.']);
     expect(heard).toEqual([true, false]);
   });
-});
 
+  it('says a message’s unfinished last sentence as soon as the message ends', async () => {
+    const s = speaker();
+    const reply = new SpokenReply(s.output, async (text) => new TextEncoder().encode(text));
+
+    reply.write('Sprawdzam logi');
+    reply.endMessage();
+
+    await until(() => s.played.length === 1);
+    expect(s.played).toEqual(['Sprawdzam logi']);
+  });
+
+  it('after being talked over, skips the rest of that message but says the next one', async () => {
+    const s = speaker();
+    const reply = new SpokenReply(s.output, async (text) => new TextEncoder().encode(text));
+    reply.write('Pierwsze. Drugie. ');
+    await until(() => s.playing);
+
+    reply.interrupt();
+    reply.write('Trzecie. ');
+    reply.endMessage();
+    reply.interject('Przeglądam pliki.');
+    reply.write('Gotowe, kanał jest pusty.');
+    reply.end();
+    await until(() => s.played.length === 2);
+    s.finishPlaying();
+    await until(() => s.played.length === 3);
+    s.finishPlaying();
+    await reply.done;
+
+    expect(s.played).toEqual(['Pierwsze.', 'Przeglądam pliki.', 'Gotowe, kanał jest pusty.']);
+  });
+
+  it('does not play a sentence it was voicing when talked over', async () => {
+    const s = speaker();
+    const reply = new SpokenReply(s.output, s.speak);
+    reply.write('Pierwsze. ');
+    await until(() => s.voiced.length === 1);
+
+    reply.interrupt();
+    s.voice('Pierwsze.');
+    reply.endMessage();
+    reply.write('Potem to.');
+    reply.end();
+    await until(() => s.voiced.length === 2);
+    s.voice('Potem to.');
+    await until(() => s.played.length === 1);
+    s.finishPlaying();
+    await reply.done;
+
+    expect(s.played).toEqual(['Potem to.']);
+  });
+});
