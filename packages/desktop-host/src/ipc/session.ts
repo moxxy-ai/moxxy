@@ -28,7 +28,6 @@ import {
   getSessionModelContextWindow,
   setSessionModel,
 } from '../session-models.js';
-import { recordGeminiTtsUsage } from '../gemini-tts-usage.js';
 import {
   getInProcessPlugins,
   handle,
@@ -388,16 +387,6 @@ export function registerSessionHandlers(pool: RunnerPool): void {
         signal: controller.signal,
       };
       const result = await synth.synthesize(text, options);
-      if (synth.name === 'gemini-tts' && result.usage) {
-        try {
-          const usage = await recordGeminiTtsUsage(result.usage);
-          broadcastHostEvent('voice.usage.changed', usage);
-        } catch (error) {
-          // Usage persistence must not turn successfully generated speech into
-          // a playback failure (e.g. when the disk is full).
-          console.warn('[Moxxy] Could not persist Gemini TTS usage estimate.', error);
-        }
-      }
       return {
         audioBase64: Buffer.from(result.audio).toString('base64'),
         mimeType: result.mimeType,

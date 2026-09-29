@@ -91,7 +91,6 @@ export type {
   McpServerEntry,
   VaultEntryName,
   GeminiVoiceInfo,
-  GeminiTtsUsageSnapshot,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';

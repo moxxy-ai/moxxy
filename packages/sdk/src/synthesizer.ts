@@ -34,16 +34,6 @@ export interface SynthesisResult {
   readonly audio: Uint8Array;
   /** MIME type of {@link audio}, e.g. `audio/mpeg`, `audio/wav`, `audio/ogg`. */
   readonly mimeType: string;
-  /** Optional provider-reported billing usage for text-to-speech generation. */
-  readonly usage?: SynthesisUsage;
-}
-
-/** Token accounting reported by a speech provider for one synthesis request. */
-export interface SynthesisUsage {
-  readonly inputTextTokens: number;
-  readonly outputAudioTokens: number;
-  /** True when the provider omitted usage and counts were inferred from text/audio. */
-  readonly estimated?: boolean;
 }
 
 export interface Synthesizer {

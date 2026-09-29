@@ -16,7 +16,6 @@ import type {
   SurfaceSize,
   TranscriptionResult,
   UserPromptAttachment,
-  SynthesisUsage,
 } from '@moxxy/sdk';
 
 /**
@@ -164,8 +163,8 @@ import type {
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
 /** v15: explicit workflow deletion, including schedule retirement. */
 /** v16: synthesis requests can be cancelled while the runner is generating audio. */
-/** v17: synthesis results may include the provider's token usage totals. */
-/** v18: synthesis usage may identify counts estimated from text and audio duration. */
+/** v17: synthesis results may include the provider's token usage totals (field since removed; results carry audio only). */
+/** v18: synthesis usage may identify counts estimated from text and audio duration (removed with v17's field). */
 /** v19: runTurn accepts an optional custom-model context window for compaction. */
 /** v20: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
 export const RUNNER_PROTOCOL_VERSION = 20;
@@ -752,8 +751,6 @@ export interface SynthesizeResult {
   /** Base64-encoded audio bytes. */
   readonly audio: string;
   readonly mimeType: string;
-  /** Provider-reported accounting; absent for synthesizers that don't report it. */
-  readonly usage?: SynthesisUsage;
 }
 
 export const mcpEnableAndAttachParamsSchema = z.object({ name: z.string() });

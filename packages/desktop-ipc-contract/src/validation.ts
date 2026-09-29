@@ -184,7 +184,6 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }).strict(),
   'voice.useLocalPiper': z.undefined(),
   'voice.getSettings': z.undefined(),
-  'voice.getUsage': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
   // only its WebRTC offer; instructions, model and history stay host-owned.

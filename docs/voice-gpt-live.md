@@ -1,11 +1,12 @@
 # GPT-Live Voice Mode
 
 Voice Mode in the desktop app has two engines, picked in
-**Settings → Preferences → Voice**:
+**Settings → Voice** (the same tab holds the spoken voice the Local engine
+reads replies with):
 
 | Engine | How a turn works | Can act in the app |
 |---|---|---|
-| **Local** (default) | Your speech is transcribed, answered by the Moxxy agent, and read aloud by Local Piper. | Yes — every utterance is an agent turn. |
+| **Local** (default) | Your speech is transcribed, answered by the Moxxy agent, and read aloud by the spoken voice you choose — Gemini Flash-Lite (cloud) or Local Piper (on-device). | Yes — every utterance is an agent turn. |
 | **GPT-Live** | A full-duplex call with OpenAI's GPT-Live over your existing ChatGPT login. GPT-Live listens and talks with you itself. | Yes, on explicit request — your own words run as an agent turn and GPT-Live reads back the real result. |
 
 GPT-Live reuses the ChatGPT OAuth login from `moxxy login openai-codex` (the

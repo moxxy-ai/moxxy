@@ -40,7 +40,7 @@ const audioResponse = {
   },
 };
 
-function audioResponseWithoutUsage(seconds: number): unknown {
+function rawPcmResponse(seconds: number): unknown {
   const pcm16 = Buffer.alloc(24_000 * 2 * seconds);
   return {
     steps: [{
@@ -66,7 +66,7 @@ describe('GeminiTtsSynthesizer', () => {
 
     expect(result.mimeType).toBe('audio/wav');
     expect(Buffer.from(result.audio).toString()).toBe('RIFFaudio');
-    expect(result.usage).toEqual({ inputTextTokens: 9, outputAudioTokens: 75 });
+    expect(result).not.toHaveProperty('usage');
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions');
     expect((calls[0]?.init.headers as Record<string, string>)['x-goog-api-key']).toBe('test-key');
@@ -82,17 +82,15 @@ describe('GeminiTtsSynthesizer', () => {
     });
   });
 
-  it('estimates usage from input text and generated audio when Google omits usage metadata', async () => {
-    const { fetchImpl } = makeFetch(audioResponseWithoutUsage(1));
+  it('wraps raw PCM from Google as WAV and returns audio only', async () => {
+    const { fetchImpl } = makeFetch(rawPcmResponse(1));
     const synth = new GeminiTtsSynthesizer({ apiKey: 'test-key', fetchImpl });
 
     const result = await synth.synthesize('A short sentence.');
 
-    expect(result.usage).toMatchObject({
-      outputAudioTokens: 25,
-      estimated: true,
-    });
-    expect(result.usage?.inputTextTokens).toBeGreaterThan(0);
+    expect(result.mimeType).toBe('audio/wav');
+    expect(Buffer.from(result.audio).toString('ascii', 0, 4)).toBe('RIFF');
+    expect(result).not.toHaveProperty('usage');
   });
 
   it('resolves the API key lazily from the vault and honors cancellation', async () => {

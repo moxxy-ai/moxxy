@@ -33,7 +33,6 @@ export function makeSynthesizersView(ctx: ViewContext): SynthesizersClientView {
         return {
           audio: new Uint8Array(Buffer.from(res.audio, 'base64')),
           mimeType: res.mimeType,
-          ...(res.usage ? { usage: res.usage } : {}),
         };
       } finally {
         if (requestId) opts?.signal?.removeEventListener('abort', cancelRemote);

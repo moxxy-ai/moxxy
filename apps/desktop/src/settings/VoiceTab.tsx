@@ -1,6 +1,8 @@
 import { Button, TextInput } from '@moxxy/desktop-ui';
+import { useVoiceEnginePreference } from '@/voice-call/useVoiceEngine';
 import { Section } from './settings-primitives';
-import { useVoiceSettings } from './useVoiceSettings';
+import { useVoiceSettings, type VoiceSettingsState } from './useVoiceSettings';
+import { VoiceEngineSection } from './VoiceEngineSection';
 
 const cardStyle: React.CSSProperties = {
   display: 'flex',
@@ -21,23 +23,37 @@ const fieldStyle: React.CSSProperties = {
   color: 'var(--color-text)',
 };
 
-const usdFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 6,
-  maximumFractionDigits: 6,
-});
+const noteStyle: React.CSSProperties = {
+  margin: 0,
+  color: 'var(--color-text-dim)',
+  fontSize: 'var(--type-meta)',
+};
 
-const tokenFormatter = new Intl.NumberFormat('en-US');
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
-
-/** Render-only surface for voice preferences; IPC and lifecycle live in the hook. */
+/** Render-only surface for everything voice: the Voice Mode engine and, for the
+ *  Local engine, the spoken voice. IPC and lifecycle live in the hooks. */
 export function VoiceTab(): JSX.Element {
+  const engine = useVoiceEnginePreference();
   const voice = useVoiceSettings();
+
+  return (
+    <Section title="Voice" description="Choose how Voice Mode talks with you and which voice reads replies aloud.">
+      <VoiceEngineSection />
+      {engine === 'gpt-live' ? (
+        <p style={noteStyle}>
+          GPT-Live speaks with its own voice. Switch to Local to choose a Gemini or Piper voice.
+        </p>
+      ) : (
+        <SpokenVoicePicker voice={voice} />
+      )}
+      {voice.error && (
+        <div role="alert" style={{ color: 'var(--color-red)', fontSize: 'var(--type-meta)' }}>{voice.error}</div>
+      )}
+    </Section>
+  );
+}
+
+/** The voice the Local engine reads replies with: cloud Gemini or on-device Piper. */
+function SpokenVoicePicker({ voice }: { readonly voice: VoiceSettingsState }): JSX.Element {
   const activeLabel = voice.backend === 'gemini-tts'
     ? `Cloud · ${voice.selectedVoiceId}`
     : voice.backend === 'local-piper'
@@ -45,10 +61,10 @@ export function VoiceTab(): JSX.Element {
       : voice.backend ? `Other · ${voice.backend}` : 'System default';
 
   return (
-    <Section
-      title="Voice"
-      description="Choose how Moxxy speaks in voice conversations. Speech is played one sentence at a time, with up to two upcoming sentences prepared ahead to reduce pauses."
-    >
+    <>
+      <p style={noteStyle}>
+        Spoken voice for the Local engine. Speech is played one sentence at a time, with up to two upcoming sentences prepared ahead to reduce pauses.
+      </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
         <section style={cardStyle} aria-labelledby="voice-cloud-title">
           <div>
@@ -99,47 +115,6 @@ export function VoiceTab(): JSX.Element {
           >
             {voice.busy && voice.backend !== 'gemini-tts' ? 'Setting up…' : 'Use Gemini voice'}
           </Button>
-          <section
-            aria-labelledby="gemini-tts-usage-title"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-              padding: 12,
-              background: 'var(--color-panel-bg, var(--color-input-bg, var(--color-card-bg)))',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 'var(--radius-block)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <h4 id="gemini-tts-usage-title" style={{ margin: 0, fontSize: 'var(--type-meta)' }}>
-                Estimated Gemini usage
-              </h4>
-              <Button variant="secondary" disabled={voice.loadingUsage} onClick={() => void voice.refreshUsage()}>
-                {voice.loadingUsage ? 'Refreshing…' : 'Refresh'}
-              </Button>
-            </div>
-            <output
-              aria-live="polite"
-              style={{ fontSize: 'var(--type-title)', fontWeight: 700, color: 'var(--color-text)' }}
-            >
-              {voice.loadingUsage && !voice.usage ? 'Loading…' : usdFormatter.format(voice.usage?.estimatedCostUsd ?? 0)}
-            </output>
-            <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
-              {voice.usage
-                ? `${tokenFormatter.format(voice.usage.inputTextTokens)} text tokens · ${tokenFormatter.format(voice.usage.outputAudioTokens)} audio tokens · ${tokenFormatter.format(voice.usage.requestCount)} requests${voice.usage.estimatedRequestCount > 0 ? ` · ${tokenFormatter.format(voice.usage.estimatedRequestCount)} estimated` : ''}`
-                : 'No Gemini usage has been recorded on this device yet.'}
-            </div>
-            {voice.usage?.updatedAt && (
-              <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
-                Last recorded {dateFormatter.format(new Date(voice.usage.updatedAt))}
-              </div>
-            )}
-            <div style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
-              Paid Standard estimate through Dec 31, 2026: $0.50 / 1M text tokens + $6 / 1M audio tokens.
-              If Google omits usage stats, text tokens are estimated from text length and audio tokens from clip duration. Free-tier credits and interrupted requests without a completed clip are not included.
-            </div>
-          </section>
         </section>
 
         <section style={cardStyle} aria-labelledby="voice-local-title">
@@ -164,9 +139,6 @@ export function VoiceTab(): JSX.Element {
       <div role="status" style={{ color: 'var(--color-text-dim)', fontSize: 'var(--type-meta)' }}>
         Current voice: {voice.loading ? 'Loading…' : activeLabel}
       </div>
-      {voice.error && (
-        <div role="alert" style={{ color: 'var(--color-red)', fontSize: 'var(--type-meta)' }}>{voice.error}</div>
-      )}
-    </Section>
+    </>
   );
 }

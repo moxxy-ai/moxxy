@@ -861,7 +861,7 @@ describe('runner end-to-end', () => {
     expect(settled).toBeInstanceOf(Error);
   });
 
-  it('preserves synthesis usage metadata across the runner protocol', async () => {
+  it('carries only audio and its MIME type across the runner protocol', async () => {
     const socketPath = tmpSocket();
     const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
     session.pluginHost.registerStatic(definePlugin({
@@ -886,9 +886,9 @@ describe('runner end-to-end', () => {
     expect(synthesizer).not.toBeNull();
     if (!synthesizer) throw new Error('usage synthesizer was not registered');
 
-    await expect(synthesizer.synthesize('Short speech.')).resolves.toMatchObject({
+    await expect(synthesizer.synthesize('Short speech.')).resolves.toEqual({
+      audio: new Uint8Array([1, 2, 3]),
       mimeType: 'audio/wav',
-      usage: { inputTextTokens: 9, outputAudioTokens: 75 },
     });
   });
 
