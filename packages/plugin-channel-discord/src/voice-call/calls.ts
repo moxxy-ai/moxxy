@@ -98,6 +98,13 @@ export class Calls {
     }
   }
 
+  /** Say something in the call, in turn with its replies; false when there is none. */
+  say(text: string): boolean {
+    if (!this.call?.active) return false;
+    void this.call.say(text);
+    return true;
+  }
+
   hangUp(): string {
     if (!this.call?.active) return 'There is no call to end.';
     this.call.hangUp();

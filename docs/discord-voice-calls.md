@@ -39,6 +39,9 @@ the agent answers, and the answer is read aloud. You can interrupt it.
   speech: the agent's work goes on, and what it says next — the next step, and
   its result at the end — is still said. Things you say while the agent works
   are answered in order.
+- **Messages written in the app** (Channels → Discord in the desktop) during
+  a call are answered in the call too: the reply is said aloud, and the
+  message and its reply show in your DMs.
 - **When a sentence cannot be voiced** (for example the text-to-speech service
   refused it), the bot skips it and logs the reason as
   `discord call: a sentence could not be voiced`.

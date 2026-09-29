@@ -660,12 +660,16 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   }
 
   /**
-   * Post the assistant's prose for a turn this channel did not initiate. The
-   * coordinator skips turns THIS channel started, by turnId (invariant #8),
-   * and yields the trimmed prose; we only need a served channel to post into.
+   * Post a turn this channel did not initiate (a message written in the
+   * desktop's chat with the bot): its prompt, then the assistant's prose — also
+   * said aloud while a call is on. The coordinator skips turns THIS channel
+   * started, by turnId (invariant #8); we only need a served channel to post into.
    */
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    const text = this.turns.mirrorText(event);
+    const prompt = this.turns.mirrorPrompt(event);
+    const reply = this.turns.mirrorText(event);
+    if (reply != null) this.calls.say(reply);
+    const text = prompt != null ? `*typed in moxxy:* ${prompt}` : reply;
     if (text == null) return;
     this.mirrorQueue = this.mirrorQueue
       .then(async () => {

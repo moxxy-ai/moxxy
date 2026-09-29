@@ -121,6 +121,23 @@ describe('placing and ending calls', () => {
     expect(d.dms).toEqual([]);
   });
 
+  it('says a reply to a message written in the app while the call is on', async () => {
+    const d = discord({ ownerPresent: true });
+    const calls = new Calls(d.ports);
+    await calls.start();
+
+    expect(calls.say('Przed chwilą szukałem konsoli na OLX.')).toBe(true);
+    await sleep(5);
+
+    expect(d.played).toEqual(['Przed chwilą szukałem konsoli na OLX.']);
+  });
+
+  it('says nothing when there is no call', () => {
+    const d = discord();
+    expect(new Calls(d.ports).say('Gotowe.')).toBe(false);
+    expect(d.played).toEqual([]);
+  });
+
   it('hangs up when the owner leaves the voice channel', async () => {
     const d = discord({ ownerPresent: true });
     const calls = new Calls(d.ports);

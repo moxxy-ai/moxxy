@@ -162,4 +162,18 @@ export class TurnCoordinator {
     const text = event.content.trim();
     return text ? text : null;
   }
+
+  /**
+   * The prompt of a turn this channel did not start — someone wrote on another
+   * surface (the desktop's chat with the bot) — so the channel can show the
+   * question with the mirrored reply. Machine prompts (a schedule, webhook,
+   * workflow or voice transcript carries an `origin`) are not messages.
+   */
+  mirrorPrompt(event: MoxxyEvent): string | null {
+    if (event.type !== 'user_prompt' || event.origin) return null;
+    if (this.ownTurnIds.has(event.turnId)) return null;
+    if (this.busyFlag) return null;
+    const text = event.text.trim();
+    return text ? text : null;
+  }
 }

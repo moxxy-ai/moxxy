@@ -41,6 +41,20 @@ function message(turnId: string, content: string): MoxxyEvent {
   } as MoxxyEvent;
 }
 
+function prompt(turnId: string, text: string, origin?: { kind: 'schedule'; name: string }): MoxxyEvent {
+  return {
+    id: `e_${Math.random()}`,
+    seq: 0,
+    ts: 0,
+    sessionId: 's1',
+    turnId,
+    source: 'user',
+    type: 'user_prompt',
+    text,
+    ...(origin ? { origin } : {}),
+  } as MoxxyEvent;
+}
+
 describe('subscribeTurn', () => {
   it('delivers only the matching turnId and unsubscribes cleanly', () => {
     const log = new FakeLog();
@@ -180,5 +194,20 @@ describe('TurnCoordinator', () => {
     // Non-message events and empty content are ignored.
     expect(turns.mirrorText(chunk('foreign', 'delta'))).toBeNull();
     expect(turns.mirrorText(message('foreign', '   '))).toBeNull();
+  });
+
+  it('mirrorPrompt passes only a prompt someone typed on another surface, while idle', () => {
+    const turns = new TurnCoordinator();
+    const lease = turns.begin(asTurnId('own'));
+
+    expect(turns.mirrorPrompt(prompt('own', 'mine'))).toBeNull();
+    expect(turns.mirrorPrompt(prompt('foreign', 'other'))).toBeNull();
+
+    lease?.end();
+    expect(turns.mirrorPrompt(prompt('foreign', ' Co robiliśmy? '))).toBe('Co robiliśmy?');
+    // A trigger's machine prompt (schedule, webhook, voice transcript) is not a message.
+    expect(turns.mirrorPrompt(prompt('foreign', 'run the digest', { kind: 'schedule', name: 'daily' }))).toBeNull();
+    expect(turns.mirrorPrompt(message('foreign', 'reply'))).toBeNull();
+    expect(turns.mirrorPrompt(prompt('foreign', '  '))).toBeNull();
   });
 });
