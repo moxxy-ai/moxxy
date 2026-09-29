@@ -45,7 +45,7 @@ function fakeDiscordApi(
       method: init.method ?? 'GET',
       url,
       authorization: headers.get('authorization'),
-      body: typeof init.body === 'string' ? JSON.parse(init.body) : null,
+      body: typeof init.body === 'string' ? JSON.parse(init.body) : multipart(init.body),
     };
     requests.push(req);
     const { status, body } = respond(req);
@@ -55,6 +55,16 @@ function fakeDiscordApi(
     });
   };
   return { requests, makeRequest };
+}
+
+/** A multipart upload as the test reads it: the JSON payload + the file names. */
+function multipart(body: unknown): unknown {
+  if (!(body instanceof FormData)) return null;
+  const files: string[] = [];
+  body.forEach((value, key) => {
+    if (key.startsWith('files[') && value instanceof Blob) files.push((value as File).name);
+  });
+  return { payload: JSON.parse(String(body.get('payload_json'))), files };
 }
 
 function defaultRespond(req: RecordedRequest): { status: number; body: unknown } {
@@ -195,5 +205,40 @@ describe('discord_send_message', () => {
     assertDefined(tool, 'discord_send_message tool');
     expect(tool.permission).toEqual({ action: 'prompt' });
     expect(tool.isolation?.capabilities.net).toEqual({ mode: 'allowlist', hosts: ['discord.com'] });
+  });
+
+  it('attaches local files to the owner DM, after the text', async () => {
+    await pairOwner();
+    const api = fakeDiscordApi();
+    const clip = path.join(tmp, 'clip.mp4');
+    await fs.writeFile(clip, Buffer.from('not really a video'));
+
+    const out = await toolWith(api).handler({ text: 'Proszę, oto plik', files: [clip] }, ctx());
+
+    const posts = api.requests.filter((r) => r.url.endsWith('/messages'));
+    expect(posts.at(-1)?.body).toEqual({
+      payload: { content: 'Proszę, oto plik', allowed_mentions: { parse: [] } },
+      files: ['clip.mp4'],
+    });
+    expect(out).toEqual({ delivered: true, userId: OWNER_ID, parts: 1, files: ['clip.mp4'] });
+  });
+
+  it("refuses files over Discord's upload limit before contacting Discord", async () => {
+    await pairOwner();
+    const api = fakeDiscordApi();
+    const big = path.join(tmp, 'trailer.mp4');
+    await fs.writeFile(big, '');
+    await fs.truncate(big, 11 * 1024 * 1024);
+
+    await expect(toolWith(api).handler({ text: 'film', files: [big] }, ctx())).rejects.toThrow(/10 MB/u);
+    expect(api.requests).toHaveLength(0);
+  });
+
+  it('refuses a path that is not a file', async () => {
+    await pairOwner();
+    const api = fakeDiscordApi();
+
+    await expect(toolWith(api).handler({ text: 'folder', files: [tmp] }, ctx())).rejects.toThrow(/not a file/u);
+    expect(api.requests).toHaveLength(0);
   });
 });

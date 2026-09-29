@@ -1,4 +1,7 @@
-import { REST, Routes } from 'discord.js';
+import { readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { REST, Routes, type RawFile } from 'discord.js';
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import {
   DISCORD_AUTHORIZED_USER_KEY,
@@ -10,7 +13,7 @@ import { splitForDiscord } from '../render.js';
 
 /** The slice of discord.js `REST` this tool uses (the real client satisfies it). */
 export interface DiscordRestPoster {
-  post(route: `/${string}`, options?: { body?: unknown }): Promise<unknown>;
+  post(route: `/${string}`, options?: { body?: unknown; files?: RawFile[] }): Promise<unknown>;
 }
 
 export interface DiscordSendMessageToolDeps {
@@ -22,7 +25,34 @@ export interface DiscordSendMessageToolDeps {
 /** Cap on one push — a handful of Discord messages once split. */
 const MAX_TEXT_CHARS = 8_000;
 
+/** Discord's per-message upload cap for bots (all attachments together). */
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Discord allows at most 10 attachments per message. */
+const MAX_FILES = 10;
+
 const dmChannelSchema = z.object({ id: z.string().min(1) });
+
+/** Read the files to attach, refusing anything Discord would reject — before
+ *  any request goes out. Relative paths resolve against the session cwd. */
+async function readAttachments(paths: ReadonlyArray<string>, cwd: string): Promise<RawFile[]> {
+  const files: RawFile[] = [];
+  let total = 0;
+  for (const raw of paths) {
+    const expanded = raw === '~' || raw.startsWith('~/') ? path.join(homedir(), raw.slice(1)) : raw;
+    const full = path.resolve(cwd, expanded);
+    const info = await stat(full).catch(() => null);
+    if (!info?.isFile()) throw new Error(`${raw} is not a file`);
+    total += info.size;
+    if (total > MAX_UPLOAD_BYTES) {
+      const mb = (total / (1024 * 1024)).toFixed(1);
+      throw new Error(
+        `attachments total ${mb} MB — Discord accepts at most 10 MB per bot message; share a smaller file or a link instead`,
+      );
+    }
+    files.push({ name: path.basename(full), data: await readFile(full) });
+  }
+  return files;
+}
 
 /**
  * One-off client: the sweeper timers only matter for a long-lived client, and
@@ -46,21 +76,26 @@ export function buildDiscordSendMessageTool(deps: DiscordSendMessageToolDeps): T
       'Push a direct message to the paired owner on Discord. Use it to proactively report ' +
       'progress, a finished task, or a blocker that needs their decision — e.g. from a long ' +
       'goal-mode run or a scheduled prompt — without the Discord channel running. Discord ' +
-      'markdown is rendered as-is; long text is split into several messages. Requires a ' +
-      'stored bot token + a paired account (`moxxy channels discord setup`).',
+      'markdown is rendered as-is; long text is split into several messages. Pass `files` ' +
+      '(local paths) to send files the owner asked for as attachments — up to 10 files, ' +
+      '10 MB in total. Requires a stored bot token + a paired account ' +
+      '(`moxxy channels discord setup`).',
     inputSchema: z.object({
       text: z.string().trim().min(1).max(MAX_TEXT_CHARS),
+      files: z.array(z.string().min(1).max(4096)).max(MAX_FILES).optional(),
     }),
     permission: { action: 'prompt' },
     isolation: {
       capabilities: {
-        fs: { read: ['~/.moxxy/vault.*'] },
+        // Attachments are whatever local file the owner asked for; the
+        // permission prompt shows the paths before anything is read or sent.
+        fs: { read: ['~/.moxxy/vault.*', '~/**', '$cwd/**', '/tmp/**'] },
         net: { mode: 'allowlist', hosts: ['discord.com'] },
         env: [DISCORD_TOKEN_ENV],
         timeMs: 60_000,
       },
     },
-    handler: async ({ text }) => {
+    handler: async ({ text, files: filePaths }, ctx) => {
       const vault = deps.getVault();
       const token = await resolveBotToken(vault);
       if (!token) {
@@ -73,18 +108,28 @@ export function buildDiscordSendMessageTool(deps: DiscordSendMessageToolDeps): T
         throw new Error('no paired Discord account — run `moxxy channels discord pair` first');
       }
 
+      const files = await readAttachments(filePaths ?? [], ctx.cwd);
+
       const rest = createRest(token);
       const dm = dmChannelSchema.parse(
         await rest.post(Routes.userChannels(), { body: { recipient_id: userId } }),
       );
       const parts = splitForDiscord(text);
-      // Sequential on purpose: parts must arrive in order.
-      for (const content of parts) {
+      // Sequential on purpose: parts must arrive in order. Files ride on the
+      // last part, so they land right under the text that introduces them.
+      for (const [index, content] of parts.entries()) {
+        const last = index === parts.length - 1;
         await rest.post(Routes.channelMessages(dm.id), {
           body: { content, allowed_mentions: { parse: [] } },
+          ...(last && files.length > 0 ? { files } : {}),
         });
       }
-      return { delivered: true, userId, parts: parts.length };
+      return {
+        delivered: true,
+        userId,
+        parts: parts.length,
+        ...(files.length > 0 ? { files: files.map((f) => f.name) } : {}),
+      };
     },
   });
 }
