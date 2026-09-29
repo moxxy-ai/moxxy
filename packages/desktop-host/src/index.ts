@@ -21,8 +21,9 @@ export {
   type SeedPluginsResult,
 } from './seed-plugins.js';
 export { activateManagedNode } from './node-manager.js';
-export { offerBundledComputerUpdate } from './computer-update-runtime.js';
-export { offerBundledProviderUpdate } from './provider-update-runtime.js';
+export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
+export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';
+export { DeferredPackageUpdates, type ManagedPackageUpdate } from './deferred-package-updates.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {
   cwdForSession,

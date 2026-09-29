@@ -3,24 +3,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { offerBundledProviderUpdate } from './provider-update-runtime.js';
+import {
+  fixturePlugin as plugin,
+  fixtureProviderCode as code,
+  providerFixture as fixture,
+  removeProviderFixtures,
+} from './provider-update.fixture.js';
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-const plugin = '@moxxy/plugin-provider-openai-codex' as const;
-const code = `export default {name:'${plugin}', providers:[{name:'openai-codex',models:[{id:'gpt-6-astra'}],createClient(){throw Error('Must not authenticate during import')}}]};`;
-async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'provider-update-')); roots.push(root);
-  const resourcesPath = join(root, 'resources'), moxxyHome = join(root, 'home');
-  const source = join(resourcesPath, 'plugins-seed/node_modules', plugin);
-  const target = join(moxxyHome, 'plugins/node_modules', plugin);
-  for (const directory of [source, target]) {
-    await mkdir(join(directory, 'dist'), { recursive: true });
-    await writeFile(join(directory, 'package.json'), JSON.stringify({ name: plugin, version: '0.39.0', type: 'module' }));
-  }
-  await writeFile(join(source, 'dist/index.js'), code);
-  await writeFile(join(target, 'dist/index.js'), '// old locally installed provider');
-  return { resourcesPath, moxxyHome, plugin, source, target };
-}
+afterEach(async () => {
+  await removeProviderFixtures();
+  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+});
 
 it('requires confirmation for an untracked provider, then updates verified unchanged copies automatically', async () => {
   const options = await fixture();

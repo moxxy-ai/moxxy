@@ -80,6 +80,22 @@ State files live under `<userData>/app/`: `active.json` (which bundle to load),
 `last-attempt.json` (boot breadcrumb), `boot-log.json` (decision log), and one
 `<version>/` dir per staged bundle.
 
+### Bundled extensions (OpenAI connections, Computer Use)
+
+The packaged app also carries newer copies of a few extensions in
+`plugins-seed` and installs them into `~/.moxxy/plugins` itself, keeping the
+previous copy as a backup. An update that needs no approval (the installed copy
+is an unchanged managed install) installs before the first runner starts. One
+that needs the user's approval — the installed copy has local changes, has no
+update record, or is newer than the bundled one — never holds up a runner: the
+app starts on the installed copy, the question appears attached to the main
+window once it is up, and an approved update installs and restarts the running
+conversations onto it. "Later" asks again at the next launch. A failed update
+keeps the previous version and says so in a notice attached to the window.
+(`DeferredPackageUpdates` in `@moxxy/desktop-host`.) Before, the question was
+asked before the first runner and could sit hidden behind the window, leaving
+the app on "Waiting for workspace information…".
+
 ### Security model
 
 - **Ed25519 signature** over the manifest (public key baked into the bootstrap)

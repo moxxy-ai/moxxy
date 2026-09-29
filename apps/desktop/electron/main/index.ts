@@ -52,6 +52,9 @@ import {
   seedPluginsFromResources,
   offerBundledComputerUpdate,
   offerBundledProviderUpdate,
+  DeferredPackageUpdates,
+  type ComputerUpdateOffer,
+  type ProviderUpdateOffer,
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
@@ -195,6 +198,27 @@ function focusMain(): void {
 // accessors so it stays decoupled from the `mainWindow` singleton.
 const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
 
+/** A dialog attached to the main window, so it can never sit hidden behind it. */
+function showAttachedMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
+}
+
+/** Bundled package updates that may need approval, asked outside the runner's startup path. */
+const bundledUpdates = new DeferredPackageUpdates({
+  restartRunners: async () => {
+    await Promise.all((pool?.list() ?? []).map(({ supervisor }) => supervisor.restart()));
+  },
+  warn: async (plugin, error) => {
+    console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
+    await showAttachedMessageBox({ type: 'warning', title: 'Extension update unavailable',
+      message: 'A bundled extension could not be updated.',
+      detail: `${plugin} kept its previous version. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.`,
+    });
+  },
+  log: (message) => console.log(`[moxxy] ${message}`),
+});
+
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
@@ -207,39 +231,37 @@ async function prepareRunnerEnvironment(): Promise<void> {
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
-      for (const plugin of ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const) {
-        try {
-          const status = await offerBundledProviderUpdate({
+      await bundledUpdates.prepare<ProviderUpdateOffer>(
+        (['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const).map((plugin) => ({
+          plugin,
+          run: (confirm) => offerBundledProviderUpdate({
             resourcesPath: process.resourcesPath, moxxyHome, plugin,
-            freshInstall: seed.copied.includes(plugin),
-            confirm: async ({ backupPath, localChanges, downgrade }) => {
-              const result = await dialog.showMessageBox({
-                type: 'question', title: 'Update model connection',
-                message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
-                detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
-                  (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
-                  'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. A backup will be kept at:\n' + backupPath,
-                buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
-              });
-              return result.response === 1;
-            },
-          });
-          console.log(`[moxxy] ${plugin} preparation: ${status}`);
-        } catch (error) {
-          // One optional connection update must not block other connections or chat.
-          console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
-          await dialog.showMessageBox({ type: 'warning', title: 'Connection update unavailable',
-            message: 'A bundled model connection could not be updated.',
-            detail: 'The previous version was retained. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.',
-          });
-        }
-      }
+            freshInstall: seed.copied.includes(plugin), confirm,
+          }),
+          ask: async ({ backupPath, localChanges, downgrade }) => {
+            const result = await showAttachedMessageBox({
+              type: 'question', title: 'Update model connection',
+              message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
+              detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
+                (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
+                'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. Open conversations reconnect after the update. A backup will be kept at:\n' + backupPath,
+              buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
+            });
+            return result.response === 1;
+          },
+        })),
+      );
       if (process.platform === 'win32' && process.arch === 'x64') {
-        await offerBundledComputerUpdate({
-          resourcesPath:process.resourcesPath, moxxyHome,
-          freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
-          confirm:async ({backupPath,localChanges}) => {
-            const result=await dialog.showMessageBox({
+        await bundledUpdates.prepare<ComputerUpdateOffer>([{
+          plugin: '@moxxy/plugin-computer-control',
+          run: (confirm) => offerBundledComputerUpdate({
+            resourcesPath:process.resourcesPath, moxxyHome,
+            freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
+            confirm,
+            log:(message)=>console.log(`[moxxy] ${message}`),
+          }),
+          ask: async ({backupPath,localChanges}) => {
+            const result=await showAttachedMessageBox({
               type:'question',title:'Update Computer Use',
               message:'Install the Computer Use package included with this Moxxy installer?',
               detail:(localChanges==='changed' ? 'The extension has changed since a managed installation. ' : localChanges==='untracked' ? 'The existing extension has no verified update record and may contain local changes. ' : '')+
@@ -248,9 +270,13 @@ async function prepareRunnerEnvironment(): Promise<void> {
             });
             return result.response===1;
           },
-          log:(message)=>console.log(`[moxxy] ${message}`),
-        });
+        }]);
       }
+      // The questions come once the window is up — never on the runner's
+      // startup path, where an unanswered (or hidden) dialog held every runner.
+      void bundledUpdates.offer().catch((err) => {
+        console.warn('[moxxy] bundled update offer failed:', err);
+      });
     } catch (err) {
       console.warn('[moxxy] bundled plugin preparation failed:', err);
     }
