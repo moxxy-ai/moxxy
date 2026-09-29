@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,10 +36,56 @@ export async function findPackagedApps(releasePath) {
       apps.push({
         resourcesPath: path.join(appRoot, 'Resources'),
         runtimePath: path.join(appRoot, 'MacOS', child.name.slice(0, -4)),
+        mac: true,
       });
     }
   }
   return apps;
+}
+
+const DARWIN_ARCH_ROOTS = ['plugins-seed', 'moxxy-cli', 'app.asar.unpacked'];
+const DARWIN_ARCH_PACKAGE = /^(.+)-darwin-(arm64|x64)$/;
+
+/** Native `*-darwin-<arch>` packages in a universal app's resources that lack
+ *  their other-arch sibling (an arm64 runner installing host-arch optionals
+ *  only leaves Intel Macs without them). */
+export async function findDarwinArchGaps(resourcesPath) {
+  const gaps = [];
+  for (const root of DARWIN_ARCH_ROOTS) {
+    const names = new Set();
+    await collectDarwinArchPackages(path.join(resourcesPath, root), names);
+    for (const name of names) {
+      const [, base, arch] = DARWIN_ARCH_PACKAGE.exec(name);
+      const sibling = `${base}-darwin-${arch === 'arm64' ? 'x64' : 'arm64'}`;
+      if (!names.has(sibling)) gaps.push(`${root}: ${name} has no ${sibling}`);
+    }
+  }
+  return gaps.sort();
+}
+
+async function collectDarwinArchPackages(dir, names) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const child = path.join(dir, entry.name);
+    if (DARWIN_ARCH_PACKAGE.test(entry.name) && existsSync(path.join(child, 'package.json'))) {
+      const scope = path.basename(dir);
+      names.add(scope.startsWith('@') ? `${scope}/${entry.name}` : entry.name);
+      continue;
+    }
+    await collectDarwinArchPackages(child, names);
+  }
+}
+
+function isUniversalMacApp(runtimePath) {
+  const archs = execFileSync('lipo', ['-archs', runtimePath], { encoding: 'utf8' }).split(/\s+/);
+  return archs.includes('x86_64') && archs.includes('arm64');
 }
 
 function isMain() {
@@ -59,6 +107,12 @@ if (isMain()) {
         const report = await verifyDesktopResources(app.resourcesPath, {
           runtimePath: app.runtimePath,
         });
+        if (app.mac && process.platform === 'darwin' && isUniversalMacApp(app.runtimePath)) {
+          const gaps = await findDarwinArchGaps(app.resourcesPath);
+          if (gaps.length > 0) {
+            throw new Error(`Universal macOS app is missing native packages:\n${gaps.join('\n')}`);
+          }
+        }
         console.log(
           `Packaged desktop verified at ${app.resourcesPath}: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, provider ${report.providerVersion}`,
         );

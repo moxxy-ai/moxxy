@@ -64,9 +64,13 @@ export interface UserPromptAttachment {
  * kinds it does not open a turn — renderers that treat `user_prompt` as a
  * turn boundary must skip their boundary resets for it (see chat-model's
  * pair-events).
+ *
+ * `kind: 'voice'` marks the voice conversation (GPT-Live) held while an agent
+ * turn ran and recorded after it as one transcript: context for later turns,
+ * not a request, and shown as one collapsed block.
  */
 export interface TriggerOrigin {
-  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint';
+  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice';
   /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
 }

@@ -10,6 +10,7 @@ Moxxy ships as a useful agent and as a framework whose main blocks can be replac
 | Plugin discovery | Install a compatible npm package and Moxxy discovers its metadata. Plugins can be enabled and hot-reloaded without manual application wiring. |
 | Multiple interfaces | A session can be accessed from the TUI, desktop, Telegram, HTTP, schedules, and webhooks. |
 | Voice input | Send Telegram voice notes, use TUI voice input, or post raw audio to HTTP. OpenAI Whisper support is included, and the `Transcriber` contract is replaceable. |
+| Desktop Voice Mode | Talk to a session hands-free: the local engine runs every utterance as an agent turn read aloud by Local Piper, and the GPT-Live engine holds a live conversation over your ChatGPT login that knows the chat, hands explicit tasks to the agent in your own words, and reads back the real result ([details](voice-gpt-live.md)). |
 | Permissions | Every Moxxy tool call passes through the permission engine. Persisted allow rules can be scoped by tool. |
 | Secrets vault | AES-256-GCM encryption protects secrets at rest. Configuration refers to secrets with `${vault:NAME}` placeholders. |
 | Capability isolation | Optional isolators enforce declared filesystem, network, environment, time, and memory capabilities. In-process, worker, subprocess, and experimental WebAssembly options are available. |

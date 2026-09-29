@@ -30,6 +30,7 @@ describe('formatTriggerOrigin', () => {
     expect(formatTriggerOrigin({ kind: 'schedule', name: 'morning' })).toBe('Schedule fired');
     expect(formatTriggerOrigin({ kind: 'workflow', name: 'release' })).toBe('Workflow ran');
     expect(formatTriggerOrigin({ kind: 'checkpoint', name: 'verify' })).toBe('Checkpoint intervened');
+    expect(formatTriggerOrigin({ kind: 'voice', name: '2 exchanges while the agent worked' })).toBe('Voice conversation');
   });
 });
 

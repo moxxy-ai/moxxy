@@ -152,6 +152,11 @@ export function ChatSurface({
     localPiperInstalling: voiceCall.localPiperInstalling,
     activeOperations: voiceCall.activeOperations,
     events: chat.events,
+    agentTurn: {
+      sending: chat.sending,
+      activeTurnId: chat.activeTurnId,
+      streamingText: chat.streamingText,
+    },
   });
 
   useVoiceCallRequest(voiceCall.open);
@@ -234,6 +239,7 @@ export function ChatSurface({
             phase={voiceCall.phase}
             status={voicePresentation.status}
             rail={voicePresentation.rail}
+            agentWork={voicePresentation.agentWork}
             microphoneMuted={voiceCall.microphoneMuted}
             waitingSoundEnabled={voiceCall.waitingSoundEnabled}
             localPiperInstallRequired={voiceCall.localPiperInstallRequired}

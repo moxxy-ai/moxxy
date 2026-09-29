@@ -149,6 +149,7 @@ const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
   schedule: 'Schedule fired',
   workflow: 'Workflow ran',
   checkpoint: 'Checkpoint intervened',
+  voice: 'Voice conversation',
 };
 
 export function formatTriggerOrigin(origin: TriggerOrigin): string {

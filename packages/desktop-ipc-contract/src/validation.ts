@@ -71,6 +71,8 @@ const vaultKeyName = z
   .refine((s) => !s.includes('..'), 'vault key name may not contain ".."');
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
+/** Mirrors the runner's per-side cap for a recorded exchange. */
+const MAX_VOICE_EXCHANGE_TEXT = 100_000;
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
  *  can't OOM the main process with one transcribe call. */
 const MAX_AUDIO_BASE64 = 40_000_000;
@@ -184,6 +186,24 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'voice.getSettings': z.undefined(),
   'voice.getUsage': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
+  // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
+  // only its WebRTC offer; instructions, model and history stay host-owned.
+  'voice.live.preflight': z.undefined(),
+  'voice.live.start': z
+    .object({
+      workspaceId: z.string().min(1).max(256),
+      sdp: z.string().max(1_000_000).refine((value) => value.startsWith('v=0'), {
+        message: 'SDP must start with v=0',
+      }),
+    })
+    .strict(),
+  'session.recordVoiceExchange': z
+    .object({
+      workspaceId: z.string().min(1).max(256),
+      userText: z.string().max(MAX_VOICE_EXCHANGE_TEXT).optional(),
+      assistantText: z.string().max(MAX_VOICE_EXCHANGE_TEXT).optional(),
+    })
+    .strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
@@ -471,6 +491,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       signedInAt: z.number().nullable().optional(),
       mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
+      voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),

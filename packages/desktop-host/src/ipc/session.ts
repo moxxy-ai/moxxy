@@ -413,6 +413,15 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       new DOMException('Speech synthesis was interrupted.', 'AbortError'),
     );
   });
+  handle('session.recordVoiceExchange', async ({ workspaceId, userText, assistantText }) => {
+    // GPT-Live answers the user itself; recording both sides keeps the runner
+    // log the one authoritative conversation the chat and later turns read.
+    const { session } = resolveCtx(pool, { workspaceId });
+    await session.recordExchange({
+      ...(userText ? { userText } : {}),
+      ...(assistantText ? { assistantText } : {}),
+    });
+  });
   handle('session.pickAttachment', async () => {
     const window =
       BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];

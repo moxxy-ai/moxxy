@@ -35,6 +35,7 @@
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-computer-control": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/plugin-provider-openai-codex": "workspace:*",
     "@moxxy/plugin-provider-local": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
@@ -46,7 +47,7 @@
     "@moxxy/workspace-registry": "workspace:*",
     "officeparser": "~7.5.1",
     "pdfjs-dist": "4.10.38",
-    "yaml": "^2.6.0"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@moxxy/testing": "workspace:*",

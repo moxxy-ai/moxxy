@@ -7,7 +7,7 @@ export interface VoiceModeStatus {
 
 const STATUS: Readonly<Record<VoiceCallPhase, VoiceModeStatus>> = Object.freeze({
   idle: { title: 'Voice mode', detail: 'Ready to start' },
-  checking: { title: 'Preparing', detail: 'Checking microphone and Local Piper' },
+  checking: { title: 'Preparing', detail: 'Checking the microphone and voice engine' },
   arming: { title: 'Preparing microphone', detail: 'The microphone will be ready in a moment' },
   listening: { title: 'Listening', detail: 'Speak naturally. You can still type.' },
   transcribing: { title: 'Transcribing', detail: 'Turning your voice into text' },

@@ -3,6 +3,11 @@
 /** The user's color-scheme choice. `system` follows the OS (the default). */
 export type ThemePreference = 'light' | 'dark' | 'system';
 
+/** Which engine Voice Mode talks through. `local` is the transcribe → agent →
+ *  Local Piper loop; `gpt-live` is a full-duplex GPT-Live call over the
+ *  existing ChatGPT OAuth login. */
+export type VoiceEnginePreference = 'local' | 'gpt-live';
+
 export interface FocusMiniTextSize {
   width: number;
   height: number;
@@ -25,6 +30,8 @@ export interface DesktopPrefs {
    *  `nativeTheme.themeSource` so window chrome / prefers-color-scheme agree.
    *  Defaults to `system`. */
   theme: ThemePreference;
+  /** Voice Mode engine. Defaults to `local`. */
+  voiceEngine: VoiceEnginePreference;
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;

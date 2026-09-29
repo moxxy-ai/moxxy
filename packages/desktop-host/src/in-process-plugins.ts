@@ -17,13 +17,15 @@
  * voice + future plugin-backed flows talk to instances built here
  * against the same shared vault on disk.
  *
- * Today this hosts the Codex OAuth transcriber. The same pattern
+ * Today this hosts the Codex OAuth transcriber and the GPT-Live call
+ * negotiator (Voice Mode's `gpt-live` engine). The same pattern
  * generalises: any other plugin we want the desktop to drive in-
  * process is constructed here, given its host dependencies (vault,
  * logger, …), and exposed through `InProcessPlugins` for the IPC
  * handlers to consume.
  */
 
+import { ensureFreshCodexTokens, GptLiveCallClient } from '@moxxy/plugin-provider-openai-codex';
 import { CodexOAuthTranscriber } from '@moxxy/plugin-stt-whisper-codex';
 import { buildVaultPlugin, type VaultStore } from '@moxxy/plugin-vault';
 import type { Transcriber } from '@moxxy/sdk';
@@ -41,6 +43,10 @@ export interface InProcessPlugins {
   /** Codex OAuth transcriber instance wired against the shared
    *  vault. The TUI's voice flow uses the same backing class. */
   readonly transcriber: Transcriber;
+  /** GPT-Live call negotiator over the same ChatGPT OAuth login. Refreshes
+   *  tokens through the shared vault lock and never starts an interactive
+   *  login; the bearer token never leaves the main process. */
+  readonly gptLive: GptLiveCallClient;
 }
 
 /**
@@ -55,9 +61,19 @@ export interface InProcessPlugins {
  * `opts.vault`.
  */
 export function buildInProcessPlugins(
-  opts: { readonly vault?: VaultStore } = {},
+  opts: { readonly vault?: VaultStore; readonly gptLiveBaseUrl?: string } = {},
 ): InProcessPlugins {
   const vault = opts.vault ?? buildVaultPlugin().vault;
   const transcriber = new CodexOAuthTranscriber({ vault });
-  return { vault, transcriber };
+  const gptLive = new GptLiveCallClient({
+    ...(opts.gptLiveBaseUrl ? { baseUrl: opts.gptLiveBaseUrl } : {}),
+    resolveCredentials: async () => {
+      const tokens = await ensureFreshCodexTokens(vault);
+      return {
+        accessToken: tokens.access,
+        ...(tokens.accountId ? { accountId: tokens.accountId } : {}),
+      };
+    },
+  });
+  return { vault, transcriber, gptLive };
 }

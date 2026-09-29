@@ -65,6 +65,11 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'voice.isLocalPiperInstalled' as IpcCommandName,
       'voice.installLocalPiper' as IpcCommandName,
       'voice.setRealtimeCaptureActive' as IpcCommandName,
+      // GPT-Live uses the host's ChatGPT OAuth credential; a phone must not
+      // open paid voice calls or write voice history on the host's behalf.
+      'voice.live.preflight',
+      'voice.live.start',
+      'session.recordVoiceExchange',
       'session.previewAttachment',
       'focus.toggle' as IpcCommandName,
       'focus.dragStart' as IpcCommandName,

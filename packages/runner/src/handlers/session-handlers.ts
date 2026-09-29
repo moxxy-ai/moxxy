@@ -4,9 +4,11 @@ import {
   modeSetActiveParamsSchema,
   permissionAddAllowParamsSchema,
   sessionLoadHistoryParamsSchema,
+  sessionRecordExchangeParamsSchema,
   sessionSetReasoningParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
+  type SessionRecordExchangeResult,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
 
@@ -67,6 +69,20 @@ export async function handleSessionLoadHistory(
   // Tail-seeded / partial in-memory log: read one page off disk instead so the
   // oldest history (below the in-memory base) is still reachable.
   return readSessionEventPage(String(ctx.session.id), { before, limit }, ctx.sessionsDir);
+}
+
+/**
+ * Append an exchange that was produced outside the agent loop (v20). A realtime
+ * voice model answers the user itself; recording both sides as one ordinary
+ * turn keeps the runner log the complete authoritative history — every mirror
+ * renders it, and the next agent turn projects it as conversation context.
+ */
+export async function handleSessionRecordExchange(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<SessionRecordExchangeResult> {
+  const exchange = sessionRecordExchangeParamsSchema.parse(raw);
+  return { turnId: await ctx.spokenExchanges.record(exchange) };
 }
 
 export async function handlePermissionAddAllow(

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-resources.mjs';
-import { findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
+import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -119,6 +119,27 @@ test('packaged verifier locates Windows, Linux, and macOS resource roots', async
     );
   } finally {
     await rm(releaseDir, { recursive: true, force: true });
+  }
+});
+
+test('universal macOS guard reports native packages missing their other-arch sibling', async () => {
+  const resources = await mkdtemp(path.join(tmpdir(), 'moxxy-darwin-arch-'));
+  try {
+    const seed = path.join(resources, 'plugins-seed', 'node_modules');
+    await writePackage(path.join(seed, '@napi-rs', 'keyring-darwin-arm64'), '@napi-rs/keyring-darwin-arm64');
+    await writePackage(path.join(seed, '@napi-rs', 'keyring-darwin-x64'), '@napi-rs/keyring-darwin-x64');
+    await writePackage(path.join(seed, '@img', 'sharp-darwin-arm64'), '@img/sharp-darwin-arm64');
+    await writePackage(
+      path.join(resources, 'moxxy-cli', 'node_modules', '.pnpm', 'fsevents-darwin-x64@1.0.0', 'node_modules', 'fsevents-darwin-x64'),
+      'fsevents-darwin-x64',
+    );
+
+    assert.deepEqual(await findDarwinArchGaps(resources), [
+      'moxxy-cli: fsevents-darwin-x64 has no fsevents-darwin-arm64',
+      'plugins-seed: @img/sharp-darwin-arm64 has no @img/sharp-darwin-x64',
+    ]);
+  } finally {
+    await rm(resources, { recursive: true, force: true });
   }
 });
 
