@@ -90,7 +90,7 @@ export function registerIpcHandlers(
     // (it owns `update-key.ts`); an empty/absent config means updates report as
     // unavailable rather than erroring.
     registerUpdateHandlers(opts.update ?? { publicKeyPem: '' });
-    registerConnectionHandlers(pool);
+    registerConnectionHandlers(pool, desks);
     registerOnboardingHandlers(pool);
     registerProviderLoginHandlers(
       pool,
