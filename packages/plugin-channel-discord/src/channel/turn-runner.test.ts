@@ -223,6 +223,13 @@ describe('runDiscordTurn — a turn answered out loud in a call', () => {
     expect(prompts[0]).toMatch(/discord_send_message/);
     expect(prompts[0]).toMatch(/before .*tools?.* say .*what you are about to do/i);
     expect(prompts[1]).not.toMatch(/voice call/i);
+    // Discord shows neither the browser nor the terminal: a choice a page asks
+    // of the user is asked in the chat, not left waiting in a pane.
+    for (const prompt of prompts) {
+      expect(prompt).toMatch(/cannot see your browser or terminal/i);
+      expect(prompt).toMatch(/cookie/i);
+      expect(prompt).toMatch(/Channels → Discord/);
+    }
   });
 });
 

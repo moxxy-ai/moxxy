@@ -21,6 +21,7 @@ import type { ChildProcess } from 'node:child_process';
 import { clearChannelStatus, readChannelStatus } from '@moxxy/sdk/server';
 import type { ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, resolveMoxxyCli, spawnCli } from './cli-resolver';
+import { runnerExtraEnv } from './runner-env';
 import { broadcastHostEvent } from './event-bus';
 
 /** How often / how long to poll the status file after a channel starts. A
@@ -120,8 +121,15 @@ export function startChannel(id: string): void {
   //    UI, so opt out.
   //  - MOXXY_NO_CORE_UPDATE: Tier-2 self_update_core_* can't patch a read-only
   //    .app; hide those tools here as serve does.
+  // Like serve it also inherits what every runner gets (the browser bridge), so
+  // the bot's agent drives the browser the app shows, not an unseen one.
   const child = spawnCli(cli, [id], {
-    env: { MOXXY_DEDICATED_RUNNER: '1', MOXXY_NO_WEB_SURFACE: '1', MOXXY_NO_CORE_UPDATE: '1' },
+    env: {
+      ...runnerExtraEnv(),
+      MOXXY_DEDICATED_RUNNER: '1',
+      MOXXY_NO_WEB_SURFACE: '1',
+      MOXXY_NO_CORE_UPDATE: '1',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

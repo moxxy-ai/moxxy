@@ -44,13 +44,20 @@ export interface RunDiscordTurnDeps {
 /**
  * What the model must know about replying on Discord: a `file://` link or a
  * local path is dead text there, so a file the user asks for has to go out as
- * an attachment through `discord_send_message`.
+ * an attachment through `discord_send_message`; and the user sees none of the
+ * agent's panes, so a choice a page asks of them is asked in the chat.
  */
 export const DISCORD_TURN_CONTEXT =
   'You are replying in a Discord chat. The user cannot open local paths or file:// links there. ' +
   'To give them a file from this computer (an image, a document, a video), call ' +
   '`discord_send_message` with `files: ["<absolute path>"]` — it arrives in their Discord DMs as an ' +
-  'attachment they can open or download (10 MB per message at most) — then say briefly that you sent it.';
+  'attachment they can open or download (10 MB per message at most) — then say briefly that you sent it. ' +
+  'The user may be away from this computer and cannot see your browser or terminal from Discord (only ' +
+  'the moxxy desktop app shows them, under Channels → Discord). When a page asks for a choice that ' +
+  'belongs to them, such as a cookie banner, do not wait for them to click it: tell them in the chat ' +
+  'what the page asks and name the options, then pick the one they choose. Something only they may ' +
+  'enter (signing in, a one-time code, a CAPTCHA) cannot be done from Discord: say so, and that they can ' +
+  'do it in the desktop app under Channels → Discord → Browser.';
 
 /** Added when the reply is said out loud in a voice call. */
 export const DISCORD_CALL_CONTEXT =

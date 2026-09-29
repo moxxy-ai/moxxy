@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatStoreBridge, ConnectionBridge, __setApiOverride } from '@moxxy/client-core';
 import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
@@ -90,10 +90,22 @@ function installHost(entry: ChannelEntry = discord()) {
       };
     }
     if (cmd === 'session.runTurn') return { turnId: 't2' };
+    if (cmd === 'browser.listTabs') return { tabs: [], activeTabId: null };
     return undefined;
   });
-  __setApiOverride({ invoke, subscribe: () => () => undefined } as never);
-  return invoke;
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const subscribe = (channel: string, fn: (payload: unknown) => void) => {
+    const set = listeners.get(channel) ?? new Set();
+    set.add(fn);
+    listeners.set(channel, set);
+    return () => set.delete(fn);
+  };
+  __setApiOverride({ invoke, subscribe } as never);
+  return Object.assign(invoke, {
+    emit: (channel: string, payload: unknown) => {
+      for (const fn of listeners.get(channel) ?? []) fn(payload);
+    },
+  });
 }
 
 function renderSurface() {
@@ -144,5 +156,41 @@ describe('ChannelsSurface', () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('channels.setRunMode', { channelId: 'discord', mode: 'app' }));
     await waitFor(() => expect((screen.getByRole('radio', { name: /With the app/u }) as HTMLInputElement).checked).toBe(true));
     expect((screen.getByRole('radio', { name: /Manual/u }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('shows the bot’s browser, terminal and files beside its chat', async () => {
+    installHost();
+    renderSurface();
+
+    await screen.findByTestId('composer-input');
+
+    expect(screen.getByTestId('bench-open-browser')).toBeTruthy();
+    expect(screen.getByTestId('bench-open-terminal')).toBeTruthy();
+  });
+
+  it('opens the browser when the bot’s agent starts using it', async () => {
+    const host = installHost();
+    renderSurface();
+    await screen.findByTestId('composer-input');
+
+    act(() =>
+      host.emit('runner.event', {
+        workspaceId: CHAT_ID,
+        event: {
+          id: 'e9',
+          seq: 9,
+          ts: 9,
+          sessionId: CHAT_ID,
+          turnId: 't3',
+          source: 'assistant',
+          type: 'tool_call_requested',
+          callId: 'c1',
+          name: 'browser_session',
+          input: { action: 'navigate', url: 'https://youtube.com' },
+        },
+      }),
+    );
+
+    expect((await screen.findByTestId('bench-tab-browser')).getAttribute('aria-selected')).toBe('true');
   });
 });

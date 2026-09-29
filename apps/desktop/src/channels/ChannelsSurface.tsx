@@ -14,6 +14,8 @@ import { ChannelActions, ChannelPage, ChannelRunButton, ledState, useChannelPage
 import { ChatSurface } from '../chat/ChatSurface';
 import { IndexColumn } from '../shell/IndexColumn';
 import { BarActions, InstrumentBar } from '../shell/InstrumentBar';
+import { Workbench } from '../shell/Workbench';
+import { useWorkbench } from '../shell/useWorkbench';
 import { ChannelModelSection } from './ChannelModelSection';
 import { ChannelRunModeSection } from './ChannelRunModeSection';
 import { useChannelModel } from './useChannelModel';
@@ -245,7 +247,9 @@ function ChannelScreen({
 const NOT_ATTACHED: ConnectionPhase = { phase: 'idle' };
 
 /** The bot's conversation, live: the regular chat surface over the bot's own
- *  runner (`channels.openChat`), with the bot's run control in the bar. */
+ *  runner (`channels.openChat`), with the bot's run control in the bar and the
+ *  same workbench as a workspace chat — the bot's agent drives the app's
+ *  browser and terminal, and this is where you watch it and take over. */
 function ChannelChat({
   entry,
   channels,
@@ -295,28 +299,32 @@ function ChannelChatSurface({
 }): JSX.Element {
   const phase = useConnection(workspaceId).snapshot?.phase ?? NOT_ATTACHED;
   const infoReady = useSessionInfoReady(workspaceId, phase);
+  const [benchTab, setBenchTab] = useWorkbench(workspaceId);
   const online = phase.phase === 'connected';
   return (
-    <ChatSurface
-      phase={phase}
-      workspaceId={workspaceId}
-      sessionLoading={online && !infoReady}
-      title={{ context: 'Channels', subject: name }}
-      notice={
-        online ? null : (
-          <p
-            role="status"
-            style={{
-              margin: 'var(--space-8) var(--space-32) 0',
-              fontSize: 'var(--type-meta)',
-              color: 'var(--color-text-dim)',
-            }}
-          >
-            The {name} bot is not running — start it to chat here. Earlier messages stay below.
-          </p>
-        )
-      }
-    />
+    <>
+      <ChatSurface
+        phase={phase}
+        workspaceId={workspaceId}
+        sessionLoading={online && !infoReady}
+        title={{ context: 'Channels', subject: name }}
+        notice={
+          online ? null : (
+            <p
+              role="status"
+              style={{
+                margin: 'var(--space-8) var(--space-32) 0',
+                fontSize: 'var(--type-meta)',
+                color: 'var(--color-text-dim)',
+              }}
+            >
+              The {name} bot is not running — start it to chat here. Earlier messages stay below.
+            </p>
+          )
+        }
+      />
+      <Workbench tab={benchTab} onPick={setBenchTab} onClose={() => setBenchTab(null)} workspaceId={workspaceId} />
+    </>
   );
 }
 

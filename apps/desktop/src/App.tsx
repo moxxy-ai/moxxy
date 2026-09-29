@@ -24,8 +24,8 @@ import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import { AppRail } from './shell/AppRail';
 import type { View } from './shell/views';
-import { Workbench, type WorkbenchTab } from './shell/Workbench';
-import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
+import { Workbench } from './shell/Workbench';
+import { useWorkbench } from './shell/useWorkbench';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
@@ -82,10 +82,7 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  // The workbench starts collapsed — but collapsed now leaves a vertical tab
-  // strip, so it is still discoverable and one click opens the pane you want.
-  // Null = collapsed.
-  const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
+  const [benchTab, setBenchTab] = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
   const [automationsKind, setAutomationsKind] = useAutomationsKind();
@@ -147,10 +144,6 @@ export function App(): JSX.Element {
   // composer draft and pulses a request to show the chat view — switch to it so
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
-
-  // When the agent drives the browser / terminal, open the matching workbench
-  // tab so its work is shown to the user (once per session per tab).
-  useAgentSurfaceReveal(activeWorkspaceId, setBenchTab);
 
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
   // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
