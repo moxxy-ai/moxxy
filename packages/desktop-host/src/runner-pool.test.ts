@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { homedir } from 'node:os';
+import os, { homedir } from 'node:os';
 import path from 'node:path';
 import { RunnerPool, socketFor, UNBOUND_ID } from './runner-pool';
 
@@ -93,5 +93,20 @@ describe('RunnerPool deferred startup', () => {
     await expect(second).rejects.toThrow(/stopped/i);
     await stopped;
     expect(pool.list()).toEqual([]);
+  });
+});
+
+describe('RunnerPool.attach (a channel bot runner)', () => {
+  it('adds an attach-only entry on the given socket without taking the foreground', async () => {
+    const pool = new RunnerPool();
+    const socketPath = path.join(os.tmpdir(), `moxxy-pool-attach-${Date.now()}.sock`);
+
+    const supervisor = await pool.attach('moxxy-channel-discord', socketPath);
+
+    expect(pool.get('moxxy-channel-discord')).toBe(supervisor);
+    expect(await pool.attach('moxxy-channel-discord', socketPath)).toBe(supervisor);
+    expect(pool.activeWorkspaceId()).toBeNull();
+    expect(supervisor.snapshot().phase.phase).not.toBe('spawning');
+    await pool.stopAll();
   });
 });

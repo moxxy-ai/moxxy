@@ -11,6 +11,7 @@ export {
   connectUnixSocket,
 } from './unix-socket.js';
 export { runnerSocketPath, isRunnerUp, platformSocket, isNamedPipe } from './socket-path.js';
+export { channelRunnerSocket, channelSessionId } from './channel-runner.js';
 export { RunnerServer, startRunnerServer } from './server.js';
 export {
   RemoteSession,

@@ -513,11 +513,11 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('bounds channels.history like chat.loadHistory', () => {
-    const page = (args: unknown) => () => validateIpcInput('channels.history', args);
-    expect(page({ channelId: 'discord', before: null, limit: 200 })).not.toThrow();
-    expect(page({ channelId: 'discord', before: 10, limit: 2001 })).toThrow();
-    expect(page({ channelId: '../x', before: null, limit: 10 })).toThrow();
+  it('pins channels.openChat to a channel slug (it picks the socket the host attaches to)', () => {
+    const open = (args: unknown) => () => validateIpcInput('channels.openChat', args);
+    expect(open({ channelId: 'discord' })).not.toThrow();
+    expect(open({ channelId: '../x' })).toThrow();
+    expect(open({ channelId: 'discord', socketPath: '/tmp/x.sock' })).toThrow();
   });
 
   it('accepts channels.setRunMode only for the three known modes', () => {

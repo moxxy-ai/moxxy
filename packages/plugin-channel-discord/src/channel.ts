@@ -48,6 +48,7 @@ import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
 import { resolveChannelModel, runModelCommand } from './channel/model-command.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
+import { MirrorTarget } from './channel/mirror-target.js';
 
 /** Cap on waiting for the gateway READY event (bot identity → invite link).
  *  Identity resolution must never wedge `start()`; on timeout we proceed
@@ -110,8 +111,11 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private readonly connectListeners = new Set<() => void>();
   // Channel the CURRENT turn runs in (target for permission/approval prompts).
   private currentChannel: SendableChannelLike | null = null;
-  // Last channel we served — the target for mirroring foreign turns.
-  private lastChannel: SendableChannelLike | null = null;
+  // Where replies to foreign turns (e.g. typed in the desktop chat) go: the
+  // last channel we served, else the paired owner's DM.
+  private readonly mirrorTarget = new MirrorTarget(() => this.openOwnerDm());
+  // Serializes mirrored posts so replies keep their order in Discord.
+  private mirrorQueue: Promise<void> = Promise.resolve();
   private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
@@ -478,7 +482,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       return;
     }
     this.currentChannel = ctx.channel;
-    this.lastChannel = ctx.channel;
+    this.mirrorTarget.remember(ctx.channel);
     try {
       const channelModel = await resolveChannelModel({ session: this.session, vault: this.opts.vault });
       if (channelModel.warning) await ctx.reply(channelModel.warning);
@@ -567,15 +571,25 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private mirrorForeignTurn(event: MoxxyEvent): void {
     const text = this.turns.mirrorText(event);
     if (text == null) return;
-    const target = this.lastChannel;
-    if (!target) return;
-    void (async () => {
-      for (const part of splitForDiscord(text)) {
-        await target.send(part);
-      }
-    })().catch((err) => {
-      this.opts.logger?.warn('discord mirror failed', { err: String(err) });
-    });
+    this.mirrorQueue = this.mirrorQueue
+      .then(async () => {
+        const target = await this.mirrorTarget.resolve();
+        if (!target) return;
+        for (const part of splitForDiscord(text)) {
+          await target.send(part);
+        }
+      })
+      .catch((err) => {
+        this.opts.logger?.warn('discord mirror failed', { err: String(err) });
+      });
+  }
+
+  /** The paired owner's DM channel, or null while unpaired / logged out. */
+  private async openOwnerDm(): Promise<SendableChannelLike | null> {
+    const owner = this.pairing.authorizedUserId();
+    if (!owner || !this.client) return null;
+    const user = await this.client.users.fetch(owner);
+    return (await user.createDM()) as unknown as SendableChannelLike;
   }
 
   private askForPermission(call: PendingToolCall, ctx: PermissionContext): Promise<void> {

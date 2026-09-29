@@ -658,17 +658,14 @@ export interface IpcCommands {
     channelId: string;
     model: string | null;
   }) => Promise<ChannelRuntimeStatus>;
+  /** Open the bot's conversation as a live chat: the host attaches (never
+   *  spawns) to the bot's own runner and returns the chat id every `session.*`
+   *  / `chat.*` command takes as `workspaceId`. Works in every run mode; while
+   *  the bot is down the chat shows its saved history and waits for it. */
+  'channels.openChat': (args: { channelId: string }) => Promise<{ workspaceId: string }>;
   /** Choose how the bot runs: `manual`, `app` (starts with the desktop) or
    *  `background` (OS service, 24/7). Leaving `background` removes the service.
    *  Rejects for channels without `supportsBackground`. */
-  /** Page the bot's conversation (its sticky dedicated-runner session log),
-   *  read-only — works whether the bot runs from the app, as a background
-   *  service, or not at all. `null` until the bot has a conversation. */
-  'channels.history': (args: {
-    channelId: string;
-    before: number | null;
-    limit: number;
-  }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
   'channels.setRunMode': (args: {
     channelId: string;
     mode: ChannelRunMode;

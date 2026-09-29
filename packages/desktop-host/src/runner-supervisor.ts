@@ -46,6 +46,7 @@ const SOCKET_WAIT_MS = 20_000;
 const SOCKET_POLL_MS = 200;
 const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;
+const WAITING_FOR_EXTERNAL_RUNNER = 'waiting for the channel bot to start';
 const LOG_RING_SIZE = 200;
 
 /**
@@ -101,6 +102,12 @@ export class RunnerSupervisor extends EventEmitter {
      * behavior, and what a bare supervisor uses).
      */
     private readonly sessionId?: string,
+    /**
+     * `attachOnly`: the runner belongs to someone else — a channel bot's own
+     * runner (`channelRunnerSocket`). Never spawn one, never kill it, never
+     * delete its log: attach while it is up, wait while it is down.
+     */
+    private readonly options: { readonly attachOnly?: boolean } = {},
   ) {
     super();
   }
@@ -145,6 +152,12 @@ export class RunnerSupervisor extends EventEmitter {
    * separately.
    */
   async resetSession(): Promise<void> {
+    if (this.options.attachOnly) {
+      // Someone else's runner: clear its conversation over the protocol (the
+      // runner wipes its log + every attached mirror) and stay attached.
+      await this.session?.reset();
+      return;
+    }
     const session = this.session;
     this.session = null;
     if (session) {
@@ -309,6 +322,7 @@ export class RunnerSupervisor extends EventEmitter {
   // ------- internals -------
 
   private async attempt(): Promise<void> {
+    if (this.options.attachOnly) return this.attemptAttachOnly();
     this.setPhase({ phase: 'resolving-cli' });
     const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
     if (!cli) {
@@ -362,7 +376,25 @@ export class RunnerSupervisor extends EventEmitter {
     // Pass the spawned child (null when adopting) so a serve that dies
     // before binding fails fast instead of waiting out the 20 s poll.
     await this.waitForSocket(this.child);
+    await this.attachAndHold({ recoverMismatch: true });
+  }
 
+  /** Attach to an external runner if it is up; otherwise report the wait and
+   *  let the run loop poll again after its backoff. */
+  private async attemptAttachOnly(): Promise<void> {
+    if (!(await this.probeSocket())) {
+      const phase = this.currentPhase;
+      if (phase.phase !== 'reconnecting' || phase.reason !== WAITING_FOR_EXTERNAL_RUNNER) {
+        this.setPhase({ phase: 'reconnecting', reason: WAITING_FOR_EXTERNAL_RUNNER, attempt: this.attempts });
+      }
+      return;
+    }
+    this.setPhase({ phase: 'adopting', socket: this.socketPath });
+    await this.attachAndHold({ recoverMismatch: false });
+  }
+
+  /** Attach a RemoteSession and hold it until the runner link drops. */
+  private async attachAndHold({ recoverMismatch }: { readonly recoverMismatch: boolean }): Promise<void> {
     this.setPhase({
       phase: 'attaching',
       socket: this.socketPath,
@@ -390,7 +422,7 @@ export class RunnerSupervisor extends EventEmitter {
       // so if a SECOND attach still mismatches, respawning can't help — surface
       // a terminal error instead of looping "Reconnecting…" forever (the
       // hot-update skew bug: a JS bundle whose client outran the CLI's runner).
-      if (isProtocolMismatchError(err)) {
+      if (recoverMismatch && isProtocolMismatchError(err)) {
         const msg = err instanceof Error ? err.message : String(err);
         if (this.mismatchRecoveries >= 1) {
           this.setPhase(protocolIncompatiblePhase(msg));

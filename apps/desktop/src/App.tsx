@@ -395,12 +395,9 @@ export function App(): JSX.Element {
         </main>
       )}
       {/* Channels is independent of the runner session (the gateway lives in the
-          main process), so it is never runner-locked. */}
-      {view === 'channels' && (
-        <main className="field">
-          <ChannelsSurface selected={channelId} />
-        </main>
-      )}
+          main process), so it is never runner-locked. It owns its pane: a
+          channel's chat is a full chat surface, its setup a field page. */}
+      {view === 'channels' && <ChannelsSurface selected={channelId} />}
       {/* Mobile pairing is a property of the INSTALL, not another chat surface to
           configure, so it sits at the foot of the rail rather than in the channel
           catalog. Like Channels it never depends on the runner session. */}

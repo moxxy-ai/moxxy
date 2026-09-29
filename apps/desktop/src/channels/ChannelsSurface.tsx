@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { useActiveWorkspaceId, useChannelTranscript, useChannels } from '@moxxy/client-core';
-import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
-import { ChannelActions, ChannelPage, ledState, useChannelPage } from '../apps/ChannelsPanel';
+import { Button } from '@moxxy/desktop-ui';
+import {
+  useActiveWorkspaceId,
+  useChannelChat,
+  useChannels,
+  useConnection,
+  useSessionInfoReady,
+  type UseChannels,
+} from '@moxxy/client-core';
+import type { ChannelEntry, ConnectionPhase } from '@moxxy/desktop-ipc-contract';
+import { ChannelActions, ChannelPage, ChannelRunButton, ledState, useChannelPage } from '../apps/ChannelsPanel';
+import { ChatSurface } from '../chat/ChatSurface';
 import { IndexColumn } from '../shell/IndexColumn';
-import { InstrumentBar } from '../shell/InstrumentBar';
-import { ChannelConversation } from './ChannelConversation';
+import { BarActions, InstrumentBar } from '../shell/InstrumentBar';
 import { ChannelModelSection } from './ChannelModelSection';
 import { ChannelRunModeSection } from './ChannelRunModeSection';
 import { useChannelModel } from './useChannelModel';
@@ -185,7 +193,7 @@ export function ChannelsSurface({ selected }: { readonly selected: string | null
 
   if (!entry) {
     return (
-      <>
+      <main className="field">
         <InstrumentBar crumbs={['Channels', 'Catalog']}>{refresh}</InstrumentBar>
         <div style={PANE}>
           {error}
@@ -193,12 +201,123 @@ export function ChannelsSurface({ selected }: { readonly selected: string | null
             Pick a channel from the list to set it up.
           </p>
         </div>
-      </>
+      </main>
     );
   }
   // Keyed on the channel so switching pages resets the form rather than
   // carrying one channel's half-typed secrets into the next one's fields.
-  return <ChannelView key={entry.descriptor.id} entry={entry} error={error} refresh={refresh} />;
+  return <ChannelScreen key={entry.descriptor.id} entry={entry} channels={channels} error={error} refresh={refresh} />;
+}
+
+/**
+ * A channel is two pages: its CHAT — the bot's conversation as an ordinary
+ * chat, written to from the channel and from here — and its SETUP. A channel
+ * that is set up opens on its chat; one that is not opens on its setup.
+ */
+function ChannelScreen({
+  entry,
+  channels,
+  error,
+  refresh,
+}: {
+  readonly entry: ChannelEntry;
+  readonly channels: UseChannels;
+  readonly error: React.ReactNode;
+  readonly refresh: React.ReactNode;
+}): JSX.Element {
+  const [page, setPage] = useState<'chat' | 'setup'>(entry.status.configured ? 'chat' : 'setup');
+  if (page === 'chat' && entry.status.configured) {
+    return <ChannelChat entry={entry} channels={channels} onSetup={() => setPage('setup')} />;
+  }
+  return (
+    <main className="field">
+      <ChannelView
+        entry={entry}
+        channels={channels}
+        error={error}
+        refresh={refresh}
+        {...(entry.status.configured ? { onChat: () => setPage('chat') } : {})}
+      />
+    </main>
+  );
+}
+
+const NOT_ATTACHED: ConnectionPhase = { phase: 'idle' };
+
+/** The bot's conversation, live: the regular chat surface over the bot's own
+ *  runner (`channels.openChat`), with the bot's run control in the bar. */
+function ChannelChat({
+  entry,
+  channels,
+  onSetup,
+}: {
+  readonly entry: ChannelEntry;
+  readonly channels: UseChannels;
+  readonly onSetup: () => void;
+}): JSX.Element {
+  const { descriptor } = entry;
+  const chat = useChannelChat(descriptor.id);
+  const state = useChannelPage(entry, channels);
+  const actions = (
+    <BarActions>
+      <ChannelRunButton entry={entry} state={state} />
+      <Button variant="secondary" onClick={onSetup} data-testid={`channel-setup-${descriptor.id}`}>
+        Setup
+      </Button>
+    </BarActions>
+  );
+  if (!chat.workspaceId) {
+    return (
+      <main className="field">
+        <InstrumentBar crumbs={['Channels', descriptor.name]}>{actions}</InstrumentBar>
+        <div style={PANE}>
+          <p role={chat.error ? 'alert' : 'status'} style={{ margin: 0, color: 'var(--color-text-dim)', fontSize: 'var(--type-row)' }}>
+            {chat.error ?? 'Opening the conversation…'}
+          </p>
+        </div>
+      </main>
+    );
+  }
+  return (
+    <>
+      <ChannelChatSurface workspaceId={chat.workspaceId} name={descriptor.name} />
+      {actions}
+    </>
+  );
+}
+
+function ChannelChatSurface({
+  workspaceId,
+  name,
+}: {
+  readonly workspaceId: string;
+  readonly name: string;
+}): JSX.Element {
+  const phase = useConnection(workspaceId).snapshot?.phase ?? NOT_ATTACHED;
+  const infoReady = useSessionInfoReady(workspaceId, phase);
+  const online = phase.phase === 'connected';
+  return (
+    <ChatSurface
+      phase={phase}
+      workspaceId={workspaceId}
+      sessionLoading={online && !infoReady}
+      title={{ context: 'Channels', subject: name }}
+      notice={
+        online ? null : (
+          <p
+            role="status"
+            style={{
+              margin: 'var(--space-8) var(--space-32) 0',
+              fontSize: 'var(--type-meta)',
+              color: 'var(--color-text-dim)',
+            }}
+          >
+            The {name} bot is not running — start it to chat here. Earlier messages stay below.
+          </p>
+        )
+      }
+    />
+  );
 }
 
 const PANE: React.CSSProperties = {
@@ -210,17 +329,23 @@ const PANE: React.CSSProperties = {
 
 /** One channel: the bar that names it (carrying its actions) and the pane that
  *  configures it. Both halves read ONE editing state, which is why they live in
- *  the same component rather than the surface holding the state for them. */
+ *  the same component rather than the surface holding the state for them. It
+ *  acts through the surface's `channels` — the list `entry` comes from — so a
+ *  command's reply (run mode, model) lands in the entry it renders. */
 function ChannelView({
   entry,
+  channels,
   error,
   refresh,
+  onChat,
 }: {
   readonly entry: ChannelEntry;
+  readonly channels: UseChannels;
   readonly error: React.ReactNode;
   readonly refresh: React.ReactNode;
+  /** Back to the chat — only for a channel that is set up. */
+  readonly onChat?: () => void;
 }): JSX.Element {
-  const channels = useChannels();
   const state = useChannelPage(entry, channels);
   const workspaceId = useActiveWorkspaceId();
   const model = useChannelModel({
@@ -235,13 +360,17 @@ function ChannelView({
     background: entry.status.background,
     setRunMode: channels.setRunMode,
   });
-  const transcript = useChannelTranscript(entry.descriptor.id);
   return (
     <>
       <InstrumentBar crumbs={['Channels', entry.descriptor.name]}>
         {/* A page's actions belong in the bar that names the page, not floating
          *  over its first paragraph. */}
         <ChannelActions entry={entry} state={state} />
+        {onChat && (
+          <Button variant="secondary" onClick={onChat} data-testid={`channel-chat-${entry.descriptor.id}`}>
+            Chat
+          </Button>
+        )}
         {refresh}
       </InstrumentBar>
       <div style={PANE}>
@@ -257,13 +386,6 @@ function ChannelView({
             <ChannelModelSection state={model} />
           </div>
         )}
-        <div style={{ marginTop: 'var(--space-20)' }}>
-          <ChannelConversation
-            channelName={entry.descriptor.name}
-            channelId={entry.descriptor.id}
-            transcript={transcript}
-          />
-        </div>
       </div>
     </>
   );

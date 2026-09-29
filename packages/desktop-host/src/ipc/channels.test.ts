@@ -11,6 +11,7 @@ import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import { setActiveBus } from './shared';
 import { autostartConfiguredChannels, registerChannelsHandlers } from './channels';
 import type { ChannelProcessPort, ChannelServicePort } from '../channel-run-mode';
+import { channelRunnerSocket } from '@moxxy/runner';
 
 /** OS service manager + bot subprocess — the external boundaries, recorded in memory. */
 function fakeServices(): ChannelServicePort & { installed: Set<string> } {
@@ -158,39 +159,23 @@ describe('autostartConfiguredChannels (desktop launch)', () => {
   });
 });
 
-describe('channels.history (read-only bot conversation)', () => {
-  it("pages the channel's sticky session log", async () => {
-    const reads: Array<[string, unknown]> = [];
-    const page = { events: [], prevCursor: null };
+describe('channels.openChat (the bot conversation as a live chat)', () => {
+  it("attaches to the bot's own runner and returns its chat id", async () => {
+    const attached: Array<[string, string]> = [];
     registerChannelsHandlers({
       vault: () => vault,
       services,
       processes,
-      readHistory: async (sessionId, opts) => {
-        reads.push([sessionId, opts]);
-        return page;
-      },
+      attachChat: async (sessionId, socketPath) => void attached.push([sessionId, socketPath]),
     });
 
-    const out = await call('channels.history', { channelId: 'discord', before: 50, limit: 100 });
+    const out = await call('channels.openChat', { channelId: 'discord' });
 
-    expect(out).toBe(page);
-    expect(reads).toEqual([['moxxy-channel-discord', { before: 50, limit: 100 }]]);
+    expect(out).toEqual({ workspaceId: 'moxxy-channel-discord' });
+    expect(attached).toEqual([['moxxy-channel-discord', channelRunnerSocket('discord')]]);
   });
 
-  it('returns null while the bot has no conversation yet', async () => {
-    registerChannelsHandlers({
-      vault: () => vault,
-      services,
-      processes,
-      readHistory: async () => {
-        throw new Error('ENOENT');
-      },
-    });
-    expect(await call('channels.history', { channelId: 'discord', before: null, limit: 100 })).toBeNull();
-  });
-
-  it('only reads catalog channels (never a renderer-chosen session)', async () => {
-    await expect(call('channels.history', { channelId: 'nope', before: null, limit: 10 })).rejects.toThrow(/unknown channel/);
+  it('only opens catalog channels (never a renderer-chosen socket)', async () => {
+    await expect(call('channels.openChat', { channelId: 'nope' })).rejects.toThrow(/unknown channel/);
   });
 });

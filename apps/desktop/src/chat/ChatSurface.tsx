@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
@@ -27,6 +27,11 @@ interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
   readonly sessionLoading: boolean;
+  /** The bar's crumbs for a chat that is not a desk session (a channel bot's
+   *  conversation); desk sessions name themselves from the desk registry. */
+  readonly title?: { readonly context: string; readonly subject: string };
+  /** A one-line note above the conversation (e.g. "the bot is offline"). */
+  readonly notice?: ReactNode;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -84,6 +89,8 @@ export function ChatSurface({
   phase,
   workspaceId,
   sessionLoading,
+  title,
+  notice,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -168,8 +175,8 @@ export function ChatSurface({
       <main className="col-main col-main--flat">
         <Header
           phase={phase}
-          deskName={activeDesk?.name ?? null}
-          sessionName={activeSessionName}
+          deskName={title?.context ?? activeDesk?.name ?? null}
+          sessionName={title?.subject ?? activeSessionName}
           runState={runState}
           agent={agent}
           agentDisabled={!ready}
@@ -196,8 +203,8 @@ export function ChatSurface({
     <main className="col-main col-main--flat">
       <Header
         phase={phase}
-        deskName={activeDesk?.name ?? null}
-        sessionName={activeSessionName}
+        deskName={title?.context ?? activeDesk?.name ?? null}
+        sessionName={title?.subject ?? activeSessionName}
         runState={runState}
         agent={agent}
         agentDisabled={!ready}
@@ -214,6 +221,7 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
+        {notice}
         {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />

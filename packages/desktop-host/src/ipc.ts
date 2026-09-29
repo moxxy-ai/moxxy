@@ -112,7 +112,9 @@ export function registerIpcHandlers(
     registerVaultHandlers();
     registerChatHandlers(pool, desks);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
-    registerChannelsHandlers();
+    registerChannelsHandlers({
+      attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),
+    });
     registerVoiceHandlers(pool, opts.voice);
   }
 }

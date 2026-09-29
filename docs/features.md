@@ -10,7 +10,7 @@ Moxxy ships as a useful agent and as a framework whose main blocks can be replac
 | Plugin discovery | Install a compatible npm package and Moxxy discovers its metadata. Plugins can be enabled and hot-reloaded without manual application wiring. |
 | Multiple interfaces | A session can be accessed from the TUI, desktop, Telegram, HTTP, schedules, and webhooks. |
 | Voice input | Send Telegram voice notes, use TUI voice input, or post raw audio to HTTP. OpenAI Whisper support is included, and the `Transcriber` contract is replaceable. |
-| Desktop Voice Mode | Talk to a session hands-free: the local engine runs every utterance as an agent turn read aloud by Local Piper, and the GPT-Live engine holds a live conversation over your ChatGPT login that knows the chat, hands explicit tasks to the agent in your own words, and reads back the real result ([details](voice-gpt-live.md)). |
+| Desktop Voice Mode | Talk to a session hands-free: the local engine runs every utterance as an agent turn read aloud by the spoken voice chosen in Settings → Voice (Gemini Flash-Lite or Local Piper), and the GPT-Live engine holds a live conversation over your ChatGPT login that knows the chat, hands explicit tasks to the agent in your own words, and reads back the real result ([details](voice-gpt-live.md)). |
 | Permissions | Every Moxxy tool call passes through the permission engine. Persisted allow rules can be scoped by tool. |
 | Secrets vault | AES-256-GCM encryption protects secrets at rest. Configuration refers to secrets with `${vault:NAME}` placeholders. |
 | Capability isolation | Optional isolators enforce declared filesystem, network, environment, time, and memory capabilities. In-process, worker, subprocess, and experimental WebAssembly options are available. |
@@ -29,7 +29,7 @@ Choose the interface that fits the task while keeping the same underlying sessio
 | TUI | Interactive, keyboard-driven terminal interface | `moxxy` |
 | Desktop | Native multi-workspace Electron app | [Download](https://moxxy.ai) |
 | Telegram | Text and voice access with six-digit account pairing | `moxxy telegram` |
-| Discord | Text and voice access over DMs with code pairing; its own model (`/model` or Channels → Discord); the agent can push progress DMs to you from any session (`discord_send_message`) | `moxxy channels discord` |
+| Discord | Text and voice access over DMs with code pairing ("typing…" shows while the bot works); its own model (`/model` or Channels → Discord → Setup); in the desktop, Channels → Discord is a live chat with the bot — write from Discord or from the app, replies to app messages are posted to Discord too; the agent can push progress DMs to you from any session (`discord_send_message`) | `moxxy channels discord` |
 | HTTP | Authenticated JSON, SSE streaming, and raw-audio endpoints | `moxxy channels http` |
 | Cron | Prompts triggered by cron expressions or one-shot timestamps | `moxxy schedule add ...` |
 | Webhooks | Prompts triggered by verified and filtered external POST requests | `moxxy serve` |

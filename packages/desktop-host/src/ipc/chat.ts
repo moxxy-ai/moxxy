@@ -6,6 +6,8 @@
  */
 
 import { readSessionEventPage, type EventPage } from '@moxxy/core';
+import { channelSessionId } from '@moxxy/runner';
+import { listChannelCatalog } from '../channel-catalog';
 import type { RunnerPool } from '../runner-pool';
 import { UNBOUND_ID } from '../runner-pool';
 import type { DeskStore } from '../desks';
@@ -43,6 +45,9 @@ export function registerChatHandlers(
 
 async function isReadableSession(workspaceId: string, desks: DeskStore): Promise<boolean> {
   if (workspaceId === UNBOUND_ID) return true;
+  // A channel bot's conversation (its sticky session) stays readable while the
+  // bot is down — but only for catalog channels, never a guessed id.
+  if (listChannelCatalog().some((e) => channelSessionId(e.descriptor.id) === workspaceId)) return true;
   try {
     return (await desks.deskForSession(workspaceId)) !== null;
   } catch {

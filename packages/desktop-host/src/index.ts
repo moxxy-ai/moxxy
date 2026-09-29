@@ -7,7 +7,7 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
-export { autostartConfiguredChannels, watchChannelConversations } from './ipc/channels.js';
+export { autostartConfiguredChannels } from './ipc/channels.js';
 export { type MobileGatewayController } from './ipc/mobile-gateway.js';
 export { sendEvent } from './send-event.js';
 export { ElectronCommandBus } from './bus/electron-bus.js';

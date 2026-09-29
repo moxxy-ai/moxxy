@@ -1,7 +1,8 @@
 import {
+  channelRunnerSocket,
+  channelSessionId,
   connectRemoteSession,
   isRunnerUp,
-  platformSocket,
   runnerSocketPath,
   startRunnerServer,
   type RemoteSession,
@@ -9,7 +10,7 @@ import {
 } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
-import { moxxyPath, writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
+import { writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
 import type { ClientSession, SessionLike, SessionSource } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
@@ -115,13 +116,10 @@ export function applyDedicatedRunnerEnv(
     process.env.MOXXY_DEDICATED_RUNNER === '1';
   if (!dedicated) return false;
   if (!process.env.MOXXY_RUNNER_SOCKET) {
-    process.env.MOXXY_RUNNER_SOCKET = platformSocket(
-      `channel-${name}`,
-      moxxyPath(`channel-${name}.sock`),
-    );
+    process.env.MOXXY_RUNNER_SOCKET = channelRunnerSocket(name);
   }
   if (!process.env.MOXXY_SESSION_ID) {
-    process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
+    process.env.MOXXY_SESSION_ID = channelSessionId(name);
   }
   return true;
 }

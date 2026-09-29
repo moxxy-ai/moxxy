@@ -439,11 +439,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'channels.start': z.object({ channelId }),
   'channels.stop': z.object({ channelId }),
-  'channels.history': z.object({
-    channelId,
-    before: z.number().int().nonnegative().nullable(),
-    limit: z.number().int().positive().max(2000),
-  }),
+  'channels.openChat': z.object({ channelId }).strict(),
   'channels.setRunMode': z.object({ channelId, mode: z.enum(['manual', 'app', 'background']) }),
   'channels.setModel': z.object({
     channelId,

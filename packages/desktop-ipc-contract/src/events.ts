@@ -127,9 +127,6 @@ export interface IpcEvents {
    *  or its public Request URL became available) — the Channels panel re-renders
    *  that channel's card without polling. */
   'channels.status': ChannelRuntimeStatus;
-  /** A channel bot's conversation log changed (a message, reply or tool call
-   *  landed) — the read-only conversation view re-reads `channels.history`. */
-  'channels.historyChanged': { readonly channelId: string };
   /** A live event from the dedicated collaboration coordinator (`moxxy collab`),
    *  forwarded off its own runner. The Collaborate panel folds these into its
    *  view; they NEVER enter a chat session's `runner.event` stream — that is what

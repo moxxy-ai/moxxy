@@ -61,7 +61,6 @@ import {
   readPrefs,
   updatePrefs,
   autostartConfiguredChannels,
-  watchChannelConversations,
   type LoopbackServer,
   type SelfSignedCert,
 } from '@moxxy/desktop-host';
@@ -872,7 +871,6 @@ app.whenReady().then(async () => {
   // Push live workspace updates to every surface when a runner changes a session
   // file (e.g. the first prompt becomes the session's title).
   watchSessionsForChanges(desks);
-  watchChannelConversations();
   // The Electron transport is always present. The WebSocket bridge (remote
   // clients / the mobile app) is now controllable at RUNTIME from Settings →
   // Mobile (the "mobile gateway"), so the bus + module are loaded unconditionally

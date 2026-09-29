@@ -13,10 +13,8 @@
  * channel or save its secrets over the WS bridge.
  */
 
-import { readSessionEventPage, type EventPage } from '@moxxy/core';
+import { channelRunnerSocket, channelSessionId } from '@moxxy/runner';
 import type { ChannelEntry, ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
-import { channelSessionId, watchChannelHistory } from '../channel-history-watcher';
-import { broadcastHostEvent } from '../event-bus';
 import type { InProcessPlugins } from '../in-process-plugins';
 import { getInProcessPlugins, handle, IpcError } from './shared';
 import { CHANNEL_CATALOG, listChannelCatalog, type ChannelCatalogEntry } from '../channel-catalog';
@@ -40,11 +38,9 @@ export interface ChannelsHandlerDependencies {
   readonly services: ChannelServicePort;
   /** The desktop-spawned bot subprocesses (defaults to the channel supervisor). */
   readonly processes: ChannelProcessPort;
-  /** Pages a persisted session log (defaults to the core JSONL reader). */
-  readonly readHistory: (
-    sessionId: string,
-    opts: { readonly before: number | null; readonly limit: number },
-  ) => Promise<EventPage>;
+  /** Attach the desktop to a bot's own runner (the runner pool's attach-only
+   *  entry), so its conversation is an ordinary chat keyed by `sessionId`. */
+  readonly attachChat: (sessionId: string, socketPath: string) => Promise<void>;
 }
 
 /** The channel supervisor as the run-mode process port. */
@@ -101,7 +97,7 @@ export function registerChannelsHandlers(
   const vault = dependencies.vault ?? (() => getInProcessPlugins().vault);
   const services = dependencies.services ?? createCliServicePort();
   const processes = dependencies.processes ?? supervisorProcesses;
-  const readHistory = dependencies.readHistory ?? readSessionEventPage;
+  const attachChat = dependencies.attachChat;
   const status = (entry: ChannelCatalogEntry) => statusOf(vault(), entry, services);
 
   handle('channels.list', async () => {
@@ -137,15 +133,14 @@ export function registerChannelsHandlers(
     return status(entry);
   });
 
-  handle('channels.history', async ({ channelId, before, limit }) => {
-    // Catalog-only id → the one fixed session per channel; the renderer never
-    // names a session file itself.
-    const entry = catalogEntry(channelId);
-    try {
-      return await readHistory(channelSessionId(entry.descriptor.id), { before, limit });
-    } catch {
-      return null;
-    }
+  handle('channels.openChat', async ({ channelId }) => {
+    // Catalog-only id → the bot's fixed socket + sticky session; the renderer
+    // never names a socket or a session itself.
+    const id = catalogEntry(channelId).descriptor.id;
+    if (!attachChat) throw new IpcError('not-supported', 'channel chats are not available here');
+    const workspaceId = channelSessionId(id);
+    await attachChat(workspaceId, channelRunnerSocket(id));
+    return { workspaceId };
   });
 
   handle('channels.setRunMode', async ({ channelId, mode }) => {
@@ -211,14 +206,5 @@ export async function autostartConfiguredChannels(
       processes: dependencies.processes ?? supervisorProcesses,
       isConfigured: async (id) => isConfigured(vault(), catalogEntry(id)),
     },
-  );
-}
-
-/** Push `channels.historyChanged` whenever a catalog channel's bot conversation
- *  log changes. Returns the stop function. */
-export function watchChannelConversations(): () => void {
-  return watchChannelHistory(
-    listChannelCatalog().map((e) => e.descriptor.id),
-    (channelId) => broadcastHostEvent('channels.historyChanged', { channelId }),
   );
 }
