@@ -429,10 +429,16 @@ function titleFromFirstPrompt(firstPrompt: string | null): string | null {
   return oneLine.length > MAX_TITLE ? `${oneLine.slice(0, MAX_TITLE - 1).trimEnd()}…` : oneLine;
 }
 
+/** Messaging-channel bots (Discord, Telegram, …) run their own sticky session
+ *  in their own process; resuming one here would start a second writer on its
+ *  log. They get a read-only view under Channels instead. */
+const CHANNEL_SOURCES: ReadonlySet<string> = new Set(['slack', 'telegram', 'signal', 'whatsapp', 'discord', 'imessage']);
+
 /** Which sidecars surface as sessions. App-created (desktop/mobile) sessions
  *  show even when brand-new/empty; cli/tui sidecars must have a real first
  *  prompt and a live cwd (else they're noise / point at a deleted folder). */
 function shouldShow(listing: SessionMeta): boolean {
+  if (listing.source && CHANNEL_SOURCES.has(listing.source)) return false;
   const appSession = listing.source === 'desktop' || listing.source === 'mobile';
   if (appSession) return true;
   if (!listing.firstPrompt?.trim()) return false;

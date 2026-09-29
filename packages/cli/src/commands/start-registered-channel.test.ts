@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyDedicatedRunnerEnv } from './start-registered-channel.js';
+import { applyDedicatedRunnerEnv, selfHostedSessionOptions } from './start-registered-channel.js';
 import type { ParsedArgv } from '../argv.js';
 
 const argv = (flags: ParsedArgv['flags'] = {}): ParsedArgv => ({
@@ -92,5 +92,30 @@ describe('applyDedicatedRunnerEnv', () => {
     expect(process.env.MOXXY_RUNNER_SOCKET).toBe('/custom.sock');
     expect(process.env.MOXXY_SESSION_ID).toBe('pinned-id');
     expect(process.env.MOXXY_SESSION_SOURCE).toBe('desktop');
+  });
+});
+
+describe('selfHostedSessionOptions — a dedicated channel keeps ONE session across restarts', () => {
+  let saved: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    for (const k of KEYS) delete process.env[k];
+  });
+
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('resumes the sticky dedicated session id instead of minting a new one', () => {
+    applyDedicatedRunnerEnv('discord', argv(), { dedicatedRunner: true, sessionSource: 'discord' });
+    expect(selfHostedSessionOptions()).toEqual({ skipKeyPrompt: true, sessionId: 'moxxy-channel-discord' });
+  });
+
+  it('boots a fresh session when no sticky id is set', () => {
+    expect(selfHostedSessionOptions()).toEqual({ skipKeyPrompt: true });
   });
 });

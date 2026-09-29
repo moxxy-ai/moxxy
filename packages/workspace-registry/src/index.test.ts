@@ -138,6 +138,19 @@ describe('WorkspaceRegistry — derived session list', () => {
     expect(ids).not.toContain('fresh-cli');
   });
 
+  it('keeps messaging-channel bot sessions out of the workspace tree (they have their own read-only view)', async () => {
+    const reg = registry();
+    await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    writeSession({ id: 'moxxy-channel-discord', cwd: path.join(home, 'proj'), firstPrompt: 'jakie pliki?', source: 'discord' });
+    writeSession({ id: 'tg', cwd: path.join(home, 'proj'), firstPrompt: 'hi', source: 'telegram' });
+    writeSession({ id: 'dev', cwd: path.join(home, 'proj'), firstPrompt: 'explain', source: 'cli' });
+
+    const ids = (await reg.list()).flatMap((d) => d.sessions.map((s) => s.id));
+    expect(ids).toContain('dev');
+    expect(ids).not.toContain('moxxy-channel-discord');
+    expect(ids).not.toContain('tg');
+  });
+
   it('hides a cli session whose cwd no longer exists', async () => {
     const reg = registry();
     writeSession({ id: 'stale', cwd: path.join(home, 'gone'), firstPrompt: 'stale', source: 'cli', realizeCwd: false });
