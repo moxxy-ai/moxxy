@@ -6,10 +6,24 @@
  *   set, producing stale / interleaved output. The open() snapshot covers any
  *   pre-attach state, so nothing is lost.
  */
-import { describe, expect, it, afterEach, vi } from 'vitest';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { __setApiOverride } from '@moxxy/client-core';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { __setApiOverride, connectionStore } from '@moxxy/client-core';
+import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { useSurface } from './useSurface';
+
+const CONNECTED: ConnectionPhase = {
+  phase: 'connected',
+  socket: '/tmp/serve.sock',
+  sessionId: 's',
+  activeProvider: null,
+  activeMode: null,
+};
+const STARTING: ConnectionPhase = { phase: 'spawning', cliPath: 'moxxy', socket: '/tmp/serve.sock' };
+
+function setPhase(workspaceId: string, phase: ConnectionPhase): void {
+  act(() => connectionStore.setSnapshot(workspaceId, { phase, cliPath: null, attempts: 0, log: [] }));
+}
 
 interface SurfaceData {
   readonly workspaceId: string;
@@ -60,6 +74,8 @@ afterEach(async () => {
 });
 
 describe('useSurface frame gating', () => {
+  beforeEach(() => setPhase('ws-1', CONNECTED));
+
   it('drops frames that arrive before open() resolves (id unknown)', async () => {
     const fake = installFakeApi({ surfaceId: 'surf-NEW' });
     const onData = vi.fn();
@@ -91,5 +107,54 @@ describe('useSurface frame gating', () => {
 
     fake.fireData({ workspaceId: 'ws-OTHER', data: { surfaceId: 'surf-NEW', payload: { x: 1 } } });
     expect(onData).not.toHaveBeenCalled();
+  });
+});
+
+/** A host whose runner answers `surface.open` like the real one: only once the
+ *  workspace's runner is connected, otherwise "not connected to a runner". */
+function installRunnerHost(): { opens: () => number; runnerUp: (up: boolean) => void } {
+  let up = false;
+  let opens = 0;
+  __setApiOverride({
+    invoke: ((channel: string) => {
+      if (channel !== 'surface.open') return Promise.resolve(undefined);
+      if (!up) return Promise.reject(new Error('not connected to a runner'));
+      opens += 1;
+      return Promise.resolve({ surfaceId: `surf-${opens}` });
+    }) as never,
+    subscribe: (() => () => undefined) as never,
+  } as never);
+  return { opens: () => opens, runnerUp: (next) => (up = next) };
+}
+
+describe('useSurface and the workspace runner', () => {
+  it('opens the surface once a still-starting runner connects, without an error in between', async () => {
+    const host = installRunnerHost();
+    setPhase('ws-starting', STARTING);
+    const { result } = renderHook(() => useSurface('ws-starting', 'terminal', { onData: vi.fn() }));
+    await act(async () => undefined);
+
+    host.runnerUp(true);
+    setPhase('ws-starting', CONNECTED);
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.error).toBeNull();
+  });
+
+  it('opens a fresh surface when the runner comes back after a reconnect', async () => {
+    const host = installRunnerHost();
+    host.runnerUp(true);
+    setPhase('ws-restart', CONNECTED);
+    const { result } = renderHook(() => useSurface('ws-restart', 'terminal', { onData: vi.fn() }));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    host.runnerUp(false);
+    setPhase('ws-restart', { phase: 'reconnecting', reason: 'exited', attempt: 1 });
+    expect(result.current.ready).toBe(false);
+    host.runnerUp(true);
+    setPhase('ws-restart', CONNECTED);
+
+    await waitFor(() => expect(host.opens()).toBe(2));
+    expect(result.current.ready).toBe(true);
   });
 });
