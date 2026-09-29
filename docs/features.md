@@ -64,6 +64,7 @@ The agent waits on events, not on a clock. A long command — a dev server, a wa
 
 A collaborative run's coordinator works the same way: it resumes the moment an agent reports done or its process exits, not on a half-second poll.
 
+The `terminal` tool (the shared terminal you see in the desktop's workbench) also returns as soon as its command ends — including in a shell whose hooks set the window title, as Oh My Zsh does, which used to make every call wait out its full timeout. It returns what the terminal shows as plain text, without color codes or title sequences.
 
 Skills are Markdown playbooks that teach the agent repeatable procedures without adding runtime code. When no skill fits, the agent can author and register a new one.
 

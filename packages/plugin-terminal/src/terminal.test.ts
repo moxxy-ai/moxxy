@@ -106,7 +106,7 @@ describe('runCommand sentinel detection (tail-scan, single RegExp compile)', () 
 
     // The shell echoes the printf command itself first (contains the marker but
     // NOT "<marker> <digits>"), then later the real sentinel value line.
-    term.feed(`printf '%s %s\\n' "${marker}" "$?"\n`);
+    term.feed(`printf '\\n%s %s\\n' "${marker}" "$?"\n`);
     term.feed('echo done\n');
     term.feed('done\n');
     term.feed(`${marker} 0\n`);
@@ -243,7 +243,7 @@ describe('runCommand sentinel detection (tail-scan, single RegExp compile)', () 
 
     const all = term.writes.join('');
     // The printf line is preceded by a newline (its own write begins with "\n").
-    expect(all).toContain(`\nprintf '%s %s\\n' "${marker}" "$?"\n`);
+    expect(all).toContain(`\nprintf '\\n%s %s\\n' "${marker}" "$?"\n`);
 
     // And completion still works end-to-end.
     term.feed(`${marker} 0\n`);

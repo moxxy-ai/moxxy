@@ -411,8 +411,11 @@ function runCommandSerialized(
     // $? reflects the command's exit. A leading newline before the printf
     // terminates any dangling/unterminated command line (trailing backslash,
     // unbalanced quote) so the sentinel is always emitted rather than consumed
-    // as a continuation — otherwise such a command would always time out. On a
-    // non-PTY pipe the shell still runs both sequentially.
+    // as a continuation — otherwise such a command would always time out. The
+    // printf starts its own output with a newline too: shell hooks (zsh
+    // `preexec` setting the window title) print right before it, and the
+    // sentinel is only recognized at the start of a line. On a non-PTY pipe the
+    // shell still runs both sequentially.
     const writeAndArm = (): void => {
       if (settled) return; // shell died (or we were torn down) before our turn
       // The shell is ALREADY dead at write time (it exited before our turn, or
@@ -427,7 +430,7 @@ function runCommandSerialized(
       }
       timer = setTimeout(() => finish(null, true), timeoutMs);
       proc.write(`${command}\n`);
-      proc.write(`\nprintf '%s %s\\n' "${marker}" "$?"\n`);
+      proc.write(`\n${sentinelPrintf(marker)}\n`);
     };
     // Idle shell → write now (keeps the single-command path fully synchronous).
     // Busy shell → wait our turn; the timeout clock only starts when we write, so
@@ -435,6 +438,37 @@ function runCommandSerialized(
     if (startWrites) void startWrites.then(writeAndArm);
     else writeAndArm();
   });
+}
+
+/** The shell command that prints `<marker> <exit code>` on a line of its own. */
+function sentinelPrintf(marker: string): string {
+  return `printf '\\n%s %s\\n' "${marker}" "$?"`;
+}
+
+// Terminal control sequences an interactive shell mixes into its output: OSC
+// (window title, cwd), CSI (colors, cursor, bracketed paste) and the remaining
+// two-byte escapes (keypad mode).
+const CONTROL_SEQUENCE = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[ -/]*[0-~]/gu;
+const OVERSTRUCK = /[^\n\u0008]\u0008/gu;
+
+/**
+ * What the terminal shows as text: control sequences dropped, backspaced
+ * characters erased, and a line rewritten after a carriage return (a prompt
+ * redraw, a progress bar) reduced to what it ends up as.
+ */
+function plainText(raw: string): string {
+  let text = raw.replace(CONTROL_SEQUENCE, '');
+  for (let before = ''; before !== text; ) {
+    before = text;
+    text = text.replace(OVERSTRUCK, '');
+  }
+  return text
+    .split('\n')
+    .map((line) => {
+      const shown = line.replace(/\r+$/u, '');
+      return shown.slice(shown.lastIndexOf('\r') + 1);
+    })
+    .join('\n');
 }
 
 /** Strip the echoed command + sentinel lines so the model sees just the output. */
@@ -448,14 +482,9 @@ function cleanOutput(acc: string, command: string, marker: string): string {
       .map((l) => l.trim())
       .filter((l) => l.length > 0), // never strip blank output lines
   );
-  return acc
+  return plainText(acc)
     .split('\n')
-    .filter(
-      (line) =>
-        !line.includes(marker) &&
-        !commandLines.has(line.trim()) &&
-        !line.includes(`printf '%s %s\\n' "${marker}"`),
-    )
+    .filter((line) => !line.includes(marker) && !commandLines.has(line.trim()))
     .join('\n')
     .trim();
 }
