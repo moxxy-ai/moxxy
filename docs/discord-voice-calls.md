@@ -25,7 +25,10 @@ the agent answers, and the answer is read aloud. You can interrupt it.
 - Replies are spoken with the active voice (Settings → Voice) and kept short
   and speakable. The bot starts talking as soon as the agent has written its
   first sentence, and voices the next two while one plays — the same sentence
-  splitting as the desktop's Voice Mode.
+  splitting as the desktop's Voice Mode. Each sentence is voiced in its
+  language, starting from the language you asked in, so a voice with one model
+  per language (local Piper: Polish and English) answers a Polish question in
+  Polish.
 - **While the agent works** you are not left in silence: the agent is asked to
   say in one short sentence what it is about to do and, before each further
   step, what it is checking now. If it starts a step without a word, the bot
@@ -42,6 +45,10 @@ the agent answers, and the answer is read aloud. You can interrupt it.
 - **Messages written in the app** (Channels → Discord in the desktop) during
   a call are answered in the call too: the reply is said aloud, and the
   message and its reply show in your DMs.
+- **When the voice connection drops**, the bot waits 15 s for it to come
+  back, then rejoins the channel once; if that does not help within another
+  15 s it ends the call and tells you in DMs (`/call` calls again). Each change
+  of the connection is logged as `discord call: voice connection changed`.
 - **When a sentence cannot be voiced** (for example the text-to-speech service
   refused it), the bot skips it and logs the reason as
   `discord call: a sentence could not be voiced`.

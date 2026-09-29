@@ -78,6 +78,11 @@ function discord(opts: { ownerPresent?: boolean; noChannel?: boolean } = {}) {
     get connected() {
       return connected;
     },
+    /** The voice connection is lost without anyone hanging up. */
+    dropConnection: () => {
+      connected = false;
+      for (const fn of closed) fn();
+    },
     ownerMovesTo: (channelId: string | null) => {
       for (const fn of moves) fn(channelId);
     },
@@ -136,6 +141,29 @@ describe('placing and ending calls', () => {
     const d = discord();
     expect(new Calls(d.ports).say('Gotowe.')).toBe(false);
     expect(d.played).toEqual([]);
+  });
+
+  it('tells the owner when the call dropped, so they can call again', async () => {
+    const d = discord({ ownerPresent: true });
+    const calls = new Calls(d.ports);
+    await calls.start();
+
+    d.dropConnection();
+    await sleep(5);
+
+    expect(calls.active).toBe(false);
+    expect(d.dms).toEqual([expect.stringMatching(/dropped.*\/call/i)]);
+  });
+
+  it('says nothing in DMs when the owner hangs up', async () => {
+    const d = discord({ ownerPresent: true });
+    const calls = new Calls(d.ports);
+    await calls.start();
+
+    calls.hangUp();
+    await sleep(5);
+
+    expect(d.dms).toEqual([]);
   });
 
   it('hangs up when the owner leaves the voice channel', async () => {

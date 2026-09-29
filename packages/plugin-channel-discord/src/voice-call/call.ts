@@ -1,4 +1,4 @@
-import { VoiceFeedbackScheduler } from '@moxxy/chat-model';
+import { VoiceFeedbackScheduler, detectSpeechLanguage, type SpeechLanguage } from '@moxxy/chat-model';
 import { SpokenReply } from './spoken-reply.js';
 
 /**
@@ -20,6 +20,10 @@ export interface VoiceLink {
   close(): void;
 }
 
+/** Why a call ended: on purpose (`/hangup`, the owner left) or the voice
+ *  connection was lost. */
+export type CallEnd = 'hung-up' | 'dropped';
+
 /** What a call hears of the agent's turn while it runs. */
 export interface CallTurnListener {
   /** The reply as it is written, piece by piece. */
@@ -36,8 +40,9 @@ export interface VoiceCallDeps {
   transcribe(packets: ReadonlyArray<Uint8Array>): Promise<string>;
   /** Run the utterance as an agent turn, telling the call what happens as it runs. */
   answer(text: string, turn: CallTurnListener): Promise<void>;
-  /** One sentence to an Ogg/Opus clip, or null when it cannot be voiced. */
-  speak(text: string): Promise<Uint8Array | null>;
+  /** One sentence to an Ogg/Opus clip in the voice for its language, or null
+   *  when it cannot be voiced. */
+  speak(text: string, language: SpeechLanguage): Promise<Uint8Array | null>;
   /** How long the owner must talk over a reply before it stops. */
   bargeInMs?: number;
   /** Utterances with fewer Opus packets (20 ms each) are noise, not speech. */
@@ -72,7 +77,7 @@ export class VoiceCall {
     stopWaitingTone: () => undefined,
     cancelPendingCues: () => undefined,
   });
-  private readonly endedListeners = new Set<() => void>();
+  private readonly endedListeners = new Set<(why: CallEnd) => void>();
   private readonly unsubscribes: Array<() => void>;
   private readonly bargeInMs: number;
   private readonly minPackets: number;
@@ -86,7 +91,7 @@ export class VoiceCall {
     this.unsubscribes = [
       link.onSpeechStart(() => this.speechStarted()),
       link.onSpeechEnd(() => this.cancelBargeIn()),
-      link.onClosed(() => this.finish()),
+      link.onClosed(() => this.finish('dropped')),
     ];
   }
 
@@ -94,7 +99,7 @@ export class VoiceCall {
     return !this.ended;
   }
 
-  onEnded(listener: () => void): () => void {
+  onEnded(listener: (why: CallEnd) => void): () => void {
     this.endedListeners.add(listener);
     return () => this.endedListeners.delete(listener);
   }
@@ -110,7 +115,7 @@ export class VoiceCall {
   }
 
   hangUp(): void {
-    this.finish();
+    this.finish('hung-up');
     this.link.close();
   }
 
@@ -153,7 +158,7 @@ export class VoiceCall {
   private async respond(packets: ReadonlyArray<Uint8Array>): Promise<void> {
     const text = (await this.deps.transcribe(packets)).trim();
     if (!text || this.ended) return;
-    const reply = this.startReply();
+    const reply = this.startReply(detectSpeechLanguage(text));
     this.feedback.beginTurn(text);
     try {
       await this.deps.answer(text, {
@@ -172,11 +177,12 @@ export class VoiceCall {
     await this.finishReply(reply);
   }
 
-  private startReply(): SpokenReply {
+  private startReply(language?: SpeechLanguage): SpokenReply {
     const reply = new SpokenReply(
       this.link,
-      (sentence) => this.deps.speak(sentence),
+      (sentence, sentenceLanguage) => this.deps.speak(sentence, sentenceLanguage),
       (audible) => this.feedback.setPlayback(audible ? 'speaking' : 'idle', audible ? 'assistant' : null),
+      language,
     );
     this.reply = reply;
     if (this.ended) reply.cancel();
@@ -192,13 +198,13 @@ export class VoiceCall {
     }
   }
 
-  private finish(): void {
+  private finish(why: CallEnd): void {
     if (this.ended) return;
     this.ended = true;
     this.cancelBargeIn();
     this.feedback.close();
     this.reply?.cancel();
     for (const unsubscribe of this.unsubscribes) unsubscribe();
-    for (const listener of this.endedListeners) listener();
+    for (const listener of this.endedListeners) listener(why);
   }
 }

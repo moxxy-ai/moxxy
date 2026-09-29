@@ -234,8 +234,19 @@ describe('a Discord voice call', () => {
 
     voice.link.close();
 
-    expect(ended).toHaveBeenCalledOnce();
+    expect(ended).toHaveBeenCalledWith('dropped');
     expect(call.active).toBe(false);
+  });
+
+  it('tells it was hung up, not dropped, when it is ended on purpose', () => {
+    const voice = fakeLink();
+    const ended = vi.fn();
+    const call = startCall(voice.link, services());
+    call.onEnded(ended);
+
+    call.hangUp();
+
+    expect(ended).toHaveBeenCalledWith('hung-up');
   });
 
   it('says a first line of its own (a call the agent placed)', async () => {
@@ -343,6 +354,22 @@ describe('a reply said while the agent is still writing it', () => {
 
     await until(() => voice.played.length === 1);
     expect(voice.played).toEqual(['Gotowe.']);
+  });
+});
+
+describe('the language a call speaks', () => {
+  it('answers a Polish question in the Polish voice, even a word with no language of its own', async () => {
+    const voice = fakeLink();
+    const deps = services({
+      transcribe: async () => 'Jak się masz?',
+      answer: async (_text, turn) => turn.text('OK.'),
+    });
+    startCall(voice.link, deps);
+
+    await voice.say();
+
+    await until(() => voice.played.length === 1);
+    expect(deps.speak).toHaveBeenCalledWith('OK.', 'pl');
   });
 });
 

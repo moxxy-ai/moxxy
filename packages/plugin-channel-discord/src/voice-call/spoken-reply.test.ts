@@ -183,4 +183,23 @@ describe('a reply spoken sentence by sentence', () => {
 
     expect(s.played).toEqual(['Potem to.']);
   });
+
+  it('voices each sentence in its own language, for a voice that has several', async () => {
+    const s = speaker();
+    const asked: Array<[string, string]> = [];
+    const reply = new SpokenReply(s.output, async (text, language) => {
+      asked.push([text, language]);
+      return null;
+    });
+
+    reply.write('Sprawdziłam logi, wszystko działa. The build passed without warnings. ');
+    reply.end();
+    await reply.done;
+
+    expect(asked).toEqual([
+      ['Sprawdziłam logi, wszystko działa.', 'pl'],
+      ['The build passed without warnings.', 'en'],
+    ]);
+  });
 });
+

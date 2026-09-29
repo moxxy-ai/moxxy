@@ -74,4 +74,27 @@ describe('speech in a call', () => {
     expect(await speakForCall(session, 'Gotowe.', (reason) => reasons.push(reason))).toBeNull();
     expect(reasons).toEqual([expect.stringMatching(/429: quota exceeded/)]);
   });
+
+  it('asks the voice for the sentence’s language', async () => {
+    const session = conversation();
+    const languages: Array<string | undefined> = [];
+    session.synthesizers.register(
+      defineSynthesizer({
+        name: 'tts',
+        create: () => ({
+          name: 'tts',
+          synthesize: async (_text, opts) => {
+            languages.push(opts?.language);
+            return { audio: new Uint8Array([79, 103, 103, 83]), mimeType: 'audio/ogg' };
+          },
+        }),
+      }),
+    );
+    session.synthesizers.setActive('tts');
+
+    await speakForCall(session, 'Gotowe.', undefined, 'pl');
+
+    expect(languages).toEqual(['pl']);
+  });
 });
+

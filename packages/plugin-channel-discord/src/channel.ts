@@ -503,7 +503,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         const client = this.client;
         const ownerId = owner();
         if (!client || !ownerId) throw new Error('the bot is not running or not paired');
-        return connectVoice(client, channel, ownerId);
+        return connectVoice(client, channel, ownerId, this.opts.logger);
       },
       notifyOwner: async (text) => {
         const dm = await this.openOwnerDm();
@@ -520,10 +520,13 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         return transcribeForCall(session, packets);
       },
       answer: (text, turn) => this.answerCall(text, turn),
-      speak: (text) =>
+      speak: (text, language) =>
         this.session
-          ? speakForCall(this.session, text, (reason) =>
-              this.opts.logger?.warn('discord call: a sentence could not be voiced', { reason }),
+          ? speakForCall(
+              this.session,
+              text,
+              (reason) => this.opts.logger?.warn('discord call: a sentence could not be voiced', { reason }),
+              language,
             )
           : Promise.resolve(null),
       onError: (err) => {

@@ -138,10 +138,15 @@ export class Calls {
       }
       if (ownerHere) call.hangUp();
     });
-    call.onEnded(() => {
+    call.onEnded((why) => {
       offMoved();
       if (ringTimer) clearTimeout(ringTimer);
       if (this.call === call) this.call = null;
+      if (why === 'dropped') {
+        ports
+          .notifyOwner('📵 The call dropped — the voice connection was lost. /call to call again.')
+          .catch((err: unknown) => ports.onError?.(err));
+      }
     });
 
     if (ownerHere) {

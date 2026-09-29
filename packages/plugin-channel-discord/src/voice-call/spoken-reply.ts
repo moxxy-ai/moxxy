@@ -1,4 +1,4 @@
-import { IncrementalSpeechSegmenter } from '@moxxy/chat-model';
+import { IncrementalSpeechSegmenter, detectSpeechLanguage, type SpeechLanguage } from '@moxxy/chat-model';
 
 /** Where a call's speech goes (the Discord voice connection). */
 export interface SpeechOutput {
@@ -23,7 +23,11 @@ export class SpokenReply {
   /** Settles once every sentence was played, or the reply was cancelled. */
   readonly done: Promise<void>;
   private readonly segmenter = new IncrementalSpeechSegmenter();
-  private readonly sentences: Array<{ readonly text: string; clip: Promise<Uint8Array | null> | null }> = [];
+  private readonly sentences: Array<{
+    readonly text: string;
+    readonly language: SpeechLanguage;
+    clip: Promise<Uint8Array | null> | null;
+  }> = [];
   private next = 0;
   private ended = false;
   private cancelled = false;
@@ -37,9 +41,13 @@ export class SpokenReply {
 
   constructor(
     private readonly output: SpeechOutput,
-    private readonly speak: (text: string) => Promise<Uint8Array | null>,
+    /** One sentence to a clip, in the voice for its language (as the
+     *  desktop's Voice Mode picks it: a short word keeps the language before it). */
+    private readonly speak: (text: string, language: SpeechLanguage) => Promise<Uint8Array | null>,
     /** Told whenever {@link audible} flips. */
     private readonly onAudible?: (audible: boolean) => void,
+    /** The language to start from — the question's, in a call. */
+    private language?: SpeechLanguage,
   ) {
     this.done = this.run();
   }
@@ -100,7 +108,11 @@ export class SpokenReply {
   }
 
   private add(texts: ReadonlyArray<string>): void {
-    for (const text of texts) this.sentences.push({ text, clip: null });
+    for (const text of texts) {
+      const language = detectSpeechLanguage(text, this.language);
+      this.language = language;
+      this.sentences.push({ text, language, clip: null });
+    }
     this.prepare();
     this.notify();
     this.syncAudible();
@@ -118,7 +130,9 @@ export class SpokenReply {
     const last = Math.min(this.sentences.length, this.next + 1 + PREFETCH_SENTENCES);
     for (let i = this.next; i < last; i += 1) {
       const sentence = this.sentences[i];
-      if (sentence && !sentence.clip) sentence.clip = this.speak(sentence.text).catch(() => null);
+      if (sentence && !sentence.clip) {
+        sentence.clip = this.speak(sentence.text, sentence.language).catch(() => null);
+      }
     }
   }
 

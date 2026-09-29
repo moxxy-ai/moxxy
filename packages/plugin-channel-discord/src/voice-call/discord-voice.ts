@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { ChannelType, Events, type Client, type Guild, type VoiceBasedChannel } from 'discord.js';
 import type { VoiceLink } from './call.js';
+import { watchVoiceConnection } from './connection-watch.js';
 import type { CallChannel, GuildVoiceView } from './calls.js';
 
 /** Silence that ends an utterance (Discord stops sending packets on silence). */
@@ -8,8 +9,8 @@ const UTTERANCE_SILENCE_MS = 1_200;
 /** One utterance never runs longer than this. */
 const MAX_UTTERANCE_MS = 60_000;
 const JOIN_TIMEOUT_MS = 20_000;
-/** A dropped connection gets this long to reconnect before the call ends. */
-const RECONNECT_GRACE_MS = 5_000;
+/** A dropped connection gets this long to come back, then as long after a rejoin. */
+const RECONNECT_GRACE_MS = 15_000;
 
 type Voice = typeof import('@discordjs/voice');
 
@@ -64,7 +65,12 @@ export function onOwnerMoved(
 }
 
 /** Join a voice channel and expose it as a {@link VoiceLink} that hears only the owner. */
-export async function connectVoice(client: Client, target: CallChannel, ownerId: string): Promise<VoiceLink> {
+export async function connectVoice(
+  client: Client,
+  target: CallChannel,
+  ownerId: string,
+  logger?: { warn(msg: string, meta?: Record<string, unknown>): void },
+): Promise<VoiceLink> {
   const voice = await loadVoice();
   const channel = await client.channels.fetch(target.id);
   if (!channel?.isVoiceBased()) throw new Error('that voice channel is gone');
@@ -81,15 +87,13 @@ export async function connectVoice(client: Client, target: CallChannel, ownerId:
     connection.destroy();
     throw new Error('Discord did not let the bot into the channel in time (check its Connect permission)');
   }
-  // Discord drops voice connections now and then; give each drop a moment to
-  // recover before the call is over.
-  connection.on(voice.VoiceConnectionStatus.Disconnected, () => {
-    void Promise.race([
-      voice.entersState(connection, voice.VoiceConnectionStatus.Signalling, RECONNECT_GRACE_MS),
-      voice.entersState(connection, voice.VoiceConnectionStatus.Connecting, RECONNECT_GRACE_MS),
-    ]).catch(() => {
-      if (connection.state.status !== voice.VoiceConnectionStatus.Destroyed) connection.destroy();
-    });
+  // Discord drops voice connections now and then: one that does not come back
+  // is rejoined, then closed — which ends the call and tells the owner.
+  watchVoiceConnection(connection, {
+    graceMs: RECONNECT_GRACE_MS,
+    onChange: (from, to) => {
+      if (from !== to) logger?.warn('discord call: voice connection changed', { from, to });
+    },
   });
 
   const player = voice.createAudioPlayer();
