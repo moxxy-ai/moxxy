@@ -95,6 +95,29 @@ function slashInteraction(
   };
 }
 
+function autocompleteInteraction(
+  commandName: string,
+  focused: string,
+  opts: { userId?: string; guildId?: string | null; channelId?: string | null } = {},
+) {
+  const responses: Array<ReadonlyArray<{ name: string; value: string }>> = [];
+  const interaction: InteractionLike = {
+    isButton: () => false,
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true,
+    commandName,
+    user: { id: opts.userId ?? PAIRED },
+    guildId: opts.guildId ?? null,
+    channelId: opts.channelId ?? null,
+    options: { getString: () => null, getFocused: () => focused },
+    reply: async () => undefined,
+    respond: async (choices) => {
+      responses.push(choices);
+    },
+  };
+  return { interaction, responses };
+}
+
 function deps() {
   return { pairing, allowList, permissionResolver, approvalResolver };
 }
@@ -103,6 +126,9 @@ function callbacks() {
   return {
     setAwaitingApprovalText: vi.fn(),
     toggleYolo: vi.fn(() => true),
+    voice: vi.fn(async () => ''),
+    model: vi.fn(async () => ''),
+    modelSuggestions: vi.fn(async () => [] as Array<{ name: string; value: string }>),
     performSessionAction: vi.fn(async () => '✓ done'),
   };
 }
@@ -228,5 +254,74 @@ describe('handleInteraction — command arguments', () => {
 
     expect(model).toHaveBeenCalledWith('beta::b-fast');
     expect(interaction.replies[0]?.content).toBe('model:beta::b-fast');
+  });
+});
+
+describe('handleInteraction — /auto-approve', () => {
+  it('turns auto-approve on and says so', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const toggleYolo = vi.fn(() => true);
+    const interaction = slashInteraction('auto-approve');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), toggleYolo });
+
+    expect(toggleYolo).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toMatch(/auto-approve ON/);
+  });
+
+  it('turns it back off', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const interaction = slashInteraction('auto-approve');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      toggleYolo: () => false,
+    });
+
+    expect(interaction.replies[0]?.content).toMatch(/auto-approve OFF/);
+  });
+});
+
+describe('handleInteraction — /model suggestions', () => {
+  it('answers what is being typed in the "name" option with matching models', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async (q: string) => [{ name: `${q}-model`, value: `p::${q}-model` }]);
+    const { interaction, responses } = autocompleteInteraction('model', 'gpt');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).toHaveBeenCalledWith('gpt');
+    expect(responses).toEqual([[{ name: 'gpt-model', value: 'p::gpt-model' }]]);
+  });
+
+  it('suggests nothing to an unpaired user', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async () => [{ name: 'x', value: 'x' }]);
+    const { interaction, responses } = autocompleteInteraction('model', '', { userId: STRANGER });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).not.toHaveBeenCalled();
+    expect(responses).toEqual([[]]);
+  });
+
+  it('suggests nothing in a guild channel that is not allow-listed', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async () => [{ name: 'x', value: 'x' }]);
+    const { interaction, responses } = autocompleteInteraction('model', '', { guildId: GUILD, channelId: CHAN });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).not.toHaveBeenCalled();
+    expect(responses).toEqual([[]]);
   });
 });

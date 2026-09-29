@@ -2,7 +2,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import type { ChannelLogger } from './discord-like.js';
 
 export interface SlashCallbacks {
-  /** Toggle yolo and return its new value (so we can echo the right message). */
+  /** Toggle auto-approve and return its new value (so we can echo the right message). */
   toggleYolo(): boolean;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   voice(arg: string): Promise<string>;
@@ -19,7 +19,7 @@ export interface SlashCallbacks {
  *
  * First tries the shared `session.commands` registry — the universal commands
  * (/info, /clear, /new, /exit, /help) plus plugin-contributed ones — then
- * falls through to Discord-local cases (/yolo, /tools, /skills). /cancel and
+ * falls through to Discord-local cases (/auto-approve alias /yolo, /tools, /skills). /cancel and
  * /allow, /deny are handled by the message/interaction layer (they need channel
  * state this dispatcher doesn't carry).
  */
@@ -50,11 +50,12 @@ export async function runSlash(
   }
 
   switch (name) {
+    case 'auto-approve':
     case 'yolo': {
       const enabled = cb.toggleYolo();
       return enabled
-        ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
-        : 'yolo mode OFF — tool prompts will resume';
+        ? '⚠ auto-approve ON — tool calls run without asking for the rest of this session'
+        : 'auto-approve OFF — tool prompts will resume';
     }
     case 'voice':
       return cb.voice(args);
@@ -88,6 +89,8 @@ export interface AppCommandOptionJson {
   readonly name: string;
   readonly description: string;
   readonly required: boolean;
+  /** Discord asks the bot for suggestions as the user types this option. */
+  readonly autocomplete?: boolean;
 }
 
 export interface AppCommandJson {
@@ -108,7 +111,7 @@ export const APP_COMMAND_ARG_OPTION = 'name';
  */
 export function buildAppCommands(session: Session): AppCommandJson[] {
   const LOCAL: AppCommandJson[] = [
-    { name: 'yolo', description: 'Toggle auto-approve mode' },
+    { name: 'auto-approve', description: 'Toggle auto-approve: tool calls run without asking' },
     { name: 'voice', description: 'Toggle spoken voice replies' },
     {
       name: 'model',
@@ -119,6 +122,7 @@ export function buildAppCommands(session: Session): AppCommandJson[] {
           name: APP_COMMAND_ARG_OPTION,
           description: 'provider::model, a model id, or "default"',
           required: false,
+          autocomplete: true,
         },
       ],
     },

@@ -7,7 +7,7 @@ import { FakeProvider } from '@moxxy/testing';
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { DISCORD_MODEL_KEY } from '../keys.js';
-import { resolveChannelModel, runModelCommand } from './model-command.js';
+import { modelSuggestions, resolveChannelModel, runModelCommand } from './model-command.js';
 import { buildAppCommands } from './slash-handler.js';
 
 let tmp: string;
@@ -142,11 +142,57 @@ describe('resolveChannelModel (before every turn)', () => {
 });
 
 describe('the /model application command', () => {
-  it('is published with an optional "name" string option', () => {
+  it('is published with an optional "name" option that suggests models as you type', () => {
     const cmd = buildAppCommands(session).find((c) => c.name === 'model');
     expect(cmd).toBeDefined();
     expect(cmd?.options).toEqual([
-      expect.objectContaining({ type: 3, name: 'name', required: false }),
+      expect.objectContaining({ type: 3, name: 'name', required: false, autocomplete: true }),
     ]);
+  });
+});
+
+describe('/model suggestions (the list Discord shows under the "name" option)', () => {
+  it('offers the default and every model, marking the current and the unconnected ones', async () => {
+    session.readyProviders = new Set(['alpha']);
+    await vault.set(DISCORD_MODEL_KEY, 'alpha::a-large');
+
+    const choices = await modelSuggestions('', deps());
+
+    expect(choices).toEqual([
+      { name: 'default', value: 'default' },
+      { name: 'alpha::a-small', value: 'alpha::a-small' },
+      { name: 'alpha::a-large (current)', value: 'alpha::a-large' },
+      { name: 'beta::b-fast (not connected)', value: 'beta::b-fast' },
+    ]);
+  });
+
+  it('narrows the list to what has been typed so far', async () => {
+    const choices = await modelSuggestions('FAST', deps());
+    expect(choices).toEqual([{ name: 'beta::b-fast', value: 'beta::b-fast' }]);
+  });
+
+  it('picking a suggestion switches to it', async () => {
+    const [picked] = await modelSuggestions('b-fast', deps());
+
+    await runModelCommand(picked?.value ?? '', deps());
+
+    expect(await vault.get(DISCORD_MODEL_KEY)).toBe('beta::b-fast');
+  });
+
+  it('stays within the 25 choices Discord accepts', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => `m-${i}`);
+    session.pluginHost.registerStatic(
+      definePlugin({ name: 'discord-many-models', providers: [providerDef('gamma', many)] }),
+    );
+
+    expect(await modelSuggestions('', deps())).toHaveLength(25);
+  });
+});
+
+describe('the /auto-approve application command', () => {
+  it('is published as /auto-approve (the /yolo name stays a typed alias only)', () => {
+    const names = buildAppCommands(session).map((c) => c.name);
+    expect(names).toContain('auto-approve');
+    expect(names).not.toContain('yolo');
   });
 });

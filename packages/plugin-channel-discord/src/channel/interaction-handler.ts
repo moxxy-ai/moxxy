@@ -6,6 +6,7 @@ import type { AllowListStore } from './allow-list-store.js';
 import type { ChannelLogger } from './discord-like.js';
 import type { AwaitingApprovalText } from './message-handler.js';
 import type { PairingHandler } from './pairing-handler.js';
+import type { ModelSuggestion } from './model-command.js';
 import { APP_COMMAND_ARG_OPTION, runSlash } from './slash-handler.js';
 
 /**
@@ -16,12 +17,18 @@ import { APP_COMMAND_ARG_OPTION, runSlash } from './slash-handler.js';
 export interface InteractionLike {
   isButton(): boolean;
   isChatInputCommand(): boolean;
+  /** Autocomplete request: Discord wants suggestions for the option being typed. */
+  isAutocomplete?(): boolean;
   /** Button custom id (`perm:<callId>:<choice>` / `appr:<id>:<optionId>`). */
   readonly customId?: string;
   /** Slash-command name. */
   readonly commandName?: string;
   /** Slash-command options (chat-input commands only). */
-  readonly options?: { getString(name: string): string | null };
+  readonly options?: {
+    getString(name: string): string | null;
+    /** Autocomplete only: what has been typed into the focused option. */
+    getFocused?(): string;
+  };
   readonly user: { readonly id: string };
   readonly channelId?: string | null;
   readonly guildId?: string | null;
@@ -31,6 +38,8 @@ export interface InteractionLike {
   update?(payload: { components: ReadonlyArray<unknown> }): Promise<unknown>;
   /** Post-ack follow-up message (valid only after update/reply succeeded). */
   followUp?(payload: { content: string; ephemeral?: boolean }): Promise<unknown>;
+  /** Autocomplete only: answer with up to 25 choices. */
+  respond?(choices: ReadonlyArray<ModelSuggestion>): Promise<unknown>;
 }
 
 export interface InteractionState {
@@ -53,6 +62,8 @@ export interface InteractionCallbacks {
   readonly voice: (arg: string) => Promise<string>;
   /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
   readonly model: (arg: string) => Promise<string>;
+  /** Suggestions for `/model name:` as the user types. */
+  readonly modelSuggestions: (query: string) => Promise<ModelSuggestion[]>;
   readonly performSessionAction: (
     action: 'new' | 'clear' | 'exit',
     notice: string | undefined,
@@ -73,6 +84,10 @@ export async function handleInteraction(
   deps: InteractionDeps,
   cb: InteractionCallbacks,
 ): Promise<void> {
+  if (interaction.isAutocomplete?.()) {
+    await handleAutocomplete(interaction, deps, cb);
+    return;
+  }
   if (!interaction.isButton() && !interaction.isChatInputCommand()) return;
 
   if (!deps.pairing.isAuthorized(interaction.user.id)) {
@@ -85,6 +100,27 @@ export async function handleInteraction(
     return;
   }
   await handleSlashCommand(interaction, state, deps, cb);
+}
+
+/** Same gates as a slash command: suggestions go only where commands would run. */
+async function handleAutocomplete(
+  interaction: InteractionLike,
+  deps: InteractionDeps,
+  cb: InteractionCallbacks,
+): Promise<void> {
+  const channelId = interaction.channelId ?? null;
+  const allowed =
+    deps.pairing.isAuthorized(interaction.user.id) &&
+    !(interaction.guildId != null && channelId && !deps.allowList.has(channelId));
+  const choices =
+    allowed && interaction.commandName === 'model'
+      ? await cb.modelSuggestions(interaction.options?.getFocused?.() ?? '')
+      : [];
+  try {
+    await interaction.respond?.(choices);
+  } catch (err) {
+    deps.logger?.warn('discord autocomplete respond failed', { err: String(err) });
+  }
 }
 
 async function handleButton(

@@ -46,7 +46,12 @@ import { askForApproval } from './channel/approval-prompt.js';
 import { publishAppCommands } from './channel/slash-handler.js';
 import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
-import { resolveChannelModel, runModelCommand } from './channel/model-command.js';
+import {
+  modelSuggestions,
+  resolveChannelModel,
+  runModelCommand,
+  type ModelSuggestion,
+} from './channel/model-command.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 import { MirrorTarget } from './channel/mirror-target.js';
 
@@ -444,6 +449,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         },
         voice: (arg) => this.voiceCommand(arg),
         model: (arg) => this.modelCommand(arg),
+        modelSuggestions: (query) => this.modelSuggestions(query),
         performSessionAction: (action, notice) =>
           performSessionAction(
             action,
@@ -526,6 +532,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private async modelCommand(arg: string): Promise<string> {
     if (!this.session) return 'Session is not ready yet.';
     return runModelCommand(arg, { session: this.session, vault: this.opts.vault });
+  }
+
+  /** Autocomplete for `/model name:` — the models matching what's typed. */
+  private async modelSuggestions(query: string): Promise<ModelSuggestion[]> {
+    if (!this.session) return [];
+    return modelSuggestions(query, { session: this.session, vault: this.opts.vault });
   }
 
   private async setVoiceReplies(on: boolean): Promise<void> {

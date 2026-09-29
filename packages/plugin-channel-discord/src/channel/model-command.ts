@@ -75,6 +75,35 @@ export async function runModelCommand(arg: string, deps: ModelCommandDeps): Prom
   return `✓ switched to ${formatModelChoice(picked)} for this bot.`;
 }
 
+/** One entry Discord shows under `/model name:` (its cap: 25 per response). */
+export interface ModelSuggestion {
+  readonly name: string;
+  readonly value: string;
+}
+
+const SUGGESTION_CAP = 25;
+/** Discord limits a choice's label and value to 100 chars. */
+const CHOICE_TEXT_CAP = 100;
+
+/**
+ * Autocomplete for `/model name:` — the models matching what's typed so far,
+ * so the user picks one instead of typing `provider::model` by hand. The value
+ * is the exact `provider::model`, which `runModelCommand` switches to.
+ */
+export async function modelSuggestions(query: string, deps: ModelCommandDeps): Promise<ModelSuggestion[]> {
+  const q = query.trim().toLowerCase();
+  const current = await loadChoice(deps);
+  const models = listModelOptions(deps.session)
+    .filter((o) => formatModelChoice(o).toLowerCase().includes(q))
+    .map((o) => {
+      const value = formatModelChoice(o);
+      const note = isSame(current, o) ? ' (current)' : o.connected ? '' : ' (not connected)';
+      return { name: `${value}${note}`.slice(0, CHOICE_TEXT_CAP), value: value.slice(0, CHOICE_TEXT_CAP) };
+    });
+  const reset = 'default'.includes(q) ? [{ name: 'default', value: 'default' }] : [];
+  return [...reset, ...models].slice(0, SUGGESTION_CAP);
+}
+
 /**
  * The model for the next turn. `{}` = the default model; a saved choice whose
  * provider can't be activated falls back to the default with a warning to show.
