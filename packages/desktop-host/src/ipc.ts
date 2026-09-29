@@ -58,6 +58,7 @@ import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 import { registerChannelsHandlers } from './ipc/channels';
+import { registerFilesHandlers } from './ipc/files';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
 export function registerIpcHandlers(
@@ -116,6 +117,7 @@ export function registerIpcHandlers(
       attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),
     });
     registerVoiceHandlers(pool, opts.voice);
+    registerFilesHandlers();
   }
 }
 

@@ -62,6 +62,7 @@ export {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
+  opensInBrowser,
   clerkFrontendApiHost,
   clerkCspHostSources,
   clerkAccountPortalHost,

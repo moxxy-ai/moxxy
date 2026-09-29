@@ -187,6 +187,10 @@ export interface IpcCommands {
   /** Open a URL in the user's default browser. Used for the Node.js
    *  install fallback (the manual nodejs.org download). */
   'onboarding.openExternal': (args: { url: string }) => Promise<void>;
+  /** Open a local file the chat links to (an absolute path). Documents, media
+   *  and images open in their default app; anything that could run (scripts,
+   *  apps, unknown types) and folders are only shown in the file manager. */
+  'files.open': (args: { path: string }) => Promise<{ opened: 'app' | 'folder' }>;
   /** Run `moxxy vault set <NAME>_API_KEY` with the given secret piped
    *  on stdin, then call `provider.setActive` on the running session
    *  so the next turn picks it up without a relaunch. */

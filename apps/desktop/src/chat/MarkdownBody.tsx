@@ -10,10 +10,22 @@
  */
 
 import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from 'react-markdown';
+import { localFilePath, openLocalFile } from './local-file-link';
 import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
+
+const LINK_STYLE: React.CSSProperties = {
+  color: 'var(--color-reference)',
+  textDecoration: 'underline',
+  textUnderlineOffset: '0.15em',
+};
+
+/** Keep links to local files (only as an `<a href>`) for the link component to
+ *  route through the host; every other URL keeps the default scheme allow-list. */
+const urlTransform: UrlTransform = (url, key, node) =>
+  node.tagName === 'a' && key === 'href' && localFilePath(url) ? url : defaultUrlTransform(url);
 
 const components: Components = {
   p: (p) => <p style={{ margin: '0 0 0.7em' }} {...p} />,
@@ -29,20 +41,34 @@ const components: Components = {
   h3: (p) => (
     <h3 style={{ margin: '0.9em 0 0.25em' }} {...p} />
   ),
-  a: (p) => (
-    <a
-      {...p}
-      target="_blank"
-      rel="noreferrer noopener"
-      // Reference, not the accent. The accent means the human commanded it; a
-      // link the agent cited is reference data, which is what this hue is for.
-      style={{
-        color: 'var(--color-reference)',
-        textDecoration: 'underline',
-        textUnderlineOffset: '0.15em',
-      }}
-    />
-  ),
+  a: (p) => {
+    const file = localFilePath(p.href);
+    if (file) {
+      // A file on this machine opens through the host (`files.open`), never by
+      // navigating — see local-file-link.ts.
+      return (
+        <a
+          {...p}
+          title={file}
+          onClick={(e) => {
+            e.preventDefault();
+            openLocalFile(file);
+          }}
+          style={LINK_STYLE}
+        />
+      );
+    }
+    return (
+      <a
+        {...p}
+        target="_blank"
+        rel="noreferrer noopener"
+        // Reference, not the accent. The accent means the human commanded it; a
+        // link the agent cited is reference data, which is what this hue is for.
+        style={LINK_STYLE}
+      />
+    );
+  },
   code: ({ className, children, ...rest }) => {
     const isBlock = /language-/.test(className ?? '');
     if (!isBlock) {
@@ -186,7 +212,7 @@ const MarkdownContent = memo(function MarkdownContent({
     cost.current = performance.now() - started;
   });
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
       {text}
     </ReactMarkdown>
   );

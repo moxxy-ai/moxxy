@@ -50,6 +50,16 @@ export function isSafeExternalUrl(url: string): boolean {
   }
 }
 
+/**
+ * Whether a `window.open` target belongs in the user's default browser: a safe
+ * web URL that is NOT one of the app's own pages. A link whose href was emptied
+ * (e.g. a sanitized `file:` link) resolves to the app's own URL — handing that
+ * to the OS browser opens the renderer there, without its preload.
+ */
+export function opensInBrowser(url: string, appUrl: string): boolean {
+  return isSafeExternalUrl(url) && !sameOrigin(url, appUrl);
+}
+
 export function assertSafeExternalUrl(url: string): void {
   if (typeof url !== 'string' || !isSafeExternalUrl(url)) {
     throw new Error(`refusing to open unsafe external URL: ${JSON.stringify(url)}`);

@@ -45,7 +45,7 @@ import {
   installContentSecurityPolicy,
   installMediaPermissions,
   lockDownNavigation,
-  isSafeExternalUrl,
+  opensInBrowser,
   clerkAccountPortalHost,
   installAccountPortalRecovery,
   preferredCliEntry,
@@ -450,8 +450,9 @@ async function createWindow(): Promise<void> {
     }
     // Any other http/https link (e.g. a markdown link in the chat, opened
     // via target="_blank") goes to the user's default browser rather than an
-    // in-app window. Non-http(s) schemes are refused outright.
-    if (isSafeExternalUrl(url)) void shell.openExternal(url);
+    // in-app window — except the app's own pages. Non-http(s) schemes are
+    // refused outright; local files open through `files.open`.
+    if (opensInBrowser(url, mainWindow?.webContents.getURL() ?? '')) void shell.openExternal(url);
     return { action: 'deny' };
   });
 
