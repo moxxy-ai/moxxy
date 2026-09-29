@@ -896,6 +896,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   min-width: 0;
 }
 
+/* Pane actions portalled in through BarActions: laid out like the rest of the
+   bar, not as inline text (which baseline-aligned an icon button higher than
+   its neighbour and glued the two together). */
+.instrument__slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
 .crumbs {
   display: flex;
   align-items: center;
