@@ -1,10 +1,10 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { once } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
+import { CONTRACT_PROTOCOL_VERSION, appStateSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath } from './profile.js';
 
 // Talks to the real universal helper built by native/macos/build.sh; other hosts and unbuilt trees skip.
@@ -79,3 +79,53 @@ function timeout(ms: number): Promise<never> {
 function stop(child: ChildProcess): void {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
+
+// The test-only AppKit app from native/macos/build-fixture.sh, registered with LaunchServices.
+const FIXTURE = 'ai.moxxy.computer-fixture';
+const fixtureBuilt = built && existsSync(new URL('../../native/macos/.build/fixture/MoxxyComputerFixture.app', import.meta.url));
+const quitFixture = async () => {
+  spawnSync('pkill', ['-x', 'MoxxyComputerFixture']);
+  for (let attempt = 0; attempt < 50 && spawnSync('pgrep', ['-x', 'MoxxyComputerFixture']).status === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+};
+
+describe.skipIf(!fixtureBuilt)('macOS app state', () => {
+  beforeAll(quitFixture);
+  afterAll(quitFixture);
+
+  it('launches the app in the background and returns its indexed accessibility tree', async () => {
+    const transport = start();
+    try {
+      const state = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      expect(state.tree).toMatchObject({ app: 'Moxxy Computer Fixture', window: 'Moxxy Fixture' });
+      const byKey = new Map(state.tree.elements.map((element) => [element.key.split('/').at(-1), element]));
+      expect(byKey.get('text field:name')).toMatchObject({ value: 'hello', description: 'placeholder: Name' });
+      expect(byKey.get('button:press')).toMatchObject({ role: 'button', title: 'Press' });
+      expect(byKey.get('checkbox:remember')).toMatchObject({ states: ['checked'] });
+      expect(byKey.get('button:disabled')?.states).toContain('disabled');
+      expect(byKey.get('text:status')).toMatchObject({ title: 'Ready' });
+      const secret = [...byKey.values()].find((element) => element.secure);
+      expect(secret?.value).toBeUndefined();
+      expect(JSON.stringify(state)).not.toContain('hunter2');
+      expect(state.tree.elements.some((element) => element.role === 'group')).toBe(false);
+    } finally { await transport.close(); }
+  });
+
+  it('keeps every element index across observations', async () => {
+    const transport = start();
+    try {
+      const first = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      const second = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      const indices = (state: typeof first) => Object.fromEntries(state.tree.elements.map((element) => [element.key, element.index]));
+      expect(indices(second)).toEqual(indices(first));
+    } finally { await transport.close(); }
+  });
+
+  it('refuses an app it cannot find', async () => {
+    const transport = start();
+    try {
+      await expect(transport.request('get_app_state', { app: 'ai.moxxy.no-such-app', screenshot: false }, signal())).rejects.toMatchObject({ code: 'app_not_found' });
+    } finally { await transport.close(); }
+  });
+});

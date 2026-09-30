@@ -419,3 +419,66 @@ Commit kroku 4: `875ba3e8`.
 - `swift test` 31/31; `native/macos/build.sh` OK; `npx vitest run` (plugin)
   25 plików / 240 testów; eslint 0 błędów; `pnpm check:deps` 0 błędów;
   `pnpm build` 88/88.
+
+---
+
+## Krok 5b — drzewo AX i uruchamianie w tle (2026-09-30)
+
+Commit kroku 5a: `b9445f85`.
+
+**Co** (`native/macos/`)
+- `Sources/ComputerUseFixture/main.swift` + `build-fixture.sh` — testowa
+  aplikacja AppKit (pole tekstowe z placeholderem, pole hasła, przycisk
+  zmieniający etykietę, checkbox, lista rozwijana, wyłączony przycisk,
+  zagnieżdżone `NSStackView`). Skrypt składa `.build/fixture/
+  MoxxyComputerFixture.app` (`ai.moxxy.computer-fixture`), podpisuje ad-hoc i
+  rejestruje w LaunchServices (`lsregister -f`). Nigdy nie jest pakowana.
+- `Tree.swift` (czysta logika) — `NodeSnapshot`, `TreeBuilder.build`
+  (spłaszcza kontenery układu bez nazwy/wartości/akcji, pomija paski
+  przewijania, rola z `AXRoleDescription`, tekst statyczny jako tytuł,
+  checkbox → stan `checked`, placeholder → opis, akcje bez oczywistych
+  `AXPress`/`AXScrollToVisible`/`AXShowDefaultUI`/`AXShowAlternateUI`, klucz =
+  ścieżka `rola:identyfikator|tytuł|#pozycja`, kolizje `~n`, limit →
+  `truncated`), `IndexRegistry` (indeks żyje razem z kluczem, nigdy nie
+  wraca do innego elementu).
+- `AXReader.swift` — odczyt okna (`AXFocusedWindow` → `AXMainWindow` →
+  pierwsze z `AXWindows`), `AXUIElementSetMessagingTimeout` 1 s (to jest
+  „deadline operacji” z kroku 4), limity 4000 węzłów / głębokość 64; dla
+  `AXSecureTextField` wartość w ogóle nie jest czytana.
+- `AppState.swift` — `Targets`/`TargetState` (rejestr indeksów i żywe
+  elementy AX dla wykonawcy z kroku 7), `AppLauncher` (`NSWorkspace
+  .openApplication` z `activates = false`, czekanie na
+  `isFinishedLaunching` i pierwsze okno do 5 s; proces, który właśnie się
+  zamyka, jest uruchamiany ponownie), metoda `get_app_state {app,
+  screenshot}` → `{tree, screenshotUnavailable?}`; brak zaufania AX →
+  `permissions_not_granted`, nieznane ID → `app_not_found`, aplikacja bez
+  okna → puste drzewo z przyczyną.
+
+**Jak i dlaczego**
+- Budowniczy drzewa jest czystą funkcją na danych `NodeSnapshot`, więc logikę
+  testuje się bez AX. Prawdziwy AX sprawdza test integracyjny na fixture.
+- Klucz opiera się na identyfikatorze lub prawdziwym tytule, nigdy na
+  wartości — etykieta „Ready” → „Pressed 1” nie zmienia indeksu.
+- Znalezisko z debugowania: test zabijał fixture i od razu pytał o stan;
+  helper trafiał na umierający proces i 5 s czekał na okno. Poprawka dotyczy
+  helpera (wykrycie `ESRCH` i ponowne uruchomienie), bo to realny przypadek
+  „użytkownik właśnie zamknął aplikację”; test czeka też na zamknięcie.
+
+**Testy (Red → Green)**
+- Red Swift: `cannot find type 'NodeSnapshot' in scope`.
+- Red TS: 2 testy na fixture czerwone — brak okna (opisany wyżej błąd
+  uruchamiania), potem różnica nazwy roli (`checkbox`, nie `check box`,
+  zgodnie z macOS) poprawiona w teście.
+- Green: `swift test` 39/39; `src/macos/helper.test.ts` 10/10 (fixture
+  uruchamiana w tle, drzewo bez `group`, wartość hasła nigdzie w JSON,
+  indeksy stałe między obserwacjami, `app_not_found`).
+
+**Walidacja**
+- `swift test` 39/39; `build.sh` + `build-fixture.sh` OK; `npx vitest run`
+  (plugin) 25 plików / 243 testy; `tsc --noEmit` OK; eslint 0 błędów;
+  `pnpm check:deps` 0 błędów; `pnpm build` 88/88.
+
+**Dla następcy**
+- Przed testami macOS: `native/macos/build.sh` i `native/macos/build-fixture.sh`.
+- Pasek tytułu (przyciski zamknij/minimalizuj/pełny ekran, tytuł) trafia do
+  drzewa — celowo, bo model może ich potrzebować.

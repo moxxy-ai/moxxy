@@ -4,11 +4,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 5b — drzewo AX i uruchamianie aplikacji w tle
-  (podkroki 5a–5d mają osobne commity).
-- **Następna czynność:** aplikacja-fixture (AppKit) do testów AX, potem testy
-  Swift budowniczego drzewa (przycinanie kontenerów, klucze, stabilne
-  indeksy, pola `secure`, limity) i test integracyjny `get_app_state`.
+- **Bieżący krok:** 5c — obraz okna (ScreenCaptureKit).
+- **Następna czynność:** testy Swift dla `imageBudget` (zgodność z TS),
+  dopasowania `SCWindow` do okna AX (pid + ramka + tytuł, bez prywatnego
+  `_AXUIElementGetWindow`) i ramek elementów w układzie obrazu; test
+  integracyjny zrzutu fixture.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -51,8 +51,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 ### Krok 5 — stan aplikacji na macOS
 - [x] `list_apps` (NSWorkspace + katalogi aplikacji) — 5a.
 - [x] Rozwiązywanie `app` (`resolve_apps`: identyfikator → nazwa → ścieżka, `ambiguous`) — 5a.
-- [ ] Uruchamianie w tle przy `get_app_state` — 5b.
-- [ ] Drzewo AX ze stabilnym `key` i indeksem per element (indeks żyje tak długo jak klucz), akcjami, stanami; pola haseł `secure`; limity. Helper zwraca strukturę `appTreeSchema`, tekst i diff robi `contract/tree.ts`.
+- [x] Uruchamianie w tle przy `get_app_state` (bez aktywacji; aplikacja właśnie zamykana jest uruchamiana ponownie) — 5b.
+- [x] Drzewo AX ze stabilnym `key` i indeksem per element (indeks żyje tak długo jak klucz), akcjami, stanami; pola haseł `secure` (wartość nigdy nieczytana); limity (1000 elementów, 4000 węzłów, głębokość 64, timeout AX 1 s). Tekst i diff robi `contract/tree.ts` — 5b.
 - [ ] Obraz okna przez ScreenCaptureKit, budżet, JPEG, ramka współrzędnych; brak obrazu z przyczyną.
 - [ ] Settling na zdarzeniach `AXObserver` (~1 s, do 5 s).
 
