@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.41.2",
+  "version": "0.41.3",
   "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
   "keywords": [
     "moxxy",
@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.28.0"
+    "undici": "^6.28.1"
   },
   "peerDependencies": {
     "playwright": "^1.40.0"

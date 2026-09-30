@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.41.3
+
+### Patch Changes
+
+- 6fefc59: Pick up patched undici (GHSA-3wwx-pv8p-q78v) and ip-address (GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc).
+
 ## 0.41.2
 
 ## 0.41.1

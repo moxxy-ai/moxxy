@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.41.2",
+  "version": "0.41.3",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -57,11 +57,11 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.28.0",
+    "undici": "^6.28.1",
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "@napi-rs/keyring": "^1.3.0"
+    "@napi-rs/keyring": "^2.1.0"
   },
   "devDependencies": {
     "@clack/prompts": "catalog:",
