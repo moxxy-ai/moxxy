@@ -52,7 +52,8 @@ function slashCtx(): { ctx: any; replies: string[] } {
 
 describe('/voice slash command', () => {
   const cbBase = {
-    toggleYolo: () => false,
+    toggleYolo: async () => false,
+    model: { run: async () => '', choices: async () => ({ current: null, options: [] }) },
     performSessionAction: async () => undefined,
   };
 
@@ -62,7 +63,7 @@ describe('/voice slash command', () => {
     await runSlash(
       ctx,
       '/voice on',
-      { session: slashSession({ synth: { name: 'fake' } }), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: false },
+      { session: slashSession({ synth: { name: 'fake' } }), voiceReplies: false },
       { ...cbBase, setVoiceReplies: async (on: boolean) => void persisted.push(on) },
     );
     expect(persisted).toEqual([true]);
@@ -76,7 +77,7 @@ describe('/voice slash command', () => {
     await runSlash(
       ctx,
       '/voice on',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: false },
+      { session: slashSession(), voiceReplies: false },
       { ...cbBase, setVoiceReplies: async (on: boolean) => void persisted.push(on) },
     );
     expect(persisted).toEqual([true]);
@@ -91,7 +92,7 @@ describe('/voice slash command', () => {
     await runSlash(
       off.ctx,
       '/voice',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: true },
+      { session: slashSession(), voiceReplies: true },
       { ...cbBase, setVoiceReplies },
     );
     expect(persisted).toEqual([false]);
@@ -101,7 +102,7 @@ describe('/voice slash command', () => {
     await runSlash(
       status.ctx,
       '/voice status',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: true },
+      { session: slashSession(), voiceReplies: true },
       { ...cbBase, setVoiceReplies },
     );
     // status did NOT persist anything new.

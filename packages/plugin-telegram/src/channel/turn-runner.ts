@@ -1,7 +1,7 @@
 import type { Bot, Context } from 'grammy';
 import type { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { driveTurn, subscribeTurn } from '@moxxy/channel-kit';
+import { channelTurnContext, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import type { FramePump } from './frame-pump.js';
 import type { TypingIndicator } from './typing-indicator.js';
 
@@ -23,9 +23,25 @@ export interface TurnRunnerDeps {
   readonly onFinalReply?: (text: string) => Promise<void>;
 }
 
+/** What the model must know about replying on Telegram (see channelTurnContext). */
+export const TELEGRAM_TURN_CONTEXT = channelTurnContext({
+  service: 'Telegram',
+  sendTool: 'telegram_send_message',
+  delivery: 'their Telegram chat with the bot',
+  uploadLimit: '50 MB per file',
+});
+
+/** Added when the prompt was a voice message: the reply goes back as one too. */
+export const TELEGRAM_VOICE_CONTEXT =
+  'This message was a voice message and your reply will also be sent back as a voice message, read ' +
+  'aloud: answer briefly, in plain spoken sentences, without markdown, code blocks, tables or links. ' +
+  'Speak in the language of the request.';
+
 export interface TurnRunnerOptions {
   readonly chatId: number;
   readonly text: string;
+  /** The prompt was a voice message; the reply will be spoken back. */
+  readonly spoken?: boolean;
   readonly model: string | undefined;
   readonly controller: AbortController;
   /** turnId for this turn. The channel mints it so it can also record it as an
@@ -68,7 +84,13 @@ export async function runUserTurn(
   });
 
   try {
-    await driveTurn(session, { turnId, prompt: text, model, signal: controller.signal });
+    await driveTurn(session, {
+      turnId,
+      prompt: text,
+      model,
+      systemPrompt: opts.spoken ? `${TELEGRAM_TURN_CONTEXT}\n\n${TELEGRAM_VOICE_CONTEXT}` : TELEGRAM_TURN_CONTEXT,
+      signal: controller.signal,
+    });
     await framePump.flush(true);
     // The text reply is now out. Speak the final assistant body if a voice
     // reply is wired — isolated so a synth/transcode/transport failure can

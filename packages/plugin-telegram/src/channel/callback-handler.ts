@@ -1,5 +1,5 @@
 import type { Bot, Context } from 'grammy';
-import { setCategoryDefault, setProviderModel } from '@moxxy/config';
+import { setCategoryDefault } from '@moxxy/config';
 import { isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { PermissionDecision } from '@moxxy/sdk';
@@ -24,13 +24,14 @@ export interface CallbackState {
 export interface CallbackCallbacks {
   /** Latch an in-flight approval awaiting a text follow-up. */
   setAwaitingApprovalText(state: AwaitingApprovalText | null): void;
-  setActiveModelOverride(modelId: string): void;
+  /** Switch this bot's model (`/model <value>`); returns the reply. */
+  model(arg: string): Promise<string>;
 }
 
 /** Inline-keyboard callback router. Dispatches by prefix:
  *  - `perm:`   → permission resolver
  *  - `appr:`   → approval resolver
- *  - `model:`  → provider+model switch (with credential resolve)
+ *  - `model:`  → this bot's model (`provider::model` or `default`)
  *  - `mode:`   → mode switch
  */
 export async function handleCallback(
@@ -66,7 +67,7 @@ export async function handleCallback(
     return;
   }
   if (data.startsWith('model:')) {
-    await handleModel(ctx, data, state.session, cb);
+    await handleModel(ctx, data.slice('model:'.length), cb);
     return;
   }
   if (data.startsWith('mode:')) {
@@ -146,71 +147,20 @@ async function handleAppr(
   await ctx.answerCallbackQuery({ text: option.label });
 }
 
-async function handleModel(
-  ctx: Context,
-  data: string,
-  session: Session | null,
-  cb: CallbackCallbacks,
-): Promise<void> {
-  // Format: model:<providerName>::<modelId>
-  const payload = data.slice(6);
-  const [providerId, modelId] = payload.split('::');
-  if (!providerId || !modelId || !session) {
+/** A tapped `/model` button: the same switch as `/model <value>`, answered in place. */
+async function handleModel(ctx: Context, value: string, cb: CallbackCallbacks): Promise<void> {
+  if (!value) {
     await ctx.answerCallbackQuery({ text: 'invalid model selection' });
     return;
   }
-  // Intercept switches to unconfigured providers — otherwise OAuth-
-  // backed providers (openai-codex) would surface a credential
-  // error on the next turn. Match the TUI's wording so the user
-  // sees the same setup command in both channels.
-  const ready = session.readyProviders ?? new Set<string>();
-  if (!ready.has(providerId)) {
-    const cmd =
-      providerId === 'openai-codex'
-        ? 'moxxy login openai-codex'
-        : `moxxy init   # (will prompt for ${providerId.toUpperCase()}_API_KEY)`;
-    await ctx.answerCallbackQuery({ text: `${providerId} not connected` });
-    if (ctx.callbackQuery?.message) {
-      try {
-        await ctx.editMessageText(
-          `${providerId} isn't connected.\n\nRun \`${cmd}\` then restart moxxy.`,
-          { parse_mode: 'Markdown' },
-        );
-      } catch {
-        /* ignore */
-      }
+  const reply = await cb.model(value);
+  await ctx.answerCallbackQuery({ text: reply.slice(0, 190) });
+  if (ctx.callbackQuery?.message) {
+    try {
+      await ctx.editMessageText(reply);
+    } catch {
+      /* ignore */
     }
-    return;
-  }
-  try {
-    if (session.providers.getActiveName() !== providerId) {
-      // Resolve credentials and drop the cached instance, same as
-      // the TUI. Without this the new provider gets createClient({})
-      // and openai-codex throws "no OAuth credentials" on next turn.
-      const resolver = session.credentialResolver;
-      const cfg = resolver ? await resolver(providerId) : {};
-      const def = session.providers.list().find((p) => p.name === providerId);
-      if (def) session.providers.replace(def);
-      session.providers.setActive(providerId, cfg);
-    }
-    cb.setActiveModelOverride(modelId);
-    // Persist to the unified manifest for the next CLI run — same config the TUI
-    // writes. Await so a write failure (disk/permission/lock) is caught below and
-    // reported, instead of telling the user "✓ switched" while it never landed.
-    await setCategoryDefault('provider', providerId);
-    await setProviderModel(providerId, modelId);
-    await ctx.answerCallbackQuery({ text: `→ ${providerId}:${modelId}` });
-    if (ctx.callbackQuery?.message) {
-      try {
-        await ctx.editMessageText(`✓ switched to ${providerId}:${modelId}`);
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch (err) {
-    await ctx.answerCallbackQuery({
-      text: `failed: ${err instanceof Error ? err.message : String(err)}`,
-    });
   }
 }
 

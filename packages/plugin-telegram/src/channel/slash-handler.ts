@@ -1,7 +1,8 @@
 import { type Bot, type Context, InlineKeyboard } from 'grammy';
 import { assertDefined, isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { resolveVoiceToggle } from '@moxxy/channel-kit';
+import { formatModelChoice, resolveVoiceToggle } from '@moxxy/channel-kit';
+import type { TelegramModel } from './model.js';
 
 /**
  * Install guidance shown when enabling `/voice` with no active synthesizer —
@@ -13,18 +14,17 @@ export const VOICE_NO_SYNTH_HINT =
 
 export interface SlashState {
   readonly session: Session | null;
-  readonly model: string | undefined;
-  readonly activeModelOverride: string | null;
-  readonly yolo: boolean;
   /** Whether voice replies are currently enabled (backs `/voice status`). */
   readonly voiceReplies: boolean;
 }
 
 export interface SlashCallbacks {
-  /** Toggle yolo and return its new value (so we can echo the right message). */
-  toggleYolo(): boolean;
+  /** Switch the conversation's shared auto-approve; returns its new value. */
+  toggleYolo(): Promise<boolean>;
   /** Persist + apply the voice-replies preference (backs `/voice on|off`). */
   setVoiceReplies(on: boolean): Promise<void>;
+  /** This bot's own model (`/model`). */
+  readonly model: Pick<TelegramModel, 'run' | 'choices'>;
   /** Apply a `session-action` result emitted from a registered command. */
   performSessionAction(
     ctx: Context,
@@ -32,6 +32,10 @@ export interface SlashCallbacks {
     notice: string | undefined,
   ): Promise<void>;
 }
+
+/** Telegram bots have no calls; a voice message is the way to talk. */
+export const NO_CALLS_REPLY =
+  'Telegram does not let bots take or place calls. Send me a voice message instead — I will answer with one.';
 
 /**
  * Slash-command dispatcher for the Telegram channel.
@@ -42,7 +46,7 @@ export interface SlashCallbacks {
  * commands without needing a switch case here.
  *
  * Falls through to channel-local cases for Telegram-specific UI
- * (model/loop pickers as inline keyboards, /yolo toggle, /tools and
+ * (model/mode pickers as inline keyboards, /auto-approve, /tools and
  * /skills as text dumps).
  */
 export async function runSlash(
@@ -86,20 +90,26 @@ export async function runSlash(
   // 2) Channel-local cases.
   switch (head) {
     case '/model':
-      await renderModelPicker(ctx, session, state, args);
+      if (args.trim()) await ctx.reply(await cb.model.run(args));
+      else await renderModelPicker(ctx, cb.model);
       return;
     case '/mode':
       await renderModePicker(ctx, session);
       return;
+    case '/auto-approve':
+    case '/auto_approve':
     case '/yolo': {
-      const enabled = cb.toggleYolo();
+      const enabled = await cb.toggleYolo();
       await ctx.reply(
         enabled
-          ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
-          : 'yolo mode OFF — tool prompts will resume',
+          ? '⚠ auto-approve ON — tool calls run without asking for the rest of this session'
+          : 'auto-approve OFF — tool prompts will resume',
       );
       return;
     }
+    case '/call':
+      await ctx.reply(NO_CALLS_REPLY);
+      return;
     case '/voice': {
       const result = resolveVoiceToggle({
         arg: args,
@@ -141,58 +151,29 @@ export async function runSlash(
 
 /** Telegram inline keyboards get unwieldy past this many rows; cap the picker. */
 const MODEL_PICKER_CAP = 30;
+/** Telegram rejects a button whose callback data exceeds 64 bytes. */
+const CALLBACK_DATA_MAX_BYTES = 64;
 
-async function renderModelPicker(
-  ctx: Context,
-  session: Session,
-  state: SlashState,
-  filter = '',
-): Promise<void> {
-  const providers = session.providers.list();
-  if (providers.length === 0) {
-    await ctx.reply('no providers registered');
-    return;
-  }
-  const keyboard = new InlineKeyboard();
-  const providerName = session.providers.getActiveName() ?? '';
-  const activeModel = state.activeModelOverride ?? state.model ?? '';
-  // Same boot-time readiness set the TUI uses to flag unconfigured
-  // providers — set by `@moxxy/cli` at setup time. Providers that
-  // failed credential resolution get a "(not connected)" suffix
-  // and a tap on them surfaces the right setup command instead of
-  // a no-op switch.
-  const ready = session.readyProviders ?? new Set<string>();
-  // `/model <substring>` narrows the list so a model that sorts past the
-  // keyboard cap is still reachable from chat (the cap below would otherwise
-  // silently hide it with no fallback).
-  const needle = filter.trim().toLowerCase();
-  // Flatten so we can both apply the substring filter and report how many the
-  // cap hides (vs. how many the filter excluded).
-  const all = providers.flatMap((p) =>
-    p.models.map((m) => ({ provider: p.name, model: m.id })),
+/** `/model` without an argument: the default and every model as buttons. */
+async function renderModelPicker(ctx: Context, model: Pick<TelegramModel, 'choices'>): Promise<void> {
+  const { current, options } = await model.choices();
+  const keyboard = new InlineKeyboard().text(current ? 'default' : '• default', 'model:default').row();
+  const tappable = options.filter(
+    (o) => Buffer.byteLength(`model:${formatModelChoice(o)}`) <= CALLBACK_DATA_MAX_BYTES,
   );
-  const matched = needle
-    ? all.filter((e) => `${e.provider}::${e.model}`.toLowerCase().includes(needle))
-    : all;
-  if (matched.length === 0) {
-    await ctx.reply(`no model matches "${filter.trim()}" — try /model with no argument.`);
-    return;
+  const shown = tappable.slice(0, MODEL_PICKER_CAP);
+  for (const o of shown) {
+    const id = formatModelChoice(o);
+    const isCurrent = current != null && formatModelChoice(current) === id;
+    keyboard.text(`${isCurrent ? '• ' : ''}${id}${o.connected ? '' : ' (not connected)'}`, `model:${id}`).row();
   }
-  const shown = matched.slice(0, MODEL_PICKER_CAP);
-  for (const e of shown) {
-    const isCurrent = providerName === e.provider && activeModel === e.model;
-    const connected = ready.has(e.provider);
-    const label =
-      `${isCurrent ? '• ' : ''}${e.provider}: ${e.model}` +
-      (connected ? '' : ' (not connected)');
-    keyboard.text(label, `model:${e.provider}::${e.model}`).row();
-  }
-  const hidden = matched.length - shown.length;
-  const prompt =
+  const hidden = options.length - shown.length;
+  await ctx.reply(
     hidden > 0
-      ? `Pick a model (${hidden} more not shown — narrow with /model <text>):`
-      : 'Pick a model:';
-  await ctx.reply(prompt, { reply_markup: keyboard });
+      ? `Pick this bot's model (${hidden} more not shown — use /model <text>):`
+      : "Pick this bot's model:",
+    { reply_markup: keyboard },
+  );
 }
 
 async function renderModePicker(ctx: Context, session: Session): Promise<void> {
@@ -218,6 +199,9 @@ async function renderModePicker(ctx: Context, session: Session): Promise<void> {
   await ctx.reply('Pick a mode:', { reply_markup: keyboard });
 }
 
+/** Telegram's bot-command name constraint (no hyphens). */
+const BOT_COMMAND_RE = /^[a-z0-9_]{1,32}$/;
+
 /**
  * Push the union of registry commands + Telegram-local commands to
  * Telegram so they appear in the chat's command menu (the "/" picker
@@ -231,9 +215,10 @@ export async function publishBotCommands(
 ): Promise<void> {
   if (!session || !bot) return;
   const LOCAL: Array<{ command: string; description: string }> = [
-    { command: 'model', description: 'Switch provider + model (inline keyboard)' },
+    { command: 'model', description: 'Show or switch the model this bot uses' },
     { command: 'mode', description: 'Switch mode' },
-    { command: 'yolo', description: 'Toggle auto-approve mode' },
+    { command: 'auto_approve', description: 'Toggle auto-approve: tool calls run without asking' },
+    { command: 'call', description: 'Talk by voice (Telegram bots cannot call — send a voice message)' },
     { command: 'voice', description: 'Toggle spoken voice replies' },
     { command: 'tools', description: 'List the tools the active session can call' },
     { command: 'skills', description: 'List the discovered skills' },
@@ -244,6 +229,9 @@ export async function publishBotCommands(
     .map((c) => ({ command: c.name, description: c.description }));
   const seen = new Set(shared.map((c) => c.command));
   const merged = [...shared, ...LOCAL.filter((c) => !seen.has(c.command))]
+    // Telegram rejects the whole list over one name outside [a-z0-9_]; such
+    // commands still work typed out.
+    .filter((c) => BOT_COMMAND_RE.test(c.command))
     .sort((a, b) => a.command.localeCompare(b.command))
     // Telegram caps descriptions at 256 chars and rejects empties.
     .map((c) => ({

@@ -57,9 +57,7 @@ const makeHarness = (over: Partial<TextHandlerState> = {}): Harness => {
   const setAwaitingApprovalText = vi.fn();
   const state: TextHandlerState = {
     session: makeSession(),
-    model: undefined,
-    activeModelOverride: null,
-    yolo: false,
+    voiceReplies: false,
     busy: false,
     turnController: null,
     awaitingApprovalText: null,
@@ -78,8 +76,10 @@ const makeHarness = (over: Partial<TextHandlerState> = {}): Harness => {
   const tryHostPair = vi.fn(async () => false);
   const cb: TextHandlerCallbacks = {
     setAwaitingApprovalText,
-    toggleYolo: () => false,
+    toggleYolo: async () => false,
     setYolo: () => undefined,
+    setVoiceReplies: async () => undefined,
+    model: { run: async () => '', choices: async () => ({ current: null, options: [] }) },
     runUserTurn,
     tryHostPair,
   };
@@ -216,7 +216,8 @@ describe('handleTextMessage — /exit teardown', () => {
     const { ctx, replies } = fakeCtx({ text: '/exit' });
     const h = makeHarness({ session, handle });
     await handleTextMessage(ctx, h.state, h.deps, h.cb);
-    expect(stop).toHaveBeenCalledTimes(1);
+    // The reply goes out first; the channel stops right after it.
     expect(replies.some((r) => /bye/i.test(r))).toBe(true);
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
   });
 });

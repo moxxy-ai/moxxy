@@ -47,6 +47,8 @@ const CATALOG: ReadonlyArray<ServiceSpec> = [
     id: 'telegram',
     description: 'moxxy telegram channel — keeps the paired bot online in the background',
     execArgs: ['telegram', '--no-wizard'],
+    // Same headless profile the desktop's "Start" uses (see discord below).
+    env: { MOXXY_NO_WEB_SURFACE: '1', MOXXY_NO_CORE_UPDATE: '1' },
   },
   {
     id: 'discord',
@@ -107,7 +109,7 @@ const HELP = formatHelp({
   ],
 });
 
-function findSpec(name: string): ServiceSpec | null {
+export function findSpec(name: string): ServiceSpec | null {
   return CATALOG.find((s) => s.id === name) ?? null;
 }
 

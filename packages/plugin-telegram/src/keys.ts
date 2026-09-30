@@ -50,3 +50,7 @@ export function parseChatId(raw: string | null | undefined): number | null {
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
+
+/** Vault key for this bot's model (`provider::model`); absent = the default model.
+ *  The desktop's Channels panel writes the same key. */
+export const TELEGRAM_MODEL_KEY = 'telegram_model';

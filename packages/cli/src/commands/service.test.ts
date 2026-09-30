@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ParsedArgv } from '../argv.js';
-import { runServiceCommand } from './service.js';
+import { findSpec, runServiceCommand } from './service.js';
 
 // HOME + MOXXY_HOME point at a temp dir so the unit/log paths never touch the
 // real ~/Library/LaunchAgents; nothing here installs anything.
@@ -56,5 +56,14 @@ describe('moxxy service — discord', () => {
     await runServiceCommand(argv(['status', 'discord']));
     expect(() => JSON.parse(out)).toThrow();
     expect(out).toMatch(/discord/);
+  });
+});
+
+describe('moxxy service — telegram', () => {
+  it('runs the paired bot headless with the same profile as the discord unit', () => {
+    const headless = { MOXXY_NO_WEB_SURFACE: '1', MOXXY_NO_CORE_UPDATE: '1' };
+
+    expect(findSpec('telegram')).toMatchObject({ execArgs: ['telegram', '--no-wizard'], env: headless });
+    expect(findSpec('discord')?.env).toEqual(headless);
   });
 });

@@ -107,7 +107,7 @@ describe('handleVoiceMessage', () => {
     assertDefined(transcribeArgs, 'transcribe was asserted called, so calls[0] exists');
     expect((transcribeArgs[1] as { mimeType: string }).mimeType).toBe('audio/ogg');
     expect(replies.some((r) => /heard:/.test(r) && /hello agent/.test(r))).toBe(true);
-    expect(runUserTurn).toHaveBeenCalledWith(ctx, 99, 'hello agent');
+    expect(runUserTurn).toHaveBeenCalledWith(ctx, 99, 'hello agent', { spoken: true });
   });
 
   it('refuses to start a new turn while busy', async () => {

@@ -1,14 +1,20 @@
 import { Bot, GrammyError, HttpError, InputFile } from 'grammy';
 import type { Context } from 'grammy';
 import { newTurnId } from '@moxxy/core';
-import { TurnCoordinator, deliverVoiceReply, resolveSecret } from '@moxxy/channel-kit';
+import {
+  AutoApproveSwitch,
+  TurnCoordinator,
+  deliverVoiceReply,
+  resolveSecret,
+  type ForeignTurnMirror,
+  type MirrorTarget,
+} from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
   Channel,
   ChannelHandle,
   ChannelStartOptsBase,
-  MoxxyEvent,
   PendingToolCall,
   PermissionContext,
 } from '@moxxy/sdk';
@@ -29,6 +35,8 @@ import { runUserTurn } from './channel/turn-runner.js';
 import { handleTextMessage } from './channel/text-handler.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
 import { loadVoiceReplies, saveVoiceReplies } from './keys.js';
+import { createTelegramMirror } from './channel/mirror.js';
+import { telegramModel, type TelegramModel } from './channel/model.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
@@ -91,14 +99,15 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   // re-publish the channel's status file. See `onConnectChange` on the handle.
   private readonly connectListeners = new Set<() => void>();
   private currentChatId: number | null = null;
-  // Last chat we ran a turn for — the target for mirroring turns this channel
-  // did NOT initiate (e.g. a web-surface action on a shared session).
-  private lastChatId: number | null = null;
+  // Turns another surface ran on this bot's session (the desktop's chat with
+  // the bot) shown here: into the chat we last served, else the paired chat.
+  private readonly mirror: ForeignTurnMirror<number>;
+  private readonly mirrorTarget: MirrorTarget<number>;
   private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
-  private activeModelOverride: string | null = null;
-  private yolo = false;
+  /** `/auto-approve` — the conversation's shared switch (see AutoApproveSwitch). */
+  private readonly autoApprove = new AutoApproveSwitch(() => this.session);
   // When true, the final assistant reply of each turn is also synthesized (via
   // the session's active Synthesizer) and sent as a voice note. Persisted per
   // paired chat in the vault (`telegram_voice_replies`), toggled with `/voice`.
@@ -137,6 +146,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     // A completed pairing flips this channel's connect-state to "connected";
     // notify the host so it can swap the QR for a "✓ Connected" affordance.
     this.pairing.onPaired(() => this.notifyConnectChange());
+    const { mirror, target } = createTelegramMirror({
+      turns: this.turns,
+      api: () => this.bot?.api ?? null,
+      pairedChat: () => this.pairing.authorizedChatId(),
+      ...(opts.logger ? { logger: opts.logger } : {}),
+    });
+    this.mirror = mirror;
+    this.mirrorTarget = target;
   }
 
   /** This channel's connect value (see {@link Channel.requestUrl}): the resolved
@@ -219,11 +236,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     // headless code paths after channel close don't see a stale handler.
     this.session.setApprovalResolver(this.approvalResolver);
 
-    // Mirror-to-both: when the session runs a turn this channel did NOT
-    // initiate (e.g. a user submitted a form on the co-attached web surface),
-    // post the assistant's prose into the last chat we served. Our OWN turns
-    // are rendered by the FramePump (gated by `busy`), so skip those.
-    this.logUnsub = this.session.log.subscribe((event) => this.mirrorForeignTurn(event));
+    // Mirror-to-both: a turn this channel did NOT initiate (a message written
+    // in the desktop's chat with this bot) shows here — its prompt, then its
+    // reply. Our OWN turns are rendered by the FramePump, so the mirror skips them.
+    this.logUnsub = this.session.log.subscribe((event) => this.mirror.accept(event));
 
     this.bot.command('start', (ctx) => this.pairing.handleStartCommand(ctx));
     this.bot.on('callback_query:data', (ctx) => this.dispatchCallback(ctx));
@@ -357,7 +373,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         ...(this.opts.logger ? { logger: this.opts.logger } : {}),
       },
       {
-        runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
+        runUserTurn: (c, chatId, text, opts) => this.runUserTurn(c, chatId, text, opts),
       },
     );
   }
@@ -367,9 +383,6 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       ctx,
       {
         session: this.session,
-        model: this.model,
-        activeModelOverride: this.activeModelOverride,
-        yolo: this.yolo,
         voiceReplies: this.voiceReplies,
         busy: this.turns.busy,
         turnController: this.turns.controller,
@@ -386,14 +399,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        toggleYolo: () => {
-          this.yolo = !this.yolo;
-          return this.yolo;
-        },
-        setYolo: (value) => {
-          this.yolo = value;
-        },
+        toggleYolo: () => this.autoApprove.toggle(),
+        setYolo: () => this.autoApprove.forgetLocal(),
         setVoiceReplies: (on) => this.setVoiceReplies(on),
+        model: {
+          run: (arg) => this.botModel()?.run(arg) ?? Promise.resolve('Session is not ready yet.'),
+          choices: () =>
+            this.botModel()?.choices() ?? Promise.resolve({ current: null, options: [] }),
+        },
         runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
         tryHostPair: (chatId, text) => this.tryHostPair(ctx, chatId, text),
       },
@@ -416,8 +429,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
    * Synthesizer, transcode to OGG/Opus (or send plain audio when ffmpeg is
    * unavailable), and deliver via grammy. The text reply already went out.
    */
-  private async sendVoiceReply(chatId: number, text: string): Promise<void> {
-    if (!this.voiceReplies || !this.bot || !this.session) return;
+  private async sendVoiceReply(chatId: number, text: string, always = false): Promise<void> {
+    if (!(this.voiceReplies || always) || !this.bot || !this.session) return;
     const bot = this.bot;
     const outcome = await deliverVoiceReply(this.session, text, {
       send: async (audio, meta) => {
@@ -464,25 +477,34 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     });
   }
 
-  private async runUserTurn(ctx: Context, chatId: number, text: string): Promise<void> {
-    if (!this.session) throw new Error('TelegramChannel.start() must be called first');
+  /** This bot's own model (see TelegramModel); null before start(). */
+  private botModel(): TelegramModel | null {
+    return this.session ? telegramModel({ session: this.session, vault: this.opts.vault }) : null;
+  }
+
+  private async runUserTurn(
+    ctx: Context,
+    chatId: number,
+    text: string,
+    opts: { readonly spoken?: boolean } = {},
+  ): Promise<void> {
+    const model = this.botModel();
+    if (!this.session || !model) throw new Error('TelegramChannel.start() must be called first');
     // Atomic single-flight guard: `begin` claims the slot synchronously BEFORE
     // any await so a second turn dispatched concurrently (the poll loop is no
     // longer parked on us) can't slip past the busy check in the text/voice
-    // handlers. If we are already busy, refuse rather than corrupt the
-    // single-instance per-turn state (framePump / currentChatId / controller).
-    // The turnId is minted here so the coordinator records it as an own-turn
-    // id — that's what mirrorForeignTurn filters on.
+    // handlers. The turnId is minted here so the coordinator records it as an
+    // own-turn id — that's what the mirror filters on.
     const lease = this.turns.begin(newTurnId());
     if (!lease) {
       await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
       return;
     }
     this.currentChatId = chatId;
-    this.lastChatId = chatId;
-    const effectiveModel = this.activeModelOverride ?? this.model;
-
+    this.mirrorTarget.remember(chatId);
     try {
+      const channelModel = await model.resolve();
+      if (channelModel.warning) await ctx.reply(channelModel.warning);
       await runUserTurn(
         ctx,
         {
@@ -491,33 +513,22 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           framePump: this.framePump,
           typing: this.typing,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
-          onFinalReply: (finalText) => this.sendVoiceReply(chatId, finalText),
+          // A voice message is answered with one; typed prompts only when /voice is on.
+          onFinalReply: (finalText) => this.sendVoiceReply(chatId, finalText, opts.spoken === true),
         },
-        { chatId, text, model: effectiveModel, controller: lease.controller, turnId: lease.turnId },
+        {
+          chatId,
+          text,
+          ...(opts.spoken ? { spoken: true } : {}),
+          model: channelModel.model ?? this.model,
+          controller: lease.controller,
+          turnId: lease.turnId,
+        },
       );
     } finally {
       lease.end();
       this.currentChatId = null;
     }
-  }
-
-  /**
-   * Post the assistant's prose for a turn this channel did not initiate. Gated
-   * by `!busy` (our own turns are rendered by the FramePump from the runUserTurn
-   * iterator) and by having served a chat at least once. Sent as plain text to
-   * avoid parse-mode pitfalls; the view itself lives on the web surface.
-   */
-  private mirrorForeignTurn(event: MoxxyEvent): void {
-    // The coordinator skips turns THIS channel initiated, by turnId — robust to
-    // events that arrive after `busy` flips false (async ordering /
-    // RemoteSession replay), which the `busy` flag alone could mis-mirror as
-    // foreign (invariant #8) — and yields the trimmed assistant prose.
-    const text = this.turns.mirrorText(event);
-    if (text == null) return;
-    if (!this.bot || this.lastChatId == null) return;
-    void this.bot.api.sendMessage(this.lastChatId, text).catch((err) => {
-      this.opts.logger?.warn('telegram mirror failed', { err: String(err) });
-    });
   }
 
   private askForPermission(call: PendingToolCall, ctx: PermissionContext): Promise<void> {
@@ -526,7 +537,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       chatId: this.currentChatId,
       session: this.session,
       resolver: this.permissionResolver,
-      yolo: this.yolo,
+      yolo: this.autoApprove.enabled,
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     });
   }
@@ -555,9 +566,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        setActiveModelOverride: (modelId) => {
-          this.activeModelOverride = modelId;
-        },
+        model: (arg) => this.botModel()?.run(arg) ?? Promise.resolve('Session is not ready yet.'),
       },
     );
   }

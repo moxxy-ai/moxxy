@@ -87,9 +87,12 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
         openable: true,
         openLabel: 'Open in Telegram',
       },
+      supportsModel: true,
+      supportsBackground: true,
     },
     vaultKeys: { botToken: 'telegram_bot_token' },
     requiredKeys: ['telegram_bot_token'],
+    modelVaultKey: 'telegram_model',
   },
   signal: {
     descriptor: {
