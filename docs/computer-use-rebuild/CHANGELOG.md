@@ -699,3 +699,81 @@ Commit kroku 5d: `bc45e9bb`.
 - Przy pełnoekranowym zrzucie (krok 8) wykluczać własną aplikację filtrem
   `SCContentFilter`, nie polegać na `sharingType = .none` (od macOS 15
   ScreenCaptureKit może go nie respektować).
+
+---
+
+## Krok 7a — akcje AX po indeksie (2026-09-30)
+
+Commit kroku 6: `467542f1`.
+
+**Wzorzec (tylko odczyt)**
+- Claude 2.16120.0, `.vite/build/index.chunk-DkY0FFgk.js` (napisy): odmowa,
+  gdy użytkownik właśnie pisze („akcja NIE została wykonana, ponów po
+  przerwie”); przeciąganie jako surowe wejście na chwilę aktywuje aplikację i
+  przywraca poprzednią; w tle tylko return/escape/backspace/delete/cmd+a;
+  okno na innej przestrzeni nie jest sterowalne w tle; nakładka przechwycona
+  w hit-teście = „Retry”; kliknięcia w Dock/pulpit odrzucane. Te reguły
+  wchodzą w 7b–7d.
+- Codex (`SkyComputerUseService`, symbole): `prepareToInteract(with:cursorNextInteractionTiming:positionElement:)`,
+  `positionElement`, `moveMouse(to:cursorNextInteractionTiming:)` — kursor
+  jedzie do elementu także przy akcjach AX.
+
+**Co**
+- Swift `Action.swift` (czyste): `ActionRequest.parse` (click po indeksie
+  lub punkcie, `set_value`, `perform_secondary_action`; reszta
+  `notYetSupported`), `ActionResult` (JSON jak `actionResultSchema`),
+  `AXLadder.click` (tylko pojedynczy klik bez modyfikatorów ma odpowiednik AX:
+  lewy → `AXPress`, prawy → `AXShowMenu`, jeśli element je ma) i
+  `AXLadder.outcome` (fail-closed: tylko `actionUnsupported`/`attributeUnsupported`
+  pozwala na inną metodę; `invalidUIElement` → `stale_state`,
+  `cannotComplete` → `timeout` bez powtórki, `apiDisabled` →
+  `permissions_not_granted`, reszta → `helper_failed`).
+- Swift `Act.swift`: metoda `act {app, action, allowed}`. Helper sam
+  sprawdza `allowed` (`app_not_allowed`), bez obserwacji → `no_state`,
+  indeks spoza ostatniego stanu albo martwy element → `stale_state`,
+  akcja drugorzędna tylko z listy elementu, `set_value` tylko na atrybucie
+  zapisywalnym (liczby dla suwaków/stepperów). Po akcji `lastAction`
+  (settling jak po akcji) i świeży stan ze zrzutem w odpowiedzi.
+- `AgentCursor.act`: `moving` → przejazd (czeka czas przejazdu) + obrys →
+  `executing` → akcja → pierścień przy `delivered` → `delivered|failed`.
+- `TargetState`: `window` (dla nakładki), `observed`.
+- `AppCatalog.resolve(…, lookup:)` + `registered(id)`: identyfikator pakietu
+  spoza skanowanych katalogów rozwiązywany przez LaunchServices, z nazwą z
+  pakietu (jak dla działającej aplikacji). Tylko identyfikatory, nigdy nazwy.
+- Fixture: `NSStepper` „count” (akcje `AXIncrement`/`AXDecrement`).
+
+**Jak i dlaczego**
+- Kliknięcia wielokrotne, z modyfikatorami i środkowym przyciskiem nie mają
+  odpowiednika AX — pójdą przez fizyczne wejście z bramkami (7c). Do tego
+  czasu zwracają `unsupported`, tak samo klik po punkcie.
+- `cannotComplete` bywa zwracany, gdy akcja otworzyła modalny dialog: akcja
+  mogła się wykonać, więc nie powtarzamy jej; model patrzy na świeży stan.
+- Luka w `resolve_apps` wyszła przy pojedynczym uruchomieniu testu
+  end-to-end: niedziałająca fixture (w `.build`) nie była znajdowana, choć
+  LaunchServices ją zna. Wcześniej test przechodził tylko dzięki
+  kolejności.
+
+**Testy (Red → Green)**
+- Red Swift: `cannot find 'AXLadder' / 'ActionRequest' / 'ActionResult'`;
+  potem `extra argument 'lookup' in call`.
+- Red TS (prawdziwy helper + fixture): `Unknown method act` (4 testy);
+  end-to-end w izolacji: `granted: []`.
+- Green: Swift 70/70; `src/macos/helper.test.ts` 18/18 — klik „Press” przez
+  AX (`Pressed N+1`, fazy kursora `moving, executing, delivered`),
+  `set_value` → „world”, `AXIncrement` na stepperze, odmowy (`AXRaise` nie z
+  listy → `unsupported_action`, indeks 9999 → `stale_state` ze świeżym
+  stanem, aplikacja spoza `allowed` → `app_not_allowed`, akcja przed
+  obserwacją → `no_state`), `computer_click` przez narzędzie modelu.
+
+**Walidacja**
+- `swift test` 70/70; `build.sh`, `build-fixture.sh` OK.
+- `npx vitest run` (plugin) — 25 plików / 254 testy.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów; `pnpm check:deps`
+  0 błędów; `pnpm build` 88/88.
+
+**Dla następcy**
+- 7b: klawiatura i tekst (`type_text`, `press_key`, `paste`,
+  `select_text`) — zdecydować, czy TS wysyła do helpera już sparsowany
+  akord (`parseKeyCombo`), żeby nie dublować parsera w Swift.
+- 7c: fizyczna mysz z bramkami i przywracaniem wskaźnika; tu wraca fallback
+  z `AXLadder` (`physical`/`fallBack`).

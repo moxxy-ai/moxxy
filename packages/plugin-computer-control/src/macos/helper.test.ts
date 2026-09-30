@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport, type HelperEvent } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, appStateSchema, contractEventsFor, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
+import { CONTRACT_PROTOCOL_VERSION, actResultSchema, appStateSchema, contractEventsFor, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath, macosProfile } from './profile.js';
 import { ComputerBackend } from '../backend/backend.js';
 import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
@@ -195,7 +195,74 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       expect((await backend.controls.forSession('session').snapshot())[0]).toMatchObject({
         cursor: { phase: 'idle' }, target: { app: 'Moxxy Computer Fixture', window: 'Moxxy Fixture' },
       });
+      const press = Number(/\[(\d+)\] button "Press"/.exec(state.forModel ?? '')?.[1]);
+      const clicked = await run('computer_click', { app: FIXTURE, element_index: press }) as ToolImageResult;
+      expect(clicked.forModel).toContain('Action delivered');
+      expect(clicked.forModel).toMatch(/text "Pressed \d+"/);
     } finally { await backend.release('session'); }
+  });
+
+  describe('actions by element index', () => {
+    const observe = async (transport: HelperTransport) =>
+      appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+    const element = (state: { tree: { elements: Array<{ key: string; index: number; title?: string; value?: string }> } }, suffix: string) => {
+      const found = state.tree.elements.find((candidate) => candidate.key.endsWith(suffix));
+      if (!found) throw new Error(`no ${suffix}`);
+      return found;
+    };
+    const act = async (transport: HelperTransport, action: Record<string, unknown>, allowed = [FIXTURE]) =>
+      actResultSchema.parse(await transport.request('act', { app: FIXTURE, action, allowed }, signal()));
+
+    it('presses a button through accessibility, shows the cursor at work and returns the new state', async () => {
+      const events: HelperEvent[] = [];
+      const transport = start((event) => events.push(event));
+      try {
+        const before = await observe(transport);
+        const pressed = Number(/\d+/.exec(element(before, 'text:status').title ?? '')?.[0] ?? 0);
+        events.length = 0;
+        const { result, state } = await act(transport, { action: 'click', element_index: element(before, 'button:press').index, mouse_button: 'left', click_count: 1 });
+        expect(result).toEqual({ outcome: 'delivered', method: 'ax' });
+        expect(element(state ?? before, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
+        const phases = events.map((event) => (event as { cursor: { phase: string } | null }).cursor?.phase);
+        expect(phases.slice(0, 3)).toEqual(['moving', 'executing', 'delivered']);
+      } finally { await transport.close(); }
+    });
+
+    it('sets a text field and runs an action the element lists', async () => {
+      const transport = start();
+      try {
+        const before = await observe(transport);
+        const named = await act(transport, { action: 'set_value', element_index: element(before, 'text field:name').index, value: 'world' });
+        expect(named.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        expect(element(named.state ?? before, 'text field:name').value).toBe('world');
+        const stepper = element(before, ':count');
+        const stepped = await act(transport, { action: 'perform_secondary_action', element_index: stepper.index, secondary_action: 'AXIncrement' });
+        expect(stepped.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        expect(Number(element(stepped.state ?? before, ':count').value)).toBe(Number(stepper.value) + 1);
+      } finally { await transport.close(); }
+    });
+
+    it('refuses an action the element does not list, an index it never handed out and an app without a grant', async () => {
+      const transport = start();
+      try {
+        const before = await observe(transport);
+        const guessed = await act(transport, { action: 'perform_secondary_action', element_index: element(before, 'button:press').index, secondary_action: 'AXRaise' });
+        expect(guessed.result).toEqual({ outcome: 'unsupported', code: 'unsupported_action' });
+        const stale = await act(transport, { action: 'click', element_index: 9999, mouse_button: 'left', click_count: 1 });
+        expect(stale.result).toEqual({ outcome: 'blocked', code: 'stale_state' });
+        expect(stale.state?.tree.app).toBe('Moxxy Computer Fixture');
+        await expect(act(transport, { action: 'click', element_index: 0, mouse_button: 'left', click_count: 1 }, ['com.apple.TextEdit']))
+          .rejects.toMatchObject({ code: 'app_not_allowed' });
+      } finally { await transport.close(); }
+    });
+
+    it('asks for an observation before the first action', async () => {
+      const transport = start();
+      try {
+        const { result } = await act(transport, { action: 'click', element_index: 0, mouse_button: 'left', click_count: 1 });
+        expect(result).toEqual({ outcome: 'blocked', code: 'no_state' });
+      } finally { await transport.close(); }
+    });
   });
 
   it('refuses an app it cannot find', async () => {

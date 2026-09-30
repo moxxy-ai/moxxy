@@ -43,8 +43,9 @@ public enum AppCatalog {
         return (Array(matching.prefix(limit)), matching.count > limit)
     }
 
-    /// Identifier first, then display name (with or without `.app`), then bundle path.
-    public static func resolve(_ request: String, in apps: [AppRecord]) -> Resolution {
+    /// Identifier first, then display name (with or without `.app`), then bundle path; last, `lookup`
+    /// asks the system for an identifier installed outside the scanned folders.
+    public static func resolve(_ request: String, in apps: [AppRecord], lookup: (String) -> AppRecord? = { _ in nil }) -> Resolution {
         let wanted = request.lowercased()
         if let byId = apps.first(where: { $0.id.lowercased() == wanted }) { return .resolved(byId) }
         let name = wanted.hasSuffix(".app") && !wanted.hasPrefix("/") ? String(wanted.dropLast(4)) : wanted
@@ -52,7 +53,18 @@ public enum AppCatalog {
         if byName.count == 1, let only = byName.first { return .resolved(only) }
         if byName.count > 1 { return .ambiguous(byName) }
         if let byPath = apps.first(where: { $0.path?.lowercased() == wanted }) { return .resolved(byPath) }
+        if byName.isEmpty, request.contains("."), !request.contains("/"), let found = lookup(request) { return .resolved(found) }
         return .notFound
+    }
+
+    /// An app LaunchServices knows by identifier, wherever it is installed.
+    static func registered(_ id: String) -> AppRecord? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id), let bundle = Bundle(url: url),
+              let bundleId = bundle.bundleIdentifier else { return nil }
+        // The name the app shows when running, so a grant reads the same before and after launch.
+        let name = (bundle.localizedInfoDictionary?["CFBundleDisplayName"] ?? bundle.infoDictionary?["CFBundleDisplayName"]
+            ?? bundle.infoDictionary?["CFBundleName"]) as? String
+        return AppRecord(id: bundleId, name: name ?? displayName(url), path: url.path, running: false)
     }
 
     public static func scan() -> [AppRecord] {
@@ -94,7 +106,7 @@ extension Methods {
         guard names.count == values.count else { throw HelperError.invalidParams("names must be strings") }
         let apps = AppCatalog.scan()
         return .object(["apps": .array(names.map { request in
-            switch AppCatalog.resolve(request, in: apps) {
+            switch AppCatalog.resolve(request, in: apps, lookup: AppCatalog.registered) {
             case let .resolved(app):
                 return .object(["request": .string(request), "status": .string("resolved"), "id": .string(app.id), "name": .string(app.name)])
             case let .ambiguous(candidates):

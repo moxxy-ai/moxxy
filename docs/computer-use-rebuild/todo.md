@@ -4,13 +4,13 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7 — wykonawca akcji macOS.
-- **Następna czynność:** przejrzeć executory Claude'a (`app.asar`: klik,
-  pisanie, bramki frontmost/hit-test/łatka pikseli) i napisy Sky
-  (`prepareToInteract`, `positionElement`, `moveMouse(to:cursorNextInteractionTiming:)`);
-  potem testy bramek jako czystych funkcji (Swift) i akcja `click` po
-  indeksie na fixture (przycisk „Press” → „Pressed 1”), z kursorem
-  `moving → executing → delivered`.
+- **Bieżący krok:** 7b — klawiatura i tekst na macOS (7a — akcje AX po
+  indeksie — gotowe).
+- **Następna czynność:** testy Red dla `type_text` (porcje, fokus w
+  aplikacji celu, raport dostarczonych znaków), `press_key` (akord z TS,
+  `CGEvent.postToPid`), `paste` (schowek + przywrócenie) i `select_text`
+  (`AXSelectedTextRange`); przegląd `type`/`key` w Claude (`app_type`,
+  lista klawiszy działających w tle).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -64,7 +64,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Fazy akcji i zdarzenia `cursor` → `TurnControls`; SDK snapshot z `cursor` i `target` (fazy poza `idle` wysyła wykonawca z kroku 7).
 
 ### Krok 7 — wykonawca akcji macOS
-- [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported`.
+- [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed gotowe; fizyczne wejście w 7c).
+- [x] 7a: `act` po indeksie — klik przez `AXPress`/`AXShowMenu`, `set_value`, `perform_secondary_action` z listy elementu, `stale_state`/`no_state`, fazy kursora, świeży stan w odpowiedzi.
 - [ ] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key`.
 - [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu.
 - [ ] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza).

@@ -43,6 +43,14 @@ private func app(_ id: String, _ name: String, running: Bool = false, path: Stri
         #expect(AppCatalog.resolve("com.example.two", in: apps) == .resolved(apps[1]))
     }
 
+    @Test func asksTheSystemForAnIdentifierOutsideTheScannedFolders() {
+        let elsewhere = AppRecord(id: "com.example.elsewhere", name: "Elsewhere", path: "/tmp/Elsewhere.app", running: false)
+        let lookup = { (id: String) in id == elsewhere.id ? elsewhere : nil }
+        #expect(AppCatalog.resolve("com.example.elsewhere", in: [], lookup: lookup) == .resolved(elsewhere))
+        // Display names are never looked up this way: only identifiers are unique.
+        #expect(AppCatalog.resolve("Elsewhere", in: [], lookup: lookup) == .notFound)
+    }
+
     @Test func scansTheRealSystem() {
         let apps = AppCatalog.scan()
         #expect(apps.contains { $0.id == "com.apple.finder" && $0.running })

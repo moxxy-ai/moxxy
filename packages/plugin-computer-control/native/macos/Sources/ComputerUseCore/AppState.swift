@@ -8,6 +8,10 @@ final class TargetState {
     var elements: [Int: AXUIElement] = [:]
     /// Maps the last screenshot's pixels to the screen; `nil` until a screenshot was taken.
     var frame: CoordinateFrame?
+    /// The observed window, for the cursor overlay; `nil` until an observation found one.
+    var window: WindowCandidate?
+    /// Actions need indices from an observation made by this helper.
+    var observed = false
     /// Set by the action executor; the next observation settles as after an action.
     var lastAction: Date?
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
@@ -89,8 +93,10 @@ extension Methods {
         }
         let name = running.localizedName ?? bundleId
         let state = targets.state(for: bundleId)
+        state.observed = true
         guard case let .window(window) = found else {
             state.elements = [:]
+            state.window = nil
             return .object([
                 "tree": .object(["app": .string(name), "elements": .array([])]),
                 "screenshotUnavailable": .string("\(name) has no open window"),
@@ -103,7 +109,8 @@ extension Methods {
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
-        if let frame = root.frame { cursor?.attach(to: WindowCandidate(pid: running.processIdentifier, frame: frame, title: root.title)) }
+        state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
+        if let window = state.window { cursor?.attach(to: window) }
         var result: [String: JSONValue] = [:]
         state.frame = nil
         if params["screenshot"]?.boolValue == true {

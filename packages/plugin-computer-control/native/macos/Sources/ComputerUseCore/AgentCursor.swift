@@ -21,12 +21,39 @@ public final class AgentCursor: @unchecked Sendable {
         emit(CursorEvent.frame(phase: .idle, at: fraction))
     }
 
-    private func onMain(_ body: @MainActor (CursorOverlay) -> Void) {
+    /// Glides to `point` (screen) in `window`, then reports the phases around `body`: moving, executing,
+    /// then delivered or failed. Without a window there is nothing to draw over, so it only runs `body`.
+    func act(at point: CGPoint?, outline: CGRect?, in window: WindowCandidate?, _ body: () -> ActionResult) -> ActionResult {
+        guard let window else { return body() }
+        let from = fraction
+        if let point { fraction = OverlayGeometry.fraction(of: point, in: window.frame) }
+        let to = fraction
+        let id = WindowDirectory.onScreenWindowID(for: window)
+        emit(CursorEvent.frame(phase: .moving, at: to))
+        let glide = onMain { overlay -> Double in
+            guard let id else { overlay.hide(); return 0 }
+            overlay.show(above: id, frame: window.frame, at: from)
+            overlay.outline(outline)
+            return overlay.move(to: to)
+        }
+        if glide > 0 { Thread.sleep(forTimeInterval: glide) }
+        emit(CursorEvent.frame(phase: .executing, at: to))
+        let result = body()
+        let delivered = result.outcome == .delivered
+        onMain { overlay in
+            if delivered { overlay.press() }
+            overlay.outline(nil)
+        }
+        emit(CursorEvent.frame(phase: delivered ? .delivered : .failed, at: to))
+        return result
+    }
+
+    private func onMain<T: Sendable>(_ body: @MainActor (CursorOverlay) -> T) -> T {
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 let overlay = self.overlay ?? CursorOverlay()
                 self.overlay = overlay
-                body(overlay)
+                return body(overlay)
             }
         }
     }

@@ -39,6 +39,7 @@ public enum Methods {
             "list_apps": listApps,
             "resolve_apps": resolveApps,
             "get_app_state": { params in try appState(params, targets: targets, cursor: cursor) },
+            "act": { params in try act(params, targets: targets, cursor: cursor) },
             "permissions.request": { params in
                 guard let raw = params["kind"]?.stringValue, let kind = SystemPermissions.Kind(rawValue: raw) else {
                     throw HelperError.invalidParams("kind must be accessibility or screen_recording")
