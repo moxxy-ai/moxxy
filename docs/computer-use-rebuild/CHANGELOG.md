@@ -524,3 +524,64 @@ Commit kroku 5b: `582234da`.
 - `swift test` 46/46; `build.sh` OK; `npx vitest run` (plugin) 25 plików /
   244 testy; `tsc --noEmit` OK; eslint 0 błędów; `pnpm check:deps` 0 błędów;
   `pnpm build` 88/88.
+
+---
+
+## Krok 5d — settling i adapter macOS w TS (2026-09-30)
+
+Commit kroku 5c: `98a5ec9b`.
+
+**Co**
+- `native/macos/Sources/ComputerUseCore/Settle.swift`:
+  - `SettlePolicy` (`afterAction`: min 1 s, cisza 0,3 s, max 5 s;
+    `observeOnly`: bez minimum), `SettleClock` (czysta decyzja
+    `isSettled`/`nextCheck` w funkcji czasu).
+  - `BusyProbe` — spinner `AXBusyIndicator` w oknie albo `AXElementBusy`
+    wydłuża czekanie (pasek postępu z wartością nie, bo może być stanem
+    końcowym).
+  - `Settler` — `AXObserver` na aplikacji (zmiana wartości, utworzenie i
+    usunięcie elementu, układ, fokus, tytuł, zaznaczenie, liczba wierszy,
+    `AXElementBusyChanged`, `AXLoadComplete`) na głównej pętli; każde
+    zdarzenie budzi czekającego (semafor), a między zdarzeniami decyduje
+    `SettleClock`. Kontekst callbacku jest trzymany do zdjęcia źródła i
+    zwalniany na wątku głównym (bez wyścigu z trwającym callbackiem).
+- `get_app_state` czeka jak po akcji, gdy właśnie uruchomił aplikację albo
+  `TargetState.lastAction` (ustawi wykonawca w kroku 7) jest świeże; inaczej
+  tylko do braku spinnera.
+- Fixture: spinner przez 1,2 s po starcie, potem etykieta „Loaded”.
+- `src/macos/profile.ts` — `macosProfile` (`PlatformProfile` dla darwin:
+  helper, protokół v5, weryfikacja artefaktu, limit 30 s na żądanie, bo
+  uruchomienie + settling + zrzut mogą trwać kilka sekund).
+
+**Jak i dlaczego**
+- „Cisza” wymaga zegara z natury; zdarzenia AX skracają czekanie, a sonda
+  spinnera co 0,25 s działa tylko wtedy, gdy aplikacja sama pokazuje, że
+  ładuje.
+- Twarde maksimum 5 s jak u Codexa: model dostaje stan, a nie czeka bez
+  końca.
+
+**Testy (Red → Green)**
+- Red Swift: `cannot find 'SettlePolicy' / 'SettleClock' / 'BusyProbe'`.
+- Red TS: stan fixture wracał po 823 ms bez „Loaded”; potem
+  `Cannot read properties of undefined (reading 'helperPath')` (brak
+  `macosProfile`).
+- Po drodze: dwa testy `SettleClock` padły przez arytmetykę
+  zmiennoprzecinkową w samych testach (1,2 − 0,9 < 0,3) — przepisane na
+  wartości dokładne binarnie (0,25; 0,875; 1,125).
+- Green: `swift test` 53/53; `src/macos/helper.test.ts` 13/13, w tym
+  „czeka na załadowanie świeżo uruchomionej aplikacji” (< 6 s, jest
+  „Loaded”, brak spinnera) i end-to-end `ComputerBackend` z `macosProfile`
+  (zgoda na fixture `full`, stan jako JPEG + tekst z `button "Press"`, bez
+  hasła).
+
+**Walidacja**
+- `swift test` 53/53; `build.sh` i `build-fixture.sh` OK.
+- `npx vitest run` (plugin) — 25 plików / 246 testów.
+- `tsc --noEmit` OK; eslint 0 błędów (1 istniejące ostrzeżenie);
+  `pnpm check:deps` 0 błędów; `pnpm build` 88/88.
+- desktop-host `computer-update.test.ts` 11/11; skrypty `node --test` 9/9.
+
+**Dla następcy**
+- Wybór okna przez `window_id` na macOS nie jest jeszcze obsługiwany
+  (bierzemy okno z fokusem → główne → pierwsze); do rozważenia przy
+  wielookienkowych aplikacjach.

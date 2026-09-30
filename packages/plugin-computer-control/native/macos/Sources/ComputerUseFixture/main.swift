@@ -36,7 +36,18 @@ func makeWindow(_ controller: Controller) -> NSWindow {
     // Plain containers without titles or actions: the tree must not list them.
     let inner = NSStackView(views: [press, remember, size, disabled])
     inner.orientation = .horizontal
-    let outer = NSStackView(views: [name, secret, inner, control(controller.status, "status")])
+    // Content that finishes loading after launch, behind a spinner: settling must wait for it.
+    let spinner = NSProgressIndicator()
+    spinner.style = .spinning
+    spinner.isIndeterminate = true
+    spinner.startAnimation(nil)
+    let loading = NSStackView(views: [spinner])
+    let outer = NSStackView(views: [name, secret, inner, control(controller.status, "status"), loading])
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        spinner.stopAnimation(nil)
+        loading.removeView(spinner)
+        loading.addView(control(NSTextField(labelWithString: "Loaded"), "loaded"), in: .leading)
+    }
     outer.orientation = .vertical
     outer.alignment = .leading
     outer.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)

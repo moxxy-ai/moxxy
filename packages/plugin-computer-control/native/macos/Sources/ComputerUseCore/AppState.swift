@@ -8,6 +8,9 @@ final class TargetState {
     var elements: [Int: AXUIElement] = [:]
     /// Maps the last screenshot's pixels to the screen; `nil` until a screenshot was taken.
     var frame: CoordinateFrame?
+    /// Set by the action executor; the next observation settles as after an action.
+    var lastAction: Date?
+    var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
 }
 
 /// Per-app state for this helper's lifetime. Touched only from the serial request queue.
@@ -75,10 +78,12 @@ extension Methods {
         guard AXIsProcessTrusted() else {
             throw HelperError(code: "permissions_not_granted", message: "Accessibility is not allowed for this app")
         }
+        var launched = AppLauncher.runningApp(bundleId) == nil
         var running = try AppLauncher.running(bundleId)
         var found = AppLauncher.window(of: running)
         if case .exited = found {
             // It was quitting when we found it; start it again once.
+            launched = true
             running = try AppLauncher.running(bundleId)
             found = AppLauncher.window(of: running)
         }
@@ -91,6 +96,8 @@ extension Methods {
                 "screenshotUnavailable": .string("\(name) has no open window"),
             ])
         }
+        // A fresh launch is still loading, like the app right after an action.
+        Settler.settle(pid: running.processIdentifier, window: window, policy: launched || state.recentlyActed ? .afterAction : .observeOnly)
         let reader = AXReader()
         let root = reader.snapshot(window)
         let built = TreeBuilder.build(root, limit: treeLimit)

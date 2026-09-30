@@ -6,7 +6,11 @@ import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport } from '../helper/transport.js';
 import { CONTRACT_PROTOCOL_VERSION, appStateSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
-import { macosHelperPath } from './profile.js';
+import { macosHelperPath, macosProfile } from './profile.js';
+import { ComputerBackend } from '../backend/backend.js';
+import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
+import { memoryLog, toolContext } from '../backend/helper.fixture.js';
+import type { MoxxyEvent, ToolImageResult } from '@moxxy/sdk';
 
 // Talks to the real universal helper built by native/macos/build.sh; other hosts and unbuilt trees skip.
 const built = process.platform === 'darwin' && existsSync(macosHelperPath);
@@ -113,6 +117,18 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await transport.close(); }
   });
 
+  it('waits for a freshly launched app to finish loading', async () => {
+    await quitFixture();
+    const transport = start();
+    try {
+      const started = performance.now();
+      const state = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      expect(performance.now() - started).toBeLessThan(6000);
+      expect(state.tree.elements.find((element) => element.key.endsWith('text:loaded'))?.title).toBe('Loaded');
+      expect(state.tree.elements.some((element) => element.role.includes('busy') || element.role.includes('progress'))).toBe(false);
+    } finally { await transport.close(); }
+  });
+
   it('keeps every element index across observations', async () => {
     const transport = start();
     try {
@@ -141,6 +157,31 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       expect(frame.y + frame.height).toBeLessThanOrEqual(height);
       expect(frame.width).toBeGreaterThan(10);
     } finally { await transport.close(); }
+  });
+
+  it('serves the model tools end to end through the shared backend', async () => {
+    const backend = new ComputerBackend(macosProfile);
+    const tools = new Map(backend.tools().map((tool) => [tool.name, tool]));
+    const events: MoxxyEvent[] = [];
+    const run = async (name: string, input: unknown, callId = 'c') => {
+      const tool = tools.get(name);
+      if (!tool) throw new Error(name);
+      return tool.handler(tool.inputSchema.parse(input), toolContext(memoryLog(events), { callId }));
+    };
+    try {
+      const request = { apps: [FIXTURE], reason: 'Integration test' };
+      const base = { id: 'e', seq: 0, ts: 0, sessionId: 'session', turnId: 'turn', source: 'system' };
+      events.push({ ...base, type: 'tool_call_requested', callId: 'grant', name: REQUEST_ACCESS_TOOL, input: request } as MoxxyEvent);
+      events.push({ ...base, type: 'tool_call_approved', callId: 'grant', decidedBy: 'resolver', mode: 'allow' } as MoxxyEvent);
+      const grant = await run(REQUEST_ACCESS_TOOL, request, 'grant');
+      events.push({ ...base, type: 'tool_result', callId: 'grant', ok: true, output: grant } as MoxxyEvent);
+      expect(grant).toMatchObject({ granted: [{ id: FIXTURE, name: 'Moxxy Computer Fixture', tier: 'full' }] });
+      const state = await run('computer_get_app_state', { app: FIXTURE }) as ToolImageResult;
+      expect(state.mediaType).toBe('image/jpeg');
+      expect(state.forModel).toContain('<app_content app="Moxxy Computer Fixture" trust="untrusted">');
+      expect(state.forModel).toMatch(/\[\d+\] button "Press"/);
+      expect(state.forModel).not.toContain('hunter2');
+    } finally { await backend.release('session'); }
   });
 
   it('refuses an app it cannot find', async () => {
