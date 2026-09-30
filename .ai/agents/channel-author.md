@@ -83,6 +83,28 @@ The CLI's `run-channel.ts` orchestrates the boot:
 
 For channels that serve **concurrent turns on one Session** (HTTP), make sure `core/src/run-turn.ts`'s turnId filter is doing its job — every subscriber there filters by `event.turnId === turnId`. If you wrap your own subscriber, do the same.
 
+## Messenger bots: build on `@moxxy/channel-kit`
+
+A bot on a messenger (Telegram, Discord, Slack, …) gets the shared behaviour
+from `@moxxy/channel-kit` and keeps only the messenger's transport, formatting
+and pairing. Telegram and Discord are the reference adapters:
+
+| Behaviour | channel-kit piece |
+|---|---|
+| One turn at a time, per-turn cancel, own-turn ids | `TurnCoordinator`, `subscribeTurn`, `driveTurn` |
+| A message written in the desktop shows on the messenger with its reply | `ForeignTurnMirror` + `MirrorTarget` (last chat, else the paired owner) |
+| The bot's own model (`<channel>_model` vault key, also set from Channels → Setup) | `runModelCommand`, `modelSuggestions`, `resolveChannelModel`, `savedChannelModel` |
+| `/auto-approve` shared with the desktop's chat with the bot | `AutoApproveSwitch` |
+| `/new`, `/clear`, `/exit` from registered commands | `applySessionAction` |
+| Telling the model where it replies (send files, ask choices in chat) | `channelTurnContext({ service, sendTool, delivery, uploadLimit })` |
+| Files the agent sends from any session (`<channel>_send_message`) | `readLocalFiles` |
+| Spoken replies | `deliverVoiceReply`, `resolveVoiceToggle` |
+
+For the desktop to offer the bot's model and the background run mode, give the
+channel's catalog entry (`packages/desktop-host/src/channel-catalog.ts`)
+`supportsModel`, `supportsBackground` and `modelVaultKey`, and add a headless
+unit to `moxxy service` (`packages/cli/src/commands/service.ts`).
+
 ## Subcommands
 
 Channels expose maintenance ops via `subcommands` on the ChannelDef. The dispatcher routes `moxxy channels <name> <sub> [args]` to `def.subcommands[sub].run({deps, args, startChannel})`.

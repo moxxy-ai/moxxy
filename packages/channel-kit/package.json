@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",

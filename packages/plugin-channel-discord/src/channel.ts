@@ -9,14 +9,24 @@ import {
   type Message,
 } from 'discord.js';
 import { newTurnId } from '@moxxy/core';
-import { TurnCoordinator, deliverVoiceReply, resolveVoiceToggle } from '@moxxy/channel-kit';
+import {
+  AutoApproveSwitch,
+  ForeignTurnMirror,
+  MirrorTarget,
+  TurnCoordinator,
+  deliverVoiceReply,
+  modelSuggestions,
+  resolveChannelModel,
+  resolveVoiceToggle,
+  runModelCommand,
+  type ModelSuggestion,
+} from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
   Channel,
   ChannelHandle,
   ChannelStartOptsBase,
-  MoxxyEvent,
   PendingToolCall,
   PermissionContext,
 } from '@moxxy/sdk';
@@ -25,6 +35,7 @@ import { DiscordPermissionResolver } from './permission.js';
 import { DiscordApprovalResolver } from './approval.js';
 import {
   resolveBotToken,
+  DISCORD_MODEL_KEY,
   DISCORD_TOKEN_KEY,
   loadVoiceReplies,
   saveVoiceReplies,
@@ -46,19 +57,11 @@ import { askForApproval } from './channel/approval-prompt.js';
 import { publishAppCommands } from './channel/slash-handler.js';
 import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
-import {
-  modelSuggestions,
-  resolveChannelModel,
-  runModelCommand,
-  type ModelSuggestion,
-} from './channel/model-command.js';
-import { AutoApproveSwitch } from './channel/auto-approve-switch.js';
 import { Calls, pickCallChannel, type CallPorts } from './voice-call/calls.js';
 import { connectVoice, onOwnerMoved, viewGuilds } from './voice-call/discord-voice.js';
 import { speakForCall, transcribeForCall } from './voice-call/speech.js';
 import type { CallTurnListener } from './voice-call/call.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
-import { MirrorTarget } from './channel/mirror-target.js';
 
 /** Cap on waiting for the gateway READY event (bot identity → invite link).
  *  Identity resolution must never wedge `start()`; on timeout we proceed
@@ -123,9 +126,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private currentChannel: SendableChannelLike | null = null;
   // Where replies to foreign turns (e.g. typed in the desktop chat) go: the
   // last channel we served, else the paired owner's DM.
-  private readonly mirrorTarget = new MirrorTarget(() => this.openOwnerDm());
-  // Serializes mirrored posts so replies keep their order in Discord.
-  private mirrorQueue: Promise<void> = Promise.resolve();
+  private readonly mirrorTarget = new MirrorTarget<SendableChannelLike>(() => this.openOwnerDm());
   private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
@@ -140,8 +141,20 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private voiceReplies = false;
   // Single-flight turn state: `busy` guard, per-turn AbortController (so
   // /cancel aborts only the current turn), and the bounded own-turn-id set
-  // that mirrorForeignTurn filters on (AGENTS.md invariant #8).
+  // that the mirror filters on (AGENTS.md invariant #8).
   private readonly turns = new TurnCoordinator();
+  // Posts turns another surface ran (the desktop's chat with this bot) here —
+  // the prompt, then the reply, which a call also says aloud.
+  private readonly mirror = new ForeignTurnMirror<SendableChannelLike>({
+    turns: this.turns,
+    target: this.mirrorTarget,
+    post: async (target, text) => {
+      for (const part of splitForDiscord(text)) await target.send(part);
+    },
+    formatPrompt: (prompt) => `*typed in moxxy:* ${prompt}`,
+    onReply: (reply) => this.calls.say(reply),
+    onError: (err) => this.opts.logger?.warn('discord mirror failed', { err: String(err) }),
+  });
   private awaitingApprovalText: AwaitingApprovalText | null = null;
   private handle: ChannelHandle | null = null;
   private readonly typing = new TypingIndicator();
@@ -257,7 +270,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     // Mirror-to-both: when the session runs a turn this channel did NOT
     // initiate (e.g. a co-attached web surface), post the assistant's prose
     // into the last channel we served. Our OWN turns render via the pump.
-    this.logUnsub = this.session.log.subscribe((event) => this.mirrorForeignTurn(event));
+    this.logUnsub = this.session.log.subscribe((event) => this.mirror.accept(event));
 
     // discord.js does not await event handlers, but we still fire-and-track so
     // rejections are logged (they would otherwise be unhandled rejections).
@@ -566,7 +579,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     // Atomic single-flight guard: `begin` claims the slot synchronously so a
     // concurrently dispatched second turn can't slip past the busy check. The
     // turnId is minted here so the coordinator records it as an own-turn id
-    // (mirrorForeignTurn filters on those).
+    // (the mirror filters on those).
     const lease = this.turns.begin(newTurnId());
     if (!lease) {
       await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
@@ -575,7 +588,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     this.currentChannel = ctx.channel;
     this.mirrorTarget.remember(ctx.channel);
     try {
-      const channelModel = await resolveChannelModel({ session: this.session, vault: this.opts.vault });
+      const channelModel = await resolveChannelModel(this.modelDeps(this.session));
       if (channelModel.warning) await ctx.reply(channelModel.warning);
       await runDiscordTurn(
         {
@@ -618,13 +631,18 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   /** Handle `/model [name|default]` (plain-text and application-command paths). */
   private async modelCommand(arg: string): Promise<string> {
     if (!this.session) return 'Session is not ready yet.';
-    return runModelCommand(arg, { session: this.session, vault: this.opts.vault });
+    return runModelCommand(arg, this.modelDeps(this.session));
   }
 
   /** Autocomplete for `/model name:` — the models matching what's typed. */
   private async modelSuggestions(query: string): Promise<ModelSuggestion[]> {
     if (!this.session) return [];
-    return modelSuggestions(query, { session: this.session, vault: this.opts.vault });
+    return modelSuggestions(query, this.modelDeps(this.session));
+  }
+
+  /** This bot's model lives under its own vault key (see resolveChannelModel). */
+  private modelDeps(session: Session) {
+    return { session, vault: this.opts.vault, vaultKey: DISCORD_MODEL_KEY };
   }
 
   private async setVoiceReplies(on: boolean): Promise<void> {
@@ -660,31 +678,6 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         ...(outcome.error ? { err: outcome.error } : {}),
       });
     }
-  }
-
-  /**
-   * Post a turn this channel did not initiate (a message written in the
-   * desktop's chat with the bot): its prompt, then the assistant's prose — also
-   * said aloud while a call is on. The coordinator skips turns THIS channel
-   * started, by turnId (invariant #8); we only need a served channel to post into.
-   */
-  private mirrorForeignTurn(event: MoxxyEvent): void {
-    const prompt = this.turns.mirrorPrompt(event);
-    const reply = this.turns.mirrorText(event);
-    if (reply != null) this.calls.say(reply);
-    const text = prompt != null ? `*typed in moxxy:* ${prompt}` : reply;
-    if (text == null) return;
-    this.mirrorQueue = this.mirrorQueue
-      .then(async () => {
-        const target = await this.mirrorTarget.resolve();
-        if (!target) return;
-        for (const part of splitForDiscord(text)) {
-          await target.send(part);
-        }
-      })
-      .catch((err) => {
-        this.opts.logger?.warn('discord mirror failed', { err: String(err) });
-      });
   }
 
   /** The paired owner's DM channel, or null while unpaired / logged out. */

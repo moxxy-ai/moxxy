@@ -1,8 +1,6 @@
-import { readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import path from 'node:path';
 import { REST, Routes, type RawFile } from 'discord.js';
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
+import { readLocalFiles } from '@moxxy/channel-kit';
 import {
   DISCORD_AUTHORIZED_USER_KEY,
   DISCORD_TOKEN_ENV,
@@ -31,28 +29,6 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 10;
 
 const dmChannelSchema = z.object({ id: z.string().min(1) });
-
-/** Read the files to attach, refusing anything Discord would reject — before
- *  any request goes out. Relative paths resolve against the session cwd. */
-async function readAttachments(paths: ReadonlyArray<string>, cwd: string): Promise<RawFile[]> {
-  const files: RawFile[] = [];
-  let total = 0;
-  for (const raw of paths) {
-    const expanded = raw === '~' || raw.startsWith('~/') ? path.join(homedir(), raw.slice(1)) : raw;
-    const full = path.resolve(cwd, expanded);
-    const info = await stat(full).catch(() => null);
-    if (!info?.isFile()) throw new Error(`${raw} is not a file`);
-    total += info.size;
-    if (total > MAX_UPLOAD_BYTES) {
-      const mb = (total / (1024 * 1024)).toFixed(1);
-      throw new Error(
-        `attachments total ${mb} MB — Discord accepts at most 10 MB per bot message; share a smaller file or a link instead`,
-      );
-    }
-    files.push({ name: path.basename(full), data: await readFile(full) });
-  }
-  return files;
-}
 
 /**
  * One-off client: the sweeper timers only matter for a long-lived client, and
@@ -108,7 +84,14 @@ export function buildDiscordSendMessageTool(deps: DiscordSendMessageToolDeps): T
         throw new Error('no paired Discord account — run `moxxy channels discord pair` first');
       }
 
-      const files = await readAttachments(filePaths ?? [], ctx.cwd);
+      const files: RawFile[] = (
+        await readLocalFiles(filePaths ?? [], {
+          cwd: ctx.cwd,
+          maxTotalBytes: MAX_UPLOAD_BYTES,
+          service: 'Discord',
+          limitLabel: '10 MB per bot message',
+        })
+      ).map((f) => ({ name: f.name, data: f.data }));
 
       const rest = createRest(token);
       const dm = dmChannelSchema.parse(

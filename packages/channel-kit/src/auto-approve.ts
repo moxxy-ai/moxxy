@@ -1,7 +1,7 @@
 import type { ClientSession } from '@moxxy/sdk';
 
 /**
- * The bot's `/auto-approve`. Auto-approve belongs to the conversation: the
+ * A channel bot's `/auto-approve`. Auto-approve belongs to the conversation: the
  * session records the switch, so the desktop's chat with this bot (and any
  * other client) shows and changes the same state, and the core session allows
  * tool calls before the bot's resolver is ever asked. A runner that predates

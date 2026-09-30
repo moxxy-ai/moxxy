@@ -6,7 +6,7 @@ import type { AllowListStore } from './allow-list-store.js';
 import type { ChannelLogger } from './discord-like.js';
 import type { AwaitingApprovalText } from './message-handler.js';
 import type { PairingHandler } from './pairing-handler.js';
-import type { ModelSuggestion } from './model-command.js';
+import type { ModelSuggestion } from '@moxxy/channel-kit';
 import { APP_COMMAND_ARG_OPTION, runSlash } from './slash-handler.js';
 
 /**

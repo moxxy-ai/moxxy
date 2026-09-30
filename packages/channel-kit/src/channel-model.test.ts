@@ -6,9 +6,9 @@ import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { FakeProvider } from '@moxxy/testing';
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
-import { DISCORD_MODEL_KEY } from '../keys.js';
-import { modelSuggestions, resolveChannelModel, runModelCommand } from './model-command.js';
-import { buildAppCommands } from './slash-handler.js';
+import { modelSuggestions, resolveChannelModel, runModelCommand, savedChannelModel } from './channel-model.js';
+
+const MODEL_KEY = 'test_bot_model';
 
 let tmp: string;
 let vault: VaultStore;
@@ -27,7 +27,7 @@ function providerDef(name: string, modelIds: ReadonlyArray<string>) {
 }
 
 beforeEach(async () => {
-  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-dc-model-'));
+  tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-channel-model-'));
   vault = new VaultStore({
     filePath: path.join(tmp, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
@@ -35,7 +35,7 @@ beforeEach(async () => {
   session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
   session.pluginHost.registerStatic(
     definePlugin({
-      name: 'discord-model-test',
+      name: 'channel-model-test',
       providers: [providerDef('alpha', ['a-small', 'a-large']), providerDef('beta', ['b-fast'])],
     }),
   );
@@ -48,7 +48,7 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
-const deps = () => ({ session, vault });
+const deps = () => ({ session, vault, vaultKey: MODEL_KEY });
 
 describe('/model', () => {
   it('without an argument says the bot runs the default model and lists the choices', async () => {
@@ -63,7 +63,7 @@ describe('/model', () => {
   });
 
   it('marks the channel model as current when one is saved', async () => {
-    await vault.set(DISCORD_MODEL_KEY, 'beta::b-fast');
+    await vault.set(MODEL_KEY, 'beta::b-fast');
 
     const reply = await runModelCommand('', deps());
 
@@ -75,22 +75,22 @@ describe('/model', () => {
     const reply = await runModelCommand('beta::b-fast', deps());
 
     expect(reply).toMatch(/✓.*beta::b-fast/);
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBe('beta::b-fast');
+    expect(await vault.get(MODEL_KEY)).toBe('beta::b-fast');
     expect(session.providers.getActiveName()).toBe('beta');
   });
 
   it('switches by a bare model id', async () => {
     await runModelCommand('a-large', deps());
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBe('alpha::a-large');
+    expect(await vault.get(MODEL_KEY)).toBe('alpha::a-large');
   });
 
   it('"default" forgets the channel model', async () => {
-    await vault.set(DISCORD_MODEL_KEY, 'beta::b-fast');
+    await vault.set(MODEL_KEY, 'beta::b-fast');
 
     const reply = await runModelCommand('default', deps());
 
     expect(reply).toMatch(/default/i);
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBeNull();
+    expect(await vault.get(MODEL_KEY)).toBeNull();
   });
 
   it('refuses a provider that is not connected and keeps the saved model', async () => {
@@ -99,7 +99,7 @@ describe('/model', () => {
     const reply = await runModelCommand('beta::b-fast', deps());
 
     expect(reply).toMatch(/isn't connected/);
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBeNull();
+    expect(await vault.get(MODEL_KEY)).toBeNull();
     expect(session.providers.getActiveName()).toBe('alpha');
   });
 
@@ -109,7 +109,7 @@ describe('/model', () => {
     expect(reply).toMatch(/more specific/i);
     expect(reply).toContain('alpha::a-small');
     expect(reply).toContain('alpha::a-large');
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBeNull();
+    expect(await vault.get(MODEL_KEY)).toBeNull();
   });
 
   it('says so when nothing matches', async () => {
@@ -123,7 +123,7 @@ describe('resolveChannelModel (before every turn)', () => {
   });
 
   it('applies the saved channel model — also one changed from the desktop while the bot runs', async () => {
-    await vault.set(DISCORD_MODEL_KEY, 'beta::b-fast');
+    await vault.set(MODEL_KEY, 'beta::b-fast');
 
     expect(await resolveChannelModel(deps())).toEqual({ model: 'b-fast' });
     expect(session.providers.getActiveName()).toBe('beta');
@@ -131,7 +131,7 @@ describe('resolveChannelModel (before every turn)', () => {
 
   it('falls back to the default with a warning when the saved provider is not connected', async () => {
     session.readyProviders = new Set(['alpha']);
-    await vault.set(DISCORD_MODEL_KEY, 'beta::b-fast');
+    await vault.set(MODEL_KEY, 'beta::b-fast');
 
     const out = await resolveChannelModel(deps());
 
@@ -141,20 +141,10 @@ describe('resolveChannelModel (before every turn)', () => {
   });
 });
 
-describe('the /model application command', () => {
-  it('is published with an optional "name" option that suggests models as you type', () => {
-    const cmd = buildAppCommands(session).find((c) => c.name === 'model');
-    expect(cmd).toBeDefined();
-    expect(cmd?.options).toEqual([
-      expect.objectContaining({ type: 3, name: 'name', required: false, autocomplete: true }),
-    ]);
-  });
-});
-
-describe('/model suggestions (the list Discord shows under the "name" option)', () => {
+describe('/model suggestions (what a picker offers as the user types)', () => {
   it('offers the default and every model, marking the current and the unconnected ones', async () => {
     session.readyProviders = new Set(['alpha']);
-    await vault.set(DISCORD_MODEL_KEY, 'alpha::a-large');
+    await vault.set(MODEL_KEY, 'alpha::a-large');
 
     const choices = await modelSuggestions('', deps());
 
@@ -176,30 +166,31 @@ describe('/model suggestions (the list Discord shows under the "name" option)', 
 
     await runModelCommand(picked?.value ?? '', deps());
 
-    expect(await vault.get(DISCORD_MODEL_KEY)).toBe('beta::b-fast');
+    expect(await vault.get(MODEL_KEY)).toBe('beta::b-fast');
   });
 
-  it('stays within the 25 choices Discord accepts', async () => {
+  it('stays within the 25 choices a picker shows by default', async () => {
     const many = Array.from({ length: 40 }, (_, i) => `m-${i}`);
     session.pluginHost.registerStatic(
-      definePlugin({ name: 'discord-many-models', providers: [providerDef('gamma', many)] }),
+      definePlugin({ name: 'channel-many-models', providers: [providerDef('gamma', many)] }),
     );
 
     expect(await modelSuggestions('', deps())).toHaveLength(25);
   });
 });
 
-describe('the /auto-approve application command', () => {
-  it('is published as /auto-approve (the /yolo name stays a typed alias only)', () => {
-    const names = buildAppCommands(session).map((c) => c.name);
-    expect(names).toContain('auto-approve');
-    expect(names).not.toContain('yolo');
+describe('savedChannelModel', () => {
+  it('reads the choice the channel saved, or null for the default', async () => {
+    expect(await savedChannelModel(deps())).toBeNull();
+    await vault.set(MODEL_KEY, 'beta::b-fast');
+    expect(await savedChannelModel(deps())).toEqual({ provider: 'beta', model: 'b-fast' });
   });
 });
 
-describe('the voice call application commands', () => {
-  it('publishes /call and /hangup', () => {
-    const names = buildAppCommands(session).map((c) => c.name);
-    expect(names).toEqual(expect.arrayContaining(['call', 'hangup']));
+describe('the saved model belongs to one channel', () => {
+  it("a switch saved under one bot's key is not another bot's model", async () => {
+    await runModelCommand('beta::b-fast', deps());
+
+    expect(await resolveChannelModel({ session, vault, vaultKey: 'other_bot_model' })).toEqual({});
   });
 });

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import type { ClientSession } from '@moxxy/sdk';
-import { AutoApproveSwitch } from './auto-approve-switch.js';
+import { AutoApproveSwitch } from './auto-approve.js';
 
 const conversation = () =>
   new Session({ cwd: '/tmp', logger: silentLogger, permissionResolver: autoAllowResolver });
 
-describe('the bot\'s /auto-approve switch', () => {
+describe('a channel bot\'s /auto-approve switch', () => {
   it('switches the conversation\'s auto-approve, so the desktop chat shows the same state', async () => {
     const session = conversation();
     const autoApprove = new AutoApproveSwitch(() => session);

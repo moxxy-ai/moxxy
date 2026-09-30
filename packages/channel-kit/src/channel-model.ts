@@ -7,14 +7,14 @@ import {
   type ModelChoice,
   type ModelOption,
   type ModelSwitchSession,
-} from '@moxxy/channel-kit';
-import { DISCORD_MODEL_KEY } from '../keys.js';
+} from './model-choice.js';
 
 /**
- * The Discord bot's own model: a channel-scoped choice (`discord_model` in the
- * vault) — NOT the global default, so switching the bot's model never changes
- * what the desktop/TUI run with. Read before every turn, so a change made from
- * the desktop panel or `/model` applies to the next message without a restart.
+ * A channel bot's own model: a channel-scoped choice (`<channel>_model` in the
+ * vault — the key the desktop's channel panel writes too) — NOT the global
+ * default, so switching the bot's model never changes what the desktop/TUI run
+ * with. Read before every turn, so a change made from the desktop panel or
+ * `/model` applies to the next message without a restart.
  */
 
 export interface ModelCommandDeps {
@@ -24,14 +24,18 @@ export interface ModelCommandDeps {
     set(name: string, value: string): Promise<void>;
     delete(name: string): Promise<boolean>;
   };
+  /** The vault key this channel keeps its choice under (`discord_model`, …). */
+  readonly vaultKey: string;
 }
 
-/** Lines of choices a reply lists (Discord messages cap at 2000 chars). */
+/** Lines of choices a reply lists (fits the smallest messenger cap, 2000 chars). */
 const LIST_CAP = 25;
 
-async function loadChoice(deps: ModelCommandDeps): Promise<ModelChoice | null> {
-  return parseModelChoice(await deps.vault.get(DISCORD_MODEL_KEY));
+/** The model this channel saved, or null when it runs the default model. */
+export async function savedChannelModel(deps: ModelCommandDeps): Promise<ModelChoice | null> {
+  return parseModelChoice(await deps.vault.get(deps.vaultKey));
 }
+
 
 function isSame(a: ModelChoice | null, b: ModelChoice): boolean {
   return a != null && a.provider === b.provider && a.model === b.model;
@@ -49,7 +53,7 @@ function renderList(options: ReadonlyArray<ModelOption>, current: ModelChoice | 
 /** `/model [name|default]` — show, switch, or reset this bot's model. */
 export async function runModelCommand(arg: string, deps: ModelCommandDeps): Promise<string> {
   const query = arg.trim();
-  const current = await loadChoice(deps);
+  const current = await savedChannelModel(deps);
   const options = listModelOptions(deps.session);
 
   if (!query) {
@@ -60,7 +64,7 @@ export async function runModelCommand(arg: string, deps: ModelCommandDeps): Prom
   }
 
   if (query.toLowerCase() === 'default') {
-    await deps.vault.delete(DISCORD_MODEL_KEY);
+    await deps.vault.delete(deps.vaultKey);
     return '✓ back to the default model.';
   }
 
@@ -71,18 +75,18 @@ export async function runModelCommand(arg: string, deps: ModelCommandDeps): Prom
   const [picked] = matches as [ModelOption];
   const applied = await applyModelChoice(deps.session, picked);
   if (!applied.ok) return applied.message;
-  await deps.vault.set(DISCORD_MODEL_KEY, formatModelChoice(picked));
+  await deps.vault.set(deps.vaultKey, formatModelChoice(picked));
   return `✓ switched to ${formatModelChoice(picked)} for this bot.`;
 }
 
-/** One entry Discord shows under `/model name:` (its cap: 25 per response). */
+/** One entry a model picker shows (Discord's `/model name:` caps a response at 25). */
 export interface ModelSuggestion {
   readonly name: string;
   readonly value: string;
 }
 
 const SUGGESTION_CAP = 25;
-/** Discord limits a choice's label and value to 100 chars. */
+/** Discord limits a choice's label and value to 100 chars; others fit it too. */
 const CHOICE_TEXT_CAP = 100;
 
 /**
@@ -92,7 +96,7 @@ const CHOICE_TEXT_CAP = 100;
  */
 export async function modelSuggestions(query: string, deps: ModelCommandDeps): Promise<ModelSuggestion[]> {
   const q = query.trim().toLowerCase();
-  const current = await loadChoice(deps);
+  const current = await savedChannelModel(deps);
   const models = listModelOptions(deps.session)
     .filter((o) => formatModelChoice(o).toLowerCase().includes(q))
     .map((o) => {
@@ -109,9 +113,9 @@ export async function modelSuggestions(query: string, deps: ModelCommandDeps): P
  * provider can't be activated falls back to the default with a warning to show.
  */
 export async function resolveChannelModel(
-  deps: Pick<ModelCommandDeps, 'session' | 'vault'>,
+  deps: ModelCommandDeps,
 ): Promise<{ readonly model?: string; readonly warning?: string }> {
-  const choice = await loadChoice(deps);
+  const choice = await savedChannelModel(deps);
   if (!choice) return {};
   const applied = await applyModelChoice(deps.session, choice);
   if (!applied.ok) {
