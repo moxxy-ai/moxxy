@@ -3,7 +3,7 @@ import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, typ
 import { z } from 'zod';
 import { HelperTransport } from '../helper/transport.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
-import { TurnControls } from './control-service.js';
+import { TurnControls } from '../backend/turn-controls.js';
 import { withWindowsComputerGuidance } from './guidance.js';
 import {
   captureSchema, clickSchema, clipboardSchema, dragSchema, keySchema, observeSchema,

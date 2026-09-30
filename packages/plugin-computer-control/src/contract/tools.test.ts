@@ -2,7 +2,7 @@ import { zodToJsonSchema } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import { batchActionNames, computerTools, resolveTarget } from './tools.js';
 
-const input = <N extends keyof typeof computerTools>(name: N) => computerTools[name].input;
+const input = <N extends keyof typeof computerTools>(name: N): (typeof computerTools)[N]['input'] => computerTools[name].input;
 
 describe('computerTools', () => {
   it('exposes the Codex/Claude-style tool set', () => {
@@ -133,6 +133,8 @@ describe('observation and access tools', () => {
       .toEqual({ apps: ['Notes'], reason: 'Write the list', clipboard_write: true });
     expect(() => input('computer_request_access').parse({ apps: [], reason: 'x' })).toThrow(/apps/);
     expect(() => input('computer_request_access').parse({ apps: ['Notes'] })).toThrow(/reason/);
+    expect(input('computer_request_access').parse({ apps: ['Safari'], reason: 'Form', full_access: ['Safari'] }).full_access).toEqual(['Safari']);
+    expect(() => input('computer_request_access').parse({ apps: ['Notes'], reason: 'x', full_access: ['Safari'] })).toThrow(/full_access/);
   });
 
   it('zooms into a positive region and scales screenshots within [0.1, 1]', () => {

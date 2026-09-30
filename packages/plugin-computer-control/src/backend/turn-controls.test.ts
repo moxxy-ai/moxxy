@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { HelperTransport } from '../helper/transport.js';
-import { PROTOCOL_VERSION } from './contracts.js';
-import { TurnControls } from './control-service.js';
+import { PROTOCOL_VERSION } from '../windows/contracts.js';
+import { TurnControls } from './turn-controls.js';
 
 it('distinguishes the independent panel Stop from a crashed worker', async () => {
   const controls = new TurnControls();

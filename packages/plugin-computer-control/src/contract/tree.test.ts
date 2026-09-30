@@ -3,12 +3,11 @@ import { appTreeSchema, diffTrees, formatTree, type AppTree } from './tree.js';
 
 const tree = (elements: AppTree['elements']): AppTree => ({ app: 'TextEdit', window: 'Untitled', elements });
 
-const base = tree([
-  { key: 'w', index: 0, depth: 0, role: 'window', title: 'Untitled' },
-  { key: 'w/close', index: 1, depth: 1, role: 'button', title: 'Close', actions: ['AXPress'] },
-  { key: 'w/text', index: 2, depth: 1, role: 'text area', value: 'hello', states: ['focused'] },
-  { key: 'w/format', index: 3, depth: 1, role: 'pop up button', title: 'Format', actions: ['AXShowMenu'] },
-]);
+const window = { key: 'w', index: 0, depth: 0, role: 'window', title: 'Untitled' };
+const close = { key: 'w/close', index: 1, depth: 1, role: 'button', title: 'Close', actions: ['AXPress'] };
+const text = { key: 'w/text', index: 2, depth: 1, role: 'text area', value: 'hello', states: ['focused' as const] };
+const format = { key: 'w/format', index: 3, depth: 1, role: 'pop up button', title: 'Format', actions: ['AXShowMenu'] };
+const base = tree([window, close, text, format]);
 
 describe('formatTree', () => {
   it('prints one indexed, indented line per element', () => {
@@ -45,13 +44,7 @@ describe('diffTrees', () => {
   });
 
   it('lists added, removed and changed elements only', () => {
-    const next = tree([
-      base.elements[0],
-      base.elements[1],
-      { ...base.elements[2], value: 'hello world' },
-      base.elements[3],
-      { key: 'w/sheet', index: 4, depth: 1, role: 'sheet', title: 'Save' },
-    ].filter((element) => element.key !== 'w/close'));
+    const next = tree([window, { ...text, value: 'hello world' }, format, { key: 'w/sheet', index: 4, depth: 1, role: 'sheet', title: 'Save' }]);
     const diff = diffTrees(base, next);
     expect(diff.kind).toBe('diff');
     expect(diff.text).toContain('+ [4] sheet "Save"');
@@ -61,7 +54,7 @@ describe('diffTrees', () => {
   });
 
   it('reports an unchanged element whose index moved, so no old index is reused', () => {
-    const next = tree(base.elements.map((element) => element.key === 'w/format' ? { ...element, index: 7 } : element));
+    const next = tree([window, close, text, { ...format, index: 7 }]);
     expect(diffTrees(base, next).text).toContain('~ [7] pop up button "Format"');
   });
 
@@ -79,9 +72,9 @@ describe('diffTrees', () => {
 
 describe('appTreeSchema', () => {
   it('rejects duplicate indices or keys from a helper', () => {
-    const duplicated = { ...base, elements: [...base.elements, { ...base.elements[1], key: 'x' }] };
+    const duplicated = { ...base, elements: [...base.elements, { ...close, key: 'x' }] };
     expect(() => appTreeSchema.parse(duplicated)).toThrow(/index/);
-    const sameKey = { ...base, elements: [...base.elements, { ...base.elements[1], index: 9 }] };
+    const sameKey = { ...base, elements: [...base.elements, { ...close, index: 9 }] };
     expect(() => appTreeSchema.parse(sameKey)).toThrow(/key/);
   });
 });

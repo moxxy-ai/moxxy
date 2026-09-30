@@ -16,6 +16,14 @@ export interface HelperTransportOptions {
 
 const eventFrame = z.object({ event: z.string() }).passthrough();
 
+/** A request the helper refused; `code` is the helper's machine-readable reason. */
+export class HelperError extends Error {
+  constructor(readonly code: string, readonly detail: string) {
+    super(`${code}: ${detail}`);
+    this.name = 'HelperError';
+  }
+}
+
 interface Pending {
   id: string;
   resolve(value: unknown): void;
@@ -80,7 +88,7 @@ export class HelperTransport {
           this.pending = undefined;
           pending.dispose();
           if (reply.ok) pending.resolve(reply.result);
-          else pending.reject(new Error(`${reply.error.code}: ${reply.error.message}`));
+          else pending.reject(new HelperError(reply.error.code, reply.error.message));
         }
       } catch {
         this.fail(new Error('Computer Use protocol mismatch or invalid response; update the extension. Action not retried.'));

@@ -4,11 +4,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 3 — `ComputerBackend` i zgody per aplikacja.
-- **Następna czynność:** przejrzeć przepływ zgody Claude'a (`request_access`,
-  kategorie aplikacji i poziomy w `index.chunk-kXuYPTnM.js`) i Codexa
-  (`computer-use-policy.js`), potem testy `AccessRegistry` (zdarzenie w logu
-  sesji, `tier_insufficient`) i cyklu życia backendu na helperze-fixture.
+- **Bieżący krok:** 4 — szkielet helpera Swift.
+- **Następna czynność:** sprawdzić lokalny toolchain (`swift --version`,
+  Xcode CLT), przejrzeć jak Codex uruchamia `SkyComputerUseService`
+  (`native-pipe.js`, `client.js`) i helper Claude'a (`app-cu-helper`), potem
+  Swift Package `native/macos` z testami protokołu JSON-lines (`swift test`).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -39,9 +39,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] `imageBudget`, `imagePointToScreen` (Retina, ujemny origin), podpowiedzi dla kodów błędów.
 
 ### Krok 3 — `ComputerBackend` i zgody per aplikacja
-- [ ] `src/backend/`: transport per sesja+tura, `TurnControls`, fabryka narzędzi, adapter platformy.
-- [ ] `AccessRegistry`: `computer_request_access`, poziomy `read`/`click`/`full`, flagi, zapis jako zdarzenie w logu sesji.
-- [ ] Testy cyklu życia, zgód (`tier_insufficient`) i widoczności zgody z drugiego klienta.
+- [x] `src/backend/`: transport per sesja+tura, `TurnControls` (przeniesione z `windows/`), fabryka narzędzi z `computerTools`, `PlatformProfile`, metody helpera v5 (`rpc.ts`).
+- [x] Zgody: `computer_request_access`, poziomy `read`/`click`/`full` z kategorii aplikacji, `full_access`, flagi; zapis = wynik narzędzia w logu sesji, stan = fold (`access.ts`).
+- [x] Testy cyklu życia (helper-fixture), zgód (`tier_insufficient`, `system_key_combo`) i widoczności zgody z drugiego klienta.
 
 ### Krok 4 — szkielet helpera Swift
 - [ ] Swift Package `native/macos` (macOS 14): `ComputerUseCore` + `moxxy-computer`, `NSApplication` `.accessory`.

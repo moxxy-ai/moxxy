@@ -136,7 +136,11 @@ export const computerTools = {
       clipboard_read: z.boolean().optional(),
       clipboard_write: z.boolean().optional(),
       system_key_combos: z.boolean().optional().describe('Also allow system chords such as quit, switch app or lock screen.'),
-    }).strict(),
+      full_access: z.array(app).max(32).optional()
+        .describe('Apps from `apps` that need full control although their kind is restricted by default (browsers read-only, terminals click-only). The user sees this list before approving.'),
+    }).strict().refine((input) => (input.full_access ?? []).every((name) => input.apps.includes(name)), {
+      message: 'full_access may only name apps listed in apps', path: ['full_access'],
+    }),
   },
   computer_get_app_state: {
     description: 'Observe one app: its focused window as indexed accessibility elements plus a screenshot. Launches the app in the background if needed and waits for it to settle. Returns only what changed since your last look unless disable_diff is true. Call it before acting and after every action you need to verify.',

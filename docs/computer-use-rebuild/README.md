@@ -115,7 +115,7 @@ model ─▶ dispatchToolCall + PermissionEngine + PermissionResolver
           │  (+ zgody per aplikacja z logu sesji)
    ComputerBackend (TS, wspólny)
    ├─ HelperTransport (JSON-lines stdio, kolejka, bez retry, zdarzenia)
-   ├─ AccessRegistry (zgody z logu sesji → jeden stan dla wszystkich powierzchni)
+   ├─ zgody: wynik `computer_request_access` w logu sesji → fold `accessFromLog` (jeden stan dla wszystkich powierzchni)
    ├─ TurnControls (stan, kursor, cel) ─▶ runner `computer.changed` ─▶ desktop/mobile
    ├─ PreviewController ─▶ Surface `computer-preview` ─▶ `surface.data` ─▶ PiP
    ├─ contract/: schematy, klawisze, obraz, tekst drzewa + diff (wspólne dla helperów)

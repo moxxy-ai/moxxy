@@ -28,12 +28,16 @@ const hints = {
   no_progress: 'The same action left the app unchanged twice; try another method (element action, keyboard shortcut, menu or coordinates).',
   invalid_key: 'Use xdotool key syntax such as "Return", "Tab", "super+c", "ctrl+shift+Tab", "Page_Down" or "KP_0".',
   timeout: 'The app did not respond in time; the action was not retried. Observe again before deciding.',
-  helper_failed: 'The native helper stopped; the action was not retried. Observe again with a new connection.',
+  helper_failed: 'The native helper failed or answered unexpectedly; the action was not retried. Observe again before deciding.',
 } as const;
 
 export type ErrorCode = keyof typeof hints;
 export const errorCodes = Object.keys(hints) as ErrorCode[];
 const errorCodeSchema = z.enum(errorCodes as [ErrorCode, ...ErrorCode[]]);
+
+export function isErrorCode(value: string): value is ErrorCode {
+  return Object.hasOwn(hints, value);
+}
 
 export function hintFor(code: ErrorCode): string {
   return hints[code];

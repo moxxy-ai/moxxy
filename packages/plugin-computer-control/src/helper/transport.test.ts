@@ -70,6 +70,17 @@ describe('native helper transport', () => {
     await expect(transport.request('key', {}, new AbortController().signal)).rejects.toThrow(/protocol/);
     await transport.close();
   });
+  it('keeps the helper error code on a refused request', async () => {
+    const transport = helper(`process.stdin.once('data', bytes => {
+      const request = JSON.parse(bytes.toString());
+      process.stdout.write(JSON.stringify({version:4,id:request.id,ok:false,error:{code:'tier_insufficient',message:'read only'}})+'\\n');
+      process.stdin.resume();
+    });`);
+    await expect(transport.request('act', {}, new AbortController().signal))
+      .rejects.toMatchObject({ name: 'HelperError', code: 'tier_insufficient', message: 'tier_insufficient: read only' });
+    expect(transport.closed).toBe(false);
+    await transport.close();
+  });
   it('rejects a mismatched protocol and permanently retires the peer', async () => {
     const transport = helper(peer.replace('version:4', 'version:2'));
     await expect(transport.request('status', {}, new AbortController().signal)).rejects.toThrow(/protocol/i);
