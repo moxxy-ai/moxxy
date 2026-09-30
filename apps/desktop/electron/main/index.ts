@@ -53,6 +53,7 @@ import {
   offerBundledComputerUpdate,
   offerBundledProviderUpdate,
   DeferredPackageUpdates,
+  recoverComponentUpdates,
   type ComputerUpdateOffer,
   type ProviderUpdateOffer,
   ensureDesktopVaultKey,
@@ -226,6 +227,10 @@ async function prepareRunnerEnvironment(): Promise<void> {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
     try {
+      // A runner or extension update a crash cut short is finished (or undone)
+      // before anything reads the plugins dir — seeding would otherwise fill a
+      // half-swapped one.
+      await recoverComponentUpdates({ moxxyHome, userDataDir: app.getPath('userData') });
       const seed = await seedPluginsFromResources({
         resourcesPath: process.resourcesPath,
         moxxyHome,
@@ -238,12 +243,11 @@ async function prepareRunnerEnvironment(): Promise<void> {
             resourcesPath: process.resourcesPath, moxxyHome, plugin,
             freshInstall: seed.copied.includes(plugin), confirm,
           }),
-          ask: async ({ backupPath, localChanges, downgrade }) => {
+          ask: async ({ backupPath, localChanges }) => {
             const result = await showAttachedMessageBox({
               type: 'question', title: 'Update model connection',
               message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
-              detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
-                (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
+              detail: (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
                 'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. Open conversations reconnect after the update. A backup will be kept at:\n' + backupPath,
               buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
             });

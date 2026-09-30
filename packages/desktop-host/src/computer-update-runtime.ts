@@ -4,6 +4,7 @@ import { acquireComputerMaintenance, COMPUTER_PROTOCOL_VERSION } from '@moxxy/pl
 import {
   activateComputerUpdate, discardComputerUpdate, prepareComputerUpdate, recoverComputerUpdates,
   isBundledComputerCurrent,
+  isInstalledNewerThanBundled,
   type PreparedComputerUpdate,
 } from './computer-update.js';
 
@@ -60,6 +61,7 @@ export async function offerBundledComputerUpdate(options:{
   log?:(message:string)=>void;
 }):Promise<'current'|'declined'|'updated'> {
   if (await isBundledComputerCurrent(options)) return 'current';
+  if (await isInstalledNewerThanBundled(options)) return 'current';
   const executable=path.join(options.resourcesPath,'plugins-seed','node_modules','@moxxy','plugin-computer-control','bin','win32-x64','moxxy-computer.exe');
   const lease=await acquireComputerMaintenance(executable);
   let update:PreparedComputerUpdate|undefined;

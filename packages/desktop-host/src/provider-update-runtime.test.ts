@@ -39,11 +39,13 @@ it('restores the old provider when isolated import fails, without attempting log
   expect(await readFile(join(options.target, 'dist/index.js'), 'utf8')).toContain('old locally');
 });
 
-it('does not silently downgrade a newer installed provider even if its managed files are unchanged', async () => {
+it('keeps a newer installed provider instead of offering the older bundled one', async () => {
   const options = await fixture();
   await offerBundledProviderUpdate({ ...options, confirm: async () => true });
   await writeFile(join(options.source, 'package.json'), JSON.stringify({ name: plugin, version: '0.38.0', type: 'module' }));
-  expect(await offerBundledProviderUpdate({ ...options, confirm: async offer => { expect(offer.downgrade).toBe(true); return false; } })).toBe('declined');
+  const neverAsk = async () => { throw Error('An older bundled copy is never offered'); };
+  expect(await offerBundledProviderUpdate({ ...options, confirm: neverAsk })).toBe('current');
+  expect(await readFile(join(options.target, 'dist/index.js'), 'utf8')).toContain('gpt-6-astra');
 });
 
 const bundledResources = process.env.MOXXY_TEST_PROVIDER_RESOURCES;

@@ -43,6 +43,7 @@ import type {
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
+  ComponentUpdateCheck,
   AppUpdateDiagnostics,
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
@@ -129,6 +130,15 @@ export interface IpcCommands {
    *  `onboarding.install.progress`. Returns the exit code (0 = ok) and
    *  the post-update version. */
   'app.updateCli': () => Promise<{ code: number; version: string | null }>;
+  /** Whether the runner or the installed `@moxxy` extensions are behind the
+   *  latest published release. Never throws — failures come back in `error`. */
+  'app.checkComponents': () => Promise<ComponentUpdateCheck>;
+  /** Update the runner and the `@moxxy` extensions to the latest release,
+   *  streaming `app.update.progress`. Each is installed and verified next to
+   *  the live copy and swapped in only then, so a failure changes nothing.
+   *  The new versions run after a relaunch; `updated` says whether anything
+   *  was installed. */
+  'app.updateComponents': () => Promise<{ ok: boolean; updated: boolean; error?: string }>;
 
   /** The dashboard (app bundle) the desktop is currently running. */
   'app.updateInfo': () => Promise<AppUpdateInfo>;

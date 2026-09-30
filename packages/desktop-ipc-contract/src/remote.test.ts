@@ -62,6 +62,8 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // the runner's generation config.
       'settings.setReasoning',
       'app.updateCli',
+      'app.checkComponents',
+      'app.updateComponents',
       'voice.isLocalPiperInstalled' as IpcCommandName,
       'voice.installLocalPiper' as IpcCommandName,
       'voice.setRealtimeCaptureActive' as IpcCommandName,

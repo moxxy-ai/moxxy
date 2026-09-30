@@ -24,6 +24,7 @@ export { activateManagedNode } from './node-manager.js';
 export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
 export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';
 export { DeferredPackageUpdates, type ManagedPackageUpdate } from './deferred-package-updates.js';
+export { recoverComponentUpdates } from './component-update.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {
   cwdForSession,

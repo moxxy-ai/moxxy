@@ -121,6 +121,7 @@ export {
 export type {
   AppUpdateInfo,
   AppUpdateCheck,
+  ComponentUpdateCheck,
   AppUpdateProgress,
   AppBootLogEntry,
   AppUpdateDiagnostics,
