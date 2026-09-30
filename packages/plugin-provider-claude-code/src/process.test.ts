@@ -37,7 +37,7 @@ class ControlledChild extends EventEmitter {
 
 const baseOptions: ClaudeProcessOptions = {
   executable: 'claude',
-  model: 'claude-sonnet-5',
+  model: 'claude-sonnet-5-5',
   prompt: 'hello',
   cwd: '/tmp',
   nativeTools: false,

@@ -54,13 +54,13 @@ describe('claude-code provider definition', () => {
   it('registers the exact Claude Code catalog and its native web-search capability', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
-    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-5');
+    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-5-5');
     expect(claudeCodeProviderDef.models).toBe(claudeCodeModels);
-    expect(claudeCodeProviderDef.models.map((model) => model.id)).toEqual([
-      'claude-fable-5',
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-haiku-4-5',
+    expect(claudeCodeProviderDef.models.map((model) => [model.id, model.contextWindow, model.maxOutputTokens])).toEqual([
+      ['claude-fable-5-1', 1_000_000, 128_000],
+      ['claude-opus-5-5', 1_000_000, 128_000],
+      ['claude-sonnet-5-5', 1_000_000, 128_000],
+      ['claude-haiku-4-5', 200_000, 64_000],
     ]);
     for (const model of claudeCodeProviderDef.models) {
       expect(model).toMatchObject({
@@ -92,7 +92,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(client.stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'text_delta', delta: 'Hello ' },
       { type: 'text_delta', delta: 'world' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 8, outputTokens: 2 } },
@@ -140,7 +140,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'text_delta', delta: 'Visible answer' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
@@ -159,7 +159,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
     expect(JSON.stringify(events)).not.toContain('private chain of thought');
@@ -288,7 +288,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('bypassPermissions');
   });
 
-  it.each(['claude-fable-5', 'claude-opus-5'])('passes the selected %s model as an exact structured argument', async (model) => {
+  it.each(['claude-fable-5-1', 'claude-opus-5-5'])('passes the selected %s model as an exact structured argument', async (model) => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -304,11 +304,11 @@ describe('claude-code provider definition', () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
-    const client = claudeCodeProviderDef.createClient({ model: 'claude-fable-5', executable: join(dir, 'claude') });
+    const client = claudeCodeProviderDef.createClient({ model: 'claude-fable-5-1', executable: join(dir, 'claude') });
     await collect(client.stream({ ...textRequest(), model: '' }));
 
     const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
-    expect(args.slice(-2)).toEqual(['--model', 'claude-fable-5']);
+    expect(args.slice(-2)).toEqual(['--model', 'claude-fable-5-1']);
   });
 
   it('returns actionable errors for locally unsupported and CLI-rejected models', async () => {
@@ -328,11 +328,11 @@ describe('claude-code provider definition', () => {
     ]);
     const rejected = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream({
       ...textRequest(),
-      model: 'claude-fable-5',
+      model: 'claude-fable-5-1',
     }));
     expect(rejected[1]).toMatchObject({
       type: 'error',
-      message: expect.stringMatching(/Claude Code rejected model "claude-fable-5".*Model is unavailable/),
+      message: expect.stringMatching(/Claude Code rejected model "claude-fable-5-1".*Model is unavailable/),
       retryable: false,
     });
     for (const model of supported) expect((rejected[1] as { message: string }).message).toContain(model);
@@ -498,7 +498,7 @@ describe('claude-code provider definition', () => {
 
 function textRequest(): ProviderRequest {
   return {
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     system: 'system instructions',
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'prior user' }] },

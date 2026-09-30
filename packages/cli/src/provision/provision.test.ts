@@ -67,8 +67,12 @@ describe('provision', () => {
     expect(order).toEqual(['install:@moxxy/plugin-provider-openai@1.0.0', 'config']); // config last
   });
 
+  it('offers Anthropic at the recommended current model', () => {
+    expect(resolveProvider('anthropic')?.defaultModel).toBe('claude-opus-5-5');
+  });
+
   it('pins the exported Claude Code default and persists it in the provider item write', async () => {
-    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-5');
+    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-5-5');
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     const res = await provision({ provider: 'claude-code', key: 'should-ignore' }, eff);
 
@@ -76,11 +80,11 @@ describe('provision', () => {
     expect(res.keyStored).toBe(false);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
       providerSlug: 'claude-code',
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
     }));
   });
 
-  it.each(['claude-fable-5', 'claude-opus-5'])('persists an explicit %s selection', async (model) => {
+  it.each(['claude-fable-5-1', 'claude-opus-5-5'])('persists an explicit %s selection', async (model) => {
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     await provision({ provider: 'claude-code', model }, eff);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({

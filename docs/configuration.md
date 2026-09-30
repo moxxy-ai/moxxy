@@ -13,7 +13,7 @@ export default defineConfig({
       default: 'anthropic',
       items: {
         anthropic: {
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-5-5',
           config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
         },
       },

@@ -317,7 +317,7 @@ plugins:
     default: anthropic
     items:
       anthropic:
-        model: claude-sonnet-5
+        model: claude-sonnet-5-5
   mode:
     default: default
 `;

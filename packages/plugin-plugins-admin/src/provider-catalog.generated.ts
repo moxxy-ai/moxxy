@@ -15,7 +15,7 @@ export const PROVIDER_PLUGIN_CATALOG = [
     ],
     "provider": {
       "auth": "key",
-      "defaultModel": "claude-opus-5",
+      "defaultModel": "claude-opus-5-5",
       "recommended": true
     }
   },
@@ -33,7 +33,7 @@ export const PROVIDER_PLUGIN_CATALOG = [
     ],
     "provider": {
       "auth": "oauth",
-      "defaultModel": "claude-sonnet-5"
+      "defaultModel": "claude-sonnet-5-5"
     }
   },
   {
