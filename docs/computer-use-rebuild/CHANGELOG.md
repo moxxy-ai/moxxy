@@ -287,3 +287,94 @@ Commit kroku 2: `d9169691`.
 **Dla następcy**
 - Helper Swift (krok 4) musi mówić protokołem v5 z `rpc.ts`: te same metody i
   kształty wyników co `contract-helper.fixture.mjs`.
+
+---
+
+## Krok 4 — szkielet helpera Swift (2026-09-30)
+
+Commit kroku 3: `f23b22a3`.
+
+**Przegląd wzorca (read-only)**
+- Claude.app 2.16120.0: `Contents/Helpers/app-cu-helper` — uniwersalny plik
+  wykonywalny (x86_64 + arm64), dziecko aplikacji, JSON-RPC, `NSApplication`,
+  kody błędów w stylu `permission_denied`, `foreign_pid`, `context_menu`.
+- ChatGPT.app 26.928.21956, `@oai/sky/.../targets/mac/native-pipe.js`:
+  osobna aplikacja-serwis „Codex Computer Use.app” z gniazdem w Group
+  Container i JSON-RPC 2.0.
+- Wybór: model Claude'a (helper-dziecko przez stdio). Uprawnienia TCC należą
+  do procesu odpowiedzialnego (Moxxy.app w desktopie, terminal w CLI), nie
+  potrzeba osobnej podpisanej aplikacji ani gniazda.
+
+**Co** (`packages/plugin-computer-control/`)
+- `native/macos/Package.swift` — Swift 6, macOS 14; biblioteka
+  `ComputerUseCore`, plik wykonywalny `moxxy-computer`, testy
+  `ComputerUseCoreTests` (Swift Testing).
+- `Sources/ComputerUseCore/Wire.swift` — `JSONValue` (Sendable),
+  `LineDecoder` (limit 3 MB, jak w TS), `Wire` (koperta v5 identyczna z
+  `helper/protocol.ts`, komunikat błędu ≤ 2048 znaków), `ProtocolSession`
+  (dekodowanie ramek; po pierwszym błędzie protokołu nic więcej).
+- `Dispatcher.swift` — metoda → handler; `HelperError` przechodzi z kodem,
+  inny błąd to `helper_failed` bez treści systemowej, nieznana metoda to
+  `unsupported_action`.
+- `Methods.swift` — `status` (`AXIsProcessTrusted`,
+  `CGPreflightScreenCaptureAccess`, lista braków) i `permissions.request`
+  (`AXIsProcessTrustedWithOptions` z promptem / `CGRequestScreenCaptureAccess`
+  + panel Ustawień `x-apple.systempreferences:…Privacy_Accessibility` /
+  `Privacy_ScreenCapture`).
+- `ParentWatch.swift` — `DispatchSource.makeProcessSource(.exit)`; `nil`, gdy
+  rodzic już nie żyje.
+- `Sources/moxxy-computer/main.swift` — `.accessory`, wątek czytający stdin:
+  sterowanie od razu (`stop` → kod 20, pauza/wznowienie zarezerwowane dla
+  kroku 7), żądania w szeregowej kolejce poza wątkiem głównym, jeden zapis do
+  stdout pod blokadą; EOF kończy po obsłużeniu kolejki; błąd protokołu → kod
+  65; brak `--parent` → kod 64.
+- `native/macos/build.sh` — `swift build -c release --arch arm64 --arch x86_64`,
+  podpis ad-hoc z identyfikatorem `ai.moxxy.computer-helper`, manifest
+  `{"protocolVersion":5,"architecture":"universal","sha256":…}`
+  (zapisy atomowe przez `.tmp` + `mv`).
+- `src/macos/profile.ts` (`macosHelperPath`), `src/backend/rpc.ts`
+  (`statusResultSchema`), `src/macos/helper.test.ts`.
+- `.gitignore`: `native/macos/.build/`.
+
+**Jak i dlaczego**
+- Dekodowanie i wykonanie są rozdzielone, bo transport TS wysyła pauzę/stop
+  „bokiem” — sterowanie nie może czekać za długim żądaniem AX.
+- Żądania nie idą na wątek główny: nakładka kursora (krok 6) będzie go
+  potrzebować do animacji.
+- Ogólny „deadline operacji” z planu przeniesiony do kroku 5: jedynym
+  realnie blokującym wywołaniem są zapytania AX, a dla nich właściwy
+  mechanizm to `AXUIElementSetMessagingTimeout`. Do tego czasu limit 15 s
+  trzyma transport TS (zabija helper).
+
+**Testy (Red → Green)**
+- Red Swift: najpierw pusty target (`target 'moxxy-computer' … is empty`),
+  po dodaniu pustych źródeł — `cannot find 'SystemPermissions' in scope` i
+  brak typów `JSONValue`, `LineDecoder`, `ParentWatch`.
+- Red TS: `Cannot find module './profile.js'`.
+- W trakcie: rozdzielenie `ProtocolSession`/`Dispatcher` (patrz wyżej) —
+  testy sesji przepisane przed implementacją.
+- Green Swift: 23 testy w 7 zestawach (`swift test`), w tym realne
+  zapytanie TCC i prawdziwy proces-rodzic (`/bin/sleep`).
+- Green TS: 4 testy na prawdziwym binarium (weryfikacja artefaktu, `status`,
+  nieznana metoda z kodem i dalsza obsługa, wyjście po EOF < 450 ms).
+  Dopisane po Green (charakteryzujące, od razu zielone): wyjście po śmierci
+  rodzica (kod 0) i brak `--parent` (kod 64).
+- Błąd kompilacji po drodze: `kAXTrustedCheckOptionPrompt` nie jest
+  bezpieczny współbieżnie w Swift 6 — użyta jego wartość
+  `"AXTrustedCheckOptionPrompt"`.
+
+**Walidacja**
+- `cd native/macos && swift test` — 23/23.
+- `./native/macos/build.sh` — `x86_64 arm64`, manifest zapisany.
+- `npx vitest run` (plugin) — 25 plików / 239 testów.
+- `npx tsc -p tsconfig.json --noEmit` — OK.
+- `npx eslint packages/plugin-computer-control` — 0 błędów, 1 istniejące ostrzeżenie.
+- `pnpm check:deps` — 0 błędów, 1 istniejące ostrzeżenie.
+- `pnpm build` — 88/88.
+- desktop-host `computer-update.test.ts` — 11/11; skrypty `node --test` — 9/9.
+
+**Dla następcy**
+- Test `src/macos/helper.test.ts` pomija się bez zbudowanego helpera: przed
+  pracą nad macOS uruchom `packages/plugin-computer-control/native/macos/build.sh`.
+- CI nie buduje jeszcze helpera macOS — do dodania razem z pakowaniem w
+  kroku 10.

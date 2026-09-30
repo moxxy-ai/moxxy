@@ -4,11 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 4 — szkielet helpera Swift.
-- **Następna czynność:** sprawdzić lokalny toolchain (`swift --version`,
-  Xcode CLT), przejrzeć jak Codex uruchamia `SkyComputerUseService`
-  (`native-pipe.js`, `client.js`) i helper Claude'a (`app-cu-helper`), potem
-  Swift Package `native/macos` z testami protokołu JSON-lines (`swift test`).
+- **Bieżący krok:** 5 — stan aplikacji na macOS.
+- **Następna czynność:** przejrzeć w Claude `app_list_windows`/`app_screenshot`
+  (`index.chunk-DkY0FFgk.js`, podsumowanie elementów AX) i w Codexie
+  `list_apps.js`/`get_app_state.js`; potem testy Swift dla `list_apps`,
+  `resolve_apps`, serializacji drzewa AX ze stabilnymi kluczami i indeksami
+  (`appTreeSchema`) oraz budżetu obrazu.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -44,9 +45,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Testy cyklu życia (helper-fixture), zgód (`tier_insufficient`, `system_key_combo`) i widoczności zgody z drugiego klienta.
 
 ### Krok 4 — szkielet helpera Swift
-- [ ] Swift Package `native/macos` (macOS 14): `ComputerUseCore` + `moxxy-computer`, `NSApplication` `.accessory`.
-- [ ] JSON-lines, `--parent PID` (DispatchSource), EOF = zakończenie, deadline, `status`, `permissions.request`.
-- [ ] `native/macos/build.sh` → `bin/darwin-universal/moxxy-computer` + manifest; `swift test`.
+- [x] Swift Package `native/macos` (macOS 14, Swift 6): `ComputerUseCore` + `moxxy-computer`, `NSApplication` `.accessory`.
+- [x] JSON-lines v5, `--parent PID` (DispatchSource), EOF = zakończenie, sterowanie poza kolejką żądań, `status`, `permissions.request`. Deadline operacji przeniesiony do kroku 5 (`AXUIElementSetMessagingTimeout` na wywołaniach AX); do tego czasu limit trzyma transport TS.
+- [x] `native/macos/build.sh` → `bin/darwin-universal/moxxy-computer` + manifest; `swift test`; test TS na prawdziwym binarium.
 
 ### Krok 5 — stan aplikacji na macOS
 - [ ] `list_apps` (NSWorkspace + katalogi aplikacji).

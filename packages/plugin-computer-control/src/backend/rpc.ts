@@ -9,6 +9,12 @@ const id = z.string().min(1).max(512);
 const name = z.string().max(512);
 const appRef = z.object({ id, name }).strict();
 
+export const statusResultSchema = z.object({
+  ready: z.boolean(),
+  permissions: z.object({ accessibility: z.boolean(), screenRecording: z.boolean() }).strict(),
+  limitations: z.array(z.string().max(500)).max(16),
+}).strict();
+
 export const listAppsResultSchema = z.object({
   apps: z.array(appRef.extend({
     running: z.boolean(),
