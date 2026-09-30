@@ -6,6 +6,8 @@ import ApplicationServices
 final class TargetState {
     var registry = IndexRegistry()
     var elements: [Int: AXUIElement] = [:]
+    /// Maps the last screenshot's pixels to the screen; `nil` until a screenshot was taken.
+    var frame: CoordinateFrame?
 }
 
 /// Per-app state for this helper's lifetime. Touched only from the serial request queue.
@@ -94,18 +96,47 @@ extension Methods {
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
+        var result: [String: JSONValue] = [:]
+        state.frame = nil
+        if params["screenshot"]?.boolValue == true {
+            switch capture(pid: running.processIdentifier, root: root) {
+            case let .success(image):
+                state.frame = image.frame
+                result["screenshot"] = .object([
+                    "mediaType": .string("image/jpeg"), "base64": .string(image.jpeg.base64EncodedString()),
+                    "width": .number(Double(image.frame.imageWidth)), "height": .number(Double(image.frame.imageHeight)),
+                ])
+            case let .failure(reason):
+                result["screenshotUnavailable"] = .string(reason.message)
+            }
+        }
         var tree: [String: JSONValue] = [
             "app": .string(name),
-            "elements": .array(zip(indices, built.elements).map { json($1, index: $0) }),
+            "elements": .array(zip(indices, built.elements).map { json($1, index: $0, frame: state.frame) }),
         ]
         if let title = root.title { tree["window"] = .string(title) }
         if built.truncated { tree["truncated"] = .bool(true) }
-        var result: [String: JSONValue] = ["tree": .object(tree)]
-        if params["screenshot"]?.boolValue == true { result["screenshotUnavailable"] = .string("Window capture is not available yet") }
+        result["tree"] = .object(tree)
         return .object(result)
     }
 
-    static func json(_ element: TreeElement, index: Int) -> JSONValue {
+    static func capture(pid: pid_t, root: NodeSnapshot) -> Result<WindowImage, HelperError> {
+        guard CGPreflightScreenCaptureAccess() else {
+            return .failure(HelperError(code: "permissions_not_granted", message: "Screen Recording is not allowed, so there is no window image"))
+        }
+        guard let frame = root.frame, frame.width >= 1, frame.height >= 1 else {
+            return .failure(HelperError(code: "helper_failed", message: "The window has no size on screen"))
+        }
+        do {
+            return .success(try WindowCapture.capture(WindowCandidate(pid: pid, frame: frame, title: root.title)))
+        } catch let error as HelperError {
+            return .failure(error)
+        } catch {
+            return .failure(HelperError(code: "helper_failed", message: "The window could not be captured"))
+        }
+    }
+
+    static func json(_ element: TreeElement, index: Int, frame: CoordinateFrame?) -> JSONValue {
         var fields: [String: JSONValue] = [
             "key": .string(String(element.key.prefix(512))), "index": .number(Double(index)),
             "depth": .number(Double(min(element.depth, 64))), "role": .string(String(element.role.prefix(128))),
@@ -116,6 +147,9 @@ extension Methods {
         if element.secure { fields["secure"] = .bool(true) }
         if !element.states.isEmpty { fields["states"] = .array(element.states.map(JSONValue.string)) }
         if !element.actions.isEmpty { fields["actions"] = .array(element.actions.prefix(32).map { .string(String($0.prefix(64))) }) }
+        if let screen = element.frame, let rect = frame?.imageRect(of: screen) {
+            fields["frame"] = .object(["x": .number(rect.minX), "y": .number(rect.minY), "width": .number(rect.width), "height": .number(rect.height)])
+        }
         return .object(fields)
     }
 }

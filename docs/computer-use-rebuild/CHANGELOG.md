@@ -482,3 +482,45 @@ Commit kroku 5a: `b9445f85`.
 - Przed testami macOS: `native/macos/build.sh` i `native/macos/build-fixture.sh`.
 - Pasek tytułu (przyciski zamknij/minimalizuj/pełny ekran, tytuł) trafia do
   drzewa — celowo, bo model może ich potrzebować.
+
+---
+
+## Krok 5c — obraz okna (2026-09-30)
+
+Commit kroku 5b: `582234da`.
+
+**Co** (`native/macos/Sources/ComputerUseCore/`)
+- `Capture.swift`:
+  - `ImageBudget.fit` — ten sam algorytm co `imageBudget` w TS (test
+    parametryczny z wartościami policzonymi przez `dist/contract/image.js`:
+    2880×1800 → 1389×868, 5120×2880 → 1456×819, 1568×1568 → 1092×1092 …).
+  - `CoordinateFrame` — okno w globalnych punktach (górny-lewy początek,
+    także ujemny) ↔ piksele obrazu; `imageRect(of:)` przycina element do
+    okna, `screenPoint(x:y:)` dla akcji po współrzędnych (krok 7).
+  - `WindowMatch.best` — `SCWindow` dla okna AX po pid + ramce (±2 pt) +
+    tytule, bez prywatnego `_AXUIElementGetWindow`.
+  - `WindowCapture.capture` — `SCShareableContent` →
+    `SCContentFilter(desktopIndependentWindow:)` (samo okno, także
+    zasłonięte/w tle), rozmiar = budżet z `pointPixelScale`, bez kursora i
+    cienia, JPEG q=0,8; `Blocking.run` łączy async ScreenCaptureKit z
+    synchroniczną kolejką żądań (limit 5 s → `timeout`).
+- `AXReader.frame` (`AXPosition` + `AXSize`, z kontrolą typu `AXValue`),
+  `NodeSnapshot.frame`/`TreeElement.frame`.
+- `get_app_state` z `screenshot: true` → `screenshot {mediaType
+  image/jpeg, base64, width, height}` i `frame` każdego widocznego elementu
+  w pikselach obrazu; `TargetState.frame` zapamiętuje ramkę dla akcji. Brak
+  Screen Recording lub błąd przechwycenia → `screenshotUnavailable` z
+  przyczyną (stan drzewa i tak wraca).
+
+**Testy (Red → Green)**
+- Red: `cannot find 'ImageBudget' / 'WindowCandidate' / 'CoordinateFrame' in scope`.
+- Green: `swift test` 46/46; integracja `src/macos/helper.test.ts` 11/11
+  (JPEG `FF D8 FF`, rozmiar już w budżecie, ramka „Press” w granicach
+  obrazu).
+- Sprawdzenie wzrokowe: zrzut 920×504 zawiera tylko okno fixture, ramka
+  „Press” (`x30 y222 120×52`) pokrywa się z przyciskiem.
+
+**Walidacja**
+- `swift test` 46/46; `build.sh` OK; `npx vitest run` (plugin) 25 plików /
+  244 testy; `tsc --noEmit` OK; eslint 0 błędów; `pnpm check:deps` 0 błędów;
+  `pnpm build` 88/88.

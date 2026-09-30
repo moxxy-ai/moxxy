@@ -1,3 +1,5 @@
+import CoreGraphics
+
 /// One accessibility element as read from the system, before pruning. `handle` points into the
 /// reader's element table so actions can reach the live element later.
 public struct NodeSnapshot: Sendable, Equatable {
@@ -17,6 +19,8 @@ public struct NodeSnapshot: Sendable, Equatable {
     public var actions: [String]
     public var handle: Int
     public var children: [NodeSnapshot]
+    /// Global screen points, top-left origin.
+    public var frame: CGRect? = nil
 }
 
 /// An element as the model sees it (see `appTreeSchema` in `src/contract/tree.ts`), minus its index.
@@ -31,6 +35,7 @@ public struct TreeElement: Sendable, Equatable {
     public let states: [String]
     public let actions: [String]
     public let handle: Int
+    public let frame: CGRect?
 }
 
 public enum TreeBuilder {
@@ -103,7 +108,7 @@ public enum TreeBuilder {
             title: nonEmpty(node.title) ?? (isText ? nonEmpty(node.value) : nil),
             description: nonEmpty(node.description) ?? placeholder,
             value: node.secure || isText || isToggle ? nil : node.value,
-            secure: node.secure, states: states, actions: explicitActions(node), handle: node.handle
+            secure: node.secure, states: states, actions: explicitActions(node), handle: node.handle, frame: node.frame
         )
     }
 

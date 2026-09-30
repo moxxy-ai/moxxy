@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { once } from 'node:events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport } from '../helper/transport.js';
 import { CONTRACT_PROTOCOL_VERSION, appStateSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
@@ -119,6 +120,26 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const second = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
       const indices = (state: typeof first) => Object.fromEntries(state.tree.elements.map((element) => [element.key, element.index]));
       expect(indices(second)).toEqual(indices(first));
+    } finally { await transport.close(); }
+  });
+
+  it('captures the window within the image budget and places elements in its pixels', async () => {
+    const transport = start();
+    try {
+      const state = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
+      const shot = state.screenshot;
+      expect(shot?.mediaType).toBe('image/jpeg');
+      expect(Buffer.from(shot?.base64 ?? '', 'base64').subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+      const width = shot?.width ?? 0;
+      const height = shot?.height ?? 0;
+      expect(imageBudget(width, height)).toEqual([width, height]);
+      const press = state.tree.elements.find((element) => element.key.endsWith('button:press'));
+      expect(press?.frame).toBeDefined();
+      const frame = press?.frame ?? { x: -1, y: -1, width: 0, height: 0 };
+      expect(frame.x).toBeGreaterThanOrEqual(0);
+      expect(frame.x + frame.width).toBeLessThanOrEqual(width);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(height);
+      expect(frame.width).toBeGreaterThan(10);
     } finally { await transport.close(); }
   });
 

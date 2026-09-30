@@ -56,7 +56,8 @@ public final class AXReader {
             expanded: Self.attribute(element, kAXExpandedAttribute),
             actions: Self.actions(element),
             handle: handle,
-            children: children
+            children: children,
+            frame: Self.frame(element)
         )
     }
 
@@ -64,6 +65,22 @@ public final class AXReader {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success, let value else { return nil }
         return value as? T
+    }
+
+    static func frame(_ element: AXUIElement) -> CGRect? {
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard let positionValue = axValue(element, kAXPositionAttribute), AXValueGetValue(positionValue, .cgPoint, &position),
+              let sizeValue = axValue(element, kAXSizeAttribute), AXValueGetValue(sizeValue, .cgSize, &size)
+        else { return nil }
+        return CGRect(origin: position, size: size)
+    }
+
+    private static func axValue(_ element: AXUIElement, _ name: String) -> AXValue? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success, let value,
+              CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        return (value as! AXValue)
     }
 
     static func valueText(_ element: AXUIElement) -> String? {

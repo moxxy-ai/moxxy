@@ -4,11 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 5c — obraz okna (ScreenCaptureKit).
-- **Następna czynność:** testy Swift dla `imageBudget` (zgodność z TS),
-  dopasowania `SCWindow` do okna AX (pid + ramka + tytuł, bez prywatnego
-  `_AXUIElementGetWindow`) i ramek elementów w układzie obrazu; test
-  integracyjny zrzutu fixture.
+- **Bieżący krok:** 5d — settling na zdarzeniach AX.
+- **Następna czynność:** testy czystej logiki „ciszy” (min ~1 s po akcji,
+  koniec po okresie bez zdarzeń, twardy limit 5 s, dłużej przy wskaźniku
+  ładowania) i obserwatora `AXObserver` na fixture (opóźnione ładowanie),
+  potem adapter macOS w TS (`PlatformProfile` + testy backendu z prawdziwym
+  helperem).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -53,7 +54,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Rozwiązywanie `app` (`resolve_apps`: identyfikator → nazwa → ścieżka, `ambiguous`) — 5a.
 - [x] Uruchamianie w tle przy `get_app_state` (bez aktywacji; aplikacja właśnie zamykana jest uruchamiana ponownie) — 5b.
 - [x] Drzewo AX ze stabilnym `key` i indeksem per element (indeks żyje tak długo jak klucz), akcjami, stanami; pola haseł `secure` (wartość nigdy nieczytana); limity (1000 elementów, 4000 węzłów, głębokość 64, timeout AX 1 s). Tekst i diff robi `contract/tree.ts` — 5b.
-- [ ] Obraz okna przez ScreenCaptureKit, budżet, JPEG, ramka współrzędnych; brak obrazu z przyczyną.
+- [x] Obraz okna przez ScreenCaptureKit (`desktopIndependentWindow`, dopasowanie po pid + ramce + tytule), budżet zgodny z TS, JPEG, ramki elementów w pikselach obrazu, `CoordinateFrame` zapamiętana dla akcji; brak obrazu z przyczyną — 5c.
 - [ ] Settling na zdarzeniach `AXObserver` (~1 s, do 5 s).
 
 ### Krok 6 — kursor agenta na macOS
