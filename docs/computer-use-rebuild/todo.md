@@ -4,12 +4,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 5 — stan aplikacji na macOS.
-- **Następna czynność:** przejrzeć w Claude `app_list_windows`/`app_screenshot`
-  (`index.chunk-DkY0FFgk.js`, podsumowanie elementów AX) i w Codexie
-  `list_apps.js`/`get_app_state.js`; potem testy Swift dla `list_apps`,
-  `resolve_apps`, serializacji drzewa AX ze stabilnymi kluczami i indeksami
-  (`appTreeSchema`) oraz budżetu obrazu.
+- **Bieżący krok:** 5b — drzewo AX i uruchamianie aplikacji w tle
+  (podkroki 5a–5d mają osobne commity).
+- **Następna czynność:** aplikacja-fixture (AppKit) do testów AX, potem testy
+  Swift budowniczego drzewa (przycinanie kontenerów, klucze, stabilne
+  indeksy, pola `secure`, limity) i test integracyjny `get_app_state`.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -50,8 +49,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] `native/macos/build.sh` → `bin/darwin-universal/moxxy-computer` + manifest; `swift test`; test TS na prawdziwym binarium.
 
 ### Krok 5 — stan aplikacji na macOS
-- [ ] `list_apps` (NSWorkspace + katalogi aplikacji).
-- [ ] Rozwiązywanie `app`, błąd `ambiguousApp`, uruchamianie w tle.
+- [x] `list_apps` (NSWorkspace + katalogi aplikacji) — 5a.
+- [x] Rozwiązywanie `app` (`resolve_apps`: identyfikator → nazwa → ścieżka, `ambiguous`) — 5a.
+- [ ] Uruchamianie w tle przy `get_app_state` — 5b.
 - [ ] Drzewo AX ze stabilnym `key` i indeksem per element (indeks żyje tak długo jak klucz), akcjami, stanami; pola haseł `secure`; limity. Helper zwraca strukturę `appTreeSchema`, tekst i diff robi `contract/tree.ts`.
 - [ ] Obraz okna przez ScreenCaptureKit, budżet, JPEG, ramka współrzędnych; brak obrazu z przyczyną.
 - [ ] Settling na zdarzeniach `AXObserver` (~1 s, do 5 s).

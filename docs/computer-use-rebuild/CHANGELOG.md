@@ -378,3 +378,44 @@ Commit kroku 3: `f23b22a3`.
   pracą nad macOS uruchom `packages/plugin-computer-control/native/macos/build.sh`.
 - CI nie buduje jeszcze helpera macOS — do dodania razem z pakowaniem w
   kroku 10.
+
+---
+
+## Krok 5a — katalog aplikacji w helperze macOS (2026-09-30)
+
+Commit kroku 4: `875ba3e8`.
+
+**Przegląd wzorca (read-only)**
+- ChatGPT.app 26.928.21956: `@oai/sky/.../targets/mac/list_apps.js` (id =
+  bundle ID albo nazwa, `displayName`, `isRunning`, `lastUsedDate`,
+  `useCount`), `client.js` (żądania `ComputerUseIPC…`), serwis
+  `Codex Computer Use.app/Contents/MacOS/SkyComputerUseService` (napisy:
+  „Removed element IDs”, `AccessibilityDifferenceLineBudgetExceeded`,
+  `AXElementBusyChanged`, „values differ from index”, „Cannot set a value for
+  an element that is not settable”) — wzorce dla kroków 5b–7.
+- `lastUsedDate`/`useCount` pominięte: wymagają prywatnych danych Spotlight.
+
+**Co** (`native/macos/Sources/ComputerUseCore/AppCatalog.swift`)
+- `AppRecord`, `AppCatalog.merge` (uruchomione wygrywają nad zainstalowanymi
+  tego samego bundle ID bez względu na wielkość liter; najpierw uruchomione,
+  potem po nazwie), `page` (filtr po nazwie i ID, `truncated`), `resolve`
+  (ID → nazwa, także z `.app` → ścieżka; `ambiguous`/`notFound`), `scan`
+  (`NSWorkspace.runningApplications` z polityką `.regular` + katalogi
+  `/Applications`, `/Applications/Utilities`, `/System/Applications`,
+  `/System/Applications/Utilities`, `~/Applications`).
+- Metody `list_apps {query?, limit 1–200}` i `resolve_apps {names ≤ 32}` w
+  kształcie `listAppsResultSchema`/`resolveAppsResultSchema`; zły parametr →
+  `invalid_params`.
+
+**Testy (Red → Green)**
+- Red: `swift test` — `cannot find type 'AppRecord' in scope`.
+- Green: `swift test` — 31 testów w 9 zestawach (w tym skan prawdziwego
+  systemu: Finder uruchomiony, Kalkulator zainstalowany, brak duplikatów).
+- TS (`src/macos/helper.test.ts`): `list_apps`/`resolve_apps` przez transport
+  na przebudowanym binarium — 7/7. Test TS dopisany przed przebudową, ale nie
+  uruchomiony na starym binarium (Red pokazał Swift).
+
+**Walidacja**
+- `swift test` 31/31; `native/macos/build.sh` OK; `npx vitest run` (plugin)
+  25 plików / 240 testów; eslint 0 błędów; `pnpm check:deps` 0 błędów;
+  `pnpm build` 88/88.

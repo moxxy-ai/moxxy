@@ -35,6 +35,8 @@ public enum Methods {
     public static func standard(permissions: SystemPermissions) -> Dispatcher {
         Dispatcher(handlers: [
             "status": { _ in status(permissions) },
+            "list_apps": listApps,
+            "resolve_apps": resolveApps,
             "permissions.request": { params in
                 guard let raw = params["kind"]?.stringValue, let kind = SystemPermissions.Kind(rawValue: raw) else {
                     throw HelperError.invalidParams("kind must be accessibility or screen_recording")

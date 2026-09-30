@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, statusResultSchema } from '../backend/rpc.js';
+import { CONTRACT_PROTOCOL_VERSION, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath } from './profile.js';
 
 // Talks to the real universal helper built by native/macos/build.sh; other hosts and unbuilt trees skip.
@@ -30,6 +30,17 @@ describe.skipIf(!built)('macOS native helper', () => {
     try {
       await expect(transport.request('teleport', {}, signal())).rejects.toMatchObject({ code: 'unsupported_action' });
       await expect(transport.request('status', {}, signal())).resolves.toBeTypeOf('object');
+    } finally { await transport.close(); }
+  });
+
+  it('lists and resolves installed and running apps in the contract shape', async () => {
+    const transport = start();
+    try {
+      const listed = listAppsResultSchema.parse(await transport.request('list_apps', { query: 'finder', limit: 5 }, signal()));
+      expect(listed.apps[0]).toEqual({ id: 'com.apple.finder', name: 'Finder', running: true });
+      const resolved = resolveAppsResultSchema.parse(await transport.request('resolve_apps', { names: ['Calculator', 'No Such App 1234'] }, signal()));
+      expect(resolved.apps[0]).toMatchObject({ request: 'Calculator', status: 'resolved', name: 'Calculator' });
+      expect(resolved.apps[1]).toEqual({ request: 'No Such App 1234', status: 'not_found' });
     } finally { await transport.close(); }
   });
 
