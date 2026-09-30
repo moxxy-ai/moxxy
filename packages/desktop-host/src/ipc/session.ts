@@ -36,9 +36,11 @@ import {
   resolveCtx,
   resolveDriver,
   resolveSupervisor,
+  providerActivator,
   waitForRemoteSession,
   waitForSessionState,
 } from './shared';
+import { channelOfChat, syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
 
 /** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
  *  drops invalid characters and decodes a partial/garbage buffer, so reject a
@@ -61,7 +63,19 @@ function synthesisRequestKey(workspaceId: string, requestId: string): string {
 // workspace's runner is visible) — importing the SAME helpers the coordinator
 // writes with means the two can't drift apart.
 
-export function registerSessionHandlers(pool: RunnerPool): void {
+export interface SessionHandlerDependencies {
+  /** Where a bot chat's model comes from (defaults to the in-process vault). */
+  readonly channelModels: ChannelChatModelDeps;
+}
+
+export function registerSessionHandlers(
+  pool: RunnerPool,
+  dependencies: Partial<SessionHandlerDependencies> = {},
+): void {
+  const channelModels: ChannelChatModelDeps = dependencies.channelModels ?? {
+    vault: () => getInProcessPlugins().vault,
+    activateProvider: providerActivator(pool),
+  };
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('computer.snapshot', async ({workspaceId}) => {
@@ -109,8 +123,12 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       }
       safe = authorized;
     }
-    if (model !== undefined) setSessionModel(id, model);
-    let selectedModel = model ?? getSessionModel(id) ?? undefined;
+    // A bot's chat runs the bot's model (one state with the bot, see
+    // channel-chat-model); a workspace chat runs the model its picker sent.
+    const channelId = channelOfChat(id);
+    if (channelId) await syncChannelChatModel(channelId, channelModels);
+    else if (model !== undefined) setSessionModel(id, model);
+    let selectedModel = (channelId ? undefined : model) ?? getSessionModel(id) ?? undefined;
     const activeProvider = supervisor.remote()?.getInfo().activeProvider ?? null;
     if (activeProvider === 'local' && selectedModel === undefined) {
       const { resolveLocalModelForTurn } = await import('../provider-discovery.js');

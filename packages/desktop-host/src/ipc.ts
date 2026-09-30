@@ -32,7 +32,18 @@ import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
 import { desktopEventBus, wsEventBus } from './event-bus';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
-import { drivers, publishDriver, setActiveBus, unpublishDriver, whenDriverReady } from './ipc/shared';
+import {
+  drivers,
+  getInProcessPlugins,
+  providerActivator,
+  publishDriver,
+  setActiveBus,
+  unpublishDriver,
+  whenDriverReady,
+} from './ipc/shared';
+import { defaultVaultPath } from '@moxxy/plugin-vault';
+import { listChannelCatalog } from './channel-catalog';
+import { syncChannelChatModel, watchChannelModels } from './channel-chat-model';
 import { registerAppHandlers } from './ipc/app';
 import { registerUpdateHandlers, type UpdateConfig } from './ipc/update';
 import { registerAskHandlers } from './ipc/ask';
@@ -61,6 +72,21 @@ import { registerChannelsHandlers } from './ipc/channels';
 import { registerFilesHandlers } from './ipc/files';
 import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
+let stopBotModelWatch: (() => void) | null = null;
+
+/** A bot's `/model` (run in its own process) shows in the desktop's chat with
+ *  the bot as soon as the bot saves it. Once per process, not per transport. */
+function followBotModels(pool: RunnerPool): void {
+  if (stopBotModelWatch) return;
+  const deps = { vault: () => getInProcessPlugins().vault, activateProvider: providerActivator(pool) };
+  stopBotModelWatch = watchChannelModels(defaultVaultPath(), () => {
+    for (const entry of listChannelCatalog()) {
+      if (!entry.modelVaultKey) continue;
+      void syncChannelChatModel(entry.descriptor.id, deps).catch(() => undefined);
+    }
+  });
+}
+
 export function registerIpcHandlers(
   buses: ReadonlyArray<CommandBus>,
   pool: RunnerPool,
@@ -78,6 +104,7 @@ export function registerIpcHandlers(
     readonly openExternal?: (url: string) => Promise<void>;
   } = {},
 ): void {
+  followBotModels(pool);
   // Register the SAME handler bodies onto every transport. `setActiveBus`
   // points the shared `handle()` at one bus for the duration of a sweep; the
   // registrars are oblivious to which transport they're wiring. Pass the
@@ -115,6 +142,7 @@ export function registerIpcHandlers(
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
     registerChannelsHandlers({
       attachChat: async (sessionId, socketPath) => void (await pool.attach(sessionId, socketPath)),
+      activateProvider: providerActivator(pool),
     });
     registerVoiceHandlers(pool, opts.voice);
     registerFilesHandlers();

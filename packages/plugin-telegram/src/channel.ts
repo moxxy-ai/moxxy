@@ -373,7 +373,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         ...(this.opts.logger ? { logger: this.opts.logger } : {}),
       },
       {
-        runUserTurn: (c, chatId, text, opts) => this.runUserTurn(c, chatId, text, opts),
+        runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
       },
     );
   }
@@ -402,11 +402,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         toggleYolo: () => this.autoApprove.toggle(),
         setYolo: () => this.autoApprove.forgetLocal(),
         setVoiceReplies: (on) => this.setVoiceReplies(on),
-        model: {
-          run: (arg) => this.botModel()?.run(arg) ?? Promise.resolve('Session is not ready yet.'),
-          choices: () =>
-            this.botModel()?.choices() ?? Promise.resolve({ current: null, options: [] }),
-        },
+        model: this.pickerModel(),
         runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
         tryHostPair: (chatId, text) => this.tryHostPair(ctx, chatId, text),
       },
@@ -429,8 +425,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
    * Synthesizer, transcode to OGG/Opus (or send plain audio when ffmpeg is
    * unavailable), and deliver via grammy. The text reply already went out.
    */
-  private async sendVoiceReply(chatId: number, text: string, always = false): Promise<void> {
-    if (!(this.voiceReplies || always) || !this.bot || !this.session) return;
+  private async sendVoiceReply(chatId: number, text: string): Promise<void> {
+    if (!this.bot || !this.session) return;
     const bot = this.bot;
     const outcome = await deliverVoiceReply(this.session, text, {
       send: async (audio, meta) => {
@@ -477,6 +473,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     });
   }
 
+  /** `/model` and its picker, answering "not ready" before start(). */
+  private pickerModel(): Pick<TelegramModel, 'run' | 'choices'> {
+    return {
+      run: (arg) => this.botModel()?.run(arg) ?? Promise.resolve('Session is not ready yet.'),
+      choices: () => this.botModel()?.choices() ?? Promise.resolve({ current: null, options: [] }),
+    };
+  }
+
   /** This bot's own model (see TelegramModel); null before start(). */
   private botModel(): TelegramModel | null {
     return this.session ? telegramModel({ session: this.session, vault: this.opts.vault }) : null;
@@ -486,7 +490,6 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     ctx: Context,
     chatId: number,
     text: string,
-    opts: { readonly spoken?: boolean } = {},
   ): Promise<void> {
     const model = this.botModel();
     if (!this.session || !model) throw new Error('TelegramChannel.start() must be called first');
@@ -513,13 +516,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           framePump: this.framePump,
           typing: this.typing,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
-          // A voice message is answered with one; typed prompts only when /voice is on.
-          onFinalReply: (finalText) => this.sendVoiceReply(chatId, finalText, opts.spoken === true),
+          speakReply: (finalText) => this.sendVoiceReply(chatId, finalText),
         },
         {
           chatId,
           text,
-          ...(opts.spoken ? { spoken: true } : {}),
+          ...(this.voiceReplies ? { spoken: true } : {}),
           model: channelModel.model ?? this.model,
           controller: lease.controller,
           turnId: lease.turnId,
@@ -566,7 +568,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        model: (arg) => this.botModel()?.run(arg) ?? Promise.resolve('Session is not ready yet.'),
+        model: this.pickerModel(),
       },
     );
   }

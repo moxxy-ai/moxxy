@@ -145,6 +145,23 @@ describe('synthesizeReply', () => {
     expect(seen).toBe('Hello world');
   });
 
+  it('asks the backend for the language the reply is written in', async () => {
+    const languages: Array<string | undefined> = [];
+    const synth: Synthesizer = {
+      name: 'fake',
+      synthesize: async (_text, opts) => {
+        languages.push(opts?.language);
+        return { audio: new Uint8Array([1]), mimeType: 'audio/ogg' };
+      },
+    };
+
+    await synthesizeReply(sessionWith(synth), 'Cześć! U mnie wszystko dobrze — jestem gotów pomóc. A co u Ciebie?');
+    await synthesizeReply(sessionWith(synth), 'Hello! I am doing well and ready to help. How are you?');
+    await synthesizeReply(sessionWith(synth), 'Cześć, co słychać?', { language: 'en' });
+
+    expect(languages).toEqual(['pl', 'en', 'en']);
+  });
+
   it('truncates long text at a boundary', async () => {
     let seen = '';
     const synth = fakeSynth((text) => {

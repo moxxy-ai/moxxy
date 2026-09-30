@@ -16,11 +16,11 @@ export interface TurnRunnerDeps {
   readonly typing: TypingIndicator;
   readonly logger?: TurnRunnerLogger;
   /**
-   * Called once with the FINAL assistant text after it has been flushed to the
-   * chat (so the text reply always lands first). Backs the optional voice
-   * reply. Best-effort — its failure is logged and never breaks the text turn.
+   * Sends the FINAL assistant text as a voice note after it has been flushed to
+   * the chat (so the text reply always lands first), on a `spoken` turn only.
+   * Best-effort — its failure is logged and never breaks the text turn.
    */
-  readonly onFinalReply?: (text: string) => Promise<void>;
+  readonly speakReply?: (text: string) => Promise<void>;
 }
 
 /** What the model must know about replying on Telegram (see channelTurnContext). */
@@ -31,16 +31,16 @@ export const TELEGRAM_TURN_CONTEXT = channelTurnContext({
   uploadLimit: '50 MB per file',
 });
 
-/** Added when the prompt was a voice message: the reply goes back as one too. */
+/** Added while voice replies are on: the reply goes back as a voice message too. */
 export const TELEGRAM_VOICE_CONTEXT =
-  'This message was a voice message and your reply will also be sent back as a voice message, read ' +
+  'Your reply will also be sent back as a voice message, read ' +
   'aloud: answer briefly, in plain spoken sentences, without markdown, code blocks, tables or links. ' +
   'Speak in the language of the request.';
 
 export interface TurnRunnerOptions {
   readonly chatId: number;
   readonly text: string;
-  /** The prompt was a voice message; the reply will be spoken back. */
+  /** Voice replies are on (`/voice`): the reply is also spoken back. */
   readonly spoken?: boolean;
   readonly model: string | undefined;
   readonly controller: AbortController;
@@ -62,7 +62,7 @@ export async function runUserTurn(
   deps: TurnRunnerDeps,
   opts: TurnRunnerOptions,
 ): Promise<void> {
-  const { session, bot, framePump, typing, logger, onFinalReply } = deps;
+  const { session, bot, framePump, typing, logger, speakReply } = deps;
   const { chatId, text, model, controller, turnId } = opts;
 
   framePump.beginTurn(chatId);
@@ -95,11 +95,11 @@ export async function runUserTurn(
     // The text reply is now out. Speak the final assistant body if a voice
     // reply is wired — isolated so a synth/transcode/transport failure can
     // never break (or re-report) the already-delivered text turn.
-    if (onFinalReply) {
+    if (opts.spoken && speakReply) {
       const finalText = framePump.renderState.snapshot().body;
       if (finalText.trim()) {
         try {
-          await onFinalReply(finalText);
+          await speakReply(finalText);
         } catch (err) {
           logger?.warn('telegram voice reply hook failed', {
             err: err instanceof Error ? err.message : String(err),

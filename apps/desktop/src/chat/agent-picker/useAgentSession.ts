@@ -48,9 +48,19 @@ export interface AgentSession {
   ) => Promise<void>;
 }
 
+/**
+ * Who keeps the chat's model when it is not the app's own pick — a bot's chat
+ * runs the bot's model, which the host pushes here (`session.model.changed`).
+ */
+export interface ModelOwner {
+  /** Save `model` of `provider` as the owner's model. */
+  readonly pick: (provider: string, model: string) => Promise<void>;
+}
+
 export function useAgentSession(
   workspaceId: string,
   disabled: boolean,
+  modelOwner?: ModelOwner,
 ): AgentSession {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const { snapshot } = useConnection(workspaceId);
@@ -59,6 +69,7 @@ export function useAgentSession(
       ? `${snapshot.phase.sessionId}:${snapshot.phase.activeProvider ?? ''}:${snapshot.phase.activeMode ?? ''}`
       : snapshot?.phase.phase ?? 'missing';
   const runnerConnected = snapshot?.phase.phase === 'connected';
+  const ownsModel = modelOwner !== undefined;
   const selectedModel = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getModel(workspaceId),
   );
@@ -107,7 +118,9 @@ export function useAgentSession(
 
   useEffect(() => {
     const provider = info?.activeProvider;
-    if (!provider) return;
+    // The owner's model arrives from the host; the app's saved pick must not
+    // overwrite it.
+    if (!provider || ownsModel) return;
     const persisted = getModelPreference(workspaceId, provider);
     const contextWindow = getModelContextWindowPreference(workspaceId, provider);
     if (
@@ -120,7 +133,7 @@ export function useAgentSession(
       model: persisted,
       contextWindow,
     }).catch(() => {});
-  }, [info?.activeProvider, workspaceId]);
+  }, [info?.activeProvider, workspaceId, ownsModel]);
 
   const onMode = (next: string): void => {
     // Optimistic flip so the picker updates instantly — the IPC fires a
@@ -146,6 +159,12 @@ export function useAgentSession(
     model: string | null,
     contextWindow?: number,
   ): Promise<void> => {
+    if (modelOwner) {
+      // An owner's model always names one: a provider alone means its first.
+      const modelId = model ?? info?.providers.find((p) => p.name === provider)?.models[0]?.id;
+      if (modelId) await modelOwner.pick(provider, modelId);
+      return;
+    }
     if (info && provider !== info.activeProvider) {
       try {
         await api().invoke('session.setProvider', { workspaceId, provider });

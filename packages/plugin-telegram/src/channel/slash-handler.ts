@@ -1,7 +1,8 @@
 import { type Bot, type Context, InlineKeyboard } from 'grammy';
 import { assertDefined, isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { formatModelChoice, resolveVoiceToggle } from '@moxxy/channel-kit';
+import { resolveVoiceToggle } from '@moxxy/channel-kit';
+import { providerScreen } from './model-picker.js';
 import type { TelegramModel } from './model.js';
 
 /**
@@ -149,31 +150,11 @@ export async function runSlash(
   }
 }
 
-/** Telegram inline keyboards get unwieldy past this many rows; cap the picker. */
-const MODEL_PICKER_CAP = 30;
-/** Telegram rejects a button whose callback data exceeds 64 bytes. */
-const CALLBACK_DATA_MAX_BYTES = 64;
-
-/** `/model` without an argument: the default and every model as buttons. */
+/** `/model` without an argument: the providers first (see model-picker). */
 async function renderModelPicker(ctx: Context, model: Pick<TelegramModel, 'choices'>): Promise<void> {
   const { current, options } = await model.choices();
-  const keyboard = new InlineKeyboard().text(current ? 'default' : '• default', 'model:default').row();
-  const tappable = options.filter(
-    (o) => Buffer.byteLength(`model:${formatModelChoice(o)}`) <= CALLBACK_DATA_MAX_BYTES,
-  );
-  const shown = tappable.slice(0, MODEL_PICKER_CAP);
-  for (const o of shown) {
-    const id = formatModelChoice(o);
-    const isCurrent = current != null && formatModelChoice(current) === id;
-    keyboard.text(`${isCurrent ? '• ' : ''}${id}${o.connected ? '' : ' (not connected)'}`, `model:${id}`).row();
-  }
-  const hidden = options.length - shown.length;
-  await ctx.reply(
-    hidden > 0
-      ? `Pick this bot's model (${hidden} more not shown — use /model <text>):`
-      : "Pick this bot's model:",
-    { reply_markup: keyboard },
-  );
+  const screen = providerScreen(current, options);
+  await ctx.reply(screen.text, { parse_mode: 'HTML', reply_markup: screen.keyboard });
 }
 
 async function renderModePicker(ctx: Context, session: Session): Promise<void> {

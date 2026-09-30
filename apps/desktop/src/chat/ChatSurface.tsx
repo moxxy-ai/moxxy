@@ -7,7 +7,7 @@ import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
-import { useAgentSession } from './agent-picker/useAgentSession';
+import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
@@ -32,6 +32,8 @@ interface ChatSurfaceProps {
   readonly title?: { readonly context: string; readonly subject: string };
   /** A one-line note above the conversation (e.g. "the bot is offline"). */
   readonly notice?: ReactNode;
+  /** Who keeps the chat's model when it is not the app's pick (a bot's chat). */
+  readonly modelOwner?: ModelOwner;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -91,6 +93,7 @@ export function ChatSurface({
   sessionLoading,
   title,
   notice,
+  modelOwner,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -120,7 +123,7 @@ export function ChatSurface({
   // ONE session-info fetch for the whole surface. The instrument bar's telemetry
   // and the composer's mode menu both read it; two independent hooks meant two
   // round-trips per refresh and two chances to disagree about the active model.
-  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending);
+  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending, modelOwner);
   const activeSessionName =
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`

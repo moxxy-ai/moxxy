@@ -162,8 +162,8 @@ function fakeFramePump(): { framePump: any; flushedFinal: boolean[] } {
 
 const typingNoop = { start: () => {}, stop: () => {} } as any;
 
-describe('turn-runner onFinalReply seam (final assistant text)', () => {
-  it('calls onFinalReply with the final assistant body AFTER flushing the text', async () => {
+describe('turn-runner speakReply seam (final assistant text, voice replies on)', () => {
+  it('calls speakReply with the final assistant body AFTER flushing the text', async () => {
     const { framePump, flushedFinal } = fakeFramePump();
     const seen: string[] = [];
     const session = turnSession((emit) => {
@@ -177,9 +177,9 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
         bot: null,
         framePump,
         typing: typingNoop,
-        onFinalReply: async (t) => void seen.push(t),
+        speakReply: async (t) => void seen.push(t),
       },
-      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t1') },
+      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t1'), spoken: true },
     );
     expect(flushedFinal).toContain(true);
     expect(seen).toEqual(['Hello there.']);
@@ -193,8 +193,8 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
     });
     await runUserTurn(
       { reply: async () => {} } as any,
-      { session, bot: null, framePump, typing: typingNoop, onFinalReply: async (t) => void seen.push(t) },
-      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t2') },
+      { session, bot: null, framePump, typing: typingNoop, speakReply: async (t) => void seen.push(t) },
+      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t2'), spoken: true },
     );
     expect(seen).toEqual([]);
   });
@@ -211,11 +211,11 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
           bot: null,
           framePump,
           typing: typingNoop,
-          onFinalReply: async () => {
+          speakReply: async () => {
             throw new Error('tts exploded');
           },
         },
-        { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t3') },
+        { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t3'), spoken: true },
       ),
     ).resolves.toBeUndefined();
     // No "Turn failed" reply — the hook failure was swallowed.

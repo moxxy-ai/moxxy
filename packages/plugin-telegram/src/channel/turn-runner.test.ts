@@ -18,18 +18,30 @@ function recordingSession() {
   return { session, runs };
 }
 
-const framePump = {
-  beginTurn: () => undefined,
-  endTurn: () => undefined,
-  scheduleEdit: () => undefined,
-  flush: async () => undefined,
-  renderState: { accept: () => ({ hasUpdate: false }), snapshot: () => ({ body: '' }) },
-} as never;
 const typing = { start: () => undefined, stop: () => undefined } as never;
 
-async function run(opts: { spoken?: boolean } = {}) {
+function pumpWith(body: string) {
+  return {
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    scheduleEdit: () => undefined,
+    flush: async () => undefined,
+    renderState: { accept: () => ({ hasUpdate: false }), snapshot: () => ({ body }) },
+  } as never;
+}
+
+async function run(opts: { spoken?: boolean } = {}, spoken: string[] = []) {
   const { session, runs } = recordingSession();
-  await runUserTurn({ reply: async () => undefined } as unknown as Context, { session, bot: null, framePump, typing }, {
+  const deps = {
+    session,
+    bot: null,
+    framePump: pumpWith('Cześć!'),
+    typing,
+    speakReply: async (text: string) => {
+      spoken.push(text);
+    },
+  };
+  await runUserTurn({ reply: async () => undefined } as unknown as Context, deps, {
     chatId: 42,
     text: 'hi',
     model: 'a-large',
@@ -54,5 +66,19 @@ describe('a Telegram turn tells the model where it replies', () => {
 
     expect(opts?.systemPrompt).toBe(`${TELEGRAM_TURN_CONTEXT}\n\n${TELEGRAM_VOICE_CONTEXT}`);
     expect(TELEGRAM_VOICE_CONTEXT).toMatch(/voice message/);
+  });
+});
+
+describe('/voice decides whether a Telegram reply is spoken', () => {
+  it('sends the reply as a voice note while voice replies are on', async () => {
+    const spoken: string[] = [];
+    await run({ spoken: true }, spoken);
+    expect(spoken).toEqual(['Cześć!']);
+  });
+
+  it('answers in text only while voice replies are off, even to a voice message', async () => {
+    const spoken: string[] = [];
+    await run({}, spoken);
+    expect(spoken).toEqual([]);
   });
 });

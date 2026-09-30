@@ -12,6 +12,7 @@ import { setActiveBus } from './shared';
 import { autostartConfiguredChannels, registerChannelsHandlers } from './channels';
 import type { ChannelProcessPort, ChannelServicePort } from '../channel-run-mode';
 import { channelRunnerSocket } from '@moxxy/runner';
+import { getSessionModel, setSessionModel } from '../session-models';
 
 /** OS service manager + bot subprocess — the external boundaries, recorded in memory. */
 function fakeServices(): ChannelServicePort & { installed: Set<string> } {
@@ -173,6 +174,33 @@ describe('channels.openChat (the bot conversation as a live chat)', () => {
 
     expect(out).toEqual({ workspaceId: 'moxxy-channel-discord' });
     expect(attached).toEqual([['moxxy-channel-discord', channelRunnerSocket('discord')]]);
+  });
+
+  it("runs the chat with the bot's own model, so the app shows and uses what the bot runs", async () => {
+    await vault.set('telegram_model', 'openai-codex::gpt-5.6-luna');
+    const activated: Array<[string, string]> = [];
+    registerChannelsHandlers({
+      vault: () => vault,
+      services,
+      processes,
+      attachChat: async () => undefined,
+      activateProvider: async (workspaceId, provider) => void activated.push([workspaceId, provider]),
+    });
+
+    await call('channels.openChat', { channelId: 'telegram' });
+
+    expect(getSessionModel('moxxy-channel-telegram')).toBe('gpt-5.6-luna');
+    expect(activated).toEqual([['moxxy-channel-telegram', 'openai-codex']]);
+  });
+
+  it("follows a model picked in Setup into the bot's chat", async () => {
+    setSessionModel('moxxy-channel-discord', null, { force: true });
+
+    await call('channels.setModel', { channelId: 'discord', model: 'openai-codex::gpt-5.5' });
+    expect(getSessionModel('moxxy-channel-discord')).toBe('gpt-5.5');
+
+    await call('channels.setModel', { channelId: 'discord', model: null });
+    expect(getSessionModel('moxxy-channel-discord')).toBeNull();
   });
 
   it('only opens catalog channels (never a renderer-chosen socket)', async () => {

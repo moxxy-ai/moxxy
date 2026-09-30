@@ -54,7 +54,7 @@ const makeState = (over: Partial<CallbackState> = {}): { state: CallbackState; r
 
 const cb: CallbackCallbacks = {
   setAwaitingApprovalText: () => undefined,
-  model: async () => '',
+  model: { run: async () => '', choices: async () => ({ current: null, options: [] }) },
 };
 
 describe('handleCallback — pairing gate (A46)', () => {

@@ -31,12 +31,7 @@ export interface VoiceHandlerDeps {
 }
 
 export interface VoiceHandlerCallbacks {
-  readonly runUserTurn: (
-    ctx: Context,
-    chatId: number,
-    text: string,
-    opts?: { readonly spoken: true },
-  ) => Promise<void>;
+  readonly runUserTurn: (ctx: Context, chatId: number, text: string) => Promise<void>;
   /** Override the network fetch for tests. Defaults to global `fetch`. */
   readonly fetchAudio?: (
     url: string,
@@ -199,8 +194,7 @@ export async function handleVoiceMessage(
   // reply.
   await ctx.reply(`_heard:_ ${transcript}`, { parse_mode: 'Markdown' });
 
-  // A voice message is a conversation: spoken in, spoken back. An uploaded
-  // audio file (a recording) is only transcribed.
-  if (voice) await cb.runUserTurn(ctx, chatId, transcript, { spoken: true });
-  else await cb.runUserTurn(ctx, chatId, transcript);
+  // The transcript is a prompt like any other: `/voice` decides whether the
+  // reply is spoken back.
+  await cb.runUserTurn(ctx, chatId, transcript);
 }

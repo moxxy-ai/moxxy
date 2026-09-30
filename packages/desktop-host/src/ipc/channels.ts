@@ -27,6 +27,7 @@ import {
   type ChannelServicePort,
 } from '../channel-run-mode';
 import { createCliServicePort } from '../channel-service-cli';
+import { syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
 import { readPrefs } from '../prefs';
 
 type Vault = InProcessPlugins['vault'];
@@ -41,6 +42,8 @@ export interface ChannelsHandlerDependencies {
   /** Attach the desktop to a bot's own runner (the runner pool's attach-only
    *  entry), so its conversation is an ordinary chat keyed by `sessionId`. */
   readonly attachChat: (sessionId: string, socketPath: string) => Promise<void>;
+  /** Make a provider active in a bot chat's runner session (the bot's model). */
+  readonly activateProvider: ChannelChatModelDeps['activateProvider'];
 }
 
 /** The channel supervisor as the run-mode process port. */
@@ -98,6 +101,10 @@ export function registerChannelsHandlers(
   const services = dependencies.services ?? createCliServicePort();
   const processes = dependencies.processes ?? supervisorProcesses;
   const attachChat = dependencies.attachChat;
+  const channelModels: ChannelChatModelDeps = {
+    vault,
+    activateProvider: dependencies.activateProvider ?? (async () => undefined),
+  };
   const status = (entry: ChannelCatalogEntry) => statusOf(vault(), entry, services);
 
   handle('channels.list', async () => {
@@ -130,6 +137,7 @@ export function registerChannelsHandlers(
     }
     if (model) await vault().set(entry.modelVaultKey, model);
     else await vault().delete(entry.modelVaultKey);
+    await syncChannelChatModel(channelId, channelModels);
     return status(entry);
   });
 
@@ -140,6 +148,7 @@ export function registerChannelsHandlers(
     if (!attachChat) throw new IpcError('not-supported', 'channel chats are not available here');
     const workspaceId = channelSessionId(id);
     await attachChat(workspaceId, channelRunnerSocket(id));
+    await syncChannelChatModel(id, channelModels);
     return { workspaceId };
   });
 

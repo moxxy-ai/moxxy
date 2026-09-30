@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 interface Keyboard {
-  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+  inline_keyboard: Array<Array<{ text: string; callback_data: string; style?: string }>>;
 }
 
 function chat() {
@@ -92,14 +92,15 @@ function slash(text: string) {
 }
 
 function tap(data: string) {
-  const edits: string[] = [];
+  const edits: Array<{ text: string; keyboard?: Keyboard }> = [];
   const toasts: string[] = [];
   const target = { id: 42 };
   const ctx = {
     chat: target,
     callbackQuery: { data, message: { chat: target } },
     answerCallbackQuery: async (arg?: { text?: string }) => void toasts.push(arg?.text ?? ''),
-    editMessageText: async (text: string) => void edits.push(text),
+    editMessageText: async (text: string, extra?: { reply_markup?: Keyboard }) =>
+      void edits.push({ text, ...(extra?.reply_markup ? { keyboard: extra.reply_markup } : {}) }),
     editMessageReplyMarkup: async () => true,
   } as unknown as Context;
   const model = telegramModel({ session, vault });
@@ -113,34 +114,51 @@ function tap(data: string) {
       approvalResolver: { getPending: () => undefined, resolvePending: vi.fn() } as never,
       pairing: { isAuthorized: () => true },
     },
-    { setAwaitingApprovalText: () => undefined, model: (arg) => model.run(arg) },
+    { setAwaitingApprovalText: () => undefined, model },
   ).then(() => ({ edits, toasts }));
 }
 
+const buttons = (keyboard?: Keyboard) => (keyboard?.inline_keyboard ?? []).flat();
+
 describe('/model on Telegram (the bot keeps a model of its own, like the Discord bot)', () => {
-  it('without an argument offers the default and every model as buttons, marking the current one', async () => {
+  it('without an argument offers the providers first, marking the one the bot runs', async () => {
     await vault.set(TELEGRAM_MODEL_KEY, 'alpha::a-large');
 
     const [picker] = await slash('/model');
 
-    const buttons = (picker?.keyboard?.inline_keyboard ?? []).flat();
-    expect(buttons.map((b) => b.text)).toEqual([
-      'default',
-      'alpha::a-small',
-      '• alpha::a-large',
-      'beta::b-fast (not connected)',
-    ]);
-    expect(buttons.map((b) => b.callback_data)).toEqual([
-      'model:default',
-      'model:alpha::a-small',
-      'model:alpha::a-large',
-      'model:beta::b-fast',
+    expect(picker?.text).toContain('alpha::a-large');
+    expect(buttons(picker?.keyboard).map((b) => [b.text, b.callback_data, b.style])).toEqual([
+      ['Default model', 'model:default', undefined],
+      ['✓ alpha · 2 models', 'mprov:alpha', 'success'],
+      ['beta · not connected', 'mprov:beta', undefined],
     ]);
   });
 
-  it('marks the default as current when the bot has no model of its own', async () => {
+  it('marks the default model when the bot has none of its own', async () => {
     const [picker] = await slash('/model');
-    expect(picker?.keyboard?.inline_keyboard[0]?.[0]?.text).toBe('• default');
+    expect(buttons(picker?.keyboard)[0]).toMatchObject({ text: '✓ Default model', style: 'success' });
+  });
+
+  it("tapping a provider shows its models, the bot's one marked, with a way back", async () => {
+    await vault.set(TELEGRAM_MODEL_KEY, 'alpha::a-large');
+
+    const { edits } = await tap('mprov:alpha');
+
+    expect(edits[0]?.text).toContain('alpha');
+    expect(buttons(edits[0]?.keyboard).map((b) => [b.text, b.callback_data, b.style])).toEqual([
+      ['a-small', 'model:alpha::a-small', undefined],
+      ['✓ a-large', 'model:alpha::a-large', 'success'],
+      ['‹ Providers', 'mprov:', undefined],
+    ]);
+  });
+
+  it('‹ Providers goes back to the providers', async () => {
+    const { edits } = await tap('mprov:');
+    expect(buttons(edits[0]?.keyboard).map((b) => b.callback_data)).toEqual([
+      'model:default',
+      'mprov:alpha',
+      'mprov:beta',
+    ]);
   });
 
   it('with an argument switches this bot to the model it names', async () => {
@@ -153,7 +171,7 @@ describe('/model on Telegram (the bot keeps a model of its own, like the Discord
   it('a tapped model is saved for this bot only — the global default stays', async () => {
     const { edits } = await tap('model:alpha::a-large');
 
-    expect(edits).toEqual(['✓ switched to alpha::a-large for this bot.']);
+    expect(edits.map((e) => e.text)).toEqual(['✓ switched to alpha::a-large for this bot.']);
     expect(await vault.get(TELEGRAM_MODEL_KEY)).toBe('alpha::a-large');
     expect(setCategoryDefault).not.toHaveBeenCalled();
     expect(setProviderModel).not.toHaveBeenCalled();
@@ -164,14 +182,14 @@ describe('/model on Telegram (the bot keeps a model of its own, like the Discord
 
     const { edits } = await tap('model:default');
 
-    expect(edits).toEqual(['✓ back to the default model.']);
+    expect(edits.map((e) => e.text)).toEqual(['✓ back to the default model.']);
     expect(await vault.get(TELEGRAM_MODEL_KEY)).toBeNull();
   });
 
   it('a provider that is not connected is refused and nothing is saved', async () => {
     const { edits } = await tap('model:beta::b-fast');
 
-    expect(edits[0]).toMatch(/isn't connected/);
+    expect(edits[0]?.text).toMatch(/isn't connected/);
     expect(await vault.get(TELEGRAM_MODEL_KEY)).toBeNull();
   });
 });

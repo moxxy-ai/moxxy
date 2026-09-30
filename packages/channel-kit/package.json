@@ -42,6 +42,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {

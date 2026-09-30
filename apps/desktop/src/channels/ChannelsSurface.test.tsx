@@ -72,6 +72,7 @@ function installHost(entry: ChannelEntry = discord()) {
       return { ...entry.status, runMode };
     }
     if (cmd === 'channels.openChat') return { workspaceId: CHAT_ID };
+    if (cmd === 'channels.setModel') return { ...entry.status, runMode, model: (args as { model: string }).model };
     if (cmd === 'connection.snapshotAll') {
       return [{ workspaceId: CHAT_ID, phase: { phase: 'connected', socket: 's', sessionId: CHAT_ID, activeProvider: 'p', activeMode: null }, cliPath: null, attempts: 0, log: [] }];
     }
@@ -135,6 +136,25 @@ describe('ChannelsSurface', () => {
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('session.runTurn', expect.objectContaining({ workspaceId: CHAT_ID, prompt: 'hej z aplikacji' })),
     );
+  });
+
+  it("shows the bot's model in the chat and saves a model picked there as the bot's model", async () => {
+    const invoke = installHost();
+    renderSurface();
+    await screen.findByText('Cześć');
+
+    // The host follows the bot's own model (its /model, or Setup) into this chat.
+    act(() => invoke.emit('session.model.changed', { workspaceId: CHAT_ID, model: 'm' }));
+    const agent = await screen.findByRole('button', { name: /model m/i });
+
+    fireEvent.click(agent);
+    // "Default" of a provider is its first model for a bot, which always names one.
+    fireEvent.click(await screen.findByRole('option', { name: /Default/ }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('channels.setModel', { channelId: 'discord', model: 'p::m' }),
+    );
+    expect(invoke).not.toHaveBeenCalledWith('session.setModel', expect.anything());
   });
 
   it('opens a channel that is not set up yet on its setup page', async () => {

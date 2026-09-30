@@ -5,6 +5,8 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import type { PermissionDecision } from '@moxxy/sdk';
 import type { TelegramPermissionResolver } from '../permission.js';
 import type { TelegramApprovalResolver } from '../approval.js';
+import type { TelegramModel } from './model.js';
+import { PROVIDER_PREFIX, modelScreen, providerScreen } from './model-picker.js';
 
 export interface AwaitingApprovalText {
   approvalId: string;
@@ -24,13 +26,14 @@ export interface CallbackState {
 export interface CallbackCallbacks {
   /** Latch an in-flight approval awaiting a text follow-up. */
   setAwaitingApprovalText(state: AwaitingApprovalText | null): void;
-  /** Switch this bot's model (`/model <value>`); returns the reply. */
-  model(arg: string): Promise<string>;
+  /** This bot's own model (the `/model` picker). */
+  readonly model: Pick<TelegramModel, 'run' | 'choices'>;
 }
 
 /** Inline-keyboard callback router. Dispatches by prefix:
  *  - `perm:`   → permission resolver
  *  - `appr:`   → approval resolver
+ *  - `mprov:`  → the model picker's screens (a provider's models, or back)
  *  - `model:`  → this bot's model (`provider::model` or `default`)
  *  - `mode:`   → mode switch
  */
@@ -64,6 +67,10 @@ export async function handleCallback(
   }
   if (data.startsWith('appr:')) {
     await handleAppr(ctx, data, state, cb);
+    return;
+  }
+  if (data.startsWith(PROVIDER_PREFIX)) {
+    await showPickerScreen(ctx, data.slice(PROVIDER_PREFIX.length), cb);
     return;
   }
   if (data.startsWith('model:')) {
@@ -147,13 +154,25 @@ async function handleAppr(
   await ctx.answerCallbackQuery({ text: option.label });
 }
 
+/** A provider button (its models) or `‹ Providers` (back), redrawn in place. */
+async function showPickerScreen(ctx: Context, provider: string, cb: CallbackCallbacks): Promise<void> {
+  const { current, options } = await cb.model.choices();
+  const screen = provider ? modelScreen(provider, current, options) : providerScreen(current, options);
+  await ctx.answerCallbackQuery();
+  try {
+    await ctx.editMessageText(screen.text, { parse_mode: 'HTML', reply_markup: screen.keyboard });
+  } catch {
+    /* ignore — an unchanged screen can't be re-sent */
+  }
+}
+
 /** A tapped `/model` button: the same switch as `/model <value>`, answered in place. */
 async function handleModel(ctx: Context, value: string, cb: CallbackCallbacks): Promise<void> {
   if (!value) {
     await ctx.answerCallbackQuery({ text: 'invalid model selection' });
     return;
   }
-  const reply = await cb.model(value);
+  const reply = await cb.model.run(value);
   await ctx.answerCallbackQuery({ text: reply.slice(0, 190) });
   if (ctx.callbackQuery?.message) {
     try {

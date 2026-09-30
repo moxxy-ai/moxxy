@@ -12,6 +12,7 @@ import {
 import type { ChannelEntry, ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { ChannelActions, ChannelPage, ChannelRunButton, ledState, useChannelPage } from '../apps/ChannelsPanel';
 import { ChatSurface } from '../chat/ChatSurface';
+import type { ModelOwner } from '../chat/agent-picker/useAgentSession';
 import { IndexColumn } from '../shell/IndexColumn';
 import { BarActions, InstrumentBar } from '../shell/InstrumentBar';
 import { Workbench } from '../shell/Workbench';
@@ -284,18 +285,30 @@ function ChannelChat({
   }
   return (
     <>
-      <ChannelChatSurface workspaceId={chat.workspaceId} name={descriptor.name} />
+      <ChannelChatSurface
+        workspaceId={chat.workspaceId}
+        name={descriptor.name}
+        {...(descriptor.supportsModel ? { modelOwner: botModel(descriptor.id, channels.setModel) } : {})}
+      />
       {actions}
     </>
   );
 }
 
+/** The bot owns its chat's model: a pick in the chat header is the bot's model
+ *  (the same `channels.setModel` as Setup), which the bot runs next. */
+function botModel(channelId: string, setModel: UseChannels['setModel']): ModelOwner {
+  return { pick: (provider, model) => setModel(channelId, `${provider}::${model}`) };
+}
+
 function ChannelChatSurface({
   workspaceId,
   name,
+  modelOwner,
 }: {
   readonly workspaceId: string;
   readonly name: string;
+  readonly modelOwner?: ModelOwner;
 }): JSX.Element {
   const phase = useConnection(workspaceId).snapshot?.phase ?? NOT_ATTACHED;
   const infoReady = useSessionInfoReady(workspaceId, phase);
@@ -308,6 +321,7 @@ function ChannelChatSurface({
         workspaceId={workspaceId}
         sessionLoading={online && !infoReady}
         title={{ context: 'Channels', subject: name }}
+        {...(modelOwner ? { modelOwner } : {})}
         notice={
           online ? null : (
             <p

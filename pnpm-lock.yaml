@@ -558,6 +558,9 @@ importers:
 
   packages/channel-kit:
     dependencies:
+      '@moxxy/chat-model':
+        specifier: workspace:*
+        version: link:../chat-model
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk

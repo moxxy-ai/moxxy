@@ -257,6 +257,35 @@ describe('session.runTurn handler', () => {
     }
   });
 
+  it("sends a message written in a bot's chat with the bot's model, whatever the app last picked", async () => {
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-bot' });
+    drivers.set('moxxy-channel-telegram', { runTurn } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'moxxy-channel-telegram',
+      get: (id: string) => id === 'moxxy-channel-telegram'
+        ? ({ getCwd: () => '/tmp/moxxy-test', remote: () => null } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool, {
+      channelModels: {
+        vault: () => ({ get: async (key: string) => (key === 'telegram_model' ? 'openai-codex::gpt-5.6-luna' : null) }),
+        activateProvider: async () => undefined,
+      },
+    });
+
+    try {
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await runTurnHandler({ workspaceId: 'moxxy-channel-telegram', prompt: 'hi', model: 'gpt-5.5' });
+
+      expect(runTurn).toHaveBeenCalledWith('hi', 'gpt-5.6-luna', undefined, undefined, undefined);
+    } finally {
+      drivers.delete('moxxy-channel-telegram');
+    }
+  });
+
   it('forwards the selected custom model context window to the runner driver', async () => {
     const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-custom-context' });
     drivers.set('ws-custom-context', { runTurn } as unknown as SessionDriver);

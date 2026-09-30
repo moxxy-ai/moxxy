@@ -357,3 +357,18 @@ export function getInProcessPlugins(): InProcessPlugins {
   if (!pluginsCache) pluginsCache = buildInProcessPlugins();
   return pluginsCache;
 }
+
+/**
+ * Make `provider` the active provider of a workspace's runner session, the way
+ * the model picker does. A no-op while the runner is detached or already on it.
+ */
+export function providerActivator(pool: RunnerPool): (workspaceId: string, provider: string) => Promise<void> {
+  return async (workspaceId, provider) => {
+    const supervisor = pool.get(workspaceId);
+    const session = supervisor?.remote() ?? null;
+    if (!supervisor || !session || session.getInfo().activeProvider === provider) return;
+    await session.setActiveProvider(provider);
+    await waitForSessionState(session, (info) => info.activeProvider === provider);
+    supervisor.refreshConnectedInfo();
+  };
+}
