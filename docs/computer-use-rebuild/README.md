@@ -87,11 +87,11 @@ odrzuca nieaktualny indeks lub punkt. `target_blocked`, rozróżnienie
 |---|---|---|
 | `computer_list_apps` | Codex `list_apps` / `listWindows` | aplikacje (+ okna na Windows), `isRunning`, identyfikator |
 | `computer_request_access` | Claude `request_access` | zestaw aplikacji, poziomy `read`/`click`/`full`, flagi schowka i skrótów systemowych; zapis w logu sesji |
-| `computer_get_app_state` | Codex `get_app_state` | `{app}` lub `{windowId}`; tekst drzewa AX z `element_index` (domyślnie diff) + obraz okna z ramką współrzędnych; settling |
+| `computer_get_app_state` | Codex `get_app_state` | `{app, window_id?}`; tekst drzewa AX z `element_index` (domyślnie diff) + obraz okna z ramką współrzędnych; settling |
 | `computer_click` | Codex + bramki Claude | `element_index` lub `x,y` obrazu okna; przycisk, liczba kliknięć |
 | `computer_type_text` / `computer_paste` | Codex | tekst do fokusu celu; paste text/md/html z przywróceniem schowka |
 | `computer_press_key` | Codex (składnia xdotool) | `"Return"`, `"super+c"`; kombinacje systemowe wymagają flagi |
-| `computer_scroll` | Codex | element lub punkt; `pages` (mac) / `pixels` (Windows) |
+| `computer_scroll` | Codex | element lub punkt; `pages` na obu platformach (helper Windows przelicza na piksele) |
 | `computer_drag` | Codex + Claude | ścieżka punktów, czas, modyfikatory |
 | `computer_set_value` / `computer_select_text` | Codex | na elemencie |
 | `computer_perform_secondary_action` | Codex | tylko akcja ujawniona w drzewie |
@@ -101,6 +101,12 @@ odrzuca nieaktualny indeks lub punkt. `target_blocked`, rozróżnienie
 
 Każda akcja zwraca `{outcome: delivered | ineffective | unsupported | blocked,
 code, hint}` i domyślnie świeży stan po settlingu.
+
+Kontrakt w kodzie: `packages/plugin-computer-control/src/contract/` — schematy
+narzędzi (`tools.ts`), parser klawiszy xdotool (`keys.ts`), budżet obrazu i
+mapowanie współrzędnych (`image.ts`), kody błędów z podpowiedziami
+(`outcome.ts`), tekst drzewa i diff (`tree.ts`), ogrodzenie danych
+niezaufanych (`untrusted.ts`).
 
 ## Architektura
 
@@ -112,10 +118,11 @@ model ─▶ dispatchToolCall + PermissionEngine + PermissionResolver
    ├─ AccessRegistry (zgody z logu sesji → jeden stan dla wszystkich powierzchni)
    ├─ TurnControls (stan, kursor, cel) ─▶ runner `computer.changed` ─▶ desktop/mobile
    ├─ PreviewController ─▶ Surface `computer-preview` ─▶ `surface.data` ─▶ PiP
+   ├─ contract/: schematy, klawisze, obraz, tekst drzewa + diff (wspólne dla helperów)
    └─ narzędzia computer_* (jeden kontrakt, adapter per platforma)
           │ stdin/stdout
    helper natywny: Swift (macOS) / C++ (Windows)
-   ├─ stan celu: drzewo AX/UIA + indeksy + diff + obraz okna + ramka
+   ├─ stan celu: drzewo AX/UIA ze stabilnymi kluczami i indeksami + obraz okna + ramka
    ├─ settling na zdarzeniach (AXObserver / UIA), deadline
    ├─ bramki: zgoda/poziom, frontmost, hit-test, łatka pikseli, własne okno
    ├─ wykonawca: AX/UIA najpierw, fizyczne wejście jako fallback

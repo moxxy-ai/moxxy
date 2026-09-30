@@ -98,3 +98,94 @@ Commit kroku 0: `50a3cbc6`.
 - Po przenoszeniu plików w pakiecie usuń `dist` **i** `tsconfig.tsbuildinfo`
   przed przebudową, inaczej `tsc` uzna build za aktualny i nic nie wyemituje
   albo zostawi stare pliki w `dist/windows/`.
+
+---
+
+## Krok 2 — kontrakt narzędzi (2026-09-30)
+
+Commit kroku 1: `504cae7e`.
+
+**Przegląd wzorca (read-only)**
+- Claude.app 2.16120.0, `app.asar` → `.vite/build/index.chunk-DkY0FFgk.js`:
+  schematy `request_access`, `screenshot`, `zoom`, `left_click`…`hold_key`,
+  `left_mouse_down/up`, `computer_batch` (płaski obiekt akcji z enumem),
+  narzędzia `app_*` (tryb w tle: `element_index`, `target: focused`, `path`
+  2–20 punktów, `overwrite_existing`), łatka pikseli 9×9.
+  `index.chunk-kXuYPTnM.js`: budżet obrazu (28 px, 1568 px, 1568 kafelków,
+  wyszukiwanie binarne szerokości), `scale` w [0,1; 1], parser akordów,
+  listy kombinacji systemowych per platforma, flagi schowka z akordu,
+  kategorie aplikacji (przeglądarka / terminal / trading).
+- ChatGPT.app 26.928.21956, `@oai/sky`: `docs/skills/oai_sky_lib/macos/SKILL.md`
+  (typ `Sky`, `get_app_state` z diffem i `disableDiff`, xdotool, `paste`
+  text/md/html, settling ~1 s do 5 s), `targets/mac/errors.js` (kody serwera:
+  `appNotAllowed`, `ambiguousApp`, `userIntervened`, `screenLocked`…),
+  `window_result.js` (instrukcje per aplikacja pokazywane raz na aplikację).
+- Kod piszemy sami; z wzorców wzięte są parametry, limity i zachowania.
+
+**Co** (`packages/plugin-computer-control/src/contract/`)
+- `tools.ts` — `computerTools`: 17 narzędzi (opis + schemat zod). Jeden słownik
+  pól bez domyślnych; akcje (`click`, `type_text`, `paste`, `press_key`,
+  `scroll`, `drag`, `set_value`, `select_text`, `perform_secondary_action`,
+  `mouse`, `hold_key`, `wait`) są wspólne dla pojedynczych narzędzi (z `app`
+  na początku) i `computer_batch` (≤ 50 kroków). `resolveTarget` →
+  `element | point | focused`. Cel: dokładnie jeden z `element_index` albo
+  `x`+`y`; dla pisania/wklejania także żaden (fokus).
+- `keys.ts` — `parseKeyCombo` (xdotool → `{modifiers, key}`; `super`/`cmd`/`win`
+  → `meta`; `Delete` = usuwanie w przód, `BackSpace` = wstecz; `KP_0` →
+  `numpad_0`; `ctrl++`), `formatChord`, `isSystemKeyCombo` (darwin/win32),
+  `clipboardFlagsFor`.
+- `image.ts` — `IMAGE_LIMITS`, `imageBudget`, `scaledSize`, `imagePointToScreen`
+  (ramka `image` + `bounds` w globalnych punktach ekranu, także ujemnych).
+- `outcome.ts` — 27 kodów błędów z podpowiedzią następnego kroku,
+  `actionResultSchema` (`delivered | ineffective | unsupported | blocked`,
+  `code`, `hint`, `method: ax | input`), `describeResult`, `ComputerUseError`.
+- `tree.ts` — `appTreeSchema` (odrzuca zduplikowane indeksy/klucze),
+  `formatTree` (wcięcia, `[N]`, wartości w cudzysłowach JSON, limit długości,
+  `value=<secure>` dla haseł), `diffTrees` (`+`/`~`/`-`; pełne drzewo przy
+  zmianie okna lub gdy nic nie zostało bez zmian; zmiana indeksu = `~`).
+- `untrusted.ts` — `wrapUntrusted`: `<app_content app="…" trust="untrusted">`,
+  neutralizacja zamknięcia ogrodzenia i cudzysłowów w nazwie.
+
+**Jak i dlaczego**
+- Schemat pojedynczego narzędzia to płaski obiekt (JSON Schema `type: object`),
+  bo dostawcy (Codex `/responses`) odrzucają unie na najwyższym poziomie.
+  Krok batcha jest płaskim obiektem wszystkich pól (jak w Claude) i dopiero
+  potem jest parsowany dokładnym schematem akcji, więc błąd wskazuje
+  `actions.N`.
+- Nazwy pól w `snake_case` konsekwentnie (także `clipboard_read`,
+  `clipboard_write`, `system_key_combos`). Pole akcji drugorzędnej to
+  `secondary_action`, a zdarzenie myszy to `event`, żeby nie kolidowały z
+  `action` w batchu.
+- Tekst drzewa i diff powstają w TS, a nie w helperach: jedna implementacja dla
+  Swift i C++. Helper musi za to utrzymywać stabilny `key` i indeks elementu
+  tak długo, jak element żyje (zapisane w kroku 5 w `todo.md`). Diff i tak
+  wypisuje każdą zmianę indeksu, więc stary indeks nie wskaże innego elementu.
+- `scroll` używa `pages` na obu platformach; helper Windows przeliczy strony na
+  piksele (zmiana względem planu, README zaktualizowane).
+
+**Testy (Red → Green → Refactor)**
+- Red: `npx vitest run src/contract` — 6 plików czerwonych (`Cannot find module
+  './keys.js'`, `'./image.js'`, `'./outcome.js'`, `'./tree.js'`,
+  `'./untrusted.js'`, `'./tools.js'`).
+- Green: 6 plików / 105 testów. Po drodze: schemat `z.object({app}).and(strict)`
+  odrzucał `app` — przebudowane na rozszerzanie kształtu przed refinementem.
+- Refactor: wspólny `chord()` zamiast dwóch bloków try/catch; testy ponownie
+  105/105.
+
+**Walidacja**
+- `npx vitest run` (plugin) — 22 pliki / 189 testów.
+- `npx tsc -p tsconfig.json --noEmit` (plugin) — OK.
+- `npx eslint packages/plugin-computer-control` — 0 błędów, 1 istniejące
+  ostrzeżenie (`readBounded`).
+- `pnpm check:deps` — 0 błędów; ostrzeżenia `no-orphans` dla
+  `contract/tree.ts` i `contract/untrusted.ts` (używa ich dopiero backend z
+  kroku 3) + istniejące w desktop-host.
+- `pnpm build` — 88/88.
+- `pnpm --filter @moxxy/desktop-host exec vitest run src/computer-update.test.ts` — 11/11.
+- `node --test scripts/computer-use-policy.test.mjs scripts/desktop-packaging.test.mjs` — 9/9.
+
+**Dla następcy**
+- Kontrakt nie jest jeszcze podpięty do działających narzędzi; robi to krok 3
+  (fabryka narzędzi z `computerTools`) i krok 10 (przełączenie macOS).
+- Kategorie aplikacji i domyślne poziomy zgody (przeglądarki `read`,
+  terminale/IDE `click`) należą do `AccessRegistry` w kroku 3.

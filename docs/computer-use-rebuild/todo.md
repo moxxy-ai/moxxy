@@ -4,10 +4,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 2 — nowy kontrakt narzędzi (czysta logika TS).
-- **Następna czynność:** przejrzeć schematy narzędzi Claude (`app.asar` →
-  `index.chunk-DkY0FFgk.js`) i API `cua`/`sky` Codexa, potem napisać testy
-  schematów, parsera klawiszy xdotool, `imageBudget` i `imagePointToScreen` w `src/contract/`.
+- **Bieżący krok:** 3 — `ComputerBackend` i zgody per aplikacja.
+- **Następna czynność:** przejrzeć przepływ zgody Claude'a (`request_access`,
+  kategorie aplikacji i poziomy w `index.chunk-kXuYPTnM.js`) i Codexa
+  (`computer-use-policy.js`), potem testy `AccessRegistry` (zdarzenie w logu
+  sesji, `tier_insufficient`) i cyklu życia backendu na helperze-fixture.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -33,9 +34,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Testy na skrypcie-fixture w Node; przeniesione testy Windows zielone.
 
 ### Krok 2 — nowy kontrakt narzędzi (czysta logika TS)
-- [ ] `src/contract/`: schematy narzędzi, `actionOutcome`, format tekstu drzewa z indeksami, opakowanie danych niezaufanych.
-- [ ] Parser klawiszy w składni xdotool → neutralny opis (`super` → command/windows).
-- [ ] `imageBudget`, `imagePointToScreen` (Retina, ujemny origin), podpowiedzi dla kodów błędów.
+- [x] `src/contract/`: schematy narzędzi, `actionOutcome`, format tekstu drzewa z indeksami (+ diff), opakowanie danych niezaufanych.
+- [x] Parser klawiszy w składni xdotool → neutralny opis (`super` → command/windows), kombinacje systemowe, flagi schowka.
+- [x] `imageBudget`, `imagePointToScreen` (Retina, ujemny origin), podpowiedzi dla kodów błędów.
 
 ### Krok 3 — `ComputerBackend` i zgody per aplikacja
 - [ ] `src/backend/`: transport per sesja+tura, `TurnControls`, fabryka narzędzi, adapter platformy.
@@ -50,7 +51,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 ### Krok 5 — stan aplikacji na macOS
 - [ ] `list_apps` (NSWorkspace + katalogi aplikacji).
 - [ ] Rozwiązywanie `app`, błąd `ambiguousApp`, uruchamianie w tle.
-- [ ] Drzewo AX z indeksami, akcjami, zaznaczeniem/rozwinięciem; pola haseł bez wartości; limity; diff.
+- [ ] Drzewo AX ze stabilnym `key` i indeksem per element (indeks żyje tak długo jak klucz), akcjami, stanami; pola haseł `secure`; limity. Helper zwraca strukturę `appTreeSchema`, tekst i diff robi `contract/tree.ts`.
 - [ ] Obraz okna przez ScreenCaptureKit, budżet, JPEG, ramka współrzędnych; brak obrazu z przyczyną.
 - [ ] Settling na zdarzeniach `AXObserver` (~1 s, do 5 s).
 
