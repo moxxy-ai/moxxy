@@ -1,5 +1,16 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.41.3
+
+### Patch Changes
+
+- 8735a7f: claude-code provider: moxxy tools now work in the default text transport. They are described to Claude in the prompt and its call blocks become real tool calls that go through moxxy's permission flow, instead of the model printing a fake tool call as plain text. Internal CLI `tool_use` stop reasons no longer abort the stream.
+- Updated dependencies [6fefc59]
+  - @moxxy/sdk@0.41.3
+  - @moxxy/plugin-browser@0.41.3
+  - @moxxy/plugin-oauth@0.41.3
+  - @moxxy/plugin-provider-anthropic@0.41.3
+
 ## 0.41.2
 
 ### Patch Changes

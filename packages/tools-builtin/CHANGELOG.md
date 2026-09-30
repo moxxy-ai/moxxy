@@ -1,5 +1,12 @@
 # @moxxy/tools-builtin
 
+## 0.1.17
+
+### Patch Changes
+
+- Updated dependencies [6fefc59]
+  - @moxxy/sdk@0.41.3
+
 ## 0.1.16
 
 ### Patch Changes

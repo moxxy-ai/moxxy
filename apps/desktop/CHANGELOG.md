@@ -1,5 +1,26 @@
 # @moxxy/desktop
 
+## 0.40.3
+
+### Patch Changes
+
+- Updated dependencies [8735a7f]
+- Updated dependencies [72e182b]
+- Updated dependencies [6fefc59]
+  - @moxxy/cli@0.41.3
+  - @moxxy/sdk@0.41.3
+  - @moxxy/chat-model@0.4.13
+  - @moxxy/client-core@0.13.31
+  - @moxxy/client-platform-web@0.1.70
+  - @moxxy/desktop-host@0.14.22
+  - @moxxy/desktop-ipc-contract@0.14.27
+  - @moxxy/ipc-server-ws@0.1.69
+  - @moxxy/plugin-channel-mobile@0.41.3
+  - @moxxy/plugin-stt-whisper-codex@0.41.3
+  - @moxxy/plugin-vault@0.41.3
+  - @moxxy/runner@0.2.56
+  - @moxxy/workflows-builder@0.1.53
+
 ## 0.40.2
 
 ### Patch Changes
