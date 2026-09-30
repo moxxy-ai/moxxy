@@ -185,6 +185,17 @@ const BUNDLED_WORKSPACE_DEPS = [
 ];
 
 /**
+ * Third-party packages the main imports at runtime. A hot-update bundle is
+ * only `dist/` + `dist-electron/` staged under `<userData>/app/<version>/`,
+ * with no `node_modules` — left external, each dies at boot ("Cannot find
+ * package 'zod'") and every update reverts to the installed app. The bundle
+ * builder refuses a main that imports a package it doesn't carry
+ * (`unbundledImports` in @moxxy/desktop-host/app-update), so a new one shows
+ * up there first.
+ */
+const BUNDLED_THIRD_PARTY_DEPS = ['zod', 'openai', 'electron-updater'];
+
+/**
  * Native / optional modules that must stay external even though they ride
  * in on a bundled workspace dep. `@napi-rs/keyring` is loaded via a guarded
  * dynamic `import('@napi-rs/keyring')` (plugin-vault falls back to a
@@ -224,7 +235,7 @@ export default defineConfig(({ mode }) => {
   };
   return {
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_DEPS })],
+    plugins: [externalizeDepsPlugin({ exclude: [...BUNDLED_WORKSPACE_DEPS, ...BUNDLED_THIRD_PARTY_DEPS] })],
     define: clerkDefine,
     build: {
       outDir: 'dist-electron/main',
@@ -243,7 +254,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin({ exclude: BUNDLED_WORKSPACE_DEPS })],
+    plugins: [externalizeDepsPlugin({ exclude: [...BUNDLED_WORKSPACE_DEPS, ...BUNDLED_THIRD_PARTY_DEPS] })],
     build: {
       outDir: 'dist-electron/preload',
       rollupOptions: {

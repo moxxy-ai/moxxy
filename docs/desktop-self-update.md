@@ -80,6 +80,25 @@ State files live under `<userData>/app/`: `active.json` (which bundle to load),
 `last-attempt.json` (boot breadcrumb), `boot-log.json` (decision log), and one
 `<version>/` dir per staged bundle.
 
+### A bundle must carry everything its main imports
+
+A staged bundle is only `dist/` + `dist-electron/` under
+`<userData>/app/<version>/` — there is no `node_modules` above it. A main that
+imports a package it doesn't carry fails at boot ("Cannot find package
+'zod'"), the boot probe poisons it and the app falls back to the floor. So:
+
+- Workspace packages (`BUNDLED_WORKSPACE_DEPS`) and the third-party packages
+  the main imports (`BUNDLED_THIRD_PARTY_DEPS`: `zod`, `openai`,
+  `electron-updater`) are bundled into the main in
+  `apps/desktop/electron.vite.config.ts`.
+- `buildAppBundle` refuses a bundle whose main or preload imports a package it
+  doesn't carry (`unbundledImports`), naming it — only Node built-ins,
+  `electron` and the guarded optional natives may stay external. A new
+  external dependency fails the release build, not people's updates.
+- A version that already failed to start on a machine (`bad.json`) is not
+  offered there again (`poisonedVersions` in `checkForUpdate`), so a broken
+  release can't loop: Update → relaunch → revert → Update.
+
 ### Bundled extensions (OpenAI connections, Computer Use)
 
 The packaged app also carries newer copies of a few extensions in

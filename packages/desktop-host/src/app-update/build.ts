@@ -13,6 +13,7 @@ import { gzipSync } from 'node:zlib';
 
 import { type AppManifest, canonicalManifestBytes } from './manifest.js';
 import { ESM_MARKER_PACKAGE_JSON } from './resolve.js';
+import { unbundledImports } from './bundle-imports.js';
 
 export interface BuildInput {
   version: string;
@@ -53,6 +54,15 @@ export function buildAppBundle(input: BuildInput): BuildOutput {
   // floor. Ship a minimal `type:module` marker at the bundle root (only if a
   // caller didn't already provide one) so the staged tree loads as ESM.
   const files: Record<string, Buffer> = { ...input.files };
+  // Staged under `<userData>/app/<version>/` there is no `node_modules`: a main
+  // importing a package it doesn't carry dies at boot and every update reverts.
+  const missing = unbundledImports(files);
+  if (missing.length > 0) {
+    throw new Error(
+      `The app bundle imports packages it does not carry: ${missing.join(', ')}. ` +
+        'Bundle them into the main (apps/desktop/electron.vite.config.ts) — a hot-update has no node_modules.',
+    );
+  }
   if (!files['package.json']) {
     files['package.json'] = Buffer.from(ESM_MARKER_PACKAGE_JSON, 'utf8');
   }
