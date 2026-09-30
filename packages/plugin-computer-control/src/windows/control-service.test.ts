@@ -1,10 +1,11 @@
 import { expect, it } from 'vitest';
-import { HelperTransport } from './transport.js';
+import { HelperTransport } from '../helper/transport.js';
+import { PROTOCOL_VERSION } from './contracts.js';
 import { TurnControls } from './control-service.js';
 
 it('distinguishes the independent panel Stop from a crashed worker', async () => {
   const controls = new TurnControls();
-  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.once("data",()=>process.exit(20))']);
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.once("data",()=>process.exit(20))'], { protocolVersion: PROTOCOL_VERSION });
   try {
     controls.attach('session', 'turn', transport);
     await expect(transport.request('status', {}, new AbortController().signal)).rejects.toThrow();
@@ -15,8 +16,8 @@ it('distinguishes the independent panel Stop from a crashed worker', async () =>
 
 it('routes human control to the exact live turn and retains a stopped tombstone', async () => {
   const controls = new TurnControls();
-  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()']);
-  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()']);
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
   try {
     controls.attach('a', 'one', first);
     controls.attach('b', 'one', second);
@@ -38,7 +39,7 @@ it('routes human control to the exact live turn and retains a stopped tombstone'
 
 it('tracks native waiting without exposing mutable state to consumers', async () => {
   const controls = new TurnControls();
-  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()']);
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
   try {
     controls.attach('session', 'turn', transport);
     controls.update('session', 'turn', 'waiting_for_focus', 'window');

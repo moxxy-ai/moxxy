@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { z } from 'zod';
-import { HelperTransport } from './transport.js';
-import { verifyHelperArtifact } from './artifact.js';
+import { HelperTransport } from '../helper/transport.js';
+import { verifyHelperArtifact } from '../helper/artifact.js';
 import { TurnControls } from './control-service.js';
 import { withWindowsComputerGuidance } from './guidance.js';
 import {
@@ -11,7 +11,7 @@ import {
   appCatalogInputSchema, appCatalogSchema, openSchema, openResultSchema,
   readTextSchema, selectTextSchema, textResultSchema,
   actionSchema, actionStatusSchema, actionResultSchema,
-  typeWindowSchema, targetBlockedSchema,
+  typeWindowSchema, targetBlockedSchema, controlStateSchema, PROTOCOL_VERSION,
 } from './contracts.js';
 
 export const helperPath = fileURLToPath(new URL('../../bin/win32-x64/moxxy-computer.exe', import.meta.url));
@@ -27,15 +27,17 @@ export class WindowsBackend {
     const previous = this.turns.get(key);
     if (previous && !previous.transport.closed) return previous.transport;
     if (previous) throw new Error('Computer Use stopped for this turn. Start a new turn to regain control and observe again.');
-    try { await verifyHelperArtifact(helperPath); } catch {
+    try { await verifyHelperArtifact(helperPath, PROTOCOL_VERSION); } catch {
       throw new Error('Windows Computer Use component is missing or incompatible. Install the matching x64 extension from a full installer; chat remains available.');
     }
     ctx.signal.throwIfAborted();
     // No await between the final lookup and registration: parallel calls share one child.
     const existing = this.turns.get(key);
     if (existing) return existing.transport;
-    const transport = new HelperTransport(helperPath, ['--parent', String(process.pid)], 15_000,
-      (event) => this.controls.update(ctx.sessionId, ctx.turnId, event.state));
+    const transport = new HelperTransport(helperPath, ['--parent', String(process.pid)], {
+      protocolVersion: PROTOCOL_VERSION, timeoutMs: 15_000,
+      onEvent: (event) => { if (event.event === 'control_state') this.controls.update(ctx.sessionId, ctx.turnId, controlStateSchema.parse(event).state); },
+    });
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };
     ctx.signal.addEventListener('abort', abort, { once: true });
     this.turns.set(key, { sessionId: ctx.sessionId, turnId: ctx.turnId, transport, dispose: () => ctx.signal.removeEventListener('abort', abort) });

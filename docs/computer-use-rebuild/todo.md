@@ -4,9 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 1 — wspólny transport helpera.
-- **Następna czynność:** przenieść `src/windows/{protocol,transport,artifact}.ts`
-  do `src/helper/` i dodać rejestr zdarzeń helpera (Red: test na skrypcie-fixture).
+- **Bieżący krok:** 2 — nowy kontrakt narzędzi (czysta logika TS).
+- **Następna czynność:** przejrzeć schematy narzędzi Claude (`app.asar` →
+  `index.chunk-DkY0FFgk.js`) i API `cua`/`sky` Codexa, potem napisać testy
+  schematów, parsera klawiszy xdotool, `imageBudget` i `imagePointToScreen` w `src/contract/`.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -27,9 +28,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Pusty changeset, commit i push.
 
 ### Krok 1 — wspólny transport helpera
-- [ ] `src/helper/{transport,protocol,artifact}.ts` (przeniesione z `windows/`), rejestr zdarzeń helpera (`control_state`, `cursor`, `preview_frame`).
-- [ ] Weryfikacja artefaktu: PE x64 i Mach-O (universal/arm64/x86_64) + sha256.
-- [ ] Testy na skrypcie-fixture w Node; przeniesione testy Windows zielone.
+- [x] `src/helper/{transport,protocol,artifact}.ts` (przeniesione z `windows/`), rejestr zdarzeń helpera (`control_state` wbudowany, pozostałe rejestrowane przez profil).
+- [x] Weryfikacja artefaktu: PE x64 i Mach-O (universal/arm64/x86_64) + sha256.
+- [x] Testy na skrypcie-fixture w Node; przeniesione testy Windows zielone.
 
 ### Krok 2 — nowy kontrakt narzędzi (czysta logika TS)
 - [ ] `src/contract/`: schematy narzędzi, `actionOutcome`, format tekstu drzewa z indeksami, opakowanie danych niezaufanych.

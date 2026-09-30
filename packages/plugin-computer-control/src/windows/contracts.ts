@@ -1,17 +1,12 @@
 import { z } from 'zod';
+import { controlStateSchemaFor, responseSchemaFor } from '../helper/protocol.js';
 
 export const PROTOCOL_VERSION = 4;
-export const MAX_FRAME_BYTES = 3_000_000;
 export const idSchema = z.string().min(1).max(160);
 // Responses may require every field. Null explicitly means no optional selector;
 // malformed non-null references must still fail validation, never broaden the target.
 const optionalSelector = <S extends z.ZodTypeAny>(schema: S) => schema.nullable().optional().transform(value => value ?? undefined);
-export const controlStateSchema = z.object({
-  version: z.literal(PROTOCOL_VERSION), event: z.literal('control_state'), id: idSchema,
-  state: z.enum(['idle', 'background', 'foreground', 'waiting_for_focus', 'paused_by_user', 'recovering', 'stopped', 'failed']),
-}).strict();
-export type ControlState = z.infer<typeof controlStateSchema>;
-export const controlCommandSchema = z.enum(['pause', 'resume', 'stop']);
+export const controlStateSchema = controlStateSchemaFor(PROTOCOL_VERSION);
 export const observationRequiredSchema = z.object({
   status: z.literal('needs_observation'), delivered: z.literal(false),
   effect: z.enum(['none', 'possible']), verificationRequired: z.literal(true),
@@ -121,11 +116,7 @@ export const statusSchema = z.object({
   platform: z.literal('win32'), architecture: z.literal('x64'), ready: z.boolean(),
   protocolVersion: z.literal(PROTOCOL_VERSION), limitations: z.array(z.string()).max(16),
 }).strict();
-export const responseSchema = z.discriminatedUnion('ok', [
-  z.object({ version: z.literal(PROTOCOL_VERSION), id: idSchema, ok: z.literal(true), result: z.unknown() }).strict(),
-  z.object({ version: z.literal(PROTOCOL_VERSION), id: idSchema, ok: z.literal(false),
-    error: z.object({ code: z.string().max(80), message: z.string().max(2048) }).strict() }).strict(),
-]);
+export const responseSchema = responseSchemaFor(PROTOCOL_VERSION);
 
 export function imagePointToScreen(
   point: z.infer<typeof pointSchema>,

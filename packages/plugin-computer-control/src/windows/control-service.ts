@@ -3,7 +3,7 @@ import {
   computerApprovalFocusSchema,
   type ComputerControlService, type ComputerControlSnapshot, type ComputerControlState,
 } from '@moxxy/sdk';
-import type { HelperTransport } from './transport.js';
+import type { HelperTransport } from '../helper/transport.js';
 
 interface Entry { snapshot: ComputerControlSnapshot; transport: HelperTransport }
 const key = (sessionId: string, turnId: string) => JSON.stringify([sessionId, turnId]);

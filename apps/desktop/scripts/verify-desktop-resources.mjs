@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/windows/artifact.js';
+import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
+import { PROTOCOL_VERSION as WINDOWS_COMPUTER_PROTOCOL } from '../../../packages/plugin-computer-control/dist/windows/contracts.js';
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
@@ -62,7 +63,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     if (dependency === CODEX_PROVIDER) providerManifest = manifest;
     if (dependency === '@moxxy/plugin-computer-control' && (options.platform ?? process.platform) === 'win32') {
       try {
-        await verifyHelperArtifact(path.join(path.dirname(manifestPath), 'bin', 'win32-x64', 'moxxy-computer.exe'));
+        await verifyHelperArtifact(path.join(path.dirname(manifestPath), 'bin', 'win32-x64', 'moxxy-computer.exe'), WINDOWS_COMPUTER_PROTOCOL);
       } catch (error) {
         throw new Error('Windows Computer Use component missing or incompatible in desktop resources', { cause: error });
       }
