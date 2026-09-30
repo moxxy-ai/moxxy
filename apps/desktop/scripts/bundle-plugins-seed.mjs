@@ -67,8 +67,9 @@ const SEED_PLUGINS = [
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
- *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
-const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
+ *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model,
+ *  everything→sdk). None of these are on npm, so a missing one fails with 404. */
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which
