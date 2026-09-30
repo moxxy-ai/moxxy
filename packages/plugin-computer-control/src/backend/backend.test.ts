@@ -158,6 +158,18 @@ describe('actions', () => {
     expect(methods()).not.toContain('act');
   });
 
+  it('hands the helper parsed chords so no helper parses xdotool itself', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await run(tools, 'computer_press_key', { app: 'TextEdit', key: 'super+shift+Z' });
+    await run(tools, 'computer_click', { app: 'TextEdit', element_index: 1, modifiers: 'cmd+alt' });
+    await run(tools, 'computer_batch', { app: 'TextEdit', actions: [{ action: 'hold_key', key: 'shift', duration_s: 1 }] });
+    const sent = helperRequests(requestsFile).filter((request) => request.method !== 'resolve_apps');
+    expect(sent[0]?.params.action).toMatchObject({ action: 'press_key', key: 'super+shift+Z', chord: { modifiers: ['shift', 'meta'], key: 'z' } });
+    expect(sent[1]?.params.action).toMatchObject({ action: 'click', held: ['alt', 'meta'] });
+    expect((sent[2]?.params.actions as unknown[])[0]).toMatchObject({ action: 'hold_key', chord: { modifiers: ['shift'], key: null } });
+  });
+
   it('refuses a system chord without the grant', async () => {
     const { tools } = backend();
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });

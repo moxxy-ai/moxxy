@@ -1,6 +1,6 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import type { z } from 'zod';
-import type { KeyPlatform } from '../contract/keys.js';
+import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode } from '../contract/outcome.js';
 import { computerTools, type BatchAction } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
@@ -45,6 +45,14 @@ const turnKey = (sessionId: string, turnId: string) => JSON.stringify([sessionId
 
 function withImage(text: string, image: HelperImage | undefined): string | ToolImageResult {
   return image ? { mediaType: image.mediaType, base64: image.base64, forModel: text } : text;
+}
+
+/** Helpers get chords from the one xdotool parser instead of parsing key syntax themselves. */
+function forHelper(step: BatchAction): Record<string, unknown> {
+  const fields: Record<string, unknown> = { ...step };
+  if (typeof fields.key === 'string') fields.chord = parseKeyCombo(fields.key);
+  if (typeof fields.modifiers === 'string') fields.held = parseKeyCombo(fields.modifiers).modifiers;
+  return fields;
 }
 
 /** A coded helper refusal becomes a Computer Use error carrying the model's next step. */
@@ -136,7 +144,7 @@ export class ComputerBackend {
       const access = accessFromLog(ctx.log);
       const grant = checkAccess(access, input.app, maxTier(...input.actions.map(requiredTier)));
       for (const step of input.actions) checkKeys(step, access.flags, this.profile.platform);
-      const params = { app: grant.id, actions: input.actions, allowed: access.apps.map((app) => app.id) };
+      const params = { app: grant.id, actions: input.actions.map(forHelper), allowed: access.apps.map((app) => app.id) };
       const { turn, result } = await this.call(ctx, 'batch', params, batchResultSchema, grant.name);
       if (result.results.length > input.actions.length) throw new ComputerUseError('helper_failed', 'The helper reported more steps than it was sent');
       const lines = result.results.map((outcome, index) => `${index + 1}. ${input.actions[index]?.action}: ${describeResult(outcome)}`);
@@ -167,7 +175,7 @@ export class ComputerBackend {
     const access = accessFromLog(ctx.log);
     const grant = checkAccess(access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
-    const params = { app: grant.id, action: step, allowed: access.apps.map((granted) => granted.id) };
+    const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id) };
     const { turn, result } = await this.call(ctx, 'act', params, actResultSchema, grant.name);
     const outcome = describeResult(result.result);
     return result.state ? this.present(turn, grant, result.state, [outcome]) : outcome;

@@ -256,6 +256,76 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       } finally { await transport.close(); }
     });
 
+    const name = async (transport: HelperTransport) => element(await observe(transport), 'text field:name');
+    const chord = (key: string | null, modifiers: string[] = []) => ({ modifiers, key });
+
+    it('selects text and types at the caret through accessibility, without bringing the app forward', async () => {
+      const transport = start();
+      try {
+        const field = await name(transport);
+        await act(transport, { action: 'set_value', element_index: field.index, value: 'one two three' });
+        const selected = await act(transport, { action: 'select_text', element_index: field.index, text: 'two', selection_type: 'text' });
+        expect(selected.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        const typed = await act(transport, { action: 'type_text', text: '2' });
+        expect(typed.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        await act(transport, { action: 'select_text', element_index: field.index, text: 'one', selection_type: 'cursor_after' });
+        await act(transport, { action: 'type_text', element_index: field.index, text: '!' });
+        expect((await name(transport)).value).toBe('one! 2 three');
+        expect(spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim())
+          .not.toBe('MoxxyComputerFixture');
+      } finally { await transport.close(); }
+    });
+
+    it('presses keys and chords into the app in the background', async () => {
+      const transport = start();
+      try {
+        const field = await name(transport);
+        await act(transport, { action: 'set_value', element_index: field.index, value: 'abc' });
+        await act(transport, { action: 'select_text', element_index: field.index, text: 'abc', selection_type: 'cursor_after' });
+        const erased = await act(transport, { action: 'press_key', key: 'BackSpace', repeat: 2, chord: chord('backspace') });
+        expect(erased.result).toEqual({ outcome: 'delivered', method: 'input' });
+        expect((await name(transport)).value).toBe('a');
+        // Select All has an accessibility equivalent, so it works while the app stays in the background.
+        const all = await act(transport, { action: 'press_key', key: 'super+a', repeat: 1, chord: chord('a', ['meta']) });
+        expect(all.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        await act(transport, { action: 'type_text', text: 'Z' });
+        expect((await name(transport)).value).toBe('Z');
+        // Other Command shortcuts go through the menu bar, which only the app in front has.
+        const copy = await act(transport, { action: 'press_key', key: 'super+c', repeat: 1, chord: chord('c', ['meta']) });
+        expect(copy.result).toMatchObject({ outcome: 'blocked', code: 'not_frontmost' });
+      } finally { await transport.close(); }
+    });
+
+    it('pastes plain text at the caret without touching the clipboard', async () => {
+      const clipboard = () => spawnSync('pbpaste').stdout.toString();
+      const transport = start();
+      try {
+        const before = clipboard();
+        const field = await name(transport);
+        await act(transport, { action: 'set_value', element_index: field.index, value: 'x' });
+        await act(transport, { action: 'select_text', element_index: field.index, text: 'x', selection_type: 'cursor_after' });
+        const pasted = await act(transport, { action: 'paste', text: 'PASTE', format: 'text' });
+        expect(pasted.result).toEqual({ outcome: 'delivered', method: 'ax' });
+        expect((await name(transport)).value).toBe('xPASTE');
+        expect(clipboard()).toBe(before);
+        // Rich text needs the clipboard and Command-V, so the app must be in front.
+        const rich = await act(transport, { action: 'paste', text: '<b>bold</b>', format: 'html' });
+        expect(rich.result).toMatchObject({ outcome: 'blocked', code: 'not_frontmost' });
+        expect(clipboard()).toBe(before);
+      } finally { await transport.close(); }
+    });
+
+    it('asks for prefix or suffix when the text to select repeats', async () => {
+      const transport = start();
+      try {
+        const field = await name(transport);
+        await act(transport, { action: 'set_value', element_index: field.index, value: 'hi there hi' });
+        const { result } = await act(transport, { action: 'select_text', element_index: field.index, text: 'hi', selection_type: 'text' });
+        expect(result).toMatchObject({ outcome: 'unsupported', code: 'unsupported_action' });
+        expect(result.hint).toMatch(/2 times.*prefix or suffix/);
+      } finally { await transport.close(); }
+    });
+
     it('asks for an observation before the first action', async () => {
       const transport = start();
       try {

@@ -4,13 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7b — klawiatura i tekst na macOS (7a — akcje AX po
-  indeksie — gotowe).
-- **Następna czynność:** testy Red dla `type_text` (porcje, fokus w
-  aplikacji celu, raport dostarczonych znaków), `press_key` (akord z TS,
-  `CGEvent.postToPid`), `paste` (schowek + przywrócenie) i `select_text`
-  (`AXSelectedTextRange`); przegląd `type`/`key` w Claude (`app_type`,
-  lista klawiszy działających w tle).
+- **Bieżący krok:** 7c — fizyczna mysz z bramkami na macOS (7a, 7b gotowe).
+- **Następna czynność:** testy Red dla bramek jako czystych funkcji
+  (punkt na ekranie, hit-test → pid celu, własne okno/nakładka, łatka
+  pikseli 9×9 względem ostatniego zrzutu, Dock/pulpit), potem klik po
+  punkcie na fixture z przywróceniem wskaźnika; krótka aktywacja aplikacji
+  dla skrótów ⌘ z kontrolą pisania użytkownika (wzorzec Claude).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -66,7 +65,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 ### Krok 7 — wykonawca akcji macOS
 - [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed gotowe; fizyczne wejście w 7c).
 - [x] 7a: `act` po indeksie — klik przez `AXPress`/`AXShowMenu`, `set_value`, `perform_secondary_action` z listy elementu, `stale_state`/`no_state`, fazy kursora, świeży stan w odpowiedzi.
-- [ ] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key`.
+- [ ] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key` (7a: click po indeksie, set_value, secondary; 7b: type_text, press_key, paste, select_text — w tle; reszta w 7c).
+- [x] 7b: klawiatura i tekst w tle (AX w miejscu kursora, `postToPid`, ⌘A przez AX, inne ⌘ poza przodem → `not_frontmost`, wklejanie tekstu bez schowka, HTML przez schowek z przywróceniem).
 - [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu.
 - [ ] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza).
 - [ ] Wykrywanie braku postępu; wynik + świeży stan po akcji.

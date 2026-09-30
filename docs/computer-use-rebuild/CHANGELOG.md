@@ -777,3 +777,76 @@ Commit kroku 6: `467542f1`.
   akord (`parseKeyCombo`), żeby nie dublować parsera w Swift.
 - 7c: fizyczna mysz z bramkami i przywracaniem wskaźnika; tu wraca fallback
   z `AXLadder` (`physical`/`fallBack`).
+
+---
+
+## Krok 7b — klawiatura, tekst, wklejanie, zaznaczanie (2026-09-30)
+
+Commit kroku 7a: `30813364`.
+
+**Wzorzec**
+- Claude (`index.chunk-DkY0FFgk.js`): w tle działają tylko return, escape,
+  backspace, delete i cmd+a; pozostałe skróty ⌘ wymagają paska menu.
+  Potwierdzone sondą na fixture: w nieaktywnej aplikacji pozycje menu Edycja
+  mają `AXEnabled = 0`, więc ani `postToPid` z ⌘, ani `AXPress` na pozycji
+  menu nic nie robią.
+- Sonda (nieaktywna fixture na innej przestrzeni): `AXSelectedText` wstawia
+  tekst w miejscu kursora tekstowego, a `CGEvent.postToPid` dostarcza zwykłe
+  klawisze do pola z fokusem — bez aktywowania aplikacji.
+- Użytkownik potwierdził: klawiatura QWERTY, kopiowanie ⌘C, wklejanie ⌘V.
+  Układ nie był przyczyną porażki ⌘ w tle; wyszukiwanie klawisza w
+  bieżącym układzie zostaje dla układów innych niż US (np. QWERTZ).
+
+**Co**
+- TS `backend.ts` `forHelper`: do kroku dla helpera dochodzi `chord`
+  (z `key`) i `held` (z `modifiers`) z jedynego parsera xdotool —
+  helpery nie parsują składni klawiszy.
+- Swift `Keyboard.swift` (czyste): `KeyCodes.named` (neutralne nazwy →
+  kody wirtualne, Insert → Help), `KeyCodes.ansi` (zapas US), `KeyChord`
+  (`parse`, `isSelectAll`, `needsMenuBar`), `TextLocator` (dopasowanie w
+  UTF-16, `prefix`/`suffix`, `notFound`/`ambiguous(n)`), `Typing.chunks`
+  (≤ 20 jednostek UTF-16 na zdarzenie, bez rozcinania znaków).
+- Swift `KeyboardInput.swift`: zdarzenia z prywatnym stanem źródła,
+  oznaczone `eventSourceUserData` (dla strażnika w 7d), wysyłane
+  `postToPid`; `KeyLayout` (bieżący układ przez `UCKeyTranslate` na wątku
+  głównym); `Clipboard` (zdjęcie wszystkich typów, zapis z oznaczeniem
+  `org.nspasteboard.TransientType`, zwykły tekst jako zapas dla HTML,
+  przywrócenie po 0,5 s tylko gdy użytkownik nic nie skopiował).
+- Wykonawca: `type_text` (fokus tylko gdy element go nie ma — fokus w polu
+  zaznacza całość; AX w miejscu kursora; zapas: zdarzenia porcjami z
+  kontrolą fokusu między porcjami i podpowiedzią „wpisano X z Y”),
+  `press_key` (⌘A → zaznaczenie całości przez AX; inne ⌘ poza przodem →
+  `not_frontmost`; reszta przez `postToPid`), `paste` (tekst/MD przez AX bez
+  schowka; HTML przez schowek i ⌘V tylko z przodu), `select_text`
+  (zaznaczenie, kursor przed/po; pola haseł odmowa).
+- `ActionResult.hint` — konkretna podpowiedź helpera zamiast ogólnej.
+- Fixture: menu Edycja (Cofnij, Wytnij, Kopiuj, Wklej, Zaznacz wszystko), jak
+  w każdej prawdziwej aplikacji.
+
+**Testy (Red → Green)**
+- Red TS: helper nie dostawał `chord` (`toMatchObject`).
+- Red Swift: `cannot find 'KeyChord' / 'KeyCodes' / 'TextLocator' /
+  'Typing'`, brak przypadków `typeText/pressKey/paste/selectText`; potem
+  brak `isSelectAll/needsMenuBar`; potem `extra argument 'to'` (schowek).
+- Red TS (helper + fixture): nowe kroki `unsupported`, brak `hint`; po
+  pierwszej implementacji ⌘A i ⌘V przez `postToPid` nie działały (`'aZ'`,
+  `'x'`) — przyczyna w menu nieaktywnej aplikacji, nie w kodzie klawiszy.
+- Green: Swift 81/81; `src/macos/helper.test.ts` 22/22 (zaznaczanie i
+  pisanie przez AX z aplikacją w tle, BackSpace przez zdarzenia, ⌘A przez
+  AX, ⌘C w tle → `not_frontmost`, wklejenie tekstu bez zmiany schowka, HTML
+  w tle → `not_frontmost`, powtórzony tekst → podpowiedź z liczbą);
+  backend 50/50.
+
+**Walidacja**
+- `swift test` 81/81; `build.sh`, `build-fixture.sh` OK.
+- `npx vitest run` (plugin) — 25 plików / 259 testów.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów; `pnpm check:deps`
+  0 błędów; `pnpm build` 88/88 (dist zawiera `forHelper`).
+
+**Pominięcia i dla następcy**
+- Pełna ścieżka HTML ⌘V (aplikacja z przodu) nie ma testu end-to-end:
+  wymagałaby wyciągnięcia fixture na wierzch w trakcie pracy użytkownika.
+  Części schowka są przetestowane na prywatnym schowku. Test z aktywacją
+  dojdzie w 7c razem z krótką aktywacją aplikacji dla skrótów ⌘ (z
+  kontrolą, czy użytkownik właśnie nie pisze — wzorzec Claude).
+- `type_text`/`paste` po punkcie (x, y) — 7c (fizyczny klik ustawia fokus).
