@@ -9,28 +9,25 @@ import type { ModelDescriptor } from '@moxxy/sdk';
 // Every Codex-served model is a gpt-5-family reasoning model, so all advertise
 // `supportsReasoning` — the request already sends `reasoning.summary: 'auto'`;
 // the per-provider toggle decides whether the summary is surfaced.
+// The Codex backend serves every model below with a 272k window and uses 95%
+// of it (`effective_context_window_percent`), even where the raw API window is
+// 1.05M. Advertising more made the proactive compactor's
+// `estimatedTokens > 0.75 * contextWindow` gate unreachable, so every overflow
+// fell through to the reactive compact-on-overflow retry.
+const CODEX_CONTEXT_WINDOW = 258_400;
+// The OAuth backend rejects `max_output_tokens`; this is only the compactor's
+// reserve for the reply.
+const CODEX_OUTPUT_RESERVE = 16_384;
+
 export const codexModels: ReadonlyArray<ModelDescriptor> = [
-  // Astra's operational OAuth window: 272k less the agreed 5% safety margin.
-  // Output is a compaction reserve; the OAuth backend rejects max_output_tokens.
-  { id: 'gpt-6-astra', contextWindow: 258_400, maxOutputTokens: 16_384, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  // The ChatGPT-plan Codex backend enforces a ~400k window for the gpt-5-family
-  // models it serves, well below the raw API ceiling. Advertising 1M here made
-  // the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate
-  // unreachable, so every overflow fell through to the reactive
-  // compact-on-overflow retry. Keep these in step with the rest of the catalog.
-  // GPT-5.6 family (GA July 9, 2026): served to ChatGPT-Pro/Plus subscribers
-  // under the same ids the API uses (sol/terra/luna — no `-codex` variant).
-  // Sol is OpenAI's default Codex model. The ChatGPT-plan window cap applies
-  // here too, so keep them at 400k like the rest of this list.
-  { id: 'gpt-5.6-sol', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.6-terra', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.6-luna', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.4', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.3-codex', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.3-codex-spark', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.2', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  // GPT-6: Astra, Sol (flagship) and Luna (fast).
+  { id: 'gpt-6-astra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  // GPT-5.6 family (GA July 9, 2026), under the same ids the API uses.
+  { id: 'gpt-5.6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-5.6-terra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-5.6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
 ];
 
 // OpenAI's own Codex default moved to gpt-5.6-sol at GA (July 9, 2026); mirror

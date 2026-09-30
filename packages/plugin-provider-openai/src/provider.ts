@@ -49,13 +49,11 @@ export interface OpenAIProviderConfig {
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * Model catalog as of OpenAI's 2026 API surface. The 5.x family supersedes
- * the 4o family but the older ones stay listed so existing configs keep
- * working without a forced migration.
+ * Model catalog: the OpenAI models still served (GPT-6 and GPT-5.6). A config
+ * pinned to an older id still sends it; it is just no longer offered.
  *
- * Output/context numbers are the public documented limits as of April-May
- * 2026; verify against https://developers.openai.com/api/docs/models when
- * picking a model for a long-context workload.
+ * Output/context numbers are the public documented limits as of September
+ * 2026; verify against https://developers.openai.com/api/docs/models.
  */
 // The gpt-5.x family are reasoning models (`supportsReasoning`): they accept
 // `reasoning_effort` and, on backends that stream a summary, surface reasoning
@@ -63,39 +61,16 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // (Responses-API only), so the flag mainly gates the config UI + effort there;
 // OpenAI-compatible reasoning backends (DeepSeek/z.ai/local) do stream it.
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
+  // GPT-6: Astra, Sol (flagship, knowledge cutoff Apr 20, 2026) and Luna
+  // (fast, cutoff May 18, 2026); 1,050,000-token window, 128k max output.
   { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  // GPT-5.6 family (GA July 9, 2026): three-tier frontier class, knowledge
-  // cutoff Feb 16, 2026. Sol = flagship, Terra = balanced, Luna = fast/cheap.
-  // All share the 1,050,000-token window and 128k max output; pick by cost:
-  // Sol $5/$30, Terra $2.50/$15, Luna $1/$6 per 1M in/out tokens.
+  { id: 'gpt-6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  // GPT-5.6 family (GA July 9, 2026): Sol = flagship, Terra = balanced,
+  // Luna = fast/cheap. Same 1,050,000-token window and 128k max output.
   { id: 'gpt-5.6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.6-terra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-
-  // GPT-5.5 family (released April 23, 2026): prior frontier class.
-  { id: 'gpt-5.5', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.5-pro', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-
-  // GPT-5.4 family: cheaper general-purpose tier; -mini and -nano are the
-  // new sweet-spot defaults for high-volume agentic workloads.
-  { id: 'gpt-5.4', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.4-pro', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.4-nano', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-
-  // GPT-5.3-Codex: agentic coding specialist. Vision-capable.
-  { id: 'gpt-5.3-codex', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-
-  // GPT-5.2 and GPT-5: prior reasoning models, configurable effort.
-  { id: 'gpt-5.2', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-
-  // GPT-4 family: kept for explicit-pin use cases.
-  // 4.1 is text-only; 4o/4o-mini are vision + document capable; 4-turbo predates file inputs.
-  { id: 'gpt-4.1', contextWindow: 1_000_000, maxOutputTokens: 32_768, supportsTools: true, supportsStreaming: true },
-  { id: 'gpt-4o', contextWindow: 128_000, maxOutputTokens: 16_384, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-4o-mini', contextWindow: 128_000, maxOutputTokens: 16_384, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gpt-4-turbo', contextWindow: 128_000, maxOutputTokens: 4_096, supportsTools: true, supportsStreaming: true, supportsImages: true },
 ];
 
 interface PendingToolCall {
@@ -139,7 +114,7 @@ export class OpenAIProvider implements LLMProvider {
         timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
       });
-    this.defaultModel = config.defaultModel ?? 'gpt-5.4-mini';
+    this.defaultModel = config.defaultModel ?? 'gpt-5.6-luna';
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -164,12 +139,12 @@ export class OpenAIProvider implements LLMProvider {
 
     yield { type: 'message_start', model };
 
-    // GPT-5.x (and OpenAI's reasoning models) renamed the token cap field
+    // GPT-5/6 (and OpenAI's reasoning models) renamed the token cap field
     // from `max_tokens` to `max_completion_tokens` and ALSO reject the
     // legacy name with a 400. Use the new name for any model whose id
-    // starts with gpt-5 / o1 / o3; keep the legacy name for the gpt-4
-    // family so existing callers don't regress.
-    const usesCompletionTokens = /^(?:gpt-5|o1|o3)/.test(model);
+    // starts with gpt-5 / gpt-6 / o1 / o3; keep the legacy name for the
+    // gpt-4 family so existing callers don't regress.
+    const usesCompletionTokens = /^(?:gpt-[56]|o1|o3)/.test(model);
     const tokenLimitKey = usesCompletionTokens ? 'max_completion_tokens' : 'max_tokens';
 
     // Reasoning preview is gated by the per-provider toggle (`req.reasoning`).
@@ -177,7 +152,12 @@ export class OpenAIProvider implements LLMProvider {
     // depth + makes a summary available where the backend streams one) and
     // surface the streamed reasoning/reasoning_content deltas.
     const emitReasoning = req.reasoning != null && req.reasoning !== false;
-    const reasoningEffort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
+    // GPT-6 Sol and Luna call tools in Chat Completions only with
+    // `reasoning_effort: "none"` (OpenAI's GPT-6 guide).
+    const toolsNeedNoReasoning = tools !== undefined && /^gpt-6-(?:sol|luna)\b/.test(model);
+    const reasoningEffort = toolsNeedNoReasoning
+      ? 'none'
+      : typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
 
     // Type the request body as the SDK's streaming-create params so field
     // names/value types are checked. The local `OpenAIChatMessage` /
@@ -201,7 +181,9 @@ export class OpenAIProvider implements LLMProvider {
       // dropped a user-requested effort for exactly those backends. The
       // descriptor's `supportsReasoning` already gates this upstream via
       // req.reasoning.
-      ...(emitReasoning && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...((emitReasoning || toolsNeedNoReasoning) && reasoningEffort
+        ? { reasoning_effort: reasoningEffort as OpenAI.Chat.Completions.ChatCompletionReasoningEffort }
+        : {}),
       stream: true,
       // OpenAI only emits the final `usage` chunk when this is set;
       // without it `raw.usage` is null on every chunk and token usage

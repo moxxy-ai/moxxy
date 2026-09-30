@@ -141,7 +141,7 @@ describe('extractSystemText', () => {
 
 describe('toResponsesBody', () => {
   const req = {
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.6-sol',
     messages: [
       { role: 'system' as const, content: [{ type: 'text' as const, text: 'BASE' }] },
       { role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] },

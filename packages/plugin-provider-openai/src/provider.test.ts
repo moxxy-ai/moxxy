@@ -456,3 +456,44 @@ describe('OpenAIProvider.stream', () => {
     expect(plain.models.length).toBeGreaterThan(0);
   });
 });
+
+describe('GPT-6 request shape (Chat Completions)', () => {
+  const tool = { name: 'read', description: 'Read a file', inputJsonSchema: { type: 'object' } } as never;
+
+  async function sent(model: string, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    let body: Record<string, unknown> = {};
+    const client = {
+      chat: {
+        completions: {
+          create: async (b: Record<string, unknown>) => {
+            body = b;
+            return (async function* () {})();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: client as never });
+    for await (const _ of p.stream({ model, messages: [], maxTokens: 1000, ...extra })) {
+      // drain
+    }
+    return body;
+  }
+
+  it('caps output with max_completion_tokens, like every reasoning model', async () => {
+    const body = await sent('gpt-6-sol');
+    expect(body.max_completion_tokens).toBe(1000);
+    expect('max_tokens' in body).toBe(false);
+  });
+
+  it('turns reasoning off when tools are sent to Sol or Luna — they only call tools that way here', async () => {
+    for (const model of ['gpt-6-sol', 'gpt-6-luna']) {
+      const body = await sent(model, { tools: [tool], reasoning: { effort: 'high' } });
+      expect(body.reasoning_effort).toBe('none');
+    }
+  });
+
+  it('keeps the requested effort for Sol and Luna when no tools are sent', async () => {
+    const body = await sent('gpt-6-luna', { reasoning: { effort: 'high' } });
+    expect(body.reasoning_effort).toBe('high');
+  });
+});

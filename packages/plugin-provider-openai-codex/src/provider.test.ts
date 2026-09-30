@@ -50,7 +50,7 @@ async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
 
 function baseRequest(over: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.6-sol',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     ...over,
   };
@@ -124,7 +124,7 @@ describe('CodexProvider.stream', () => {
     expect(h['Accept']).toBe('text/event-stream');
 
     // Event sequence: message_start, text_delta('hello'), message_end (with usage)
-    expect(events[0]).toMatchObject({ type: 'message_start', model: 'gpt-5.3-codex' });
+    expect(events[0]).toMatchObject({ type: 'message_start', model: 'gpt-5.6-sol' });
     expect(events.some((e) => e.type === 'text_delta' && e.delta === 'hello')).toBe(true);
     const end = events.find((e): e is Extract<ProviderEvent, { type: 'message_end' }> => e.type === 'message_end');
     expect(end?.usage).toEqual({ inputTokens: 3, outputTokens: 5 });
@@ -465,13 +465,13 @@ describe('CodexProvider.stream', () => {
     const provider = new CodexProvider({ tokens: makeTokens() });
     const bigImage = 'A'.repeat(4 * 1024 * 1024); // 4 MiB of base64
     const withImage = await provider.countTokens({
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.6-sol',
       messages: [
         { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: bigImage }] },
       ],
     });
     const textOnly = await provider.countTokens({
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.6-sol',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     });
     // A 4 MiB base64 image must NOT be counted as ~1M tokens (4MiB/4) — the
