@@ -12,7 +12,7 @@ import {
   type AccessGrant, type AccessTier, type AppGrant,
 } from './access.js';
 import {
-  actResultSchema, appStateSchema, batchResultSchema, imageSchema, listAppsResultSchema, resolveAppsResultSchema,
+  actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema,
   type AppState, type HelperImage,
 } from './rpc.js';
 import { TurnControls } from './turn-controls.js';
@@ -174,6 +174,7 @@ export class ComputerBackend {
   }
 
   private present(turn: Turn, grant: AppGrant, state: AppState, prefix: string[], disableDiff = false): string | ToolImageResult {
+    this.controls.target(turn.sessionId, turn.turnId, { app: grant.name, window: state.tree.window ?? null });
     const view: TreeView = disableDiff ? { kind: 'full', text: formatTree(state.tree) } : diffTrees(turn.trees.get(grant.id), state.tree);
     turn.trees.set(grant.id, state.tree);
     const parts = [...prefix, wrapUntrusted(view.text, grant.name)];
@@ -210,11 +211,14 @@ export class ComputerBackend {
     const existing = this.turns.get(key);
     if (existing) return existing;
     const controlState = controlStateSchemaFor(this.profile.protocolVersion);
+    const events = contractEventsFor(this.profile.protocolVersion);
     const transport = new HelperTransport(this.profile.helperPath, [...this.profile.helperArgs, '--parent', String(process.pid)], {
       protocolVersion: this.profile.protocolVersion,
       timeoutMs: this.profile.timeoutMs ?? 15_000,
+      events,
       onEvent: (event) => {
         if (event.event === 'control_state') this.controls.update(ctx.sessionId, ctx.turnId, controlState.parse(event).state);
+        else if (event.event === 'cursor') this.controls.cursor(ctx.sessionId, ctx.turnId, events.cursor.parse(event).cursor);
       },
     });
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };

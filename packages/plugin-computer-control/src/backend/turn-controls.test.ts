@@ -57,3 +57,48 @@ it('tracks native waiting without exposing mutable state to consumers', async ()
     expect((await service.snapshot())[0]?.state).toBe('failed');
   } finally { await transport.close(); }
 });
+
+it('shows the agent cursor and its target to every surface until Computer Use stops', async () => {
+  const controls = new TurnControls();
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  try {
+    controls.attach('session', 'turn', transport);
+    const service = controls.forSession('session');
+    expect((await service.snapshot())[0]).not.toHaveProperty('cursor');
+    controls.target('session', 'turn', { app: 'TextEdit', window: 'Untitled' });
+    for (const phase of ['moving', 'executing', 'delivered'] as const) {
+      controls.cursor('session', 'turn', { phase, x: 0.5, y: 0.25 });
+      expect((await service.snapshot())[0]).toMatchObject({ cursor: { phase, x: 0.5, y: 0.25 }, target: { app: 'TextEdit', window: 'Untitled' } });
+    }
+    controls.cursor('session', 'turn', null);
+    expect((await service.snapshot())[0]).not.toHaveProperty('cursor');
+    controls.cursor('session', 'turn', { phase: 'idle', x: 0, y: 1 });
+    await service.control({ sessionId: 'session', turnId: 'turn', command: 'stop' });
+    const stopped = (await service.snapshot())[0];
+    expect(stopped).not.toHaveProperty('cursor');
+    expect(stopped?.target).toEqual({ app: 'TextEdit', window: 'Untitled' });
+    controls.cursor('session', 'turn', { phase: 'moving', x: 1, y: 1 });
+    expect((await service.snapshot())[0]).not.toHaveProperty('cursor');
+  } finally { await transport.close(); }
+});
+
+it('keeps each turn\'s cursor to itself and hides it when the helper dies', async () => {
+  const controls = new TurnControls();
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  try {
+    controls.attach('a', 'one', first);
+    controls.attach('a', 'two', second);
+    controls.cursor('a', 'one', { phase: 'executing', x: 0.1, y: 0.2 });
+    controls.cursor('b', 'two', { phase: 'executing', x: 0.9, y: 0.9 });
+    const [one, two] = await controls.forSession('a').snapshot();
+    expect(one?.cursor).toEqual({ phase: 'executing', x: 0.1, y: 0.2 });
+    expect(two).not.toHaveProperty('cursor');
+    expect(() => controls.cursor('a', 'one', { phase: 'moving', x: 2, y: 0 })).toThrow();
+    // Long names are cut for the strip, never refused.
+    controls.target('a', 'one', { app: 'N'.repeat(300), window: 'x'.repeat(500) });
+    expect((await controls.forSession('a').snapshot())[0]?.target).toEqual({ app: 'N'.repeat(160), window: 'x'.repeat(200) });
+    await first.close();
+    expect((await controls.forSession('a').snapshot())[0]).not.toHaveProperty('cursor');
+  } finally { await Promise.all([first.close(), second.close()]); }
+});

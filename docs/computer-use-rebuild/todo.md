@@ -4,12 +4,13 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 6 — kursor agenta na macOS.
-- **Następna czynność:** przejrzeć kursor Codexa (`ComputerUseCursor`,
-  `avatar-overlay-native-page-*.js` w `app.asar`, napisy w
-  `SkyComputerUseService`: `move(to:aboveWindowID:…)`) i rozszerzenie
-  `ComputerControlSnapshot` w SDK; potem testy geometrii nakładki (Swift) i
-  faz kursora w `TurnControls` (TS).
+- **Bieżący krok:** 7 — wykonawca akcji macOS.
+- **Następna czynność:** przejrzeć executory Claude'a (`app.asar`: klik,
+  pisanie, bramki frontmost/hit-test/łatka pikseli) i napisy Sky
+  (`prepareToInteract`, `positionElement`, `moveMouse(to:cursorNextInteractionTiming:)`);
+  potem testy bramek jako czystych funkcji (Swift) i akcja `click` po
+  indeksie na fixture (przycisk „Press” → „Pressed 1”), z kursorem
+  `moving → executing → delivered`.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -59,8 +60,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Adapter TS `macosProfile` + test end-to-end `ComputerBackend` → helper → fixture — 5d.
 
 ### Krok 6 — kursor agenta na macOS
-- [ ] Nakładka `NSPanel` nad oknem celu: click-through, poza zrzutami, reduced motion, znacznik kliknięcia, obrys elementu.
-- [ ] Fazy akcji i zdarzenia `cursor` → `TurnControls`; SDK snapshot z `cursor` i `target`.
+- [x] Nakładka `NSPanel` nad oknem celu: click-through, poza zrzutami, reduced motion, znacznik kliknięcia, obrys elementu (okno spoza bieżącej przestrzeni: bez nakładki, pozycja dalej raportowana).
+- [x] Fazy akcji i zdarzenia `cursor` → `TurnControls`; SDK snapshot z `cursor` i `target` (fazy poza `idle` wysyła wykonawca z kroku 7).
 
 ### Krok 7 — wykonawca akcji macOS
 - [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported`.

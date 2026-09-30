@@ -1,12 +1,16 @@
 import {
-  computerControlCommandSchema, computerControlSnapshotSchema,
+  computerControlCommandSchema, computerControlSnapshotSchema, computerCursorSchema, computerTargetSchema,
   computerApprovalFocusSchema,
-  type ComputerControlService, type ComputerControlSnapshot, type ComputerControlState,
+  type ComputerControlService, type ComputerControlSnapshot, type ComputerControlState, type ComputerCursor, type ComputerTarget,
 } from '@moxxy/sdk';
 import type { HelperTransport } from '../helper/transport.js';
 
 interface Entry { snapshot: ComputerControlSnapshot; transport: HelperTransport }
 const key = (sessionId: string, turnId: string) => JSON.stringify([sessionId, turnId]);
+const ended = (state: ComputerControlState) => state === 'stopped' || state === 'failed';
+
+/** A stopped or dead helper shows no cursor, whatever it reported last. */
+function withoutCursor({ cursor: _cursor, ...rest }: ComputerControlSnapshot): ComputerControlSnapshot { return rest; }
 
 /** Session-bound human controls never create a transport or replay an action. */
 export class TurnControls {
@@ -30,10 +34,25 @@ export class TurnControls {
 
   update(sessionId: string, turnId: string, state: ComputerControlState, windowId?: string): void {
     const entry = this.entries.get(key(sessionId, turnId));
-    if (!entry || entry.snapshot.state === 'stopped' || entry.snapshot.state === 'failed') return;
+    if (!entry || ended(entry.snapshot.state)) return;
     entry.snapshot = computerControlSnapshotSchema.parse({
       ...entry.snapshot, state, windowId: windowId ?? entry.snapshot.windowId,
     });
+  }
+
+  /** `null` hides the cursor; a helper that already stopped cannot bring it back. */
+  cursor(sessionId: string, turnId: string, cursor: ComputerCursor | null): void {
+    const next = cursor === null ? null : computerCursorSchema.parse(cursor);
+    const entry = this.entries.get(key(sessionId, turnId));
+    if (!entry) return;
+    entry.snapshot = next === null || ended(entry.snapshot.state) || entry.transport.closed
+      ? withoutCursor(entry.snapshot) : { ...entry.snapshot, cursor: next };
+  }
+
+  target(sessionId: string, turnId: string, target: ComputerTarget): void {
+    const entry = this.entries.get(key(sessionId, turnId));
+    if (!entry) return;
+    entry.snapshot = { ...entry.snapshot, target: computerTargetSchema.parse({ app: target.app.slice(0, 160), window: target.window?.slice(0, 200) ?? null }) };
   }
 
   forSession(sessionId: string): ComputerControlService {
@@ -48,10 +67,11 @@ export class TurnControls {
       },
       snapshot: async () => [...this.entries.values()]
         .filter((entry) => entry.snapshot.sessionId === sessionId)
-        .map(({ snapshot, transport }) => ({
-          ...snapshot, state: transport.stoppedByUser ? 'stopped'
-            : transport.closed && snapshot.state !== 'stopped' ? 'failed' : snapshot.state,
-        })),
+        .map(({ snapshot, transport }) => {
+          const state = transport.stoppedByUser ? 'stopped'
+            : transport.closed && snapshot.state !== 'stopped' ? 'failed' : snapshot.state;
+          return ended(state) ? { ...withoutCursor(snapshot), state } : { ...snapshot, state };
+        }),
       control: async (input) => {
         const command = computerControlCommandSchema.parse(input);
         if (command.sessionId !== sessionId) throw new Error('Computer Use session mismatch');

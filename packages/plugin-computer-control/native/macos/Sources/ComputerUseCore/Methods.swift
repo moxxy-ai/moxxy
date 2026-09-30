@@ -32,12 +32,13 @@ public struct SystemPermissions: Sendable {
 }
 
 public enum Methods {
-    public static func standard(permissions: SystemPermissions, targets: Targets = Targets()) -> Dispatcher {
+    /// `cursor` is `nil` where no overlay may be drawn (unit tests).
+    public static func standard(permissions: SystemPermissions, targets: Targets = Targets(), cursor: AgentCursor? = nil) -> Dispatcher {
         Dispatcher(handlers: [
             "status": { _ in status(permissions) },
             "list_apps": listApps,
             "resolve_apps": resolveApps,
-            "get_app_state": { params in try appState(params, targets: targets) },
+            "get_app_state": { params in try appState(params, targets: targets, cursor: cursor) },
             "permissions.request": { params in
                 guard let raw = params["kind"]?.stringValue, let kind = SystemPermissions.Kind(rawValue: raw) else {
                     throw HelperError.invalidParams("kind must be accessibility or screen_recording")

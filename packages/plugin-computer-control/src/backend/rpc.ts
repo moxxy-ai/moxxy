@@ -1,3 +1,4 @@
+import { computerCursorSchema } from '@moxxy/sdk';
 import { z } from 'zod';
 import { actionResultSchema } from '../contract/outcome.js';
 import { appTreeSchema } from '../contract/tree.js';
@@ -49,3 +50,11 @@ export type AppState = z.infer<typeof appStateSchema>;
 
 export const actResultSchema = z.object({ result: actionResultSchema, state: appStateSchema.optional() }).strict();
 export const batchResultSchema = z.object({ results: z.array(actionResultSchema).min(1).max(50), state: appStateSchema.optional() }).strict();
+
+/** Emitted whenever the overlay cursor moves, changes phase or hides (`null`); never correlated to a request. */
+export const cursorEventSchemaFor = (version: number) => z.object({
+  version: z.literal(version), event: z.literal('cursor'), cursor: computerCursorSchema.nullable(),
+}).strict();
+
+/** Every uncorrelated event a contract helper may send besides `control_state`. */
+export const contractEventsFor = (version: number) => ({ cursor: cursorEventSchemaFor(version) });

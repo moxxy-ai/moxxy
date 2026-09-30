@@ -585,3 +585,117 @@ Commit kroku 5c: `98a5ec9b`.
 - Wybór okna przez `window_id` na macOS nie jest jeszcze obsługiwany
   (bierzemy okno z fokusem → główne → pierwsze); do rozważenia przy
   wielookienkowych aplikacjach.
+
+---
+
+## Krok 6 — kursor agenta na macOS (2026-09-30)
+
+Commit kroku 5d: `bc45e9bb`.
+
+**Wzorzec (Codex, tylko odczyt)**
+- `~/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService`
+  (`nm -gU | swift demangle`, `strings`): klasa `ComputerUse.ComputerUseCursor`
+  z `move(to:aboveWindowID:relativeToWindow:nextInteractionTiming:animated:fadeIn:isDelegate:)`,
+  `show(aboveWindowID:)`, `press(count:delay:)`, `orderOut()`,
+  `targetWindowID`, stany `isMoving/isPressed/isPaused/isLoading`,
+  `MotionConfiguration` (łuk: `arcSize`, `arcFlow`, `straightPathDistanceThreshold`;
+  sprężyna: `springResponseScaler/Min/Max`, `springDampingFraction`;
+  `boundsMargin`), `CloseEnoughConfiguration`. Wniosek: kursor to osobne okno
+  porządkowane nad oknem celu, ruch po łuku z czasem zależnym od odległości,
+  krótkie skoki prosto.
+- Własny kod: prostsza wersja — łuk Béziera zamiast sprężyny, bez „scoot”.
+
+**Co**
+- SDK `computer-control.ts`: `computerCursorPhaseSchema`
+  (`idle|moving|executing|delivered|failed`), `computerCursorSchema`
+  (`{phase, x, y}`, x/y jako ułamek okna celu 0…1), `computerTargetSchema`
+  (`{app, window|null}`); w `computerControlSnapshotSchema` opcjonalne
+  `cursor` i `target`. Typy `ComputerCursor`, `ComputerTarget`.
+- `src/backend/turn-controls.ts`: `cursor(session, turn, cursor|null)`,
+  `target(session, turn, {app, window})` (przycina nazwy do 160/200 znaków).
+  Snapshot nie pokazuje kursora po Stop, po awarii helpera ani po `null`.
+- `src/backend/rpc.ts`: `cursorEventSchemaFor(version)` (zdarzenie
+  `{version, event:"cursor", cursor:{…}|null}`) i `contractEventsFor(version)`
+  — jeden rejestr zdarzeń dla każdego klienta helpera v5.
+- `src/backend/backend.ts`: rejestruje zdarzenia kontraktu, kieruje `cursor`
+  do `TurnControls` tej tury, a po każdym stanie ustawia `target`
+  (nazwa z zgody + tytuł okna z drzewa).
+- Swift `Cursor.swift`: `CursorPhase`, `OverlayGeometry` (prostokąt ekranu →
+  ramka AppKit z marginesem, punkt → ułamek okna, ułamek/prostokąt → punkt
+  w widoku), `CursorMotion` (czas 0,18–0,5 s rosnący z odległością, 0 przy
+  Reduce Motion; prosto < 40 pt, dalej łuk w lewo od kierunku ruchu,
+  maks. 60 pt), `CursorEvent.frame`. `Wire.event(name, fields)`.
+- Swift `CursorOverlay.swift` (`@MainActor`): `NSPanel` bez ramki,
+  `nonactivatingPanel`, `ignoresMouseEvents`, `sharingType = .none`,
+  `hidesOnDeactivate = false` (helper nigdy nie jest aktywną aplikacją),
+  `order(.above, relativeTo: windowID)`; warstwy: strzałka w kolorze
+  `color.primary` (#D62A00) z białą obwódką, pierścień naciśnięcia, obrys
+  elementu. `show/move/press/outline/hide`.
+- Swift `AgentCursor.swift`: `AgentCursor` (pozycja kursora w ułamku okna,
+  zmiany na wątku głównym przez `DispatchQueue.main.sync`, wysyła zdarzenie
+  `cursor`), `WindowDirectory.onScreenWindowID` (numer okna z
+  `CGWindowListCopyWindowInfo` dopasowany jak zrzut: pid + ramka + tytuł).
+- `get_app_state` pokazuje kursor nad obserwowanym oknem i wysyła
+  `cursor {phase: idle}` przed odpowiedzią. `main.swift` podaje
+  `AgentCursor(emit: output.write)`; testy jednostkowe `Methods` bez kursora.
+
+**Jak i dlaczego**
+- Nakładka to jedno okno wielkości okna celu (+24 pt marginesu), a nie małe
+  okno przesuwane za kursorem: ruch, pierścień i obrys to animacje warstw w
+  jednym oknie, a okna leżące nad celem zasłaniają kursor tak jak cel.
+- Pozycja jako ułamek okna: PiP (krok 11) rysuje ją nad strumieniem okna bez
+  znajomości ekranu i skali.
+- Okno na innej przestrzeni Spaces albo zminimalizowane nie dostaje nakładki
+  (wisiałaby nad czymś innym), ale zdarzenie `cursor` idzie zawsze — PiP
+  pokazuje okno także spoza ekranu. Wyszło to w teście: na tym komputerze
+  bieżąca przestrzeń to aplikacja pełnoekranowa, a fixture otwiera się na
+  pulpicie.
+- Pola `cursor`/`target` są opcjonalne, żeby snapshoty starego backendu
+  Windows dalej przechodziły. Runner przesyła je dopiero, gdy macOS przejdzie
+  na nowy backend (krok 10); podbicie protokołu runnera jest w kroku 9.
+
+**Testy (Red → Green)**
+- Red SDK: nowy test snapshotu z `cursor`/`target` — schemat `strict`
+  odrzucał pola.
+- Red TS `turn-controls.test.ts`: `controls.target is not a function`,
+  `controls.cursor is not a function`.
+- Red TS `backend.test.ts`: helper-fixture wysyła `cursor` przy
+  `get_app_state` → „protocol mismatch” (zdarzenie niezarejestrowane),
+  6 testów czerwonych.
+- Red Swift: `cannot find 'CursorMotion' / 'OverlayGeometry' / 'CursorEvent'`
+  (+ `CursorOverlay`).
+- Red TS `src/macos/helper.test.ts` (prawdziwy helper + fixture): brak
+  zdarzenia `cursor`; po jego dodaniu stare testy padały, bo ich transport
+  nie rejestrował zdarzenia → wspólne `contractEventsFor`.
+- Testy `move/press/outline` nakładki dopisane po implementacji; sprawdzone
+  mutacją (pozycja końcowa, brak animacji naciśnięcia, zły obrys) — wszystkie
+  3 mutacje wykryte, kod przywrócony.
+- Green: SDK 3/3 w pliku; `turn-controls` 5/5; backend 49/49 w
+  `src/backend`; Swift 63/63 (w tym kolejność okien: panel dokładnie nad
+  oknem celu, `kCGWindowSharingState == 0`); macOS integracja 14/14.
+
+**Walidacja**
+- `swift test` 63/63; `native/macos/build.sh` OK.
+- `npx vitest run` (plugin) — 25 plików / 250 testów.
+- `pnpm --filter @moxxy/sdk test` 47 plików / 464; `pnpm --filter
+  @moxxy/runner test` 12 / 158; desktop `src/computer-control` 3/3;
+  desktop-host `src/computer*` 12/12.
+- `tsc --noEmit`: plugin, SDK, runner, desktop OK. Testy pluginu przez
+  tymczasowy tsconfig: jedyny błąd w starym `src/tools/screenshot.test.ts`
+  (istniał przed zmianą, plik do usunięcia w kroku 10).
+- `pnpm lint` 0 błędów (96 ostrzeżeń, żadne nowe); `pnpm check:deps`
+  0 błędów (1 istniejące ostrzeżenie `no-orphans` w desktop-host);
+  `pnpm build` 88/88.
+- Ręcznie: panel `order(.above, relativeTo:)` względem okna innej aplikacji
+  (Arc na pełnym ekranie) trafił nad grupę jej okien (nad oknem-dzieckiem
+  paska tytułu, co jest poprawne dla okien potomnych).
+
+**Dla następcy**
+- Kolejność nad oknem innej aplikacji spoza trybu pełnoekranowego trzeba
+  jeszcze potwierdzić na fixture widocznej na bieżącej przestrzeni (krok 7
+  albo benchmark w kroku 14).
+- Pauza nie przyciemnia jeszcze kursora; fazy `moving/executing/…` wysyła
+  wykonawca akcji w kroku 7 (`AgentCursor` dostanie `move/press/outline`).
+- Przy pełnoekranowym zrzucie (krok 8) wykluczać własną aplikację filtrem
+  `SCContentFilter`, nie polegać na `sharingType = .none` (od macOS 15
+  ScreenCaptureKit może go nie respektować).

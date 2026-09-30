@@ -65,6 +65,8 @@ const methods = {
   }),
   get_app_state: ({ app, screenshot }) => {
     if (app === 'com.apple.Terminal') throw new Refusal('permissions_not_granted', 'Accessibility is off');
+    // Like the native helper: the cursor appears over the observed window before the answer.
+    process.stdout.write(JSON.stringify({ version: VERSION, event: 'cursor', cursor: { phase: 'idle', x: 0.5, y: 0.5 } }) + '\n');
     return state(app, screenshot);
   },
   act: (params) => {

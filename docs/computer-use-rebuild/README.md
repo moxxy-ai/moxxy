@@ -64,7 +64,7 @@ zwracamy `unsupported`.
 |---|---|
 | Wzorzec | Odtwarzamy system Codex + Claude na podstawie ich plików (read-only). Kod piszemy sami. |
 | Kontrakt modelu | Jak `cua`/`sky` Codexa, jako osobne narzędzia moxxy (każde przechodzi przez `PermissionEngine`), uzupełniony o mechanizmy Claude'a |
-| Kursor | Nakładka nad oknem celu, zawsze widoczna. Prawdziwy wskaźnik porusza się tylko przy fizycznym kliknięciu i wraca na miejsce. Akcje AX nie ruszają myszy. |
+| Kursor | Nakładka (jedno okno wielkości okna celu) tuż nad oknem celu, widoczna, gdy to okno jest na bieżącym ekranie; pozycja jako ułamek okna idzie zawsze do snapshotu (PiP). Prawdziwy wskaźnik porusza się tylko przy fizycznym kliknięciu i wraca na miejsce. Akcje AX nie ruszają myszy. |
 | PiP | Strumień dla człowieka, oddzielony od modelu: najpierw JPEG przez Surface, potem H.264 + WebCodecs |
 | Poświata krawędzi | Nie robimy; zamiast niej czytelny status sterowania |
 | SkyLight | Nie używamy |

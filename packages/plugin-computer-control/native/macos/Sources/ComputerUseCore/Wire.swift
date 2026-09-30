@@ -133,6 +133,11 @@ public enum Wire {
         return encode(["version": .number(Double(version)), "id": .string(id), "ok": .bool(false), "error": details])
     }
 
+    /// A frame the helper sends on its own, outside any request.
+    public static func event(_ name: String, _ fields: [String: JSONValue]) -> Data {
+        encode(fields.merging(["version": .number(Double(version)), "event": .string(name)]) { _, envelope in envelope })
+    }
+
     private static func encode(_ fields: [String: JSONValue]) -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]

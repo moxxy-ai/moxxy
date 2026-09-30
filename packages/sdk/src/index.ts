@@ -46,9 +46,11 @@ export {
   computerControlStateSchema, computerControlOwnerSchema,
   computerControlCommandSchema, computerControlSnapshotSchema,
   computerApprovalFocusSchema, type ComputerApprovalFocus,
+  computerCursorPhaseSchema, computerCursorSchema, computerTargetSchema,
 } from './computer-control.js';
 export type {
   ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
+  ComputerCursor, ComputerTarget,
 } from './computer-control.js';
 
 // Identity. The type + pure helpers ride the main barrel; the OS resolver needs

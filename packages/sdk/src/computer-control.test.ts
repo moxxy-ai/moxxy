@@ -15,3 +15,14 @@ it('validates bounded control-state snapshots, never executable commands', () =>
   expect(computerControlSnapshotSchema.safeParse({...snapshot,state:'running arbitrary code'}).success).toBe(false);
   expect(computerControlSnapshotSchema.safeParse({...snapshot,windowId:'x'.repeat(200)}).success).toBe(false);
 });
+
+it('carries the agent cursor as a fraction of the target window, and the target the human sees', () => {
+  const snapshot={sessionId:'s',turnId:'t',state:'background',windowId:null,
+    cursor:{phase:'moving',x:0.25,y:1},target:{app:'TextEdit',window:'Untitled'}};
+  expect(computerControlSnapshotSchema.safeParse(snapshot).success).toBe(true);
+  expect(computerControlSnapshotSchema.safeParse({...snapshot,cursor:{...snapshot.cursor,x:1.5}}).success).toBe(false);
+  expect(computerControlSnapshotSchema.safeParse({...snapshot,cursor:{...snapshot.cursor,phase:'teleporting'}}).success).toBe(false);
+  expect(computerControlSnapshotSchema.safeParse({...snapshot,cursor:{...snapshot.cursor,screenX:10}}).success).toBe(false);
+  expect(computerControlSnapshotSchema.safeParse({...snapshot,target:{app:'',window:null}}).success).toBe(false);
+  expect(computerControlSnapshotSchema.safeParse({...snapshot,target:{app:'TextEdit',window:'x'.repeat(300)}}).success).toBe(false);
+});

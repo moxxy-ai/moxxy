@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AppContext, MoxxyEvent, ToolDef, ToolImageResult } from '@moxxy/sdk';
+import type { AppContext, ComputerControlService, MoxxyEvent, ToolDef, ToolImageResult } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REQUEST_ACCESS_TOOL } from './access.js';
 import { ComputerBackend, type PlatformProfile } from './backend.js';
@@ -107,6 +107,18 @@ describe('observation', () => {
     expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'get_app_state', params: { app: 'com.apple.TextEdit', screenshot: true } });
     expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).toMatch(/No changes/);
     expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit', disable_diff: true }))).toContain('[2] button "Save"');
+  });
+
+  it('shows every surface where the agent cursor is and which window it works in', async () => {
+    const { instance, tools } = backend();
+    const services = new Map<string, unknown>();
+    await instance.hooks.onInit?.({ sessionId: 'session', services: { register: (name: string, impl: unknown) => services.set(name, impl) } } as unknown as AppContext);
+    const control = services.get('computerControl') as ComputerControlService;
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
+    expect((await control.snapshot())[0]).toMatchObject({
+      cursor: { phase: 'idle', x: 0.5, y: 0.5 }, target: { app: 'TextEdit', window: 'Untitled' },
+    });
   });
 
   it('turns a coded helper refusal into a Computer Use error with its hint', async () => {

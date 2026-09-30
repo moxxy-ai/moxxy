@@ -4,8 +4,8 @@ import { once } from 'node:events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
-import { HelperTransport } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, appStateSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
+import { HelperTransport, type HelperEvent } from '../helper/transport.js';
+import { CONTRACT_PROTOCOL_VERSION, appStateSchema, contractEventsFor, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath, macosProfile } from './profile.js';
 import { ComputerBackend } from '../backend/backend.js';
 import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
@@ -15,7 +15,9 @@ import type { MoxxyEvent, ToolImageResult } from '@moxxy/sdk';
 // Talks to the real universal helper built by native/macos/build.sh; other hosts and unbuilt trees skip.
 const built = process.platform === 'darwin' && existsSync(macosHelperPath);
 const signal = () => new AbortController().signal;
-const start = () => new HelperTransport(macosHelperPath, ['--parent', String(process.pid)], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
+const start = (onEvent?: (event: HelperEvent) => void) => new HelperTransport(macosHelperPath, ['--parent', String(process.pid)], {
+  protocolVersion: CONTRACT_PROTOCOL_VERSION, events: contractEventsFor(CONTRACT_PROTOCOL_VERSION), ...(onEvent ? { onEvent } : {}),
+});
 
 describe.skipIf(!built)('macOS native helper', () => {
   it('is a verified universal artifact for the shared protocol', async () => {
@@ -159,6 +161,15 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await transport.close(); }
   });
 
+  it('shows the agent cursor over the observed window and reports where it is', async () => {
+    const events: HelperEvent[] = [];
+    const transport = start((event) => events.push(event));
+    try {
+      await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal());
+      expect(events).toContainEqual({ version: CONTRACT_PROTOCOL_VERSION, event: 'cursor', cursor: { phase: 'idle', x: 0.5, y: 0.5 } });
+    } finally { await transport.close(); }
+  });
+
   it('serves the model tools end to end through the shared backend', async () => {
     const backend = new ComputerBackend(macosProfile);
     const tools = new Map(backend.tools().map((tool) => [tool.name, tool]));
@@ -181,6 +192,9 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       expect(state.forModel).toContain('<app_content app="Moxxy Computer Fixture" trust="untrusted">');
       expect(state.forModel).toMatch(/\[\d+\] button "Press"/);
       expect(state.forModel).not.toContain('hunter2');
+      expect((await backend.controls.forSession('session').snapshot())[0]).toMatchObject({
+        cursor: { phase: 'idle' }, target: { app: 'Moxxy Computer Fixture', window: 'Moxxy Fixture' },
+      });
     } finally { await backend.release('session'); }
   });
 

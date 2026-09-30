@@ -73,7 +73,7 @@ enum AppLauncher {
 extension Methods {
     static let treeLimit = 1000
 
-    static func appState(_ params: JSONValue, targets: Targets) throws -> JSONValue {
+    static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?) throws -> JSONValue {
         guard let bundleId = params["app"]?.stringValue, !bundleId.isEmpty else { throw HelperError.invalidParams("app is required") }
         guard AXIsProcessTrusted() else {
             throw HelperError(code: "permissions_not_granted", message: "Accessibility is not allowed for this app")
@@ -103,6 +103,7 @@ extension Methods {
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
+        if let frame = root.frame { cursor?.attach(to: WindowCandidate(pid: running.processIdentifier, frame: frame, title: root.title)) }
         var result: [String: JSONValue] = [:]
         state.frame = nil
         if params["screenshot"]?.boolValue == true {

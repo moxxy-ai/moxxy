@@ -38,7 +38,7 @@ let parent = parentPid(CommandLine.arguments)
 guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { exit(ExitCode.normal) }) else { exit(ExitCode.normal) }
 
 let output = Output()
-let dispatcher = Methods.standard(permissions: SystemPermissions())
+let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write))
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 
