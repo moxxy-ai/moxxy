@@ -7,6 +7,8 @@ import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
+/** Sign-in providers the desktop offers out of the box — each must be seeded. */
+const SIGN_IN_PROVIDERS = [CODEX_PROVIDER, '@moxxy/plugin-provider-claude-code'];
 
 export async function verifyDesktopResources(resourcesPath, options = {}) {
   const root = path.resolve(resourcesPath);
@@ -29,8 +31,10 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
 
   const seedManifest = await readManifest(seedManifestPath);
   const seedLock = await readSeedPackageLock(seedLockPath);
-  if (typeof seedManifest.dependencies?.[CODEX_PROVIDER] !== 'string') {
-    throw new Error(`plugins-seed manifest does not include ${CODEX_PROVIDER}`);
+  for (const provider of SIGN_IN_PROVIDERS) {
+    if (typeof seedManifest.dependencies?.[provider] !== 'string') {
+      throw new Error(`plugins-seed manifest does not include ${provider}`);
+    }
   }
   const seedDependencies = Object.keys(seedManifest.dependencies).filter((name) =>
     name.startsWith('@moxxy/'),

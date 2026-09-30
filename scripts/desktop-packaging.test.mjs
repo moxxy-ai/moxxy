@@ -57,7 +57,21 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
     const report = await verifyDesktopResources(root);
     assert.equal(report.cliVersion, '1.2.3');
     assert.equal(report.providerVersion, '1.2.3');
-    assert.equal(report.seedPackageCount, 1);
+    assert.equal(report.seedPackageCount, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the Claude sign-in provider', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-claude-resources-'));
+  try {
+    await writeValidResources(root, { seedProviders: ['@moxxy/plugin-provider-openai-codex'] });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-provider-claude-code/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -159,7 +173,12 @@ async function writePackage(packageDir, name, extra = {}) {
   await writeFile(path.join(packageDir, 'dist', 'index.js'), 'export {};\n');
 }
 
-async function writeValidResources(root, { includeSeedLock = true } = {}) {
+const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
+
+async function writeValidResources(
+  root,
+  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS } = {},
+) {
   const cliDir = path.join(root, 'moxxy-cli');
   await mkdir(path.join(cliDir, 'dist'), { recursive: true });
   await writeJson(path.join(cliDir, 'package.json'), {
@@ -174,7 +193,7 @@ async function writeValidResources(root, { includeSeedLock = true } = {}) {
 
   const seedDir = path.join(root, 'plugins-seed');
   await mkdir(seedDir, { recursive: true });
-  const dependencies = { '@moxxy/plugin-provider-openai-codex': '1.2.3' };
+  const dependencies = Object.fromEntries(seedProviders.map((name) => [name, '1.2.3']));
   await writeJson(path.join(seedDir, 'package.json'), {
     name: 'moxxy-plugins-seed',
     version: '1.0.0',
@@ -187,9 +206,9 @@ async function writeValidResources(root, { includeSeedLock = true } = {}) {
       packages: { '': { dependencies } },
     });
   }
-  await writePackage(
-    path.join(seedDir, 'node_modules', '@moxxy', 'plugin-provider-openai-codex'),
-    '@moxxy/plugin-provider-openai-codex',
-    { moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } } },
-  );
+  for (const name of seedProviders) {
+    await writePackage(path.join(seedDir, 'node_modules', name), name, {
+      moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
+    });
+  }
 }

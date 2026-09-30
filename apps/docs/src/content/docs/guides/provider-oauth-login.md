@@ -85,6 +85,15 @@ moxxy login claude-code            # press Enter to sign in via browser,
 # 3. Or set ANTHROPIC_AUTH_TOKEN (the SDK's native bearer var).
 ```
 
+In the desktop app, pick **claude-code** in onboarding or under
+**Settings → Providers** and sign in there. No terminal is needed. **Sign in** opens your browser, and
+the sign-in usually finishes on its own when you approve it. If the browser shows a code
+instead, paste it into the sign-in dialog. Under the hood the desktop drives
+`claude auth login` of the installed Claude Code, so Claude Code must be installed.
+The desktop ships the provider with its
+bundled extensions, so it's there on first launch with no separate install. The CLI
+installs it on first use: select "Claude (Pro/Max sign-in)" in `moxxy init`.
+
 Unlike codex, Claude's OAuth is **out-of-band**: `moxxy login claude-code`
 opens your browser, you approve, then copy the `code#state` string back into
 the terminal (there's no loopback server). Tokens from the browser flow carry

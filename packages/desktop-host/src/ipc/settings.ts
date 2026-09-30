@@ -24,10 +24,11 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     return readAdminProviderNames();
   });
   handle('settings.providerCatalog', async () => {
-    // Built-ins are always pickable. Admin-registered ones come from
-    // the unified config so the onboarding dropdown reflects whatever the
-    // user already added via `provider_add` (zai, openrouter, …).
-    const builtins = ['anthropic', 'openai', 'openai-codex'];
+    // Built-ins (bundled or seeded with the desktop) are always pickable.
+    // Admin-registered ones come from the unified config so the onboarding
+    // dropdown reflects whatever the user already added via `provider_add`
+    // (zai, openrouter, …).
+    const builtins = ['anthropic', 'openai', 'openai-codex', 'claude-code'];
     const { readAdminProviderNames } = await import('../provider-discovery');
     const admin = await readAdminProviderNames();
     const seen = new Set<string>();

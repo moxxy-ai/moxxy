@@ -39,6 +39,9 @@ const SEED_PLUGINS = [
   'plugin-provider-xai',
   'plugin-provider-zai',
   'plugin-provider-local',
+  // Claude Pro/Max sign-in — the desktop signs in through it, so it must be
+  // registered before the user picks it (not installed on demand).
+  'plugin-provider-claude-code',
   // Slim-wave batch 1.
   'mode-goal',
   'mode-deep-research',

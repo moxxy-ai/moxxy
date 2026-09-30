@@ -29,11 +29,29 @@ export interface ClaudeCommandResult {
   readonly error?: NodeJS.ErrnoException;
 }
 
+/**
+ * A GUI host's side of the CLI's interactive login: it shows the CLI's output
+ * and answers the CLI's paste prompt, since the CLI has no terminal of its own.
+ */
+export interface ClaudeLoginRelay {
+  readonly write: (chunk: string) => void;
+  readonly askCode: () => Promise<string>;
+}
+
+interface CommandOptions {
+  readonly inherit?: boolean;
+  readonly relay?: ClaudeLoginRelay;
+}
+
 type CommandRunner = (
   executable: string,
   args: readonly string[],
-  options?: { readonly inherit?: boolean },
+  options?: CommandOptions,
 ) => Promise<ClaudeCommandResult>;
+
+/** The CLI's non-TTY login asks for a code only when the browser's automatic return fails. */
+const PASTE_PROMPT = /paste code/i;
+const PASTE_QUESTION = 'If your browser shows a sign-in code instead of finishing on its own, paste it here.';
 
 let runCommandImpl: CommandRunner = runCommand;
 /** Test seam. */
@@ -101,7 +119,16 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
   if (status.state === 'signed-in') return status.accountId ? { accountId: status.accountId } : {};
   if (status.state !== 'signed-out') throw authError(status);
 
-  const login = await runCommandImpl(executable, CLAUDE_AUTH_LOGIN_ARGS, { inherit: true });
+  // A GUI host (the desktop) has no terminal to hand the CLI, so relay its
+  // dialogue through the host instead.
+  const prompt = ctx.prompt;
+  const login = await runCommandImpl(
+    executable,
+    CLAUDE_AUTH_LOGIN_ARGS,
+    ctx.noOpen && prompt
+      ? { relay: { write: ctx.write, askCode: () => prompt(PASTE_QUESTION) } }
+      : { inherit: true },
+  );
   if (login.error) throw authError({ state: login.error.code === 'ENOENT' ? 'missing' : 'error', executable, message: login.error.message });
   if (login.code !== 0) {
     throw new MoxxyError({
@@ -171,19 +198,35 @@ function authError(status: ClaudeCliAuthStatus): MoxxyError {
 async function runCommand(
   executable: string,
   args: readonly string[],
-  options: { readonly inherit?: boolean } = {},
+  options: CommandOptions = {},
 ): Promise<ClaudeCommandResult> {
+  const { relay } = options;
   return await new Promise((resolve) => {
     const spawnOptions: SpawnOptions = options.inherit
       ? { stdio: 'inherit' }
-      : { stdio: ['ignore', 'pipe', 'pipe'] };
+      : { stdio: [relay ? 'pipe' : 'ignore', 'pipe', 'pipe'] };
     const child = spawn(executable, [...args], spawnOptions);
     let stdout = '';
     let stderr = '';
+    let askedForCode = false;
+    // The CLI may exit (browser callback) before the pasted code arrives.
+    child.stdin?.on('error', () => {});
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', (chunk: string) => { stdout += chunk; });
-    child.stderr?.on('data', (chunk: string) => { stderr += chunk; });
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (!relay) return;
+      relay.write(chunk);
+      if (askedForCode || !PASTE_PROMPT.test(stdout)) return;
+      askedForCode = true;
+      void relay.askCode().then((code) => {
+        if (code.trim() && child.stdin?.writable) child.stdin.write(`${code.trim()}\n`);
+      });
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+      relay?.write(chunk);
+    });
     child.once('error', (error: NodeJS.ErrnoException) => resolve({ code: 1, stdout, stderr, error }));
     child.once('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
