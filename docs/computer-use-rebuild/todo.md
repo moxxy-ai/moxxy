@@ -4,15 +4,13 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7d — strażnik i brak postępu (7a, 7b, 7c, 7c2 gotowe).
-- **Następna czynność:** testy Red dla strażnika: Escape użytkownika = Stop,
-  ingerencja użytkownika (zdarzenie bez znacznika `0x6D6F7878`) = pauza, a
-  akcje czekają (do 6 × 400 ms) jak u Claude'a; potem wykrywanie braku
-  postępu (identyczny stan po akcji 2× → `ineffective` z kolejną metodą),
-  cache `unsupported` (3× → 5 s pomijania), ochrona okna zapisu (`~/.ssh`,
-  LaunchAgents, rc powłoki, hooki git), przygaszony kursor w pauzie.
-  Do rozważenia: hit-test po drzewie z ostatniego stanu dla okien poza
-  bieżącą przestrzenią (dziś wtedy zapas fizyczny ze zmianą przestrzeni).
+- **Bieżący krok:** 7d2 — brak postępu i pamięć `unsupported` (7d1 strażnik gotowy).
+- **Następna czynność:** testy Red w TS dla wykrywania braku postępu
+  (ta sama akcja, identyczne drzewo i obraz po niej 2× → `no_progress` z
+  podpowiedzią kolejnej metody, trzecia identyczna akcja odrzucona bez
+  wysyłania), potem w Swift pamięć akcji AX odrzuconych 3× (5 s pomijania).
+  Następnie 7d3: ochrona okien zapisu (`saveAsNameTextField`, `PathTextField`,
+  chronione katalogi i pliki).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -73,7 +71,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] 7c2: `computer_hold_key` w tle (zwolnienie przy Stop i wyjściu helpera, wcześniejsze przerwanie czekania); skróty ⌘ i wklejanie HTML wyciągają aplikację na wierzch zamiast `not_frontmost` (nigdy podczas pisania użytkownika).
 - [x] 7c: fizyczna mysz z bramkami — klik po punkcie (najpierw AXPress kontrolki pod punktem w tle), wielokrotny klik z modyfikatorami, drag ze ścieżką i czasem, `mouse` down/move/up, scroll (AX strona → pasek przewijania → kółko), pisanie/wklejanie w pole pod punktem.
 - [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu (7c: wszystkie poza ochroną okna zapisu — 7d; zgoda/poziom od kroku 3).
-- [ ] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza) (7c: przywracanie wskaźnika i zwalnianie przycisku przy wyjściu helpera; strażnik w 7d).
+- [x] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza) (7c: przywracanie wskaźnika i zwalnianie przycisku przy wyjściu helpera; 7d1: Escape = Stop przez nasłuchujący tap, pauza/wznowienie z hosta wstrzymuje akcję, czekanie na ciszę przed fizycznym wejściem, przygaszony kursor).
 - [ ] Wykrywanie braku postępu; wynik + świeży stan po akcji.
 
 ### Krok 8 — batch, zrzut pełnoekranowy, zoom

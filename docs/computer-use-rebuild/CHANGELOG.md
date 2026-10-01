@@ -1029,3 +1029,64 @@ Commit kroku 7c: `2e9344cb`.
   powtórzą znaku.
 - 7d: strażnik (Escape = Stop, ingerencja = pauza), brak postępu, cache
   `unsupported`, ochrona okna zapisu.
+
+---
+
+## Krok 7d1 — strażnik: Escape, pauza, ręka użytkownika (2026-10-01)
+
+Commit kroku 7c2: `ce4e53d6`.
+
+**Wzorzec**
+- Claude (`index.chunk-*.js`, `[cu-esc]`): Escape jako globalny skrót, gdy
+  sesja trzyma Computer Use; własne Escape modelu są liczone i pochłaniane.
+  Globalny skrót zabiera Escape aplikacjom użytkownika — my używamy taps
+  `listenOnly` (nic nie opóźnia ani nie zmienia), a własne zdarzenia
+  rozpoznajemy po znaczniku `0x6D6F7878` (sonda: znacznik dociera do tapu).
+- Claude: `user_actively_typing` / `user_active_in_app` — nie walczymy z
+  użytkownikiem; czekanie do 6 × 400 ms na chwilę ciszy przed fizycznym
+  wejściem.
+- Windows (`native/src/control.cpp` `wait_for_access`): akcja w pauzie czeka
+  (`paused_by_user`, wyłączony limit czasu transportu), a po wznowieniu
+  kończy się „observe again” — nigdy nie jest odtwarzana.
+
+**Co**
+- `Guard.swift` (czyste): `UserInput.classify` (nasze / Escape / aktywność /
+  komunikaty tapu), `QuietWait.next` (400 ms ciszy, do 6 prób),
+  `ControlGate` (pauza i wznowienie z hosta; akcja czeka na warunku i
+  zgłasza `paused_by_user` → `recovering`).
+- `UserActivity.swift`: tap `listenOnly` na `cgSessionEventTap` na własnym
+  wątku (ponowne włączenie po `tapDisabledBy*`); Escape użytkownika →
+  `leave(userStopped)` jak Stop; bez tapu (brak Input Monitoring) zapas:
+  tylko pisanie z `secondsSinceLastEventType`. `InputSessions` zbiera
+  wskaźnik, klawisze, bramkę pauzy, aktywność i pid hosta (krótsze listy
+  parametrów `Methods.standard`/`act`/`Executor`).
+- `Act.swift`: akcja po pauzie → `user_intervened` z prośbą o świeży stan;
+  `waitForQuiet` przed fizycznym wejściem (klik, przewijanie kółkiem, drag,
+  `mouse`).
+- `main.swift`: `CurrentRequest` (id żądania dla `control_state`), sterowanie
+  `pause`/`resume` z czytnika do `ControlGate` i przygaszenia kursora
+  (`AgentCursor.dim`, przezroczystość nakładki 0,35).
+
+**Testy (Red → Green)**
+- Red Swift: brak `UserInput`, `QuietWait`, `ControlGate`.
+- Red TS (helper z 7c2): pauza nie dawała `control_state` (`[]`), klik
+  fizyczny przy ruchach myszy „użytkownika” był `delivered`, Escape nie
+  zatrzymywał helpera.
+- Green: Swift 110/110; nowe testy e2e 3/3 — pauza trzyma klik (stan
+  `paused_by_user`, po wznowieniu `user_intervened`, licznik przycisku bez
+  zmian), ruchy myszy bez znacznika (JXA, w miejscu wskaźnika) → klik
+  `user_intervened`, `key code 53` przez System Events → helper kończy się
+  kodem 20 (`stoppedByUser`).
+
+**Walidacja**
+- `swift test` 110/110 (bez ostrzeżeń); `./build.sh` OK.
+- `helper.test.ts` przy bezczynnym wejściu (≥ 30 s) — 34/34.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów; `pnpm check:deps`
+  0 błędów; `pnpm build` OK.
+
+**Pominięcia i dla następcy**
+- Escape użytkownika zatrzymuje Computer Use także wtedy, gdy zamyka nim
+  okno we własnej aplikacji (tak samo u Claude'a). Bez uprawnienia Input
+  Monitoring tap nie powstaje: Escape nie działa, a czekanie na ciszę widzi
+  tylko pisanie — do pokazania w pasku sterowania (krok 9).
+- Akcje AX w tle nie czekają na ciszę (nie ruszają wskaźnika).

@@ -262,6 +262,15 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     const name = async (transport: HelperTransport) => element(await observe(transport), 'text field:name');
     const chord = (key: string | null, modifiers: string[] = []) => ({ modifiers, key });
     const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
+    type Framed = { tree: { elements: Listed[] } };
+    const look = async (transport: HelperTransport) =>
+      appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
+    const centre = (state: Framed, suffix: string) => {
+      const { frame } = element(state, suffix);
+      if (!frame) throw new Error(`${suffix} has no frame`);
+      return { x: Math.round(frame.x + frame.width / 2), y: Math.round(frame.y + frame.height / 2) };
+    };
+    const pad = (state: Framed | undefined) => (state ? element(state, 'group:pad').description : undefined);
 
     it('selects text and types at the caret through accessibility, without bringing the app forward', async () => {
       const transport = start();
@@ -335,15 +344,6 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     });
 
     describe('by screenshot point and real pointer input', () => {
-      type Framed = { tree: { elements: Listed[] } };
-      const look = async (transport: HelperTransport) =>
-        appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
-      const centre = (state: Framed, suffix: string) => {
-        const { frame } = element(state, suffix);
-        if (!frame) throw new Error(`${suffix} has no frame`);
-        return { x: Math.round(frame.x + frame.width / 2), y: Math.round(frame.y + frame.height / 2) };
-      };
-      const pad = (state: Framed | undefined) => (state ? element(state, 'group:pad').description : undefined);
       const pointer = () => spawnSync('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); const p = $.NSEvent.mouseLocation; `${p.x},${p.y}`']).stdout.toString().trim().split(',').map(Number);
       // A trackpad leaves the pointer between points; putting it back may round to the nearest one.
       const expectPointerAt = (home: number[]) => pointer().forEach((axis, i) => expect(Math.abs(axis - (home[i] ?? NaN))).toBeLessThanOrEqual(1));
@@ -473,6 +473,52 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(rich.result).toEqual({ outcome: 'delivered', method: 'input' });
           expect((await name(transport)).value).toBe('xbold');
           expect(clipboard()).toBe(before);
+        } finally { await transport.close(); }
+      });
+    });
+
+    // The user stays in charge: their pause holds actions, their Escape stops, their hands keep the pointer.
+    describe('the user stays in charge', () => {
+      it('holds an action while paused and asks for a fresh look once resumed', async () => {
+        const states: string[] = [];
+        const transport = start((event) => { if (event.event === 'control_state') states.push(String(event.state)); });
+        try {
+          const before = await observe(transport);
+          const status = element(before, 'text:status').title;
+          transport.control('pause');
+          const held = act(transport, { action: 'click', element_index: element(before, 'button:press').index, mouse_button: 'left', click_count: 1 });
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          expect(states).toEqual(['paused_by_user']);
+          transport.control('resume');
+          const { result, state } = await held;
+          expect(result).toMatchObject({ outcome: 'blocked', code: 'user_intervened' });
+          expect(state && element(state, 'text:status').title).toBe(status);
+          expect(states).toEqual(['paused_by_user', 'recovering']);
+        } finally { await transport.close(); }
+      });
+
+      it('refuses real pointer input while the user is moving the mouse', async () => {
+        const transport = start();
+        // Unmarked moves at the pointer's own position: the user's hand, without moving anything on screen.
+        const hand = spawn('osascript', ['-l', 'JavaScript', '-e',
+          'ObjC.import("CoreGraphics"); for (let i = 0; i < 90; i++) { const at = $.CGEventGetLocation($.CGEventCreate(null)); $.CGEventPost($.kCGHIDEventTap, $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, at, 0)); delay(0.05); }']);
+        try {
+          const before = await look(transport);
+          const { result, state } = await act(transport, { action: 'click', ...centre(before, 'group:pad'), mouse_button: 'left', click_count: 1 });
+          expect(result).toMatchObject({ outcome: 'blocked', code: 'user_intervened' });
+          expect(pad(state)).toBe(pad(before));
+        } finally { stop(hand); await transport.close(); }
+      });
+
+      it('stops when the user presses Escape', async () => {
+        const transport = start();
+        try {
+          await observe(transport);
+          // Escape goes to the app in front, so the fixture takes it, not the user's work.
+          spawnSync('osascript', ['-e', `tell application id "${FIXTURE}" to activate`]);
+          spawnSync('osascript', ['-e', 'tell application "System Events" to key code 53']);
+          for (let attempt = 0; attempt < 40 && !transport.closed; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+          expect(transport.stoppedByUser).toBe(true);
         } finally { await transport.close(); }
       });
     });

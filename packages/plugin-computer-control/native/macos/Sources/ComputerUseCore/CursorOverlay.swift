@@ -87,6 +87,8 @@ public final class CursorOverlay {
         }
     }
 
+    public func dim(_ paused: Bool) { panel?.alphaValue = paused ? 0.35 : 1 }
+
     public func hide() {
         outline(nil)
         panel?.orderOut(nil)

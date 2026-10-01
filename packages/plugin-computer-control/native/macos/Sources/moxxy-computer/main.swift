@@ -21,6 +21,15 @@ final class Output: @unchecked Sendable {
     }
 }
 
+final class CurrentRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+    var id: String? {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
+}
+
 func fail(_ message: String, code: Int32) -> Never {
     // Diagnostics only; never application content.
     FileHandle.standardError.write(Data("moxxy-computer: \(message)\n".utf8))
@@ -35,20 +44,28 @@ func parentPid(_ arguments: [String]) -> pid_t {
 }
 
 let parent = parentPid(CommandLine.arguments)
-let pointer = PointerSession()
-let keys = KeySession()
+let output = Output()
+/// The request being handled, for `control_state` frames while it waits.
+let current = CurrentRequest()
+let gate = ControlGate { state in
+    guard let id = current.id else { return }
+    output.write(Wire.event("control_state", ["id": .string(id), "state": .string(state)]))
+}
+// The user's Escape stops Computer Use like the Stop button.
+let activity = UserActivity { leave(ExitCode.userStopped) }
+activity.start()
+let input = InputSessions(gate: gate, activity: activity, host: parent)
 
 /// A mouse button or key the model left down is never left pressed for the user.
 func leave(_ code: Int32) -> Never {
-    pointer.release()
-    keys.release()
+    input.release()
     exit(code)
 }
 
 guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { leave(ExitCode.normal) }) else { exit(ExitCode.normal) }
 
-let output = Output()
-let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write), pointer: pointer, keys: keys, host: parent)
+let cursor = AgentCursor(emit: output.write)
+let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: cursor, input: input)
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 
@@ -60,12 +77,19 @@ let reader = Thread {
         for item in inbound {
             switch item {
             case let .incoming(.request(id, method, params)):
-                requests.async { output.write(dispatcher.handle(id: id, method: method, params: params)) }
+                requests.async {
+                    current.id = id
+                    output.write(dispatcher.handle(id: id, method: method, params: params))
+                    current.id = nil
+                }
             case .incoming(.control(.stop)):
                 leave(ExitCode.userStopped)
-            case .incoming(.control):
-                // Pause and resume gate actions once the action executor exists (step 7).
-                break
+            case .incoming(.control(.pause)):
+                gate.pause()
+                cursor.dim(true)
+            case .incoming(.control(.resume)):
+                gate.resume()
+                cursor.dim(false)
             case let .fatal(fault):
                 fail("protocol fault \(fault)", code: ExitCode.protocolFault)
             }

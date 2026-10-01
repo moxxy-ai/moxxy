@@ -48,6 +48,13 @@ public final class AgentCursor: @unchecked Sendable {
         return result
     }
 
+    /// A paused cursor stays where it is, faded, until the user resumes.
+    public func dim(_ paused: Bool) {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { self.overlay?.dim(paused) }
+        }
+    }
+
     private func onMain<T: Sendable>(_ body: @MainActor (CursorOverlay) -> T) -> T {
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {

@@ -4,7 +4,7 @@ import Foundation
 
 extension Methods {
     /// One step on a granted app, then its fresh state, so the model rarely needs a separate observation.
-    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, pointer: PointerSession, keys: KeySession, host: pid_t) throws -> JSONValue {
+    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, input: InputSessions) throws -> JSONValue {
         guard let app = params["app"]?.stringValue, !app.isEmpty, let step = params["action"] else {
             throw HelperError.invalidParams("app and action are required")
         }
@@ -15,7 +15,10 @@ extension Methods {
         let request = try ActionRequest.parse(step)
         let state = targets.state(for: app)
         guard state.observed else { return .object(["result": ActionResult.blocked("no_state").json]) }
-        let result = Executor(state: state, cursor: cursor, pointer: pointer, keys: keys, host: host).perform(request)
+        // A step that waited out a pause acts on nothing: the app may have changed while the user had it.
+        let result = input.gate?.waitWhilePaused() == true
+            ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
+            : Executor(state: state, cursor: cursor, input: input).perform(request)
         if result.outcome == .delivered { state.lastAction = Date() }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
@@ -26,10 +29,10 @@ extension Methods {
 struct Executor {
     let state: TargetState
     let cursor: AgentCursor?
-    let pointer: PointerSession
-    let keys: KeySession
+    let input: InputSessions
+    private var pointer: PointerSession { input.pointer }
     /// The process Moxxy runs in; real input never goes to its windows.
-    let host: pid_t
+    private var host: pid_t { input.host }
 
     func perform(_ request: ActionRequest) -> ActionResult {
         switch request {
@@ -68,7 +71,7 @@ struct Executor {
             return chord.needsMenuBar ? inFront(press) : press()
         case let .holdKey(chord, duration):
             guard let pid = state.window?.pid else { return noWindow }
-            let hold = { keyboard { keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
+            let hold = { keyboard { input.keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
             return chord.needsMenuBar ? inFront(hold) : hold()
         case let .paste(.element(index)?, text, format):
             return onElement(index) { element in paste(text, format, into: element) }
@@ -134,6 +137,7 @@ struct Executor {
                let refused = PointerGate.check(screen, displays: ScreenLayout.displays(), under: ScreenLayout.owner(at: screen), target: window.pid, host: host) {
                 return refused
             }
+            if let busy = waitForQuiet() { return busy }
             return withCursor(at: screen, outline: nil) {
                 pointer.perform(steps, flags: modifiers, keepDown: keep)
                 return .delivered(.input)
@@ -191,6 +195,7 @@ struct Executor {
         if pointer.holding != nil {
             return .unsupported("unsupported_action", hint: "A mouse button is still down from computer_mouse; release it with event up first.")
         }
+        if let busy = waitForQuiet() { return busy }
         switch Foreground.bring(window) {
         case let .refused(result): return result
         case .broughtForward:
@@ -206,6 +211,20 @@ struct Executor {
             send(screen)
             return .delivered(.input)
         }
+    }
+
+    /// Real pointer input waits for a moment in which the user is not using the mouse or keyboard.
+    private func waitForQuiet() -> ActionResult? {
+        guard let activity = input.activity else { return nil }
+        for attempt in 0... {
+            switch QuietWait.next(sinceInput: activity.secondsSinceInput(), attempt: attempt) {
+            case .go: return nil
+            case let .wait(seconds): Thread.sleep(forTimeInterval: seconds)
+            case .refuse:
+                return .blocked("user_intervened", hint: "The user is using the mouse or keyboard right now, and real input would fight them. Nothing was done; retry after a pause, or use element actions, which work in the background.")
+            }
+        }
+        return nil
     }
 
     // MARK: Elements
