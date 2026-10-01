@@ -42,7 +42,9 @@ void hold(const std::vector<WORD>& modifiers) {
 struct PointerReturn {
   POINT saved{}; bool known;
   PointerReturn() : known(GetCursorPos(&saved) != FALSE) {}
-  ~PointerReturn() { if (known) SetCursorPos(saved.x, saved.y); }
+  // A release takes its position from the pointer at the moment Windows handles it, so the pointer
+  // stays where the agent acted until the app has had the last event.
+  ~PointerReturn() { if (known) { Sleep(40); SetCursorPos(saved.x, saved.y); } }
 };
 bool held_button = false;
 const std::map<std::wstring, WORD> modifier_codes{{L"ctrl",VK_CONTROL},{L"alt",VK_MENU},{L"shift",VK_SHIFT},{L"meta",VK_LWIN}};
