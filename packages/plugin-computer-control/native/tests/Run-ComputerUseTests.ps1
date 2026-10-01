@@ -421,8 +421,13 @@ try {
         Check ($first.width -le 960 -and $first.height -le 960 -and $first.width % 2 -eq 0 -and $first.height % 2 -eq 0) 'Video size is wrong'
         $bytes = [Convert]::FromBase64String($first.data)
         Check ($bytes.Length -gt 8 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and ($bytes[2] -eq 1 -or ($bytes[2] -eq 0 -and $bytes[3] -eq 1))) 'The video is not an Annex B stream'
-        $header = if ($bytes[2] -eq 1) { $bytes[3] } else { $bytes[4] }
-        Check (($header -band 0x1f) -eq 7) 'The key picture does not begin with its parameter sets'
+        # The units of the stream in order; an encoder may put a delimiter (9) in front.
+        $units = @()
+        for ($i = 0; $i + 3 -lt $bytes.Length; $i++) {
+          if ($bytes[$i] -eq 0 -and $bytes[$i+1] -eq 0 -and $bytes[$i+2] -eq 1) { $units += ($bytes[$i+3] -band 0x1f); $i += 2 }
+        }
+        $sets = [array]::IndexOf($units, 7); $picture = [array]::IndexOf($units, 5)
+        Check ($sets -ge 0 -and $picture -gt $sets -and $units -contains 8) ('The key picture does not carry its parameter sets: ' + ($units -join ','))
         for ($i = 1; $i -lt $chunks.Count; $i++) { Check ($chunks[$i].seq -eq $chunks[$i-1].seq + 1) 'Video chunks are not numbered in order' }
         # A viewer that joins while the window stands still gets a picture to start from.
         Start-Sleep -Milliseconds 800
