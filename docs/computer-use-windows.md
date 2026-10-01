@@ -56,8 +56,9 @@ both systems (see [`computer-use-rebuild/README.md`](computer-use-rebuild/README
 - Pause holds the next action; after Resume that action reports `user_intervened`
   and sends nothing, because the app may have changed. `takeover` pauses,
   releases held input and hides the agent's cursor.
-- Windows UAC, secure desktops, elevated windows, Linux and ARM64 are not
-  supported.
+- Windows UAC, secure desktops, elevated windows and a native ARM64 host
+  process are not supported. Linux has its own helper
+  ([`computer-use-linux.md`](computer-use-linux.md)).
 - Before a manual permission dialog for an action, the desktop asks the helper to
   remember the app's window (`computer.approvalFocus`). An approved result may
   bring that window back once, only if foreground changes involved the desktop

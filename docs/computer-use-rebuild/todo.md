@@ -25,7 +25,6 @@ ma Linuksa. Opis: [`../computer-use-linux.md`](../computer-use-linux.md).
 - [x] L6: CI (`computer-use-linux.yml`, x64 i arm64), pakowanie, dokumentacja.
 
 Otwarte dla Linuksa:
-- [ ] Sprawdzić wynik CI na x64 (lokalnie budowano i testowano tylko arm64 w kontenerze).
 - [ ] Próba na prawdziwym pulpicie (GNOME/KDE na Xorg) i z modelem `gpt-6-luna`; dotąd tylko Xvfb + openbox.
 - [ ] Przeglądarki i Electron: nie sprawdzono, czy pokazują drzewo strony przez AT-SPI.
 - [ ] Wayland (portal RemoteDesktop/ScreenCast + libei) — osobna praca.

@@ -2231,6 +2231,8 @@ kategorie ×4, profil i wybór platformy ×3, wskazówka o klawiszu Super
   testy wtyczki na macOS bez e2e — 258/258.
 
 **Pominięte / dla następcy**
-- Lokalnie tylko arm64 w kontenerze (Xvfb + openbox); x64 i wynik CI do sprawdzenia.
+- Lokalnie tylko arm64 w kontenerze (Xvfb + openbox); x64 sprawdza CI.
 - Bez próby z modelem i bez prawdziwego pulpitu (GNOME/KDE na Xorg).
 - Lista braków: `todo.md`, sekcja „Linux”.
+
+**Commit:** `66633a8d`. CI „Computer Use Linux” (przebieg 36940389898): x64 i arm64 zielone — budowa, testy jednostkowe i 27 testów e2e.
