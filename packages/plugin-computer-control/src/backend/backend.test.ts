@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { AppContext, ComputerControlService, MoxxyEvent, ToolDef, ToolImageResult } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REQUEST_ACCESS_TOOL } from './access.js';
+import type { AppHint } from './app-hints.js';
 import { ComputerBackend, type PlatformProfile } from './backend.js';
 import { contractHelperScript, helperRequests, memoryLog, toolContext } from './helper.fixture.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
@@ -23,8 +24,8 @@ const profile = (): PlatformProfile => ({
   unavailableMessage: 'Computer Use helper is missing.',
 });
 
-function backend(): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
-  const instance = new ComputerBackend(profile());
+function backend(hints: AppHint[] = []): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
+  const instance = new ComputerBackend(profile(), hints);
   backends.push(instance);
   return { instance, tools: new Map(instance.tools().map((tool) => [tool.name, tool])) };
 }
@@ -256,5 +257,42 @@ describe('one state for every client and turn lifecycle', () => {
     const control = services.get('computerControl') as { control(input: unknown): Promise<void> };
     await control.control({ sessionId: 'session', turnId: 'turn', command: 'stop' });
     await expect(run(tools, 'computer_get_app_state', { app: 'TextEdit' })).rejects.toThrow(/stopped for this turn/);
+  });
+});
+
+describe('computer_status', () => {
+  it('reports what the helper may do and which permission is missing, without needing access to any app', async () => {
+    const { tools } = backend();
+    expect(await run(tools, 'computer_status', {})).toEqual({
+      platform: 'darwin', ready: false,
+      permissions: { accessibility: true, screenRecording: false },
+      limitations: ['Screen Recording is not allowed: the helper cannot capture windows.'],
+    });
+    expect(methods()).toEqual(['status']);
+  });
+
+  it('opens the system settings pane for a missing permission when asked', async () => {
+    const { tools } = backend();
+    expect(await run(tools, 'computer_status', { open_settings: 'screen_recording' })).toMatchObject({ ready: false, settings_opened: true });
+    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'permissions.request', params: { kind: 'screen_recording' } });
+  });
+});
+
+describe('app hints', () => {
+  const hints: AppHint[] = [{ apps: ['com.apple.textedit'], text: 'Prefer set_value for whole documents.' }];
+
+  it('shows an app\'s hint with its first state in a turn, and not again until the next turn', async () => {
+    const { tools } = backend(hints);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).toContain('Prefer set_value for whole documents.');
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).not.toContain('Prefer set_value');
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).not.toContain('Prefer set_value');
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'next-turn'))).toContain('Prefer set_value for whole documents.');
+  });
+
+  it('shows the hint with the first action when the model acts before looking', async () => {
+    const { tools } = backend(hints);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toContain('Prefer set_value for whole documents.');
   });
 });

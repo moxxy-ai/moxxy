@@ -106,7 +106,8 @@
     ],
     "files": [
       "dist-electron/**",
-      "dist/**"
+      "dist/**",
+      "!**/node_modules/@moxxy/plugin-computer-control/native/**"
     ],
     "extraResources": [
       {
@@ -136,7 +137,7 @@
           ]
         }
       ],
-      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3}",
+      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3,moxxy-computer}",
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

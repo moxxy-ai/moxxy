@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { constants, existsSync, readFileSync } from 'node:fs';
+import { lstat, open, rename, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { z } from 'zod';
 
@@ -23,27 +23,82 @@ function assertWindowsX64(bytes: Buffer): void {
   }
 }
 
-/** CPU types carried by a thin or fat Mach-O; empty when the bytes are not Mach-O. */
-function machOCpus(bytes: Buffer): number[] {
-  if (bytes.length < 8) return [];
-  if (bytes.readUInt32LE(0) === MACH_O_64) return [bytes.readUInt32LE(4)];
-  if (bytes.readUInt32BE(0) !== MACH_O_FAT) return [];
-  const count = bytes.readUInt32BE(4);
-  if (count > 16 || 8 + count * 20 > bytes.length) return [];
-  return Array.from({ length: count }, (_, index) => bytes.readUInt32BE(8 + index * 20));
-}
-
 function assertMacOS(bytes: Buffer, architecture: Exclude<Architecture, 'x64'>): void {
-  const cpus = machOCpus(bytes);
+  const cpus = (machOSlices(bytes) ?? []).map(({ cpu }) => cpu);
   const required = architecture === 'universal' ? [CPU.arm64, CPU.x86_64] : [CPU[architecture]];
   if (!required.every((cpu) => cpus.includes(cpu))) throw new Error(`Computer Use requires a macOS ${architecture} executable`);
+}
+
+const LC_SEGMENT_64 = 0x19;
+const LC_CODE_SIGNATURE = 0x1d;
+const invalid = () => new Error('Invalid Computer Use executable');
+
+/** One Mach-O slice without its code signature, with the fields signing rewrites set to zero. */
+function unsignedSlice(slice: Buffer): Buffer {
+  if (slice.length < 32 || slice.readUInt32LE(0) !== MACH_O_64) throw invalid();
+  const copy = Buffer.from(slice);
+  const commands = copy.readUInt32LE(16);
+  if (32 + copy.readUInt32LE(20) > copy.length) throw invalid();
+  let end = copy.length;
+  let offset = 32;
+  for (let index = 0; index < commands; index++) {
+    if (offset + 8 > copy.length) throw invalid();
+    const command = copy.readUInt32LE(offset);
+    const size = copy.readUInt32LE(offset + 4);
+    if (size < 8 || offset + size > copy.length) throw invalid();
+    if (command === LC_CODE_SIGNATURE && size >= 16) {
+      end = Math.min(end, copy.readUInt32LE(offset + 8));
+      copy.fill(0, offset + 8, offset + 16);
+    } else if (command === LC_SEGMENT_64 && size >= 72 && copy.toString('latin1', offset + 8, offset + 24).replace(/\0+$/, '') === '__LINKEDIT') {
+      // The signature is the tail of __LINKEDIT, so its sizes move with it.
+      copy.fill(0, offset + 32, offset + 40);
+      copy.fill(0, offset + 48, offset + 56);
+    }
+    offset += size;
+  }
+  return copy.subarray(0, end);
+}
+
+/** The slices of a thin or fat Mach-O with their CPU type; `undefined` when the bytes are not Mach-O. */
+function machOSlices(bytes: Buffer): Array<{ cpu: number; slice: Buffer }> | undefined {
+  if (bytes.length < 8) return undefined;
+  if (bytes.readUInt32LE(0) === MACH_O_64) return [{ cpu: bytes.readUInt32LE(4), slice: bytes }];
+  if (bytes.readUInt32BE(0) !== MACH_O_FAT) return undefined;
+  const count = bytes.readUInt32BE(4);
+  if (count > 16 || 8 + count * 20 > bytes.length) throw invalid();
+  return Array.from({ length: count }, (_, index) => {
+    const entry = 8 + index * 20;
+    const start = bytes.readUInt32BE(entry + 8);
+    const size = bytes.readUInt32BE(entry + 12);
+    if (start + size > bytes.length) throw invalid();
+    return { cpu: bytes.readUInt32BE(entry), slice: bytes.subarray(start, start + size) };
+  });
+}
+
+/**
+ * The digest a manifest records. A Windows executable is hashed whole. A Mach-O
+ * is hashed without its code signatures, because packaging the desktop app signs
+ * every executable again after the manifest was written; macOS itself refuses to
+ * run code whose signature does not match.
+ */
+export function helperDigest(bytes: Buffer): string {
+  const hash = createHash('sha256');
+  const slices = machOSlices(bytes);
+  if (!slices) return hash.update(bytes).digest('hex');
+  for (const { cpu, slice } of slices) {
+    const header = Buffer.alloc(4);
+    header.writeUInt32BE(cpu);
+    // An empty fat entry (synthetic headers in tests) has no code to hash.
+    hash.update(header).update(slice.length === 0 ? slice : unsignedSlice(slice));
+  }
+  return hash.digest('hex');
 }
 
 export function validateHelperArtifact(bytes: Buffer, manifest: unknown, protocolVersion: number): void {
   const expected = manifestSchema(protocolVersion).parse(manifest);
   if (expected.architecture === 'x64') assertWindowsX64(bytes);
   else assertMacOS(bytes, expected.architecture);
-  if (createHash('sha256').update(bytes).digest('hex') !== expected.sha256) throw new Error('Computer Use executable checksum mismatch');
+  if (helperDigest(bytes) !== expected.sha256) throw new Error('Computer Use executable checksum mismatch');
 }
 
 // POSIX-only; Node leaves it undefined on Windows.
@@ -83,4 +138,32 @@ export async function verifyHelperArtifact(executable: string, protocolVersion: 
     readBounded(manifestPath, 4096),
   ]);
   validateHelperArtifact(bytes, JSON.parse(manifest.toString('utf8')), protocolVersion);
+}
+
+/** Written by the native build next to the executable it just produced. */
+export async function writeHelperManifest(executable: string, manifest: { protocolVersion: number; architecture: Architecture }): Promise<void> {
+  const sha256 = helperDigest(await readBounded(executable, 32_000_000));
+  const temporary = `${executable}.json.tmp`;
+  await writeFile(temporary, JSON.stringify({ ...manifest, sha256 }));
+  await rename(temporary, `${executable}.json`);
+}
+
+/**
+ * Why a helper cannot be used, known without reading the executable: decides
+ * which tools a plugin offers. The full check runs before every launch.
+ */
+export function helperProblem(executable: string, protocolVersion: number): string | undefined {
+  if (!existsSync(executable)) return 'The Computer Use helper is missing.';
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(`${executable}.json`, 'utf8'));
+  } catch {
+    return 'The Computer Use helper has no readable manifest.';
+  }
+  const found = z.object({ protocolVersion: z.number().int() }).safeParse(manifest);
+  if (!found.success) return 'The Computer Use helper has no readable manifest.';
+  if (found.data.protocolVersion !== protocolVersion) {
+    return `The Computer Use helper speaks protocol ${found.data.protocolVersion}; this version needs ${protocolVersion}.`;
+  }
+  return undefined;
 }

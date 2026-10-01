@@ -13,6 +13,8 @@ import { ComputerBackend } from '../backend/backend.js';
 import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
 import { memoryLog, toolContext } from '../backend/helper.fixture.js';
 import type { MoxxyEvent, ToolImageResult } from '@moxxy/sdk';
+import { computerTools } from '../contract/tools.js';
+import { createComputerControlPlugin } from '../index.js';
 
 // Talks to the real universal helper built by native/macos/build.sh; other hosts and unbuilt trees skip.
 const built = process.platform === 'darwin' && existsSync(macosHelperPath);
@@ -32,6 +34,19 @@ describe.skipIf(!built)('macOS native helper', () => {
       const status = statusResultSchema.parse(await transport.request('status', {}, signal()));
       expect(status.ready).toBe(status.permissions.accessibility && status.permissions.screenRecording);
     } finally { await transport.close(); }
+  });
+
+  it('is what the plugin runs on this Mac: the shared tools, with a status answered by the helper', async () => {
+    const plugin = createComputerControlPlugin();
+    expect((plugin.tools ?? []).map((tool) => tool.name).sort()).toEqual(Object.keys(computerTools).sort());
+    const status = plugin.tools?.find((tool) => tool.name === 'computer_status');
+    try {
+      const report = await status?.handler({}, toolContext(memoryLog([]), { sessionId: 'plugin-status' })) as { platform: string; ready: boolean; permissions: { accessibility: boolean; screenRecording: boolean } };
+      expect(report.platform).toBe('darwin');
+      expect(report.ready).toBe(report.permissions.accessibility && report.permissions.screenRecording);
+    } finally {
+      await plugin.hooks?.onShutdown?.({ sessionId: 'plugin-status' } as never);
+    }
   });
 
   it('refuses an unknown method with a code and keeps serving', async () => {

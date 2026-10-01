@@ -1336,3 +1336,97 @@ Poprzedni commit: `d9cd9481` (krok 8).
   pełnym przebiegu zielony — test zależy od tego, co leży nad fixture.
 - `pnpm build` 88/88; `pnpm typecheck` 150/150; `pnpm lint` 0 błędów
   (96 wcześniejszych ostrzeżeń); `pnpm check:deps` 0 błędów.
+
+## Krok 10 — macOS na natywnym helperze, sprzątanie, pakowanie (2026-10-01)
+
+Poprzedni commit: `808bbfde` (krok 9).
+
+**Wzorzec**
+- Codex: SKILL.md `computer-use` (pętla stan → akcja → weryfikacja, indeksy
+  przed współrzędnymi) i wskazówki per aplikacja pokazywane raz na aplikację
+  w turze. Claude: reguły poziomów (przeglądarki tylko do odczytu, terminale
+  tylko klik), zakaz klikania linków, odsyłanie stron do narzędzi
+  przeglądarki. Teksty napisane od zera.
+
+**Co**
+- `src/index.ts`: darwin → `ComputerBackend(macosProfile)`; gdy
+  `helperProblem()` (brak pliku, brak/nieczytelny manifest, inny protokół)
+  zwraca powód — wtyczka ma tylko `computer_status` z tym powodem. Windows
+  x64 bez zmian; reszta platform: `computer_status` „unsupported”.
+- Usunięte: `src/tools/*` (osascript/screencapture/sips/AppleScript),
+  `shell.ts`, `temporary-files.ts`, `tools.test.ts` i ich testy.
+- Kontrakt: `computer_status {open_settings?}` — pyta helper o `status`,
+  opcjonalnie otwiera panel Ustawień (`permissions.request`).
+- `src/contract/guidance.ts`: 10 krótkich reguł pracy dopisywanych do
+  `system` raz, gdy żądanie ma narzędzia `computer_*` (hook
+  `onBeforeProviderCall` backendu); `super` nazwany per platforma.
+- `src/backend/app-hints.ts` + `skills/computer-apps/*.md` (przeglądarki,
+  Finder, pakiety biurowe, montaż wideo, narzędzia graficzne): każdy plik to
+  zwykły skill z dodatkowym polem `apps` we frontmatterze; backend pokazuje
+  treść przy pierwszym stanie aplikacji w turze (`Turn.hinted`). Dopasowanie
+  po bundle ID lub nazwie, także z sufiksem wersji
+  (`com.adobe.PremierePro.25`, „Adobe Photoshop 2026”).
+- `skills/computer-control.md`: nowa część macOS (pętla zgoda → stan →
+  akcja → sprawdzenie, wyniki, klawisze, batch, aplikacje bez elementów,
+  kontrola użytkownika, uprawnienia); część Windows zostaje do kroku 12.
+- Artefakt: `helperDigest` — dla Mach-O skrót liczony bez podpisów kodu
+  (każdy slice do `LC_CODE_SIGNATURE`, z wyzerowanymi polami, które
+  podpisywanie przepisuje: rozmiary `__LINKEDIT`, offset/rozmiar podpisu;
+  bez nagłówka fat). Powód: electron-builder podpisuje ponownie każdy plik
+  wykonywalny w aplikacji, po zapisaniu manifestu — zwykłe sha256 pliku
+  przestawałoby się zgadzać w podpisanym wydaniu. PE (Windows) nadal
+  haszowany w całości. `writeHelperManifest` (atomowo) używany przez
+  `build.sh`; `helperProblem` (synchroniczny, bez czytania binarki).
+- Pakowanie: `verify-desktop-resources.mjs` wymaga helpera macOS na darwin
+  (tak jak exe na win32); `x64ArchFiles` zawiera `moxxy-computer` (plik
+  identyczny w obu buildach arch); kroki „Build macOS Computer Use
+  component” w `ci.yml` i `release.yml` przed `prepare:resources`.
+- Katalog wtyczek i strona `apps/docs` opisują nowy zestaw.
+
+**Testy (Red → Green)**
+- Red: `index.test.ts` (stare narzędzia zamiast kontraktu), `skill.test.ts`,
+  `artifact.test.ts` (brak `helperDigest`/`helperProblem`/
+  `writeHelperManifest`), `app-hints.test.ts` i `guidance.test.ts` (brak
+  modułów), `backend.test.ts` (brak `computer_status`, brak wskazówek),
+  `desktop-packaging.test.mjs` (darwin przechodził bez helpera; brak
+  `moxxy-computer` w `x64ArchFiles`).
+- Green: plugin 24 pliki / 228 testów jednostkowych; test podpisu:
+  `/usr/bin/true` podpisany dwa razy różnymi identyfikatorami i opcjami →
+  ten sam digest, inne sha256 pliku; zmieniony bajt kodu → inny digest.
+  e2e: prawdziwa wtyczka na tym Macu ma narzędzia kontraktu, a
+  `computer_status` odpowiada helper. `desktop-packaging` 9/9.
+- Ręcznie: zbudowany helper skopiowany i podpisany ponownie
+  (`--options runtime`, inny identyfikator) przechodzi
+  `verifyHelperArtifact` z oryginalnym manifestem.
+- Próbne pakowanie `pnpm --filter @moxxy/desktop run package:dir`
+  (bez certyfikatu, podpis ad-hoc): helper w
+  `Resources/plugins-seed/.../bin/darwin-universal/` przechodzi
+  `verifyHelperArtifact`. Pakowanie ujawniło, że `app.asar.unpacked`
+  zabierało cały katalog `native/` wtyczki z wynikami `swift build`
+  (531 MB) — dodane wykluczenie w `build.files`; po nim wtyczka zajmuje
+  3 MB, a `app.asar.unpacked` 295 MB zamiast 826 MB.
+
+**Walidacja**
+- `swift test` 125/125; `./build.sh` OK (manifest przez `writeHelperManifest`).
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 25 plików / 268 testów
+  (mniej niż w kroku 9, bo usunięto testy starych narzędzi macOS).
+- `node --test scripts/desktop-packaging.test.mjs` 10/10.
+- `pnpm build` 88/88; `pnpm typecheck` OK; `pnpm lint` 0 błędów (96
+  wcześniejszych ostrzeżeń); `pnpm check:deps` 0 błędów;
+  `pnpm --filter @moxxy/plugin-plugins-admin --filter @moxxy/core test` OK.
+
+**Otwarte**
+- Test e2e „presses a control under a point through accessibility, in the
+  background” padł w 2 z 9 pełnych przebiegów (`method: input` zamiast
+  `ax`), oba razy tuż po długim obciążeniu maszyny (pełny `pnpm test`,
+  pakowanie). Z diagnostyką w helperze (rola i akcje elementu pod punktem)
+  6 kolejnych przebiegów było zielonych: hit-test zwracał `AXButton` z
+  `AXPress`. Nieodtworzone; diagnostyka usunięta. Jeśli wróci: zalogować
+  wynik `AXReader.element(at:)` i kod `AXUIElementPerformAction`.
+- Scalanie universal (`@electron/universal`) nie było uruchamiane lokalnie
+  (`--dir` buduje tylko arm64) — sprawdzi je CI wydania; `x64ArchFiles`
+  obejmuje `moxxy-computer`.
+- Podpis Developer ID i notaryzacja helpera wymagają sekretów wydania —
+  niesprawdzone lokalnie; digest manifestu jest na to odporny (test).
+- W `~/.moxxy/plugins` użytkownika zostaje stara kopia wtyczki do czasu
+  aktualizacji/seedowania z nowej aplikacji.

@@ -1,64 +1,43 @@
-import { definePlugin, defineTool, z, type Plugin, type ToolDef } from '@moxxy/sdk';
+import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
+import { ComputerBackend, type PlatformProfile } from './backend/backend.js';
+import { helperProblem } from './helper/artifact.js';
+import { macosProfile } from './macos/profile.js';
 import { WindowsBackend } from './windows/backend.js';
-import { IS_DARWIN } from './shell.js';
-import { applescriptTool } from './tools/applescript.js';
-import { clickTool } from './tools/click.js';
-import { clipboardTool } from './tools/clipboard.js';
-import { keyTool } from './tools/key.js';
-import { openTool } from './tools/open.js';
-import { screenshotTool } from './tools/screenshot.js';
-import { typeTool } from './tools/type.js';
 
-export {
-  applescriptTool,
-  clickTool,
-  clipboardTool,
-  keyTool,
-  openTool,
-  screenshotTool,
-  typeTool,
-};
+const name = '@moxxy/plugin-computer-control';
 
-export const computerControlTools: ReadonlyArray<ToolDef> = [
-  screenshotTool,
-  clickTool,
-  typeTool,
-  keyTool,
-  openTool,
-  clipboardTool,
-  applescriptTool,
-];
-
-/**
- * `@moxxy/plugin-computer-control` — programmatic control of the host
- * computer (mouse, keyboard, screenshot, clipboard, app launching,
- * AppleScript escape hatch).
- *
- * macOS retains its system-binary backend; Windows x64 uses our bundled
- * native helper. Unsupported hosts expose status only.
- *
- * Every tool is `permission: 'prompt'`. There is intentionally no
- * "allow always" shortcut for these — granting blanket permission to
- * drive the user's screen + keyboard is exactly the wrong default.
- */
-export function createComputerControlPlugin(platform: NodeJS.Platform = process.platform, arch: string = process.arch): Plugin {
-  const backend = platform === 'win32' && arch === 'x64' ? new WindowsBackend() : undefined;
+/** The only tool of a host that cannot run Computer Use: it says why. */
+function statusOnly(platform: NodeJS.Platform, architecture: string, limitation: string): Plugin {
   const status = defineTool({
     name: 'computer_status', description: 'Report Computer Use platform capabilities and limitations.',
     inputSchema: z.object({}).strict(), permission: { action: 'prompt' },
-    handler: () => ({ platform, architecture: arch, ready: platform === 'darwin',
-      limitations: platform === 'darwin' ? ['Requires Screen Recording and Accessibility permissions'] : ['Unsupported platform or architecture'] }),
+    handler: () => ({ platform, architecture, ready: false, limitations: [limitation] }),
   });
-  return definePlugin({
-    name: '@moxxy/plugin-computer-control', version: '0.0.0',
-    tools: backend ? backend.tools() : platform === 'darwin' ? [...computerControlTools, status] : [status],
-    ...(backend ? { hooks: backend.hooks } : {}),
-  });
+  return definePlugin({ name, version: '0.0.0', tools: [status] });
+}
+
+/**
+ * `@moxxy/plugin-computer-control` — operates the user's desktop applications
+ * through a bundled native helper: macOS (universal) and Windows x64. Other
+ * hosts, and a host whose helper is missing, expose `computer_status` only.
+ *
+ * Every tool is `permission: 'prompt'`; which apps may be controlled, and how
+ * far, is a separate grant recorded in the session log.
+ */
+export function createComputerControlPlugin(
+  platform: NodeJS.Platform = process.platform, arch: string = process.arch, macos: PlatformProfile = macosProfile,
+): Plugin {
+  if (platform === 'win32' && arch === 'x64') {
+    const backend = new WindowsBackend();
+    return definePlugin({ name, version: '0.0.0', tools: backend.tools(), hooks: backend.hooks });
+  }
+  if (platform !== 'darwin') return statusOnly(platform, arch, 'Unsupported platform or architecture');
+  const problem = helperProblem(macos.helperPath, macos.protocolVersion);
+  if (problem) return statusOnly(platform, arch, `${problem} ${macos.unavailableMessage}`);
+  const backend = new ComputerBackend(macos);
+  return definePlugin({ name, version: '0.0.0', tools: backend.tools(), hooks: backend.hooks });
 }
 
 export const computerControlPlugin = createComputerControlPlugin();
 
 export default computerControlPlugin;
-
-// Re-export for callers that want a runtime gate.
-export { IS_DARWIN };

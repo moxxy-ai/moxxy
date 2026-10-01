@@ -4,12 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 10 — przełączenie macOS na nowy backend i sprzątanie
-  (krok 9 gotowy).
-- **Następna czynność:** test wyboru backendu per platforma w
-  `src/index.test.ts` (darwin → nowy backend, brak helpera → tylko
-  `computer_status`), potem usunięcie `src/tools/*`, `shell.ts`,
-  `temporary-files.ts`, nowy skill i pakowanie helpera.
+- **Bieżący krok:** 11 — PiP: podgląd JPEG przez Surface (krok 10 gotowy).
+- **Następna czynność:** test `PreviewController` (licznik widzów,
+  latest-frame, stany) w `src/preview/`, potem `preview.start/stop` w
+  helperze Swift (`SCStream`) i `defineSurface({kind: 'computer-preview'})`.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -83,9 +81,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] `ComputerControlStrip`: aplikacja/okno, stan tekstem + ikoną, Stop / Przejmij / Wznów z klawiatury.
 
 ### Krok 10 — przełączenie macOS i sprzątanie
-- [ ] darwin → nowy backend; bez helpera tylko `computer_status` z powodem.
-- [ ] Usunięcie `src/tools/*`, `shell.ts`, `temporary-files.ts`; nowy skill i wskazówki per aplikacja (w tym montaż wideo).
-- [ ] Pakowanie helpera w desktopie (`bundle-plugins-seed`, `verify-desktop-resources`).
+- [x] darwin → nowy backend; bez helpera tylko `computer_status` z powodem.
+- [x] Usunięcie `src/tools/*`, `shell.ts`, `temporary-files.ts`; nowy skill i wskazówki per aplikacja (w tym montaż wideo).
+- [x] Pakowanie helpera w desktopie (`verify-desktop-resources`, `x64ArchFiles`, kroki CI; digest manifestu niezależny od podpisu).
 
 ### Krok 11 — PiP: podgląd JPEG przez Surface
 - [ ] Helper `preview.start/stop` (SCStream), zdarzenia `preview_frame`.

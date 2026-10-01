@@ -1,5 +1,6 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
@@ -12,8 +13,9 @@ import {
   accessFromLog, accessGrantSchema, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
   type AccessGrant, type AccessTier, type AppGrant,
 } from './access.js';
+import { hintFor, loadAppHints, type AppHint } from './app-hints.js';
 import {
-  actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema,
+  actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema,
   type AppState, type HelperImage,
 } from './rpc.js';
 import { TurnControls } from './turn-controls.js';
@@ -38,6 +40,8 @@ interface Turn {
   /** What the model last saw of each app, to notice an action that changed nothing. */
   readonly seen: Map<string, string>;
   readonly progress: ProgressTracker;
+  /** Apps whose hint the model has already been shown in this turn. */
+  readonly hinted: Set<string>;
   dispose(): void;
 }
 
@@ -69,13 +73,16 @@ export class ComputerBackend {
   private readonly turns = new Map<string, Turn>();
   readonly controls = new TurnControls();
 
-  constructor(private readonly profile: PlatformProfile) {}
+  readonly hooks: LifecycleHooks;
 
-  readonly hooks: LifecycleHooks = {
-    onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
-    onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
-    onShutdown: (ctx) => this.release(ctx.sessionId),
-  };
+  constructor(private readonly profile: PlatformProfile, private readonly hints: ReadonlyArray<AppHint> = loadAppHints()) {
+    this.hooks = {
+      onBeforeProviderCall: withComputerGuidance(profile.platform),
+      onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
+      onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
+      onShutdown: (ctx) => this.release(ctx.sessionId),
+    };
+  }
 
   tools(): ToolDef[] {
     return (Object.keys(computerTools) as ToolName[]).map((name) => {
@@ -104,6 +111,12 @@ export class ComputerBackend {
   }
 
   private readonly handlers: Handlers = {
+    computer_status: async (input, ctx) => {
+      const { turn, result } = await this.call(ctx, 'status', {}, statusResultSchema);
+      if (!input.open_settings) return { platform: this.profile.platform, ...result };
+      const opened = z.object({ opened: z.boolean() }).parse(await turn.transport.request('permissions.request', { kind: input.open_settings }, ctx.signal));
+      return { platform: this.profile.platform, ...result, settings_opened: opened.opened };
+    },
     computer_list_apps: async (input, ctx) => {
       const { result } = await this.call(ctx, 'list_apps', input, listAppsResultSchema);
       const granted = new Map(accessFromLog(ctx.log).apps.map((app) => [app.id, app.tier]));
@@ -209,7 +222,9 @@ export class ComputerBackend {
     const view: TreeView = disableDiff ? { kind: 'full', text: formatTree(state.tree) } : diffTrees(turn.trees.get(grant.id), state.tree);
     turn.trees.set(grant.id, state.tree);
     turn.seen.set(grant.id, fingerprint(state.tree, state.screenshot));
-    const parts = [...prefix, wrapUntrusted(view.text, grant.name)];
+    const hint = turn.hinted.has(grant.id) ? undefined : hintFor(this.hints, grant);
+    turn.hinted.add(grant.id);
+    const parts = [...prefix, ...(hint ? [`Notes for ${grant.name}:\n${hint}`] : []), wrapUntrusted(view.text, grant.name)];
     if (state.screenshot) parts.push(`Screenshot ${state.screenshot.width}x${state.screenshot.height}: x and y in actions are pixels of this image.`);
     else if (state.screenshotUnavailable) parts.push(`No screenshot: ${state.screenshotUnavailable}`);
     return withImage(parts.join('\n\n'), state.screenshot);
@@ -256,7 +271,7 @@ export class ComputerBackend {
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };
     ctx.signal.addEventListener('abort', abort, { once: true });
     const turn: Turn = {
-      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(),
+      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(), hinted: new Set(),
       dispose: () => ctx.signal.removeEventListener('abort', abort),
     };
     this.turns.set(key, turn);

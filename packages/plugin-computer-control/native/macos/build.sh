@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the universal (arm64 + x86_64) macOS helper into bin/darwin-universal/
-# with the manifest that verifyHelperArtifact checks (protocol, architecture, sha256).
+# with the manifest that verifyHelperArtifact checks (protocol, architecture, digest).
+# Needs the plugin's TypeScript build (dist/) for the manifest writer.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -17,7 +18,17 @@ cp "$BIN_DIR/moxxy-computer" "$OUT/moxxy-computer.tmp"
 codesign --force --sign - --identifier ai.moxxy.computer-helper "$OUT/moxxy-computer.tmp"
 mv "$OUT/moxxy-computer.tmp" "$OUT/moxxy-computer"
 
-SHA=$(shasum -a 256 "$OUT/moxxy-computer" | cut -d' ' -f1)
-printf '{"protocolVersion":%d,"architecture":"universal","sha256":"%s"}' "$PROTOCOL_VERSION" "$SHA" > "$OUT/moxxy-computer.json.tmp"
-mv "$OUT/moxxy-computer.json.tmp" "$OUT/moxxy-computer.json"
+# The manifest digest ignores code signatures (see helperDigest), so the helper
+# still verifies after the desktop packaging signs it again.
+MANIFEST_WRITER="$(cd ../.. && pwd)/dist/helper/artifact.js"
+if [ ! -f "$MANIFEST_WRITER" ]; then
+  echo "Build the plugin first: pnpm --filter @moxxy/plugin-computer-control build" >&2
+  exit 1
+fi
+node --input-type=module -e '
+import { pathToFileURL } from "node:url";
+const [writer, helper, protocol] = process.argv.slice(1);
+const { writeHelperManifest } = await import(pathToFileURL(writer).href);
+await writeHelperManifest(helper, { protocolVersion: Number(protocol), architecture: "universal" });
+' "$MANIFEST_WRITER" "$OUT/moxxy-computer" "$PROTOCOL_VERSION"
 lipo -archs "$OUT/moxxy-computer"

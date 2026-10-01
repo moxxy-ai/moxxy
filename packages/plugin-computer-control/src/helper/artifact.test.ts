@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { validateHelperArtifact } from './artifact.js';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { helperDigest, helperProblem, validateHelperArtifact, verifyHelperArtifact, writeHelperManifest } from './artifact.js';
 
 // Synthetic file headers test the parser, not native execution.
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -36,19 +40,62 @@ describe('helper artifact validation', () => {
 
   it('accepts a universal Mach-O only when it carries both arm64 and x86_64 slices', () => {
     const universal = fatMachO([X86_64, ARM64]);
-    expect(() => validateHelperArtifact(universal, { protocolVersion: 5, architecture: 'universal', sha256: digest(universal) }, 5)).not.toThrow();
+    expect(() => validateHelperArtifact(universal, { protocolVersion: 5, architecture: 'universal', sha256: helperDigest(universal) }, 5)).not.toThrow();
     const armOnly = fatMachO([ARM64]);
-    expect(() => validateHelperArtifact(armOnly, { protocolVersion: 5, architecture: 'universal', sha256: digest(armOnly) }, 5)).toThrow(/universal/);
+    expect(() => validateHelperArtifact(armOnly, { protocolVersion: 5, architecture: 'universal', sha256: helperDigest(armOnly) }, 5)).toThrow(/universal/);
   });
 
   it('accepts a thin Mach-O whose CPU matches the manifest', () => {
     const arm = thinMachO(ARM64);
-    expect(() => validateHelperArtifact(arm, { protocolVersion: 5, architecture: 'arm64', sha256: digest(arm) }, 5)).not.toThrow();
-    expect(() => validateHelperArtifact(arm, { protocolVersion: 5, architecture: 'x86_64', sha256: digest(arm) }, 5)).toThrow(/x86_64/);
+    expect(() => validateHelperArtifact(arm, { protocolVersion: 5, architecture: 'arm64', sha256: helperDigest(arm) }, 5)).not.toThrow();
+    expect(() => validateHelperArtifact(arm, { protocolVersion: 5, architecture: 'x86_64', sha256: helperDigest(arm) }, 5)).toThrow(/x86_64/);
   });
 
   it('never accepts a Windows executable for a macOS manifest or the reverse', () => {
     const arm = thinMachO(ARM64);
     expect(() => validateHelperArtifact(arm, { protocolVersion: 5, architecture: 'x64', sha256: digest(arm) }, 5)).toThrow();
+  });
+});
+
+describe('helper artifact on disk', () => {
+  const directories: string[] = [];
+  const directory = () => { const made = mkdtempSync(join(tmpdir(), 'moxxy-artifact-')); directories.push(made); return made; };
+  afterEach(() => { for (const made of directories.splice(0)) rmSync(made, { recursive: true, force: true }); });
+
+  it('writes a manifest the verifier accepts, and reports a missing or mismatched helper before launch', async () => {
+    const helper = join(directory(), 'moxxy-computer');
+    expect(helperProblem(helper, 5)).toMatch(/missing/);
+    writeFileSync(helper, thinMachO(ARM64));
+    expect(helperProblem(helper, 5)).toMatch(/manifest/);
+    await writeHelperManifest(helper, { protocolVersion: 5, architecture: 'arm64' });
+    await expect(verifyHelperArtifact(helper, 5)).resolves.toBeUndefined();
+    expect(helperProblem(helper, 5)).toBeUndefined();
+    expect(helperProblem(helper, 6)).toMatch(/protocol 5.*needs 6/);
+  });
+
+  // Packaging signs every executable in the app again, after the manifest was written.
+  it.skipIf(process.platform !== 'darwin')('keeps the digest of a Mach-O that is signed again, and changes it when the code changes', () => {
+    const helper = join(directory(), 'helper');
+    copyFileSync('/usr/bin/true', helper);
+    const sign = (...args: string[]) => execFileSync('codesign', ['--force', '--sign', '-', ...args, helper], { stdio: 'ignore' });
+    sign('--identifier', 'a');
+    const first = readFileSync(helper);
+    sign('--identifier', 'ai.moxxy.a-much-longer-identifier-than-before.helper', '--options', 'runtime');
+    const second = readFileSync(helper);
+    expect(digest(second)).not.toBe(digest(first));
+    expect(helperDigest(second)).toBe(helperDigest(first));
+    const patched = Buffer.from(second);
+    const code = (patched.readUInt32BE(0) === 0xcafebabe ? patched.readUInt32BE(16) : 0) + 4096;
+    patched.writeUInt8(patched.readUInt8(code) ^ 0xff, code);
+    expect(helperDigest(patched)).not.toBe(helperDigest(second));
+  });
+
+  it('rejects a Mach-O whose slices or load commands point outside the file', () => {
+    const fat = fatMachO([ARM64]);
+    fat.writeUInt32BE(4096, 16); fat.writeUInt32BE(4096, 20);
+    expect(() => helperDigest(fat)).toThrow(/Invalid Computer Use executable/);
+    const thin = thinMachO(ARM64);
+    thin.writeUInt32LE(3, 16); thin.writeUInt32LE(4096, 20);
+    expect(() => helperDigest(thin)).toThrow(/Invalid Computer Use executable/);
   });
 });

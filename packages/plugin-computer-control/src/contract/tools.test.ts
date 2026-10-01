@@ -10,7 +10,7 @@ describe('computerTools', () => {
       'computer_batch', 'computer_click', 'computer_drag', 'computer_get_app_state', 'computer_hold_key',
       'computer_list_apps', 'computer_mouse', 'computer_paste', 'computer_perform_secondary_action',
       'computer_press_key', 'computer_request_access', 'computer_screenshot', 'computer_scroll',
-      'computer_select_text', 'computer_set_value', 'computer_type_text', 'computer_zoom',
+      'computer_select_text', 'computer_set_value', 'computer_status', 'computer_type_text', 'computer_zoom',
     ]);
   });
 

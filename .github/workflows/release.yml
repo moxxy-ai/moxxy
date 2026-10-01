@@ -376,6 +376,13 @@ jobs:
           name: moxxy-computer-native
           path: packages/plugin-computer-control/bin/win32-x64/
 
+      # The macOS helper is built here (universal, ad-hoc signed). Its manifest
+      # digest ignores code signatures, so electron-builder signing it again with
+      # the Developer ID below does not invalidate it.
+      - name: Build macOS Computer Use component
+        if: matrix.os == 'macos-latest'
+        run: packages/plugin-computer-control/native/macos/build.sh
+
       - name: Prepare embedded CLI and plugins
         run: pnpm --filter @moxxy/desktop run prepare:resources
 

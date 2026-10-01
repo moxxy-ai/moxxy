@@ -25,5 +25,4 @@ it('injects Windows guidance only with available computer tools and without chan
   const noTools:ProviderRequest={model:'configured-model',messages:[]};
   expect(withWindowsComputerGuidance(noTools)).toBe(noTools);
   expect(plugin.hooks?.onBeforeProviderCall).toBe(withWindowsComputerGuidance);
-  expect(createComputerControlPlugin('darwin','arm64').hooks).toBeUndefined();
 });

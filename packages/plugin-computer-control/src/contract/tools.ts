@@ -124,6 +124,10 @@ export interface ComputerToolSpec<I = unknown> { readonly description: string; r
 const AFTER = ' Returns the technical outcome and the fresh app state; check that the intended change happened.';
 
 export const computerTools = {
+  computer_status: {
+    description: 'Report whether Computer Use can work on this computer and which system permission is missing. Call it when a tool reports missing permissions; open_settings shows the user the settings pane to allow one.',
+    input: z.object({ open_settings: z.enum(['accessibility', 'screen_recording']).optional().describe('Open the system settings pane where the user allows this permission.') }).strict(),
+  },
   computer_list_apps: {
     description: 'List installed and running applications (and their windows on Windows) with the identifier to pass as `app`. No side effects.',
     input: z.object({ query: z.string().max(256).optional().describe('Case-insensitive filter on name and identifier.'), limit: z.number().int().min(1).max(200).default(50) }).strict(),

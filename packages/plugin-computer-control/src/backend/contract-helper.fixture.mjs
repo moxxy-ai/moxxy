@@ -51,6 +51,11 @@ function requireAllowed(params) {
 }
 
 const methods = {
+  status: () => ({
+    ready: false, permissions: { accessibility: true, screenRecording: false },
+    limitations: ['Screen Recording is not allowed: the helper cannot capture windows.'],
+  }),
+  'permissions.request': () => ({ opened: true }),
   list_apps: ({ query, limit }) => {
     const matching = apps.filter((app) => !query || `${app.name} ${app.id}`.toLowerCase().includes(query.toLowerCase()));
     return { apps: matching.slice(0, limit), truncated: matching.length > limit };
