@@ -99,6 +99,32 @@ public enum WindowMatch {
     }
 }
 
+/// How a window's picture is taken.
+public enum CaptureRoute: Equatable, Sendable {
+    /// From the display with only this window drawn: `area` is the window inside that display.
+    case display(Int, area: CGRect)
+    /// The window alone, which also works on another Space.
+    case window
+
+    /// A window's own surface can be larger than its frame (a Qt window reaching under the menu bar), which
+    /// scales its picture so that points read from it miss. A display shows the window where clicks land.
+    public static func choose(window: CGRect, onScreen: Bool, displays: [CGRect]) -> CaptureRoute {
+        guard onScreen, let index = displays.firstIndex(where: { $0.contains(window) }) else { return .window }
+        return .display(index, area: window.offsetBy(dx: -displays[index].minX, dy: -displays[index].minY))
+    }
+}
+
+/// Asks again when there is no answer yet.
+public enum Attempts {
+    public static func first<T>(_ count: Int, pause: TimeInterval, _ ask: () async throws -> T?) async rethrows -> T? {
+        for attempt in 1...max(count, 1) {
+            if let answer = try await ask() { return answer }
+            if attempt < count, pause > 0 { try? await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000)) }
+        }
+        return nil
+    }
+}
+
 /// A finished capture: JPEG for the model, raw pixels for the check before a click, and the frame
 /// that maps both back to the screen.
 public struct WindowImage: Sendable {
@@ -129,9 +155,15 @@ enum WindowCapture {
     static let timeout: TimeInterval = 5
     static let jpegQuality = 0.8
 
+    /// What to capture and where the window lies in it (`nil`: the content is the window).
+    struct Source {
+        let filter: SCContentFilter
+        let area: CGRect?
+    }
+
     static func capture(_ target: WindowCandidate) throws -> WindowImage {
         try Blocking<WindowImage>.run(timeout: timeout) {
-            let image = try await render(filter(for: target), size: target.frame.size, source: nil, scale: 1)
+            let image = try await render(target, part: CGRect(origin: .zero, size: target.frame.size), scale: 1)
             return WindowImage(jpeg: try jpeg(image), pixels: try pixels(image),
                                frame: CoordinateFrame(window: target.frame, imageWidth: image.width, imageHeight: image.height))
         }
@@ -140,18 +172,43 @@ enum WindowCapture {
     /// `region` (screen points inside the window) at up to its native resolution, for a closer look.
     static func capture(_ target: WindowCandidate, region: CGRect, scale: Double) throws -> CGImage {
         try Blocking<CGImage>.run(timeout: timeout) {
-            let local = region.offsetBy(dx: -target.frame.minX, dy: -target.frame.minY)
-            return try await render(filter(for: target), size: region.size, source: local, scale: scale)
+            try await render(target, part: region.offsetBy(dx: -target.frame.minX, dy: -target.frame.minY), scale: scale)
         }
     }
 
-    static func filter(for target: WindowCandidate) async throws -> SCContentFilter {
-        let windows = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false).windows
-        let candidates = windows.map { WindowCandidate(pid: $0.owningApplication?.processID ?? -1, frame: $0.frame, title: $0.title) }
-        guard let match = WindowMatch.best(for: target, in: candidates) else {
-            throw HelperError(code: "helper_failed", message: "The window is not capturable")
+    /// `part` of the window, in its own points. A display that will not give the picture leaves it to the window alone.
+    private static func render(_ target: WindowCandidate, part: CGRect, scale: Double) async throws -> CGImage {
+        let source = try await source(for: target)
+        guard let area = source.area else { return try await render(source.filter, size: part.size, source: part, scale: scale) }
+        do {
+            return try await render(source.filter, size: part.size, source: part.offsetBy(dx: area.minX, dy: area.minY), scale: scale)
+        } catch {
+            return try await render(try await filter(for: target), size: part.size, source: part, scale: scale)
         }
-        return SCContentFilter(desktopIndependentWindow: windows[match])
+    }
+
+    static func source(for target: WindowCandidate) async throws -> Source {
+        let (window, content) = try await find(target)
+        if case let .display(index, area) = CaptureRoute.choose(window: window.frame, onScreen: window.isOnScreen, displays: content.displays.map(\.frame)) {
+            return Source(filter: SCContentFilter(display: content.displays[index], including: [window]), area: area)
+        }
+        return Source(filter: SCContentFilter(desktopIndependentWindow: window), area: nil)
+    }
+
+    /// The window alone, for the live preview, which follows it across Spaces.
+    static func filter(for target: WindowCandidate) async throws -> SCContentFilter {
+        SCContentFilter(desktopIndependentWindow: try await find(target).window)
+    }
+
+    /// The system's list can miss a window for a moment (seen with CapCut), so it is asked a few times.
+    private static func find(_ target: WindowCandidate) async throws -> (window: SCWindow, content: SCShareableContent) {
+        let found = try await Attempts.first(4, pause: 0.25) { () -> (window: SCWindow, content: SCShareableContent)? in
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            let candidates = content.windows.map { WindowCandidate(pid: $0.owningApplication?.processID ?? -1, frame: $0.frame, title: $0.title) }
+            return WindowMatch.best(for: target, in: candidates).map { (content.windows[$0], content) }
+        }
+        guard let found else { throw HelperError(code: "helper_failed", message: "The window is not capturable") }
+        return found
     }
 
     /// `size` points of the filter's content (from `source`, in the content's own points) within the image budget.

@@ -49,13 +49,16 @@ public final class PointerSession: @unchecked Sendable {
     private let lock = NSLock()
     /// Set between a `mouse` down and its up. Guarded by `lock`.
     private var held: (button: MouseButton, restore: CGPoint)?
+    /// Deltas and the event number of the drag in progress. Guarded by `lock`.
+    private var motion = DragMotion()
 
     public init() {}
 
     var holding: MouseButton? { lock.withLock { held?.button } }
 
     /// Posts `steps`, then puts the pointer back unless `keepDown` stays pressed for a later `mouse` step.
-    func perform(_ steps: [MouseStep], flags: CGEventFlags, keepDown: MouseButton? = nil) {
+    func perform(_ steps: [MouseStep], flags: CGEventFlags, keepDown: MouseButton? = nil, route: PointerRoute = .screen) {
+        if case let .window(address) = route { return deliver(WindowEvent.withPrimer(steps), flags: flags, to: address) }
         let start = startLocation()
         for step in steps {
             if step.delay > 0 { Thread.sleep(forTimeInterval: step.delay) }
@@ -66,7 +69,8 @@ public final class PointerSession: @unchecked Sendable {
     }
 
     /// Wheel events at `point`; the pointer goes there because apps scroll whatever is under it.
-    func scroll(_ steps: [(dy: Int32, dx: Int32)], at point: CGPoint) {
+    func scroll(_ steps: [(dy: Int32, dx: Int32)], at point: CGPoint, route: PointerRoute = .screen) {
+        if case let .window(address) = route { return deliverWheel(steps, at: point, to: address) }
         let start = startLocation()
         post(MouseStep(type: .mouseMoved, point: point, button: .left, clickState: 0, delay: 0), flags: [])
         for step in steps {
@@ -78,6 +82,41 @@ public final class PointerSession: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.01)
         }
         if holding == nil { restore(start) }
+    }
+
+    /// The whole gesture goes to one window. The app is told its window has focus for as long as the gesture
+    /// lasts, which browser engines need; the app in front and the user's pointer are left alone.
+    private func deliver(_ steps: [MouseStep], flags: CGEventFlags, to window: WindowAddress) {
+        focused(window) {
+            let group = Int64(DispatchTime.now().uptimeNanoseconds % 1_000_000_000)
+            for step in steps {
+                if step.delay > 0 { Thread.sleep(forTimeInterval: step.delay) }
+                guard let event = mouseEvent(step, flags: flags) else { continue }
+                WindowServerLink.shared.send(event, stamp: WindowEvent.stamp(step, to: window, group: group), to: window.pid)
+            }
+        }
+    }
+
+    private func deliverWheel(_ steps: [(dy: Int32, dx: Int32)], at point: CGPoint, to window: WindowAddress) {
+        let place = MouseStep(type: .scrollWheel, point: point, button: .left, clickState: 0, delay: 0)
+        focused(window) {
+            for step in steps {
+                guard let event = CGEvent(scrollWheelEvent2Source: KeyboardInput.source, units: .pixel, wheelCount: 2, wheel1: step.dy, wheel2: step.dx, wheel3: 0) else { continue }
+                event.location = point
+                KeyboardInput.mark(event)
+                WindowServerLink.shared.send(event, stamp: WindowEvent.stamp(place, to: window, group: 0), to: window.pid)
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+    }
+
+    private func focused(_ window: WindowAddress, _ body: () -> Void) {
+        let lent = !Foreground.isFrontmost(window.pid) && WindowServerLink.shared.focus(window, true)
+        body()
+        guard lent else { return }
+        // Delivery is asynchronous: the app must take the release before it is told the focus is gone.
+        Thread.sleep(forTimeInterval: 0.1)
+        WindowServerLink.shared.focus(window, false)
     }
 
     /// Lets go of a button the model left down (end of turn, stop, helper exit) and returns the pointer.
@@ -99,14 +138,35 @@ public final class PointerSession: @unchecked Sendable {
         CGAssociateMouseAndMouseCursorPosition(1)
     }
 
+    /// Above the system's last press, so the gesture is taken as a new one.
+    private static func nextEventNumber() -> Int64 {
+        let presses: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        return presses.reduce(1) { $0 + Int64(CGEventSource.counterForEventType(.hidSystemState, eventType: $1)) }
+    }
+
     private func currentLocation() -> CGPoint { CGEvent(source: nil)?.location ?? .zero }
 
+    /// The system's own button state: toolkits that ask which buttons are down (Qt) take a drag only when it says so.
+    private static var source: CGEventSource? { CGEventSource(stateID: .hidSystemState) }
+
     private func post(_ step: MouseStep, flags: CGEventFlags) {
-        guard let event = CGEvent(mouseEventSource: KeyboardInput.source, mouseType: step.type, mouseCursorPosition: step.point, mouseButton: step.button) else { return }
+        mouseEvent(step, flags: flags)?.post(tap: .cghidEventTap)
+    }
+
+    private func mouseEvent(_ step: MouseStep, flags: CGEventFlags) -> CGEvent? {
+        guard let event = CGEvent(mouseEventSource: Self.source, mouseType: step.type, mouseCursorPosition: step.point, mouseButton: step.button) else { return nil }
         event.flags = flags
         if step.clickState > 0 { event.setIntegerValueField(.mouseEventClickState, value: Int64(step.clickState)) }
+        let fields = lock.withLock { motion.fields(for: step.type, at: step.point, nextNumber: Self.nextEventNumber()) }
+        if let number = fields.number { event.setIntegerValueField(.mouseEventNumber, value: number) }
+        if let dx = fields.dx, let dy = fields.dy {
+            event.setIntegerValueField(.mouseEventDeltaX, value: dx)
+            event.setIntegerValueField(.mouseEventDeltaY, value: dy)
+            event.setDoubleValueField(.mouseEventDeltaX, value: Double(dx))
+            event.setDoubleValueField(.mouseEventDeltaY, value: Double(dy))
+        }
         KeyboardInput.mark(event)
-        event.post(tap: .cghidEventTap)
+        return event
     }
 }
 

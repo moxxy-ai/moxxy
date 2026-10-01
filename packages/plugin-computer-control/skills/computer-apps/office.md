@@ -28,17 +28,16 @@ If the task is only about the file's content, prefer a file tool or a script on
 the document; use the app when the user wants to see it done, or the feature
 exists only in the app.
 
-- Long or formatted text: `computer_paste` (text, markdown or html) instead of
-  typing; it restores the clipboard afterwards.
+- Long text: `computer_type_text` into the text element inserts it at once;
+  it does not use the clipboard.
 - Spreadsheets: go to a cell through the name box or `ctrl+g` / `F5`, type the
   value and press `Return` or `Tab`. `Return` already moves one cell down and
   `Tab` one cell right, so do not add an arrow key after them. A cell that is
   not a text element takes text after a click on it: click the cell, then
-  `computer_type_text` with no target. When done, select each cell you filled
+  `computer_type_text` with no `element_index`. When done, select each cell you filled
   and read it back from the formula bar element, not from the screenshot.
 - A formula opens an editor over the cell: commit it with `Return`. Its close
   (X) button discards the formula. A sum you did not read back is not done.
-- Enter several cells with one `computer_batch` (type, `Tab`, type, `Return`).
 - Menus are elements; open one with a click on its index, or run the command by
   its shortcut. Ribbon groups can collapse: observe again after resizing.
 - A start screen, a template picker or an "update available" sheet blocks the

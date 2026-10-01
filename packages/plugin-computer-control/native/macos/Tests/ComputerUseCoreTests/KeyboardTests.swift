@@ -184,3 +184,13 @@ private final class Posted: @unchecked Sendable {
         board.releaseGlobally()
     }
 }
+
+@Suite struct KeyRouteTests {
+    // An open or save panel of a sandboxed app lives in another process: keys sent to the app's process never
+    // reach it, keys sent to the session go to whatever has key focus.
+    @Test func sendsKeysToTheSessionOnlyWhileTheAppIsInFront() {
+        #expect(KeyRoute.choose(target: 42, frontmost: 42) == .session)
+        #expect(KeyRoute.choose(target: 42, frontmost: 7) == .process)
+        #expect(KeyRoute.choose(target: 42, frontmost: nil) == .process)
+    }
+}

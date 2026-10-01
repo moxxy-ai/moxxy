@@ -2,7 +2,7 @@ import type { EventLogReader } from '@moxxy/sdk';
 import { z } from 'zod';
 import { clipboardFlagsFor, isSystemKeyCombo, parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError } from '../contract/outcome.js';
-import type { BatchAction } from '../contract/tools.js';
+import type { ComputerAction } from '../contract/tools.js';
 
 export const REQUEST_ACCESS_TOOL = 'computer_request_access';
 
@@ -74,9 +74,8 @@ export function checkAccess(access: AccessState, app: string, needed: AccessTier
 }
 
 /** Lowest grant level that allows a step: reading, a plain left click or scroll, or full control. */
-export function requiredTier(step: BatchAction): AccessTier {
+export function requiredTier(step: ComputerAction): AccessTier {
   switch (step.action) {
-    case 'wait': return 'read';
     case 'scroll': return 'click';
     case 'click': return step.mouse_button === 'left' && step.modifiers === undefined ? 'click' : 'full';
     default: return 'full';
@@ -84,8 +83,8 @@ export function requiredTier(step: BatchAction): AccessTier {
 }
 
 /** Refuse system chords and clipboard chords the conversation has not been granted. */
-export function checkKeys(step: BatchAction, flags: AccessFlags, platform: KeyPlatform): void {
-  if (step.action !== 'press_key' && step.action !== 'hold_key') return;
+export function checkKeys(step: ComputerAction, flags: AccessFlags, platform: KeyPlatform): void {
+  if (step.action !== 'press_key') return;
   const combo = parseKeyCombo(step.key);
   if (isSystemKeyCombo(combo, platform) && !flags.systemKeyCombos) {
     throw new ComputerUseError('system_key_combo', `"${step.key}" acts on the whole system`);

@@ -19,7 +19,7 @@ const hints = {
   stale_state: 'That index or point belongs to an older state; call computer_get_app_state and use its indices.',
   no_state: 'Call computer_get_app_state for this app first; actions use its indices and screenshot coordinates.',
   unsupported_action: 'This element does not support that action; use an action listed for it or click by coordinates.',
-  canvas: 'The point is on a canvas without accessibility; use computer_mouse, computer_drag or keyboard shortcuts on the screenshot coordinates.',
+  canvas: 'The point is on a canvas without accessibility; use computer_click or computer_drag on screenshot coordinates, or keyboard shortcuts.',
   would_replace_content: 'Typing would replace the whole field; select the insertion point first or confirm with the user.',
   system_key_combo: 'System key combinations need the systemKeyCombos grant from computer_request_access.',
   clipboard_not_granted: 'Clipboard access needs the clipboardRead or clipboardWrite grant from computer_request_access.',
@@ -48,7 +48,7 @@ export const actionResultSchema = z.object({
   outcome: z.enum(['delivered', 'ineffective', 'unsupported', 'blocked']),
   code: errorCodeSchema.optional(),
   hint: z.string().max(1000).optional(),
-  method: z.enum(['ax', 'input']).optional(),
+  method: z.enum(['ax', 'input', 'background']).optional(),
 }).strict();
 export type ActionResult = z.infer<typeof actionResultSchema>;
 

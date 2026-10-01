@@ -232,6 +232,20 @@ describe('PreviewController video', () => {
     expect(controller.snapshot()).toEqual({ state: 'live' });
   });
 
+  it('shows the pictures of a producer that was asked for video and cannot make it', async () => {
+    const controller = new PreviewController();
+    const helper = video();
+    controller.attach(helper);
+    const only = watch(controller, ['h264', 'jpeg']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(helper.calls).toEqual(['start 2 h264']);
+
+    controller.frame(helper, image('still'));
+
+    expect(frames(only.messages)).toEqual(['still']);
+    expect(states(only.messages).at(-1)).toBe('live');
+  });
+
   it('drops deltas after a lost chunk until the next key frame and asks for one', async () => {
     const controller = new PreviewController();
     const helper = video();

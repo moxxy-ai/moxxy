@@ -31,17 +31,19 @@ both systems (see [`computer-use-rebuild/README.md`](computer-use-rebuild/README
   `delivered` is not evidence that the task succeeded.
 - Values, text selection and the listed secondary actions (toggle, select,
   expand, collapse, scroll into view) go through UI Automation. Clicks, typing,
-  keys, scrolling, drags and `computer_mouse` are real input, so the helper puts
+  keys, scrolling and drags are real input, so the helper puts
   the target window in front first (`SetForegroundWindow`, then UIA focus). The
   user's pointer is put back after a click. Windows may refuse activation; the
   action then waits and ends as `blocked` with `user_intervened`.
 - The agent's cursor is a layered, click-through window kept out of captures. It
   shows where the agent acts; the user's own pointer is not replaced by it.
-- `computer_screenshot` shows the display with everything except granted apps
-  blacked out; `computer_zoom` reads a region of the latest picture again.
-- The live preview (`preview.start` / `preview.stop`) sends JPEG frames of the
-  target window from a Windows Graphics Capture session, 1–5 per second, only
-  while a surface is watching. Frames go to the person, never to the model.
+- `computer_zoom` reads a region of an app's latest screenshot again, closer.
+- The live preview (`preview.start` / `preview.stop`) shows the target window
+  from a Windows Graphics Capture session, 1–5 pictures per second, only while
+  a surface is watching. A viewer that can decode video gets H.264 from the
+  system's Media Foundation encoder (`preview_chunk` events;
+  `preview.keyframe` asks for a picture to join at). Any other viewer, and a
+  system without that encoder, gets JPEG frames. Neither reaches the model.
 - A Windows mutex serializes control across processes until the owning turn
   ends. An independent guardian holds a shared injected-input ledger and releases
   it on cancellation, parent exit, watchdog timeout and hard worker termination.

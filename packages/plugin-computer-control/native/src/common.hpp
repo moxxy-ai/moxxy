@@ -132,8 +132,13 @@ std::pair<int,int> image_budget(int width, int height);
 void create_cursor_overlay();
 void show_cursor(HWND target, Point screen, const wchar_t* phase);
 void hide_cursor();
-/// The live picture for the human; frames go out as `preview_frame` events.
-void start_preview(int fps);
+/// Base64 of `bytes`, on one line.
+std::string base64(const uint8_t* bytes, size_t size);
+/// The live picture for the human: `preview_frame` events with pictures, or `preview_chunk` events with H.264
+/// video when `video` is asked for and the system can encode it.
+void start_preview(int fps, bool video);
+/// The next video chunk starts a picture a viewer can join at.
+void preview_keyframe();
 void stop_preview();
 void preview_target(HWND window);
 Rect window_bounds(HWND window);

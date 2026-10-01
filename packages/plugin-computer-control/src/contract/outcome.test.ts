@@ -10,6 +10,12 @@ describe('actionResultSchema', () => {
       .toEqual({ outcome: 'blocked', code: 'not_frontmost', method: 'input' });
   });
 
+  it('names how a delivered action was sent', () => {
+    for (const method of ['ax', 'input', 'background'] as const) {
+      expect(actionResultSchema.parse({ outcome: 'delivered', method })).toEqual({ outcome: 'delivered', method });
+    }
+  });
+
   it('rejects an outcome or code the contract does not know', () => {
     expect(() => actionResultSchema.parse({ outcome: 'verified' })).toThrow();
     expect(() => actionResultSchema.parse({ outcome: 'blocked', code: 'mystery' })).toThrow();
@@ -43,8 +49,8 @@ describe('describeResult', () => {
   });
 
   it('prefers the helper hint when it has one', () => {
-    expect(describeResult({ outcome: 'unsupported', code: 'canvas', hint: 'Use computer_mouse.' }))
-      .toContain('Use computer_mouse.');
+    expect(describeResult({ outcome: 'unsupported', code: 'canvas', hint: 'Use computer_drag.' }))
+      .toContain('Use computer_drag.');
   });
 });
 

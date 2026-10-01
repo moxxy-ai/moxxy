@@ -65,7 +65,7 @@ export function parseKeyCombo(text: string): KeyCombo {
     if (key === undefined) throw new ComputerUseError('invalid_key', `Key combo has an unknown key "${token}"`);
     keys.push(key);
   }
-  if (keys.length > 1) throw new ComputerUseError('invalid_key', `Key combo "${text}" presses more than one key; send one key per chord and use computer_batch for sequences`);
+  if (keys.length > 1) throw new ComputerUseError('invalid_key', `Key combo "${text}" presses more than one key; send one key per call`);
   const ordered = MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier));
   const key = keys[0] ?? null;
   // Under a modifier a letter names the physical key: cmd+C is cmd+c.

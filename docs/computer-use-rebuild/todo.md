@@ -4,12 +4,21 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** wszystkie kroki 0–14 wykonane; otwarte pozycje niżej.
-- **Następna czynność:** fałszywe sukcesy modelu w arkuszach (patrz
-  [`benchmark.md`](benchmark.md)); odczyt treści strony w Safari; enkoder H.264
-  na Windows; próby z modelem na Windows.
-- **Blokery:** brak realnej aplikacji montażowej na maszynie testowej (zadanie
-  9). Próby z modelem tylko na `gpt-6-luna`.
+- **Bieżący krok:** kroki 0–14 wykonane; po nich: mysz w tle, 12 narzędzi,
+  dokładny zrzut okna, poziom `xhigh` (patrz [`CHANGELOG.md`](CHANGELOG.md)).
+- **Następna czynność:** pozycje z listy „Otwarte” niżej.
+- **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
+  `gpt-6-luna` z `reasoning.effort: xhigh`.
+
+## Otwarte
+
+- [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów) na losowanych, powtarzanych
+  próbach; dotąd każda próba była pojedyncza ([`benchmark.md`](benchmark.md)).
+- [ ] W tle nie działają: skróty z Command, prawy i środkowy przycisk, okno na
+  innym biurku (Space) bez przenoszenia.
+- [ ] Windows: próby z modelem, mysz w tle.
+- [ ] Aplikacja mobilna nie ma paska stanu Computer Use (kanał już podaje `computer.snapshot` i `computer.changed`).
+- [ ] Starsza kopia pluginu w `~/.moxxy/plugins` zasłania kopię z repozytorium.
 
 ## Rytuał każdego kroku
 
@@ -101,10 +110,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] H.264 na macOS (`VTCompressionSession`), zdarzenia `preview_chunk`, `preview.keyframe`.
 - [x] WebCodecs w rendererze, negocjacja kodeka, fallback JPEG, porzucanie delt do klatki kluczowej.
 - [x] Pomiar JPEG vs H.264 (`native/macos/measure-preview.mjs`).
-- [ ] Windows: Media Foundation — nie zrobione; Windows zostaje na JPEG przez negocjację (patrz CHANGELOG).
+- [x] Windows: enkoder Media Foundation (`native/src/video.cpp`), z zapasem JPEG, gdy system go nie ma; sprawdzany tylko w CI.
 
 ### Krok 14 — aplikacja testowa, benchmark, dokumentacja
 - [x] Fixture macOS: oś czasu bez AX, przesunięcie układu, kontrolka bez efektu, aplikacja bez okna + `native/macos/Tests/run-computer-use-tests.sh`.
 - [x] Zestaw benchmarku i próg w [`benchmark.md`](benchmark.md); próby w prawdziwym moxxy: formularz, oś czasu, Kalkulator (sukces), TextEdit (na poziomie narzędzi).
-- [ ] Próg ≥90% niepotwierdzony: zadania 3, 6–9 nie były uruchomione z modelem (limit konta dostawcy, brak aplikacji montażowej).
+- [ ] Próg ≥90% niepotwierdzony pomiarem: wszystkie zadania 1–10 mają sukces na końcowym kodzie (seria A w `benchmark.md`, 11/11), ale każde poszło raz.
 - [x] `docs/computer-use-macos.md`, strona pakietu; `docs/computer-use-windows.md` zaktualizowany w kroku 12.

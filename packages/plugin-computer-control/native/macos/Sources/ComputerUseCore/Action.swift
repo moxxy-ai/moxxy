@@ -130,7 +130,8 @@ public enum PasteFormat: String, Sendable { case text, md, html }
 /// `actionResultSchema` in `src/contract/outcome.ts`: `delivered` means sent, never verified.
 public struct ActionResult: Equatable, Sendable {
     public enum Outcome: String, Sendable { case delivered, ineffective, unsupported, blocked }
-    public enum Method: String, Sendable { case ax, input }
+    /// `background` is pointer input sent to the app's window while another app stays in front.
+    public enum Method: String, Sendable { case ax, input, background }
 
     public let outcome: Outcome
     public let code: String?

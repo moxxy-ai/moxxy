@@ -403,6 +403,41 @@ try {
       Call 'status' @{} | Out-Null
       Check (@($script:events | Where-Object { $_.event -eq 'preview_frame' }).Count -eq 0) 'Preview frames kept coming after stop'
     }
+    Test 'the live preview sends H.264 video when asked for it, or pictures when the system cannot encode' {
+      Look | Out-Null
+      $script:events.Clear()
+      Check ((Call 'preview.start' @{ fps=5; codec='h264' }).started) 'Video preview did not start'
+      Delivered (Act @{ action='click'; element_index=(Find $script:state 'Save' 'Button').index; mouse_button='left'; click_count=1 }) 'Click during video preview'
+      Start-Sleep -Milliseconds 1500
+      Call 'status' @{} | Out-Null
+      $chunks = @($script:events | Where-Object { $_.event -eq 'preview_chunk' })
+      $pictures = @($script:events | Where-Object { $_.event -eq 'preview_frame' -and $_.PSObject.Properties['image'] })
+      Write-Host ("  video chunks: {0}, pictures: {1}" -f $chunks.Count, $pictures.Count)
+      Check ($chunks.Count -gt 0 -or $pictures.Count -gt 0) 'Neither video nor pictures arrived'
+      if ($chunks.Count -gt 0) {
+        $first = $chunks[0]
+        Check ($first.key -eq $true) 'The video does not start with a key picture'
+        Check ($first.codec -match '^avc1\.[0-9a-f]{6}$') ('Codec name is wrong: ' + $first.codec)
+        Check ($first.width -le 960 -and $first.height -le 960 -and $first.width % 2 -eq 0 -and $first.height % 2 -eq 0) 'Video size is wrong'
+        $bytes = [Convert]::FromBase64String($first.data)
+        Check ($bytes.Length -gt 8 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and ($bytes[2] -eq 1 -or ($bytes[2] -eq 0 -and $bytes[3] -eq 1))) 'The video is not an Annex B stream'
+        $header = if ($bytes[2] -eq 1) { $bytes[3] } else { $bytes[4] }
+        Check (($header -band 0x1f) -eq 7) 'The key picture does not begin with its parameter sets'
+        for ($i = 1; $i -lt $chunks.Count; $i++) { Check ($chunks[$i].seq -eq $chunks[$i-1].seq + 1) 'Video chunks are not numbered in order' }
+        # A viewer that joins while the window stands still gets a picture to start from.
+        Start-Sleep -Milliseconds 800
+        Call 'status' @{} | Out-Null
+        $script:events.Clear()
+        Check ((Call 'preview.keyframe' @{}).requested) 'A key picture could not be asked for'
+        Start-Sleep -Milliseconds 1200
+        Call 'status' @{} | Out-Null
+        $joined = @($script:events | Where-Object { $_.event -eq 'preview_chunk' -and $_.key -eq $true })
+        Check ($joined.Count -gt 0) 'No key picture came after asking for one'
+      }
+      Check ((Call 'preview.stop' @{}).stopped) 'Video preview did not stop'
+      Start-Sleep -Milliseconds 600
+      Call 'status' @{} | Out-Null
+    }
     Test 'a dialog that covers the window becomes the state, and closing it gives the window back' {
       $before = Look
       $result = Act @{ action='click'; element_index=(Find $before 'Open modal' 'Button').index; mouse_button='left'; click_count=1 }

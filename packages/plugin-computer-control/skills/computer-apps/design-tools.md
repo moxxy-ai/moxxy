@@ -28,8 +28,9 @@ menus are elements; use them whenever a value can be typed instead of dragged.
   hit the wrong layer or start a drag.
 - Tools have one-letter shortcuts (`v` move, `t` text, `r` rectangle, `b` brush
   in Photoshop). Press `Escape` first so the key is not typed into a text field.
-- Draw or drag with `computer_drag` (a path of points, `duration_ms` 300 or
-  more); hold a modifier with its `modifiers` field (`shift` keeps proportions).
+- Drag with `computer_drag` from one point to another; a shape that needs
+  several strokes takes one drag per stroke. Exact sizes and proportions go
+  through the inspector fields instead.
 - Zoom changes what a pixel means: after zooming or panning the canvas, take a
   fresh state before using coordinates again.
 - Verify the result in the inspector values or the layers list, then in the

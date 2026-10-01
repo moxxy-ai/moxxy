@@ -157,11 +157,14 @@ std::string encode_pixels(const Pixels& source, int width, int height, bool jpeg
   require(stream.Size() <= 1'500'000, "capture-limit", "Encoded picture is too large");
   std::vector<uint8_t> encoded(static_cast<size_t>(stream.Size()));
   DataReader reader(stream.GetInputStreamAt(0)); reader.LoadAsync(static_cast<uint32_t>(encoded.size())).get(); reader.ReadBytes(encoded);
+  return base64(encoded.data(), encoded.size());
+}
+std::string base64(const uint8_t* bytes, size_t size) {
   DWORD length = 0;
-  require(CryptBinaryToStringA(encoded.data(), static_cast<DWORD>(encoded.size()), CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF, nullptr, &length), "native-error", "Cannot encode capture");
-  std::string base64(length, '\0');
-  require(CryptBinaryToStringA(encoded.data(), static_cast<DWORD>(encoded.size()), CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF, base64.data(), &length), "native-error", "Cannot encode capture");
-  if (!base64.empty() && base64.back() == '\0') base64.pop_back();
-  return base64;
+  require(CryptBinaryToStringA(bytes, static_cast<DWORD>(size), CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF, nullptr, &length), "native-error", "Cannot encode capture");
+  std::string text(length, '\0');
+  require(CryptBinaryToStringA(bytes, static_cast<DWORD>(size), CRYPT_STRING_BASE64|CRYPT_STRING_NOCRLF, text.data(), &length), "native-error", "Cannot encode capture");
+  if (!text.empty() && text.back() == '\0') text.pop_back();
+  return text;
 }
 }

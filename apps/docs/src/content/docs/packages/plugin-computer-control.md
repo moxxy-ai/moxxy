@@ -21,10 +21,19 @@ unavailable.
 | `computer_list_apps` | Installed and running apps with the identifier to pass as `app`. |
 | `computer_request_access` | One dialog asking the user for a set of apps and access levels. |
 | `computer_get_app_state` | The app's window as indexed elements plus a screenshot; later only what changed. |
-| `computer_click`, `computer_type_text`, `computer_paste`, `computer_press_key`, `computer_scroll`, `computer_set_value`, `computer_select_text`, `computer_perform_secondary_action` | Actions on an `element_index` or a screenshot point. |
-| `computer_drag`, `computer_mouse`, `computer_hold_key` | Gestures for apps without elements (timelines, canvases). |
-| `computer_batch` | Several predictable steps in one call; stops at the first that is not delivered. |
-| `computer_screenshot`, `computer_zoom` | The whole display with only granted apps visible; a closer look at a region. |
+| `computer_click`, `computer_scroll` | On an `element_index` or a screenshot point. |
+| `computer_type_text`, `computer_press_key` | Text into the focused element or an `element_index`; one key or chord. |
+| `computer_set_value`, `computer_perform_secondary_action` | On an `element_index`: set a value, run an action the element lists. |
+| `computer_drag` | From one screenshot point to another, for apps without elements (timelines, canvases). |
+| `computer_zoom` | A closer look at a region of an app's screenshot. |
+
+Each tool shows the model only the fields it needs: a model fills every field
+it is shown, and filler in unused fields was the main cause of failed calls.
+
+On macOS, clicks, drags and scrolling by coordinates go to the app's window
+while the app stays in the background and the pointer stays with the user. If
+the window shows no change, or the system does not offer that route, the app
+comes forward and real input is used.
 
 macOS and Windows x64 share these tools; each system has its own native
 helper behind them. Windows specifics are in
@@ -36,8 +45,9 @@ While a turn works in an app, the desktop chat shows that window in a small
 live view with the agent's cursor drawn on top. It is the `computer-preview`
 surface of this plugin: the helper captures only while someone is watching,
 and the picture is never sent to the model or written to the session log.
-On macOS the view is H.264 video decoded with WebCodecs; a viewer without a
-video decoder, and every viewer on Windows, gets JPEG frames instead.
+The view is H.264 video decoded with WebCodecs; a viewer without a video
+decoder, and a Windows system without an H.264 encoder, gets JPEG frames
+instead.
 
 ## Use
 

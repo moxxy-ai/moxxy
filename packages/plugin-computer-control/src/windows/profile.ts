@@ -15,4 +15,5 @@ export const windowsProfile: PlatformProfile = {
   unavailableMessage: 'The Windows Computer Use helper is missing or does not match this version. Install the matching x64 build from a full installer; chat remains available.',
   // Launching an app and letting it settle can take several seconds on its own.
   timeoutMs: 30_000,
+  previewCodecs: ['h264', 'jpeg'],
 };

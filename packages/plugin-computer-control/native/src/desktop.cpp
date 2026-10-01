@@ -958,9 +958,16 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
     Json result; result.Insert(L"maintenanceReady",boolean(true)); return result;
   }
   if (method == L"preview.start") {
-    fields(params, {L"fps"});
-    start_preview(params.HasKey(L"fps") ? static_cast<int>(std::lround(decimal(params,L"fps",0.1,60))) : 2);
+    fields(params, {L"fps", L"codec"});
+    const auto codec = params.HasKey(L"codec") ? text(params, L"codec", 16) : std::wstring(L"jpeg");
+    require(codec == L"jpeg" || codec == L"h264", "invalid-input", "codec must be jpeg or h264");
+    start_preview(params.HasKey(L"fps") ? static_cast<int>(std::lround(decimal(params,L"fps",0.1,60))) : 2, codec == L"h264");
     Json result; result.Insert(L"started", boolean(true)); return result;
+  }
+  if (method == L"preview.keyframe") {
+    fields(params, {});
+    preview_keyframe();
+    Json result; result.Insert(L"requested", boolean(true)); return result;
   }
   if (method == L"preview.stop") {
     fields(params, {});

@@ -44,7 +44,18 @@ struct Executor {
     /// The process Moxxy runs in; real input never goes to its windows.
     private var host: pid_t { input.host }
 
+    /// A gesture asked for twice in a row did not do its job the first time, so it is not sent the same way again.
     func perform(_ request: ActionRequest) -> ActionResult {
+        let key = String(describing: request)
+        let result = run(request, retried: state.lastBackground == key)
+        state.lastBackground = result.method == .background ? key : nil
+        return result
+    }
+
+    private func run(_ request: ActionRequest, retried: Bool) -> ActionResult {
+        let physically = { (screen: CGPoint, point: CGPoint?, others: [CGPoint], button: MouseButton, send: (CGPoint, PointerRoute) -> Void) in
+            self.physically(at: screen, aimedAt: point, alsoOn: others, button: button, retried: retried, send)
+        }
         switch request {
         case let .click(.element(index), button, count, modifiers):
             return live(index) { element in
@@ -54,7 +65,7 @@ struct Executor {
                     return pressed
                 }
                 guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to click.") }
-                return physically(at: CGPoint(x: frame.midX, y: frame.midY)) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers) }
+                return physically(CGPoint(x: frame.midX, y: frame.midY), nil, [], button) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers, route: $1) }
             }
         case let .click(.point(point), button, count, modifiers):
             return aimed(point) { screen in
@@ -68,7 +79,7 @@ struct Executor {
                         return pressed
                     }
                 }
-                return physically(at: screen, aimedAt: point) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers) }
+                return physically(screen, point, [], button) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers, route: $1) }
             }
         case .notYetSupported:
             return .unsupported("unsupported_action")
@@ -86,11 +97,11 @@ struct Executor {
                 return refused
             }
             let press = { keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
-            return chord.needsMenuBar ? inFront(press) : press()
+            return chord.needsMenuBar || focusIsElsewhere(pid) ? inFront(press) : press()
         case let .holdKey(chord, duration):
             guard let pid = state.pid else { return noWindow }
             let hold = { keyboard { input.keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
-            return chord.needsMenuBar ? inFront(hold) : hold()
+            return chord.needsMenuBar || focusIsElsewhere(pid) ? inFront(hold) : hold()
         case let .paste(.element(index)?, text, format):
             return onElement(index) { element in paste(text, format, into: element) }
         case let .paste(.point(point)?, text, format):
@@ -113,23 +124,21 @@ struct Executor {
                 if let scrolled = scrollInBackground(from: element, direction, pages) { return scrolled }
                 guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to scroll.") }
                 let viewport = AXReader.scrollArea(around: element).flatMap(AXReader.frame)?.size ?? frame.size
-                return physically(at: CGPoint(x: frame.midX, y: frame.midY)) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0) }
+                return physically(CGPoint(x: frame.midX, y: frame.midY), nil, [], .left) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0, route: $1) }
             }
         case let .scroll(.point(point), direction, pages):
             return aimed(point) { screen in
                 let element = AXReader.element(at: screen, pid: state.window?.pid)
                 if let element, let scrolled = scrollInBackground(from: element, direction, pages) { return scrolled }
                 let viewport = element.flatMap(AXReader.scrollArea(around:)).flatMap(AXReader.frame)?.size ?? state.frame?.window.size ?? .zero
-                return physically(at: screen, aimedAt: point) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0) }
+                return physically(screen, point, [], .left) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0, route: $1) }
             }
         case let .drag(path, button, duration, modifiers):
             guard let frame = state.frame else { return .blocked("no_state", hint: "Observe the app with a screenshot before dragging.") }
             let screens = path.compactMap { onImage($0, frame) }
             guard screens.count == path.count, let grab = path.first, let drop = screens.last else { return .blocked("point_outside_frame") }
             return aimed(grab) { start in
-                physically(at: start, aimedAt: grab, alsoOn: [drop]) { _ in
-                    pointer.perform(MouseScript.drag(screens, button: button, duration: duration), flags: modifiers)
-                }
+                physically(start, grab, [drop], button) { pointer.perform(MouseScript.drag(screens, button: button, duration: duration), flags: modifiers, route: $1) }
             }
         case let .mouse(phase, point, button, modifiers):
             return mouse(phase, point, button, modifiers)
@@ -143,7 +152,10 @@ struct Executor {
         case .down:
             if held != nil { return .unsupported("unsupported_action", hint: "A mouse button is already down; release it with event up first.") }
             return aimed(point) { screen in
-                physically(at: screen, aimedAt: point) { pointer.perform(MouseScript.single(.down, at: $0, button: button, held: false), flags: modifiers, keepDown: button) }
+                // A press held across steps follows the hand, so it always goes through the screen.
+                physically(at: screen, aimedAt: point, button: button, retried: true) { at, _ in
+                    pointer.perform(MouseScript.single(.down, at: at, button: button, held: false), flags: modifiers, keepDown: button)
+                }
             }
         case .move, .up:
             guard let held else {
@@ -206,13 +218,24 @@ struct Executor {
         }
     }
 
-    /// Real input at `screen`: the app comes forward (never while the user types), the point must land on it,
-    /// and the user's pointer goes back afterwards. `aimedAt` is checked again when coming forward changed the window.
-    private func physically(at screen: CGPoint, aimedAt point: CGPoint? = nil, alsoOn others: [CGPoint] = [],
-                            _ send: (CGPoint) -> Void) -> ActionResult {
+    /// Pointer input at `screen`. It first goes to the window in the background; when that changes nothing that
+    /// can be seen, real input follows: the app comes forward (never while the user types), the point must land
+    /// on it, and the user's pointer goes back afterwards. `aimedAt` is checked again when coming forward
+    /// changed the window.
+    private func physically(at screen: CGPoint, aimedAt point: CGPoint? = nil, alsoOn others: [CGPoint] = [], button: MouseButton, retried: Bool,
+                            _ send: (CGPoint, PointerRoute) -> Void) -> ActionResult {
         guard let window = state.window else { return noWindow }
         if pointer.holding != nil {
             return .unsupported("unsupported_action", hint: "A mouse button is still down from computer_mouse; release it with event up first.")
+        }
+        let route = PointerRoute.choose(available: WindowServerLink.shared.available, window: WindowDirectory.address(of: window), button: button, repeated: retried)
+        if case .window = route, let before = try? WindowCapture.capture(window).pixels {
+            let said = content()
+            _ = withCursor(at: screen, outline: nil) {
+                send(screen, route)
+                return .delivered(.background)
+            }
+            if redrawn(window, since: before) || content() != said { return .delivered(.background) }
         }
         if let busy = waitForQuiet() { return busy }
         switch Foreground.bring(window) {
@@ -227,9 +250,29 @@ struct Executor {
             if let refused = PointerGate.check(target, displays: displays, under: ScreenLayout.owner(at: target), target: window.pid, host: host) { return refused }
         }
         return withCursor(at: screen, outline: nil) {
-            send(screen)
+            send(screen, .screen)
             return .delivered(.input)
         }
+    }
+
+    /// How long a window gets to show the effect of a gesture sent to it in the background.
+    private static let redrawDeadline: TimeInterval = 0.6
+
+    /// What the window's elements say, for an effect that shows in accessibility and not in the picture.
+    private func content() -> [String] {
+        guard let root = state.root else { return [] }
+        return TreeBuilder.build(AXReader().snapshot(root), limit: Methods.treeLimit).elements.map {
+            [$0.key, $0.title ?? "", $0.description ?? "", $0.value ?? "", $0.states.joined(separator: ",")].joined(separator: "\u{1F}")
+        }
+    }
+
+    private func redrawn(_ window: WindowCandidate, since before: PixelBuffer) -> Bool {
+        let until = Date().addingTimeInterval(Self.redrawDeadline)
+        repeat {
+            Thread.sleep(forTimeInterval: 0.1)
+            if let now = try? WindowCapture.capture(window).pixels, PixelPatch.changed(before, now) { return true }
+        } while Date() < until
+        return false
     }
 
     /// Real pointer input waits for a moment in which the user is not using the mouse or keyboard.
@@ -343,6 +386,13 @@ struct Executor {
         }
     }
 
+    /// An open or save panel of a sandboxed app is drawn by a system process: keys sent to the app's own process
+    /// never reach it, so they go through the session with the app in front.
+    private func focusIsElsewhere(_ pid: pid_t) -> Bool {
+        guard let focused: AXUIElement = AXReader.attribute(AXReader.application(pid), kAXFocusedUIElementAttribute) else { return false }
+        return AXReader.lineage(focused).contains { FilePanel.identifiers.contains(AXReader.attribute($0, kAXIdentifierAttribute) ?? "") }
+    }
+
     private var noWindow: ActionResult { .unsupported("unsupported_action", hint: "The app has no open window to send keys to.") }
 
     /// Runs `body` on the element that has keyboard focus in the app.
@@ -387,6 +437,7 @@ struct Executor {
         if let refused = focus(element) { return refused }
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
+        if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.window) { return result }
         let chunks = Typing.chunks(text)
         var sent = 0
         for chunk in chunks {

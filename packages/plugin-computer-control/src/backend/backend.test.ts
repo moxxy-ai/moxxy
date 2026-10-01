@@ -181,11 +181,9 @@ describe('actions', () => {
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
     await run(tools, 'computer_press_key', { app: 'TextEdit', key: 'super+shift+Z' });
     await run(tools, 'computer_click', { app: 'TextEdit', element_index: 1, modifiers: 'cmd+alt' });
-    await run(tools, 'computer_batch', { app: 'TextEdit', actions: [{ action: 'hold_key', key: 'shift', duration_s: 1 }] });
     const sent = helperRequests(requestsFile).filter((request) => request.method !== 'resolve_apps');
     expect(sent[0]?.params.action).toMatchObject({ action: 'press_key', key: 'super+shift+Z', chord: { modifiers: ['shift', 'meta'], key: 'z' } });
     expect(sent[1]?.params.action).toMatchObject({ action: 'click', held: ['alt', 'meta'] });
-    expect((sent[2]?.params.actions as unknown[])[0]).toMatchObject({ action: 'hold_key', chord: { modifiers: ['shift'], key: null } });
   });
 
   it('refuses a system chord without the grant', async () => {
@@ -195,42 +193,22 @@ describe('actions', () => {
     expect(methods()).not.toContain('act');
   });
 
-  it('runs a batch until the first step that did not go through', async () => {
+  it('sends a drag between two points as a path the helper walks at a pace apps read as a drag', async () => {
     const { tools } = backend();
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
-    const output = forModel(await run(tools, 'computer_batch', { app: 'TextEdit', actions: [
-      { action: 'type_text', text: '!' },
-      { action: 'click', element_index: 3 },
-      { action: 'press_key', key: 'Return' },
-    ] }));
-    expect(output).toContain('1. type_text: Action delivered');
-    expect(output).toContain('2. click: Action blocked (target_blocked)');
-    expect(output).toMatch(/Stopped after step 2 of 3/);
-  });
-
-  it('checks every batch step against the grant before starting', async () => {
-    const { tools } = backend();
-    await requestAccess(tools, { apps: ['Terminal'], reason: 'Run' });
-    await expect(run(tools, 'computer_batch', { app: 'Terminal', actions: [{ action: 'click', element_index: 2 }, { action: 'type_text', text: 'rm -rf ~' }] }))
-      .rejects.toMatchObject({ code: 'tier_insufficient' });
-    expect(methods()).not.toContain('batch');
+    await run(tools, 'computer_drag', { app: 'TextEdit', from_x: 558, from_y: 660, to_x: 340, to_y: 660 });
+    expect(helperRequests(requestsFile).at(-1)?.params.action).toEqual({ action: 'drag', path: [[558, 660], [340, 660]], duration_ms: 600, mouse_button: 'left' });
   });
 });
 
-describe('full-screen capture', () => {
-  it('needs a grant and shows only granted apps', async () => {
+describe('a closer look', () => {
+  it('zooms into the screenshot of a granted app', async () => {
     const { tools } = backend();
-    await expect(run(tools, 'computer_screenshot', {})).rejects.toMatchObject({ code: 'app_not_allowed' });
+    await expect(run(tools, 'computer_zoom', { app: 'Safari', region: [0, 0, 100, 50] })).rejects.toMatchObject({ code: 'app_not_allowed' });
     await requestAccess(tools, { apps: ['TextEdit', 'Safari'], reason: 'Compare' });
-    const shot = await run(tools, 'computer_screenshot', { scale: 0.5 }) as ToolImageResult;
-    expect(shot.forModel).toMatch(/Screenshot 1440x900/);
-    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'screenshot', params: { scale: 0.5, allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
     const zoom = await run(tools, 'computer_zoom', { region: [0, 0, 100, 50], app: 'Safari' }) as ToolImageResult;
     expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'zoom', params: { region: [0, 0, 100, 50], app: 'com.apple.Safari', allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
     expect(zoom.forModel).toMatch(/Reading aid/);
-    // A full-screen zoom shows only apps that are still granted.
-    await run(tools, 'computer_zoom', { region: [0, 0, 100, 50], scale: 0.5 });
-    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'zoom', params: { region: [0, 0, 100, 50], scale: 0.5, allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
   });
 });
 
@@ -277,6 +255,14 @@ describe('computer_status', () => {
     const { tools } = backend();
     expect(await run(tools, 'computer_status', { open_settings: 'screen_recording' })).toMatchObject({ ready: false, settings_opened: true });
     expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'permissions.request', params: { kind: 'screen_recording' } });
+  });
+
+  it('leaves the settings alone when the permission it is asked about is already allowed', async () => {
+    const { tools } = backend();
+    const status = await run(tools, 'computer_status', { open_settings: 'accessibility' });
+    expect(status).toMatchObject({ ready: false });
+    expect(status).not.toHaveProperty('settings_opened');
+    expect(helperRequests(requestsFile).map((request) => request.method)).not.toContain('permissions.request');
   });
 });
 

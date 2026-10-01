@@ -107,15 +107,21 @@ import Testing
 
     @Test func dragsThroughEveryPointAndSpreadsTheDurationOverTheMoves() {
         let path = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 50)]
+        // Even a drag with no duration moves in small steps: one jump is not recognised as a drag.
         let quick = MouseScript.drag(path, button: .left, duration: 0)
-        #expect(quick.map(\.type) == [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseDragged, .leftMouseUp])
+        let quickMoves = quick.filter { $0.type == .leftMouseDragged }
+        #expect(quick.prefix(2).map(\.type) == [.mouseMoved, .leftMouseDown])
+        #expect(quickMoves.count >= 20)
+        #expect(quickMoves.contains { $0.point == CGPoint(x: 100, y: 0) })
         #expect(quick.last?.point == path.last)
+        // The press is held for a moment before the first move, or the gesture reads as a click.
+        #expect((quickMoves.first?.delay ?? 0) >= MouseScript.holdBeforeDrag)
 
         let slow = MouseScript.drag(path, button: .left, duration: 0.5)
         let moves = slow.filter { $0.type == .leftMouseDragged }
         #expect(moves.count > 2)
         #expect(moves.contains { $0.point == CGPoint(x: 100, y: 0) })
-        #expect(abs(slow.map(\.delay).reduce(0, +) - 0.5) < 0.001)
+        #expect(abs(slow.map(\.delay).reduce(0, +) - 0.5 - MouseScript.holdBeforeDrag) < 0.001)
         #expect(slow.last?.type == .leftMouseUp)
     }
 
@@ -200,5 +206,34 @@ import Testing
         #expect(FrameHit.index(at: CGPoint(x: 150, y: 60), in: frames) == 7)
         #expect(FrameHit.index(at: CGPoint(x: 390, y: 290), in: frames) == 0)
         #expect(FrameHit.index(at: CGPoint(x: 500, y: 500), in: frames) == nil)
+    }
+}
+
+@Suite struct BlankImageTests {
+    // A window on another Space that draws with the GPU is captured as plain black.
+    @Test func tellsAnAllBlackImageFromOneWithContent() {
+        var buffer = PixelBuffer(width: 40, height: 30, bytes: [UInt8](repeating: 0, count: 40 * 30 * 4))
+        for alpha in stride(from: 3, to: buffer.bytes.count, by: 4) { buffer.bytes[alpha] = 255 }
+        #expect(PixelPatch.isBlank(buffer))
+        buffer.bytes[4 * (40 * 15 + 20)] = 200
+        #expect(!PixelPatch.isBlank(buffer))
+    }
+}
+
+@Suite struct DragMotionTests {
+    // macOS reads the movement of a synthetic drag from each event's delta, and wants one event number for
+    // the whole press-move-release.
+    @Test func givesEachMoveItsDeltaAndTheGestureOneNumber() {
+        var motion = DragMotion()
+        let down = motion.fields(for: .leftMouseDown, at: CGPoint(x: 10, y: 10), nextNumber: 77)
+        let first = motion.fields(for: .leftMouseDragged, at: CGPoint(x: 14, y: 10), nextNumber: 99)
+        let second = motion.fields(for: .leftMouseDragged, at: CGPoint(x: 14, y: 7), nextNumber: 99)
+        let up = motion.fields(for: .leftMouseUp, at: CGPoint(x: 14, y: 7), nextNumber: 99)
+        #expect(down == DragMotion.Fields(number: 77, dx: nil, dy: nil))
+        #expect(first == DragMotion.Fields(number: 77, dx: 4, dy: 0))
+        #expect(second == DragMotion.Fields(number: 77, dx: 0, dy: -3))
+        #expect(up == DragMotion.Fields(number: 77, dx: nil, dy: nil))
+        // A plain move outside a press carries neither.
+        #expect(motion.fields(for: .mouseMoved, at: CGPoint(x: 0, y: 0), nextNumber: 100) == DragMotion.Fields(number: nil, dx: nil, dy: nil))
     }
 }

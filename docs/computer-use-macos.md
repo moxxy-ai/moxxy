@@ -2,8 +2,9 @@
 
 Moxxy's macOS extension owns its native backend: a Swift helper
 (`moxxy-computer`, universal arm64 + x86_64, macOS 14+) started as a child of
-the host. It does not load Codex, `@oai/sky`, `@oai/cua` or any private system
-framework. It speaks helper protocol v5, the same contract as the Windows
+the host. It does not load Codex, `@oai/sky` or `@oai/cua`, and links no private
+framework at build time (one route for background pointer input is looked up
+at run time, see below). It speaks helper protocol v5, the same contract as the Windows
 helper, so the model sees one set of tools on both systems (see
 [`computer-use-rebuild/README.md`](computer-use-rebuild/README.md)).
 
@@ -25,12 +26,26 @@ helper, so the model sees one set of tools on both systems (see
 - An app with no open window returns an empty state and says so. Keys still
   reach it, so `super+n` or `super+o` can open a window.
 - Actions take an `element_index` or a point of the latest screenshot. When a
-  call names both, a real point is the target and a `0,0` point is ignored. Element
-  actions go through accessibility and work while the app is in the background;
-  the user's pointer does not move. Real input is the fallback: the app comes
-  forward, the helper checks the point (on screen, inside the target app, not
-  Moxxy's own window, pixels unchanged since the screenshot), clicks and puts
-  the pointer back.
+  call names both, a real point is the target and a `0,0` point is ignored.
+  Element actions go through accessibility and work while the app is in the
+  background; the user's pointer does not move.
+- A click, drag or scroll with no accessibility equivalent (a canvas, a
+  timeline) is first sent to the app's window in the background: the app in
+  front keeps the focus and the pointer stays with the user. This uses
+  window-server calls that Apple does not document (`SLEventPostToPid` and
+  related, looked up at run time), left button only.
+- Real input is the fallback. It is used when those calls are missing, when the
+  window is not on the current screen, for the right and middle buttons, when
+  the window and its elements show no change within 0.6 s, and when the model
+  asks for the same gesture again. The app comes forward, the helper checks the
+  point (on screen, inside the target app, not Moxxy's own window, pixels
+  unchanged since the screenshot), acts and puts the pointer back. The helper's
+  result records the route (`ax`, `background` or `input`); the model is not
+  shown it.
+- A window on another Space that cannot be captured, or is captured black, is
+  brought to the current screen and captured again. A window on the current
+  screen is captured through its display, so the picture shows it where clicks
+  land; a window the system list misses for a moment is looked up again.
 - Command shortcuts are menu key equivalents, so the app is brought forward for
   them. The helper never does that while the user is typing.
 - Every action returns `delivered | ineffective | unsupported | blocked` and the
@@ -48,8 +63,7 @@ helper, so the model sees one set of tools on both systems (see
   the session log.
 
 Not supported: controlling a window on another Space without bringing it here,
-private window-server APIs, and apps that refuse both accessibility and
-synthetic input.
+and apps that refuse both accessibility and synthetic input.
 
 ## Permissions
 

@@ -58,3 +58,46 @@ import Testing
         #expect(frame.imageRect(of: CGRect(x: 0, y: 0, width: 10, height: 10)) == nil)
     }
 }
+
+@Suite struct CaptureRouteTests {
+    private let displays = [CGRect(x: 0, y: 0, width: 2056, height: 1329), CGRect(x: 2056, y: 0, width: 1920, height: 1080)]
+
+    // A window's own surface can be larger than its frame, which scales its picture; the display shows it where clicks land.
+    @Test func capturesAWindowOnScreenThroughItsDisplay() {
+        let window = CGRect(x: 0, y: 39, width: 2056, height: 1198)
+        #expect(CaptureRoute.choose(window: window, onScreen: true, displays: displays) == .display(0, area: window))
+        let second = CGRect(x: 2156, y: 100, width: 800, height: 600)
+        #expect(CaptureRoute.choose(window: second, onScreen: true, displays: displays) == .display(1, area: CGRect(x: 100, y: 100, width: 800, height: 600)))
+    }
+
+    @Test func capturesTheWindowAloneWhenTheDisplayCannotShowAllOfIt() {
+        #expect(CaptureRoute.choose(window: CGRect(x: 0, y: 39, width: 2056, height: 1198), onScreen: false, displays: displays) == .window)
+        #expect(CaptureRoute.choose(window: CGRect(x: 1800, y: 100, width: 800, height: 600), onScreen: true, displays: displays) == .window)
+        #expect(CaptureRoute.choose(window: CGRect(x: 100, y: 1000, width: 800, height: 600), onScreen: true, displays: displays) == .window)
+    }
+}
+
+@Suite struct AttemptsTests {
+    private final class Counter: @unchecked Sendable { var value = 0 }
+
+    // The system's window list can miss a window for a moment.
+    @Test func asksAgainUntilThereIsAnAnswer() async {
+        let asked = Counter()
+        let found = await Attempts.first(4, pause: 0) { () -> String? in
+            asked.value += 1
+            return asked.value == 3 ? "window" : nil
+        }
+        #expect(found == "window")
+        #expect(asked.value == 3)
+    }
+
+    @Test func givesUpAfterTheLastAttempt() async {
+        let asked = Counter()
+        let found = await Attempts.first(4, pause: 0) { () -> String? in
+            asked.value += 1
+            return nil
+        }
+        #expect(found == nil)
+        #expect(asked.value == 4)
+    }
+}

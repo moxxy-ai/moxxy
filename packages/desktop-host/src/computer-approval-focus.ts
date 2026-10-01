@@ -5,15 +5,10 @@ import type { AskResponse } from '@moxxy/desktop-ipc-contract';
 const physicalTools = new Set([
   'computer_click',
   'computer_type_text',
-  'computer_paste',
   'computer_press_key',
   'computer_scroll',
   'computer_drag',
-  'computer_mouse',
-  'computer_hold_key',
-  'computer_select_text',
   'computer_perform_secondary_action',
-  'computer_batch',
 ]);
 
 /** Only a human permission round-trip may restore the previously active target. */

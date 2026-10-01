@@ -288,6 +288,11 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     const name = async (transport: HelperTransport) => element(await observe(transport), 'text field:name');
     const chord = (key: string | null, modifiers: string[] = []) => ({ modifiers, key });
     const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
+    /** Another app takes the front, so a test can tell whether the fixture was brought forward. */
+    const sendBehind = async () => {
+      spawnSync('osascript', ['-e', 'tell application "Finder" to activate']);
+      for (let attempt = 0; attempt < 50 && frontmost() !== 'Finder'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    };
     type Framed = { tree: { elements: Listed[] } };
     const look = async (transport: HelperTransport) =>
       appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
@@ -417,15 +422,38 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         } finally { await transport.close(); }
       });
 
-      it('double-clicks a canvas with modifiers through the real pointer, then puts the pointer back', async () => {
+      it('double-clicks a canvas with modifiers in the background, leaving the pointer and the app in front alone', async () => {
         const transport = start();
         try {
+          await sendBehind();
           const before = await look(transport);
           const home = pointer();
           const { result, state } = await act(transport, { action: 'click', ...centre(before, 'group:pad'), mouse_button: 'left', click_count: 2, modifiers: 'shift', held: ['shift'] });
-          expect(result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(result).toEqual({ outcome: 'delivered', method: 'background' });
           expect(pad(state)).toBe('Pad up 2 after 0 moves shift');
           expectPointerAt(home);
+          expect(frontmost()).toBe('Finder');
+        } finally { await transport.close(); }
+      });
+
+      it('goes through the real pointer when the window shows no change, and for a button the background cannot carry', async () => {
+        const transport = start();
+        try {
+          await sendBehind();
+          const before = await look(transport);
+          const point = centre(before, 'group:pad');
+          const first = await act(transport, { action: 'click', ...point, mouse_button: 'left', click_count: 1 });
+          expect(first.result).toEqual({ outcome: 'delivered', method: 'background' });
+          expect(pad(first.state)).toBe('Pad up 1 after 0 moves');
+          // The same click leaves the same picture, so the helper cannot tell it arrived and sends a real one.
+          const home = pointer();
+          const again = await act(transport, { action: 'click', ...point, mouse_button: 'left', click_count: 1 });
+          expect(again.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(frontmost()).toBe('MoxxyComputerFixture');
+          expectPointerAt(home);
+          await sendBehind();
+          const right = await act(transport, { action: 'click', ...centre(await look(transport), 'group:pad'), mouse_button: 'right', click_count: 1 });
+          expect(right.result).toEqual({ outcome: 'delivered', method: 'input' });
         } finally { await transport.close(); }
       });
 
@@ -435,8 +463,10 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           const before = await look(transport);
           const { x, y } = centre(before, 'group:pad');
           const home = pointer();
+          await sendBehind();
           const dragged = await act(transport, { action: 'drag', path: [[x - 100, y], [x + 100, y]], duration_ms: 200, mouse_button: 'left' });
-          expect(dragged.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(dragged.result).toEqual({ outcome: 'delivered', method: 'background' });
+          expect(frontmost()).toBe('Finder');
           expect(pad(dragged.state)).toMatch(/^Pad up 1 after ([2-9]|\d{2,}) moves$/);
           expectPointerAt(home);
 
@@ -460,7 +490,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(list.result).toEqual({ outcome: 'delivered', method: 'ax' });
           expect(Number(/\d+/.exec(element(list.state ?? before, 'text:offset').title ?? '')?.[0])).toBeGreaterThan(0);
           const wheel = await act(transport, { action: 'scroll', ...centre(list.state ?? before, 'group:pad'), direction: 'down', pages: 1 });
-          expect(wheel.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(wheel.result).toEqual({ outcome: 'delivered', method: 'background' });
           expect(pad(wheel.state)).toMatch(/^Pad wheel -\d+$/);
         } finally { await transport.close(); }
       });
@@ -484,7 +514,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(clips(before)).toBe('Timeline A 20+80 B 140+60 selected none');
           expect(element(before, 'group:timeline').actions ?? []).toEqual([]);
           const moved = await act(transport, { action: 'drag', path: [along(before, 60), along(before, 80)], duration_ms: 300, mouse_button: 'left' });
-          expect(moved.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(moved.result).toEqual({ outcome: 'delivered', method: 'background' });
           expect(clips(moved.state)).toBe('Timeline A 40+80 B 140+60 selected A');
 
           const state = moved.state ?? before;
@@ -521,16 +551,10 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     });
 
     describe('bringing the app forward for the menu bar', () => {
-      // The pointer tests above left the app in front; another app takes its place first.
-      const sendToBackground = async () => {
-        spawnSync('osascript', ['-e', 'tell application "Finder" to activate']);
-        for (let attempt = 0; attempt < 50 && frontmost() !== 'Finder'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-      };
-
       it('sends a Command shortcut once the app is in front', async () => {
         const transport = start();
         try {
-          await sendToBackground();
+          await sendBehind();
           const before = await observe(transport);
           const pressed = Number(/\d+/.exec(element(before, 'text:status').title ?? '')?.[0] ?? 0);
           const { result, state } = await act(transport, { action: 'press_key', key: 'super+j', repeat: 1, chord: chord('j', ['meta']) });
@@ -561,7 +585,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         const transport = start();
         try {
           const before = clipboard();
-          await sendToBackground();
+          await sendBehind();
           const field = await name(transport);
           await act(transport, { action: 'set_value', element_index: field.index, value: 'x' });
           await act(transport, { action: 'select_text', element_index: field.index, text: 'x', selection_type: 'cursor_after' });
@@ -616,16 +640,20 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         } finally { await transport.close(); }
       });
 
-      it('refuses real pointer input while the user is moving the mouse', async () => {
+      it('still works in the background while the user moves the mouse, and holds real pointer input back', async () => {
         const transport = start();
         // Unmarked moves at the pointer's own position: the user's hand, without moving anything on screen.
         const hand = spawn('osascript', ['-l', 'JavaScript', '-e',
           'ObjC.import("CoreGraphics"); for (let i = 0; i < 90; i++) { const at = $.CGEventGetLocation($.CGEventCreate(null)); $.CGEventPost($.kCGHIDEventTap, $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, at, 0)); delay(0.05); }']);
         try {
           const before = await look(transport);
-          const { result, state } = await act(transport, { action: 'click', ...centre(before, 'group:pad'), mouse_button: 'left', click_count: 1 });
+          const point = centre(before, 'group:pad');
+          const sent = await act(transport, { action: 'click', ...point, mouse_button: 'left', click_count: 3 });
+          expect(sent.result).toEqual({ outcome: 'delivered', method: 'background' });
+          expect(pad(sent.state)).toBe('Pad up 3 after 0 moves');
+          const { result, state } = await act(transport, { action: 'click', ...point, mouse_button: 'right', click_count: 1 });
           expect(result).toMatchObject({ outcome: 'blocked', code: 'user_intervened' });
-          expect(pad(state)).toBe(pad(before));
+          expect(pad(state)).toBe(pad(sent.state));
         } finally { stop(hand); await transport.close(); }
       });
 

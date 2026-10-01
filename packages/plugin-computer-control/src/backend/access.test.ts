@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   REQUEST_ACCESS_TOOL, accessFromLog, categorize, checkAccess, checkKeys, defaultTier, requiredTier, type AccessGrant, type AccessTier,
 } from './access.js';
-import type { BatchAction } from '../contract/tools.js';
+import type { ComputerAction } from '../contract/tools.js';
 import { memoryLog } from './helper.fixture.js';
 
 let seq = 0;
@@ -47,14 +47,13 @@ describe('categorize and defaultTier', () => {
 });
 
 describe('requiredTier', () => {
-  it.each<[BatchAction, AccessTier]>([
+  it.each<[ComputerAction, AccessTier]>([
     [{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 2 }, 'click'],
     [{ action: 'click', element_index: 1, mouse_button: 'right', click_count: 1 }, 'full'],
     [{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 1, modifiers: 'cmd' }, 'full'],
     [{ action: 'scroll', element_index: 1, direction: 'down', pages: 1 }, 'click'],
     [{ action: 'type_text', text: 'x' }, 'full'],
-    [{ action: 'drag', path: [[0, 0], [1, 1]], mouse_button: 'left' }, 'full'],
-    [{ action: 'wait', duration_s: 1 }, 'read'],
+    [{ action: 'drag', from_x: 0, from_y: 0, to_x: 1, to_y: 1 }, 'full'],
   ])('%j needs %s', (step, tier) => {
     expect(requiredTier(step)).toBe(tier);
   });
@@ -122,7 +121,7 @@ describe('checkKeys', () => {
   it('blocks system chords without their grant', () => {
     expect(() => checkKeys({ action: 'press_key', key: 'super+q', repeat: 1 }, none, 'darwin')).toThrow(expect.objectContaining({ code: 'system_key_combo' }));
     expect(() => checkKeys({ action: 'press_key', key: 'super+q', repeat: 1 }, { ...none, systemKeyCombos: true }, 'darwin')).not.toThrow();
-    expect(() => checkKeys({ action: 'hold_key', key: 'alt+F4', duration_s: 1 }, none, 'win32')).toThrow(expect.objectContaining({ code: 'system_key_combo' }));
+    expect(() => checkKeys({ action: 'press_key', key: 'alt+F4', repeat: 1 }, none, 'win32')).toThrow(expect.objectContaining({ code: 'system_key_combo' }));
   });
 
   it('blocks clipboard chords without their grant', () => {

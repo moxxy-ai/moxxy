@@ -1771,3 +1771,82 @@ odczytane poprawnie.
 
 **Walidacja:** `swift test` 137/137; plugin 20 plików / 285 testów (z e2e);
 `pnpm build` 88/88; typecheck OK; lint 0 błędów; `check:deps` 0 błędów.
+
+## Mysz w tle, 12 narzędzi, dokładny zrzut okna, `xhigh`, status na telefonie, wideo na Windows — 2026-10-01
+
+Decyzje właściciela z tego dnia: „opcja 1” (prywatne wywołania do myszy w tle,
+z zapasem na prawdziwe wejście), „opcja 2” (odchudzenie zestawu narzędzi),
+próby z modelem na `reasoning.effort: xhigh`.
+
+**Wzorzec:** `open-computer-use` (`sky_click`), commit `93b8175`; opis w
+[`open-computer-use-comparison.md`](open-computer-use-comparison.md).
+
+**Co i jak**
+- `BackgroundInput.swift` (nowy), `MouseInput.swift`, `Act.swift`: klik,
+  przeciąganie i kółko wysyłane do okna w tle przez `SLEventPostToPid` i
+  pokrewne, szukane w czasie działania. Helper sprawdza skutek (piksele okna do
+  0,6 s albo zmiana drzewa). Bez skutku, przy powtórzeniu tego samego gestu,
+  przy prawym i środkowym przycisku i dla okna poza ekranem używa prawdziwego
+  wejścia. Wynik helpera podaje trasę: `ax`, `background`, `input`.
+- `src/contract/tools.ts`, `src/backend/backend.ts`: 12 narzędzi zamiast 19.
+  `computer_drag` bierze punkt początku i końca. Helpery nadal znają batch,
+  screenshot, mouse, hold_key, paste i select_text (protokół v5 bez zmian).
+- `Capture.swift` (`CaptureRoute`): okno na bieżącym ekranie jest zrzucane
+  przez swój ekran, z samym tym oknem. Powód: powierzchnia okna CapCut (Qt)
+  jest większa niż jego ramka i zrzut samego okna był przeskalowany o ok. 1%,
+  więc punkt odczytany z obrazu mijał krawędź klipu o 5–7 px.
+- `Capture.swift` (`Attempts`): okno, którego system przez chwilę nie ma na
+  liście, jest szukane do 4 razy co 0,25 s. Powód: w próbie luna9g dwa
+  wywołania pod rząd skończyły się „The window is not capturable”.
+- Poziom `xhigh` dla `context.reasoning.effort`: SDK (`ReasoningEffort`),
+  core, config, runner, kontrakt IPC, ustawienia desktopu, dostawca Codex.
+  Anthropic dostaje `high`.
+- `packages/cli/src/setup/context-config.ts`: `context.reasoning` z configu
+  jest stosowane przy starcie sesji. Wcześniej działało tylko po zmianie
+  configu w trakcie pracy, więc `moxxy -p` zawsze szło na `medium`. Wszystkie
+  wcześniejsze próby luna szły więc na `medium`.
+- Kanał mobilny: `computer.snapshot` i zdarzenie `computer.changed`;
+  `computer.snapshot` na liście komend zdalnych. `computer.control` celowo nie:
+  pauza, wznowienie i przejęcie zostają przy komputerze, telefon zatrzymuje
+  turę przez `session.abortTurn`. Aplikacja mobilna nie ma jeszcze paska stanu.
+- Windows: `native/src/video.cpp` (enkoder H.264 z Media Foundation),
+  `video-format.hpp` (rozmiar, nazwa kodeka, NV12), `preview.cpp` (zdarzenia
+  `preview_chunk`, `preview.keyframe`). Gdy system nie ma enkodera, helper
+  wysyła obrazy JPEG, a `PreviewController` je pokazuje.
+
+**Testy (Red → Green)**
+- Swift: `PointerRouteTests`, `WindowEventTests`, `VisibleChangeTests`,
+  `CaptureRouteTests` (Red `cannot find 'CaptureRoute' in scope`),
+  `AttemptsTests` (Red `cannot find 'Attempts' in scope`), `DragMotionTests`,
+  `BlankImageTests`, `KeyRouteTests`.
+- Plugin: `tools.test.ts` przepisany pod 12 narzędzi; `helper.test.ts` — klik,
+  przeciąganie i kółko w tle, zapas na prawdziwe wejście;
+  `controller.test.ts` „shows the pictures of a producer that was asked for
+  video…” (Red `expected [] to deeply equal ['still']`).
+- `xhigh`: `reasoning-config.test.ts` (Red `ZodError`), `validation.test.ts`
+  (Red `Invalid enum value`), `integration.test.ts` runnera (Red
+  `invalid_enum_value`), `effort.test.ts` (Red brak modułu),
+  `context-config.test.ts` (Red brak modułu).
+- Mobile: `single-session-host.test.ts` (Red `no handler for
+  computer.snapshot`), `remote.test.ts` (Red brak `computer.snapshot`).
+- C++: `tests/video-format.cpp` (Red brak nagłówka), uruchamiany także lokalnie
+  przez `cmake` + `ctest`.
+
+**Próby z modelem:** tabela w [`benchmark.md`](benchmark.md). Żądanie do
+dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
+
+**Walidacja**
+- `swift test` 155/155; `./build.sh` OK; `cmake` + `ctest` lokalnie 3/3.
+- Plugin przy bezczynnym wejściu: 20 plików / 282 testy (z e2e).
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów (96
+  ostrzeżeń); `pnpm check:deps` 0 błędów (1 ostrzeżenie).
+- Pakiety: cli 454, config 128, core 532, sdk 464, runner 159,
+  desktop-host 805, desktop 898, desktop-ipc-contract 61,
+  plugin-channel-mobile 70, ipc-server-ws 72, dostawcy Codex 91 i Anthropic 60.
+
+**Niezrobione / otwarte**
+- Enkoder Windows jest napisany bez lokalnego Windows; jego wynik w CI jest
+  w następnym wpisie.
+- Próg benchmarku nie jest zmierzony powtórzeniami (seria A: 11/11, każda
+  próba raz).
+- Lista w [`todo.md`](todo.md), sekcja „Otwarte”.

@@ -1,17 +1,19 @@
 import { zodToJsonSchema } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
-import { batchActionNames, computerTools, resolveTarget } from './tools.js';
+import { actionNames, computerTools, resolveTarget } from './tools.js';
 
 const input = <N extends keyof typeof computerTools>(name: N): (typeof computerTools)[N]['input'] => computerTools[name].input;
+const properties = (name: keyof typeof computerTools) => Object.keys((zodToJsonSchema(computerTools[name].input) as { properties: object }).properties).sort();
 
 describe('computerTools', () => {
-  it('exposes the Codex/Claude-style tool set', () => {
+  // Nine tools as in Codex, plus the access request, the permission status and a closer look.
+  it('exposes a small tool set a model can fill without guessing', () => {
     expect(Object.keys(computerTools).sort()).toEqual([
-      'computer_batch', 'computer_click', 'computer_drag', 'computer_get_app_state', 'computer_hold_key',
-      'computer_list_apps', 'computer_mouse', 'computer_paste', 'computer_perform_secondary_action',
-      'computer_press_key', 'computer_request_access', 'computer_screenshot', 'computer_scroll',
-      'computer_select_text', 'computer_set_value', 'computer_status', 'computer_type_text', 'computer_zoom',
+      'computer_click', 'computer_drag', 'computer_get_app_state', 'computer_list_apps', 'computer_perform_secondary_action',
+      'computer_press_key', 'computer_request_access', 'computer_scroll', 'computer_set_value', 'computer_status',
+      'computer_type_text', 'computer_zoom',
     ]);
+    expect(actionNames).toEqual(['click', 'type_text', 'press_key', 'scroll', 'drag', 'set_value', 'perform_secondary_action']);
   });
 
   it('describes every tool and serialises every input as an object schema', () => {
@@ -21,6 +23,15 @@ describe('computerTools', () => {
       expect(json.type, name).toBe('object');
       expect(json.properties, name).toBeTypeOf('object');
     }
+  });
+
+  // A model fills every field it is shown, so each tool shows only what it needs.
+  it('asks for no field a tool can do without', () => {
+    expect(properties('computer_type_text')).toEqual(['app', 'element_index', 'text']);
+    expect(properties('computer_press_key')).toEqual(['app', 'key', 'repeat']);
+    expect(properties('computer_drag')).toEqual(['app', 'from_x', 'from_y', 'to_x', 'to_y']);
+    expect(properties('computer_get_app_state')).toEqual(['app', 'disable_diff', 'window_id']);
+    expect(properties('computer_zoom')).toEqual(['app', 'region']);
   });
 });
 
@@ -41,19 +52,8 @@ describe('computer_click', () => {
     // A real point sent with an element is where the model looked: the point is the target.
     expect(input('computer_click').parse({ app: 'TextEdit', element_index: 11, x: 81, y: 316 })).toEqual({ app: 'TextEdit', x: 81, y: 316, mouse_button: 'left', click_count: 1 });
     expect(input('computer_click').parse({ app: 'Numbers', element_index: 0, x: 200, y: 188 })).toEqual({ app: 'Numbers', x: 200, y: 188, mouse_button: 'left', click_count: 1 });
-    expect(input('computer_batch').parse({ app: 'TextEdit', actions: [{ action: 'click', element_index: 2, x: 0, y: 0, modifiers: '', text: '', key: '', path: [], repeat: 0 }] }).actions)
-      .toEqual([{ action: 'click', element_index: 2, mouse_button: 'left', click_count: 1 }]);
     expect(input('computer_set_value').parse({ app: 'TextEdit', element_index: 1, value: '' })).toMatchObject({ value: '' });
-    // Where the target is optional, an all-zero target is filler: the action goes to the focused element.
-    expect(input('computer_type_text').parse({ app: 'Numbers', element_index: 0, x: 0, y: 0, text: '10' })).toEqual({ app: 'Numbers', text: '10' });
     expect(input('computer_click').parse({ app: 'Numbers', element_index: 0, x: 0, y: 0 })).toMatchObject({ element_index: 0 });
-  });
-
-  it('ignores, in a batch step, the fields that belong to other actions whatever they hold', () => {
-    const step = { action: 'click', element_index: 7, x: 0, y: 0, mouse_button: 'left', click_count: 1, modifiers: '', text: 'unused', format: 'text', key: 'Return', repeat: 1,
-      duration_s: 0.1, direction: 'down', pages: 1, path: [[0, 0], [0, 0]], duration_ms: 100, event: 'down', value: '', prefix: '', suffix: '', selection_type: 'text', secondary_action: 'ShowMenu' };
-    expect(input('computer_batch').parse({ app: 'Calculator', actions: [step] }).actions).toEqual([{ action: 'click', element_index: 7, mouse_button: 'left', click_count: 1 }]);
-    expect(() => input('computer_batch').parse({ app: 'Calculator', actions: [{ action: 'click', element_index: 7, windowId: 'w' }] })).toThrow(/Unrecognized/);
   });
 
   it.each([
@@ -94,16 +94,11 @@ describe('keyboard tools', () => {
     expect(() => input('computer_type_text').parse({ app: 'Notes', text: '' })).toThrow();
   });
 
-  it('pastes text, markdown or html', () => {
-    expect(input('computer_paste').parse({ app: 'Pages', text: '<b>x</b>', format: 'html' }).format).toBe('html');
-    expect(input('computer_paste').parse({ app: 'Pages', text: 'x' }).format).toBe('text');
-    expect(() => input('computer_paste').parse({ app: 'Pages', text: 'x', format: 'rtf' })).toThrow();
-  });
-
-  it('holds a key or a modifier for up to 100 seconds', () => {
-    expect(input('computer_hold_key').parse({ app: 'Resolve', key: 'shift', duration_s: 1.5 }).duration_s).toBe(1.5);
-    expect(() => input('computer_hold_key').parse({ app: 'Resolve', key: 'space', duration_s: 0 })).toThrow(/duration_s/);
-    expect(() => input('computer_hold_key').parse({ app: 'Resolve', key: 'space', duration_s: 101 })).toThrow(/duration_s/);
+  // The window itself (index 0) takes no text, so a zero there is filler and the text goes to the focused element.
+  it('takes an element index of zero as no target when typing', () => {
+    expect(input('computer_type_text').parse({ app: 'Numbers', element_index: 0, text: '10' })).toEqual({ app: 'Numbers', text: '10' });
+    expect(input('computer_type_text').parse({ app: 'Numbers', element_index: null, text: '10' })).toEqual({ app: 'Numbers', text: '10' });
+    expect(() => input('computer_type_text').parse({ app: 'Numbers', x: 5, y: 5, text: '10' })).toThrow(/Unrecognized/);
   });
 });
 
@@ -115,35 +110,26 @@ describe('pointer tools', () => {
     expect(() => input('computer_scroll').parse({ app: 'Mail', x: 1, y: 1, direction: 'sideways' })).toThrow();
   });
 
-  it('drags along a path with timing and modifiers', () => {
-    const drag = input('computer_drag').parse({ app: 'Resolve', path: [[10, 10], [200, 10]], duration_ms: 800, modifiers: 'shift' });
-    expect(drag).toEqual({ app: 'Resolve', path: [[10, 10], [200, 10]], duration_ms: 800, modifiers: 'shift', mouse_button: 'left' });
-    expect(() => input('computer_drag').parse({ app: 'Resolve', path: [[10, 10]] })).toThrow(/path/);
-    expect(() => input('computer_drag').parse({ app: 'Resolve', path: Array.from({ length: 21 }, () => [1, 1]) })).toThrow(/path/);
-    expect(() => input('computer_drag').parse({ app: 'Resolve', path: [[1, 1, 1], [2, 2]] })).toThrow();
-  });
-
-  it('presses, moves and releases the mouse separately', () => {
-    expect(input('computer_mouse').parse({ app: 'Resolve', event: 'down', x: 5, y: 6 }))
-      .toEqual({ app: 'Resolve', event: 'down', x: 5, y: 6, mouse_button: 'left' });
-    expect(() => input('computer_mouse').parse({ app: 'Resolve', event: 'hover', x: 5, y: 6 })).toThrow();
-    expect(() => input('computer_mouse').parse({ app: 'Resolve', event: 'move' })).toThrow();
+  it('drags from one screenshot point to another', () => {
+    expect(input('computer_drag').parse({ app: 'CapCut', from_x: 558, from_y: 660, to_x: 340, to_y: 660 }))
+      .toEqual({ app: 'CapCut', from_x: 558, from_y: 660, to_x: 340, to_y: 660 });
+    expect(() => input('computer_drag').parse({ app: 'CapCut', from_x: 558, from_y: 660, to_x: 340 })).toThrow(/to_y/);
+    expect(() => input('computer_drag').parse({ app: 'CapCut', from_x: -1, from_y: 660, to_x: 340, to_y: 660 })).toThrow(/from_x/);
+    expect(() => input('computer_drag').parse({ app: 'CapCut', path: [[1, 1], [2, 2]] })).toThrow();
   });
 });
 
 describe('element tools', () => {
-  it('sets values, selects text and performs exposed actions', () => {
+  it('sets values and performs exposed actions', () => {
     expect(input('computer_set_value').parse({ app: 'Safari', element_index: 1, value: 'openai.com' }).value).toBe('openai.com');
-    expect(input('computer_select_text').parse({ app: 'Notes', element_index: 1, text: 'hello' }).selection_type).toBe('text');
-    expect(() => input('computer_select_text').parse({ app: 'Notes', element_index: 1, text: 'x', selection_type: 'word' })).toThrow();
     expect(input('computer_perform_secondary_action').parse({ app: 'Finder', element_index: 4, secondary_action: 'AXShowMenu' }).secondary_action).toBe('AXShowMenu');
   });
 });
 
 describe('observation and access tools', () => {
-  it('reads app state as a diff with a screenshot by default', () => {
-    expect(input('computer_get_app_state').parse({ app: 'com.apple.TextEdit' }))
-      .toEqual({ app: 'com.apple.TextEdit', disable_diff: false, include_screenshot: true });
+  it('reads app state as a diff by default', () => {
+    expect(input('computer_get_app_state').parse({ app: 'com.apple.TextEdit' })).toEqual({ app: 'com.apple.TextEdit', disable_diff: false });
+    expect(input('computer_get_app_state').parse({ app: 'Notepad', window_id: '' })).toEqual({ app: 'Notepad', disable_diff: false });
   });
 
   it('lists apps with a bounded page', () => {
@@ -160,46 +146,10 @@ describe('observation and access tools', () => {
     expect(() => input('computer_request_access').parse({ apps: ['Notes'], reason: 'x', full_access: ['Safari'] })).toThrow(/full_access/);
   });
 
-  it('zooms into a positive region and scales screenshots within [0.1, 1]', () => {
-    expect(input('computer_zoom').parse({ region: [0, 0, 100, 50] })).toEqual({ region: [0, 0, 100, 50] });
-    expect(() => input('computer_zoom').parse({ region: [10, 10, 5, 50] })).toThrow(/region/);
-    expect(() => input('computer_zoom').parse({ region: [0, 0, 1] })).toThrow();
-    expect(input('computer_screenshot').parse({ scale: 0.5 })).toEqual({ scale: 0.5 });
-    expect(() => input('computer_screenshot').parse({ scale: 2 })).toThrow(/scale/);
-  });
-});
-
-describe('computer_batch', () => {
-  it('parses a sequence of actions on one app into typed steps', () => {
-    const batch = input('computer_batch').parse({
-      app: 'Notes',
-      actions: [
-        { action: 'click', element_index: 1 },
-        { action: 'type_text', text: 'hi' },
-        { action: 'press_key', key: 'Return' },
-        { action: 'wait', duration_s: 0.5 },
-      ],
-    });
-    expect(batch.actions).toEqual([
-      { action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 },
-      { action: 'type_text', text: 'hi' },
-      { action: 'press_key', key: 'Return', repeat: 1 },
-      { action: 'wait', duration_s: 0.5 },
-    ]);
-  });
-
-  it('points at the invalid step', () => {
-    const result = input('computer_batch').safeParse({ app: 'Notes', actions: [{ action: 'type_text', text: 'x' }, { action: 'click' }] });
-    expect(result.success).toBe(false);
-    expect(result.error?.issues).toEqual([expect.objectContaining({ path: ['actions', 1], message: expect.stringMatching(/exactly one target/) })]);
-  });
-
-  it('refuses nesting, other apps and oversized batches', () => {
-    expect(batchActionNames).not.toContain('batch');
-    expect(() => input('computer_batch').parse({ app: 'Notes', actions: [{ action: 'batch' }] })).toThrow();
-    expect(() => input('computer_batch').parse({ app: 'Notes', actions: [{ action: 'click', element_index: 1, app: 'Mail' }] })).toThrow(/Unrecognized/);
-    expect(() => input('computer_batch').parse({ app: 'Notes', actions: [] })).toThrow(/actions/);
-    const many = Array.from({ length: 51 }, () => ({ action: 'press_key', key: 'Tab' }));
-    expect(() => input('computer_batch').parse({ app: 'Notes', actions: many })).toThrow(/actions/);
+  it('zooms into a positive region of an app screenshot', () => {
+    expect(input('computer_zoom').parse({ app: 'CapCut', region: [0, 0, 100, 50] })).toEqual({ app: 'CapCut', region: [0, 0, 100, 50] });
+    expect(() => input('computer_zoom').parse({ app: 'CapCut', region: [10, 10, 5, 50] })).toThrow(/region/);
+    expect(() => input('computer_zoom').parse({ app: 'CapCut', region: [0, 0, 1] })).toThrow();
+    expect(() => input('computer_zoom').parse({ region: [0, 0, 100, 50] })).toThrow(/app/);
   });
 });

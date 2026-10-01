@@ -23,7 +23,55 @@ Sukces ocenia się po prawdziwym stanie aplikacji odczytanym niezależnie
 | 9 | montaż | przytnij klip, przesuń go, wyeksportuj | realna aplikacja montażowa |
 | 10 | odporność | modal, przesunięcie układu, kontrolka bez efektu, Stop/Przejmij | fixture |
 
-## Wynik (2026-10-01, macOS, CLI `moxxy --model gpt-6-luna -p`, dostawca `openai-codex`)
+## Wynik A: 12 narzędzi, `reasoning.effort: xhigh` (2026-10-01, wieczór)
+
+macOS, CLI `moxxy --config <xhigh> --model gpt-6-luna -p`, dostawca
+`openai-codex`. Żądanie sprawdzone na łączu przy każdej próbie:
+`gpt-6-luna {"effort":"xhigh"}`. Każda próba pojedyncza, w tej kolejności,
+nic nie pominięto.
+
+| Próba | Zadanie | Wynik | Stan sprawdzony niezależnie |
+|---|---|---|---|
+| x1 | 1 | sukces (5 wywołań, 62 s) | „Kamil”, „Pressed 2” |
+| x2 | 2, cel „B 110+60” | sukces (5 wywołań, 72 s) | „Timeline A 20+80 B 110+60 selected B” |
+| x3 | 3, cel „A 20+50” | sukces (4 wywołania, 61 s) | „Timeline A 20+50 B 140+60 selected A” |
+| x10 | 10 | sukces (7 wywołań, 114 s) | „Pressed 1” |
+| x4 | 4 | sukces (24 wywołania, 360 s; model dwa razy pomylił cyfrę i sam to poprawił) | „17×23”, „391” |
+| x5 | 5 | sukces (10 wywołań, 184 s) | dokument „Zażółć gęślą jaźń 123” |
+| x6 | 6 | sukces (14 wywołań, 216 s) | folder `Raporty` na dysku |
+| x7 | 7, lokalna strona | sukces (3 wywołania, 58 s) | tytuł „Moxxy Trial Page”, nagłówek „Quarterly Report 2026” |
+| x8 | 8 | sukces (12 wywołań, 172 s) | 10, 20, 30, 60, `=SUMA(B2:B4)` |
+| x9 | 9, przycięcie klipu w CapCut do ok. 3 s | sukces (8 wywołań, 116 s) | `draft_info.json`: 3 000 000 µs |
+| x9e | 9, eksport z CapCut z domyślnymi ustawieniami | sukces (7 wywołań, 110 s) | plik `~/Downloads/1001.mp4`, 3 s |
+
+W tej serii: 11 prób, 11 sukcesów, 0 fałszywych sukcesów, 0 nieudanych
+wywołań narzędzi. Zadanie 9 nie obejmowało przesunięcia klipu w CapCut
+(przesunięcie jest sprawdzone na fixture, x2).
+
+To nadal nie jest pomiar progu: każde zadanie poszło raz. Próg (≥90%, 0
+fałszywych sukcesów) wymaga powtórzeń tej samej próby na niezmienionym kodzie.
+
+## Wynik B: zadanie 9 (CapCut) przed poprawkami, `medium` (2026-10-01)
+
+CapCut zainstalowany tego dnia; projekt „1001” z jednym klipem 10 s. Wszystkie
+próby szły na `reasoning.effort: medium` (domyślne dostawcy; config nie był
+wtedy stosowany przy starcie).
+
+| Próba | Polecenie | Wynik | Stan sprawdzony niezależnie |
+|---|---|---|---|
+| luna9a | otwórz CapCut i opisz ekran | sukces (5 wywołań, 1 nieudane) | ekran startowy |
+| luna9b | nowy projekt i import pliku | porażka, zgłoszona uczciwie: okno wyboru pliku nie przyjęło skrótu | oś czasu pusta |
+| luna9c | import i klip na osi czasu | sukces (23 wywołania) | klip 10 s w projekcie |
+| luna9d | przytnij klip do ok. 5 s | porażka, zgłoszona uczciwie: zrzut okna czarny (okno na innym biurku) | 10 000 000 µs |
+| luna9e | to samo | porażka, zgłoszona uczciwie: przeciąganie chwytało środek klipu | 10 000 000 µs |
+| luna9f | to samo | porażka, zgłoszona uczciwie: zrzut przeskalowany o ok. 1%, model celował 5–7 px obok krawędzi | 10 000 000 µs |
+| luna9g | to samo, po poprawce zrzutu | sukces (15 wywołań, 2 nieudane `computer_zoom`) | 4 933 333 µs |
+
+Poprawki z tych prób: ponowny zrzut po wyciągnięciu okna na ekran, zasada
+chwytania krawędzi w `skills/computer-apps/video-editors.md`, zrzut przez
+ekran (`CaptureRoute`), ponawianie wyszukania okna (`Attempts`).
+
+## Wynik C: 19 narzędzi, `medium` (2026-10-01, wcześniej)
 
 Próby z modelem prowadzi się wyłącznie na `gpt-6-luna`. Wcześniejsze próby na
 innym modelu nie liczą się i zostały stąd usunięte (opis w `CHANGELOG.md`).
@@ -58,7 +106,7 @@ Na końcowym kodzie każde z zadań 1–8 i 10 ma co najmniej jeden sukces
 potwierdzony odczytem stanu. W luna7 strona w Safari nie miała nagłówka
 (tekst pojawiał się litera po literze), więc odpowiedź modelu mogła być poprawna.
 
-**Próg nie jest spełniony.** Dwie próby (luna8c, luna8e) to fałszywe sukcesy,
+**Próg nie był spełniony.** Dwie próby (luna8c, luna8e) to fałszywe sukcesy,
 a próg wymaga zera. W obu narzędzia zwróciły prawdziwy stan; model go nie
 sprawdził. Odsetka sukcesu nie da się uczciwie podać: próby były powtarzane po
 poprawkach, a nie losowane.
@@ -92,7 +140,6 @@ przetłumaczona nazwa aplikacji) zostają; znalazła je próba na innym modelu.
 
 ## Czego nie zmierzono
 
-- Zadanie 9: na tej maszynie nie ma aplikacji montażowej.
 - Scenariusze Stop/Przejmij, modal, drugi monitor i zabicie helpera: tylko
   testy end-to-end helpera, bez modelu.
 - Powtórzenia tej samej próby na niezmienionym kodzie (rozrzut wyników).
@@ -102,6 +149,6 @@ przetłumaczona nazwa aplikacji) zostają; znalazła je próba na innym modelu.
 
 Aplikacja testowa: `native/macos/build-fixture.sh`, potem
 `open -g native/macos/.build/fixture/MoxxyComputerFixture.app`. Zadanie:
-`node packages/cli/dist/bin.js --model gpt-6-luna -p "<zadanie>" --allow-tools <narzędzia computer_*> --output-format stream-json < /dev/null`.
+`node packages/cli/dist/bin.js --config <plik z context.reasoning.effort: xhigh> --model gpt-6-luna -p "<zadanie>" --allow-tools <narzędzia computer_*> --output-format stream-json < /dev/null`.
 Starsza kopia pluginu w `~/.moxxy/plugins` ma pierwszeństwo przed kopią z
 repozytorium, więc na czas próby trzeba ją odsunąć.

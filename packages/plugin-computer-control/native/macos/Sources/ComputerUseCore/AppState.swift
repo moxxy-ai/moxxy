@@ -22,6 +22,8 @@ final class TargetState {
     var observed = false
     /// Set by the action executor; the next observation settles as after an action.
     var lastAction: Date?
+    /// The last gesture that went to the window in the background; asked again, it goes through the screen.
+    var lastBackground: String?
     /// Accessibility actions its elements keep declining.
     let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
@@ -134,7 +136,7 @@ extension Methods {
         state.frame = nil
         state.pixels = nil
         if params["screenshot"]?.boolValue == true {
-            switch capture(pid: running.processIdentifier, root: root) {
+            switch visibleCapture(pid: running.processIdentifier, root: root, window: state.window) {
             case let .success(image):
                 state.frame = image.frame
                 state.pixels = image.pixels
@@ -154,6 +156,19 @@ extension Methods {
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
         return .object(result)
+    }
+
+    /// A GPU-drawn window on another Space is captured as plain black, or not at all. The app then comes forward
+    /// (never while the user types) and is captured again, because a black image is no observation.
+    static func visibleCapture(pid: pid_t, root: NodeSnapshot, window: WindowCandidate?) -> Result<WindowImage, HelperError> {
+        let first = capture(pid: pid, root: root)
+        let unusable = switch first {
+        case let .success(image): PixelPatch.isBlank(image.pixels)
+        case let .failure(error): error.code != "permissions_not_granted"
+        }
+        guard unusable, let window, WindowDirectory.onScreenWindowID(for: window) == nil, case .broughtForward = Foreground.bring(window) else { return first }
+        Thread.sleep(forTimeInterval: 0.6)
+        return capture(pid: pid, root: root)
     }
 
     static func capture(pid: pid_t, root: NodeSnapshot) -> Result<WindowImage, HelperError> {

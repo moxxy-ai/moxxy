@@ -85,6 +85,11 @@ public final class AgentCursor: @unchecked Sendable {
 
 enum WindowDirectory {
     /// The window-server number behind an accessibility window, when it is on the current screen.
+    /// Where pointer events for the window go, when it is on the current screen.
+    static func address(of target: WindowCandidate) -> WindowAddress? {
+        onScreenWindowID(for: target).map { WindowAddress(pid: target.pid, id: $0, origin: target.frame.origin) }
+    }
+
     static func onScreenWindowID(for target: WindowCandidate) -> CGWindowID? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil

@@ -78,8 +78,19 @@ enum KeyboardInput {
 
     private static func send(_ event: CGEvent, pid: pid_t) {
         mark(event)
-        event.postToPid(pid)
+        switch KeyRoute.choose(target: pid, frontmost: Foreground.isFrontmost(pid) ? pid : nil) {
+        case .session: event.post(tap: .cgSessionEventTap)
+        case .process: event.postToPid(pid)
+        }
     }
+}
+
+/// Where a key event goes. An open or save panel of a sandboxed app runs in another process, so keys sent to
+/// the app's process never reach it; while the app is in front, the session delivers them to whatever has focus.
+public enum KeyRoute: Equatable, Sendable {
+    case session, process
+
+    public static func choose(target: pid_t, frontmost: pid_t?) -> KeyRoute { frontmost == target ? .session : .process }
 }
 
 /// Keys held across a wait. Whatever is still down goes up when the hold ends, the user stops Computer Use
@@ -202,4 +213,9 @@ enum Clipboard {
             return item
         })
     }
+}
+
+/// The system's open and save panels, by the identifier of their window or sheet.
+public enum FilePanel {
+    public static let identifiers: Set<String> = ["open-panel", "save-panel"]
 }

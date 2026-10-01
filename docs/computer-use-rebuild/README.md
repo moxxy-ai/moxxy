@@ -54,9 +54,10 @@ Skuteczność bierze się z pętli weryfikacji i zmiany metody po porażce.
 
 **SkyLight.** Claude wysyła w tle surowe zdarzenia prywatnym
 `SLEventPostToPid`. U Codexa SkyLight pojawia się tylko wewnątrz
-ScreenCaptureKit. Nie używamy go: to prywatne API, które zmienia się z
-aktualizacjami systemu. W tle działamy akcjami AX, a gdy to niemożliwe,
-zwracamy `unsupported`.
+ScreenCaptureKit. Plan zakładał, że go nie używamy. Decyzją właściciela
+(2026-10-01) używamy go do myszy w tle, z zapasem: gdy wywołań nie ma albo
+okno nie reaguje, helper przechodzi na prawdziwe wejście. Symbole są szukane
+w czasie działania, nic nie jest linkowane.
 
 ## Decyzje
 
@@ -67,7 +68,7 @@ zwracamy `unsupported`.
 | Kursor | Nakładka (jedno okno wielkości okna celu) tuż nad oknem celu, widoczna, gdy to okno jest na bieżącym ekranie; pozycja jako ułamek okna idzie zawsze do snapshotu (PiP). Prawdziwy wskaźnik porusza się tylko przy fizycznym kliknięciu i wraca na miejsce. Akcje AX nie ruszają myszy. |
 | PiP | Strumień dla człowieka, oddzielony od modelu: najpierw JPEG przez Surface, potem H.264 + WebCodecs |
 | Poświata krawędzi | Nie robimy; zamiast niej czytelny status sterowania |
-| SkyLight | Nie używamy |
+| SkyLight | Tylko mysz w tle na płótnie (klik, przeciąganie, kółko), lewy przycisk; prawdziwe wejście jako zapas |
 | macOS | 14+, universal binary (arm64 + x86_64) |
 | Przeglądarki | Domyślnie poziom `read`; zadania webowe idą do `@moxxy/plugin-browser` |
 
@@ -85,19 +86,25 @@ odrzuca nieaktualny indeks lub punkt. `target_blocked`, rozróżnienie
 
 | Narzędzie | Wzorzec | Opis |
 |---|---|---|
-| `computer_list_apps` | Codex `list_apps` / `listWindows` | aplikacje (+ okna na Windows), `isRunning`, identyfikator |
+| `computer_status` | własne | uprawnienia i stan helpera; otwiera ustawienia tylko dla brakującego uprawnienia |
+| `computer_list_apps` | Codex `list_apps` | aplikacje (+ okna na Windows), `isRunning`, identyfikator |
 | `computer_request_access` | Claude `request_access` | zestaw aplikacji, poziomy `read`/`click`/`full`, flagi schowka i skrótów systemowych; zapis w logu sesji |
-| `computer_get_app_state` | Codex `get_app_state` | `{app, window_id?}`; tekst drzewa AX z `element_index` (domyślnie diff) + obraz okna z ramką współrzędnych; settling |
+| `computer_get_app_state` | Codex `get_app_state` | `{app, window_id?, disable_diff}`; drzewo z `element_index` (domyślnie diff) i zawsze obraz okna |
 | `computer_click` | Codex + bramki Claude | `element_index` lub `x,y` obrazu okna; przycisk, liczba kliknięć |
-| `computer_type_text` / `computer_paste` | Codex | tekst do fokusu celu; paste text/md/html z przywróceniem schowka |
-| `computer_press_key` | Codex (składnia xdotool) | `"Return"`, `"super+c"`; kombinacje systemowe wymagają flagi |
-| `computer_scroll` | Codex | element lub punkt; `pages` na obu platformach (helper Windows przelicza na piksele) |
-| `computer_drag` | Codex + Claude | ścieżka punktów, czas, modyfikatory |
-| `computer_set_value` / `computer_select_text` | Codex | na elemencie |
+| `computer_type_text` | Codex | `{app, text, element_index?}`; bez celu tekst idzie do elementu z fokusem |
+| `computer_press_key` | Codex (składnia xdotool) | `{app, key, repeat}`; kombinacje systemowe wymagają flagi |
+| `computer_scroll` | Codex | element lub punkt; `pages` |
+| `computer_drag` | Codex | `{app, from_x, from_y, to_x, to_y}`, lewy przycisk, 600 ms |
+| `computer_set_value` | Codex | na elemencie |
 | `computer_perform_secondary_action` | Codex | tylko akcja ujawniona w drzewie |
-| `computer_mouse` / `computer_hold_key` | Claude | niskopoziomowa mysz i przytrzymanie klawisza (oś czasu, suwaki, rysowanie) |
-| `computer_batch` | Claude | sekwencja akcji jednego celu, stop na pierwszym błędzie, stan na końcu |
-| `computer_screenshot` / `computer_zoom` | Claude | pełny ekran bez aplikacji bez zgody; zoom regionu |
+| `computer_zoom` | Claude | `{app, region}`: wycinek ostatniego zrzutu okna z bliska |
+
+To 12 narzędzi (od 2026-10-01). Wcześniej było 19; `computer_paste`,
+`computer_select_text`, `computer_mouse`, `computer_hold_key`,
+`computer_batch`, `computer_screenshot` i `computer_wait` zdjęto z listy
+modelu, bo `gpt-6-luna` wypełniał każde pole każdego narzędzia i mylił je.
+Helpery nadal obsługują te metody (protokół v5 bez zmian, testy e2e helpera
+zostały).
 
 Każda akcja zwraca `{outcome: delivered | ineffective | unsupported | blocked,
 code, hint}` i domyślnie świeży stan po settlingu.

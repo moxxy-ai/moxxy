@@ -64,8 +64,27 @@ public struct PixelBuffer: Equatable, Sendable {
 /// The area around a click by coordinates must look as it did in the screenshot the model aimed at.
 public enum PixelPatch {
     public static let size = 9
+
+    /// Whether every pixel is black: what a capture of a GPU-drawn window on another Space looks like.
+    public static func isBlank(_ buffer: PixelBuffer) -> Bool {
+        stride(from: 0, to: buffer.bytes.count - 3, by: 4).allSatisfy { buffer.bytes[$0] < 8 && buffer.bytes[$0 + 1] < 8 && buffer.bytes[$0 + 2] < 8 }
+    }
     /// A channel may drift this much (colour conversion) and still count as the same pixel.
     static let channelTolerance = 24
+    /// More differing pixels than a blinking caret covers count as the window having been redrawn.
+    static let redrawnPixels = 64
+
+    /// Whether two captures of a window differ enough to say a gesture did something.
+    public static func changed(_ before: PixelBuffer, _ after: PixelBuffer) -> Bool {
+        guard before.width == after.width, before.height == after.height, before.bytes.count == after.bytes.count else { return true }
+        var differing = 0
+        for pixel in stride(from: 0, to: before.bytes.count - 3, by: 4) {
+            guard (0..<3).contains(where: { abs(Int(before.bytes[pixel + $0]) - Int(after.bytes[pixel + $0])) > channelTolerance }) else { continue }
+            differing += 1
+            if differing > redrawnPixels { return true }
+        }
+        return false
+    }
 
     /// A `size`-wide square centred on the pixel, cut at the image edge; `nil` outside the image.
     public static func rect(aroundX x: Int, y: Int, width: Int, height: Int) -> PatchRect? {
@@ -112,6 +131,10 @@ public enum MousePhase: String, Sendable { case down, move, up }
 public enum MouseScript {
     /// Slow drags move at about display refresh rate.
     static let stepsPerSecond = 60.0
+    /// A segment is never one jump: apps and the window server recognise a drag from small moves.
+    static let minimumStepsPerSegment = 10
+    /// The press is held this long before the first move, or the gesture reads as a click.
+    public static let holdBeforeDrag: TimeInterval = 0.05
 
     static func types(_ button: MouseButton) -> (down: CGEventType, up: CGEventType, dragged: CGEventType, button: CGMouseButton) {
         switch button {
@@ -141,7 +164,7 @@ public enum MouseScript {
         guard let first = path.first, let last = path.last else { return [] }
         let kind = types(button)
         let segments = max(1, path.count - 1)
-        let perSegment = max(1, Int((duration * stepsPerSecond / Double(segments)).rounded(.up)))
+        let perSegment = max(minimumStepsPerSegment, Int((duration * stepsPerSecond / Double(segments)).rounded(.up)))
         var points: [CGPoint] = []
         for (from, to) in zip(path, path.dropFirst()) {
             for part in 1...perSegment {
@@ -151,7 +174,7 @@ public enum MouseScript {
         }
         let delay = duration / Double(points.count)
         return [step(.mouseMoved, first, kind.button), step(kind.down, first, kind.button, state: 1)]
-            + points.map { step(kind.dragged, $0, kind.button, delay: delay) }
+            + points.enumerated().map { index, point in step(kind.dragged, point, kind.button, delay: delay + (index == 0 ? holdBeforeDrag : 0)) }
             + [step(kind.up, last, kind.button, state: 1)]
     }
 
@@ -162,6 +185,38 @@ public enum MouseScript {
         case .down: return [step(.mouseMoved, point, kind.button), step(kind.down, point, kind.button, state: 1)]
         case .move: return [step(held ? kind.dragged : .mouseMoved, point, kind.button)]
         case .up: return [step(held ? kind.dragged : .mouseMoved, point, kind.button), step(kind.up, point, kind.button, state: 1)]
+        }
+    }
+}
+
+/// What a synthetic drag must carry on recent macOS: each move its delta (the movement is read from it, not from
+/// the position) and the whole press-move-release one event number.
+public struct DragMotion: Sendable {
+    public struct Fields: Equatable, Sendable {
+        public let number: Int64?
+        public let dx: Int64?
+        public let dy: Int64?
+    }
+
+    private var gesture: (number: Int64, last: CGPoint)?
+
+    public init() {}
+
+    /// `nextNumber` is used for a gesture that starts with this event.
+    public mutating func fields(for type: CGEventType, at point: CGPoint, nextNumber: Int64) -> Fields {
+        switch type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            gesture = (nextNumber, point)
+            return Fields(number: nextNumber, dx: nil, dy: nil)
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            guard let current = gesture else { return Fields(number: nil, dx: nil, dy: nil) }
+            gesture = (current.number, point)
+            return Fields(number: current.number, dx: Int64((point.x - current.last.x).rounded()), dy: Int64((point.y - current.last.y).rounded()))
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            defer { gesture = nil }
+            return Fields(number: gesture?.number, dx: nil, dy: nil)
+        default:
+            return Fields(number: nil, dx: nil, dy: nil)
         }
     }
 }

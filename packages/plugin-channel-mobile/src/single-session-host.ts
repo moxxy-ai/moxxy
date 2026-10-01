@@ -156,6 +156,13 @@ export class MobileSessionHost {
     this.bus.handle('workflows.decideApproval', async ({ workspaceId, id, choice }) => workflowApprovals(workspaceId).decide(id, choice));
     this.bus.handle('workflows.revokeApproval', async ({ workspaceId, id }) => workflowApprovals(workspaceId).revoke(id));
     this.bus.handle('workflows.cancelApprovalRun', async ({ workspaceId, id }) => workflowApprovals(workspaceId).cancel(id));
+    // Computer Use status: the same state the desktop's control strip shows. The
+    // phone stops a turn with `session.abortTurn`; pause, resume and take over
+    // stay with the person at the computer.
+    this.bus.handle('computer.snapshot', async ({ workspaceId }) => {
+      const control = this.session.computerControl;
+      return { workspaceId, turns: control ? await control.snapshot() : [] };
+    });
     this.bus.handle('connection.activeWorkspace', async () => this.activeWorkspaceId());
     this.bus.handle('connection.retry', async () => {});
     this.bus.handle('desks.list', async () => this.desksOverview());
@@ -330,6 +337,14 @@ export class MobileSessionHost {
       }
     });
     this.disposers.push(off);
+
+    // Pushed, never polled: every change reaches the phone as it reaches the desktop.
+    const control = this.session.computerControl;
+    if (control?.subscribe) {
+      this.disposers.push(control.subscribe((turns) => {
+        this.bus.broadcast('computer.changed', { workspaceId: this.selectedSessionId, turns });
+      }));
+    }
 
     this.session.setPermissionResolver(this.permissionResolver);
     this.session.setApprovalResolver(this.approvalResolver);

@@ -149,7 +149,8 @@ export class PreviewController {
   frame(source: PreviewSource, image: PreviewImage | undefined): void {
     if (source !== this.active || this.listeners.size === 0) return;
     this.alive();
-    if (!image || this.running?.codec === 'h264') return;
+    // A producer asked for video that sends a picture cannot make video: the picture is shown.
+    if (!image) return;
     this.latest = { seq: ++this.seq, image };
     const wait = this.deliveredAt + 1000 / this.fps - Date.now();
     if (wait <= 0) this.deliver();
