@@ -1914,5 +1914,6 @@ dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
 
 **Niezrobione / otwarte**
 - Pełne 5 powtórzeń po poprawkach; po poprawkach każda z czterech prób poszła raz.
-- Zmiana w `desktop.cpp` nie była kompilowana lokalnie.
+- Zmiana w `desktop.cpp` nie była kompilowana lokalnie; CI Windows dla commita
+  `40d310ea` (run 36920417527) jest zielone.
 - Krok trwa ok. 5 s; model nadal wysyła jedną akcję na odpowiedź.
