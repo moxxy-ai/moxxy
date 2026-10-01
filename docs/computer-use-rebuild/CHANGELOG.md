@@ -1701,3 +1701,45 @@ Fałszywych sukcesów: 0.
 - Windows: brak enkodera H.264 (krok 13), brak prób z modelem.
 - Kopia pluginu 0.41.1 w `~/.moxxy/plugins` użytkownika przesłania kopię z
   repozytorium; na czas prób była odsuwana i przywracana.
+
+## Próby na `gpt-6-luna` i poprawki z nich — 2026-10-01
+
+**Dlaczego:** próby z modelem prowadzi się tylko na `gpt-6-luna`. Poprzednie
+(na `gpt-6-astra`) nie liczą się; benchmark powtórzony w całości. Pełna tabela
+prób: [`benchmark.md`](benchmark.md).
+
+**Co i jak**
+- `src/contract/tools.ts`: krok batcha bierze tylko pola swojej akcji; indeks
+  i prawdziwy punkt naraz → celem jest punkt; cel opcjonalny z samymi zerami →
+  element z fokusem. Komunikat „Give exactly one target” zostaje tylko dla
+  braku celu.
+- `src/contract/keys.ts`: aliasy `ArrowUp/Down/Left/Right`.
+- `Act.swift`: podpowiedź przy pisaniu w punkt bez pola tekstowego.
+- `Preview.swift`: `stop()` czeka na zatrzymanie przechwytywania.
+- `skills/computer-apps/office.md`: arkusze (Return, edytor formuły, odczyt).
+
+**Testy (Red → Green)**
+- `tools.test.ts` „ignores, in a batch step, the fields that belong to other
+  actions…”: Red `Unrecognized key(s)` → Green.
+- `tools.test.ts` „ignores the filler…” rozszerzony trzy razy (indeks + punkt,
+  indeks 0 + punkt, same zera przy celu opcjonalnym): za każdym razem Red
+  (`Give exactly one target` albo zbędne `element_index: 0`) → Green.
+- `keys.test.ts` `ArrowDown`, `shift+ArrowLeft`: Red `unknown key` → Green.
+- `helper.test.ts`: test pisania w punkt sprawdza nową podpowiedź.
+- Test podglądu: raz czerwony w pełnym przebiegu (`expected 12 to be 11`,
+  klatka po `preview.stop`), po poprawce dwa pełne przebiegi zielone.
+
+**Po drodze** reguła „indeks wygrywa z punktem” okazała się błędna (próba
+luna8d kliknęła kontener zamiast komórki) i została odwrócona.
+
+**Walidacja**
+- `swift test` 134/134; `./build.sh` OK.
+- Plugin przy bezczynnym wejściu: 20 plików / 285 testów (z e2e).
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów (96
+  ostrzeżeń); `pnpm check:deps` 0 błędów (1 ostrzeżenie).
+
+**Niezrobione / otwarte**
+- Próg benchmarku niespełniony: 2 fałszywe sukcesy modelu w Numbers.
+- Zadanie 7 częściowe, zadanie 9 nieuruchomione (brak aplikacji).
+- Windows: zmiany w schemacie są wspólne, ale bez prób z modelem; brak
+  enkodera H.264.

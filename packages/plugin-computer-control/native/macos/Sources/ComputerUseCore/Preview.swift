@@ -78,8 +78,9 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         }
     }
 
+    /// Returns once capture is off, so no frame follows the answer to a stop request.
     public func stop() {
-        queue.async {
+        queue.sync {
             self.fps = nil
             self.restart()
         }

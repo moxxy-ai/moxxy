@@ -38,13 +38,25 @@ describe('computer_click', () => {
     expect(input('computer_click').parse({ app: 'TextEdit', element_index: null, x: 10, y: 20, modifiers: null }))
       .toEqual({ app: 'TextEdit', x: 10, y: 20, mouse_button: 'left', click_count: 1 });
     expect(input('computer_click').parse({ app: 'TextEdit', x: 0, y: 0 })).toMatchObject({ x: 0, y: 0 });
+    // A real point sent with an element is where the model looked: the point is the target.
+    expect(input('computer_click').parse({ app: 'TextEdit', element_index: 11, x: 81, y: 316 })).toEqual({ app: 'TextEdit', x: 81, y: 316, mouse_button: 'left', click_count: 1 });
+    expect(input('computer_click').parse({ app: 'Numbers', element_index: 0, x: 200, y: 188 })).toEqual({ app: 'Numbers', x: 200, y: 188, mouse_button: 'left', click_count: 1 });
     expect(input('computer_batch').parse({ app: 'TextEdit', actions: [{ action: 'click', element_index: 2, x: 0, y: 0, modifiers: '', text: '', key: '', path: [], repeat: 0 }] }).actions)
       .toEqual([{ action: 'click', element_index: 2, mouse_button: 'left', click_count: 1 }]);
     expect(input('computer_set_value').parse({ app: 'TextEdit', element_index: 1, value: '' })).toMatchObject({ value: '' });
+    // Where the target is optional, an all-zero target is filler: the action goes to the focused element.
+    expect(input('computer_type_text').parse({ app: 'Numbers', element_index: 0, x: 0, y: 0, text: '10' })).toEqual({ app: 'Numbers', text: '10' });
+    expect(input('computer_click').parse({ app: 'Numbers', element_index: 0, x: 0, y: 0 })).toMatchObject({ element_index: 0 });
+  });
+
+  it('ignores, in a batch step, the fields that belong to other actions whatever they hold', () => {
+    const step = { action: 'click', element_index: 7, x: 0, y: 0, mouse_button: 'left', click_count: 1, modifiers: '', text: 'unused', format: 'text', key: 'Return', repeat: 1,
+      duration_s: 0.1, direction: 'down', pages: 1, path: [[0, 0], [0, 0]], duration_ms: 100, event: 'down', value: '', prefix: '', suffix: '', selection_type: 'text', secondary_action: 'ShowMenu' };
+    expect(input('computer_batch').parse({ app: 'Calculator', actions: [step] }).actions).toEqual([{ action: 'click', element_index: 7, mouse_button: 'left', click_count: 1 }]);
+    expect(() => input('computer_batch').parse({ app: 'Calculator', actions: [{ action: 'click', element_index: 7, windowId: 'w' }] })).toThrow(/Unrecognized/);
   });
 
   it.each([
-    [{ app: 'TextEdit', element_index: 3, x: 1, y: 2 }, /exactly one target/],
     [{ app: 'TextEdit' }, /exactly one target/],
     [{ app: 'TextEdit', x: 1 }, /x and y/],
     [{ app: 'TextEdit', element_index: 1, click_count: 4 }, /click_count/],

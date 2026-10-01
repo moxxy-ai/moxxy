@@ -9,6 +9,8 @@ describe('parseKeyCombo (xdotool syntax)', () => {
     ['Delete', [], 'forward_delete'],
     ['Up', [], 'up'],
     ['Page_Down', [], 'page_down'],
+    ['ArrowDown', [], 'down'],
+    ['shift+ArrowLeft', ['shift'], 'left'],
     ['Next', [], 'page_down'],
     ['F12', [], 'f12'],
     ['KP_0', [], 'numpad_0'],

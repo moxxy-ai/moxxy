@@ -394,7 +394,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(typed.result).toEqual({ outcome: 'delivered', method: 'ax' });
           expect(element(typed.state ?? before, 'text field:name').value).toContain('Q');
           const nowhere = await act(transport, { action: 'type_text', ...centre(typed.state ?? before, 'group:pad'), text: 'Q' });
-          expect(nowhere.result).toMatchObject({ outcome: 'unsupported', code: 'unsupported_action' });
+          expect(nowhere.result).toMatchObject({ outcome: 'unsupported', code: 'unsupported_action', hint: expect.stringContaining('click the point first') });
         } finally { await transport.close(); }
       });
 

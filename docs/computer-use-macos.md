@@ -24,7 +24,8 @@ helper, so the model sees one set of tools on both systems (see
   as long as the element lives. Password fields are listed without a value.
 - An app with no open window returns an empty state and says so. Keys still
   reach it, so `super+n` or `super+o` can open a window.
-- Actions take an `element_index` or a point of the latest screenshot. Element
+- Actions take an `element_index` or a point of the latest screenshot. When a
+  call names both, a real point is the target and a `0,0` point is ignored. Element
   actions go through accessibility and work while the app is in the background;
   the user's pointer does not move. Real input is the fallback: the app comes
   forward, the helper checks the point (on screen, inside the target app, not
@@ -91,7 +92,7 @@ without input. `--filter=<pattern>` runs matching tests only.
 ## Trying it in Moxxy
 
 ```sh
-node packages/cli/dist/bin.js -p "Use Computer Use on Calculator: compute 17 times 23." \
+node packages/cli/dist/bin.js --model gpt-6-luna -p "Use Computer Use on Calculator: compute 17 times 23." \
   --allow-tools computer_status,computer_list_apps,computer_request_access,computer_get_app_state,computer_click,computer_press_key
 ```
 

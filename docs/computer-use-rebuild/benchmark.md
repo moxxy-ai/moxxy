@@ -23,50 +23,85 @@ Sukces ocenia się po prawdziwym stanie aplikacji odczytanym niezależnie
 | 9 | montaż | przytnij klip, przesuń go, wyeksportuj | realna aplikacja montażowa |
 | 10 | odporność | modal, przesunięcie układu, kontrolka bez efektu, Stop/Przejmij | fixture |
 
-## Wynik (2026-10-01, macOS, CLI `moxxy -p`, dostawca `openai-codex`, model `gpt-6-astra`)
+## Wynik (2026-10-01, macOS, CLI `moxxy --model gpt-6-luna -p`, dostawca `openai-codex`)
+
+Próby z modelem prowadzi się wyłącznie na `gpt-6-luna`. Wcześniejsze próby na
+innym modelu nie liczą się i zostały stąd usunięte (opis w `CHANGELOG.md`).
+
+Wszystkie próby, w kolejności; nic nie pominięto.
 
 | Próba | Zadanie | Wynik | Stan sprawdzony niezależnie |
 |---|---|---|---|
-| run4 | 1 | porażka — każde kliknięcie odrzucone przez schemat | pole „Kamil”, status „Ready” |
-| run5 | 1 | sukces po poprawce (5 wywołań, 60 s) | „Kamil”, „Pressed 2” |
-| run6 | 2 | sukces (3 wywołania, 40 s) | „Timeline A 20+80 B 110+60 selected B” |
-| run7 | 4 | sukces (8 wywołań, 91 s) | wyświetlacz „391” |
-| run8 | 5 | porażka — aplikacja bez okna nie przyjęła ⌘N; agent zgłosił to uczciwie | brak dokumentu |
-| run9 | 5 | nierozstrzygnięta — limit użycia konta dostawcy (429) po 2 wywołaniach | — |
+| luna1 | 1 | sukces (4 wywołania, 51 s) | „Kamil”, „Pressed 2” |
+| luna2 | 2, polecenie „o około 50 punktów” | częściowy: klip przesunięty o 20 pkt | „B 120+60” |
+| luna3 | 3, polecenie „o około 30 punktów” | częściowy: klip skrócony o 10 pkt | „A 20+70” |
+| luna2b | 2, cel „B 110+60” | sukces (4 wywołania) | „Timeline A 20+80 B 110+60 selected B” |
+| luna3b | 3, cel „A 20+50” | sukces (5 wywołań) | „Timeline A 20+50 B 140+60 selected A” |
+| luna4 | 4 | porażka, zgłoszona uczciwie; batch odrzucony przez schemat (błąd 1) | wyświetlacz „11×3” |
+| luna4b | 4 | sukces po poprawce (8 wywołań) | „17×23”, „391” |
+| luna5 | 5 | sukces (7 wywołań) | dokument „Zażółć gęślą jaźń 123” |
+| luna6 | 6 | sukces (11 wywołań) | folder `Raporty` na dysku |
+| luna7 | 7 | częściowy: tytuł poprawny, nagłówka strony nie odczytał | okno „Example Domain” |
+| luna10 | 10 | porażka, zgłoszona uczciwie; indeks i punkt naraz odrzucane (błąd 2) | „Ready” |
+| luna10b | 10 | sukces po poprawce (6 wywołań) | „Pressed 1” |
+| luna8 | 8 | porażka, zgłoszona uczciwie (błąd 2) | komórki puste |
+| luna8b | 8 | porażka, zgłoszona uczciwie (błąd 3) | komórki puste |
+| luna8c | 8 | **fałszywy sukces**: model dodał strzałkę po Return, wartości w złych wierszach, zgłosił „B5 = 30” jako wykonane | B2 10, B3 puste, B4 20, B5 30 |
+| luna8d | 8 | porażka, zgłoszona uczciwie (reguła „indeks wygrywa” kliknęła kontener zamiast komórki) | komórki puste |
+| luna8e | 8 | **fałszywy sukces**: model zamknął edytor formuły przyciskiem X i podał „60” | B2–B4 poprawne, B5 puste |
+| luna10c | 10 | sukces (7 wywołań) | „Pressed 1” |
+| luna8f | 8 | sukces (8 wywołań) | 10, 20, 30, 60, `=SUMA(B2:B4)` |
+| luna4c | 4 | porażka, zgłoszona uczciwie: model pominął cyfrę w batchu | „17×3”, „51” |
 
-Fałszywych sukcesów: 0 (w obu porażkach agent powiedział, że zadanie się nie
-udało).
+Na końcowym kodzie każde z zadań 1–8 i 10 ma co najmniej jeden sukces
+potwierdzony odczytem stanu, poza zadaniem 7 (częściowy).
 
-Zadanie 5 po poprawce sprawdzono bez modelu, wywołując narzędzia pluginu na
-prawdziwym TextEdit (`request_access` → `get_app_state` → `press_key super+n` →
-`type_text`): dokument zawiera „Zażółć gęślą jaźń 123.”.
+**Próg nie jest spełniony.** Dwie próby (luna8c, luna8e) to fałszywe sukcesy,
+a próg wymaga zera. W obu narzędzia zwróciły prawdziwy stan; model go nie
+sprawdził. Odsetka sukcesu nie da się uczciwie podać: próby były powtarzane po
+poprawkach, a nie losowane.
+
+W luna2 i luna3 polecenie mówiło o „punktach”, a narzędzie liczy piksele zrzutu
+(tu 2 piksele na punkt), więc ruch wyszedł o połowę krótszy. Z celem podanym
+jako stan (luna2b, luna3b) zadanie wychodzi.
 
 ## Błędy znalezione w próbach i naprawione
 
-1. Model wypełnia nieużywane pola (`x: 0, y: 0, modifiers: ""`, `null`) i
-   schemat odrzucał wywołanie, aż pętla przerwała turę. Schemat traktuje teraz
-   taki wypełniacz jak brak pola (`contract/tools.ts`).
-2. Aplikacja bez otwartego okna nie przyjmowała klawiszy. Klawisze idą teraz do
-   procesu aplikacji, a dla skrótów ⌘ aplikacja jest wyciągana na wierzch także
-   bez okna.
-3. Działająca aplikacja pokazywana pod przetłumaczoną nazwą („Kalkulator”) nie
-   była znajdowana po nazwie pakietu („Calculator”).
+1. Model wypełnia w kroku batcha także pola innych akcji wartościami niepustymi
+   (`repeat: 1`, `direction: "down"`, `path: [[0,0],[0,0]]`). Krok bierze teraz
+   tylko pola swojej akcji; nieznane pola nadal są odrzucane.
+2. Model podaje naraz `element_index` i punkt. Schemat to odrzucał. Teraz
+   prawdziwy punkt jest celem (helper i tak naciska kontrolkę pod punktem przez
+   accessibility), a punkt `0,0` obok indeksu jest wypełniaczem.
+3. `type_text` z celem „same zera” szło w okno zamiast w element z fokusem.
+   Tam, gdzie cel jest opcjonalny, same zera znaczą teraz „element z fokusem”.
+4. Podpowiedź przy pisaniu w punkt bez pola tekstowego nie mówiła, co zrobić.
+   Teraz mówi: kliknij punkt, potem wyślij tekst bez celu (komórka arkusza,
+   płótno).
+5. `ArrowDown` i pokrewne nazwy klawiszy nie były znane; są teraz aliasami.
+6. Wskazówki dla arkuszy (`skills/computer-apps/office.md`): Return sam
+   przechodzi w dół, formułę zatwierdza Return, przycisk X ją odrzuca.
+7. Test podglądu bywał niestabilny: `preview.stop` odpowiadał, zanim
+   przechwytywanie stanęło, więc jedna klatka mogła przyjść po odpowiedzi.
+   `stop` czeka teraz na zatrzymanie.
+
+Wcześniejsze poprawki (wypełniacz `0`/`""`/`null`, aplikacja bez okna,
+przetłumaczona nazwa aplikacji) zostają; znalazła je próba na innym modelu.
 
 ## Czego nie zmierzono
 
-- Próg 90% nie jest potwierdzony: po poprawkach są 3 rozstrzygnięte próby z
-  modelem (3 sukcesy) — za mało, żeby mówić o odsetku.
-- Zadania 3, 6, 7, 8 i 9 nie były uruchomione z modelem (limit konta dostawcy).
-  Zadanie 3 i scenariusze z zadania 10 są pokryte testami end-to-end helpera
-  (`src/macos/helper.test.ts`), czyli bez modelu.
-- Realna aplikacja montażowa (zadanie 9) nie jest zainstalowana na tej maszynie.
+- Zadanie 9: na tej maszynie nie ma aplikacji montażowej.
+- Zadanie 7: nagłówek strony w Safari nie został odczytany; przyczyna
+  nieustalona (zawartość strony jest w drzewie jako zwinięty element).
+- Scenariusze Stop/Przejmij, modal, drugi monitor i zabicie helpera: tylko
+  testy end-to-end helpera, bez modelu.
+- Powtórzenia tej samej próby na niezmienionym kodzie (rozrzut wyników).
 - Windows: tylko testy na runnerze CI, bez prób z modelem.
-- Powtórzenia tego samego zadania (rozrzut wyników) nie były robione.
 
 ## Jak powtórzyć
 
 Aplikacja testowa: `native/macos/build-fixture.sh`, potem
 `open -g native/macos/.build/fixture/MoxxyComputerFixture.app`. Zadanie:
-`node packages/cli/dist/bin.js -p "<zadanie>" --allow-tools <narzędzia computer_*> --output-format stream-json < /dev/null`.
+`node packages/cli/dist/bin.js --model gpt-6-luna -p "<zadanie>" --allow-tools <narzędzia computer_*> --output-format stream-json < /dev/null`.
 Starsza kopia pluginu w `~/.moxxy/plugins` ma pierwszeństwo przed kopią z
 repozytorium, więc na czas próby trzeba ją odsunąć.

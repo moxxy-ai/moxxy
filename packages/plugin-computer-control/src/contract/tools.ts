@@ -58,8 +58,7 @@ function checkTarget(required: boolean) {
       ctx.addIssue({ code: 'custom', path: [input.x === undefined ? 'x' : 'y'], message: 'x and y go together' });
       return;
     }
-    const count = Number(input.element_index !== undefined) + Number(input.x !== undefined);
-    if (count > 1 || (required && count === 0)) {
+    if (required && input.element_index === undefined && input.x === undefined) {
       ctx.addIssue({ code: 'custom', message: `Give exactly one target: element_index, or x and y${required ? '' : ' (or neither for the focused element)'}` });
     }
   };
@@ -71,18 +70,25 @@ interface ActionDef<S extends z.ZodRawShape> { readonly shape: S; readonly targe
 const define = <S extends z.ZodRawShape>(shape: S, rule?: TargetRule): ActionDef<S> => ({ shape, target: rule });
 const targeted = <S extends z.ZodRawShape>(shape: S, rule: 'required' | 'optional') => define({ ...target, ...shape }, rule);
 
-/** Models fill unused optional fields with null, "" or 0; read those as absent instead of rejecting the call. */
-function dropFiller(input: unknown): unknown {
+/**
+ * Models fill every field of a tool. null, "" and a 0,0 point are filler; a real point sent next to an element is
+ * where the model looked, so the point is the target (a control under it is still pressed through accessibility).
+ */
+function dropFiller(input: unknown, optionalTarget = false): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const kept = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null));
   if (kept.modifiers === '') delete kept.modifiers;
-  if (kept.element_index !== undefined && kept.x === 0 && kept.y === 0) { delete kept.x; delete kept.y; }
+  const zeroPoint = kept.x === 0 && kept.y === 0;
+  const realPoint = kept.x !== undefined && kept.y !== undefined && !zeroPoint;
+  // The window itself (index 0) is no target for typing or keys, so all zeros there mean the focused element.
+  if (realPoint || (optionalTarget && kept.element_index === 0)) delete kept.element_index;
+  if (zeroPoint && (kept.element_index !== undefined || optionalTarget)) { delete kept.x; delete kept.y; }
   return kept;
 }
 
 function build<S extends z.ZodRawShape>(shape: S, rule: TargetRule) {
   const object = z.object(shape).strict();
-  return z.preprocess(dropFiller, rule ? object.superRefine(checkTarget(rule === 'required')) : object);
+  return z.preprocess((input) => dropFiller(input, rule === 'optional'), rule ? object.superRefine(checkTarget(rule === 'required')) : object);
 }
 
 /** Actions on one app, without the `app` field; shared by the single tools and `computer_batch`. */
@@ -108,15 +114,14 @@ export type BatchAction = { [N in ActionName]: { action: N } & ActionOutput<N> }
 
 const optionalFields = Object.fromEntries(Object.entries(fields).map(([name, schema]) => [name, schema.optional()]));
 // One flat object keeps the JSON schema a plain object for every provider; each step is then parsed exactly.
-const isEmpty = (value: unknown) => value === '' || value === 0 || (Array.isArray(value) && value.length === 0);
-/** A step lists every action's fields, so filler in a field the chosen action does not take is dropped too. */
+/** A step lists every action's fields and a model fills them all, so a field the chosen action does not take is dropped. */
 function dropStepFiller(input: unknown): unknown {
   const step = dropFiller(input);
   if (typeof step !== 'object' || step === null || Array.isArray(step)) return step;
   const action = (step as { action?: unknown }).action;
   if (typeof action !== 'string' || !Object.hasOwn(actions, action)) return step;
   const shape = actions[action as ActionName].shape;
-  return Object.fromEntries(Object.entries(step).filter(([name, value]) => name === 'action' || Object.hasOwn(shape, name) || !isEmpty(value)));
+  return Object.fromEntries(Object.entries(step).filter(([name]) => name === 'action' || Object.hasOwn(shape, name) || !Object.hasOwn(fields, name)));
 }
 const batchStep = z.preprocess(dropStepFiller, z.object({ action: z.enum(batchActionNames as [ActionName, ...ActionName[]]), ...optionalFields }).strict()
   .transform((step, ctx): BatchAction => {

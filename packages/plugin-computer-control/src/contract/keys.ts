@@ -21,7 +21,7 @@ const MODIFIERS: Readonly<Record<string, Modifier>> = {
 const NAMED_KEYS: Readonly<Record<string, string>> = {
   return: 'enter', enter: 'enter', tab: 'tab', iso_left_tab: 'tab', escape: 'escape', esc: 'escape',
   backspace: 'backspace', delete: 'forward_delete', del: 'forward_delete', insert: 'insert',
-  space: 'space', up: 'up', down: 'down', left: 'left', right: 'right', home: 'home', end: 'end',
+  space: 'space', up: 'up', down: 'down', left: 'left', right: 'right', arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right', home: 'home', end: 'end',
   page_up: 'page_up', prior: 'page_up', pageup: 'page_up', page_down: 'page_down', next: 'page_down', pagedown: 'page_down',
   caps_lock: 'caps_lock', help: 'help', menu: 'menu',
   kp_enter: 'numpad_enter', kp_add: 'numpad_add', kp_subtract: 'numpad_subtract', kp_multiply: 'numpad_multiply',

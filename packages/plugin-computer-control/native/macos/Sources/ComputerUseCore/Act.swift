@@ -291,7 +291,7 @@ struct Executor {
     /// The text field under a point of the app, for typing and pasting by coordinates.
     private func onText(at screen: CGPoint, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
         guard let element = AXReader.element(at: screen, pid: state.window?.pid), AXReader.takesText(element) else {
-            return .unsupported("unsupported_action", hint: "There is no text field at that point; aim at one, or pass element_index.")
+            return .unsupported("unsupported_action", hint: "There is no text field at that point. On a canvas or a spreadsheet cell, click the point first, then send the text with no target.")
         }
         return withCursor(at: screen, outline: AXReader.frame(element)) { body(element) }
     }

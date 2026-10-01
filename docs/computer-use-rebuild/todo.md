@@ -5,11 +5,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 ## Gdzie jesteśmy
 
 - **Bieżący krok:** wszystkie kroki 0–14 wykonane; otwarte pozycje niżej.
-- **Następna czynność:** dokończyć benchmark z modelem (zadania 3, 6–9 z
-  [`benchmark.md`](benchmark.md)) po odnowieniu limitu konta dostawcy; enkoder
-  H.264 na Windows.
-- **Blokery:** limit użycia konta `openai-codex` (429) przerwał próby z modelem
-  1.10.2026; brak realnej aplikacji montażowej na maszynie testowej.
+- **Następna czynność:** fałszywe sukcesy modelu w arkuszach (patrz
+  [`benchmark.md`](benchmark.md)); odczyt treści strony w Safari; enkoder H.264
+  na Windows; próby z modelem na Windows.
+- **Blokery:** brak realnej aplikacji montażowej na maszynie testowej (zadanie
+  9). Próby z modelem tylko na `gpt-6-luna`.
 
 ## Rytuał każdego kroku
 
