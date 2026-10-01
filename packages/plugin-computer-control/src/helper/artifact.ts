@@ -6,6 +6,8 @@ import { z } from 'zod';
 
 const manifestSchema = (protocolVersion: number) => z.object({
   protocolVersion: z.literal(protocolVersion),
+  /** Absent for Windows and macOS, which the architecture alone tells apart. */
+  os: z.literal('linux').optional(),
   architecture: z.enum(['x64', 'arm64', 'x86_64', 'universal']),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
@@ -21,6 +23,16 @@ function assertWindowsX64(bytes: Buffer): void {
   if (offset > bytes.length - 6 || bytes.toString('ascii', offset, offset + 4) !== 'PE\0\0' || bytes.readUInt16LE(offset + 4) !== 0x8664) {
     throw new Error('Computer Use requires a Windows x64 executable');
   }
+}
+
+const ELF_MACHINE: Partial<Record<Architecture, number>> = { x64: 62, arm64: 183 };
+
+function assertLinux(bytes: Buffer, architecture: Architecture): void {
+  const machine = ELF_MACHINE[architecture];
+  // 64-bit, little-endian ELF for the named machine.
+  const matches = machine !== undefined && bytes.length >= 20 && bytes.toString('latin1', 0, 4) === '\x7fELF'
+    && bytes[4] === 2 && bytes[5] === 1 && bytes.readUInt16LE(18) === machine;
+  if (!matches) throw new Error(`Computer Use requires a Linux ${architecture} executable`);
 }
 
 function assertMacOS(bytes: Buffer, architecture: Exclude<Architecture, 'x64'>): void {
@@ -76,7 +88,7 @@ function machOSlices(bytes: Buffer): Array<{ cpu: number; slice: Buffer }> | und
 }
 
 /**
- * The digest a manifest records. A Windows executable is hashed whole. A Mach-O
+ * The digest a manifest records. A Windows or Linux executable is hashed whole. A Mach-O
  * is hashed without its code signatures, because packaging the desktop app signs
  * every executable again after the manifest was written; macOS itself refuses to
  * run code whose signature does not match.
@@ -96,7 +108,8 @@ export function helperDigest(bytes: Buffer): string {
 
 export function validateHelperArtifact(bytes: Buffer, manifest: unknown, protocolVersion: number): void {
   const expected = manifestSchema(protocolVersion).parse(manifest);
-  if (expected.architecture === 'x64') assertWindowsX64(bytes);
+  if (expected.os === 'linux') assertLinux(bytes, expected.architecture);
+  else if (expected.architecture === 'x64') assertWindowsX64(bytes);
   else assertMacOS(bytes, expected.architecture);
   if (helperDigest(bytes) !== expected.sha256) throw new Error('Computer Use executable checksum mismatch');
 }
@@ -141,7 +154,7 @@ export async function verifyHelperArtifact(executable: string, protocolVersion: 
 }
 
 /** Written by the native build next to the executable it just produced. */
-export async function writeHelperManifest(executable: string, manifest: { protocolVersion: number; architecture: Architecture }): Promise<void> {
+export async function writeHelperManifest(executable: string, manifest: { protocolVersion: number; architecture: Architecture; os?: 'linux' }): Promise<void> {
   const sha256 = helperDigest(await readBounded(executable, 32_000_000));
   const temporary = `${executable}.json.tmp`;
   await writeFile(temporary, JSON.stringify({ ...manifest, sha256 }));

@@ -2,7 +2,7 @@ import type { ProviderRequest } from '@moxxy/sdk';
 import type { KeyPlatform } from './keys.js';
 
 const marker = '[Moxxy Computer Use]';
-const superKey: Record<KeyPlatform, string> = { darwin: 'Command', win32: 'the Windows key' };
+const superKey: Record<KeyPlatform, string> = { darwin: 'Command', win32: 'the Windows key', linux: 'the Super (Windows) key' };
 
 const rules = (platform: KeyPlatform) => `${marker}
 The computer_* tools operate real applications on the user's computer through a native helper.

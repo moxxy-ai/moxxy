@@ -11,6 +11,19 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.
 
+## Linux (w toku)
+
+Helper `native/linux` (C++, AT-SPI + X11) na tym samym protokole v5. Budowany
+i testowany w kontenerze (`native/linux/Dockerfile`), bo na tym komputerze nie
+ma Linuksa.
+
+- [x] L1: warstwa TS — manifest ELF, profil `linux-x64`/`linux-arm64`, klawisze systemowe, kategorie aplikacji.
+- [ ] L2: szkielet helpera — protokół, `status`, nadzór rodzica, testy jednostkowe.
+- [ ] L3: katalog aplikacji, stan aplikacji (drzewo AT-SPI, zrzut okna), aplikacja testowa, e2e.
+- [ ] L4: akcje (klik, pisanie, klawisze, przewijanie, przeciąganie, wartość, akcja drugorzędna).
+- [ ] L5: podgląd JPEG, kursor agenta, pauza/Stop/Escape, zoom.
+- [ ] L6: CI, pakowanie, dokumentacja.
+
 ## Otwarte
 
 - [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów): 2 powtórzenia przed

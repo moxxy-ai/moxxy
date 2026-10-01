@@ -93,7 +93,7 @@ export function checkKeys(step: ComputerAction, flags: AccessFlags, platform: Ke
   if (missing.length > 0) throw new ComputerUseError('clipboard_not_granted', `"${step.key}" needs ${missing.join(' and ')}`);
 }
 
-// Bundle identifiers / Windows executables (a prefix matches its sub-identifiers) and display names
+// Bundle identifiers / Windows executables / Linux desktop ids (a prefix matches its sub-identifiers) and display names
 // (a name matches exactly or as the first words) of apps that get a restricted default level.
 const KNOWN: Readonly<Record<AppCategory, { readonly ids: readonly string[]; readonly names: readonly string[] }>> = {
   browser: {
@@ -101,11 +101,12 @@ const KNOWN: Readonly<Record<AppCategory, { readonly ids: readonly string[]; rea
       'com.apple.safari', 'com.apple.safaritechnologypreview', 'com.google.chrome', 'com.microsoft.edgemac', 'org.mozilla.firefox',
       'org.mozilla.nightly', 'com.brave.browser', 'com.operasoftware', 'com.vivaldi.vivaldi', 'company.thebrowser', 'org.chromium',
       'app.zen-browser', 'org.torproject.torbrowser', 'com.duckduckgo.macos.browser', 'com.openai.atlas', 'ai.perplexity.comet',
-      'com.kagi.kagimacos', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'arc.exe',
+      'com.kagi.kagimacos', 'google-chrome', 'chromium', 'chromium-browser', 'firefox', 'firefox-esr', 'brave-browser',
+      'microsoft-edge', 'vivaldi-stable', 'org.gnome.epiphany', 'org.kde.falkon', 'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe', 'arc.exe',
     ],
     names: [
       'safari', 'google chrome', 'chrome', 'chromium', 'firefox', 'microsoft edge', 'brave', 'brave browser', 'opera', 'vivaldi',
-      'arc', 'dia', 'tor browser', 'duckduckgo', 'zen', 'zen browser', 'orion', 'atlas', 'comet',
+      'arc', 'dia', 'web', 'falkon', 'tor browser', 'duckduckgo', 'zen', 'zen browser', 'orion', 'atlas', 'comet',
     ],
   },
   terminal: {
@@ -114,10 +115,11 @@ const KNOWN: Readonly<Record<AppCategory, { readonly ids: readonly string[]; rea
       'net.kovidgoyal.kitty', 'co.zeit.hyper', 'com.mitchellh.ghostty', 'com.microsoft.vscode', 'com.vscodium',
       'com.todesktop.230313mzl4w4u92', 'com.exafunction.windsurf', 'dev.zed', 'com.jetbrains', 'com.google.android.studio',
       'com.sublimetext', 'org.vim.macvim', 'org.gnu.emacs', 'com.apple.dt.xcode', 'com.apple.scripteditor2', 'com.apple.automator',
-      'com.apple.shortcuts', 'windowsterminal.exe', 'powershell.exe', 'pwsh.exe', 'cmd.exe', 'code.exe', 'cursor.exe',
+      'com.apple.shortcuts', 'org.gnome.terminal', 'org.gnome.console', 'org.gnome.ptyxis', 'org.kde.konsole', 'org.kde.kate',
+      'org.xfce.terminal', 'xfce4-terminal', 'com.gexperts.tilix', 'xterm', 'code', 'codium', 'org.gnome.builder', 'windowsterminal.exe', 'powershell.exe', 'pwsh.exe', 'cmd.exe', 'code.exe', 'cursor.exe',
     ],
     names: [
-      'terminal', 'windows terminal', 'iterm', 'iterm2', 'warp', 'wezterm', 'alacritty', 'kitty', 'hyper', 'ghostty',
+      'terminal', 'windows terminal', 'gnome terminal', 'konsole', 'xterm', 'tilix', 'ptyxis', 'iterm', 'iterm2', 'warp', 'wezterm', 'alacritty', 'kitty', 'hyper', 'ghostty',
       'visual studio code', 'code', 'cursor', 'windsurf', 'zed', 'intellij idea', 'pycharm', 'webstorm', 'clion', 'goland', 'rider',
       'android studio', 'xcode', 'sublime text', 'macvim', 'emacs', 'powershell', 'command prompt', 'script editor', 'automator', 'shortcuts',
     ],

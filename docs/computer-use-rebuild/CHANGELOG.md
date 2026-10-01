@@ -2143,3 +2143,30 @@ kontroli wstępnej („Capture did not contain fixture pixel markers”), zanim
 uruchomił testy; pierwsze przejście tych samych testów w tym przebiegu było
 zielone. Zmiana w Windows to tylko limit tempa podglądu, którego kontrola
 wstępna nie używa. Ponowiony przebieg jest zielony.
+
+## Linux L1 — warstwa TypeScript — 2026-10-02
+
+**Decyzje dla helpera Linux**
+- Język C++20, biblioteki systemowe: `libatspi` (drzewo i akcje accessibility),
+  Xlib + XTest + XComposite (okna, zrzut, wejście), `libjpeg`. Bez nowych
+  zależności w npm.
+- Zakres: sesje X11. Wayland nie pozwala obcemu procesowi czytać okien ani
+  wysyłać wejścia bez portalu z pytaniem przy każdej sesji; `computer_status`
+  ma to mówić wprost.
+- Podgląd na żywo: obrazy JPEG (bez kodera wideo), więc profil podaje tylko
+  `jpeg` i kontroler nie prosi o H.264.
+- Ten sam protokół v5 i te same 12 narzędzi modelu.
+
+**Co**
+- `artifact.ts`: manifest z `os: "linux"` wymaga 64-bitowego pliku ELF dla
+  podanej architektury (x64 → EM_X86_64, arm64 → EM_AARCH64); bez `os` ELF
+  jest odrzucany jak dotąd.
+- `linux/profile.ts`, `index.ts`: Linux x64/arm64 dostaje profil z helperem
+  w `bin/linux-<arch>/`; bez helpera zostaje samo `computer_status` z powodem.
+- `keys.ts`, `guidance.ts`: platforma `linux` (skróty systemowe: Alt+F4,
+  Alt+Tab, Ctrl+Alt+F1–F12, Super+L i inne; „super” to klawisz Super).
+- `access.ts`, `browsers.md`: identyfikatory `.desktop` przeglądarek i terminali.
+
+**Testy (Red → Green)**: „Linux helper artifact” ×2, klawisze systemowe ×6,
+kategorie ×4, profil i wybór platformy ×3, wskazówka o klawiszu Super
+(Red: 10 testów czerwonych + brak modułu `./linux/profile.js`).

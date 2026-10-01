@@ -33,3 +33,8 @@ it('tells the model how to finish in few rounds', () => {
   expect(system).toMatch(/keyboard/);
   expect(system).not.toMatch(/One action per call/);
 });
+
+it('names the Super key for Linux', () => {
+  const { system } = withComputerGuidance('linux')({ model: 'm', messages: [], tools: [tool('computer_click')] });
+  expect(system).toContain('"super" is the Super (Windows) key');
+});

@@ -22,7 +22,7 @@ const fields = {
   modifiers: chord((combo) => combo.key === null ? undefined : 'modifiers only, e.g. "shift" or "cmd+shift"')
     .describe('Modifier keys held during the click, e.g. "shift" or "cmd+alt".'),
   text: z.string().min(1).max(20_000),
-  key: chord().describe('One chord in xdotool syntax: "Return", "Tab", "Escape", "BackSpace", "Delete" (forward delete), "Up", "Page_Down", "F5", "KP_0", "super+c" (super = Command on macOS, Windows key on Windows), "ctrl+shift+Tab".'),
+  key: chord().describe('One chord in xdotool syntax: "Return", "Tab", "Escape", "BackSpace", "Delete" (forward delete), "Up", "Page_Down", "F5", "KP_0", "super+c" (super = Command on macOS, Windows key on Windows, Super on Linux), "ctrl+shift+Tab".'),
   repeat: z.number().int().min(1).max(100),
   direction: z.enum(['up', 'down', 'left', 'right']),
   pages: z.number().min(0.1).max(50).describe('How far to scroll, in visible pages.'),
@@ -31,7 +31,7 @@ const fields = {
 };
 
 const app = z.string().min(1).max(512)
-  .describe('App display name or bundle identifier (macOS), or app id from computer_list_apps (Windows).');
+  .describe('App display name or bundle identifier (macOS), or app id from computer_list_apps (Windows, Linux).');
 
 type TargetInput = { element_index?: number; x?: number; y?: number };
 export type Target = { kind: 'element'; index: number } | { kind: 'point'; x: number; y: number } | { kind: 'focused' };

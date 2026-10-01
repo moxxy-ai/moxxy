@@ -3,11 +3,11 @@ import { ComputerUseError } from './outcome.js';
 export type Modifier = 'ctrl' | 'alt' | 'shift' | 'meta';
 /** One chord: modifiers in canonical order and at most one key (none when only modifiers are held). */
 export interface KeyCombo { readonly modifiers: readonly Modifier[]; readonly key: string | null }
-export type KeyPlatform = 'darwin' | 'win32';
+export type KeyPlatform = 'darwin' | 'win32' | 'linux';
 
 const MODIFIER_ORDER: readonly Modifier[] = ['ctrl', 'alt', 'shift', 'meta'];
 
-// `meta` is Command on macOS and the Windows key on Windows.
+// `meta` is Command on macOS, the Windows key on Windows and Super on Linux.
 const MODIFIERS: Readonly<Record<string, Modifier>> = {
   ctrl: 'ctrl', control: 'ctrl', control_l: 'ctrl', control_r: 'ctrl',
   alt: 'alt', option: 'alt', opt: 'alt', alt_l: 'alt', alt_r: 'alt',
@@ -86,6 +86,12 @@ const SYSTEM_COMBOS: Readonly<Record<KeyPlatform, ReadonlySet<string>>> = {
   win32: new Set([
     'ctrl+alt+forward_delete', 'alt+f4', 'alt+tab', 'alt+shift+tab', 'ctrl+alt+tab', 'ctrl+alt+shift+tab',
     'meta+l', 'meta+d', 'meta+r', 'meta+e', 'meta+s', 'meta+q', 'ctrl+escape', 'meta+i', 'meta+u', 'meta+x',
+  ]),
+  // Window manager and session chords of the common desktops, and the switch to a text console.
+  linux: new Set([
+    'alt+f4', 'alt+tab', 'alt+shift+tab', 'meta+tab', 'shift+meta+tab', 'alt+f2', 'ctrl+alt+forward_delete', 'ctrl+alt+backspace',
+    'ctrl+alt+l', 'ctrl+alt+t', 'meta+l', 'meta+d', 'meta+a', 'meta+s', 'meta',
+    ...Array.from({ length: 12 }, (_, index) => `ctrl+alt+f${index + 1}`),
   ]),
 };
 

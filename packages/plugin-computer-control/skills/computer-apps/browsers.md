@@ -14,6 +14,14 @@ apps:
   - com.brave.Browser
   - com.operasoftware.Opera
   - com.vivaldi.Vivaldi
+  - firefox
+  - firefox-esr
+  - google-chrome
+  - chromium
+  - chromium-browser
+  - brave-browser
+  - microsoft-edge
+  - org.gnome.Epiphany
   - Safari
   - Google Chrome
   - Firefox

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { PlatformProfile } from './backend/backend.js';
 import { computerTools } from './contract/tools.js';
 import { createComputerControlPlugin } from './index.js';
+import { linuxProfile } from './linux/profile.js';
 import { macosProfile } from './macos/profile.js';
 import { windowsProfile } from './windows/profile.js';
 
@@ -79,7 +80,23 @@ describe('createComputerControlPlugin', () => {
     expect(windowsProfile.helperPath.replaceAll('\\', '/')).toMatch(/bin\/win32-x64\/moxxy-computer\.exe$/);
   });
 
-  it.each([['linux', 'x64'], ['win32', 'arm64']] as const)('reports %s %s as unsupported through computer_status alone', async (platform, arch) => {
+  it('runs Linux on the same tool set with a live view of pictures', () => {
+    const plugin = createComputerControlPlugin('linux', 'x64', profile({ ...ready, os: 'linux', architecture: 'x64' }, linuxProfile('x64')));
+    expect(names(plugin.tools)).toEqual(Object.keys(computerTools).sort());
+    expect(plugin.surfaces?.map((surface) => surface.kind)).toEqual(['computer-preview']);
+    expect(linuxProfile('x64')).toMatchObject({ platform: 'linux', protocolVersion: macosProfile.protocolVersion, previewCodecs: ['jpeg'] });
+    expect(linuxProfile('x64').helperPath).toMatch(/bin\/linux-x64\/moxxy-computer$/);
+    expect(linuxProfile('arm64').helperPath).toMatch(/bin\/linux-arm64\/moxxy-computer$/);
+  });
+
+  it('offers only computer_status, with the reason, when the Linux helper is missing', async () => {
+    const plugin = createComputerControlPlugin('linux', 'arm64', profile(undefined, linuxProfile('arm64')));
+    expect(names(plugin.tools)).toEqual(['computer_status']);
+    const [status] = plugin.tools ?? [];
+    expect(await status?.handler({}, context)).toMatchObject({ platform: 'linux', ready: false, limitations: [expect.stringMatching(/helper is missing/)] });
+  });
+
+  it.each([['linux', 'ia32'], ['freebsd', 'x64'], ['win32', 'arm64']] as const)('reports %s %s as unsupported through computer_status alone', async (platform, arch) => {
     const plugin = createComputerControlPlugin(platform, arch);
     expect(names(plugin.tools)).toEqual(['computer_status']);
     const [status] = plugin.tools ?? [];
@@ -87,7 +104,7 @@ describe('createComputerControlPlugin', () => {
   });
 
   it('asks before every tool on every platform', () => {
-    for (const plugin of [createComputerControlPlugin('darwin', 'arm64', profile(ready)), createComputerControlPlugin('win32', 'x64', profile({ ...ready, architecture: 'x64' }, windowsProfile)), createComputerControlPlugin('linux', 'x64')]) {
+    for (const plugin of [createComputerControlPlugin('darwin', 'arm64', profile(ready)), createComputerControlPlugin('win32', 'x64', profile({ ...ready, architecture: 'x64' }, windowsProfile)), createComputerControlPlugin('linux', 'ia32')]) {
       for (const tool of plugin.tools ?? []) expect(tool.permission?.action, tool.name).toBe('prompt');
     }
   });

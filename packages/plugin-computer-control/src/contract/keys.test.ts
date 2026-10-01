@@ -75,6 +75,12 @@ describe('isSystemKeyCombo', () => {
     ['ctrl+alt+Delete', 'win32', true],
     ['super+l', 'win32', true],
     ['ctrl+c', 'win32', false],
+    ['alt+F4', 'linux', true],
+    ['alt+Tab', 'linux', true],
+    ['ctrl+alt+F2', 'linux', true],
+    ['super+l', 'linux', true],
+    ['ctrl+c', 'linux', false],
+    ['ctrl+t', 'linux', false],
   ] as const)('%s on %s → %s', (text, platform, expected) => {
     expect(isSystemKeyCombo(parseKeyCombo(text), platform)).toBe(expected);
   });

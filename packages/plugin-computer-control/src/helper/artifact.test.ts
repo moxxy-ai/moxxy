@@ -57,6 +57,35 @@ describe('helper artifact validation', () => {
   });
 });
 
+function elf(machine: number, bits: 1 | 2 = 2): Buffer {
+  const bytes = Buffer.alloc(64);
+  bytes.write('\x7fELF', 0, 'latin1'); bytes[4] = bits; bytes[5] = 1; bytes.writeUInt16LE(machine, 18);
+  return bytes;
+}
+
+describe('Linux helper artifact', () => {
+  const linux = (bytes: Buffer, architecture: string) => ({ protocolVersion: 5, os: 'linux', architecture, sha256: digest(bytes) });
+
+  it('accepts a 64-bit ELF whose machine matches the manifest', () => {
+    const x64 = elf(62);
+    const arm = elf(183);
+    expect(() => validateHelperArtifact(x64, linux(x64, 'x64'), 5)).not.toThrow();
+    expect(() => validateHelperArtifact(arm, linux(arm, 'arm64'), 5)).not.toThrow();
+    expect(() => validateHelperArtifact(arm, linux(arm, 'x64'), 5)).toThrow(/Linux x64/);
+    expect(() => validateHelperArtifact(elf(62, 1), linux(elf(62, 1), 'x64'), 5)).toThrow(/Linux x64/);
+    expect(() => validateHelperArtifact(x64, { ...linux(x64, 'x64'), sha256: '0'.repeat(64) }, 5)).toThrow(/checksum/);
+  });
+
+  it('never takes an ELF for Windows or macOS, or another format for Linux', () => {
+    const x64 = elf(62);
+    expect(() => validateHelperArtifact(x64, { protocolVersion: 5, architecture: 'x64', sha256: digest(x64) }, 5)).toThrow();
+    expect(() => validateHelperArtifact(x64, { protocolVersion: 5, architecture: 'arm64', sha256: digest(x64) }, 5)).toThrow();
+    const arm = thinMachO(ARM64);
+    expect(() => validateHelperArtifact(arm, linux(arm, 'arm64'), 5)).toThrow(/Linux arm64/);
+    expect(() => validateHelperArtifact(x64, linux(x64, 'universal'), 5)).toThrow();
+  });
+});
+
 describe('helper artifact on disk', () => {
   const directories: string[] = [];
   const directory = () => { const made = mkdtempSync(join(tmpdir(), 'moxxy-artifact-')); directories.push(made); return made; };
