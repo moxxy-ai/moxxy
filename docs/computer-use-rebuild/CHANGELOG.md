@@ -1692,7 +1692,8 @@ Fałszywych sukcesów: 0.
 - Windows CI: run 36811088154 zielony; instalator (run 36811436283) zielony;
   run 36812455639 po commicie kroku 13 czerwony („Helper exited before
   answering” od pierwszego testu stanu, bez zmian w kodzie Windows w tym
-  commicie) — do oceny po runie z tego commita.
+  commicie); run 36816291229 z commita kroku 14 (`ad6de5d8`) zielony, więc
+  tamta porażka była jednorazowa (runner), nie regresja. Przyczyna nieustalona.
 
 **Niezrobione / otwarte**
 - Próg benchmarku ≥90% niepotwierdzony: zadania 3, 6–9 bez prób z modelem;
