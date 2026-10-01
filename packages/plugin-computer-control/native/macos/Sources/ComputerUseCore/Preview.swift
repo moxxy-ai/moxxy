@@ -37,6 +37,40 @@ public enum PreviewPolicy {
     }
 }
 
+/// Remembers the picture last sent, to tell whether the next one differs from it.
+final class ShownPicture {
+    private var planes: [Data] = []
+    private var shape: [Int] = []
+
+    /// True, and remembered, when `picture` is not the one seen last.
+    func isNew(_ picture: CVPixelBuffer) -> Bool {
+        CVPixelBufferLockBaseAddress(picture, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(picture, .readOnly) }
+        // The capture hands out video pictures in two planes (brightness, colour); a plain picture is one block.
+        let planar = CVPixelBufferIsPlanar(picture)
+        let parts = (0..<(planar ? CVPixelBufferGetPlaneCount(picture) : 1)).map { index in
+            planar
+                ? (base: CVPixelBufferGetBaseAddressOfPlane(picture, index), rows: CVPixelBufferGetHeightOfPlane(picture, index),
+                   stride: CVPixelBufferGetBytesPerRowOfPlane(picture, index), width: CVPixelBufferGetWidthOfPlane(picture, index))
+                : (base: CVPixelBufferGetBaseAddress(picture), rows: CVPixelBufferGetHeight(picture),
+                   stride: CVPixelBufferGetBytesPerRow(picture), width: CVPixelBufferGetWidth(picture))
+        }
+        let now = parts.flatMap { [$0.rows, $0.stride, $0.width] }
+        let same = now == shape && zip(parts, planes).allSatisfy { part, old in
+            old.withUnsafeBytes { bytes in
+                guard let was = bytes.baseAddress, let base = part.base, part.width > 0 else { return false }
+                // The bytes past the width of a row are padding and may hold anything.
+                let used = part.width * (part.stride / part.width)
+                return (0..<part.rows).allSatisfy { memcmp(was + $0 * part.stride, base + $0 * part.stride, used) == 0 }
+            }
+        }
+        if same { return false }
+        planes = parts.map { part in part.base.map { Data(bytes: $0, count: part.rows * part.stride) } ?? Data() }
+        shape = now
+        return true
+    }
+}
+
 /// Streams the window being worked in to the host, as JPEG frames or as H.264 video. The agent cursor is not in the
 /// picture (its overlay is excluded from capture); the host draws it from the cursor events.
 public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
@@ -50,6 +84,7 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
     /// The newest picture, kept so a key frame can be made for a viewer who joins a still window.
     private var latest: CVPixelBuffer?
     private var wantsKey = false
+    private var shown = ShownPicture()
     private var window: WindowCandidate?
     private var stream: SCStream?
     private var alive: DispatchSourceTimer?
@@ -104,6 +139,7 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         encoder = nil
         latest = nil
         wantsKey = false
+        shown = ShownPicture()
         if let old = stream {
             stream = nil
             old.stopCapture { _ in }
@@ -183,6 +219,8 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
               let status = (attachments.first?[.status] as? Int).flatMap(SCFrameStatus.init(rawValue:)), status == .complete,
               let buffer = sampleBuffer.imageBuffer
         else { return }
+        // A still window keeps producing pictures, each reported as changed all over; only the pixels tell.
+        guard shown.isNew(buffer) || wantsKey else { return }
         if let encoder {
             latest = buffer
             let key = wantsKey

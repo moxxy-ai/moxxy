@@ -2120,5 +2120,26 @@ samego ruchomego okna); różnicy od tempa nie widać ponad szum.
 **Niezrobione / otwarte**
 - Całego zadania w Arc nie powtórzono z modelem.
 - Koszt po stronie odbiorcy (host, dekoder w oknie desktopu) niezmierzony.
-- Nieruchome okno nadal daje 30 obrazów/s; helper mógłby ich nie kodować.
 - Windows: zmiana limitu sprawdzona tylko przez CI.
+
+## Nieruchome okno nie jest kodowane — 2026-10-02
+
+**Co**: `Preview.swift`, `ShownPicture`: helper pamięta ostatnio wysłany obraz
+i pomija kolejny, jeśli piksele są te same (obie płaszczyzny formatu 420v,
+bez dopełnienia wierszy). Informacja systemu o zmienionych obszarach
+(`dirtyRects`) nie nadaje się do tego: dla okna podaje cały obszar w każdej
+klatce (sprawdzone na Kalkulatorze).
+
+**Testy (Red → Green)**: `ShownPictureTests` ×3 (Red przy wyłączonym
+pomijaniu: „Expectation failed: !shown.isNew(picture(10))”).
+
+**Pomiar** (30 kl./s, 10 s): okno nieruchome 0,1 obrazu/s, 3 kbit/s, helper
+1,9% (było 29,8 obrazu/s i 5,4%); okno w ruchu 29,8 obrazu/s, helper 8,2%
+(porównanie pikseli kosztuje ok. 1–2 pkt). replayd bez zmian (ok. 2,5%): samo
+przechwytywanie nadal działa.
+
+**CI Windows dla `0dd72730`**: krok „Repeat real desktop tests” padł w
+kontroli wstępnej („Capture did not contain fixture pixel markers”), zanim
+uruchomił testy; pierwsze przejście tych samych testów w tym przebiegu było
+zielone. Zmiana w Windows to tylko limit tempa podglądu, którego kontrola
+wstępna nie używa. Ponowiony przebieg jest zielony.

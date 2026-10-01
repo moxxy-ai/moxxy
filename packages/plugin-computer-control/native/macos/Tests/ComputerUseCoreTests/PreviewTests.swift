@@ -1,4 +1,6 @@
 import CoreGraphics
+import CoreVideo
+import Foundation
 import Testing
 @testable import ComputerUseCore
 
@@ -37,5 +39,54 @@ import Testing
         #expect(PreviewPolicy.needsRestart(from: window, to: other))
         #expect(PreviewPolicy.needsRestart(from: nil, to: window))
         #expect(!PreviewPolicy.needsRestart(from: nil, to: nil))
+    }
+}
+
+@Suite struct ShownPictureTests {
+    private func picture(_ fill: UInt8, width: Int = 64, height: Int = 48, format: OSType = kCVPixelFormatType_32BGRA) -> CVPixelBuffer {
+        var made: CVPixelBuffer?
+        CVPixelBufferCreate(nil, width, height, format, nil, &made)
+        let buffer = made!
+        CVPixelBufferLockBaseAddress(buffer, [])
+        if CVPixelBufferIsPlanar(buffer) {
+            for plane in 0..<CVPixelBufferGetPlaneCount(buffer) {
+                memset(CVPixelBufferGetBaseAddressOfPlane(buffer, plane), Int32(fill), CVPixelBufferGetBytesPerRowOfPlane(buffer, plane) * CVPixelBufferGetHeightOfPlane(buffer, plane))
+            }
+        } else {
+            memset(CVPixelBufferGetBaseAddress(buffer), Int32(fill), CVPixelBufferGetBytesPerRow(buffer) * height)
+        }
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+        return buffer
+    }
+
+    @Test func comparesBothPlanesOfAVideoPicture() {
+        let video = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let shown = ShownPicture()
+        #expect(shown.isNew(picture(10, format: video)))
+        #expect(!shown.isNew(picture(10, format: video)))
+        let tinted = picture(10, format: video)
+        CVPixelBufferLockBaseAddress(tinted, [])
+        CVPixelBufferGetBaseAddressOfPlane(tinted, 1)!.storeBytes(of: 200, as: UInt8.self)
+        CVPixelBufferUnlockBaseAddress(tinted, [])
+        #expect(shown.isNew(tinted))
+    }
+
+    @Test func tellsARepeatedPictureFromAChangedOne() {
+        let shown = ShownPicture()
+        #expect(shown.isNew(picture(10)))
+        #expect(!shown.isNew(picture(10)))
+        #expect(shown.isNew(picture(11)))
+        #expect(!shown.isNew(picture(11)))
+        #expect(shown.isNew(picture(11, width: 32)))
+    }
+
+    @Test func seesOnePixelChange() {
+        let shown = ShownPicture()
+        _ = shown.isNew(picture(0))
+        let other = picture(0)
+        CVPixelBufferLockBaseAddress(other, [])
+        CVPixelBufferGetBaseAddress(other)!.storeBytes(of: 255, toByteOffset: CVPixelBufferGetBytesPerRow(other) * 47 + 63 * 4, as: UInt8.self)
+        CVPixelBufferUnlockBaseAddress(other, [])
+        #expect(shown.isNew(other))
     }
 }
