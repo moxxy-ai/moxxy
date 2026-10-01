@@ -223,8 +223,11 @@ describe('full-screen capture', () => {
     expect(shot.forModel).toMatch(/Screenshot 1440x900/);
     expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'screenshot', params: { scale: 0.5, allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
     const zoom = await run(tools, 'computer_zoom', { region: [0, 0, 100, 50], app: 'Safari' }) as ToolImageResult;
-    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'zoom', params: { region: [0, 0, 100, 50], app: 'com.apple.Safari' } });
+    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'zoom', params: { region: [0, 0, 100, 50], app: 'com.apple.Safari', allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
     expect(zoom.forModel).toMatch(/Reading aid/);
+    // A full-screen zoom shows only apps that are still granted.
+    await run(tools, 'computer_zoom', { region: [0, 0, 100, 50], scale: 0.5 });
+    expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'zoom', params: { region: [0, 0, 100, 50], scale: 0.5, allowed: ['com.apple.TextEdit', 'com.apple.Safari'] } });
   });
 });
 

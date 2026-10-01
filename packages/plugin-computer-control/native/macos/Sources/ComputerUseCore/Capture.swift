@@ -35,6 +35,13 @@ public enum ImageBudget {
         }
         return (low, heightFor(low))
     }
+
+    /// The budgeted size shrunk by `scale` (in [0.1, 1]); `scaledSize(imageBudget(...))` on the TypeScript side.
+    public static func fit(width: Int, height: Int, scale: Double) -> (width: Int, height: Int) {
+        let size = fit(width: width, height: height)
+        let scaled = { (side: Int) in max(1, Int((Double(side) * scale).rounded(.toNearestOrAwayFromZero))) }
+        return (scaled(size.width), scaled(size.height))
+    }
 }
 
 /// How the window image maps onto the screen: `window` is in global points (top-left origin), the image in pixels.
@@ -58,6 +65,16 @@ public struct CoordinateFrame: Sendable, Equatable {
 
     public func screenPoint(x: Double, y: Double) -> CGPoint {
         CGPoint(x: window.minX + x / scaleX, y: window.minY + y / scaleY)
+    }
+
+    /// `[x0, y0, x1, y1]` in image pixels as a screen rectangle; `nil` unless it is a non-empty part of the image.
+    public func screenRect(region: [Double]) -> CGRect? {
+        guard region.count == 4 else { return nil }
+        let (x0, y0, x1, y1) = (region[0], region[1], region[2], region[3])
+        guard x0 >= 0, y0 >= 0, x1 > x0, y1 > y0, x1 <= Double(imageWidth), y1 <= Double(imageHeight) else { return nil }
+        let origin = screenPoint(x: x0, y: y0)
+        let end = screenPoint(x: x1, y: y1)
+        return CGRect(x: origin.x, y: origin.y, width: end.x - origin.x, height: end.y - origin.y)
     }
 }
 
@@ -114,24 +131,43 @@ enum WindowCapture {
 
     static func capture(_ target: WindowCandidate) throws -> WindowImage {
         try Blocking<WindowImage>.run(timeout: timeout) {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            let windows = content.windows
-            let candidates = windows.map { WindowCandidate(pid: $0.owningApplication?.processID ?? -1, frame: $0.frame, title: $0.title) }
-            guard let match = WindowMatch.best(for: target, in: candidates) else {
-                throw HelperError(code: "helper_failed", message: "The window is not capturable")
-            }
-            let filter = SCContentFilter(desktopIndependentWindow: windows[match])
-            let scale = Double(filter.pointPixelScale)
-            let size = ImageBudget.fit(width: Int((target.frame.width * scale).rounded()), height: Int((target.frame.height * scale).rounded()))
-            let configuration = SCStreamConfiguration()
-            configuration.width = size.width
-            configuration.height = size.height
-            configuration.showsCursor = false
-            configuration.ignoreShadowsSingleWindow = true
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            let image = try await render(filter(for: target), size: target.frame.size, source: nil, scale: 1)
             return WindowImage(jpeg: try jpeg(image), pixels: try pixels(image),
                                frame: CoordinateFrame(window: target.frame, imageWidth: image.width, imageHeight: image.height))
         }
+    }
+
+    /// `region` (screen points inside the window) at up to its native resolution, for a closer look.
+    static func capture(_ target: WindowCandidate, region: CGRect, scale: Double) throws -> CGImage {
+        try Blocking<CGImage>.run(timeout: timeout) {
+            let local = region.offsetBy(dx: -target.frame.minX, dy: -target.frame.minY)
+            return try await render(filter(for: target), size: region.size, source: local, scale: scale)
+        }
+    }
+
+    static func filter(for target: WindowCandidate) async throws -> SCContentFilter {
+        let windows = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false).windows
+        let candidates = windows.map { WindowCandidate(pid: $0.owningApplication?.processID ?? -1, frame: $0.frame, title: $0.title) }
+        guard let match = WindowMatch.best(for: target, in: candidates) else {
+            throw HelperError(code: "helper_failed", message: "The window is not capturable")
+        }
+        return SCContentFilter(desktopIndependentWindow: windows[match])
+    }
+
+    /// `size` points of the filter's content (from `source`, in the content's own points) within the image budget.
+    static func render(_ filter: SCContentFilter, size: CGSize, source: CGRect?, scale: Double) async throws -> CGImage {
+        let pixelScale = Double(filter.pointPixelScale)
+        let pixels = ImageBudget.fit(width: Int((size.width * pixelScale).rounded()), height: Int((size.height * pixelScale).rounded()), scale: scale)
+        let configuration = SCStreamConfiguration()
+        configuration.width = pixels.width
+        configuration.height = pixels.height
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        if let source { configuration.sourceRect = source }
+        // What the filter leaves out stays black, never mistaken for content. The property does not retain
+        // its color, so it must be the system constant.
+        configuration.backgroundColor = CGColor.black
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
     /// RGBA in sRGB, so two captures of the same content compare equal whatever the display profile.
@@ -149,12 +185,12 @@ enum WindowCapture {
         return PixelBuffer(width: image.width, height: image.height, bytes: bytes)
     }
 
-    static func jpeg(_ image: CGImage) throws -> Data {
+    static func jpeg(_ image: CGImage, quality: Double = jpegQuality) throws -> Data {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
             throw HelperError(code: "helper_failed", message: "JPEG encoding is unavailable")
         }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: jpegQuality] as CFDictionary)
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw HelperError(code: "helper_failed", message: "JPEG encoding failed") }
         return data as Data
     }

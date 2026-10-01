@@ -4,12 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 8 — `batch`, zrzut pełnoekranowy i zoom w helperze
-  macOS (krok 7 gotowy: 7a–7d3).
-- **Następna czynność:** testy Red dla `batch` w Swift (bramki przed każdym
-  krokiem, stop na pierwszym nie-`delivered`, pauza przerywa, stan na końcu),
-  potem `screenshot` (tylko aplikacje ze zgodą) i `zoom` (region ostatniego
-  zrzutu, odrzucenie regionu poza ramką i nieaktualnego zrzutu).
+- **Bieżący krok:** 9 — status sterowania wypychany zdarzeniami i „Przejmij”
+  (krok 8 gotowy).
+- **Następna czynność:** skill `change-runner-protocol`: notyfikacja
+  `computer.changed` w runnerze (protokół 22 → 23) z testem „zmiana trafia do
+  każdego klienta”, potem zdarzenie IPC (`add-an-ipc-command`) i
+  `useComputerControl` bez pollingu.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -74,8 +74,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Wykrywanie braku postępu; wynik + świeży stan po akcji (7d2: `ProgressTracker` w backendzie TS — wspólny dla macOS i Windows).
 
 ### Krok 8 — batch, zrzut pełnoekranowy, zoom
-- [ ] `computer_batch` z bramkami przed każdą akcją i stopem na pierwszym błędzie.
-- [ ] `computer_screenshot` bez aplikacji bez zgody, `computer_zoom`.
+- [x] `computer_batch` z bramkami przed każdą akcją i stopem na pierwszym błędzie.
+- [x] `computer_screenshot` bez aplikacji bez zgody, `computer_zoom`.
 
 ### Krok 9 — status sterowania wypychany zdarzeniami
 - [ ] Runner `computer.changed` (protokół 23), zdarzenie IPC, `useComputerControl` bez pollingu.

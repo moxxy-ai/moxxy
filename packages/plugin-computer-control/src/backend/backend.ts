@@ -167,7 +167,10 @@ export class ComputerBackend {
       const access = accessFromLog(ctx.log);
       const grant = input.app === undefined ? undefined : checkAccess(access, input.app, 'read');
       if (access.apps.length === 0) throw new ComputerUseError('app_not_allowed', 'No app is granted in this conversation yet');
-      const params = { region: input.region, ...(grant ? { app: grant.id } : {}), ...(input.scale === undefined ? {} : { scale: input.scale }) };
+      const params = {
+        region: input.region, ...(grant ? { app: grant.id } : {}), ...(input.scale === undefined ? {} : { scale: input.scale }),
+        allowed: access.apps.map((app) => app.id),
+      };
       const { result } = await this.call(ctx, 'zoom', params, imageSchema, grant?.name);
       return withImage(`Zoomed region [${input.region.join(', ')}] at ${result.width}x${result.height}. Reading aid only: coordinates keep referring to the screenshot, never to this image.`, result);
     },

@@ -1203,3 +1203,74 @@ Commit kroku 7d2: `af1308b8`.
   chroniony (np. `hooks`) też jest odrzucany (bezpieczny kierunek).
 - Zapis przeciągnięciem pliku albo przez skrót ⌘S w aplikacji bez panelu nie
   przechodzi przez tę bramkę; dotyczy tylko `NSSavePanel`.
+
+---
+
+## Krok 8 — batch, zrzut pełnoekranowy i zoom w helperze macOS (2026-10-01)
+
+Commit kroku 7d3: `0ad9ec06`.
+
+**Wzorzec**
+- Claude.app 2.16120.0 (`app.asar`, read-only): `screenshot` liczy rozmiar
+  jako budżet obrazu z natywnych pikseli ekranu, potem mnoży przez `scale`,
+  i woła `captureExcluding(allowedBundleIds, 0.75, …)` (JPEG 0,75);
+  `zoom` przelicza region na punkty ekranu, rozmiar = budżet(region ×
+  skala piksela) × `scale`, i woła `captureRegion` z tą samą listą zgód.
+  `computer_batch`: kroki po kolei, każdy przez własne bramki, stop na
+  pierwszym błędzie.
+- Kontrakt TS (`computer_batch`, `computer_screenshot`, `computer_zoom`)
+  istniał od kroku 3; ten krok dokłada ich wykonanie w helperze Swift.
+
+**Co**
+- `Batch.swift` (nowy): czyste `Batch.run(steps, waitedOut:, perform:)` —
+  stop na pierwszym nie-`delivered`, pauza użytkownika przed krokiem →
+  `blocked user_intervened` i koniec; `Methods.batch` — wszystkie kroki
+  parsowane przed pierwszym, krótkie ustalanie między krokami
+  (`betweenSteps`: 0,1–2 s), świeży stan na końcu.
+- `Screen.swift` (nowy): `ScreenCapture` — główny ekran przez
+  `SCContentFilter(display:excludingApplications:)` (wszystkie aplikacje bez
+  zgody i proces hosta ukryte), `includeMenuBar = false` (macOS 14.2+;
+  starszy system → jawny błąd zamiast przecieku menu), tło czarne;
+  `Methods.screenshot` (zapamiętuje ramkę i zestaw aplikacji w
+  `Targets.screen`) i `Methods.zoom` (region ostatniego zrzutu aplikacji lub
+  ekranu; `no_state` bez zrzutu, `point_outside_frame` poza nim,
+  `stale_state` gdy okno przesunęło się od zrzutu; przy zoomie ekranu tylko
+  aplikacje z obu zgód — wtedy i teraz).
+- `Capture.swift`: wspólne `WindowCapture.render(filter, size, source,
+  scale)` (budżet × `scale`, `sourceRect`, czarne tło przez stałą
+  `CGColor.black` — `backgroundColor` nie zatrzymuje koloru, zwykły
+  `CGColor` kończył się awarią), `capture(_:region:scale:)` dla zoomu okna,
+  `ImageBudget.fit(width:height:scale:)`, `CoordinateFrame.screenRect(region:)`.
+- `Act.swift`: wspólne `grantedApp`/`allowedApps`; `TargetState.root`
+  (element AX okna) do ustalania między krokami i wykrywania przesunięcia.
+- TS `backend.ts`: `computer_zoom` przekazuje helperowi `allowed` (każde
+  żądanie sprawdza zgody na nowo).
+
+**Testy (Red → Green)**
+- Red Swift: brak `Batch`, `fit(scale:)`, `screenRect`. Red TS: `zoom` bez
+  `allowed`. Red e2e: binarka z 7d3 nie znała metod `batch`/`screenshot`/
+  `zoom` (`unsupported_action`); po pierwszej implementacji zoom ekranu
+  padał (-3811 — filtr `including:` nie działa z `sourceRect` i przesuwał
+  okno do rogu obrazu) — stąd filtr wykluczający; tło było białe — stąd
+  czarne tło i sprawdzenie piksela.
+- Green: Swift 125/125 (`BatchTests`, `CaptureSizeTests`,
+  `ZoomRegionTests`); `backend.test.ts` 51/51; e2e 3/3 — batch: klik +
+  `set_value` dostarczone, indeks 9999 → `stale_state`, czwarty krok nie
+  wykonany, stan raz na końcu, aplikacja bez zgody → `app_not_allowed`;
+  zrzut: rozmiar w budżecie, `scale 0.5` połowa, prawy górny róg czarny,
+  środek okna fixture na swoim miejscu, zoom ekranu bez zrzutu → `no_state`;
+  zoom okna: co najmniej natywna rozdzielczość, region poza → 
+  `point_outside_frame`, bez zgody → `app_not_allowed`.
+
+**Walidacja**
+- `swift test` 125/125; `./build.sh` OK.
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 26 plików / 280 testów
+  (test batcha nie zakłada już etykiety statusu po wcześniejszych testach).
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów (96 ostrzeżeń,
+  wcześniejsze); `pnpm check:deps` 0 błędów; `pnpm build` 88/88.
+
+**Pominięcia i dla następcy**
+- Zrzut pełnoekranowy obejmuje tylko główny ekran (wiele monitorów: krok 14).
+- Akcje nie przyjmują współrzędnych zrzutu pełnoekranowego — wszystkie
+  działają na aplikacji i jej zrzucie; pełny ekran i zoom służą do czytania.
+- Batch nie liczy postępu (`ProgressTracker`) dla pojedynczych kroków.

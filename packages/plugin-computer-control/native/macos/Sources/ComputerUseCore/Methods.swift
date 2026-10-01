@@ -41,6 +41,9 @@ public enum Methods {
             "resolve_apps": resolveApps,
             "get_app_state": { params in try appState(params, targets: targets, cursor: cursor) },
             "act": { params in try act(params, targets: targets, cursor: cursor, input: input) },
+            "batch": { params in try batch(params, targets: targets, cursor: cursor, input: input) },
+            "screenshot": { params in try screenshot(params, targets: targets, host: input.host) },
+            "zoom": { params in try zoom(params, targets: targets, host: input.host) },
             "permissions.request": { params in
                 guard let raw = params["kind"]?.stringValue, let kind = SystemPermissions.Kind(rawValue: raw) else {
                     throw HelperError.invalidParams("kind must be accessibility or screen_recording")

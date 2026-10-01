@@ -1,11 +1,13 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { once } from 'node:events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport, type HelperEvent } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, actResultSchema, appStateSchema, contractEventsFor, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
+import { CONTRACT_PROTOCOL_VERSION, actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath, macosProfile } from './profile.js';
 import { ComputerBackend } from '../backend/backend.js';
 import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
@@ -549,6 +551,77 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           sheet('click button "Cancel"');
           await transport.close();
         }
+      });
+    });
+
+    describe('batches, full-screen capture and zoom', () => {
+      // Brightness of one pixel of a JPEG, read through AppKit.
+      const brightness = (base64: string, x: number, y: number) => {
+        const file = join(mkdtempSync(join(tmpdir(), 'moxxy-shot-')), 'shot.jpg');
+        writeFileSync(file, Buffer.from(base64, 'base64'));
+        const script = `ObjC.import("AppKit"); const rep = $.NSBitmapImageRep.imageRepWithData($.NSData.dataWithContentsOfFile("${file}")); const c = rep.colorAtXY(${x}, ${y}); c.redComponent + c.greenComponent + c.blueComponent`;
+        return Number(spawnSync('osascript', ['-l', 'JavaScript', '-e', script]).stdout.toString().trim());
+      };
+
+      it('runs steps until the first one that is not delivered and returns the state once', async () => {
+        const transport = start();
+        try {
+          const before = await observe(transport);
+          // The fixture counts presses for its whole life; earlier tests may have left another status.
+          const pressed = /^Pressed (\d+)$/.exec(element(before, 'text:status').title ?? '');
+          const actions = [
+            { action: 'click', element_index: element(before, 'button:press').index, mouse_button: 'left', click_count: 1 },
+            { action: 'set_value', element_index: element(before, 'text field:name').index, value: 'batched' },
+            { action: 'click', element_index: 9999, mouse_button: 'left', click_count: 1 },
+            { action: 'set_value', element_index: element(before, 'text field:name').index, value: 'never' },
+          ];
+          const { results, state } = batchResultSchema.parse(await transport.request('batch', { app: FIXTURE, actions, allowed: [FIXTURE] }, signal()));
+          expect(results).toEqual([{ outcome: 'delivered', method: 'ax' }, { outcome: 'delivered', method: 'ax' }, { outcome: 'blocked', code: 'stale_state' }]);
+          const status = element(state ?? before, 'text:status').title ?? '';
+          expect(status).toMatch(/^Pressed \d+$/);
+          if (pressed) expect(status).toBe(`Pressed ${Number(pressed[1]) + 1}`);
+          expect(element(state ?? before, 'text field:name').value).toBe('batched');
+          await expect(transport.request('batch', { app: FIXTURE, actions, allowed: ['com.apple.TextEdit'] }, signal())).rejects.toMatchObject({ code: 'app_not_allowed' });
+        } finally { await transport.close(); }
+      });
+
+      it('captures the display with only granted apps visible, within the image budget', async () => {
+        const transport = start();
+        try {
+          await expect(transport.request('zoom', { region: [0, 0, 10, 10], allowed: [FIXTURE] }, signal())).rejects.toMatchObject({ code: 'no_state' });
+          await observe(transport);
+          const shot = imageSchema.parse(await transport.request('screenshot', { allowed: [FIXTURE] }, signal()));
+          const [width, height] = imageBudget(shot.width, shot.height);
+          expect([shot.width, shot.height]).toEqual([width, height]);
+          // The menu bar and every other app stay out: the top edge right of the window is empty.
+          expect(brightness(shot.base64, shot.width - 5, 5)).toBeLessThan(0.05);
+          // The granted window stays where it is on screen, so the image maps to screen points.
+          const [screenWidth, x, y, w, h] = spawnSync('osascript', ['-l', 'JavaScript', '-e',
+            'ObjC.import("AppKit"); const se = Application("System Events"); const win = se.processes.byName("MoxxyComputerFixture").windows[0]; const [x, y] = win.position(); const [w, h] = win.size(); [$.NSScreen.mainScreen.frame.size.width, x, y, w, h].join(",")',
+          ]).stdout.toString().trim().split(',').map(Number);
+          const ratio = shot.width / (screenWidth ?? NaN);
+          expect(brightness(shot.base64, Math.round(((x ?? 0) + (w ?? 0) / 2) * ratio), Math.round(((y ?? 0) + (h ?? 0) / 2) * ratio))).toBeGreaterThan(0.1);
+          const half = imageSchema.parse(await transport.request('screenshot', { allowed: [FIXTURE], scale: 0.5 }, signal()));
+          expect(half.width).toBe(Math.round(shot.width / 2));
+          const zoomed = imageSchema.parse(await transport.request('zoom', { region: [0, 0, 100, 50], allowed: [FIXTURE] }, signal()));
+          expect(zoomed.width / zoomed.height).toBeCloseTo(2, 1);
+        } finally { await transport.close(); }
+      });
+
+      it('zooms into a region of the app screenshot at a closer look and refuses one outside it', async () => {
+        const transport = start();
+        try {
+          const state = await look(transport);
+          const { frame } = element(state, 'button:press');
+          if (!frame || !state.screenshot) throw new Error('no frame');
+          const region = [frame.x, frame.y, frame.x + frame.width, frame.y + frame.height];
+          const zoomed = imageSchema.parse(await transport.request('zoom', { region, app: FIXTURE, allowed: [FIXTURE] }, signal()));
+          // Native resolution: at least as many pixels as the region had in the screenshot.
+          expect(zoomed.width).toBeGreaterThanOrEqual(frame.width);
+          const outside = [0, 0, state.screenshot.width + 1, 10];
+          await expect(transport.request('zoom', { region: outside, app: FIXTURE, allowed: [FIXTURE] }, signal())).rejects.toMatchObject({ code: 'point_outside_frame' });
+          await expect(transport.request('zoom', { region, app: FIXTURE, allowed: [] }, signal())).rejects.toMatchObject({ code: 'app_not_allowed' });
+        } finally { await transport.close(); }
       });
     });
 

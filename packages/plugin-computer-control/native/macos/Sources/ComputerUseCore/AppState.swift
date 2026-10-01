@@ -12,6 +12,8 @@ final class TargetState {
     var pixels: PixelBuffer?
     /// The observed window, for the cursor overlay; `nil` until an observation found one.
     var window: WindowCandidate?
+    /// The observed window's accessibility element, for settling between the steps of a batch.
+    var root: AXUIElement?
     /// Actions need indices from an observation made by this helper.
     var observed = false
     /// Set by the action executor; the next observation settles as after an action.
@@ -24,6 +26,8 @@ final class TargetState {
 /// Per-app state for this helper's lifetime. Touched only from the serial request queue.
 public final class Targets: @unchecked Sendable {
     private var states: [String: TargetState] = [:]
+    /// The latest full-screen screenshot, which `zoom` without an app refers to.
+    var screen: ScreenShot?
 
     public init() {}
 
@@ -101,6 +105,7 @@ extension Methods {
         guard case let .window(window) = found else {
             state.elements = [:]
             state.window = nil
+            state.root = nil
             return .object([
                 "tree": .object(["app": .string(name), "elements": .array([])]),
                 "screenshotUnavailable": .string("\(name) has no open window"),
@@ -114,6 +119,7 @@ extension Methods {
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
         state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
+        state.root = window
         if let window = state.window { cursor?.attach(to: window) }
         var result: [String: JSONValue] = [:]
         state.frame = nil

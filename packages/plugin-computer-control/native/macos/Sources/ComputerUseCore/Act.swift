@@ -5,13 +5,8 @@ import Foundation
 extension Methods {
     /// One step on a granted app, then its fresh state, so the model rarely needs a separate observation.
     static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, input: InputSessions) throws -> JSONValue {
-        guard let app = params["app"]?.stringValue, !app.isEmpty, let step = params["action"] else {
-            throw HelperError.invalidParams("app and action are required")
-        }
-        // The host checks grants first; the helper refuses on its own as well.
-        guard case let .array(allowed)? = params["allowed"], allowed.contains(.string(app)) else {
-            throw HelperError(code: "app_not_allowed", message: "\(app) is not granted in this conversation")
-        }
+        guard let step = params["action"] else { throw HelperError.invalidParams("action is required") }
+        let app = try grantedApp(params)
         let request = try ActionRequest.parse(step)
         let state = targets.state(for: app)
         guard state.observed else { return .object(["result": ActionResult.blocked("no_state").json]) }
@@ -22,6 +17,21 @@ extension Methods {
         if result.outcome == .delivered { state.lastAction = Date() }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
+    }
+
+    /// The target app, which must be in the request's `allowed` list: the host checks grants first and the
+    /// helper refuses on its own as well.
+    static func grantedApp(_ params: JSONValue) throws -> String {
+        guard let app = params["app"]?.stringValue, !app.isEmpty else { throw HelperError.invalidParams("app is required") }
+        guard allowedApps(params).contains(app) else {
+            throw HelperError(code: "app_not_allowed", message: "\(app) is not granted in this conversation")
+        }
+        return app
+    }
+
+    static func allowedApps(_ params: JSONValue) -> Set<String> {
+        guard case let .array(allowed)? = params["allowed"] else { return [] }
+        return Set(allowed.compactMap(\.stringValue))
     }
 }
 
