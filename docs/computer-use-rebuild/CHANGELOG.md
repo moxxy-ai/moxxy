@@ -953,3 +953,79 @@ Commit kroku 7b: `01d8bff0`.
 - 7c2: `computer_hold_key`, skróty ⌘ przez krótką aktywację z kontrolą
   pisania, test HTML ⌘V z aplikacją z przodu. 7d: strażnik, brak postępu,
   cache `unsupported`, ochrona okna zapisu.
+
+---
+
+## Krok 7c2 — przytrzymanie klawisza i skróty ⌘ z przodu (2026-10-01)
+
+Commit kroku 7c: `2e9344cb`.
+
+**Wzorzec**
+- Claude (`dk.pretty.js`, `holdKey`): klawisze akordu w dół, czekanie w
+  odcinkach ≤ 50 ms ze sprawdzaniem przerwania, zwolnienie zawsze (także po
+  przerwaniu: „Key hold aborted (user interrupt)”); czas 0–100 s; akord
+  systemowy wymaga `systemKeyCombos` (u nas sprawdza to już host, krok 3).
+- Claude (`user_actively_typing`): akcja, która chwilowo wyciąga aplikację na
+  wierzch, jest odrzucana, gdy użytkownik pisze. Claude robi to niewidocznie
+  przez prywatne API; my bez SkyLight wyciągamy aplikację widocznie i
+  zostawiamy ją z przodu (jak w 7c).
+
+**Co**
+- `Keyboard.swift` (czyste): `KeyEvent` i `KeyScript.hold` — modyfikatory w
+  stałej kolejności (ctrl, alt, shift, cmd), każdy dokłada swoją flagę, potem
+  klawisz (z Shiftem, gdy wymaga go układ); zwolnienie w odwrotnej kolejności.
+- `KeyboardInput.swift`: `stroke(for:)` (klawisz akordu w bieżącym układzie),
+  `post(KeyEvent)`, `KeySession` — trzyma należne zwolnienia; `release()`
+  wysyła je dokładnie raz i budzi czekanie (semafor), więc Stop kończy
+  przytrzymanie od razu. Zdarzenia idą `postToPid` (aplikacja w tle).
+- `Action.swift`: `.holdKey(chord, duration)` z `duration_s` (0 < d ≤ 100).
+- `Act.swift`: `hold_key`; `inFront` — skróty ⌘ (`press_key`, `hold_key`) i
+  wklejanie HTML wyciągają aplikację przez `Foreground.bring` (odmowa
+  `user_intervened`, gdy użytkownik pisze; `not_frontmost`, gdy nie wyszło)
+  zamiast odrzucać `not_frontmost`.
+- `Methods.standard(..., keys:)`, `main.swift`: wspólna `KeySession`,
+  `leave()` zwalnia przycisk myszy i klawisze przed wyjściem.
+- Fixture: etykieta „keys” („Held key N for X s” ze znaczników czasu zdarzeń,
+  lokalny monitor `keyDown/keyUp/flagsChanged`), pozycja menu „Press Again”
+  ⌘J (zwiększa licznik przycisku).
+
+**Testy (Red → Green)**
+- Red Swift: brak `KeyEvent`/`KeyScript`/`KeySession`/`.holdKey`; potem test
+  przerwania przytrzymania: czekanie trwało 1,9 s zamiast skończyć się po
+  `release()` → semafor.
+- Red TS (helper z 7c, nowa fixture): `hold_key` → `unsupported`, ⌘J →
+  `blocked`, HTML → `blocked`. Pierwsze podejście do ⌘J nie było Red, bo
+  testy wskaźnika zostawiały fixture z przodu — test najpierw aktywuje
+  Findera (aplikacja w tle to warunek wstępny).
+- Green: `swift test` 103/103; `helper.test.ts` 31/31 przy bezczynnym
+  wejściu: przytrzymanie Shift 0,5 s w tle („Held key 56 for 0.5 s”, aplikacja
+  nie wychodzi na wierzch), ⌘J po wyciągnięciu na wierzch (licznik +1,
+  fixture z przodu), wklejenie HTML ⌘V („xbold”, schowek użytkownika wraca).
+
+- Refactor: kody modyfikatorów w jednym miejscu (`KeyScript.modifierOrder`
+  z `KeyCodes.modifiers`).
+
+**Walidacja**
+- `swift test` 103/103; `./build.sh`, `./build-fixture.sh` OK.
+- `npx vitest run` (plugin) — 24 pliki zielone; w `helper.test.ts` 266/268,
+  bo użytkownik poruszył myszą w trakcie przebiegu (wskaźnik o 201 i 80 px
+  od miejsca startu; akcje same w sobie zielone). `helper.test.ts`
+  uruchomiony osobno po ≥ 30 s bezczynności wejścia — 31/31 na końcowym
+  binarium.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów; `pnpm check:deps`
+  0 błędów (1 wcześniejsze ostrzeżenie); `pnpm build` 88/88.
+
+**Pominięcia i dla następcy**
+- Testy prawdziwego wejścia zależą od tego, czy użytkownik używa komputera:
+  pisanie w trakcie daje słuszne `user_intervened`, a przełączenie aplikacji
+  psuje asercje „kto jest z przodu”. Uruchamiać je przy bezczynnym wejściu
+  (`ioreg -c IOHIDSystem` → `HIDIdleTime`).
+- Klik po punkcie przez AX w tle czasem wraca jako `input` (2 z 6 przebiegów):
+  hit-test AX nie znalazł kontrolki i zadziałał zapas fizyczny. Hipoteza
+  (niepotwierdzona): okno fixture nie było na bieżącej przestrzeni. Kandydat
+  do 7d: hit-test po ramkach z ostatniego stanu.
+- `hold_key` nie generuje autopowtarzania (jedno `keyDown`, potem `keyUp`);
+  aplikacje czytające stan klawisza dostają przytrzymanie, edytory tekstu nie
+  powtórzą znaku.
+- 7d: strażnik (Escape = Stop, ingerencja = pauza), brak postępu, cache
+  `unsupported`, ochrona okna zapisu.

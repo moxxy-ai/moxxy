@@ -25,7 +25,7 @@ import Testing
         #expect(throws: HelperError.self) { try parse(["action": .string("click"), "element_index": .number(-1), "mouse_button": .string("left"), "click_count": .number(1)]) }
         #expect(throws: HelperError.self) { try parse(["action": .string("set_value"), "element_index": .number(1)]) }
         #expect(throws: HelperError.self) { try ActionRequest.parse(.string("click")) }
-        #expect(try parse(["action": .string("hold_key"), "key": .string("shift")]) == .notYetSupported("hold_key"))
+        #expect(try parse(["action": .string("teleport")]) == .notYetSupported("teleport"))
     }
 }
 

@@ -92,6 +92,66 @@ import Testing
     }
 }
 
+@Suite struct HoldKeyTests {
+    private let shiftDown = KeyChord(flags: .maskShift, key: .named(0x7D))
+
+    @Test func readsAHoldWithItsDurationInSeconds() throws {
+        let hold = try ActionRequest.parse(.object([
+            "action": .string("hold_key"), "key": .string("shift+Down"), "duration_s": .number(0.5),
+            "chord": .object(["modifiers": .array([.string("shift")]), "key": .string("down")]),
+        ]))
+        #expect(hold == .holdKey(shiftDown, duration: 0.5))
+        for duration in [JSONValue.number(0), .number(101), .null] {
+            #expect(throws: HelperError.self) {
+                try ActionRequest.parse(.object(["action": .string("hold_key"), "duration_s": duration, "chord": .object(["modifiers": .array([.string("shift")])])]))
+            }
+        }
+    }
+
+    @Test func pressesModifiersBeforeTheKeyAndReleasesInReverse() {
+        let script = KeyScript.hold(shiftDown, stroke: KeyCodes.Stroke(code: 0x7D, shift: false))
+        #expect(script.press == [KeyEvent(code: 0x38, down: true, flags: .maskShift), KeyEvent(code: 0x7D, down: true, flags: .maskShift)])
+        #expect(script.release == [KeyEvent(code: 0x7D, down: false, flags: .maskShift), KeyEvent(code: 0x38, down: false, flags: [])])
+    }
+
+    @Test func holdsAModifierAloneAndAddsShiftTheLayoutNeeds() {
+        let shift = KeyScript.hold(KeyChord(flags: .maskShift, key: nil), stroke: nil)
+        #expect(shift.press == [KeyEvent(code: 0x38, down: true, flags: .maskShift)])
+        #expect(shift.release == [KeyEvent(code: 0x38, down: false, flags: [])])
+        let capital = KeyScript.hold(KeyChord(flags: .maskControl, key: .character("A")), stroke: KeyCodes.Stroke(code: 0x00, shift: true))
+        #expect(capital.press == [
+            KeyEvent(code: 0x3B, down: true, flags: .maskControl), KeyEvent(code: 0x38, down: true, flags: [.maskControl, .maskShift]),
+            KeyEvent(code: 0x00, down: true, flags: [.maskControl, .maskShift]),
+        ])
+        #expect(capital.release.last == KeyEvent(code: 0x3B, down: false, flags: []))
+    }
+
+    @Test func releasesHeldKeysOnceWhenStoppedMidHold() async throws {
+        let posted = Posted()
+        let keys = KeySession { event, pid in posted.append(event, pid) }
+        let script = KeyScript.hold(KeyChord(flags: .maskShift, key: nil), stroke: nil)
+        let holding = Task.detached { keys.hold(script, pid: 42, for: 2) }
+        try await Task.sleep(for: .milliseconds(100))
+        keys.release()
+        #expect(posted.events == [KeyEvent(code: 0x38, down: true, flags: .maskShift), KeyEvent(code: 0x38, down: false, flags: [])])
+        // The wait ends with the release instead of running out the duration.
+        let stopped = ContinuousClock.now
+        await holding.value
+        #expect(ContinuousClock.now - stopped < .milliseconds(500))
+        #expect(posted.events.count == 2)
+        #expect(posted.pids == [42, 42])
+    }
+}
+
+/// Records what a key session would post, at the one boundary these tests replace (the window server).
+private final class Posted: @unchecked Sendable {
+    private let lock = NSLock()
+    private var log: [(KeyEvent, pid_t)] = []
+    func append(_ event: KeyEvent, _ pid: pid_t) { lock.withLock { log.append((event, pid)) } }
+    var events: [KeyEvent] { lock.withLock { log.map(\.0) } }
+    var pids: [pid_t] { lock.withLock { log.map(\.1) } }
+}
+
 @MainActor @Suite struct ClipboardTests {
     private let board = NSPasteboard(name: NSPasteboard.Name("ai.moxxy.test.\(UUID().uuidString)"))
 

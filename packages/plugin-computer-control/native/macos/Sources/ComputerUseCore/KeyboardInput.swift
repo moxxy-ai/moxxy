@@ -46,6 +46,21 @@ enum KeyboardInput {
 
     static func mark(_ event: CGEvent) { event.setIntegerValueField(.eventSourceUserData, value: marker) }
 
+    /// The key that types a chord's key, `nil` for a chord of modifiers alone.
+    static func stroke(for chord: KeyChord) throws -> KeyCodes.Stroke? {
+        switch chord.key {
+        case nil: return nil
+        case let .named(code): return KeyCodes.Stroke(code: code, shift: false)
+        case let .character(character):
+            guard let stroke = KeyLayout.stroke(for: character) ?? KeyCodes.ansi(character) else {
+                throw HelperError(code: "invalid_key", message: "No key on this keyboard produces \(character)")
+            }
+            return stroke
+        }
+    }
+
+    static func post(_ key: KeyEvent, pid: pid_t) { post(key.code, down: key.down, flags: key.flags, pid: pid) }
+
     private static func tap(_ code: CGKeyCode, flags: CGEventFlags, pid: pid_t, text: String? = nil) {
         post(code, down: true, flags: flags, pid: pid, text: text)
         post(code, down: false, flags: flags, pid: pid, text: text)
@@ -64,6 +79,36 @@ enum KeyboardInput {
     private static func send(_ event: CGEvent, pid: pid_t) {
         mark(event)
         event.postToPid(pid)
+    }
+}
+
+/// Keys held across a wait. Whatever is still down goes up when the hold ends, the user stops Computer Use
+/// or the helper exits, so no key is left pressed for the user.
+public final class KeySession: @unchecked Sendable {
+    private let send: @Sendable (KeyEvent, pid_t) -> Void
+    private let lock = NSLock()
+    /// The key-ups still owed, and the wait a release ends early. Guarded by `lock`.
+    private var owed: (pid: pid_t, release: [KeyEvent], wake: DispatchSemaphore)?
+
+    public convenience init() { self.init { KeyboardInput.post($0, pid: $1) } }
+
+    init(send: @escaping @Sendable (KeyEvent, pid_t) -> Void) { self.send = send }
+
+    func hold(_ script: (press: [KeyEvent], release: [KeyEvent]), pid: pid_t, for duration: TimeInterval) {
+        let wake = DispatchSemaphore(value: 0)
+        lock.withLock { owed = (pid, script.release, wake) }
+        for event in script.press { send(event, pid) }
+        _ = wake.wait(timeout: .now() + duration)
+        release()
+    }
+
+    public func release() {
+        guard let (pid, events, wake) = lock.withLock({ () -> (pid_t, [KeyEvent], DispatchSemaphore)? in
+            defer { owed = nil }
+            return owed
+        }) else { return }
+        for event in events { send(event, pid) }
+        wake.signal()
     }
 }
 

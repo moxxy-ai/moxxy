@@ -261,6 +261,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
 
     const name = async (transport: HelperTransport) => element(await observe(transport), 'text field:name');
     const chord = (key: string | null, modifiers: string[] = []) => ({ modifiers, key });
+    const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
 
     it('selects text and types at the caret through accessibility, without bringing the app forward', async () => {
       const transport = start();
@@ -293,9 +294,17 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         expect(all.result).toEqual({ outcome: 'delivered', method: 'ax' });
         await act(transport, { action: 'type_text', text: 'Z' });
         expect((await name(transport)).value).toBe('Z');
-        // Other Command shortcuts go through the menu bar, which only the app in front has.
-        const copy = await act(transport, { action: 'press_key', key: 'super+c', repeat: 1, chord: chord('c', ['meta']) });
-        expect(copy.result).toMatchObject({ outcome: 'blocked', code: 'not_frontmost' });
+      } finally { await transport.close(); }
+    });
+
+    it('holds a key for as long as asked, in the background', async () => {
+      const transport = start();
+      try {
+        await observe(transport);
+        const { result, state } = await act(transport, { action: 'hold_key', key: 'shift', duration_s: 0.5, chord: chord(null, ['shift']) });
+        expect(result).toEqual({ outcome: 'delivered', method: 'input' });
+        expect(state && element(state, 'text:keys').title).toBe('Held key 56 for 0.5 s');
+        expect(frontmost()).not.toBe('MoxxyComputerFixture');
       } finally { await transport.close(); }
     });
 
@@ -310,10 +319,6 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         const pasted = await act(transport, { action: 'paste', text: 'PASTE', format: 'text' });
         expect(pasted.result).toEqual({ outcome: 'delivered', method: 'ax' });
         expect((await name(transport)).value).toBe('xPASTE');
-        expect(clipboard()).toBe(before);
-        // Rich text needs the clipboard and Command-V, so the app must be in front.
-        const rich = await act(transport, { action: 'paste', text: '<b>bold</b>', format: 'html' });
-        expect(rich.result).toMatchObject({ outcome: 'blocked', code: 'not_frontmost' });
         expect(clipboard()).toBe(before);
       } finally { await transport.close(); }
     });
@@ -342,7 +347,6 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const pointer = () => spawnSync('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); const p = $.NSEvent.mouseLocation; `${p.x},${p.y}`']).stdout.toString().trim().split(',').map(Number);
       // A trackpad leaves the pointer between points; putting it back may round to the nearest one.
       const expectPointerAt = (home: number[]) => pointer().forEach((axis, i) => expect(Math.abs(axis - (home[i] ?? NaN))).toBeLessThanOrEqual(1));
-      const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
 
       it('presses a control under a point through accessibility, in the background', async () => {
         const transport = start();
@@ -430,6 +434,45 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           const wheel = await act(transport, { action: 'scroll', ...centre(list.state ?? before, 'group:pad'), direction: 'down', pages: 1 });
           expect(wheel.result).toEqual({ outcome: 'delivered', method: 'input' });
           expect(pad(wheel.state)).toMatch(/^Pad wheel -\d+$/);
+        } finally { await transport.close(); }
+      });
+    });
+
+    // Command shortcuts and rich-text paste need the menu bar, so the app comes forward and stays there.
+    // Runs last: the tests above check the app stays in the background.
+    describe('bringing the app forward for the menu bar', () => {
+      // The pointer tests above left the app in front; another app takes its place first.
+      const sendToBackground = async () => {
+        spawnSync('osascript', ['-e', 'tell application "Finder" to activate']);
+        for (let attempt = 0; attempt < 50 && frontmost() !== 'Finder'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+      };
+
+      it('sends a Command shortcut once the app is in front', async () => {
+        const transport = start();
+        try {
+          await sendToBackground();
+          const before = await observe(transport);
+          const pressed = Number(/\d+/.exec(element(before, 'text:status').title ?? '')?.[0] ?? 0);
+          const { result, state } = await act(transport, { action: 'press_key', key: 'super+j', repeat: 1, chord: chord('j', ['meta']) });
+          expect(result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(element(state ?? before, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
+          expect(frontmost()).toBe('MoxxyComputerFixture');
+        } finally { await transport.close(); }
+      });
+
+      it('pastes rich text with Command-V and gives the user their clipboard back', async () => {
+        const clipboard = () => spawnSync('pbpaste').stdout.toString();
+        const transport = start();
+        try {
+          const before = clipboard();
+          await sendToBackground();
+          const field = await name(transport);
+          await act(transport, { action: 'set_value', element_index: field.index, value: 'x' });
+          await act(transport, { action: 'select_text', element_index: field.index, text: 'x', selection_type: 'cursor_after' });
+          const rich = await act(transport, { action: 'paste', text: '<b>bold</b>', format: 'html' });
+          expect(rich.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect((await name(transport)).value).toBe('xbold');
+          expect(clipboard()).toBe(before);
         } finally { await transport.close(); }
       });
     });

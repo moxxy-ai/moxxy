@@ -4,7 +4,7 @@ import Foundation
 
 extension Methods {
     /// One step on a granted app, then its fresh state, so the model rarely needs a separate observation.
-    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, pointer: PointerSession, host: pid_t) throws -> JSONValue {
+    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, pointer: PointerSession, keys: KeySession, host: pid_t) throws -> JSONValue {
         guard let app = params["app"]?.stringValue, !app.isEmpty, let step = params["action"] else {
             throw HelperError.invalidParams("app and action are required")
         }
@@ -15,7 +15,7 @@ extension Methods {
         let request = try ActionRequest.parse(step)
         let state = targets.state(for: app)
         guard state.observed else { return .object(["result": ActionResult.blocked("no_state").json]) }
-        let result = Executor(state: state, cursor: cursor, pointer: pointer, host: host).perform(request)
+        let result = Executor(state: state, cursor: cursor, pointer: pointer, keys: keys, host: host).perform(request)
         if result.outcome == .delivered { state.lastAction = Date() }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
@@ -27,6 +27,7 @@ struct Executor {
     let state: TargetState
     let cursor: AgentCursor?
     let pointer: PointerSession
+    let keys: KeySession
     /// The process Moxxy runs in; real input never goes to its windows.
     let host: pid_t
 
@@ -63,10 +64,12 @@ struct Executor {
         case let .pressKey(chord, count):
             guard let pid = state.window?.pid else { return noWindow }
             if chord.isSelectAll { return onFocused(selectAll) }
-            if chord.needsMenuBar, !Foreground.isFrontmost(pid) {
-                return .blocked("not_frontmost", hint: "Command shortcuts reach an app only while it is in front. Use an element action or menu item from the app state instead.")
-            }
-            return keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } }
+            let press = { keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
+            return chord.needsMenuBar ? inFront(press) : press()
+        case let .holdKey(chord, duration):
+            guard let pid = state.window?.pid else { return noWindow }
+            let hold = { keyboard { keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
+            return chord.needsMenuBar ? inFront(hold) : hold()
         case let .paste(.element(index)?, text, format):
             return onElement(index) { element in paste(text, format, into: element) }
         case let .paste(.point(point)?, text, format):
@@ -354,15 +357,12 @@ struct Executor {
     }
 
     /// Plain text and Markdown are inserted like typing, so the clipboard is never touched; rich text needs
-    /// the clipboard and Command-V, which only an app in front handles.
+    /// the clipboard and Command-V, so the app comes forward.
     private func paste(_ text: String, _ format: PasteFormat, into element: AXUIElement) -> ActionResult {
         if let refused = focus(element) { return refused }
         if format != .html, let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
-        guard Foreground.isFrontmost(pid) else {
-            return .blocked("not_frontmost", hint: "Pasting rich text uses Command-V, which reaches an app only while it is in front. Paste it as text, or ask the user to bring the app forward.")
-        }
-        return keyboard { try Clipboard.paste(text, format: format, pid: pid) }
+        return inFront { keyboard { try Clipboard.paste(text, format: format, pid: pid) } }
     }
 
     private func select(_ text: String, prefix: String?, suffix: String?, placement: TextPlacement, in element: AXUIElement) -> ActionResult {
@@ -388,6 +388,14 @@ struct Executor {
         }
         guard let value = AXValueCreate(.cfRange, &target) else { return .blocked("helper_failed") }
         return result(AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value))
+    }
+
+    /// Command shortcuts and rich-text paste go through the menu bar, which only the app in front has: the app
+    /// comes forward (never while the user types) and stays there.
+    private func inFront(_ body: () -> ActionResult) -> ActionResult {
+        guard let window = state.window else { return noWindow }
+        if case let .refused(result) = Foreground.bring(window) { return result }
+        return body()
     }
 
     /// Keyboard events have no answer to check: delivered means posted.

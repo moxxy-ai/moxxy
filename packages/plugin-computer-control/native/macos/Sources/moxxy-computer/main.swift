@@ -36,17 +36,19 @@ func parentPid(_ arguments: [String]) -> pid_t {
 
 let parent = parentPid(CommandLine.arguments)
 let pointer = PointerSession()
+let keys = KeySession()
 
-/// A mouse button the model left down is never left pressed for the user.
+/// A mouse button or key the model left down is never left pressed for the user.
 func leave(_ code: Int32) -> Never {
     pointer.release()
+    keys.release()
     exit(code)
 }
 
 guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { leave(ExitCode.normal) }) else { exit(ExitCode.normal) }
 
 let output = Output()
-let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write), pointer: pointer, host: parent)
+let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write), pointer: pointer, keys: keys, host: parent)
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 

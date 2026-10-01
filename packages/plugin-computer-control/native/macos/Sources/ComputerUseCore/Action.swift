@@ -19,6 +19,7 @@ public enum ActionRequest: Equatable, Sendable {
     /// `target == nil` types into whatever has keyboard focus in the app.
     case typeText(target: ActionTarget?, text: String)
     case pressKey(KeyChord, repeat: Int)
+    case holdKey(KeyChord, duration: TimeInterval)
     case paste(target: ActionTarget?, text: String, format: PasteFormat)
     case selectText(element: Int, text: String, prefix: String?, suffix: String?, placement: TextPlacement)
     case scroll(target: ActionTarget, direction: ScrollDirection, pages: Double)
@@ -49,6 +50,11 @@ public enum ActionRequest: Equatable, Sendable {
                 throw HelperError.invalidParams("press_key needs chord and repeat")
             }
             return .pressKey(try KeyChord.parse(chord), repeat: count)
+        case "hold_key":
+            guard case let .number(duration)? = step["duration_s"], duration > 0, duration <= 100, let chord = step["chord"] else {
+                throw HelperError.invalidParams("hold_key needs chord and duration_s up to 100 seconds")
+            }
+            return .holdKey(try KeyChord.parse(chord), duration: duration)
         case "paste":
             guard let format = step["format"]?.stringValue.flatMap(PasteFormat.init(rawValue:)) else { throw HelperError.invalidParams("paste needs format") }
             return .paste(target: try optionalTarget(step), text: try text(step), format: format)

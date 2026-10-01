@@ -97,6 +97,40 @@ public struct KeyChord: Equatable, Sendable {
     }
 }
 
+/// One key going down or up, with the modifier flags in force at that moment.
+public struct KeyEvent: Equatable, Sendable {
+    public let code: CGKeyCode
+    public let down: Bool
+    public let flags: CGEventFlags
+}
+
+/// The key events behind holding a chord, the way a hand does it.
+public enum KeyScript {
+    /// The order a hand presses modifiers in; release goes the other way.
+    static let modifierOrder = ["ctrl", "alt", "shift", "meta"].compactMap { KeyCodes.modifiers[$0] }
+
+    /// Modifiers first, each adding its flag, then the key; `stroke` is the chord's key in the current layout
+    /// and may need Shift. Release undoes the press in reverse.
+    public static func hold(_ chord: KeyChord, stroke: KeyCodes.Stroke?) -> (press: [KeyEvent], release: [KeyEvent]) {
+        let wanted = chord.flags.union(stroke?.shift == true ? .maskShift : [])
+        var flags = CGEventFlags()
+        var press: [KeyEvent] = []
+        var release: [KeyEvent] = []
+        for modifier in modifierOrder where wanted.contains(modifier.flag) {
+            flags.insert(modifier.flag)
+            press.append(KeyEvent(code: modifier.code, down: true, flags: flags))
+            var after = flags
+            after.remove(modifier.flag)
+            release.insert(KeyEvent(code: modifier.code, down: false, flags: after), at: 0)
+        }
+        if let stroke {
+            press.append(KeyEvent(code: stroke.code, down: true, flags: flags))
+            release.insert(KeyEvent(code: stroke.code, down: false, flags: flags), at: 0)
+        }
+        return (press, release)
+    }
+}
+
 public enum TextPlacement: String, Sendable {
     case text, cursorBefore = "cursor_before", cursorAfter = "cursor_after"
 }

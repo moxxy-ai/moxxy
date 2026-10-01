@@ -14,6 +14,27 @@ final class Controller: NSObject {
     }
 }
 
+/// Reports how long the last key was held, from the events' own timestamps.
+@MainActor
+final class KeyLog {
+    let label = NSTextField(labelWithString: "No keys")
+    private var downAt: [UInt16: TimeInterval] = [:]
+
+    func record(_ event: NSEvent) {
+        let down = switch event.type {
+        case .keyDown: true
+        case .keyUp: false
+        // A modifier reports one event per change: down when nothing was recorded for it yet.
+        default: downAt[event.keyCode] == nil
+        }
+        if down {
+            if downAt[event.keyCode] == nil { downAt[event.keyCode] = event.timestamp }
+        } else if let start = downAt.removeValue(forKey: event.keyCode) {
+            label.stringValue = String(format: "Held key %d for %.1f s", event.keyCode, event.timestamp - start)
+        }
+    }
+}
+
 /// A canvas without accessibility actions, like a video timeline: only real mouse input reaches it.
 /// Its description reports what arrived, so tests can read it from the tree.
 @MainActor
@@ -73,7 +94,7 @@ func control<T: NSView>(_ view: T, _ identifier: String) -> T {
 }
 
 @MainActor
-func makeWindow(_ controller: Controller) -> NSWindow {
+func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     let name = control(NSTextField(string: "hello"), "name")
     name.placeholderString = "Name"
     let secret = control(NSSecureTextField(string: "hunter2"), "secret")
@@ -113,7 +134,9 @@ func makeWindow(_ controller: Controller) -> NSWindow {
     let pad = control(Pad(), "pad")
     let lower = NSStackView(views: [pad, scroller, offset])
     lower.orientation = .horizontal
-    let outer = NSStackView(views: [name, secret, inner, control(controller.status, "status"), lower, loading])
+    let labels = NSStackView(views: [control(controller.status, "status"), control(keys.label, "keys")])
+    labels.orientation = .horizontal
+    let outer = NSStackView(views: [name, secret, inner, labels, lower, loading])
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
         spinner.stopAnimation(nil)
         loading.removeView(spinner)
@@ -129,17 +152,22 @@ func makeWindow(_ controller: Controller) -> NSWindow {
     return window
 }
 
-/// Like every real app: Command shortcuts such as Select All and Paste live in the Edit menu.
+/// Like every real app: Command shortcuts such as Select All and Paste live in the Edit menu; Command-J
+/// presses the button again from the app's own menu.
 @MainActor
-func makeMenu() -> NSMenu {
+func makeMenu(_ controller: Controller) -> NSMenu {
     let edit = NSMenu(title: "Edit")
     edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
     edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
     edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
     edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
     edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+    let own = NSMenu(title: "Moxxy Fixture")
+    own.addItem(withTitle: "Press Again", action: #selector(Controller.press), keyEquivalent: "j").target = controller
     let menu = NSMenu()
-    menu.addItem(NSMenuItem(title: "Moxxy Fixture", action: nil, keyEquivalent: ""))
+    let ownItem = NSMenuItem(title: "Moxxy Fixture", action: nil, keyEquivalent: "")
+    ownItem.submenu = own
+    menu.addItem(ownItem)
     let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
     editItem.submenu = edit
     menu.addItem(editItem)
@@ -148,9 +176,14 @@ func makeMenu() -> NSMenu {
 
 let application = NSApplication.shared
 application.setActivationPolicy(.regular)
-application.mainMenu = makeMenu()
 let controller = Controller()
-let window = makeWindow(controller)
+application.mainMenu = makeMenu(controller)
+let keys = KeyLog()
+NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { event in
+    MainActor.assumeIsolated { keys.record(event) }
+    return event
+}
+let window = makeWindow(controller, keys: keys)
 // Shown without activating: the helper must work while another app stays in front.
 window.orderFront(nil)
 application.run()
