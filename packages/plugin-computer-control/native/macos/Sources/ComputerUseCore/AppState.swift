@@ -12,6 +12,8 @@ final class TargetState {
     var pixels: PixelBuffer?
     /// The observed window, for the cursor overlay; `nil` until an observation found one.
     var window: WindowCandidate?
+    /// The observed app's process; keys still reach an app that has no window open.
+    var pid: pid_t?
     /// The observed window's accessibility element, for settling between the steps of a batch.
     var root: AXUIElement?
     /// Actions need indices from an observation made by this helper.
@@ -104,13 +106,14 @@ extension Methods {
         let name = running.localizedName ?? bundleId
         let state = targets.state(for: bundleId)
         state.observed = true
+        state.pid = running.processIdentifier
         guard case let .window(window) = found else {
             state.elements = [:]
             state.window = nil
             state.root = nil
             return .object([
                 "tree": .object(["app": .string(name), "elements": .array([])]),
-                "screenshotUnavailable": .string("\(name) has no open window"),
+                "screenshotUnavailable": .string("\(name) has no open window; press_key still reaches it, e.g. super+n for a new one"),
             ])
         }
         // A fresh launch is still loading, like the app right after an action.

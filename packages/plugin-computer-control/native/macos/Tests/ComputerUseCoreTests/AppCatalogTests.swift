@@ -36,6 +36,13 @@ private func app(_ id: String, _ name: String, running: Bool = false, path: Stri
         #expect(AppCatalog.resolve(request, in: apps) == .resolved(apps[0]))
     }
 
+    @Test func findsAnAppShownUnderALocalizedNameByItsBundleName() {
+        let apps = [app("com.apple.calculator", "Kalkulator", path: "/System/Applications/Calculator.app"), app("com.apple.Notes", "Notatki")]
+        #expect(AppCatalog.resolve("Calculator", in: apps) == .resolved(apps[0]))
+        #expect(AppCatalog.resolve("kalkulator", in: apps) == .resolved(apps[0]))
+        #expect(AppCatalog.page(apps, query: "calc", limit: 10).apps == [apps[0]])
+    }
+
     @Test func reportsAmbiguousAndMissingNames() {
         let apps = [app("com.example.one", "Notes"), app("com.example.two", "Notes")]
         #expect(AppCatalog.resolve("notes", in: apps) == .ambiguous(apps))

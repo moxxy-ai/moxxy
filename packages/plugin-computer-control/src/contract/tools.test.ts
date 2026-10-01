@@ -32,6 +32,17 @@ describe('computer_click', () => {
       .toMatchObject({ x: 10.5, y: 20, mouse_button: 'right', click_count: 2 });
   });
 
+  it('ignores the filler a model sends for fields it does not use', () => {
+    expect(input('computer_click').parse({ app: 'TextEdit', element_index: 3, x: 0, y: 0, mouse_button: 'left', click_count: 1, modifiers: '' }))
+      .toEqual({ app: 'TextEdit', element_index: 3, mouse_button: 'left', click_count: 1 });
+    expect(input('computer_click').parse({ app: 'TextEdit', element_index: null, x: 10, y: 20, modifiers: null }))
+      .toEqual({ app: 'TextEdit', x: 10, y: 20, mouse_button: 'left', click_count: 1 });
+    expect(input('computer_click').parse({ app: 'TextEdit', x: 0, y: 0 })).toMatchObject({ x: 0, y: 0 });
+    expect(input('computer_batch').parse({ app: 'TextEdit', actions: [{ action: 'click', element_index: 2, x: 0, y: 0, modifiers: '', text: '', key: '', path: [], repeat: 0 }] }).actions)
+      .toEqual([{ action: 'click', element_index: 2, mouse_button: 'left', click_count: 1 }]);
+    expect(input('computer_set_value').parse({ app: 'TextEdit', element_index: 1, value: '' })).toMatchObject({ value: '' });
+  });
+
   it.each([
     [{ app: 'TextEdit', element_index: 3, x: 1, y: 2 }, /exactly one target/],
     [{ app: 'TextEdit' }, /exactly one target/],

@@ -65,6 +65,10 @@ The helper needs **Accessibility** and **Screen Recording** for Moxxy (or for
 the terminal that runs the CLI), under System Settings → Privacy & Security.
 `computer_status` reports which one is missing.
 
+An app with no open window still takes key presses, so a shortcut such as
+Command-N can open one. An app can be named by its bundle identifier, by the
+name the system shows, or by the name of its bundle.
+
 ## Building the macOS helper
 
 ```sh
@@ -76,3 +80,13 @@ This writes the universal binary and its manifest to
 `packages/plugin-computer-control/bin/darwin-universal/`. Desktop packaging
 (`pnpm --filter @moxxy/desktop run prepare:resources`) refuses to continue on
 macOS without it.
+
+## Testing on macOS
+
+```sh
+packages/plugin-computer-control/native/macos/Tests/run-computer-use-tests.sh --wait-idle
+```
+
+It runs the Swift unit tests and the end-to-end tests against a fixture app.
+The end-to-end tests use the real pointer and keyboard for a few seconds at a
+time, so leave the mouse and keyboard alone while they run.

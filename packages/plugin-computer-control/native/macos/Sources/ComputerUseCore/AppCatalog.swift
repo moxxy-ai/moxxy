@@ -14,6 +14,9 @@ public struct AppRecord: Equatable, Sendable {
         self.running = running
     }
 
+    /// The bundle's file name: the name people know when the system shows a translated one ("Kalkulator").
+    var bundleName: String? { path.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } }
+
     var json: JSONValue { .object(["id": .string(id), "name": .string(name), "running": .bool(running)]) }
 }
 
@@ -39,17 +42,17 @@ public enum AppCatalog {
 
     public static func page(_ apps: [AppRecord], query: String?, limit: Int) -> (apps: [AppRecord], truncated: Bool) {
         let needle = query?.lowercased() ?? ""
-        let matching = needle.isEmpty ? apps : apps.filter { "\($0.name) \($0.id)".lowercased().contains(needle) }
+        let matching = needle.isEmpty ? apps : apps.filter { "\($0.name) \($0.id) \($0.bundleName ?? "")".lowercased().contains(needle) }
         return (Array(matching.prefix(limit)), matching.count > limit)
     }
 
-    /// Identifier first, then display name (with or without `.app`), then bundle path; last, `lookup`
+    /// Identifier first, then display or bundle name (with or without `.app`), then bundle path; last, `lookup`
     /// asks the system for an identifier installed outside the scanned folders.
     public static func resolve(_ request: String, in apps: [AppRecord], lookup: (String) -> AppRecord? = { _ in nil }) -> Resolution {
         let wanted = request.lowercased()
         if let byId = apps.first(where: { $0.id.lowercased() == wanted }) { return .resolved(byId) }
         let name = wanted.hasSuffix(".app") && !wanted.hasPrefix("/") ? String(wanted.dropLast(4)) : wanted
-        let byName = apps.filter { $0.name.lowercased() == name }
+        let byName = apps.filter { $0.name.lowercased() == name || $0.bundleName?.lowercased() == name }
         if byName.count == 1, let only = byName.first { return .resolved(only) }
         if byName.count > 1 { return .ambiguous(byName) }
         if let byPath = apps.first(where: { $0.path?.lowercased() == wanted }) { return .resolved(byPath) }

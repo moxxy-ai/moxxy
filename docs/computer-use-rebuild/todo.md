@@ -4,11 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 14 — aplikacja testowa, benchmark, dokumentacja (krok 13
-  gotowy).
-- **Następna czynność:** płótno bez AX z osią czasu w fixture macOS, skrypt
-  testów, `docs/computer-use-macos.md`, potem próba Computer Use w samym moxxy.
-- **Blokery:** brak.
+- **Bieżący krok:** wszystkie kroki 0–14 wykonane; otwarte pozycje niżej.
+- **Następna czynność:** dokończyć benchmark z modelem (zadania 3, 6–9 z
+  [`benchmark.md`](benchmark.md)) po odnowieniu limitu konta dostawcy; enkoder
+  H.264 na Windows.
+- **Blokery:** limit użycia konta `openai-codex` (429) przerwał próby z modelem
+  1.10.2026; brak realnej aplikacji montażowej na maszynie testowej.
 
 ## Rytuał każdego kroku
 
@@ -103,6 +104,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [ ] Windows: Media Foundation — nie zrobione; Windows zostaje na JPEG przez negocjację (patrz CHANGELOG).
 
 ### Krok 14 — aplikacja testowa, benchmark, dokumentacja
-- [ ] Fixture macOS (w tym płótno bez AX z osią czasu) + skrypt testów.
-- [ ] Benchmark z progiem ustalonym przed pomiarem (przeglądarka, biuro, Finder, montaż).
-- [ ] `docs/computer-use-macos.md`, aktualizacja docs Windows i strony pakietu.
+- [x] Fixture macOS: oś czasu bez AX, przesunięcie układu, kontrolka bez efektu, aplikacja bez okna + `native/macos/Tests/run-computer-use-tests.sh`.
+- [x] Zestaw benchmarku i próg w [`benchmark.md`](benchmark.md); próby w prawdziwym moxxy: formularz, oś czasu, Kalkulator (sukces), TextEdit (na poziomie narzędzi).
+- [ ] Próg ≥90% niepotwierdzony: zadania 3, 6–9 nie były uruchomione z modelem (limit konta dostawcy, brak aplikacji montażowej).
+- [x] `docs/computer-use-macos.md`, strona pakietu; `docs/computer-use-windows.md` zaktualizowany w kroku 12.

@@ -63,7 +63,7 @@ describe.skipIf(!built)('macOS native helper', () => {
       const listed = listAppsResultSchema.parse(await transport.request('list_apps', { query: 'finder', limit: 5 }, signal()));
       expect(listed.apps[0]).toEqual({ id: 'com.apple.finder', name: 'Finder', running: true });
       const resolved = resolveAppsResultSchema.parse(await transport.request('resolve_apps', { names: ['Calculator', 'No Such App 1234'] }, signal()));
-      expect(resolved.apps[0]).toMatchObject({ request: 'Calculator', status: 'resolved', name: 'Calculator' });
+      expect(resolved.apps[0]).toMatchObject({ request: 'Calculator', status: 'resolved', id: 'com.apple.calculator' });
       expect(resolved.apps[1]).toEqual({ request: 'No Such App 1234', status: 'not_found' });
     } finally { await transport.close(); }
   });
@@ -133,7 +133,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       expect(secret?.value).toBeUndefined();
       expect(JSON.stringify(state)).not.toContain('hunter2');
       // Plain stack views are flattened; only the labelled canvas stays a group.
-      expect(state.tree.elements.filter((element) => element.role === 'group').map((element) => element.key.split('/').at(-1))).toEqual(['group:pad']);
+      expect(state.tree.elements.filter((element) => element.role === 'group').map((element) => element.key.split('/').at(-1))).toEqual(['group:pad', 'group:timeline']);
     } finally { await transport.close(); }
   });
 
@@ -217,6 +217,15 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const clicked = await run('computer_click', { app: FIXTURE, element_index: press }) as ToolImageResult;
       expect(clicked.forModel).toContain('Action delivered');
       expect(clicked.forModel).toMatch(/text "Pressed \d+"/);
+
+      // A control that does nothing: said once, called ineffective the second time, not sent a third time.
+      const full = await run('computer_get_app_state', { app: FIXTURE, disable_diff: true }) as ToolImageResult;
+      const dud = Number(/\[(\d+)\] button "Dud"/.exec(full.forModel ?? '')?.[1]);
+      const first = await run('computer_click', { app: FIXTURE, element_index: dud }) as ToolImageResult;
+      expect(first.forModel).toContain('Nothing visible changed after this action');
+      const second = await run('computer_click', { app: FIXTURE, element_index: dud }) as ToolImageResult;
+      expect(second.forModel).toMatch(/ineffective/i);
+      await expect(run('computer_click', { app: FIXTURE, element_index: dud })).rejects.toMatchObject({ code: 'no_progress' });
     } finally { await backend.release('session'); }
   });
 
@@ -224,7 +233,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
   describe('actions by element index', { timeout: 30_000 }, () => {
     const observe = async (transport: HelperTransport) =>
       appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
-    type Listed = { key: string; index: number; title?: string; value?: string; description?: string; frame?: { x: number; y: number; width: number; height: number } };
+    type Listed = { key: string; index: number; title?: string; value?: string; description?: string; actions?: string[]; frame?: { x: number; y: number; width: number; height: number } };
     const element = (state: { tree: { elements: Listed[] } }, suffix: string) => {
       const found = state.tree.elements.find((candidate) => candidate.key.endsWith(suffix));
       if (!found) throw new Error(`no ${suffix}`);
@@ -457,6 +466,58 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
 
     // Command shortcuts and rich-text paste need the menu bar, so the app comes forward and stays there.
     // Runs last: the tests above check the app stays in the background.
+    describe('a canvas without accessibility: a timeline with clips', () => {
+      const clips = (state: Framed | undefined) => (state ? element(state, 'group:timeline').description : undefined);
+      /** A screenshot point `points` along the 420-point-wide timeline, on its middle line. */
+      const along = (state: Framed, points: number) => {
+        const { frame } = element(state, 'group:timeline');
+        if (!frame) throw new Error('timeline has no frame');
+        return [Math.round(frame.x + points * frame.width / 420), Math.round(frame.y + frame.height / 2)] as [number, number];
+      };
+
+      it('moves a clip by its body, trims another by its edge and selects with a click, from the picture alone', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          expect(clips(before)).toBe('Timeline A 20+80 B 140+60 selected none');
+          expect(element(before, 'group:timeline').actions ?? []).toEqual([]);
+          const moved = await act(transport, { action: 'drag', path: [along(before, 60), along(before, 80)], duration_ms: 300, mouse_button: 'left' });
+          expect(moved.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(clips(moved.state)).toBe('Timeline A 40+80 B 140+60 selected A');
+
+          const state = moved.state ?? before;
+          const trimmed = await act(transport, { action: 'drag', path: [along(state, 198), along(state, 218), along(state, 238)], duration_ms: 300, mouse_button: 'left' });
+          expect(clips(trimmed.state)).toBe('Timeline A 40+80 B 140+100 selected B');
+
+          const [x, y] = along(trimmed.state ?? state, 60);
+          const picked = await act(transport, { action: 'click', x, y, mouse_button: 'left', click_count: 1 });
+          expect(clips(picked.state)).toBe('Timeline A 40+80 B 140+100 selected A');
+        } finally { await transport.close(); }
+      });
+    });
+
+    describe('a layout that moves', () => {
+      it('keeps the index of a control that moved and still presses it', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const press = element(before, 'button:press');
+          const shifted = await act(transport, { action: 'click', element_index: element(before, 'button:shift').index, mouse_button: 'left', click_count: 1 });
+          expect(shifted.result).toEqual({ outcome: 'delivered', method: 'ax' });
+          const after = await look(transport);
+          const moved = element(after, 'button:press');
+          expect(moved.index).toBe(press.index);
+          expect(moved.frame?.y).not.toBe(press.frame?.y);
+          const pressed = Number(/Pressed (\d+)/.exec(element(after, 'text:status').title ?? '')?.[1] ?? 0);
+          const clicked = await act(transport, { action: 'click', element_index: press.index, mouse_button: 'left', click_count: 1 });
+          expect(element(clicked.state ?? after, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
+          // Back to the first layout for the tests that follow.
+          await act(transport, { action: 'click', element_index: element(after, 'button:shift').index, mouse_button: 'left', click_count: 1 });
+          expect(element(await look(transport), 'button:press').frame?.y).toBe(press.frame?.y);
+        } finally { await transport.close(); }
+      });
+    });
+
     describe('bringing the app forward for the menu bar', () => {
       // The pointer tests above left the app in front; another app takes its place first.
       const sendToBackground = async () => {
@@ -475,6 +536,22 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(element(state ?? before, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
           expect(frontmost()).toBe('MoxxyComputerFixture');
         } finally { await transport.close(); }
+      });
+
+      it('sends a Command shortcut to an app that has no open window', async () => {
+        const transport = start();
+        try {
+          await observe(transport);
+          await act(transport, { action: 'press_key', key: 'super+w', repeat: 1, chord: chord('w', ['meta']) });
+          const closed = await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()) as { tree: { elements: unknown[] } };
+          expect(closed.tree.elements).toEqual([]);
+          const { result } = await act(transport, { action: 'press_key', key: 'super+n', repeat: 1, chord: chord('n', ['meta']) });
+          expect(result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(element(await observe(transport), 'text:status').title).toMatch(/^Pressed|^Ready/);
+        } finally {
+          spawnSync('osascript', ['-e', 'tell application "System Events" to tell process "MoxxyComputerFixture" to click menu item "New Window" of menu 1 of menu bar item 2 of menu bar 1']);
+          await transport.close();
+        }
       });
 
       it('pastes rich text with Command-V and gives the user their clipboard back', async () => {

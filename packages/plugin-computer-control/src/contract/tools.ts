@@ -71,9 +71,18 @@ interface ActionDef<S extends z.ZodRawShape> { readonly shape: S; readonly targe
 const define = <S extends z.ZodRawShape>(shape: S, rule?: TargetRule): ActionDef<S> => ({ shape, target: rule });
 const targeted = <S extends z.ZodRawShape>(shape: S, rule: 'required' | 'optional') => define({ ...target, ...shape }, rule);
 
+/** Models fill unused optional fields with null, "" or 0; read those as absent instead of rejecting the call. */
+function dropFiller(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  const kept = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== null));
+  if (kept.modifiers === '') delete kept.modifiers;
+  if (kept.element_index !== undefined && kept.x === 0 && kept.y === 0) { delete kept.x; delete kept.y; }
+  return kept;
+}
+
 function build<S extends z.ZodRawShape>(shape: S, rule: TargetRule) {
   const object = z.object(shape).strict();
-  return rule ? object.superRefine(checkTarget(rule === 'required')) : object;
+  return z.preprocess(dropFiller, rule ? object.superRefine(checkTarget(rule === 'required')) : object);
 }
 
 /** Actions on one app, without the `app` field; shared by the single tools and `computer_batch`. */
@@ -99,7 +108,17 @@ export type BatchAction = { [N in ActionName]: { action: N } & ActionOutput<N> }
 
 const optionalFields = Object.fromEntries(Object.entries(fields).map(([name, schema]) => [name, schema.optional()]));
 // One flat object keeps the JSON schema a plain object for every provider; each step is then parsed exactly.
-const batchStep = z.object({ action: z.enum(batchActionNames as [ActionName, ...ActionName[]]), ...optionalFields }).strict()
+const isEmpty = (value: unknown) => value === '' || value === 0 || (Array.isArray(value) && value.length === 0);
+/** A step lists every action's fields, so filler in a field the chosen action does not take is dropped too. */
+function dropStepFiller(input: unknown): unknown {
+  const step = dropFiller(input);
+  if (typeof step !== 'object' || step === null || Array.isArray(step)) return step;
+  const action = (step as { action?: unknown }).action;
+  if (typeof action !== 'string' || !Object.hasOwn(actions, action)) return step;
+  const shape = actions[action as ActionName].shape;
+  return Object.fromEntries(Object.entries(step).filter(([name, value]) => name === 'action' || Object.hasOwn(shape, name) || !isEmpty(value)));
+}
+const batchStep = z.preprocess(dropStepFiller, z.object({ action: z.enum(batchActionNames as [ActionName, ...ActionName[]]), ...optionalFields }).strict()
   .transform((step, ctx): BatchAction => {
     const { action, ...rest } = step;
     const parsed = build(actions[action].shape, actions[action].target).safeParse(rest);
@@ -108,7 +127,7 @@ const batchStep = z.object({ action: z.enum(batchActionNames as [ActionName, ...
       return z.NEVER;
     }
     return { action, ...parsed.data } as BatchAction;
-  });
+  }));
 
 /** The single tool for an action: the same fields with the target `app` first. */
 const onApp = <N extends ActionName>(name: N) =>

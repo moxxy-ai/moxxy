@@ -1,7 +1,8 @@
 import AppKit
 
 // A deterministic window for integration tests: known controls, one secure field, nested plain groups
-// that the tree must flatten, and a button whose effect is visible in the tree.
+// that the tree must flatten, a button whose effect is visible in the tree, one that does nothing, one
+// that moves the layout, and two canvases without accessibility (a pad and a timeline with clips).
 
 @MainActor
 final class Controller: NSObject {
@@ -12,6 +13,17 @@ final class Controller: NSObject {
         presses += 1
         status.stringValue = "Pressed \(presses)"
     }
+
+    /// Deliberately does nothing: an agent must notice that and stop repeating it.
+    @objc func dud() {}
+
+    weak var window: NSWindow?
+    @objc func showWindow() { window?.makeKeyAndOrderFront(nil) }
+    @objc func hideWindow() { window?.orderOut(nil) }
+
+    /// Pushes everything below it down, like a banner that appears in a real app.
+    var spacer: NSView?
+    @objc func shift() { spacer?.isHidden.toggle() }
 
     /// A real save dialog, as a sheet, so the helper's save-dialog protection meets the system panel.
     @objc func save(_ sender: NSButton) {
@@ -85,6 +97,81 @@ final class Pad: NSView {
     override func scrollWheel(with event: NSEvent) { wheel += event.scrollingDeltaY; report("wheel \(Int(wheel))") }
 }
 
+/// A video-editor track without accessibility: clips are only pixels. Dragging a clip's body moves it,
+/// dragging its right edge trims it, a click selects it; positions snap to 10 points. The description
+/// reports the result so tests can read it, but offers no action.
+@MainActor
+final class Timeline: NSView {
+    private struct Clip { let name: String; var start: CGFloat; var length: CGFloat; let color: NSColor }
+    private enum Grab { case move(Int, CGFloat), trim(Int) }
+    private var clips = [Clip(name: "A", start: 20, length: 80, color: .systemOrange), Clip(name: "B", start: 140, length: 60, color: .systemPurple)]
+    private var selected: Int?
+    private var grab: Grab?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        report()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize { NSSize(width: 420, height: 44) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.darkGray.setFill()
+        bounds.fill()
+        for (index, clip) in clips.enumerated() {
+            clip.color.setFill()
+            let box = NSRect(x: clip.start, y: 6, width: clip.length, height: bounds.height - 12)
+            box.fill()
+            guard index == selected else { continue }
+            NSColor.white.setStroke()
+            NSBezierPath(rect: box.insetBy(dx: 1, dy: 1)).stroke()
+        }
+    }
+
+    private func report() {
+        let list = clips.map { "\($0.name) \(Int($0.start))+\(Int($0.length))" }.joined(separator: " ")
+        setAccessibilityLabel("Timeline \(list) selected \(selected.map { clips[$0].name } ?? "none")")
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let x = convert(event.locationInWindow, from: nil).x
+        grab = nil
+        selected = clips.lastIndex { x >= $0.start && x <= $0.start + $0.length }
+        if let selected {
+            let clip = clips[selected]
+            grab = clip.start + clip.length - x <= 8 ? .trim(selected) : .move(selected, x - clip.start)
+        }
+        report()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let x = convert(event.locationInWindow, from: nil).x
+        switch grab {
+        case let .move(index, offset): clips[index].start = min(max(0, x - offset), bounds.width - clips[index].length)
+        case let .trim(index): clips[index].length = min(max(10, x - clips[index].start), bounds.width - clips[index].start)
+        case nil: return
+        }
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let snap = { (value: CGFloat) in (value / 10).rounded() * 10 }
+        for index in clips.indices {
+            clips[index].start = snap(clips[index].start)
+            clips[index].length = max(10, snap(clips[index].length))
+        }
+        grab = nil
+        report()
+    }
+}
+
 /// Tall striped content, top first, for the scroll area.
 final class Page: NSView {
     override var isFlipped: Bool { true }
@@ -147,7 +234,19 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     lower.orientation = .horizontal
     let labels = NSStackView(views: [control(controller.status, "status"), control(keys.label, "keys")])
     labels.orientation = .horizontal
-    let outer = NSStackView(views: [name, secret, inner, labels, lower, loading])
+    let dud = control(NSButton(title: "Dud", target: controller, action: #selector(Controller.dud)), "dud")
+    let shift = control(NSButton(title: "Shift", target: controller, action: #selector(Controller.shift)), "shift")
+    let extras = NSStackView(views: [dud, shift])
+    extras.orientation = .horizontal
+    // Hidden until "Shift" is pressed; then it takes room at the top and moves every control down.
+    let spacer = NSView()
+    spacer.translatesAutoresizingMaskIntoConstraints = false
+    spacer.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    spacer.widthAnchor.constraint(equalToConstant: 10).isActive = true
+    spacer.isHidden = true
+    controller.spacer = spacer
+    let timeline = control(Timeline(), "timeline")
+    let outer = NSStackView(views: [spacer, name, secret, inner, extras, labels, lower, timeline, loading])
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
         spinner.stopAnimation(nil)
         loading.removeView(spinner)
@@ -175,6 +274,9 @@ func makeMenu(_ controller: Controller) -> NSMenu {
     edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
     let own = NSMenu(title: "Moxxy Fixture")
     own.addItem(withTitle: "Press Again", action: #selector(Controller.press), keyEquivalent: "j").target = controller
+    // Like a document app with nothing open: the window goes away and the app stays, until New Window.
+    own.addItem(withTitle: "New Window", action: #selector(Controller.showWindow), keyEquivalent: "n").target = controller
+    own.addItem(withTitle: "Close Window", action: #selector(Controller.hideWindow), keyEquivalent: "w").target = controller
     let menu = NSMenu()
     let ownItem = NSMenuItem(title: "Moxxy Fixture", action: nil, keyEquivalent: "")
     ownItem.submenu = own
@@ -195,6 +297,7 @@ NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { 
     return event
 }
 let window = makeWindow(controller, keys: keys)
+controller.window = window
 // Shown without activating: the helper must work while another app stays in front.
 window.orderFront(nil)
 application.run()

@@ -1638,3 +1638,65 @@ obejmuje dekodowania w rendererze.
   miałby żadnej weryfikacji. Windows ogłasza tylko `jpeg` i działa przez tę
   samą negocjację; dodanie enkodera to zmiana w `preview.cpp` + wpis
   `previewCodecs` w `windows/profile.ts`.
+
+## Krok 14 — aplikacja testowa, próby w moxxy, dokumentacja (2026-10-01)
+
+**Co**
+- Fixture macOS (`native/macos/Sources/ComputerUseFixture/main.swift`): oś czasu
+  bez elementów AX (klipy A i B: przeciągnięcie przesuwa, prawa krawędź
+  przycina, przyciąganie co 10), przycisk `Shift` (przesuwa układ), przycisk
+  `Dud` (bez efektu), pozycje menu New Window (⌘N) i Close Window (⌘W) — stan
+  „aplikacja bez okna”.
+- `native/macos/Tests/run-computer-use-tests.sh` (`--wait-idle`, `--filter=`):
+  testy Swift, build helpera i fixture, testy end-to-end.
+- `docs/computer-use-macos.md`, `docs/computer-use-rebuild/benchmark.md`, strona
+  pakietu w `apps/docs`.
+
+**Próby w prawdziwym moxxy** (`moxxy -p`, `openai-codex` / `gpt-6-astra`;
+szczegóły i tabela w [`benchmark.md`](benchmark.md)). Znalazły trzy błędy,
+których testy nie łapały:
+1. Model wypełnia nieużywane pola (`x: 0, y: 0, modifiers: ""`, `null`); schemat
+   odrzucał każde kliknięcie i tura kończyła się wykryciem pętli. Poprawka:
+   `dropFiller` / `dropStepFiller` w `contract/tools.ts` (preprocess przed
+   walidacją; `value: ""` w `set_value` zostaje, punkt `0,0` bez indeksu też).
+2. Aplikacja bez okna nie przyjmowała klawiszy (`unsupported_action`).
+   Poprawka: `TargetState.pid`, `press_key`/`hold_key` idą do procesu,
+   `Foreground.bring(pid:window:)` wyciąga na wierzch także aplikację bez okna
+   (przez `NSRunningApplication.activate()`, bo prośba AX jest wtedy
+   ignorowana — sprawdzone na TextEdit).
+3. Działająca aplikacja z przetłumaczoną nazwą nie była znajdowana po nazwie
+   pakietu. Poprawka: `AppRecord.bundleName` w `AppCatalog.resolve` i `page`.
+
+**Testy (Red → Green)**
+- `tools.test.ts` „ignores the filler…”: Red `Give exactly one target`, potem
+  `Key combo is empty` dla kroku batcha → Green.
+- `helper.test.ts` „sends a Command shortcut to an app that has no open
+  window”: Red `unsupported` zamiast `delivered` → Green.
+- `AppCatalogTests.findsAnAppShownUnderALocalizedNameByItsBundleName`: Red
+  `.notFound` → Green.
+- Nowe testy e2e z tego kroku: oś czasu (przesunięcie, przycięcie, wybór),
+  przesunięcie układu, kontrolka bez efektu → `no_progress`.
+- Test listy aplikacji sprawdza teraz identyfikator, nie nazwę (nazwa zależy od
+  języka systemu).
+
+**Wynik prób** po poprawkach: formularz, oś czasu i Kalkulator — sukces,
+potwierdzony odczytem stanu przez System Events; TextEdit — sprawdzony na
+poziomie narzędzi (bez modelu), bo konto dostawcy osiągnęło limit (429).
+Fałszywych sukcesów: 0.
+
+**Walidacja**
+- `swift test` 134/134; `./build.sh` OK (universal); `./build-fixture.sh` OK.
+- Plugin przy bezczynnym wejściu: 20 plików / 283 testy (z e2e).
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów;
+  `pnpm check:deps` 0 błędów.
+- Windows CI: run 36811088154 zielony; instalator (run 36811436283) zielony;
+  run 36812455639 po commicie kroku 13 czerwony („Helper exited before
+  answering” od pierwszego testu stanu, bez zmian w kodzie Windows w tym
+  commicie) — do oceny po runie z tego commita.
+
+**Niezrobione / otwarte**
+- Próg benchmarku ≥90% niepotwierdzony: zadania 3, 6–9 bez prób z modelem;
+  realna aplikacja montażowa niezainstalowana.
+- Windows: brak enkodera H.264 (krok 13), brak prób z modelem.
+- Kopia pluginu 0.41.1 w `~/.moxxy/plugins` użytkownika przesłania kopię z
+  repozytorium; na czas prób była odsuwana i przywracana.

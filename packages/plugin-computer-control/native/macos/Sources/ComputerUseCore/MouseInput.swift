@@ -119,19 +119,25 @@ enum Foreground {
     /// A fresh lookup: `NSWorkspace.frontmostApplication` goes stale in this helper, whose main thread never idles like an app's.
     static func isFrontmost(_ pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.isActive ?? false }
 
-    static func bring(_ window: WindowCandidate) -> Outcome {
-        if isFrontmost(window.pid), WindowDirectory.onScreenWindowID(for: window) != nil { return .alreadyFront }
+    static func bring(_ window: WindowCandidate) -> Outcome { bring(pid: window.pid, window: window) }
+
+    /// Without a window (a document app with nothing open) the app itself comes forward, for its menu shortcuts.
+    static func bring(pid: pid_t, window: WindowCandidate?) -> Outcome {
+        let isUp = { isFrontmost(pid) && (window.map { WindowDirectory.onScreenWindowID(for: $0) != nil } ?? true) }
+        if isUp() { return .alreadyFront }
         let sinceKey = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown)
         if ActivationGate.userIsTyping(secondsSinceKeyDown: sinceKey) {
             return .refused(.blocked("user_intervened", hint: "The user is typing right now; bringing the app forward would send their keys into it. Nothing was done; retry after a pause in their typing."))
         }
-        let app = AXReader.application(window.pid)
+        let app = AXReader.application(pid)
         AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        if let element = AXReader.targetWindow(of: app) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
+        if window != nil, let element = AXReader.targetWindow(of: app) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
+        // An app with no window ignores the accessibility request; the workspace brings it forward instead.
+        if window == nil { NSRunningApplication(processIdentifier: pid)?.activate() }
         // Switching to the app's Space animates; the window counts once the window server shows it here.
         let until = Date().addingTimeInterval(deadline)
         while Date() < until {
-            if isFrontmost(window.pid), WindowDirectory.onScreenWindowID(for: window) != nil { return .broughtForward }
+            if isUp() { return .broughtForward }
             Thread.sleep(forTimeInterval: 0.02)
         }
         return .refused(.blocked("not_frontmost", hint: "The app did not come to the front on this screen (its window may be on another Space or minimised). Ask the user to bring it here, or use element actions, which work in the background."))

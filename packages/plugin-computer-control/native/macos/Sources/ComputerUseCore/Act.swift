@@ -77,7 +77,7 @@ struct Executor {
         case let .typeText(nil, text):
             return onFocused { element in type(text, into: element) }
         case let .pressKey(chord, count):
-            guard let pid = state.window?.pid else { return noWindow }
+            guard let pid = state.pid else { return noWindow }
             if chord.isSelectAll { return onFocused(selectAll) }
             if chord.confirms, let focused: AXUIElement = AXReader.attribute(AXReader.application(pid), kAXFocusedUIElementAttribute),
                let refused = guardSave(confirmedBy: focused, byReturn: true) {
@@ -86,7 +86,7 @@ struct Executor {
             let press = { keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
             return chord.needsMenuBar ? inFront(press) : press()
         case let .holdKey(chord, duration):
-            guard let pid = state.window?.pid else { return noWindow }
+            guard let pid = state.pid else { return noWindow }
             let hold = { keyboard { input.keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
             return chord.needsMenuBar ? inFront(hold) : hold()
         case let .paste(.element(index)?, text, format):
@@ -455,8 +455,8 @@ struct Executor {
     /// Command shortcuts and rich-text paste go through the menu bar, which only the app in front has: the app
     /// comes forward (never while the user types) and stays there.
     private func inFront(_ body: () -> ActionResult) -> ActionResult {
-        guard let window = state.window else { return noWindow }
-        if case let .refused(result) = Foreground.bring(window) { return result }
+        guard let pid = state.pid else { return noWindow }
+        if case let .refused(result) = Foreground.bring(pid: pid, window: state.window) { return result }
         return body()
     }
 
