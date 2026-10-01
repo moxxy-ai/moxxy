@@ -1992,3 +1992,42 @@ funkcji).
   sprawdzona na tym przypadku, tylko testami jednostkowymi i na zwykłych
   stronach w tle.
 - Nie sprawdzono na Chrome ani innych aplikacjach Electron poza ChatGPT.
+
+## Skille poza zasięgiem i krótszy stan stron WWW — 2026-10-01
+
+**Co**
+- SDK: `skillsWithinReach` — skill z listą `allowed-tools` nie trafia do
+  indeksu, gdy żadnego z tych narzędzi nie ma w sesji (końcowe `*` to prefiks).
+  Użyte w pętli domyślnej (`react-loop.ts`) i w trybie research.
+- Helper macOS, `TreeBuilder` wewnątrz `AXWebArea`: `AXShowMenu` nie jest
+  wypisywane (ma je każdy element strony; menu otwiera prawy przycisk), puste
+  grupy przez to znikają, a węzeł, który tylko powtarza nazwę rodzica (łącze w
+  łączu, tekst łącza), nie dostaje własnej linii. Opis równy tytułowi jest
+  pomijany wszędzie.
+- Skill użytkownika `visual-browser-control` przeniesiony do Kosza na prośbę
+  właściciela (był pisany pod stare narzędzia).
+
+**Jak (decyzje)**
+- Reguła „żadnego narzędzia”, a nie „któregokolwiek brak”: listy w skillach
+  użytkownika są luźne („web-research”, dwa alternatywne serwery MCP), więc
+  ostrzejsza reguła ukryłaby działające skille. Ta reguła nie ukryłaby
+  `visual-browser-control` (miał `Bash`); stąd usunięcie pliku.
+- Stan jest skracany w helperze, nie w formatowaniu, żeby indeksy i różnice
+  liczyły się na tym samym drzewie.
+
+**Testy (Red → Green)**: `skillsWithinReach` w `project-messages.test.ts`
+(Red: `is not a function`); `WebTreeTests` (Red: trzy niespełnione oczekiwania).
+
+**Pomiar**: strona kanału YouTube 55 007 → 22 455 znaków (732 → 386 linii).
+Scenariusz Safari, `gpt-6-luna` `xhigh`, jedna próba: sukces, 16 wywołań,
+165 s (poprzednio 21 i 187 s), adresy kart sprawdzone niezależnie. Podział
+czasu: narzędzia 26 s, oczekiwanie na początek odpowiedzi 27 s, reszta
+(ok. 110 s) to generowanie odpowiedzi przez model w 17 żądaniach.
+
+**Walidacja**: `swift test` 173/173; plugin 289/289 (z e2e); sdk 473, core 533,
+cli 455, mode-deep-research 33; `pnpm build` 88/88; typecheck, lint,
+`check:deps` bez błędów.
+
+**Niezrobione / otwarte**
+- Model nadal wysyła jedną akcję na odpowiedź; to teraz główny koszt czasu.
+- W tej próbie model załadował skill `browser` zamiast `visual-browser-control`.

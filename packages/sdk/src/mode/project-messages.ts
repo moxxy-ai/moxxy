@@ -71,6 +71,22 @@ export const ELISION_SYSTEM_NOTE =
   'shown verbatim.';
 
 /**
+ * Skills worth advertising: one that lists `allowed-tools` is written for those
+ * tools, so it is left out when none of them exists in the session (an MCP
+ * server that is not connected, a plugin that was replaced). Lists are loose in
+ * practice, so one tool that exists is enough; a trailing `*` matches a prefix.
+ */
+export function skillsWithinReach(skills: ReadonlyArray<Skill>, toolNames: ReadonlyArray<string>): ReadonlyArray<Skill> {
+  const known = new Set(toolNames);
+  const exists = (pattern: string) =>
+    pattern.endsWith('*') ? toolNames.some((name) => name.startsWith(pattern.slice(0, -1))) : known.has(pattern);
+  return skills.filter((skill) => {
+    const wanted = skill.frontmatter['allowed-tools'] ?? [];
+    return wanted.length === 0 || wanted.some(exists);
+  });
+}
+
+/**
  * Compose a model-facing system prompt that includes any base prompt
  * plus a COMPACT skill index (name + description + triggers only).
  *

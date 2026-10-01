@@ -16,6 +16,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów): 2 powtórzenia przed
   poprawkami dały 16/21 (76%). Po czterech poprawkach trzeba powtórzyć pełne
   5 serii ([`benchmark.md`](benchmark.md), wynik D).
+- [ ] Scenariusz Safari: 165 s, z czego ok. 110 s to generowanie odpowiedzi
+  modelu (17 żądań). Stan stron jest już o ok. 60% krótszy.
 - [ ] Czas kroku ok. 5 s przy `xhigh`: model wysyła jedną akcję na odpowiedź;
   instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
 - [ ] W tle nie działają: skróty z Command, prawy i środkowy przycisk, okno na
@@ -24,7 +26,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
   poprawce poszedł raz w CLI ([`benchmark.md`](benchmark.md), wynik E).
 - [ ] Safari w tle potrafiło nie udostępnić treści strony. Helper budzi teraz
   accessibility aplikacji i w ostateczności wynosi okno na wierzch; samego
-  przypadku nie odtworzono. Stan dużej strony to ok. 700 elementów.
+  przypadku nie odtworzono.
 - [ ] Windows: sprawdzić unikalność i długość kluczy elementów na głębokiej stronie.
 - [ ] Windows: próby z modelem, mysz w tle.
 - [ ] Aplikacja mobilna nie ma paska stanu Computer Use (kanał już podaje `computer.snapshot` i `computer.changed`).

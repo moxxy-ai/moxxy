@@ -119,6 +119,10 @@ najtańszych.
   `olx.pl/motoryzacja/q-Tesla/?search[order]=filter_float_price:asc`. Tytułu
   najnowszego filmu nie sprawdzono niezależnie.
 
+- Po skróceniu stanu stron (ten sam dzień): sukces, 16 wywołań, 165 s, te same
+  adresy kart. Narzędzia 26 s, oczekiwanie na początek odpowiedzi 27 s, reszta
+  to generowanie odpowiedzi przez model.
+
 W tej samej sesji właściciel zgłosił jeszcze dwa błędy, oba odtworzone:
 
 - Aplikacja ChatGPT (Chromium): `type_text` zwracało `delivered`, a pole

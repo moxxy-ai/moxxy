@@ -150,3 +150,44 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
         #expect(title.utf16.count <= 10_000 && !title.isEmpty)
     }
 }
+
+/// A web page repeats itself through accessibility: every element offers a context menu, links wrap a
+/// link that wraps their own words, and empty groups pad the tree. None of it helps the model.
+@Suite struct WebTreeTests {
+    private func web(_ role: String, _ title: String? = nil, description: String? = nil, value: String? = nil,
+                     actions: [String] = ["AXShowMenu"], children: [NodeSnapshot] = []) -> NodeSnapshot {
+        NodeSnapshot(role: role, roleDescription: nil, title: title, description: description, placeholder: nil, identifier: nil,
+                     value: value, secure: false, enabled: true, focused: false, selected: false, expanded: nil,
+                     actions: actions, handle: 0, children: children)
+    }
+
+    private func page(_ children: [NodeSnapshot]) -> [TreeElement] {
+        let window = web("AXWindow", "Page", actions: [], children: [
+            web("AXPopUpButton", "Zoom", actions: ["AXPress", "AXShowMenu"]),
+            web("AXWebArea", description: "Page", children: children),
+        ])
+        return TreeBuilder.build(window, limit: 100).elements
+    }
+
+    @Test func leavesOutTheContextMenuEveryWebElementOffersAndTheEmptyGroupsItKeptAlive() {
+        let elements = page([web("AXGroup"), web("AXGroup", children: [web("AXButton", "Search", actions: ["AXPress", "AXShowMenu"])])])
+        #expect(elements.map(\.role) == ["window", "popupbutton", "webarea", "button"])
+        #expect(elements[3].actions == [])
+        // Outside the page a menu is still something the model can open.
+        #expect(elements[1].actions == ["AXShowMenu"])
+    }
+
+    @Test func showsALinkOnceInsteadOfThreeTimes() {
+        let link = web("AXLink", description: "Shorts", children: [web("AXLink", "Shorts", children: [web("AXStaticText", value: " Shorts")])])
+        let elements = page([link])
+        #expect(elements.map(\.role) == ["window", "popupbutton", "webarea", "link"])
+        #expect(elements[3].description == "Shorts")
+    }
+
+    @Test func keepsWhatSaysSomethingNew() {
+        let link = web("AXLink", "Video", children: [web("AXStaticText", value: "4 hours ago"), web("AXLink", "Channel")])
+        let elements = page([link, web("AXHeading", "Latest", description: "Latest")])
+        #expect(elements.map(\.role) == ["window", "popupbutton", "webarea", "link", "statictext", "link", "heading"])
+        #expect(elements[6].description == nil)
+    }
+}

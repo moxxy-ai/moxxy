@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet } from './project-messages.js';
+import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet, skillsWithinReach } from './project-messages.js';
+import type { Skill } from '../skill.js';
 import { computeElisionState } from '../elision-state.js';
 import { asEventId, asSessionId, asTurnId } from '../ids.js';
 import type { EventLogReader } from '../log.js';
@@ -179,5 +180,24 @@ describe('projectMessagesFromLog tool_result stringify hardening', () => {
 
   it('passes a string output through verbatim', () => {
     expect(toolResultText(logWith('plain text'))).toBe('plain text');
+  });
+});
+
+describe('skillsWithinReach', () => {
+  const skill = (name: string, tools?: string[]): Skill => ({
+    id: name as Skill['id'], path: `/skills/${name}.md`, scope: 'user', body: '',
+    frontmatter: { name, description: name, ...(tools ? { 'allowed-tools': tools } : {}) },
+  });
+  const names = (skills: ReadonlyArray<Skill>) => skills.map((entry) => entry.frontmatter.name);
+  const tools = ['Bash', 'Read', 'mcp__gmail__send', 'computer_click'];
+
+  it('keeps a skill that names no tools or at least one tool of the session', () => {
+    const kept = skillsWithinReach([skill('prose'), skill('empty', []), skill('mixed', ['Bash', 'web-research']), skill('mail', ['mcp__gmail__*'])], tools);
+    expect(names(kept)).toEqual(['prose', 'empty', 'mixed', 'mail']);
+  });
+
+  it('drops a skill when none of the tools it is written for exists', () => {
+    const kept = skillsWithinReach([skill('charts', ['mcp__tradingview__tv_quote']), skill('zoho', ['mcp__zoho__*']), skill('old', ['AppleScript', 'computer'])], tools);
+    expect(kept).toEqual([]);
   });
 });

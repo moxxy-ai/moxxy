@@ -64,28 +64,42 @@ public enum TreeBuilder {
         var output: [TreeElement] = []
         var truncated = false
 
-        func visit(_ node: NodeSnapshot, depth: Int, parentKey: String?, siblings: inout [String: Int]) {
+        /// `said` is what the nearest listed ancestor already shows as its name.
+        func visit(_ node: NodeSnapshot, depth: Int, parentKey: String?, siblings: inout [String: Int], web: Bool, said: [String]) {
             guard !hidden.contains(node.role) else { return }
-            if isPlain(node) {
-                for child in node.children { visit(child, depth: depth, parentKey: parentKey, siblings: &siblings) }
+            if isPlain(node, web: web) || (web && repeats(node, said)) {
+                for child in node.children { visit(child, depth: depth, parentKey: parentKey, siblings: &siblings, web: web, said: said) }
                 return
             }
             guard output.count < limit else { truncated = true; return }
             let role = roleName(node)
             let key = uniqueKey(parentKey, role: role, node: node, siblings: &siblings)
-            output.append(element(node, key: key, role: role, depth: depth))
+            let listed = element(node, key: key, role: role, depth: depth, web: web)
+            output.append(listed)
             var children: [String: Int] = [:]
-            for child in node.children { visit(child, depth: depth + 1, parentKey: key, siblings: &children) }
+            let inside = web || node.role == "AXWebArea"
+            for child in node.children {
+                visit(child, depth: depth + 1, parentKey: key, siblings: &children, web: inside, said: [listed.title, listed.description].compactMap { $0 })
+            }
         }
 
         var roots: [String: Int] = [:]
-        visit(root, depth: 0, parentKey: nil, siblings: &roots)
+        visit(root, depth: 0, parentKey: nil, siblings: &roots, web: false, said: [])
         return (output, truncated)
     }
 
-    static func isPlain(_ node: NodeSnapshot) -> Bool {
+    static func isPlain(_ node: NodeSnapshot, web: Bool = false) -> Bool {
         structural.contains(node.role) && nonEmpty(node.title) == nil && nonEmpty(node.description) == nil
-            && nonEmpty(node.value) == nil && explicitActions(node).isEmpty && !node.focused && !node.selected
+            && nonEmpty(node.value) == nil && explicitActions(node, web: web).isEmpty && !node.focused && !node.selected
+    }
+
+    /// On a web page a link wraps a link that wraps its own words. A node that only says what its
+    /// parent already shows adds a line and nothing else; its children are listed under the parent.
+    static func repeats(_ node: NodeSnapshot, _ said: [String]) -> Bool {
+        guard ["AXStaticText", "AXLink", "AXGroup"].contains(node.role), !node.focused, !node.selected, explicitActions(node, web: true).isEmpty else { return false }
+        let trimmed = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let own = [node.title, node.description, node.value].compactMap(nonEmpty).map(trimmed)
+        return !own.isEmpty && own.allSatisfy(said.map(trimmed).contains)
     }
 
     static func roleName(_ node: NodeSnapshot) -> String {
@@ -106,7 +120,7 @@ public enum TreeBuilder {
         return seen == 1 ? base : "\(base)~\(seen)"
     }
 
-    static func element(_ node: NodeSnapshot, key: String, role: String, depth: Int) -> TreeElement {
+    static func element(_ node: NodeSnapshot, key: String, role: String, depth: Int, web: Bool = false) -> TreeElement {
         let isText = node.role == "AXStaticText"
         let isToggle = toggles.contains(node.role)
         var states: [String] = []
@@ -116,17 +130,22 @@ public enum TreeBuilder {
         if let expanded = node.expanded, expanded || disclosing.contains(node.role) { states.append(expanded ? "expanded" : "collapsed") }
         if !node.enabled { states.append("disabled") }
         let placeholder = nonEmpty(node.placeholder).map { "placeholder: \($0)" }
+        let title = nonEmpty(node.title) ?? (isText ? nonEmpty(node.value) : nil)
         return TreeElement(
             key: key, depth: depth, role: role,
             // Static text carries its words in the value; show them as the title.
-            title: nonEmpty(node.title) ?? (isText ? nonEmpty(node.value) : nil),
-            description: nonEmpty(node.description) ?? placeholder,
+            title: title,
+            // A description that repeats the title says nothing.
+            description: (nonEmpty(node.description) ?? placeholder).flatMap { $0 == title ? nil : $0 },
             value: node.secure || isText || isToggle ? nil : (entries.contains(node.role) ? node.value : nonEmpty(node.value)),
-            secure: node.secure, states: states, actions: explicitActions(node), handle: node.handle, frame: node.frame
+            secure: node.secure, states: states, actions: explicitActions(node, web: web), handle: node.handle, frame: node.frame
         )
     }
 
-    static func explicitActions(_ node: NodeSnapshot) -> [String] { node.actions.filter { !implicitActions.contains($0) }.map(actionLabel) }
+    /// Every element of a web page offers its context menu; a right click opens it, so it is not listed there.
+    static func explicitActions(_ node: NodeSnapshot, web: Bool = false) -> [String] {
+        node.actions.filter { !implicitActions.contains($0) && !(web && $0 == "AXShowMenu") }.map(actionLabel)
+    }
 
     /// A custom action arrives as "Name:…\nTarget:…\nSelector:…"; the tree shows its name only.
     static func actionLabel(_ raw: String) -> String {

@@ -345,6 +345,7 @@ export {
   projectMessagesFromLog,
   projectMessages,
   buildSystemPromptWithSkills,
+  skillsWithinReach,
   createStuckLoopDetector,
   stableHash,
   runReactLoop,

@@ -198,3 +198,5 @@ wersję i plik, z którego wzięto wzorzec.
 - **Przełączniki accessibility.** Helper włącza aplikacjom
   `AXEnhancedUserInterface` i `AXManualAccessibility` (jak Codex) i wyłącza je
   przy wyjściu. Zabity helper (SIGKILL) ich nie cofnie.
+- **Indeks skilli.** Skill z `allowed-tools`, z których żadne nie istnieje w
+  sesji, nie jest pokazywany modelowi; `load_skill` po nazwie nadal go wczyta.

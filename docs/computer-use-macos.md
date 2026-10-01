@@ -62,6 +62,9 @@ helper, so the model sees one set of tools on both systems (see
 - The helper switches on an app's full accessibility tree
   (`AXEnhancedUserInterface`, `AXManualAccessibility`) the first time it looks
   at the app, and switches off what it changed when it leaves.
+- Inside a web page the tree leaves out what repeats: the context menu every
+  element offers, empty groups, and a node that only says its parent's name
+  (a link inside a link, a link's own text).
 - For a browser, the state is read once the page content is there (up to
   about 3 s). A page that still does not show gets its window brought forward
   once and is read again; only then does the result say the page is not
