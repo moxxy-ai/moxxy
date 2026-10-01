@@ -135,6 +135,8 @@ function Close-Peer($peer) {
 }
 # A new helper knows no windows: find the fixture's main window again and look at it.
 function Attach {
+  # A test that failed half-way may have left its helper holding the desktop.
+  if ($script:helper) { Close-Peer $script:helper }
   $script:helper = Start-Peer
   $listed = Call 'list_apps' @{ query='moxxy-computer-fixture'; limit=20 }
   $row = @($listed.apps | Where-Object id -eq $script:app)[0]
@@ -392,7 +394,7 @@ try {
       $frames = @($script:events | Where-Object { $_.event -eq 'preview_frame' })
       Check ($frames.Count -gt 0) 'No preview frame arrived'
       $pictures = @($frames | Where-Object { $_.PSObject.Properties['image'] })
-      Check ($pictures.Count -gt 0 -and $pictures[0].image.mediaType -eq 'image/jpeg' -and $pictures[0].image.width -le 960) ('Preview frames carry no picture: ' + ($frames[0] | ConvertTo-Json -Compress -Depth 4).Substring(0, 200))
+      Check ($pictures.Count -gt 0 -and $pictures[0].image.mediaType -eq 'image/jpeg' -and $pictures[0].image.width -le 960) ('Preview frames carry no picture: ' + (@($frames | Where-Object { -not $_.PSObject.Properties['image'] } | Select-Object -First 3) | ConvertTo-Json -Compress -Depth 4))
       Check ((Call 'preview.stop' @{}).stopped) 'Preview did not stop'
       Start-Sleep -Milliseconds 600
       Call 'status' @{} | Out-Null
@@ -443,9 +445,19 @@ try {
         $index=(Find (Look) 'Save' 'Button').index
         Control $script:helper 'pause'
         $id = Send $script:helper 'act' @{ app=$script:app; action=@{ action='click'; element_index=$index; mouse_button='left'; click_count=1 }; allowed=@($script:app) }
-        $paused = Read-Frame $script:helper 5000
+        $paused = $null
+        for ($i=0; $i -lt 10 -and $null -eq $paused; $i++) {
+          $frame = Read-Frame $script:helper 5000
+          if ($null -eq $frame) { break }
+          if ($frame.PSObject.Properties['event'] -and $frame.event -eq 'control_state') { $paused = $frame }
+        }
         Check ($null -ne $paused -and $paused.id -eq $id -and $paused.event -eq 'control_state' -and $paused.state -eq 'paused_by_user') 'Explicit pause was not honored'
-        Check ($null -eq (Read-Frame $script:helper 1200)) 'Pause ended by itself'
+        # Cursor and preview events may still arrive; an answer to the held request may not.
+        $until=[DateTime]::UtcNow.AddMilliseconds(1200)
+        while ([DateTime]::UtcNow -lt $until) {
+          $frame = Read-Frame $script:helper 200
+          Check ($null -eq $frame -or $frame.PSObject.Properties['event']) ('Pause ended by itself: ' + ($frame | ConvertTo-Json -Compress -Depth 6))
+        }
         Check ((Fixture-State).saves -eq $before) 'Input was sent while paused'
         Control $script:helper 'resume'
         $response = Await $script:helper $id
@@ -526,6 +538,7 @@ try {
     }
     if ($TestInstalledApps) {
       Test 'an installed app is found by name, started on request and typed into' {
+        if ($script:helper) { Close-Peer $script:helper }
         $script:helper=Start-Peer
         $apps=(Call 'list_apps' @{ query='notepad'; limit=20 }).apps
         $notepad=@($apps | Where-Object name -eq 'Notepad')[0]
@@ -533,7 +546,7 @@ try {
         $named=(Call 'resolve_apps' @{ names=@('Notepad') }).apps[0]
         Check ($named.status -eq 'resolved' -and $named.id -eq $notepad.id) 'The display name did not resolve to the listed app'
         $unknown = Request $script:helper 'get_app_state' @{ app='notepad.exe & echo unexpected'; screenshot=$false }
-        Check (-not $unknown.ok -and $unknown.error.code -eq 'app_not_found') 'Unresolved command text was accepted'
+        Check (-not $unknown.ok -and $unknown.error.code -eq 'app_not_found') ('Unresolved command text was accepted: ' + ($unknown | ConvertTo-Json -Compress -Depth 4))
         $oldPids=@(Get-Process -Name notepad -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
         try {
           Write-Host 'Real Notepad: start and observe'

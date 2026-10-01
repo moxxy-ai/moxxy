@@ -395,19 +395,26 @@ Json Desktop::app_state(const std::wstring& app, const std::optional<std::wstrin
     for (const auto& row:own) if (!chosen && row.hwnd==front) chosen=&row;
     for (const auto& row:own) if (!chosen && !row.minimized) chosen=&row;
     if (!chosen) chosen=&own.front();
-    // A window disabled by its own dialog is not the place to work: the dialog is.
-    auto top=chosen->hwnd;
-    for (int depth=0;depth<8;++depth) { auto dialog=blocking_window(top); if (!dialog) break; top=dialog; }
-    if (top!=chosen->hwnd) for (const auto& row:rows) if (row.hwnd==top) chosen=&row;
   }
-  auto& window=windows.at(chosen->id);
-  if (IsIconic(window.hwnd)) {
-    ShowWindowAsync(window.hwnd,SW_SHOWNOACTIVATE);
-    for (int i=0;i<40 && IsIconic(window.hwnd);++i)
+  WindowRow picked=*chosen;
+  if (IsIconic(picked.hwnd)) {
+    ShowWindowAsync(picked.hwnd,SW_SHOWNOACTIVATE);
+    for (int i=0;i<40 && IsIconic(picked.hwnd);++i)
       require(WaitForSingleObject(stop_event,50)==WAIT_TIMEOUT,"cancelled","Computer Use stopped");
   }
-  settle(window.hwnd,launched ? 1500 : settle_budget);
-  target.window_id=chosen->id; target.hwnd=window.hwnd; target.bounds=window_bounds(window.hwnd);
+  settle(picked.hwnd,launched ? 1500 : settle_budget);
+  // A window disabled by its own dialog is not the place to work: the dialog is. It is looked for
+  // after the wait, because a dialog opened by the last action shows up a moment later.
+  for (int depth=0;depth<8;++depth) {
+    const auto dialog=blocking_window(picked.hwnd);
+    if (!dialog) break;
+    bool listed=false;
+    for (const auto& row:inventory()) if (row.hwnd==dialog) { picked=row; listed=true; }
+    if (!listed) break;
+    settle(picked.hwnd,300);
+  }
+  auto& window=windows.at(picked.id);
+  target.window_id=picked.id; target.hwnd=window.hwnd; target.bounds=window_bounds(window.hwnd);
   publish_guard_state(has_target_focus(window.hwnd) ? ControlState::foreground : ControlState::background,window.hwnd);
   preview_target(window.hwnd);
 
@@ -525,7 +532,7 @@ Json Desktop::app_state(const std::wstring& app, const std::optional<std::wstrin
     }
     elements.Append(item);
   }
-  if (!chosen->title.empty()) tree.Insert(L"window",string_value(chosen->title));
+  if (!picked.title.empty()) tree.Insert(L"window",string_value(picked.title));
   tree.Insert(L"elements",elements);
   if (truncated) tree.Insert(L"truncated",boolean(true));
   result.Insert(L"tree",tree);
