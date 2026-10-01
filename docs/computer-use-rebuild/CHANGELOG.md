@@ -2170,3 +2170,67 @@ wstępna nie używa. Ponowiony przebieg jest zielony.
 **Testy (Red → Green)**: „Linux helper artifact” ×2, klawisze systemowe ×6,
 kategorie ×4, profil i wybór platformy ×3, wskazówka o klawiszu Super
 (Red: 10 testów czerwonych + brak modułu `./linux/profile.js`).
+
+**Commit:** `ed9bbcd7`.
+
+## Linux L2–L6 — helper natywny — 2026-10-02
+
+**Co**
+- `native/linux/src` (C++20): `json`, `text`, `wire` (protokół v5), `tree`
+  (drzewo dla modelu, klucze, indeksy), `geometry` (budżet obrazu, ramka,
+  łatka pikseli), `keys`, `settle`, `apps` (katalog aplikacji), `action`
+  (parsowanie kroku) — czysta logika z testami jednostkowymi; `desktop` (X11:
+  okna, zrzut przez XComposite, aktywacja, test trafienia, wejście XTEST,
+  pisanie dowolnych znaków), `accessibility` (AT-SPI: drzewo, akcje, tekst,
+  wartości, ustalanie na zdarzeniach), `guard` (pauza, wejście użytkownika
+  przez XInput2, Escape, nadzór rodzica przez `pidfd`), `cursor`, `preview`,
+  `session` (metody), `main`.
+- `native/linux/fixture` — aplikacja testowa GTK 3; `src/linux/helper.test.ts`
+  — 27 testów end-to-end na prawdziwym helperze.
+- `deps.sh`, `build.sh`, `desktop.sh` (Xvfb + D-Bus + AT-SPI + openbox),
+  `docker.sh`, `Dockerfile`.
+- CI: `.github/workflows/computer-use-linux.yml` (x64 i arm64: budowa, testy
+  jednostkowe, e2e, artefakt). `release.yml`: instalator Linux buduje helper.
+  `verify-desktop-resources.mjs` wymaga helpera także na Linuksie.
+- Dokumenty: `docs/computer-use-linux.md`, strona wtyczki, ten dziennik.
+
+**Jak i dlaczego**
+- Współrzędne elementów czytane względem okna (`ATSPI_COORD_TYPE_WINDOW`)
+  i przesuwane o położenie okna X: GTK 4 podaje współrzędne ekranu od zera.
+- Biblioteka `libatspi` trzyma pamięć podręczną odświeżaną zdarzeniami.
+  Wyłączenie jej (`ATSPI_CACHE_NONE`) zawieszało helper: obsługa zdarzenia
+  wewnątrz pętli robiła wtedy wywołanie D-Bus w trakcie rozsyłania. Pamięć
+  zostaje, a helper czyści ją przed każdym odczytem (`clear_cache`).
+- Naciśnięcie przez AT-SPI, które nic nie zmienia: porównanie zrzutu sprzed
+  akcji ze zrzutem świeżego stanu (bez dodatkowego czekania; animacja
+  przycisku GTK myliła porównanie robione od razu). Powtórzone to samo
+  kliknięcie idzie wtedy prawdziwą myszą.
+- Własne wejście odróżniane od użytkownika: zdarzenia z urządzeń XTEST
+  w ciągu 250 ms od wysłania są helpera; prawdziwe urządzenia zawsze należą
+  do użytkownika.
+- Start aplikacji przez `GDesktopAppInfo` z wyjściem do `/dev/null`, żeby
+  nic nie trafiło do potoku protokołu.
+- JPEG linkowany statycznie (różne nazwy biblioteki w dystrybucjach).
+- Akcje GTK 4 z kropką w nazwie (`clipboard.copy`) i etykieta powtarzająca
+  nazwę przycisku nie trafiają do drzewa (kalkulator: 63 → 36 elementów).
+
+**Testy (Red → Green)**
+- Jednostkowe C++: 46 testów (Red: brak symboli `settle`, `apps`, `action`
+  przy linkowaniu; dwa testy drzewa czerwone przed poprawką).
+- E2E: pierwszy przebieg 3/27 (podwójny znak nowej linii w ramce), potem
+  10/27 (zawieszenie na pamięci podręcznej), 26/27 (porównanie zrzutu),
+  27/27. Trzy kolejne przebiegi na świeżym pulpicie: 27/27 każdy.
+
+**Walidacja**
+- `native/linux/docker.sh native/linux/build.sh` — testy jednostkowe zielone, helper zbudowany (arm64).
+- `native/linux/docker.sh native/linux/desktop.sh npx vitest run src/linux` — 27/27 (×4).
+- Kalkulator GNOME (GTK 4) w kontenerze: 7 × 6 = 42 przez AT-SPI, podwójne kliknięcie myszą trafia w „5”.
+- `pnpm build` — 88/88; `pnpm --filter @moxxy/plugin-computer-control typecheck` — 0 błędów;
+  `pnpm lint` — 0 błędów; `pnpm check:deps` — 0 błędów;
+  `node --test scripts/desktop-packaging.test.mjs` — 10/10;
+  testy wtyczki na macOS bez e2e — 258/258.
+
+**Pominięte / dla następcy**
+- Lokalnie tylko arm64 w kontenerze (Xvfb + openbox); x64 i wynik CI do sprawdzenia.
+- Bez próby z modelem i bez prawdziwego pulpitu (GNOME/KDE na Xorg).
+- Lista braków: `todo.md`, sekcja „Linux”.

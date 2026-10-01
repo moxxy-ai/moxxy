@@ -1,17 +1,18 @@
 ---
 title: '@moxxy/plugin-computer-control'
-description: Operate desktop applications on macOS and Windows x64 through a bundled native helper.
+description: Operate desktop applications on macOS, Windows x64 and Linux (X11) through a bundled native helper.
 ---
 
 `@moxxy/plugin-computer-control` lets the agent operate real desktop
 applications: it reads an app's window as accessibility elements plus a
 screenshot, acts on an element or a point, and checks the result. The work is
 done by a small native helper shipped with the plugin (Swift on macOS, C++ on
-Windows x64) that the plugin starts for one turn and stops when the turn ends.
+Windows x64 and on Linux x64/arm64) that the plugin starts for one turn and stops when the turn ends.
 
-Linux, Windows ARM64, and a Mac whose helper is missing or does not match the
-plugin version expose `computer_status` only; it says why Computer Use is
-unavailable.
+Linux works in X11 sessions; in a Wayland session `computer_status` reports
+that Computer Use is not ready and why. Windows ARM64, and any system whose
+helper is missing or does not match the plugin version, expose
+`computer_status` only; it says why Computer Use is unavailable.
 
 ## Tools
 

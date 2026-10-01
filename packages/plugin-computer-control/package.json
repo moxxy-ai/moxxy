@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-computer-control",
   "version": "0.41.1",
-  "description": "Permission-gated control of desktop applications through bundled native helpers for macOS and Windows x64.",
+  "description": "Permission-gated control of desktop applications through bundled native helpers for macOS, Windows x64 and Linux (X11).",
   "keywords": [
     "moxxy",
     "agent",

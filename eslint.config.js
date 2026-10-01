@@ -15,6 +15,8 @@ export default [
       '**/node_modules/**',
       '**/.turbo/**',
       '**/coverage/**',
+      // CMake's output for the native Computer Use helpers (it writes files named *.ts).
+      'packages/plugin-computer-control/native/**/build/**',
       '**/*.timestamp-*.mjs',
       // Other agents' isolated git worktrees — full repo copies; not ours to lint.
       '.claude/**',

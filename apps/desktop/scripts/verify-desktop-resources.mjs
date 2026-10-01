@@ -10,6 +10,7 @@ import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-con
 const COMPUTER_HELPERS = {
   win32: ['Windows', ['bin', 'win32-x64', 'moxxy-computer.exe'], CONTRACT_PROTOCOL_VERSION],
   darwin: ['macOS', ['bin', 'darwin-universal', 'moxxy-computer'], CONTRACT_PROTOCOL_VERSION],
+  linux: ['Linux', ['bin', `linux-${process.arch}`, 'moxxy-computer'], CONTRACT_PROTOCOL_VERSION],
 };
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];

@@ -24,3 +24,4 @@ package.json.prepack-backup
 packages/plugin-computer-control/native/build/
 packages/plugin-computer-control/native/macos/.build/
 packages/plugin-computer-control/bin/
+packages/plugin-computer-control/native/linux/build/

@@ -104,7 +104,7 @@ test('desktop resource verifier rejects a plugin seed without its package lock',
   }
 });
 
-test('Windows resources reject a computer extension without the native component', async () => {
+test('desktop resources reject a computer extension without the native component', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-native-resource-test-'));
   try {
     await writeValidResources(root);
@@ -123,7 +123,7 @@ test('Windows resources reject a computer extension without the native component
     await writeFile(path.join(plugin, 'dist/index.js'), 'export {};');
     await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'win32' }), /Windows Computer Use/);
     await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use/);
-    await verifyDesktopResources(root, { runCli: false, platform: 'linux' });
+    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'linux' }), /Linux Computer Use/);
 
     // A universal Mach-O header with its manifest is what the macOS build ships.
     const helper = path.join(plugin, 'bin', 'darwin-universal', 'moxxy-computer');

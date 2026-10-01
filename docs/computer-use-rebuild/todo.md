@@ -11,18 +11,26 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.
 
-## Linux (w toku)
+## Linux
 
 Helper `native/linux` (C++, AT-SPI + X11) na tym samym protokole v5. Budowany
-i testowany w kontenerze (`native/linux/Dockerfile`), bo na tym komputerze nie
-ma Linuksa.
+i testowany w kontenerze (`native/linux/docker.sh`), bo na tym komputerze nie
+ma Linuksa. Opis: [`../computer-use-linux.md`](../computer-use-linux.md).
 
 - [x] L1: warstwa TS — manifest ELF, profil `linux-x64`/`linux-arm64`, klawisze systemowe, kategorie aplikacji.
-- [ ] L2: szkielet helpera — protokół, `status`, nadzór rodzica, testy jednostkowe.
-- [ ] L3: katalog aplikacji, stan aplikacji (drzewo AT-SPI, zrzut okna), aplikacja testowa, e2e.
-- [ ] L4: akcje (klik, pisanie, klawisze, przewijanie, przeciąganie, wartość, akcja drugorzędna).
-- [ ] L5: podgląd JPEG, kursor agenta, pauza/Stop/Escape, zoom.
-- [ ] L6: CI, pakowanie, dokumentacja.
+- [x] L2: szkielet helpera — protokół, `status`, nadzór rodzica, testy jednostkowe.
+- [x] L3: katalog aplikacji, stan aplikacji (drzewo AT-SPI, zrzut okna), aplikacja testowa, e2e.
+- [x] L4: akcje (klik, pisanie, klawisze, przewijanie, przeciąganie, wartość, akcja drugorzędna).
+- [x] L5: podgląd JPEG, kursor agenta, pauza/Stop/Escape, zoom.
+- [x] L6: CI (`computer-use-linux.yml`, x64 i arm64), pakowanie, dokumentacja.
+
+Otwarte dla Linuksa:
+- [ ] Sprawdzić wynik CI na x64 (lokalnie budowano i testowano tylko arm64 w kontenerze).
+- [ ] Próba na prawdziwym pulpicie (GNOME/KDE na Xorg) i z modelem `gpt-6-luna`; dotąd tylko Xvfb + openbox.
+- [ ] Przeglądarki i Electron: nie sprawdzono, czy pokazują drzewo strony przez AT-SPI.
+- [ ] Wayland (portal RemoteDesktop/ScreenCast + libei) — osobna praca.
+- [ ] Czas odczytu dużego drzewa (jedno wywołanie D-Bus na właściwość); kalkulator GNOME (36 elementów): akcja ze świeżym stanem ok. 1,6 s, z czego 1 s to minimalne ustalanie.
+- [ ] Brak: `window_id`, ochrona okna zapisu, przewijanie bez prawdziwego wejścia, start aplikacji bez przejęcia fokusu, wideo H.264.
 
 ## Otwarte
 

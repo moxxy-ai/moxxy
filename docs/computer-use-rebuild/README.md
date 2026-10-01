@@ -70,6 +70,7 @@ w czasie działania, nic nie jest linkowane.
 | Poświata krawędzi | Nie robimy; zamiast niej czytelny status sterowania |
 | SkyLight | Tylko mysz w tle na płótnie (klik, przeciąganie, kółko), lewy przycisk; prawdziwe wejście jako zapas |
 | macOS | 14+, universal binary (arm64 + x86_64) |
+| Linux | sesje X11, x64 i arm64; helper C++ (AT-SPI + X11), opis w [`../computer-use-linux.md`](../computer-use-linux.md) |
 | Przeglądarki | Domyślnie poziom `read`; zadania webowe idą do `@moxxy/plugin-browser` |
 
 ### Dlaczego nowy kontrakt, a nie obecny kontrakt Windows
