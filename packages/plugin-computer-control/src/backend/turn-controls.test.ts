@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ComputerControlSnapshot } from '@moxxy/sdk';
 import { expect, it } from 'vitest';
+import { TAKEOVER_PROTOCOL_VERSION } from '../helper/protocol.js';
 import { HelperTransport } from '../helper/transport.js';
-import { PROTOCOL_VERSION } from '../windows/contracts.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
 import { TurnControls } from './turn-controls.js';
+
+const OLDER = TAKEOVER_PROTOCOL_VERSION - 1;
 
 /** A helper that writes every line it receives to a file, so a test can read what the host sent it. */
 function recordingHelper(version = CONTRACT_PROTOCOL_VERSION) {
@@ -19,7 +21,7 @@ const until = async (check: () => boolean) => { for (let i = 0; i < 100 && !chec
 
 it('distinguishes the independent panel Stop from a crashed worker', async () => {
   const controls = new TurnControls();
-  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.once("data",()=>process.exit(20))'], { protocolVersion: PROTOCOL_VERSION });
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.once("data",()=>process.exit(20))'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   try {
     controls.attach('session', 'turn', transport);
     await expect(transport.request('status', {}, new AbortController().signal)).rejects.toThrow();
@@ -30,8 +32,8 @@ it('distinguishes the independent panel Stop from a crashed worker', async () =>
 
 it('routes human control to the exact live turn and retains a stopped tombstone', async () => {
   const controls = new TurnControls();
-  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
-  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
+  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   try {
     controls.attach('a', 'one', first);
     controls.attach('b', 'one', second);
@@ -53,7 +55,7 @@ it('routes human control to the exact live turn and retains a stopped tombstone'
 
 it('tracks native waiting without exposing mutable state to consumers', async () => {
   const controls = new TurnControls();
-  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   try {
     controls.attach('session', 'turn', transport);
     controls.update('session', 'turn', 'waiting_for_focus', 'window');
@@ -74,7 +76,7 @@ it('tracks native waiting without exposing mutable state to consumers', async ()
 
 it('shows the agent cursor and its target to every surface until Computer Use stops', async () => {
   const controls = new TurnControls();
-  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const transport = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   try {
     controls.attach('session', 'turn', transport);
     const service = controls.forSession('session');
@@ -98,8 +100,8 @@ it('shows the agent cursor and its target to every surface until Computer Use st
 
 it('keeps each turn\'s cursor to itself and hides it when the helper dies', async () => {
   const controls = new TurnControls();
-  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
-  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
+  const second = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   try {
     controls.attach('a', 'one', first);
     controls.attach('a', 'two', second);
@@ -119,8 +121,8 @@ it('keeps each turn\'s cursor to itself and hides it when the helper dies', asyn
 
 it('pushes every change of a session\'s turns to its subscribers, once per change and never to another session', async () => {
   const controls = new TurnControls();
-  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
-  const other = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
+  const other = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: CONTRACT_PROTOCOL_VERSION });
   const pushed: ReadonlyArray<ComputerControlSnapshot>[] = [];
   const service = controls.forSession('a');
   if (!service.subscribe) throw new Error('no subscribe');
@@ -167,10 +169,10 @@ it('takes over for the user: pauses the helper, hides the cursor and keeps it hi
 });
 
 it('asks a helper without take-over to pause instead', async () => {
-  const { transport, sent } = recordingHelper(PROTOCOL_VERSION);
+  const { transport, sent } = recordingHelper(OLDER);
   try {
     transport.control('takeover');
     await until(() => sent().length === 1);
-    expect(sent()).toEqual([{ version: PROTOCOL_VERSION, control: 'pause' }]);
+    expect(sent()).toEqual([{ version: OLDER, control: 'pause' }]);
   } finally { await transport.close(); }
 });

@@ -7,12 +7,13 @@ import type { PlatformProfile } from './backend/backend.js';
 import { computerTools } from './contract/tools.js';
 import { createComputerControlPlugin } from './index.js';
 import { macosProfile } from './macos/profile.js';
+import { windowsProfile } from './windows/profile.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const made of directories.splice(0)) rmSync(made, { recursive: true, force: true }); });
 
-/** A macOS profile whose helper files exist (or not) in a scratch directory; the helper is never started. */
-function profile(manifest?: Record<string, unknown>): PlatformProfile {
+/** A profile whose helper files exist (or not) in a scratch directory; the helper is never started. */
+function profile(manifest?: Record<string, unknown>, base: PlatformProfile = macosProfile): PlatformProfile {
   const directory = mkdtempSync(join(tmpdir(), 'moxxy-computer-index-'));
   directories.push(directory);
   const helperPath = join(directory, 'moxxy-computer');
@@ -20,7 +21,7 @@ function profile(manifest?: Record<string, unknown>): PlatformProfile {
     writeFileSync(helperPath, 'binary');
     writeFileSync(`${helperPath}.json`, JSON.stringify(manifest));
   }
-  return { ...macosProfile, helperPath };
+  return { ...base, helperPath };
 }
 const names = (tools: ReadonlyArray<ToolDef> | undefined) => (tools ?? []).map((tool) => tool.name).sort();
 const ready = { protocolVersion: macosProfile.protocolVersion, architecture: 'universal', sha256: '0'.repeat(64) };
@@ -55,10 +56,27 @@ describe('createComputerControlPlugin', () => {
     expect(await status?.handler({}, context)).toMatchObject({ ready: false, limitations: [expect.stringMatching(/protocol/)] });
   });
 
-  it('keeps Windows x64 on its own helper and tool set', () => {
-    const plugin = createComputerControlPlugin('win32', 'x64');
-    expect(names(plugin.tools)).toContain('computer_app_catalog');
-    expect(names(plugin.tools)).not.toContain('computer_get_app_state');
+  it('runs Windows x64 on the same tool set, human controls and live view as macOS', () => {
+    const plugin = createComputerControlPlugin('win32', 'x64', profile({ ...ready, architecture: 'x64' }, windowsProfile));
+    expect(names(plugin.tools)).toEqual(Object.keys(computerTools).sort());
+    expect(names(plugin.tools)).not.toContain('computer_app_catalog');
+    expect(plugin.hooks?.onBeforeProviderCall).toBeTypeOf('function');
+    expect(plugin.surfaces?.map((surface) => surface.kind)).toEqual(['computer-preview']);
+  });
+
+  it('offers only computer_status, with the reason, when the Windows helper is missing', async () => {
+    const plugin = createComputerControlPlugin('win32', 'x64', profile(undefined, windowsProfile));
+    expect(names(plugin.tools)).toEqual(['computer_status']);
+    const [status] = plugin.tools ?? [];
+    expect(await status?.handler({}, context)).toEqual({
+      platform: 'win32', architecture: 'x64', ready: false,
+      limitations: [expect.stringMatching(/helper is missing.*full installer/s)],
+    });
+  });
+
+  it('speaks one protocol on both platforms', () => {
+    expect(windowsProfile).toMatchObject({ platform: 'win32', protocolVersion: macosProfile.protocolVersion });
+    expect(windowsProfile.helperPath.replaceAll('\\', '/')).toMatch(/bin\/win32-x64\/moxxy-computer\.exe$/);
   });
 
   it.each([['linux', 'x64'], ['win32', 'arm64']] as const)('reports %s %s as unsupported through computer_status alone', async (platform, arch) => {
@@ -69,7 +87,7 @@ describe('createComputerControlPlugin', () => {
   });
 
   it('asks before every tool on every platform', () => {
-    for (const plugin of [createComputerControlPlugin('darwin', 'arm64', profile(ready)), createComputerControlPlugin('win32', 'x64'), createComputerControlPlugin('linux', 'x64')]) {
+    for (const plugin of [createComputerControlPlugin('darwin', 'arm64', profile(ready)), createComputerControlPlugin('win32', 'x64', profile({ ...ready, architecture: 'x64' }, windowsProfile)), createComputerControlPlugin('linux', 'x64')]) {
       for (const tool of plugin.tools ?? []) expect(tool.permission?.action, tool.name).toBe('prompt');
     }
   });

@@ -13,7 +13,7 @@ Linux, Windows ARM64, and a Mac whose helper is missing or does not match the
 plugin version expose `computer_status` only; it says why Computer Use is
 unavailable.
 
-## Tools (macOS)
+## Tools
 
 | Tool | Purpose |
 |---|---|
@@ -26,8 +26,8 @@ unavailable.
 | `computer_batch` | Several predictable steps in one call; stops at the first that is not delivered. |
 | `computer_screenshot`, `computer_zoom` | The whole display with only granted apps visible; a closer look at a region. |
 
-Windows x64 still uses its earlier tool set (`computer_observe`,
-`computer_windows`, …) until it moves to this one. See
+macOS and Windows x64 share these tools; each system has its own native
+helper behind them. Windows specifics are in
 [`docs/computer-use-windows.md`](https://github.com/moxxy-ai/moxxy/blob/main/docs/computer-use-windows.md).
 
 ## Use

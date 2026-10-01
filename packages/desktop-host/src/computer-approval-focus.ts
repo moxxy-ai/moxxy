@@ -1,16 +1,19 @@
 import type { ComputerControlService, PendingToolCall, PermissionContext } from '@moxxy/sdk';
 import type { AskResponse } from '@moxxy/desktop-ipc-contract';
 
+/** Tools whose input goes to the target window, so the window must be in front again after the prompt. */
 const physicalTools = new Set([
   'computer_click',
-  'computer_type',
-  'computer_type_window',
-  'computer_key',
+  'computer_type_text',
+  'computer_paste',
+  'computer_press_key',
   'computer_scroll',
   'computer_drag',
-  'computer_action',
+  'computer_mouse',
+  'computer_hold_key',
   'computer_select_text',
-  'computer_clipboard',
+  'computer_perform_secondary_action',
+  'computer_batch',
 ]);
 
 /** Only a human permission round-trip may restore the previously active target. */
@@ -33,14 +36,15 @@ export async function withComputerApprovalFocus(
   if (
     !input ||
     typeof input !== 'object' ||
-    !('windowId' in input) ||
-    typeof input.windowId !== 'string'
+    !('app' in input) ||
+    typeof input.app !== 'string'
   )
     return ask();
   const owner = {
     sessionId,
     turnId: context.turnId,
-    windowId: input.windowId,
+    // The helper finds the window it last observed for this app.
+    windowId: input.app,
     callId: String(call.callId),
     hostPid: process.pid,
   };

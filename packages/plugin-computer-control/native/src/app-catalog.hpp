@@ -1,22 +1,28 @@
 #pragma once
 #include "common.hpp"
 #include <shobjidl.h>
-#include <map>
 
 namespace moxxy {
+/// An application the user can start. `id` survives helper restarts: the executable path in lower
+/// case, or the AppUserModelID for a packaged app.
 struct InstalledApp {
-  std::wstring name, executable, application_id;
+  std::wstring id, name, executable, application_id;
   com_ptr<IShellItem2> item;
 };
 class AppCatalog {
  public:
-  Json list(const Json& params);
-  const InstalledApp& get(const std::wstring& id) const;
+  const std::vector<InstalledApp>& all();
+  const InstalledApp* find(const std::wstring& id);
   HANDLE launch(const InstalledApp& app);
-  bool matches(const InstalledApp& app,DWORD pid) const;
  private:
-  std::map<std::wstring,InstalledApp> apps;
-  bool loaded=false, incomplete=false, shell_unavailable=false;
+  std::vector<InstalledApp> apps;
+  bool loaded=false;
+  void add(InstalledApp app);
   void load();
 };
+std::wstring lower(std::wstring value);
+/// The same identifier `InstalledApp::id` uses, for a running process; empty when it cannot be read.
+std::wstring process_app_id(DWORD pid);
+/// File name of an executable path without its extension.
+std::wstring base_name(const std::wstring& path);
 }

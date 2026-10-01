@@ -4,10 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 12 — Windows na nowym kontrakcie (krok 11 gotowy).
-- **Następna czynność:** profil Windows dla `ComputerBackend`
-  (`src/windows/profile.ts`) i protokół v5 w helperze C++ (`native/src`);
-  walidacja tylko przez CI `computer-use-windows.yml`.
+- **Bieżący krok:** 12 — Windows na nowym kontrakcie: kod i testy wypchnięte,
+  trwa doprowadzanie CI `computer-use-windows.yml` do zielonego (helper C++
+  kompiluje się tylko tam).
+- **Następna czynność:** po zielonym CI — krok 13 (podgląd H.264).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -91,9 +91,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Desktop: `useComputerPreview` + `ComputerPreviewPip` z kursorem.
 
 ### Krok 12 — Windows na nowym kontrakcie
-- [ ] Helper C++ protokół v5: `list_apps`, `get_app_state {windowId}`, akcje po indeksie/punkcie.
-- [ ] Kursor (okno warstwowe, `WDA_EXCLUDEFROMCAPTURE`) i PiP (WGC → JPEG).
-- [ ] Usunięcie starych 21 narzędzi; UIPI/UAC → `unsupported`; zielone CI `computer-use-windows.yml`.
+- [x] Helper C++ protokół v5: `list_apps`, `resolve_apps`, `get_app_state {app, window_id?}`, akcje po indeksie/punkcie, `batch`, `screenshot`, `zoom`.
+- [x] Kursor (okno warstwowe, `WDA_EXCLUDEFROMCAPTURE`) i PiP (WGC → JPEG).
+- [x] Usunięcie starych 21 narzędzi i `windows/{backend,contracts,guidance}.ts`; jeden `ComputerBackend` na obu platformach.
+- [ ] Zielone CI `computer-use-windows.yml` (poprawki po pierwszej kompilacji w osobnych commitach).
 
 ### Krok 13 — PiP jako wideo
 - [ ] H.264 (VideoToolbox / Media Foundation), zdarzenia `preview_chunk`.

@@ -2,30 +2,46 @@
 
 Moxxy's Windows x64 extension owns its native backend. It does not load Codex,
 `@oai/sky`, `@oai/cua`, Python, or a separately installed .NET runtime. The helper
-is built with MSVC/C++20 and the Windows SDK. macOS continues to use the existing
-system-command backend with the same arguments.
+is built with MSVC/C++20 and the Windows SDK. Since helper protocol v5 it speaks
+the same contract as the macOS helper, so the model sees one set of tools on
+both systems (see [`computer-use-rebuild/README.md`](computer-use-rebuild/README.md)).
 
 ## Operating contract
 
 - Windows 10 22H2 and Windows 11 x64 are the intended client targets. Windows
   Server CI does not establish support for either client OS.
-- Every operation still uses the tool permission pipeline. UI text is untrusted.
-- Enumerate windows, observe or capture the target, act, then observe again.
-  The first observation omits `root`/`filter` or passes explicit `null`; never
-  fabricate an observation ID. Whole-window screenshots similarly accept
-  `region: null`. The extension supplies its own model-facing JSON schemas,
-  including numeric/string limits and null alternatives, so older provider SDK
-  converters cannot erase those constraints. `unknown-observation` requires a
-  fresh unscoped observation, not a focus change.
-  Focus is required for physical input, not for window observation. Window IDs
-  remain stable within the helper when inventory is refreshed; element IDs are
-  observation-scoped. Minimized windows expose null bounds and require `computer_restore`.
-  Image coordinates are pixels of the returned image, not desktop coordinates.
-- UIA observes a bounded tree or selected observation-scoped subtree and can
-  filter by literal name/control type. Output and visited-node limits are separate;
-  password controls do not expose text. WGC
-  captures a window; visible-screen fallback requires explicit opt-in and may
-  include overlapping content. Dispatch success is not evidence of task success.
+- Every operation still uses the tool permission pipeline, and an app must be
+  granted with `computer_request_access` before it is observed or operated.
+  UI text is untrusted.
+- An app is addressed by a stable identifier: the executable path in lower case,
+  or the AppUserModelID of a packaged app. `computer_list_apps` reports running
+  apps with their windows first, then everything the Shell catalog can start.
+  `computer_get_app_state` starts an app that is not running, without a shell
+  command, and never fabricates a window for one that shows none.
+- `computer_get_app_state` returns the window's UI Automation elements, each with
+  an `element_index`, and a JPEG of the window. An index stays with its element
+  for as long as the element lives and is never handed to another one. An open
+  menu or a dialog that covers the window becomes the state on its own; closing
+  it gives the window back. Password fields are listed without a value and are
+  not typed into.
+- Actions take an `element_index` or a point of the latest screenshot. The helper
+  keeps the latest state per app and answers `stale_state` when the window moved,
+  the element is gone or no state was taken; it does not guess. Every action
+  returns `delivered | ineffective | unsupported | blocked` and the fresh state.
+  `delivered` is not evidence that the task succeeded.
+- Values, text selection and the listed secondary actions (toggle, select,
+  expand, collapse, scroll into view) go through UI Automation. Clicks, typing,
+  keys, scrolling, drags and `computer_mouse` are real input, so the helper puts
+  the target window in front first (`SetForegroundWindow`, then UIA focus). The
+  user's pointer is put back after a click. Windows may refuse activation; the
+  action then waits and ends as `blocked` with `user_intervened`.
+- The agent's cursor is a layered, click-through window kept out of captures. It
+  shows where the agent acts; the user's own pointer is not replaced by it.
+- `computer_screenshot` shows the display with everything except granted apps
+  blacked out; `computer_zoom` reads a region of the latest picture again.
+- The live preview (`preview.start` / `preview.stop`) sends JPEG frames of the
+  target window from a Windows Graphics Capture session, 1–5 per second, only
+  while a surface is watching. Frames go to the person, never to the model.
 - A Windows mutex serializes control across processes until the owning turn
   ends. An independent guardian holds a shared injected-input ledger and releases
   it on cancellation, parent exit, watchdog timeout and hard worker termination.
@@ -35,66 +51,16 @@ system-command backend with the same arguments.
   and Stop buttons. Optional Ctrl+Alt+F11/F10/F12 equivalents register while it is
   visible, when those shortcuts are available. Normal turn cancellation also
   closes the helper. A failed/stopped connection cannot retry input in that turn.
-- Native protocol v4 reports local focus waiting, owned dialogs and a scoped permission-focus handshake. Active request deadlines pause
-  during explicit waiting, but cancellation remains live. Target focus resumes
-  focus-waiting; explicit Pause requires Resume. Resuming returns
-  `needs_observation`, with `effect: none | possible`, never replayed input.
-- Window inventory reports `ownerWindowId` and `blockingWindowId`. A disabled
-  parent's observation excludes owned-dialog controls. Every element carries its
-  actual `windowId`; observe the dialog separately before using its controls.
-  An action against a disabled parent returns `target_blocked` and the dialog ID
-  without delivering input or waiting for impossible parent focus. Nested dialogs
-  follow the same contract. Closing a dialog invalidates its references.
-- Background `computer_set_value` currently supports verified standard EDIT
-  controls through targeted messages. Generic UIA SetValue is **not** assumed
-  focus-neutral. Changed values or editability invalidate stored element targets.
-- `computer_action` exposes verified UIA patterns: invoke, item selection,
-  toggle, expand/collapse and scroll into view. These semantic actions currently
-  require foreground access; they never silently fall back to physical clicks.
-  Selection/toggle/expansion changes invalidate the stored element. A separate
-  MTA executor returns a pending/completed/failed receipt; `computer_action_status`
-  checks it without replay. Observation and physical modal closure remain available
-  while the provider's invocation is pending. Stop still belongs to the guardian.
-- `computer_read_text` reads bounded document/selection text through TextPattern
-  or verified native EDIT support. `computer_select_text` selects a literal
-  occurrence where a complete control value can be validated. Protected controls
-  are excluded. `computer_type_window` supports an observed graphical target
-  without requiring an editable element, but still requires identifiable,
-  non-protected focus and validates it during typing.
-- `computer_app_catalog` enumerates the Windows Shell app catalog and installed
-  system Notepad/Paint entries. `computer_open` uses a catalog ID, not a shell
-  command, and resolves matching windows by process/application identity.
-  Reuse/new-instance requests return explicit existing/opened/ambiguous/no-window
-  results. An unavailable catalog source is reported, not treated as an empty one.
-- Windows UAC, secure desktops, elevation, Linux and ARM64 are not supported.
-  Windows may deny foreground activation. Wait locally for the target or explicit
-  Resume; do not repeatedly steal focus or bypass Windows restrictions.
-- An optional SDK `computerControl` service exposes live turn snapshots and
-  human pause/resume/stop commands. Runner protocol v12 and desktop IPC
-  `computer.snapshot` / `computer.control` route by explicit workspace, session
-  and turn. Older runners return an update-required error for these operations,
-  not for ordinary chat. Stopped transports are never recreated by these commands.
-  The desktop chat strip consumes this service only for an active Windows-capable
-  turn; stale replies from another workspace/session/turn are not presented as
-  controls for the current run. It does not replace the independent native panel.
-- Runner protocol v13 adds `computer.approvalFocus`. Before a manual permission
-  dialog, the helper records the original target, its geometry/lifetime and the
-  requesting desktop process. A one-use approved result can request a single
-  OS-governed return only if foreground changes involved that host and target.
-  A human visit to another application, changed geometry, denial, pause or Stop
-  prevents restoration. No injected shortcut, input-queue attachment or input
-  replay is used. A normal Win32 activation can use the verified window's UIA
-  focus action if necessary. Before accepting the pending input, the helper
-  revalidates the focused control's identity, value, bounds and accessibility
-  state. Image coordinates survive only an identical window recapture (same
-  pixels, source, size and geometry); a visible-desktop fallback is never reused
-  this way. A human focus change during validation still invalidates the result.
-  Windows can refuse activation; ordinary safe waiting and fresh-observation
-  requirements then remain in force.
-  Foreground events are consumed in their actual delivery order; a bounded
-  wait may allow an asynchronous event to arrive, but never fabricates it from
-  a foreground query. Window captures exclude the human cursor, so moving it
-  to an approval button does not itself change application pixels.
+- Pause holds the next action; after Resume that action reports `user_intervened`
+  and sends nothing, because the app may have changed. `takeover` pauses,
+  releases held input and hides the agent's cursor.
+- Windows UAC, secure desktops, elevated windows, Linux and ARM64 are not
+  supported.
+- Before a manual permission dialog for an action, the desktop asks the helper to
+  remember the app's window (`computer.approvalFocus`). An approved result may
+  bring that window back once, only if foreground changes involved the desktop
+  and that window. A visit to another application, changed geometry, denial,
+  pause or Stop prevents it. No injected shortcut or input replay is used.
 
 ## Distribution and updates
 
@@ -167,7 +133,7 @@ The Windows 10/11 client upgrade path still requires its own acceptance runs.
 Do not call the branch release-ready or equivalent to Codex.
 
 Regression checkpoint `7568f60c` additionally verifies the model-facing schema
-through the installed Codex provider and runs null-option observation, physical
+through the installed Codex provider and runs observation, physical
 typing and screenshot through the installed plugin handlers. Both native and
 installed-resource suites passed 37 checks on Windows Server, including exact
 Polish multiline text in real Notepad. Offline upgrade/discovery also passed in

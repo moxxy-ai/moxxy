@@ -45,7 +45,7 @@ try {
   });
   runner.stdout.resume();runner.stderr.resume();
   remote=await connectRemoteSession({socketPath,connectRetries:25});
-  assert.ok(remote.getInfo().tools.some(tool=>tool.name==='computer_open'),'Runner did not load upgraded Computer Use');
+  assert.ok(remote.getInfo().tools.some(tool=>tool.name==='computer_get_app_state'),'Runner did not load upgraded Computer Use');
   assert.deepEqual(await remote.computerControl.snapshot(),[]);
   assert.deepEqual(await remote.workflows.approvals.list(),[], 'Installed runner did not expose its durable workflow approval service');
   console.log('Computer Use offline upgrade, private SDK, consent, backup and actual runner discovery passed');

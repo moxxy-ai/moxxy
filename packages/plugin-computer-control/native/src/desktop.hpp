@@ -6,12 +6,25 @@
 
 namespace moxxy {
 struct Window { HWND hwnd; DWORD pid; uint64_t created; uint64_t generation; com_ptr<IUIAutomationElement> root; };
-struct ValueState {
-  std::wstring text;
-  bool readonly;
-  bool operator==(const ValueState&) const = default;
+struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; bool secure; };
+/// One top-level window in the current inventory, with the app it belongs to.
+struct WindowRow { std::wstring id; HWND hwnd; DWORD pid; std::wstring title, class_name, app; bool minimized; };
+/// What the model last saw of one app; indices and points in later actions refer to it.
+struct AppTarget {
+  std::wstring id, name, window_id;
+  HWND hwnd = nullptr;
+  Rect bounds{};
+  bool observed = false;
+  std::map<int, Element> elements;
+  /// An element keeps its index while its key lives; indices are never reused.
+  std::map<std::wstring, int> indices;
+  int next_index = 0;
+  bool pictured = false;
+  int image_width = 0, image_height = 0;
 };
-struct Element { com_ptr<IUIAutomationElement> node; Rect bounds; std::optional<ValueState> value; AccessibilityState accessibility; };
+/// Why a step was not carried out, reported to the model as the action's result.
+struct Refusal { const wchar_t* outcome; const wchar_t* code; std::wstring hint; };
+
 class Desktop {
  public:
   Desktop();
@@ -21,34 +34,34 @@ class Desktop {
   com_ptr<IUIAutomation> automation;
   AppCatalog catalog;
   AccessibilityActions actions;
-  com_ptr<IUIAutomationElement> observed_focus;
   std::map<std::wstring, Window> windows;
-  std::map<std::wstring, Element> elements;
+  std::map<std::wstring, AppTarget> targets;
   std::optional<Element> approval_control;
+  struct Screen { Rect bounds; int width, height; };
+  std::optional<Screen> screen;
   Handle lease;
   bool owns_lease = false;
-  std::wstring observed_window, observation_id, capture_id, captured_window;
-  Rect observed_bounds{}, captured_bounds{}, captured_window_bounds{};
-  uint64_t observed_epoch = 0, captured_epoch = 0;
-  int captured_width = 0, captured_height = 0;
-  struct CaptureReference {
-    std::string image;
-    int max_dim, quality;
-    bool jpeg;
-    std::optional<Rect> crop;
-  };
-  std::optional<CaptureReference> capture_reference;
   void acquire();
-  Window& target(const Json& params, bool allow_minimized = false);
-  Element& element(const Json& params, Window& window, bool needs_focus = true);
-  void fresh_observation(const Json& params, Window& window, bool needs_focus = true);
-  void revalidate_approved_target(Window& window);
-  bool unchanged_control(const Element& element, Window& window);
-  Point point(const Json& params, const Json& coordinates, Window& window);
-  JsonArray list_windows();
-  std::wstring window_id(HWND hwnd) const;
+  std::vector<WindowRow> inventory();
+  Window& live_window(AppTarget& target);
   bool belongs_to_window(IUIAutomationElement* node, const Window& window);
-  Json observe(const Json& params, Window& window);
-  Json open(const Json& params);
+  Element& live(AppTarget& target, Window& window, int index);
+  Point screen_point(const AppTarget& target, double x, double y);
+  Point aim(AppTarget& target, Window& window, const Json& step);
+  void bring_forward(Window& window);
+  void settle(HWND window, int budget);
+  void physically(Window& window, Point point, const std::function<void()>& input);
+  void refuse_protected_focus();
+  Json list_apps(const Json& params);
+  Json resolve_apps(const Json& params);
+  Json app_state(const std::wstring& app, const std::optional<std::wstring>& wanted, bool screenshot, int settle_budget);
+  Json act(const std::wstring& app, const Json& step);
+  Json perform(AppTarget& target, Window& window, const Json& step);
+  Json scroll(AppTarget& target, Window& window, const Json& step);
+  Json state_after(const std::wstring& app);
+  Pixels visible_screen(Rect display, const std::set<std::wstring>& allowed);
+  Json screenshot(const Json& params);
+  Json zoom(const Json& params);
+  Json approval(const Json& params);
 };
 }

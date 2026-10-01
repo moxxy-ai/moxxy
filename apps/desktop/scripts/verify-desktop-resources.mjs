@@ -4,13 +4,12 @@ import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
-import { CONTRACT_PROTOCOL_VERSION as MACOS_COMPUTER_PROTOCOL } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
-import { PROTOCOL_VERSION as WINDOWS_COMPUTER_PROTOCOL } from '../../../packages/plugin-computer-control/dist/windows/contracts.js';
+import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
 
 /** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
 const COMPUTER_HELPERS = {
-  win32: ['Windows', ['bin', 'win32-x64', 'moxxy-computer.exe'], WINDOWS_COMPUTER_PROTOCOL],
-  darwin: ['macOS', ['bin', 'darwin-universal', 'moxxy-computer'], MACOS_COMPUTER_PROTOCOL],
+  win32: ['Windows', ['bin', 'win32-x64', 'moxxy-computer.exe'], CONTRACT_PROTOCOL_VERSION],
+  darwin: ['macOS', ['bin', 'darwin-universal', 'moxxy-computer'], CONTRACT_PROTOCOL_VERSION],
 };
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];

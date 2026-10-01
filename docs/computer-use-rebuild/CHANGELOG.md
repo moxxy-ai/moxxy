@@ -1493,3 +1493,61 @@ Poprzedni commit: `84833610` (krok 10).
 - Pomiar CPU podglądu (JPEG) razem z H.264 w kroku 13.
 - Podgląd na Windows — krok 12; kanał mobilny nie ma jeszcze `computer.*`.
 
+
+## Krok 12 — Windows na wspólnym kontrakcie, z kursorem i PiP (2026-10-01)
+
+Poprzedni commit: `1060794a` (krok 11).
+
+**Wzorzec**
+- Codex na Windows: aplikacja + okno jako cel, pełne drzewo UIA z indeksami,
+  osobne akcje po elemencie i po punkcie obrazu. Claude: zgody per aplikacja,
+  maskowanie aplikacji bez zgody na zrzucie pełnoekranowym, batch. Kod własny;
+  z poprzedniego helpera zostały sprawdzone mechanizmy (UIA, WGC, `SendInput`,
+  strażnik wejścia, panel Pause/Resume/Stop, mutex, katalog aplikacji).
+
+**Co**
+- TS: `src/windows/profile.ts` — profil Windows dla wspólnego
+  `ComputerBackend` (protokół 5). `createComputerControlPlugin` ma jedną
+  ścieżkę dla obu platform. Usunięte `src/windows/{backend,contracts,
+  guidance}.ts` z testami (stare 21 narzędzi). `maintenance.ts` używa
+  `CONTRACT_PROTOCOL_VERSION`.
+- Helper C++ (`native/src`): `desktop.cpp` przepisany na „stan celu” per
+  aplikacja — stabilny identyfikator aplikacji (ścieżka exe małymi literami
+  albo AppUserModelID), rejestr klucz → indeks (indeks nie wraca do obiegu),
+  ramki elementów w pikselach obrazu, `stale_state` po ruchu okna, dialog
+  lub menu przesłaniające okno staje się stanem. `input.cpp`: neutralne
+  nazwy klawiszy, ścieżka przeciągania, `mouse` down/move/up, powrót
+  wskaźnika użytkownika. `capture.cpp`: trwała sesja WGC, zrzut ekranu GDI,
+  maska aplikacji bez zgody wg kolejności Z. `cursor.cpp`: okno warstwowe
+  click-through poza zrzutami + zdarzenia `cursor`. `preview.cpp`: 1–5
+  kl./s, krawędź ≤960 px, JPEG. `main.cpp`: komenda `takeover`.
+- Skill `computer-control.md`: jedna instrukcja, krótka sekcja „Windows x64”.
+- Desktop: `computer-approval-focus.ts` zna nowe narzędzia i przekazuje
+  `app`; sonda aktualizacji (`computer-update-runtime.ts`) sprawdza nowy
+  zestaw narzędzi zamiast `protocolVersion`; skrypty
+  `smoke-computer-use.mjs`, `smoke-computer-update.mjs`,
+  `verify-desktop-resources.mjs` i `Build-Windows.ps1` na protokole 5.
+- `native/tests/Run-ComputerUseTests.ps1` napisany od nowa dla protokołu 5
+  (te same parametry, raporty i kod wyjścia 2 bez pulpitu).
+- Dokumenty: `docs/computer-use-windows.md` (kontrakt), strona pakietu.
+
+**Testy (Red → Green)**
+- Red: `index.test.ts` (Windows x64 dostaje narzędzia kontraktu i surface
+  podglądu) padał, bo Windows miał stary backend; `skill.test.ts` padał na
+  starych narzędziach w `allowed-tools`; `computer-update-runtime.test.ts`
+  padał, bo sonda wymagała `computer_open` i `protocolVersion`.
+- Green: plugin 19 plików / 226 testów (bez e2e macOS — te nie dotyczą
+  kroku), `desktop-host` 75 plików / 805 testów (nowy
+  `computer-approval-focus.test.ts` 3), desktop 146 / 887.
+- Natywne testy przenośne (`ctest`: geometry, approval-focus) lokalnie 2/2.
+
+**Walidacja**
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów (96
+  wcześniejszych ostrzeżeń); `pnpm check:deps` 0 błędów.
+- Helper C++ i testy na prawdziwym pulpicie: tylko CI
+  `Computer Use Windows` — wynik i poprawki dopisane niżej.
+
+**Otwarte**
+- Lokalnie brak Windows: pierwsza kompilacja nowego C++ odbywa się w CI.
+- Zadanie `installer` workflow (smoke zainstalowanych zasobów) uruchamia się
+  tylko ręcznie (`workflow_dispatch`).

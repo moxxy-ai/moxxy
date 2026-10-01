@@ -31,7 +31,7 @@ it('pairs every state with an icon, so the state never rests on colour or text a
 });
 it('watches a turn only when the session has Computer Use tools, on any platform', () => {
   expect(usesComputer([{name:'Read'},{name:'computer_get_app_state'}])).toBe(true);
-  expect(usesComputer([{name:'computer_app_catalog'}])).toBe(true);
+  expect(usesComputer([{name:'computer_status'}])).toBe(true);
   expect(usesComputer([{name:'Read'},{name:'computerish'}])).toBe(false);
 });
 it('hands the agent cursor of the exact turn to the live view, and none once the turn has none', () => {

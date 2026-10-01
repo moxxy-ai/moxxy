@@ -135,7 +135,16 @@ void emit_control_state(ControlState state) {
   static constexpr const wchar_t* names[] = {L"idle",L"background",L"foreground",L"waiting_for_focus",L"paused_by_user",L"recovering",L"stopped",L"failed"};
   Json event; event.Insert(L"version",numeric(protocol_version)); event.Insert(L"id",string_value(request_id));
   event.Insert(L"event",string_value(L"control_state")); event.Insert(L"state",string_value(names[static_cast<int>(state)]));
-  std::cout << to_string(event.Stringify()) << '\n' << std::flush;
+  write_frame(event);
+}
+
+void write_frame(const Json& frame) {
+  static std::mutex output;
+  auto wire=to_string(frame.Stringify());
+  // An oversized frame would end the connection on the host side; drop it instead.
+  if (wire.size()>frame_limit) return;
+  std::lock_guard lock(output);
+  std::cout << wire << '\n' << std::flush;
 }
 
 void wait_for_access(HWND window, bool needs_focus) {
