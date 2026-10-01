@@ -35,14 +35,17 @@ export function ComputerPreviewPip({ view, target, cursor, onHide, videoCanvas }
     <div className="computer-preview__picture">
       {size && <canvas key={image ? 'frames' : 'video'} ref={image ? canvas : videoCanvas} role="img"
         aria-label={target ? `Live view of ${target}` : 'Live view of the app in use'} width={size.width} height={size.height} />}
-      {size && cursor && <span data-testid="computer-preview-cursor" className="computer-preview__cursor" data-phase={cursor.phase} style={cursorPlace(cursor)} />}
+      {size && cursor && <span data-testid="computer-preview-cursor" className="computer-preview__cursor" data-phase={cursor.phase} style={cursorPlace(cursor)}>
+        {/* The same arrowhead the helper draws over the app (CursorOverlay.arrow). */}
+        <svg viewBox="-2 -2 18 23" width="14" height="18" aria-hidden="true"><path d="M0 0 L0.6 19 L5.6 14.2 L13.8 13.6 Z" /></svg>
+      </span>}
     </div>
     <figcaption>
       <span role="status" aria-live="polite">{previewLabel(view)}</span>
       <button type="button" aria-label="Hide the live view in this conversation" title="Hide in this conversation" onClick={() => onHide('conversation')}>
         <Icon name="x" size={12} aria-hidden="true" />
       </button>
-      <button type="button" aria-label="Hide the live view in all conversations" onClick={() => onHide('all')}>Hide always</button>
+      <button type="button" aria-label="Hide the live view in all conversations" title="Hide in all conversations" onClick={() => onHide('all')}>Hide always</button>
     </figcaption>
   </figure>;
 }

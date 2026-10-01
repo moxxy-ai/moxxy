@@ -2031,3 +2031,36 @@ cli 455, mode-deep-research 33; `pnpm build` 88/88; typecheck, lint,
 **Niezrobione / otwarte**
 - Model nadal wysyła jedną akcję na odpowiedź; to teraz główny koszt czasu.
 - W tej próbie model załadował skill `browser` zamiast `visual-browser-control`.
+
+## Czarny podgląd na żywo, wygląd PiP i kursora — 2026-10-01
+
+**Zgłoszenie właściciela (test w desktopie):** zadania wykonują się poprawnie,
+ale PiP to czarny prostokąt z kropką, a kursor wygląda staro.
+
+**Co**
+- `video-preview.ts`: płótno PiP powstaje dopiero po pierwszym kawałku wideo
+  (on podaje rozmiar), więc pierwsza klatka kluczowa nie miała gdzie się
+  narysować, a nieruchomy ekran nie wysyła następnych. Płótno, które przychodzi
+  po rozpoczęciu strumienia, prosi teraz o klatkę kluczową.
+- `computer-control.css`, `ComputerPreviewPip.tsx`: PiP i pasek stanu na
+  tokenach aplikacji (wcześniej nieistniejące zmienne z wartościami zapasowymi).
+  PiP: zaokrąglenie 12 px, cienka ramka, cień nakładki, podpis ze stanem (dioda)
+  i przyciskami na obrazie, widoczny po najechaniu lub fokusie; pod paskiem
+  stanu, żeby nie zasłaniał „Stop”. Kursor w PiP to ta sama strzałka co na
+  ekranie.
+- `CursorOverlay.swift`: kursor agenta jako grot o zaokrąglonych rogach z białą
+  obwódką i miękkim cieniem; pierścień kliknięcia z wypełnieniem; ramka
+  elementu cieńsza, z lekkim wypełnieniem.
+
+**Testy (Red → Green)**: „asks for the picture again when the canvas arrives
+after the stream began” (Red: `expected [] to deeply equal [1]`). Wygląd
+sprawdzony na statycznej makiecie w obu motywach i na renderze ścieżki kursora.
+
+**Walidacja**: desktop 899/899; `swift test` 173/173; `pnpm build` 88/88;
+typecheck i lint bez błędów.
+
+**Niezrobione / otwarte**
+- Testów e2e helpera nie uruchomiono po zmianie rysunku kursora (właściciel
+  w tym czasie testował aplikację; testy używają prawdziwej myszy).
+- Obrazu w PiP nie widziałem w działającej aplikacji; poprawka wynika z kodu
+  i testu, potwierdzenie należy do właściciela.

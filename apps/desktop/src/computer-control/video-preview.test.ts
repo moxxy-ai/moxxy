@@ -86,6 +86,23 @@ describe('createVideoPainter', () => {
     expect(closed).toBe(2);
   });
 
+  it('asks for the picture again when the canvas arrives after the stream began', () => {
+    // The canvas is mounted once the first chunk says how big it is; on a still screen no other frame follows.
+    const { decoders, codecs } = fakeCodecs();
+    const asked: number[] = [];
+    const painter = createVideoPainter(codecs, () => asked.push(1));
+    const canvas = { getContext: () => ({ drawImage: () => undefined }) } as unknown as HTMLCanvasElement;
+    painter.canvas(canvas);
+    expect(asked).toEqual([]);
+    painter.canvas(null);
+    painter.push(asVideoChunk(chunk(1, true))!);
+    decoders[0]?.init.output({ close: () => undefined });
+    painter.canvas(canvas);
+    expect(asked).toEqual([1]);
+    painter.canvas(canvas);
+    expect(asked).toEqual([1]);
+  });
+
   it('drops deltas while the decoder is behind, asks for a key frame and resumes from it', () => {
     const { log, decoders, codecs } = fakeCodecs();
     const asked: number[] = [];

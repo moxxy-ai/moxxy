@@ -82,7 +82,7 @@ public final class CursorOverlay {
         withoutAnimation {
             outlineLayer.path = rect.map {
                 CGPath(roundedRect: OverlayGeometry.viewRect($0, window: window, margin: Self.margin).insetBy(dx: -3, dy: -3),
-                       cornerWidth: 4, cornerHeight: 4, transform: nil)
+                       cornerWidth: 7, cornerHeight: 7, transform: nil)
             }
         }
     }
@@ -116,37 +116,46 @@ public final class CursorOverlay {
         view.wantsLayer = true
         panel.contentView = view
         guard let root = view.layer else { return panel }
-        outlineLayer.fillColor = nil
-        outlineLayer.strokeColor = Self.tint
-        outlineLayer.lineWidth = 2
-        ring.path = CGPath(ellipseIn: CGRect(x: -14, y: -14, width: 28, height: 28), transform: nil)
-        ring.fillColor = nil
+        outlineLayer.fillColor = Self.tint.copy(alpha: 0.08)
+        outlineLayer.strokeColor = Self.tint.copy(alpha: 0.9)
+        outlineLayer.lineWidth = 1.5
+        ring.path = CGPath(ellipseIn: CGRect(x: -15, y: -15, width: 30, height: 30), transform: nil)
+        ring.fillColor = Self.tint.copy(alpha: 0.16)
         ring.strokeColor = Self.tint
-        ring.lineWidth = 2
+        ring.lineWidth = 1.5
         ring.opacity = 0
         pointer.path = Self.arrow
         pointer.fillColor = Self.tint
         pointer.strokeColor = CGColor(gray: 1, alpha: 1)
-        pointer.lineWidth = 1.5
+        pointer.lineWidth = 1.4
         pointer.lineJoin = .round
-        pointer.shadowOpacity = 0.35
-        pointer.shadowRadius = 2
-        pointer.shadowOffset = CGSize(width: 0, height: -1)
+        // A wide, soft shadow lifts the pointer off any page without an outline that reads as a border.
+        pointer.shadowColor = CGColor(gray: 0, alpha: 1)
+        pointer.shadowOpacity = 0.28
+        pointer.shadowRadius = 5
+        pointer.shadowOffset = CGSize(width: 0, height: -2.5)
         pointer.opacity = 0
         for layer in [outlineLayer, ring, pointer] { root.addSublayer(layer) }
         return panel
     }
 
-    /// An arrow with its tip, the hot spot, at the layer's origin (AppKit's y grows upwards).
-    private static let arrow: CGPath = {
+    /// A soft-cornered arrowhead with its tip, the hot spot, at the layer's origin (AppKit's y grows upwards).
+    static let arrow: CGPath = roundedPolygon([
+        CGPoint(x: 0, y: 0), CGPoint(x: 0.6, y: -19), CGPoint(x: 5.6, y: -14.2), CGPoint(x: 13.8, y: -13.6),
+    ], radius: 1.8)
+
+    /// A closed polygon whose corners are arcs; it starts in the middle of an edge so every corner is rounded.
+    static func roundedPolygon(_ points: [CGPoint], radius: CGFloat) -> CGPath {
         let path = CGMutablePath()
-        path.addLines(between: [
-            CGPoint(x: 0, y: 0), CGPoint(x: 0, y: -18), CGPoint(x: 4.5, y: -14), CGPoint(x: 8, y: -21),
-            CGPoint(x: 11, y: -19.6), CGPoint(x: 7.6, y: -12.6), CGPoint(x: 13.4, y: -12.6),
-        ])
+        guard let first = points.first, let last = points.last else { return path }
+        let middle = { (a: CGPoint, b: CGPoint) in CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+        path.move(to: middle(last, first))
+        for (index, corner) in points.enumerated() {
+            path.addArc(tangent1End: corner, tangent2End: middle(corner, points[(index + 1) % points.count]), radius: radius)
+        }
         path.closeSubpath()
         return path
-    }()
+    }
 
     private func fade(_ layer: CALayer, to opacity: Float) {
         let from = layer.opacity

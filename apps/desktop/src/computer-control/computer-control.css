@@ -2,70 +2,116 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 8px 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--accent, #ff5328);
-  border-radius: 10px;
-  background: var(--bg-elevated, #151e24);
-  color: var(--text-primary, #dce5ea);
-  font-size: 12px;
+  gap: var(--space-8, 8px);
+  margin: var(--space-8, 8px) var(--space-16, 16px);
+  padding: var(--space-6, 6px) var(--space-12, 12px);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-card, 6px);
+  background: var(--color-card-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta, 12px);
 }
-.computer-control-strip__buttons { display: flex; gap: 6px; margin-left: auto; }
+.computer-control-strip__buttons { display: flex; gap: var(--space-6, 6px); margin-left: auto; }
 .computer-control-strip button {
-  padding: 5px 9px;
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.computer-control-strip button:focus-visible { outline: 2px solid var(--accent, #ff5328); outline-offset: 2px; }
-.computer-control-strip button:disabled { opacity: .5; cursor: default; }
-.computer-control-strip__error { flex-basis: 100%; }
-.computer-control-strip__target { color: var(--text-secondary, #9fb0ba); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.computer-preview {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  z-index: 5;
-  width: min(300px, 40%);
-  margin: 0;
-  border: 1px solid var(--accent, #ff5328);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--bg-elevated, #151e24);
-  color: var(--text-primary, #dce5ea);
-  font-size: 11px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
-}
-.computer-preview__picture { position: relative; background: #000; line-height: 0; min-height: 40px; }
-.computer-preview canvas { display: block; width: 100%; height: auto; }
-.computer-preview[data-state='stale'] canvas { opacity: .55; }
-.computer-preview__cursor {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--accent, #ff5328);
-  transition: left .25s ease, top .25s ease;
-  pointer-events: none;
-}
-.computer-preview__cursor[data-phase='executing'] { transform: scale(1.35); }
-.computer-preview__cursor[data-phase='failed'] { background: #b3261e; }
-@media (prefers-reduced-motion: reduce) { .computer-preview__cursor { transition: none; } }
-.computer-preview figcaption { display: flex; align-items: center; gap: 6px; padding: 5px 8px; }
-.computer-preview figcaption [role='status'] { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.computer-preview button {
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  padding: var(--space-4, 4px) var(--space-8, 8px);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-chip, 4px);
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
-.computer-preview button:hover { border-color: currentColor; }
-.computer-preview button:focus-visible { outline: 2px solid var(--accent, #ff5328); outline-offset: 1px; }
+.computer-control-strip button:hover:not(:disabled) { background: var(--color-input-soft); }
+.computer-control-strip button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.computer-control-strip button:disabled { opacity: .5; cursor: default; }
+.computer-control-strip__error { flex-basis: 100%; color: var(--color-red-text, var(--color-red)); }
+.computer-control-strip__target { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The live view floats over the trace: the one place in this panel that is an overlay, so it alone is
+ * rounded and lifted. The picture fills it; state and controls sit on the picture and stay out of the way. */
+.computer-preview {
+  position: absolute;
+  top: var(--space-12, 12px);
+  right: var(--space-16, 16px);
+  z-index: 5;
+  width: min(320px, 42%);
+  margin: 0;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-card-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta, 11px);
+  box-shadow: var(--color-card-shadow);
+}
+/* Below the control strip when both show, so Stop is never covered. */
+.computer-control-strip + .computer-preview { top: 60px; }
+.computer-preview__picture { position: relative; background: var(--color-input-soft); line-height: 0; min-height: 96px; }
+.computer-preview canvas { display: block; width: 100%; height: auto; }
+.computer-preview[data-state='stale'] canvas { opacity: .55; }
+.computer-preview__cursor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transition: left var(--motion-overlay, 220ms) ease, top var(--motion-overlay, 220ms) ease;
+  pointer-events: none;
+}
+.computer-preview__cursor svg { position: absolute; left: -2px; top: -2px; overflow: visible; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%)); }
+.computer-preview__cursor path { fill: var(--color-primary); stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+.computer-preview__cursor[data-phase='executing'] svg { transform: scale(.88); transform-origin: 2px 2px; }
+.computer-preview__cursor[data-phase='failed'] path { fill: var(--color-red); }
+@media (prefers-reduced-motion: reduce) { .computer-preview__cursor { transition: none; } }
+.computer-preview figcaption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 4px);
+  padding: var(--space-6, 6px) var(--space-8, 8px);
+  background: color-mix(in srgb, var(--color-card-bg) 88%, transparent);
+  border-top: 1px solid var(--color-card-border);
+  backdrop-filter: blur(10px);
+}
+/* With a picture showing, the caption gives the picture its room and comes back on hover or keyboard focus. */
+.computer-preview[data-state='live'] figcaption { opacity: 0; transition: opacity var(--motion-shift, 140ms) ease; }
+.computer-preview[data-state='live']:hover figcaption,
+.computer-preview[data-state='live']:focus-within figcaption { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .computer-preview[data-state='live'] figcaption { transition: none; } }
+.computer-preview figcaption [role='status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6, 6px);
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.computer-preview figcaption [role='status']::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill, 9999px);
+  background: var(--color-text-dim);
+}
+.computer-preview[data-state='live'] figcaption [role='status']::before { background: var(--color-green); }
+.computer-preview[data-state='stale'] figcaption [role='status']::before { background: var(--color-amber); }
+.computer-preview[data-state='unavailable'] figcaption [role='status']::before { background: var(--color-red); }
+.computer-preview button {
+  flex: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-6, 6px);
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip, 4px);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.computer-preview button:hover { border-color: var(--color-card-border-strong); color: var(--color-text); }
+.computer-preview button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }

@@ -200,3 +200,5 @@ wersję i plik, z którego wzięto wzorzec.
   przy wyjściu. Zabity helper (SIGKILL) ich nie cofnie.
 - **Indeks skilli.** Skill z `allowed-tools`, z których żadne nie istnieje w
   sesji, nie jest pokazywany modelowi; `load_skill` po nazwie nadal go wczyta.
+- **PiP wideo.** Dekoder rysuje tylko na istniejące płótno; płótno powstaje po
+  pierwszym kawałku, więc prosi o klatkę kluczową, gdy się pojawi.

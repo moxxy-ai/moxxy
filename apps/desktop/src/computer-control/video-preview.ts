@@ -96,7 +96,11 @@ export function createVideoPainter(codecs: VideoCodecs, askForKey: () => void): 
         decoder?.decode(new codecs.Chunk({ type: chunk.key ? 'key' : 'delta', timestamp: chunk.timestamp, data: bytes(chunk.data) }));
       } catch { fail(); }
     },
-    canvas(element) { target = element; },
+    canvas(element) {
+      // A canvas that arrives after the stream began has missed its frames; a still screen sends no more.
+      if (element && element !== target && decoder) askForKey();
+      target = element;
+    },
     close() { drop(); target = null; },
   };
 }
