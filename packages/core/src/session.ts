@@ -8,6 +8,7 @@ import type {
   LoopGuardSettings,
   MoxxyEvent,
   Principal,
+  ReasoningEffort,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -204,7 +205,7 @@ export class Session implements ClientSession, SessionRuntime {
    * to each turn's ModeContext and on to the provider, which honors it only
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
-  reasoning: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined = undefined;
+  reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
   /**
    * Stuck-loop guard tuning, from `config.context.loopGuard`. Forwarded to each
    * turn's ModeContext and on to the mode's stuck-loop detector. Undefined →

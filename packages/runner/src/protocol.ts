@@ -409,7 +409,7 @@ export interface ModeSetActiveParams {
  *  the preference (no reasoning requested); the others map to
  *  `session.reasoning = { effort }`, the CLI's proven `config.context.reasoning`
  *  shape. */
-export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 export interface SessionSetReasoningParams {
   readonly effort: ReasoningEffortLevel;
 }
@@ -660,7 +660,7 @@ export const setResolverParamsSchema = z.object({
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 
 export const sessionSetReasoningParamsSchema = z.object({
-  effort: z.enum(['off', 'low', 'medium', 'high']),
+  effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
 });
 
 /**

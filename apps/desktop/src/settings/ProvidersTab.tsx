@@ -22,8 +22,15 @@ type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
  *  Mirrors the CLI's proven `config.context.reasoning` path. The order +
  *  values match the contract's `ReasoningEffort` (and the runner protocol's
  *  `ReasoningEffortLevel`), so the chosen level forwards verbatim. */
-const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
+const REASONING_LEVELS = ['off', 'low', 'medium', 'high', 'xhigh'] as const;
 type ReasoningLevel = (typeof REASONING_LEVELS)[number];
+const REASONING_LABELS: Record<ReasoningLevel, string> = {
+  off: 'Off',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+};
 
 // The runner's `session.reasoning` is session-scoped and resets when its runner
 // restarts, so we remember the user's per-provider pick here to seed the
@@ -401,7 +408,7 @@ function ConfigureProviderModal({
             >
               {REASONING_LEVELS.map((level) => (
                 <option key={level} value={level}>
-                  {level === 'off' ? 'Off' : (level[0] ?? '').toUpperCase() + level.slice(1)}
+                  {REASONING_LABELS[level]}
                 </option>
               ))}
             </Select>

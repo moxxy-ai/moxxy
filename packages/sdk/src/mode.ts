@@ -6,7 +6,7 @@ import type { ServiceRegistry } from './services.js';
 import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
-import type { LLMProvider } from './provider.js';
+import type { LLMProvider, ReasoningEffort } from './provider.js';
 import type { LoopGuardSettings } from './mode/stuck-loop.js';
 import type { Skill } from './skill.js';
 import type { SubagentSpawner } from './subagent.js';
@@ -104,7 +104,7 @@ export interface ModeContext {
    * `ProviderRequest.reasoning` by {@link collectProviderStream}, gated on the
    * active model's `supportsReasoning`. Absent/false → reasoning off.
    */
-  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
   readonly permissions: PermissionResolver;
   /**
    * Optional generic "ask the user a question" gate. Any loop strategy can

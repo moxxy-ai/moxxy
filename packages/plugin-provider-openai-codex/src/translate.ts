@@ -39,7 +39,7 @@ export interface ResponsesBody {
   input: ResponsesInputItem[];
   tools?: ResponsesTool[];
   parallel_tool_calls?: boolean;
-  reasoning?: { effort?: 'low' | 'medium' | 'high'; summary?: 'auto' | 'detailed' };
+  reasoning?: { effort?: 'low' | 'medium' | 'high' | 'xhigh'; summary?: 'auto' | 'detailed' };
   store?: boolean;
   stream: true;
   prompt_cache_key?: string;
@@ -166,7 +166,7 @@ export function toResponsesTools(tools: ReadonlyArray<ToolDef>): ResponsesFuncti
 
 export interface BuildBodyOptions {
   readonly sessionHint?: string;
-  readonly reasoningEffort?: 'low' | 'medium' | 'high';
+  readonly reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   readonly hostedTools?: ReadonlyArray<HostedTool>;
 }
 

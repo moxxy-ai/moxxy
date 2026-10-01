@@ -53,6 +53,9 @@ export interface CacheHint {
   readonly target: 'tools' | 'system' | { readonly messageIndex: number };
 }
 
+/** How deeply a reasoning model should think; `xhigh` is the deepest. */
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
 export interface ProviderRequest {
   readonly model: string;
   /**
@@ -81,7 +84,7 @@ export interface ProviderRequest {
    * each provider's native knob (Anthropic thinking budget, OpenAI/Codex
    * `reasoning.effort`).
    */
-  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
 }
 
 export type ProviderEvent =

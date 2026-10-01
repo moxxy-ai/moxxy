@@ -205,6 +205,7 @@ export type {
   ContentBlock,
   ProviderMessage,
   ProviderRequest,
+  ReasoningEffort,
   ProviderEvent,
   CacheHint,
   TokenUsage,

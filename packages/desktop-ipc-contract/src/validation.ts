@@ -420,7 +420,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // can't push an arbitrary string through to the runner / provider request.
   'settings.setReasoning': z.object({
     workspaceId: optionalWorkspace,
-    effort: z.enum(['off', 'low', 'medium', 'high']),
+    effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
   }),
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),

@@ -244,7 +244,7 @@ export const contextConfigSchema = z.object({
    * reasoning (Anthropic adaptive thinking, OpenAI/Codex reasoning). Default off.
    */
   reasoning: z
-    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high']).optional() })])
+    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional() })])
     .optional(),
   /**
    * Stuck-loop guard tuning. The guard bails a turn early when the model keeps

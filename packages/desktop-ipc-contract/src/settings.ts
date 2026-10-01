@@ -4,7 +4,7 @@
  *  `off` clears the preference; the others map to `config.context.reasoning`
  *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
  *  `ReasoningEffortLevel`. */
-export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface ProviderEntry {
   name: string;
