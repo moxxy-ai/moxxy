@@ -13,7 +13,7 @@ public enum ActionTarget: Equatable, Sendable {
 
 /// One step of `act`/`batch`, already validated by the TypeScript contract; checked again here.
 public enum ActionRequest: Equatable, Sendable {
-    case click(target: ActionTarget, button: MouseButton, count: Int, modifiers: Bool)
+    case click(target: ActionTarget, button: MouseButton, count: Int, modifiers: CGEventFlags)
     case setValue(element: Int, value: String)
     case secondary(element: Int, name: String)
     /// `target == nil` types into whatever has keyboard focus in the app.
@@ -21,6 +21,10 @@ public enum ActionRequest: Equatable, Sendable {
     case pressKey(KeyChord, repeat: Int)
     case paste(target: ActionTarget?, text: String, format: PasteFormat)
     case selectText(element: Int, text: String, prefix: String?, suffix: String?, placement: TextPlacement)
+    case scroll(target: ActionTarget, direction: ScrollDirection, pages: Double)
+    /// `path` is in screenshot pixels.
+    case drag(path: [CGPoint], button: MouseButton, duration: TimeInterval, modifiers: CGEventFlags)
+    case mouse(MousePhase, at: CGPoint, button: MouseButton, modifiers: CGEventFlags)
     /// A contract action this helper does not perform yet.
     case notYetSupported(String)
 
@@ -28,10 +32,8 @@ public enum ActionRequest: Equatable, Sendable {
         guard let action = step["action"]?.stringValue else { throw HelperError.invalidParams("action is required") }
         switch action {
         case "click":
-            guard let button = step["mouse_button"]?.stringValue.flatMap(MouseButton.init(rawValue:)),
-                  let count = step["click_count"]?.intValue, (1...3).contains(count)
-            else { throw HelperError.invalidParams("click needs mouse_button and click_count") }
-            return .click(target: try target(step), button: button, count: count, modifiers: step["modifiers"]?.stringValue != nil)
+            guard let count = step["click_count"]?.intValue, (1...3).contains(count) else { throw HelperError.invalidParams("click needs click_count") }
+            return .click(target: try target(step), button: try button(step), count: count, modifiers: try held(step))
         case "set_value":
             guard let value = step["value"]?.stringValue else { throw HelperError.invalidParams("set_value needs value") }
             return .setValue(element: try index(step), value: value)
@@ -57,9 +59,41 @@ public enum ActionRequest: Equatable, Sendable {
             } ?? .text
             return .selectText(element: try index(step), text: try text(step), prefix: step["prefix"]?.stringValue,
                                suffix: step["suffix"]?.stringValue, placement: placement)
+        case "scroll":
+            guard let direction = step["direction"]?.stringValue.flatMap(ScrollDirection.init(rawValue:)),
+                  case let .number(pages)? = step["pages"], pages > 0, pages <= 50
+            else { throw HelperError.invalidParams("scroll needs direction and pages") }
+            return .scroll(target: try target(step), direction: direction, pages: pages)
+        case "drag":
+            guard case let .array(raw)? = step["path"], (2...20).contains(raw.count) else { throw HelperError.invalidParams("drag needs 2 to 20 points") }
+            let path = try raw.map { point in
+                guard case let .array(pair) = point, pair.count == 2, case let .number(x) = pair[0], case let .number(y) = pair[1], x >= 0, y >= 0 else {
+                    throw HelperError.invalidParams("drag points are [x, y] pixels")
+                }
+                return CGPoint(x: x, y: y)
+            }
+            let milliseconds = step["duration_ms"]?.intValue ?? 0
+            guard (0...10_000).contains(milliseconds) else { throw HelperError.invalidParams("duration_ms must be 0 to 10000") }
+            return .drag(path: path, button: try button(step), duration: Double(milliseconds) / 1000, modifiers: try held(step))
+        case "mouse":
+            guard let phase = step["event"]?.stringValue.flatMap(MousePhase.init(rawValue:)), case let .point(point) = try target(step) else {
+                throw HelperError.invalidParams("mouse needs event, x and y")
+            }
+            return .mouse(phase, at: point, button: try button(step), modifiers: try held(step))
         default:
             return .notYetSupported(action)
         }
+    }
+
+    private static func button(_ step: JSONValue) throws -> MouseButton {
+        guard let button = step["mouse_button"]?.stringValue.flatMap(MouseButton.init(rawValue:)) else { throw HelperError.invalidParams("mouse_button is required") }
+        return button
+    }
+
+    /// Modifier names the host parsed from `modifiers` ("shift", "meta", ...).
+    private static func held(_ step: JSONValue) throws -> CGEventFlags {
+        guard case let .array(names)? = step["held"] else { return [] }
+        return try KeyCodes.flags(names)
     }
 
     private static func text(_ step: JSONValue) throws -> String {
@@ -100,6 +134,8 @@ public struct ActionResult: Equatable, Sendable {
 
     public static func delivered(_ method: Method) -> ActionResult { ActionResult(outcome: .delivered, code: nil, method: method) }
     public static func blocked(_ code: String, hint: String? = nil) -> ActionResult { ActionResult(outcome: .blocked, code: code, method: nil, hint: hint) }
+    /// Sent and understood, but it cannot change anything (for example scrolling past the end).
+    public static func ineffective(hint: String) -> ActionResult { ActionResult(outcome: .ineffective, code: nil, method: nil, hint: hint) }
     public static func unsupported(_ code: String, hint: String? = nil) -> ActionResult {
         ActionResult(outcome: .unsupported, code: code, method: nil, hint: hint)
     }
@@ -124,6 +160,16 @@ public enum AXLadder {
         let wanted = button == .left ? "AXPress" : button == .right ? "AXShowMenu" : nil
         guard let wanted, actions.contains(wanted) else { return .physical }
         return .axAction(wanted)
+    }
+
+    /// Roles whose press does the same wherever inside them the click lands; anything else (text, canvases,
+    /// lists) cares about the exact point and gets a real click.
+    static let pressable: Set<String> = [
+        "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXMenuBarItem", "AXMenuButton", "AXPopUpButton", "AXLink", "AXDisclosureTriangle", "AXTab",
+    ]
+
+    public static func pointClick(role: String, actions: [String], button: MouseButton, count: Int, modifiers: Bool) -> Step {
+        pressable.contains(role) ? click(button: button, count: count, modifiers: modifiers, actions: actions) : .physical
     }
 
     /// Fail closed: only an explicit "not supported" may be retried another way.

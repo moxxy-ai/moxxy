@@ -850,3 +850,106 @@ Commit kroku 7a: `30813364`.
   dojdzie w 7c razem z krótką aktywacją aplikacji dla skrótów ⌘ (z
   kontrolą, czy użytkownik właśnie nie pisze — wzorzec Claude).
 - `type_text`/`paste` po punkcie (x, y) — 7c (fizyczny klik ustawia fokus).
+
+---
+
+## Krok 7c — fizyczna mysz z bramkami (2026-10-01)
+
+Commit kroku 7b: `01d8bff0`.
+
+**Wzorzec**
+- Claude (`dk.pretty.js`, `pixelCompare`): łatka wokół punktu o boku 9
+  (`de=9`), przycięta przy krawędzi obrazu, porównana z zapisanym zrzutem —
+  zmiana = odmowa kliknięcia po współrzędnych. Tolerujemy jedną kolumnę
+  różnych pikseli (migający kursor tekstowy).
+- Claude: `user_actively_typing` — aplikacji nie wyciąga się na wierzch,
+  gdy użytkownik właśnie pisze (u nas: < 1 s od ostatniego klawisza →
+  `user_intervened`); komunikaty o Docku i pulpicie („mogą otworzyć
+  aplikacje spoza zgody”).
+- Codex (`@oai/sky`): przewijanie stronami przez `AXScroll{Up,Down,Left,Right}ByPage`.
+  Sonda na fixture: `NSScrollView` ogłasza tę akcję, ale odrzuca ją (-25205),
+  więc dochodzi krok paska przewijania (`AXValue` 0…1 z `AXContentSize`),
+  który działa w tle.
+
+**Co**
+- `Pointer.swift` (czyste): `HitTest.owner` (okno pid wskazanego przez AX,
+  inaczej pulpit), `PointerGate.check` (punkt na ekranie, pulpit, Dock,
+  własny proces hosta, inna aplikacja → `point_outside_frame` /
+  `hit_test_mismatch` / `own_window` z podpowiedzią), `PixelPatch` (9×9,
+  tolerancja kanału 24), `MouseScript` (klik z `mouseEventClickState`,
+  drag po ścieżce w 60 Hz rozłożony na `duration_ms`, pojedyncze kroki
+  down/move/up), `ScrollPlan` (strony AX, wartość paska, kółko w pikselach
+  po ≤ 120, 0,9 widoku na stronę), `ActivationGate`.
+- `MouseInput.swift`: `ScreenLayout` (okna z `CGWindowList`, hit-test przez
+  `AXUIElementCopyElementAtPosition` systemowo — prostokąt okna Docka
+  obejmuje cały ekran, kształty zna tylko AX), `PointerSession` (zdarzenia
+  na `.cghidEventTap` z prywatnym źródłem i znacznikiem `0x6D6F7878`,
+  przywrócenie wskaźnika `CGWarpMouseCursorPosition` +
+  `CGAssociateMouseAndMouseCursorPosition` po 0,05 s; przy trzymanym
+  przycisku dopiero po `up`; `release()` przy końcu helpera, Stop i śmierci
+  rodzica), `Foreground` (`kAXFrontmostAttribute` + `AXRaise`, do 2 s na
+  `isActive` i okno na ekranie; `NSWorkspace.frontmostApplication` w
+  helperze bywa nieaktualne).
+- `Action.swift`: modyfikatory jako `CGEventFlags` (wspólne
+  `KeyCodes.flags` z parserem akordów), przypadki `scroll`, `drag`,
+  `mouse`; `AXLadder.pointClick` (kontrolki do naciśnięcia przez AX pod
+  punktem); `ActionResult.ineffective`.
+- `Act.swift` (wykonawca): kolejność bramek dla punktu — stan → punkt w
+  obrazie → okno w tym samym miejscu (±2 pt) → łatka pikseli → wyciągnięcie
+  na wierzch (po nim ponowne celowanie) → hit-test → kursor → zdarzenia.
+  Klik po punkcie najpierw próbuje AXPress kontrolki pod punktem (w tle).
+  Pisanie i wklejanie po punkcie trafia w pole tekstowe pod punktem albo
+  zwraca `unsupported` z podpowiedzią. `mouse` bez wciśniętego przycisku
+  (hover) jest odrzucany, bo wskaźnik zawsze wraca do użytkownika.
+- `Capture.swift`/`AppState.swift`: piksele RGBA (sRGB) ostatniego zrzutu w
+  stanie celu; `AXReader`: `element(at:pid:)`, `takesText`, `lineage`,
+  `scrollArea`, `contentSize`.
+- `main.swift` helpera: wspólna `PointerSession`, `leave(code)` zwalnia
+  przycisk przed wyjściem; `Methods.standard` dostaje pid hosta (rodzic).
+- Fixture: płótno „Pad” (raportuje down/drag/up/wheel z modyfikatorami),
+  przewijana lista 200×3000 w widoku 200×80 i etykieta „Offset”.
+
+**Testy (Red → Green)**
+- Red Swift: brak `HitTest`/`PointerGate`/`PixelPatch`/`MouseScript`/
+  `ScrollPlan`/`ActivationGate`, brak przypadków `scroll`/`drag`/`mouse`.
+  Po pierwszej implementacji hit-test z prostokątów okien wskazywał Dock w
+  każdym punkcie — przepisany test na pid z AX (Red → Green).
+- Red `barValue` przed krokiem paska (AX strony zwracały -25205, a kod
+  raportował `delivered`).
+- Red TS (6 nowych testów w `helper.test.ts`): uruchomione na starym helperze
+  zbudowanym w tymczasowym worktree z `01d8bff0` — wszystkie 6 zwróciły
+  `unsupported`.
+- Green: `swift test` 99/99 (37 zestawów); `src/macos/helper.test.ts` 28/28:
+  AXPress po punkcie w tle, pisanie w pole pod punktem i odmowa poza polem,
+  `point_outside_frame` i `screen_changed`, podwójny klik z shiftem przez
+  prawdziwy wskaźnik („Pad up 2 after 0 moves shift”) z powrotem wskaźnika,
+  drag 200 ms i down/move/up z odmową hovera, przewinięcie listy przez AX
+  (offset > 0) i płótna kółkiem.
+- Refactor: usunięty nieużywany parametr `allowWhileHeld`; porównanie
+  pozycji wskaźnika w testach z tolerancją 1 pt (gładzik zostawia wskaźnik
+  między punktami, przywrócenie zaokrągla); limit 30 s dla zestawu akcji na
+  fixture (każda akcja czeka ≥ 1 s na settling, jak u Codexa — 7 wywołań
+  przekraczało domyślne 10 s).
+
+**Walidacja**
+- `swift test` (w `native/macos`) — 99/99; `./build.sh` OK (universal).
+- `npx vitest run` (plugin) — 25 plików / 265 testów.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów (96 ostrzeżeń, żadne z
+  plików kroku); `pnpm check:deps` 0 błędów (1 wcześniejsze ostrzeżenie
+  `no-orphans` w `desktop-host`); `pnpm build` 88/88.
+
+**Pominięcia i dla następcy**
+- Testy fizycznego wejścia na chwilę zabierają prawdziwy wskaźnik i mogą
+  przełączyć przestrzeń/aplikację; gdy użytkownik pisze w trakcie testów,
+  bramka `user_intervened` słusznie je blokuje (wynik `blocked`).
+- Łatka 9×9 nie widzi zmian poza sobą (tak samo u Claude'a).
+- Po wyciągnięciu na wierzch aplikacja docelowa zostaje z przodu;
+  poprzedniej nie przywracamy, bo zamknęłoby to otwarte menu.
+- Hover nie jest wspierany (wskaźnik wraca po każdej akcji).
+- **Ryzyko:** dwa helpery jednocześnie potrafią zawiesić ScreenCaptureKit
+  (odtworzone także na helperze z 7b). Test `screen_changed` zmienia pole
+  przez System Events zamiast drugiego helpera. Osobne zadanie: „Fix
+  ScreenCaptureKit hang with two macOS helpers”.
+- 7c2: `computer_hold_key`, skróty ⌘ przez krótką aktywację z kontrolą
+  pisania, test HTML ⌘V z aplikacją z przodu. 7d: strażnik, brak postępu,
+  cache `unsupported`, ochrona okna zapisu.

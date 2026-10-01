@@ -4,7 +4,7 @@ import Foundation
 
 extension Methods {
     /// One step on a granted app, then its fresh state, so the model rarely needs a separate observation.
-    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?) throws -> JSONValue {
+    static func act(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, pointer: PointerSession, host: pid_t) throws -> JSONValue {
         guard let app = params["app"]?.stringValue, !app.isEmpty, let step = params["action"] else {
             throw HelperError.invalidParams("app and action are required")
         }
@@ -15,7 +15,7 @@ extension Methods {
         let request = try ActionRequest.parse(step)
         let state = targets.state(for: app)
         guard state.observed else { return .object(["result": ActionResult.blocked("no_state").json]) }
-        let result = Executor(state: state, cursor: cursor).perform(request)
+        let result = Executor(state: state, cursor: cursor, pointer: pointer, host: host).perform(request)
         if result.outcome == .delivered { state.lastAction = Date() }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
@@ -26,32 +26,51 @@ extension Methods {
 struct Executor {
     let state: TargetState
     let cursor: AgentCursor?
+    let pointer: PointerSession
+    /// The process Moxxy runs in; real input never goes to its windows.
+    let host: pid_t
 
     func perform(_ request: ActionRequest) -> ActionResult {
         switch request {
         case let .click(.element(index), button, count, modifiers):
-            return onElement(index) { element in
-                switch AXLadder.click(button: button, count: count, modifiers: modifiers, actions: AXReader.actions(element)) {
-                case let .axAction(name): return press(element, name)
-                // Physical input arrives with the input gates (step 7c).
-                case .physical: return .unsupported("unsupported_action")
+            return live(index) { element in
+                if case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
+                   let pressed = attempt(on: element, { tryPress(element, name) }) {
+                    return pressed
                 }
+                guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to click.") }
+                return physically(at: CGPoint(x: frame.midX, y: frame.midY)) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers) }
             }
-        case .click(.point, _, _, _), .typeText(.point?, _), .paste(.point?, _, _), .notYetSupported:
+        case let .click(.point(point), button, count, modifiers):
+            return aimed(point) { screen in
+                // A control under the point is pressed through accessibility, in the background.
+                if let element = AXReader.element(at: screen, pid: state.window?.pid),
+                   case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
+                                                                   button: button, count: count, modifiers: !modifiers.isEmpty),
+                   let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
+                    return pressed
+                }
+                return physically(at: screen, aimedAt: point) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers) }
+            }
+        case .notYetSupported:
             return .unsupported("unsupported_action")
         case let .typeText(.element(index)?, text):
             return onElement(index) { element in type(text, into: element) }
+        case let .typeText(.point(point)?, text):
+            return aimed(point) { screen in onText(at: screen) { element in type(text, into: element) } }
         case let .typeText(nil, text):
             return onFocused { element in type(text, into: element) }
         case let .pressKey(chord, count):
             guard let pid = state.window?.pid else { return noWindow }
             if chord.isSelectAll { return onFocused(selectAll) }
-            if chord.needsMenuBar, !isFrontmost(pid) {
+            if chord.needsMenuBar, !Foreground.isFrontmost(pid) {
                 return .blocked("not_frontmost", hint: "Command shortcuts reach an app only while it is in front. Use an element action or menu item from the app state instead.")
             }
             return keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } }
         case let .paste(.element(index)?, text, format):
             return onElement(index) { element in paste(text, format, into: element) }
+        case let .paste(.point(point)?, text, format):
+            return aimed(point) { screen in onText(at: screen) { element in paste(text, format, into: element) } }
         case let .paste(nil, text, format):
             return onFocused { element in paste(text, format, into: element) }
         case let .selectText(index, text, prefix, suffix, placement):
@@ -61,21 +80,220 @@ struct Executor {
         case let .secondary(index, name):
             return onElement(index) { element in
                 // Only actions the element offers; a guessed one is never tried.
-                AXReader.actions(element).contains(name) ? press(element, name) : .unsupported("unsupported_action")
+                guard AXReader.actions(element).contains(name) else { return .unsupported("unsupported_action") }
+                return tryPress(element, name) ?? .unsupported("unsupported_action")
+            }
+        case let .scroll(.element(index), direction, pages):
+            return live(index) { element in
+                if let scrolled = scrollInBackground(from: element, direction, pages) { return scrolled }
+                guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to scroll.") }
+                let viewport = AXReader.scrollArea(around: element).flatMap(AXReader.frame)?.size ?? frame.size
+                return physically(at: CGPoint(x: frame.midX, y: frame.midY)) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0) }
+            }
+        case let .scroll(.point(point), direction, pages):
+            return aimed(point) { screen in
+                let element = AXReader.element(at: screen, pid: state.window?.pid)
+                if let element, let scrolled = scrollInBackground(from: element, direction, pages) { return scrolled }
+                let viewport = element.flatMap(AXReader.scrollArea(around:)).flatMap(AXReader.frame)?.size ?? state.frame?.window.size ?? .zero
+                return physically(at: screen, aimedAt: point) { pointer.scroll(ScrollPlan.wheel(direction, pages: pages, viewport: viewport), at: $0) }
+            }
+        case let .drag(path, button, duration, modifiers):
+            guard let frame = state.frame else { return .blocked("no_state", hint: "Observe the app with a screenshot before dragging.") }
+            let screens = path.compactMap { onImage($0, frame) }
+            guard screens.count == path.count, let grab = path.first, let drop = screens.last else { return .blocked("point_outside_frame") }
+            return aimed(grab) { start in
+                physically(at: start, aimedAt: grab, alsoOn: [drop]) { _ in
+                    pointer.perform(MouseScript.drag(screens, button: button, duration: duration), flags: modifiers)
+                }
+            }
+        case let .mouse(phase, point, button, modifiers):
+            return mouse(phase, point, button, modifiers)
+        }
+    }
+
+    /// A gesture spelled out step by step: down aims like a click, moves and the release follow the hand.
+    private func mouse(_ phase: MousePhase, _ point: CGPoint, _ button: MouseButton, _ modifiers: CGEventFlags) -> ActionResult {
+        let held = pointer.holding
+        switch phase {
+        case .down:
+            if held != nil { return .unsupported("unsupported_action", hint: "A mouse button is already down; release it with event up first.") }
+            return aimed(point) { screen in
+                physically(at: screen, aimedAt: point) { pointer.perform(MouseScript.single(.down, at: $0, button: button, held: false), flags: modifiers, keepDown: button) }
+            }
+        case .move, .up:
+            guard let held else {
+                return .unsupported("unsupported_action", hint: "Hover is not supported: the pointer returns to the user after every action. Press first with event down.")
+            }
+            guard let screen = state.frame.flatMap({ onImage(point, $0) }) else { return .blocked("point_outside_frame") }
+            let keep: MouseButton? = phase == .move ? held : nil
+            let steps = MouseScript.single(phase, at: screen, button: held, held: true)
+            if phase == .up, let window = state.window,
+               let refused = PointerGate.check(screen, displays: ScreenLayout.displays(), under: ScreenLayout.owner(at: screen), target: window.pid, host: host) {
+                return refused
+            }
+            return withCursor(at: screen, outline: nil) {
+                pointer.perform(steps, flags: modifiers, keepDown: keep)
+                return .delivered(.input)
             }
         }
     }
 
-    /// Resolves an index to its live element and runs `body` with the cursor on it.
-    private func onElement(_ index: Int, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
+    // MARK: Aiming
+
+    /// A screenshot pixel on the screen, when it lies inside the image.
+    private func onImage(_ point: CGPoint, _ frame: CoordinateFrame) -> CGPoint? {
+        guard point.x < Double(frame.imageWidth), point.y < Double(frame.imageHeight) else { return nil }
+        return frame.screenPoint(x: point.x, y: point.y)
+    }
+
+    private enum Aim { case at(CGPoint), refused(ActionResult) }
+
+    /// Checks a screenshot point still shows what the model aimed at: same window place and size, same pixels around it.
+    private func aim(_ point: CGPoint) -> Aim {
+        guard let frame = state.frame, let pixels = state.pixels, let window = state.window else {
+            return .refused(.blocked("no_state", hint: "Observe the app with a screenshot before acting by coordinates."))
+        }
+        guard let screen = onImage(point, frame),
+              let patch = PixelPatch.rect(aroundX: Int(point.x), y: Int(point.y), width: frame.imageWidth, height: frame.imageHeight)
+        else { return .refused(.blocked("point_outside_frame")) }
+        guard let live = AXReader.targetWindow(of: AXReader.application(window.pid)).flatMap(AXReader.frame), WindowMatch.same(live, frame.window) else {
+            return .refused(.blocked("stale_state", hint: "The window moved, changed size or was replaced since the screenshot; aim again in the fresh state."))
+        }
+        let now: WindowImage
+        do {
+            now = try WindowCapture.capture(WindowCandidate(pid: window.pid, frame: live, title: window.title))
+        } catch let error as HelperError {
+            return .refused(.blocked(error.code, hint: error.message))
+        } catch {
+            return .refused(.blocked("helper_failed"))
+        }
+        guard now.pixels.width == pixels.width, now.pixels.height == pixels.height,
+              PixelPatch.same(PixelPatch.pixels(pixels, in: patch), PixelPatch.pixels(now.pixels, in: patch))
+        else { return .refused(.blocked("screen_changed")) }
+        return .at(screen)
+    }
+
+    private func aimed(_ point: CGPoint, _ body: (CGPoint) -> ActionResult) -> ActionResult {
+        switch aim(point) {
+        case let .refused(result): result
+        case let .at(screen): body(screen)
+        }
+    }
+
+    /// Real input at `screen`: the app comes forward (never while the user types), the point must land on it,
+    /// and the user's pointer goes back afterwards. `aimedAt` is checked again when coming forward changed the window.
+    private func physically(at screen: CGPoint, aimedAt point: CGPoint? = nil, alsoOn others: [CGPoint] = [],
+                            _ send: (CGPoint) -> Void) -> ActionResult {
+        guard let window = state.window else { return noWindow }
+        if pointer.holding != nil {
+            return .unsupported("unsupported_action", hint: "A mouse button is still down from computer_mouse; release it with event up first.")
+        }
+        switch Foreground.bring(window) {
+        case let .refused(result): return result
+        case .broughtForward:
+            // An app in front can look different (focus rings, accent colours); the model must see that first.
+            if let point, case let .refused(result) = aim(point) { return result }
+        case .alreadyFront: break
+        }
+        let displays = ScreenLayout.displays()
+        for target in [screen] + others {
+            if let refused = PointerGate.check(target, displays: displays, under: ScreenLayout.owner(at: target), target: window.pid, host: host) { return refused }
+        }
+        return withCursor(at: screen, outline: nil) {
+            send(screen)
+            return .delivered(.input)
+        }
+    }
+
+    // MARK: Elements
+
+    /// Resolves an index to its live element.
+    private func live(_ index: Int, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
         guard let element = state.elements[index] else { return .blocked("stale_state") }
         AXUIElementSetMessagingTimeout(element, AXReader.messagingTimeout)
         var role: CFTypeRef?
         let alive = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
         if case let .refused(code) = AXLadder.outcome(alive) { return .blocked(code) }
+        return body(element)
+    }
+
+    /// Resolves an index and runs `body` with the cursor on the element.
+    private func onElement(_ index: Int, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
+        live(index) { element in withCursor(on: element) { body(element) } }
+    }
+
+    private func withCursor(on element: AXUIElement, _ body: () -> ActionResult) -> ActionResult {
         let frame = AXReader.frame(element)
-        guard let cursor else { return body(element) }
-        return cursor.act(at: frame.map { CGPoint(x: $0.midX, y: $0.midY) }, outline: frame, in: state.window) { body(element) }
+        return withCursor(at: frame.map { CGPoint(x: $0.midX, y: $0.midY) }, outline: frame, body)
+    }
+
+    private func attempt(on element: AXUIElement, _ body: () -> ActionResult?) -> ActionResult? {
+        let frame = AXReader.frame(element)
+        return attempt(at: frame.map { CGPoint(x: $0.midX, y: $0.midY) }, outline: frame, body)
+    }
+
+    /// The cursor glides to `point` and reports the phases around `body`; `nil` from `body` (fall back to real
+    /// input) is reported as failed and handed back so the caller can try the next method.
+    private func attempt(at point: CGPoint?, outline: CGRect?, _ body: () -> ActionResult?) -> ActionResult? {
+        guard let cursor else { return body() }
+        var outcome: ActionResult?
+        _ = cursor.act(at: point, outline: outline, in: state.window) {
+            outcome = body()
+            return outcome ?? .unsupported("unsupported_action")
+        }
+        return outcome
+    }
+
+    private func withCursor(at point: CGPoint?, outline: CGRect?, _ body: () -> ActionResult) -> ActionResult {
+        guard let cursor else { return body() }
+        return cursor.act(at: point, outline: outline, in: state.window, body)
+    }
+
+    /// The text field under a point of the app, for typing and pasting by coordinates.
+    private func onText(at screen: CGPoint, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
+        guard let element = AXReader.element(at: screen, pid: state.window?.pid), AXReader.takesText(element) else {
+            return .unsupported("unsupported_action", hint: "There is no text field at that point; aim at one, or pass element_index.")
+        }
+        return withCursor(at: screen, outline: AXReader.frame(element)) { body(element) }
+    }
+
+    /// Scrolling without real input: the page action of the element or a container, then the scroll bar of the
+    /// scroll area around it. `nil` leaves it to the wheel.
+    private func scrollInBackground(from element: AXUIElement, _ direction: ScrollDirection, _ pages: Double) -> ActionResult? {
+        for candidate in AXReader.lineage(element) {
+            if let plan = ScrollPlan.ax(direction, pages: pages, actions: AXReader.actions(candidate)),
+               let done = attempt(on: candidate, { turnPages(candidate, plan) }) {
+                return done
+            }
+        }
+        guard let area = AXReader.scrollArea(around: element) else { return nil }
+        return attempt(on: area) { moveBar(in: area, direction, pages) }
+    }
+
+    /// Some containers list a page action they then decline (AppKit scroll views); that falls through.
+    private func turnPages(_ element: AXUIElement, _ plan: ScrollPlan.AXPages) -> ActionResult? {
+        for turn in 0..<plan.times {
+            guard let result = tryPress(element, plan.action) else { return turn == 0 ? nil : .delivered(.ax) }
+            if result.outcome != .delivered { return result }
+        }
+        return .delivered(.ax)
+    }
+
+    private func moveBar(in area: AXUIElement, _ direction: ScrollDirection, _ pages: Double) -> ActionResult? {
+        let vertical = direction == .up || direction == .down
+        guard let bar: AXUIElement = AXReader.attribute(area, vertical ? kAXVerticalScrollBarAttribute : kAXHorizontalScrollBarAttribute),
+              let current: NSNumber = AXReader.attribute(bar, kAXValueAttribute),
+              let visible = AXReader.frame(area),
+              let content = AXReader.contentSize(of: area),
+              let target = ScrollPlan.barValue(from: current.doubleValue, direction, pages: pages,
+                                               visible: vertical ? visible.height : visible.width, content: vertical ? content.height : content.width)
+        else { return nil }
+        if target == current.doubleValue { return .ineffective(hint: "The content is already at its \(direction.rawValue) end; there is nothing more to scroll that way.") }
+        switch AXLadder.outcome(AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: target))) {
+        case .done: return .delivered(.ax)
+        case .fallBack: return nil
+        case let .refused(code): return .blocked(code)
+        }
     }
 
     private var noWindow: ActionResult { .unsupported("unsupported_action", hint: "The app has no open window to send keys to.") }
@@ -96,8 +314,6 @@ struct Executor {
         let outcome = result(AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue))
         return outcome.outcome == .delivered ? nil : outcome
     }
-
-    private func isFrontmost(_ pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.isActive ?? false }
 
     /// Inserts at the caret, replacing any selection; `nil` when the element does not take text this way.
     private func insertAtCaret(_ text: String, _ element: AXUIElement) -> ActionResult? {
@@ -143,7 +359,7 @@ struct Executor {
         if let refused = focus(element) { return refused }
         if format != .html, let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
-        guard isFrontmost(pid) else {
+        guard Foreground.isFrontmost(pid) else {
             return .blocked("not_frontmost", hint: "Pasting rich text uses Command-V, which reaches an app only while it is in front. Paste it as text, or ask the user to bring the app forward.")
         }
         return keyboard { try Clipboard.paste(text, format: format, pid: pid) }
@@ -186,14 +402,18 @@ struct Executor {
         }
     }
 
-    private func press(_ element: AXUIElement, _ name: String) -> ActionResult {
-        result(AXUIElementPerformAction(element, name as CFString))
+    /// `nil` when the element declines the action, so real input may try instead.
+    private func tryPress(_ element: AXUIElement, _ name: String) -> ActionResult? {
+        switch AXLadder.outcome(AXUIElementPerformAction(element, name as CFString)) {
+        case .done: .delivered(.ax)
+        case .fallBack: nil
+        case let .refused(code): .blocked(code)
+        }
     }
 
     private func result(_ error: AXError) -> ActionResult {
         switch AXLadder.outcome(error) {
         case .done: .delivered(.ax)
-        // Physical input arrives with the input gates (step 7c).
         case .fallBack: .unsupported("unsupported_action")
         case let .refused(code): .blocked(code)
         }

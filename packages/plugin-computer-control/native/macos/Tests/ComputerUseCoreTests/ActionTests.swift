@@ -8,10 +8,10 @@ import Testing
 
     @Test func readsAClickOnAnElementOrAPoint() throws {
         #expect(try parse(["action": .string("click"), "element_index": .number(3), "mouse_button": .string("left"), "click_count": .number(1)])
-            == .click(target: .element(3), button: .left, count: 1, modifiers: false))
+            == .click(target: .element(3), button: .left, count: 1, modifiers: []))
         #expect(try parse(["action": .string("click"), "x": .number(10.5), "y": .number(20), "mouse_button": .string("right"), "click_count": .number(2),
-                           "modifiers": .string("shift")])
-            == .click(target: .point(CGPoint(x: 10.5, y: 20)), button: .right, count: 2, modifiers: true))
+                           "modifiers": .string("shift"), "held": .array([.string("shift")])])
+            == .click(target: .point(CGPoint(x: 10.5, y: 20)), button: .right, count: 2, modifiers: .maskShift))
     }
 
     @Test func readsElementActions() throws {
@@ -25,7 +25,7 @@ import Testing
         #expect(throws: HelperError.self) { try parse(["action": .string("click"), "element_index": .number(-1), "mouse_button": .string("left"), "click_count": .number(1)]) }
         #expect(throws: HelperError.self) { try parse(["action": .string("set_value"), "element_index": .number(1)]) }
         #expect(throws: HelperError.self) { try ActionRequest.parse(.string("click")) }
-        #expect(try parse(["action": .string("scroll"), "element_index": .number(1)]) == .notYetSupported("scroll"))
+        #expect(try parse(["action": .string("hold_key"), "key": .string("shift")]) == .notYetSupported("hold_key"))
     }
 }
 

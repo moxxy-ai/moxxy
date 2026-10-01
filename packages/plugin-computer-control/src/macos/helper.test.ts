@@ -115,7 +115,8 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const secret = [...byKey.values()].find((element) => element.secure);
       expect(secret?.value).toBeUndefined();
       expect(JSON.stringify(state)).not.toContain('hunter2');
-      expect(state.tree.elements.some((element) => element.role === 'group')).toBe(false);
+      // Plain stack views are flattened; only the labelled canvas stays a group.
+      expect(state.tree.elements.filter((element) => element.role === 'group').map((element) => element.key.split('/').at(-1))).toEqual(['group:pad']);
     } finally { await transport.close(); }
   });
 
@@ -202,10 +203,12 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await backend.release('session'); }
   });
 
-  describe('actions by element index', () => {
+  // Every action settles for at least a second before its fresh state comes back (as in Codex).
+  describe('actions by element index', { timeout: 30_000 }, () => {
     const observe = async (transport: HelperTransport) =>
       appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
-    const element = (state: { tree: { elements: Array<{ key: string; index: number; title?: string; value?: string }> } }, suffix: string) => {
+    type Listed = { key: string; index: number; title?: string; value?: string; description?: string; frame?: { x: number; y: number; width: number; height: number } };
+    const element = (state: { tree: { elements: Listed[] } }, suffix: string) => {
       const found = state.tree.elements.find((candidate) => candidate.key.endsWith(suffix));
       if (!found) throw new Error(`no ${suffix}`);
       return found;
@@ -324,6 +327,111 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         expect(result).toMatchObject({ outcome: 'unsupported', code: 'unsupported_action' });
         expect(result.hint).toMatch(/2 times.*prefix or suffix/);
       } finally { await transport.close(); }
+    });
+
+    describe('by screenshot point and real pointer input', () => {
+      type Framed = { tree: { elements: Listed[] } };
+      const look = async (transport: HelperTransport) =>
+        appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
+      const centre = (state: Framed, suffix: string) => {
+        const { frame } = element(state, suffix);
+        if (!frame) throw new Error(`${suffix} has no frame`);
+        return { x: Math.round(frame.x + frame.width / 2), y: Math.round(frame.y + frame.height / 2) };
+      };
+      const pad = (state: Framed | undefined) => (state ? element(state, 'group:pad').description : undefined);
+      const pointer = () => spawnSync('osascript', ['-l', 'JavaScript', '-e', 'ObjC.import("AppKit"); const p = $.NSEvent.mouseLocation; `${p.x},${p.y}`']).stdout.toString().trim().split(',').map(Number);
+      // A trackpad leaves the pointer between points; putting it back may round to the nearest one.
+      const expectPointerAt = (home: number[]) => pointer().forEach((axis, i) => expect(Math.abs(axis - (home[i] ?? NaN))).toBeLessThanOrEqual(1));
+      const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
+
+      it('presses a control under a point through accessibility, in the background', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const pressed = Number(/\d+/.exec(element(before, 'text:status').title ?? '')?.[0] ?? 0);
+          const { result, state } = await act(transport, { action: 'click', ...centre(before, 'button:press'), mouse_button: 'left', click_count: 1 });
+          expect(result).toEqual({ outcome: 'delivered', method: 'ax' });
+          expect(element(state ?? before, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
+          expect(frontmost()).not.toBe('MoxxyComputerFixture');
+        } finally { await transport.close(); }
+      });
+
+      it('types into the text field under a point and refuses a point with no text field', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const typed = await act(transport, { action: 'type_text', ...centre(before, 'text field:name'), text: 'Q' });
+          expect(typed.result).toEqual({ outcome: 'delivered', method: 'ax' });
+          expect(element(typed.state ?? before, 'text field:name').value).toContain('Q');
+          const nowhere = await act(transport, { action: 'type_text', ...centre(typed.state ?? before, 'group:pad'), text: 'Q' });
+          expect(nowhere.result).toMatchObject({ outcome: 'unsupported', code: 'unsupported_action' });
+        } finally { await transport.close(); }
+      });
+
+      it('refuses a point outside the screenshot or whose pixels changed since it', async () => {
+        const transport = start();
+        try {
+          await look(transport);
+          const outside = await act(transport, { action: 'click', x: 5000, y: 10, mouse_button: 'left', click_count: 1 });
+          expect(outside.result).toMatchObject({ outcome: 'blocked', code: 'point_outside_frame' });
+          // Another process changes the field behind the helper's back; the point is on its text, whose pixels change.
+          const setField = (value: string) => spawnSync('osascript', ['-e', `tell application "System Events" to set value of text field 1 of window 1 of process "MoxxyComputerFixture" to "${value}"`]);
+          setField('MMMMMMMMMMMMMMMM');
+          const field = await look(transport);
+          setField('');
+          const text = { x: (element(field, 'text field:name').frame?.x ?? 0) + 40, y: centre(field, 'text field:name').y };
+          const stale = await act(transport, { action: 'click', ...text, mouse_button: 'left', click_count: 1 });
+          expect(stale.result).toMatchObject({ outcome: 'blocked', code: 'screen_changed' });
+        } finally { await transport.close(); }
+      });
+
+      it('double-clicks a canvas with modifiers through the real pointer, then puts the pointer back', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const home = pointer();
+          const { result, state } = await act(transport, { action: 'click', ...centre(before, 'group:pad'), mouse_button: 'left', click_count: 2, modifiers: 'shift', held: ['shift'] });
+          expect(result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(pad(state)).toBe('Pad up 2 after 0 moves shift');
+          expectPointerAt(home);
+        } finally { await transport.close(); }
+      });
+
+      it('drags along a path and spells out a press, move and release', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const { x, y } = centre(before, 'group:pad');
+          const home = pointer();
+          const dragged = await act(transport, { action: 'drag', path: [[x - 100, y], [x + 100, y]], duration_ms: 200, mouse_button: 'left' });
+          expect(dragged.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(pad(dragged.state)).toMatch(/^Pad up 1 after ([2-9]|\d{2,}) moves$/);
+          expectPointerAt(home);
+
+          const hover = await act(transport, { action: 'mouse', event: 'move', x, y, mouse_button: 'left' });
+          expect(hover.result).toMatchObject({ outcome: 'unsupported' });
+          const down = await act(transport, { action: 'mouse', event: 'down', x: x - 50, y, mouse_button: 'left' });
+          expect(pad(down.state)).toBe('Pad down 1');
+          await act(transport, { action: 'mouse', event: 'move', x, y, mouse_button: 'left' });
+          const up = await act(transport, { action: 'mouse', event: 'up', x: x + 50, y, mouse_button: 'left' });
+          expect(up.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(pad(up.state)).toMatch(/^Pad up 1 after [2-9] moves$/);
+          expectPointerAt(home);
+        } finally { await transport.close(); }
+      });
+
+      it('scrolls a list by pages through accessibility and a canvas with the wheel', async () => {
+        const transport = start();
+        try {
+          const before = await look(transport);
+          const list = await act(transport, { action: 'scroll', element_index: element(before, 'scroll area:list').index, direction: 'down', pages: 1 });
+          expect(list.result).toEqual({ outcome: 'delivered', method: 'ax' });
+          expect(Number(/\d+/.exec(element(list.state ?? before, 'text:offset').title ?? '')?.[0])).toBeGreaterThan(0);
+          const wheel = await act(transport, { action: 'scroll', ...centre(list.state ?? before, 'group:pad'), direction: 'down', pages: 1 });
+          expect(wheel.result).toEqual({ outcome: 'delivered', method: 'input' });
+          expect(pad(wheel.state)).toMatch(/^Pad wheel -\d+$/);
+        } finally { await transport.close(); }
+      });
     });
 
     it('asks for an observation before the first action', async () => {

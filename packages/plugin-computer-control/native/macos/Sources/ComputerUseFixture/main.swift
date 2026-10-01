@@ -14,6 +14,58 @@ final class Controller: NSObject {
     }
 }
 
+/// A canvas without accessibility actions, like a video timeline: only real mouse input reaches it.
+/// Its description reports what arrived, so tests can read it from the tree.
+@MainActor
+final class Pad: NSView {
+    private var log = "idle"
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Pad idle")
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 160, height: 60) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.systemTeal.setFill()
+        bounds.fill()
+    }
+
+    private func report(_ text: String) {
+        log = text
+        setAccessibilityLabel("Pad \(log)")
+    }
+
+    private func held(_ event: NSEvent) -> String { event.modifierFlags.contains(.shift) ? " shift" : "" }
+    private var drags = 0
+
+    override func mouseDown(with event: NSEvent) { drags = 0; report("down \(event.clickCount)\(held(event))") }
+    override func mouseDragged(with event: NSEvent) { drags += 1; report("dragging \(drags)") }
+    override func mouseUp(with event: NSEvent) { report("up \(event.clickCount) after \(drags) moves\(held(event))") }
+    override func rightMouseDown(with event: NSEvent) { report("right down") }
+
+    private var wheel = 0.0
+    override func scrollWheel(with event: NSEvent) { wheel += event.scrollingDeltaY; report("wheel \(Int(wheel))") }
+}
+
+/// Tall striped content, top first, for the scroll area.
+final class Page: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        for row in 0..<Int(bounds.height / 20) {
+            (row.isMultiple(of: 2) ? NSColor.white : NSColor.lightGray).setFill()
+            NSRect(x: 0, y: CGFloat(row) * 20, width: bounds.width, height: 20).fill()
+        }
+    }
+}
+
 @MainActor
 func control<T: NSView>(_ view: T, _ identifier: String) -> T {
     view.identifier = NSUserInterfaceItemIdentifier(identifier)
@@ -45,7 +97,23 @@ func makeWindow(_ controller: Controller) -> NSWindow {
     spinner.isIndeterminate = true
     spinner.startAnimation(nil)
     let loading = NSStackView(views: [spinner])
-    let outer = NSStackView(views: [name, secret, inner, control(controller.status, "status"), loading])
+    // A long page that only scrolls: its offset is reported in a label.
+    let page = Page(frame: NSRect(x: 0, y: 0, width: 200, height: 3000))
+    let scroller = control(NSScrollView(), "list")
+    scroller.documentView = page
+    scroller.hasVerticalScroller = true
+    scroller.translatesAutoresizingMaskIntoConstraints = false
+    scroller.widthAnchor.constraint(equalToConstant: 200).isActive = true
+    scroller.heightAnchor.constraint(equalToConstant: 80).isActive = true
+    let offset = control(NSTextField(labelWithString: "Offset 0"), "offset")
+    scroller.contentView.postsBoundsChangedNotifications = true
+    NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroller.contentView, queue: .main) { _ in
+        MainActor.assumeIsolated { offset.stringValue = "Offset \(Int(scroller.contentView.bounds.origin.y))" }
+    }
+    let pad = control(Pad(), "pad")
+    let lower = NSStackView(views: [pad, scroller, offset])
+    lower.orientation = .horizontal
+    let outer = NSStackView(views: [name, secret, inner, control(controller.status, "status"), lower, loading])
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
         spinner.stopAnimation(nil)
         loading.removeView(spinner)
@@ -55,7 +123,7 @@ func makeWindow(_ controller: Controller) -> NSWindow {
     outer.alignment = .leading
     outer.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
-    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 460, height: 220), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 520, height: 320), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.title = "Moxxy Fixture"
     window.contentView = outer
     return window

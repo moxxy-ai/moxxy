@@ -35,10 +35,18 @@ func parentPid(_ arguments: [String]) -> pid_t {
 }
 
 let parent = parentPid(CommandLine.arguments)
-guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { exit(ExitCode.normal) }) else { exit(ExitCode.normal) }
+let pointer = PointerSession()
+
+/// A mouse button the model left down is never left pressed for the user.
+func leave(_ code: Int32) -> Never {
+    pointer.release()
+    exit(code)
+}
+
+guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { leave(ExitCode.normal) }) else { exit(ExitCode.normal) }
 
 let output = Output()
-let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write))
+let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: AgentCursor(emit: output.write), pointer: pointer, host: parent)
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 
@@ -52,7 +60,7 @@ let reader = Thread {
             case let .incoming(.request(id, method, params)):
                 requests.async { output.write(dispatcher.handle(id: id, method: method, params: params)) }
             case .incoming(.control(.stop)):
-                exit(ExitCode.userStopped)
+                leave(ExitCode.userStopped)
             case .incoming(.control):
                 // Pause and resume gate actions once the action executor exists (step 7).
                 break
@@ -61,7 +69,7 @@ let reader = Thread {
             }
         }
         // End of input is the graceful shutdown signal: finish queued work, then leave.
-        if bytes.isEmpty { requests.async { exit(ExitCode.normal) }; return }
+        if bytes.isEmpty { requests.async { leave(ExitCode.normal) }; return }
     }
 }
 reader.start()

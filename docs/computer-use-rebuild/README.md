@@ -174,5 +174,8 @@ wersję i plik, z którego wzięto wzorzec.
 - **Zmiana łamiąca.** Nowe narzędzia zastępują stare. Runner v23 i protokół
   Windows v5 wymagają zgodnego desktopu.
 - **Wydajność PiP.** Mierzymy ją w krokach 11 i 13; fps jest konfigurowalne.
+- **ScreenCaptureKit przy dwóch helperach.** Dwa procesy helpera naraz
+  potrafią zawiesić przechwytywanie okna (odtworzone w kroku 7c). Jeden
+  helper na sesję tego nie dotyka; do zbadania przed obsługą wielu sesji.
 - **Branch bazowy.** `computer-use-rebuild` wyrasta z `google-gemini-tts`;
   scalenie z `development` tylko za zgodą właściciela.

@@ -76,6 +76,14 @@ public final class AXReader {
         return CGRect(origin: position, size: size)
     }
 
+    /// How big a scroll area's content is: AppKit reports it directly, others through their content element.
+    static func contentSize(of area: AXUIElement) -> CGSize? {
+        var size = CGSize.zero
+        if let value = axValue(area, "AXContentSize"), AXValueGetValue(value, .cgSize, &size) { return size }
+        let contents: [AXUIElement]? = attribute(area, kAXContentsAttribute)
+        return contents?.first.flatMap(frame)?.size
+    }
+
     private static func axValue(_ element: AXUIElement, _ name: String) -> AXValue? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success, let value,
@@ -89,6 +97,39 @@ public final class AXReader {
         if let text = value as? String { return text }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    /// The app's own element at a screen point, whatever window covers it.
+    static func element(at point: CGPoint, pid: pid_t?) -> AXUIElement? {
+        guard let pid else { return nil }
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(application(pid), Float(point.x), Float(point.y), &element) == .success, let element else { return nil }
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return element
+    }
+
+    static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
+
+    /// Whether typed text would land in this element rather than somewhere else in the app.
+    static func takesText(_ element: AXUIElement) -> Bool {
+        if let role: String = attribute(element, kAXRoleAttribute), textRoles.contains(role) { return true }
+        var settable = DarwinBoolean(false)
+        return AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success && settable.boolValue
+    }
+
+    /// The element and its containers up to the window, nearest first.
+    static func lineage(_ element: AXUIElement, limit: Int = 12) -> [AXUIElement] {
+        var chain = [element]
+        while chain.count < limit, let parent: AXUIElement = attribute(chain[chain.count - 1], kAXParentAttribute) {
+            if attribute(parent, kAXRoleAttribute) == (kAXApplicationRole as String) { break }
+            chain.append(parent)
+        }
+        return chain
+    }
+
+    /// The scroll area an element sits in, whose size is one page of scrolling.
+    static func scrollArea(around element: AXUIElement) -> AXUIElement? {
+        lineage(element).first { attribute($0, kAXRoleAttribute) == (kAXScrollAreaRole as String) }
     }
 
     static func actions(_ element: AXUIElement) -> [String] {

@@ -4,12 +4,14 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7c — fizyczna mysz z bramkami na macOS (7a, 7b gotowe).
-- **Następna czynność:** testy Red dla bramek jako czystych funkcji
-  (punkt na ekranie, hit-test → pid celu, własne okno/nakładka, łatka
-  pikseli 9×9 względem ostatniego zrzutu, Dock/pulpit), potem klik po
-  punkcie na fixture z przywróceniem wskaźnika; krótka aktywacja aplikacji
-  dla skrótów ⌘ z kontrolą pisania użytkownika (wzorzec Claude).
+- **Bieżący krok:** 7c2 — `hold_key`, skróty ⌘ przez krótką aktywację (7a, 7b, 7c gotowe).
+- **Następna czynność:** testy Red dla `computer_hold_key` (przytrzymanie
+  klawisza/modyfikatora przez czas, zwolnienie przy końcu i zatrzymaniu
+  helpera), potem skróty ⌘ przez krótką aktywację aplikacji z kontrolą
+  pisania użytkownika (`ActivationGate`, wzorzec Claude) i test HTML ⌘V z
+  aplikacją z przodu. Następnie 7d: strażnik (Escape = Stop, ingerencja =
+  pauza po znaczniku `0x6D6F7878`), brak postępu, cache `unsupported`,
+  ochrona okna zapisu, przygaszony kursor w pauzie.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -63,12 +65,13 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Fazy akcji i zdarzenia `cursor` → `TurnControls`; SDK snapshot z `cursor` i `target` (fazy poza `idle` wysyła wykonawca z kroku 7).
 
 ### Krok 7 — wykonawca akcji macOS
-- [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed gotowe; fizyczne wejście w 7c).
+- [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed; 7c: fizyczne wejście jako zapas dla kliknięcia i przewijania; cache `unsupported` w 7d).
 - [x] 7a: `act` po indeksie — klik przez `AXPress`/`AXShowMenu`, `set_value`, `perform_secondary_action` z listy elementu, `stale_state`/`no_state`, fazy kursora, świeży stan w odpowiedzi.
-- [ ] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key` (7a: click po indeksie, set_value, secondary; 7b: type_text, press_key, paste, select_text — w tle; reszta w 7c).
+- [ ] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key` (7a: click po indeksie, set_value, secondary; 7b: type_text, press_key, paste, select_text — w tle; 7c: click/type_text/paste/scroll po punkcie, scroll po indeksie, drag, `computer_mouse`; zostaje `computer_hold_key` w 7c2).
 - [x] 7b: klawiatura i tekst w tle (AX w miejscu kursora, `postToPid`, ⌘A przez AX, inne ⌘ poza przodem → `not_frontmost`, wklejanie tekstu bez schowka, HTML przez schowek z przywróceniem).
-- [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu.
-- [ ] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza).
+- [x] 7c: fizyczna mysz z bramkami — klik po punkcie (najpierw AXPress kontrolki pod punktem w tle), wielokrotny klik z modyfikatorami, drag ze ścieżką i czasem, `mouse` down/move/up, scroll (AX strona → pasek przewijania → kółko), pisanie/wklejanie w pole pod punktem.
+- [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu (7c: wszystkie poza ochroną okna zapisu — 7d; zgoda/poziom od kroku 3).
+- [ ] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza) (7c: przywracanie wskaźnika i zwalnianie przycisku przy wyjściu helpera; strażnik w 7d).
 - [ ] Wykrywanie braku postępu; wynik + świeży stan po akcji.
 
 ### Krok 8 — batch, zrzut pełnoekranowy, zoom

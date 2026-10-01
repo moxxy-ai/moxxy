@@ -25,6 +25,14 @@ public enum KeyCodes {
         "ctrl": (0x3B, .maskControl), "alt": (0x3A, .maskAlternate), "shift": (0x38, .maskShift), "meta": (0x37, .maskCommand),
     ]
 
+    /// Flags for modifier names from the host's parser ("ctrl", "alt", "shift", "meta").
+    static func flags(_ names: [JSONValue]) throws -> CGEventFlags {
+        try names.reduce(into: CGEventFlags()) { flags, name in
+            guard let modifier = name.stringValue.flatMap({ modifiers[$0] }) else { throw HelperError(code: "invalid_key", message: "Unknown modifier") }
+            flags.insert(modifier.flag)
+        }
+    }
+
     public struct Stroke: Equatable, Sendable {
         public let code: CGKeyCode
         public let shift: Bool
@@ -77,11 +85,7 @@ public struct KeyChord: Equatable, Sendable {
 
     public static func parse(_ value: JSONValue) throws -> KeyChord {
         guard case let .array(names)? = value["modifiers"] else { throw HelperError.invalidParams("chord needs modifiers") }
-        var flags: CGEventFlags = []
-        for name in names {
-            guard let modifier = name.stringValue.flatMap({ KeyCodes.modifiers[$0] }) else { throw HelperError(code: "invalid_key", message: "Unknown modifier") }
-            flags.insert(modifier.flag)
-        }
+        let flags = try KeyCodes.flags(names)
         guard let raw = value["key"] else { throw HelperError.invalidParams("chord needs key") }
         if raw == .null { return KeyChord(flags: flags, key: nil) }
         guard let name = raw.stringValue else { throw HelperError.invalidParams("chord key must be text") }

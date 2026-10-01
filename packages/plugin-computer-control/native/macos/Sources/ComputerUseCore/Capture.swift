@@ -71,20 +71,22 @@ public struct WindowCandidate: Sendable, Equatable {
 public enum WindowMatch {
     static let tolerance: CGFloat = 2
 
+    /// Two reports of one window's frame, from different APIs, agree within a couple of points.
+    public static func same(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= tolerance && abs(a.minY - b.minY) <= tolerance && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
+    }
+
     public static func best(for target: WindowCandidate, in candidates: [WindowCandidate]) -> Int? {
-        let matching = candidates.indices.filter { index in
-            let candidate = candidates[index]
-            return candidate.pid == target.pid
-                && abs(candidate.frame.minX - target.frame.minX) <= tolerance && abs(candidate.frame.minY - target.frame.minY) <= tolerance
-                && abs(candidate.frame.width - target.frame.width) <= tolerance && abs(candidate.frame.height - target.frame.height) <= tolerance
-        }
+        let matching = candidates.indices.filter { candidates[$0].pid == target.pid && same(candidates[$0].frame, target.frame) }
         return matching.first { candidates[$0].title == target.title } ?? matching.first
     }
 }
 
-/// A finished capture: JPEG pixels and the frame that maps them back to the screen.
+/// A finished capture: JPEG for the model, raw pixels for the check before a click, and the frame
+/// that maps both back to the screen.
 public struct WindowImage: Sendable {
     public let jpeg: Data
+    public let pixels: PixelBuffer
     public let frame: CoordinateFrame
 }
 
@@ -127,8 +129,24 @@ enum WindowCapture {
             configuration.showsCursor = false
             configuration.ignoreShadowsSingleWindow = true
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-            return WindowImage(jpeg: try jpeg(image), frame: CoordinateFrame(window: target.frame, imageWidth: image.width, imageHeight: image.height))
+            return WindowImage(jpeg: try jpeg(image), pixels: try pixels(image),
+                               frame: CoordinateFrame(window: target.frame, imageWidth: image.width, imageHeight: image.height))
         }
+    }
+
+    /// RGBA in sRGB, so two captures of the same content compare equal whatever the display profile.
+    static func pixels(_ image: CGImage) throws -> PixelBuffer {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: raw.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                                          bytesPerRow: image.width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        guard drawn else { throw HelperError(code: "helper_failed", message: "The window pixels could not be read") }
+        return PixelBuffer(width: image.width, height: image.height, bytes: bytes)
     }
 
     static func jpeg(_ image: CGImage) throws -> Data {

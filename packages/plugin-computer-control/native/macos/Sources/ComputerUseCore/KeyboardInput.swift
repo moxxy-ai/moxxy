@@ -42,7 +42,9 @@ enum KeyboardInput {
     }
 
     /// A private state per event keeps the user's physical modifier keys out of ours.
-    private static var source: CGEventSource? { CGEventSource(stateID: .privateState) }
+    static var source: CGEventSource? { CGEventSource(stateID: .privateState) }
+
+    static func mark(_ event: CGEvent) { event.setIntegerValueField(.eventSourceUserData, value: marker) }
 
     private static func tap(_ code: CGKeyCode, flags: CGEventFlags, pid: pid_t, text: String? = nil) {
         post(code, down: true, flags: flags, pid: pid, text: text)
@@ -60,7 +62,7 @@ enum KeyboardInput {
     }
 
     private static func send(_ event: CGEvent, pid: pid_t) {
-        event.setIntegerValueField(.eventSourceUserData, value: marker)
+        mark(event)
         event.postToPid(pid)
     }
 }

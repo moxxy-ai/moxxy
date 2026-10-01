@@ -8,6 +8,8 @@ final class TargetState {
     var elements: [Int: AXUIElement] = [:]
     /// Maps the last screenshot's pixels to the screen; `nil` until a screenshot was taken.
     var frame: CoordinateFrame?
+    /// The last screenshot's pixels, compared around a point before acting on it.
+    var pixels: PixelBuffer?
     /// The observed window, for the cursor overlay; `nil` until an observation found one.
     var window: WindowCandidate?
     /// Actions need indices from an observation made by this helper.
@@ -113,10 +115,12 @@ extension Methods {
         if let window = state.window { cursor?.attach(to: window) }
         var result: [String: JSONValue] = [:]
         state.frame = nil
+        state.pixels = nil
         if params["screenshot"]?.boolValue == true {
             switch capture(pid: running.processIdentifier, root: root) {
             case let .success(image):
                 state.frame = image.frame
+                state.pixels = image.pixels
                 result["screenshot"] = .object([
                     "mediaType": .string("image/jpeg"), "base64": .string(image.jpeg.base64EncodedString()),
                     "width": .number(Double(image.frame.imageWidth)), "height": .number(Double(image.frame.imageHeight)),
