@@ -1,0 +1,161 @@
+import CoreImage
+import CoreMedia
+import Foundation
+@preconcurrency import ScreenCaptureKit
+
+/// The live picture for the human is small and slow on purpose: it is watched in a corner, not read.
+public enum PreviewPolicy {
+    static let maxEdge = 960
+    static let jpegQuality = 0.6
+    /// How often a running capture says so when nothing on screen changes.
+    static let aliveInterval: TimeInterval = 1
+
+    public static func fps(_ requested: Double?) -> Int {
+        guard let requested else { return 2 }
+        return min(5, max(1, Int(requested.rounded())))
+    }
+
+    /// Pixels for a window of `points`: the longer edge at most `maxEdge`, both sides even (video encoders need that).
+    public static func size(points: CGSize, pixelScale: Double) -> (width: Int, height: Int) {
+        let width = points.width * pixelScale
+        let height = points.height * pixelScale
+        let shrink = min(1, Double(maxEdge) / max(width, height, 1))
+        let even = { (side: Double) in max(2, Int(side * shrink) / 2 * 2) }
+        return (even(width), even(height))
+    }
+
+    /// A stream follows its window as it moves; another window or another size needs a new stream.
+    public static func needsRestart(from old: WindowCandidate?, to new: WindowCandidate?) -> Bool {
+        guard let old, let new else { return (old == nil) != (new == nil) }
+        return old.pid != new.pid || old.title != new.title || old.frame.size != new.frame.size
+    }
+}
+
+/// Streams the window being worked in to the host as JPEG frames. The agent cursor is not in the
+/// picture (its overlay is excluded from capture); the host draws it from the cursor events.
+public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    private let emit: @Sendable (Data) -> Void
+    /// Owns every field below and receives the frames.
+    private let queue = DispatchQueue(label: "ai.moxxy.computer.preview")
+    private let context = CIContext()
+    private var fps: Int?
+    private var window: WindowCandidate?
+    private var stream: SCStream?
+    private var alive: DispatchSourceTimer?
+    /// Counts restarts, so a stream that finished starting after it was replaced is dropped.
+    private var generation = 0
+    private var seq = 0
+
+    public init(emit: @escaping @Sendable (Data) -> Void) { self.emit = emit }
+
+    /// Starts capturing, or changes the rate of a running capture. Without an observed window it waits for one.
+    public func start(fps: Int) {
+        queue.async {
+            guard self.fps != fps else { return }
+            self.fps = fps
+            self.restart()
+        }
+    }
+
+    public func stop() {
+        queue.async {
+            self.fps = nil
+            self.restart()
+        }
+    }
+
+    /// The window the model last observed.
+    func target(_ window: WindowCandidate?) {
+        queue.async {
+            let changed = PreviewPolicy.needsRestart(from: self.window, to: window)
+            self.window = window
+            if changed, self.fps != nil { self.restart() }
+        }
+    }
+
+    private func restart() {
+        generation += 1
+        let generation = generation
+        alive?.cancel()
+        alive = nil
+        if let old = stream {
+            stream = nil
+            old.stopCapture { _ in }
+        }
+        guard let fps, let window else { return }
+        Task {
+            do {
+                let filter = try await WindowCapture.filter(for: window)
+                let size = PreviewPolicy.size(points: window.frame.size, pixelScale: Double(filter.pointPixelScale))
+                let configuration = SCStreamConfiguration()
+                configuration.width = size.width
+                configuration.height = size.height
+                configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
+                configuration.queueDepth = 3
+                configuration.showsCursor = false
+                configuration.ignoreShadowsSingleWindow = true
+                configuration.backgroundColor = CGColor.black
+                let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
+                try await stream.startCapture()
+                self.queue.async {
+                    guard self.generation == generation else {
+                        stream.stopCapture { _ in }
+                        return
+                    }
+                    self.stream = stream
+                    self.startAlive()
+                }
+            } catch {
+                self.queue.async {
+                    if self.generation == generation { self.report(error: "The window could not be captured for the preview") }
+                }
+            }
+        }
+    }
+
+    private func startAlive() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + PreviewPolicy.aliveInterval, repeating: PreviewPolicy.aliveInterval)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.stream != nil else { return }
+            self.emit(Wire.event("preview_frame", ["seq": .number(Double(self.seq))]))
+        }
+        timer.resume()
+        alive = timer
+    }
+
+    private func report(error: String) {
+        alive?.cancel()
+        alive = nil
+        stream = nil
+        emit(Wire.event("preview_frame", ["seq": .number(Double(seq)), "error": .string(error)]))
+    }
+
+    public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .screen, stream === self.stream, sampleBuffer.isValid,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let status = (attachments.first?[.status] as? Int).flatMap(SCFrameStatus.init(rawValue:)), status == .complete,
+              let buffer = sampleBuffer.imageBuffer
+        else { return }
+        let picture = CIImage(cvPixelBuffer: buffer)
+        guard let image = context.createCGImage(picture, from: picture.extent),
+              let jpeg = try? WindowCapture.jpeg(image, quality: PreviewPolicy.jpegQuality)
+        else { return }
+        seq += 1
+        emit(Wire.event("preview_frame", [
+            "seq": .number(Double(seq)),
+            "image": .object([
+                "mediaType": .string("image/jpeg"), "base64": .string(jpeg.base64EncodedString()),
+                "width": .number(Double(image.width)), "height": .number(Double(image.height)),
+            ]),
+        ]))
+    }
+
+    public func stream(_ stream: SCStream, didStopWithError error: Error) {
+        queue.async {
+            guard stream === self.stream else { return }
+            self.report(error: "The preview capture stopped")
+        }
+    }
+}

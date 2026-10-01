@@ -56,6 +56,13 @@ const methods = {
     limitations: ['Screen Recording is not allowed: the helper cannot capture windows.'],
   }),
   'permissions.request': () => ({ opened: true }),
+  // Like the native helper: capture answers at once and frames follow as events.
+  'preview.start': ({ fps }) => {
+    const image = { mediaType: 'image/jpeg', base64: `frame@${fps}`, width: 640, height: 400 };
+    setImmediate(() => process.stdout.write(JSON.stringify({ version: VERSION, event: 'preview_frame', seq: 1, image }) + '\n'));
+    return { started: true };
+  },
+  'preview.stop': () => ({ stopped: true }),
   list_apps: ({ query, limit }) => {
     const matching = apps.filter((app) => !query || `${app.name} ${app.id}`.toLowerCase().includes(query.toLowerCase()));
     return { apps: matching.slice(0, limit), truncated: matching.length > limit };

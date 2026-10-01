@@ -4,10 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 11 — PiP: podgląd JPEG przez Surface (krok 10 gotowy).
-- **Następna czynność:** test `PreviewController` (licznik widzów,
-  latest-frame, stany) w `src/preview/`, potem `preview.start/stop` w
-  helperze Swift (`SCStream`) i `defineSurface({kind: 'computer-preview'})`.
+- **Bieżący krok:** 12 — Windows na nowym kontrakcie (krok 11 gotowy).
+- **Następna czynność:** profil Windows dla `ComputerBackend`
+  (`src/windows/profile.ts`) i protokół v5 w helperze C++ (`native/src`);
+  walidacja tylko przez CI `computer-use-windows.yml`.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -86,9 +86,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Pakowanie helpera w desktopie (`verify-desktop-resources`, `x64ArchFiles`, kroki CI; digest manifestu niezależny od podpisu).
 
 ### Krok 11 — PiP: podgląd JPEG przez Surface
-- [ ] Helper `preview.start/stop` (SCStream), zdarzenia `preview_frame`.
-- [ ] `PreviewController` (liczniki, latest-frame, stany, sprzątanie) i Surface `computer-preview`.
-- [ ] Desktop: `useComputerPreview` + `ComputerPreviewPip` z kursorem.
+- [x] Helper `preview.start/stop` (SCStream), zdarzenia `preview_frame`.
+- [x] `PreviewController` (liczniki, latest-frame, stany, sprzątanie) i Surface `computer-preview`.
+- [x] Desktop: `useComputerPreview` + `ComputerPreviewPip` z kursorem.
 
 ### Krok 12 — Windows na nowym kontrakcie
 - [ ] Helper C++ protokół v5: `list_apps`, `get_app_state {windowId}`, akcje po indeksie/punkcie.

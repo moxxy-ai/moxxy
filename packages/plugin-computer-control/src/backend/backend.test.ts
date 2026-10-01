@@ -7,6 +7,7 @@ import { REQUEST_ACCESS_TOOL } from './access.js';
 import type { AppHint } from './app-hints.js';
 import { ComputerBackend, type PlatformProfile } from './backend.js';
 import { contractHelperScript, helperRequests, memoryLog, toolContext } from './helper.fixture.js';
+import type { PreviewMessage } from '../preview/controller.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
 
 let directory: string;
@@ -294,5 +295,62 @@ describe('app hints', () => {
     const { tools } = backend(hints);
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
     expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toContain('Prefer set_value for whole documents.');
+  });
+});
+
+describe('live preview', () => {
+  const waitFor = async (done: () => boolean) => {
+    for (let tries = 0; tries < 200 && !done(); tries++) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(done()).toBe(true);
+  };
+
+  it('captures for a viewer of the turn that uses the computer, and ends with that turn', async () => {
+    const { instance, tools } = backend();
+    const messages: PreviewMessage[] = [];
+    instance.preview.subscribe((message) => messages.push(message));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    await waitFor(() => messages.some((message) => message.type === 'frame'));
+    expect(messages.find((message) => message.type === 'frame')).toEqual({
+      type: 'frame', seq: 1, image: { mediaType: 'image/jpeg', base64: 'frame@2', width: 640, height: 400 },
+    });
+    expect(helperRequests(requestsFile).filter((request) => request.method === 'preview.start')).toEqual([{ method: 'preview.start', params: { fps: 2 } }]);
+    await instance.release('session', 'turn');
+    expect(messages.at(-1)).toEqual({ type: 'state', state: 'stopped' });
+    expect(instance.preview.snapshot()).toEqual({ state: 'stopped' });
+  });
+
+  it('shows no picture after the user stops Computer Use', async () => {
+    const { instance, tools } = backend();
+    const services = new Map<string, unknown>();
+    await instance.hooks.onInit?.({ sessionId: 'session', services: { register: (name: string, impl: unknown) => services.set(name, impl) } } as unknown as AppContext);
+    const messages: PreviewMessage[] = [];
+    instance.preview.subscribe((message) => messages.push(message));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    await waitFor(() => messages.some((message) => message.type === 'frame'));
+    const control = services.get('computerControl') as { control(input: unknown): Promise<void> };
+    await control.control({ sessionId: 'session', turnId: 'turn', command: 'stop' });
+    await waitFor(() => instance.preview.snapshot().state === 'stopped');
+    expect(instance.preview.snapshot()).toEqual({ state: 'stopped' });
+  });
+
+  it('never asks the helper to capture when nobody watches', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
+    expect(methods()).not.toContain('preview.start');
+  });
+
+  it('keeps frames away from the model: no tool result carries a preview frame', async () => {
+    const { instance, tools } = backend();
+    instance.preview.subscribe(() => undefined);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    const output = await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
+    expect(JSON.stringify(output)).not.toContain('frame@');
+    expect(JSON.stringify(events)).not.toContain('frame@');
+  });
+
+  it('offers the preview as a surface of the plugin', () => {
+    const { instance } = backend();
+    expect(instance.surfaces().map((surface) => surface.kind)).toEqual(['computer-preview']);
   });
 });

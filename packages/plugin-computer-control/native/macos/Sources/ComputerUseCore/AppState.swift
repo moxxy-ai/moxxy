@@ -28,6 +28,8 @@ public final class Targets: @unchecked Sendable {
     private var states: [String: TargetState] = [:]
     /// The latest full-screen screenshot, which `zoom` without an app refers to.
     var screen: ScreenShot?
+    /// Told about every observed window, so the human's preview shows what the model works in.
+    var preview: PreviewStream?
 
     public init() {}
 
@@ -121,6 +123,7 @@ extension Methods {
         state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
         state.root = window
         if let window = state.window { cursor?.attach(to: window) }
+        targets.preview?.target(state.window)
         var result: [String: JSONValue] = [:]
         state.frame = nil
         state.pixels = nil

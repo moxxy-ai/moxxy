@@ -1,4 +1,4 @@
-import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
+import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import { z } from 'zod';
 import { withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
@@ -18,6 +18,8 @@ import {
   actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema,
   type AppState, type HelperImage,
 } from './rpc.js';
+import { PreviewController, type PreviewSource } from '../preview/controller.js';
+import { buildComputerPreviewSurface } from '../preview/surface.js';
 import { TurnControls } from './turn-controls.js';
 
 /** Everything platform-specific the shared backend needs: which helper to start and which key rules apply. */
@@ -72,6 +74,8 @@ function asComputerUseError(error: unknown): unknown {
 export class ComputerBackend {
   private readonly turns = new Map<string, Turn>();
   readonly controls = new TurnControls();
+  /** The human's live picture of the app in use; frames never reach the model or the session log. */
+  readonly preview = new PreviewController();
 
   readonly hooks: LifecycleHooks;
 
@@ -82,6 +86,10 @@ export class ComputerBackend {
       onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
       onShutdown: (ctx) => this.release(ctx.sessionId),
     };
+  }
+
+  surfaces(): SurfaceDef[] {
+    return [buildComputerPreviewSurface(this.preview)];
   }
 
   tools(): ToolDef[] {
@@ -259,20 +267,34 @@ export class ComputerBackend {
     if (existing) return existing;
     const controlState = controlStateSchemaFor(this.profile.protocolVersion);
     const events = contractEventsFor(this.profile.protocolVersion);
-    const transport = new HelperTransport(this.profile.helperPath, [...this.profile.helperArgs, '--parent', String(process.pid)], {
+    // Preview requests carry a signal that never aborts: an aborted request ends the helper.
+    const idle = new AbortController().signal;
+    const source: PreviewSource = {
+      start: async (fps) => { await transport.request('preview.start', { fps }, idle); },
+      stop: async () => { if (!transport.closed) await transport.request('preview.stop', {}, idle); },
+    };
+    const transport: HelperTransport = new HelperTransport(this.profile.helperPath, [...this.profile.helperArgs, '--parent', String(process.pid)], {
       protocolVersion: this.profile.protocolVersion,
       timeoutMs: this.profile.timeoutMs ?? 15_000,
       events,
       onEvent: (event) => {
         if (event.event === 'control_state') this.controls.update(ctx.sessionId, ctx.turnId, controlState.parse(event).state);
         else if (event.event === 'cursor') this.controls.cursor(ctx.sessionId, ctx.turnId, events.cursor.parse(event).cursor);
+        else if (event.event === 'preview_frame') {
+          const frame = events.preview_frame.parse(event);
+          if (frame.error) this.preview.failed(source, frame.error);
+          else this.preview.frame(source, frame.image);
+        }
       },
     });
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };
     ctx.signal.addEventListener('abort', abort, { once: true });
+    const detachPreview = this.preview.attach(source);
+    // A helper that stopped or died has no picture to show any more.
+    void transport.done.then(detachPreview);
     const turn: Turn = {
       sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(), hinted: new Set(),
-      dispose: () => ctx.signal.removeEventListener('abort', abort),
+      dispose: () => { ctx.signal.removeEventListener('abort', abort); detachPreview(); },
     };
     this.turns.set(key, turn);
     this.controls.attach(ctx.sessionId, ctx.turnId, transport);

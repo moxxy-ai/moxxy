@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { computerPanel, usesComputer } from './panel-model';
+import { computerCursor, computerPanel, usesComputer } from './panel-model';
 
 const scope={workspaceId:'workspace',sessionId:'session',turnId:'turn'};
 const snapshot={...scope,state:'waiting_for_focus' as const,windowId:'window'};
@@ -33,4 +33,11 @@ it('watches a turn only when the session has Computer Use tools, on any platform
   expect(usesComputer([{name:'Read'},{name:'computer_get_app_state'}])).toBe(true);
   expect(usesComputer([{name:'computer_app_catalog'}])).toBe(true);
   expect(usesComputer([{name:'Read'},{name:'computerish'}])).toBe(false);
+});
+it('hands the agent cursor of the exact turn to the live view, and none once the turn has none', () => {
+  const cursor={phase:'moving' as const,x:0.25,y:0.5};
+  expect(computerCursor(scope,{workspaceId:'workspace',turns:[{...snapshot,cursor}]})).toEqual(cursor);
+  expect(computerCursor(scope,{workspaceId:'workspace',turns:[snapshot]})).toBeNull();
+  expect(computerCursor({...scope,turnId:'other'},{workspaceId:'workspace',turns:[{...snapshot,cursor}]})).toBeNull();
+  expect(computerCursor(scope,null)).toBeNull();
 });

@@ -35,7 +35,7 @@ export function createComputerControlPlugin(
   const problem = helperProblem(macos.helperPath, macos.protocolVersion);
   if (problem) return statusOnly(platform, arch, `${problem} ${macos.unavailableMessage}`);
   const backend = new ComputerBackend(macos);
-  return definePlugin({ name, version: '0.0.0', tools: backend.tools(), hooks: backend.hooks });
+  return definePlugin({ name, version: '0.0.0', tools: backend.tools(), hooks: backend.hooks, surfaces: backend.surfaces() });
 }
 
 export const computerControlPlugin = createComputerControlPlugin();

@@ -65,7 +65,8 @@ func leave(_ code: Int32) -> Never {
 guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { leave(ExitCode.normal) }) else { exit(ExitCode.normal) }
 
 let cursor = AgentCursor(emit: output.write)
-let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: cursor, input: input)
+let preview = PreviewStream(emit: output.write)
+let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: cursor, input: input, preview: preview)
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 

@@ -34,6 +34,7 @@ describe('createComputerControlPlugin', () => {
     expect(plugin.hooks?.onInit).toBeTypeOf('function');
     expect(plugin.hooks?.onTurnEnd).toBeTypeOf('function');
     expect(plugin.hooks?.onBeforeProviderCall).toBeTypeOf('function');
+    expect(plugin.surfaces?.map((surface) => surface.kind)).toEqual(['computer-preview']);
   });
 
   it('offers only computer_status, with the reason, when the macOS helper is missing', async () => {

@@ -37,3 +37,11 @@ it('keeps Stop available while another command is in flight', () => {
   expect(screen.getByRole('button',{name:'Take over from Computer Use'})).toBeDisabled();
   expect(screen.getByRole('button',{name:'Stop Computer Use'})).toBeEnabled();
 });
+it('offers the live view again after the user hid it', () => {
+  let shown=0;
+  const {rerender}=render(<ComputerControlStrip view={view} busy={false} error={null} onCommand={()=>undefined} previewHidden onShowPreview={()=>{shown++;}} />);
+  fireEvent.click(screen.getByRole('button',{name:'Show the live view'}));
+  expect(shown).toBe(1);
+  rerender(<ComputerControlStrip view={view} busy={false} error={null} onCommand={()=>undefined} previewHidden={false} onShowPreview={()=>undefined} />);
+  expect(screen.queryByRole('button',{name:'Show the live view'})).toBeNull();
+});

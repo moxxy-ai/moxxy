@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
-import { computerPanel, type ComputerPanelCommand, type ComputerScope, type ComputerSnapshots } from './panel-model';
+import { computerCursor, computerPanel, type ComputerPanelCommand, type ComputerScope, type ComputerSnapshots } from './panel-model';
 
 /**
  * The control strip's state for one live turn: one read, then the runner's
@@ -55,5 +55,6 @@ export function useComputerControl(scope:ComputerScope|null) {
       if (live.current===key) setBusyKey(current=>current===key ? null : current);
     }
   };
-  return {view,busy:busyKey===key && key!==null,error:error?.key===key ? error.message : null,command};
+  const cursor=scope && data?.key===key ? computerCursor(scope,data.response) : null;
+  return {view,cursor,busy:busyKey===key && key!==null,error:error?.key===key ? error.message : null,command};
 }

@@ -1430,3 +1430,66 @@ Poprzedni commit: `808bbfde` (krok 9).
   niesprawdzone lokalnie; digest manifestu jest na to odporny (test).
 - W `~/.moxxy/plugins` użytkownika zostaje stara kopia wtyczki do czasu
   aktualizacji/seedowania z nowej aplikacji.
+
+## Krok 11 — PiP: podgląd JPEG przez Surface (2026-10-01)
+
+Poprzedni commit: `84833610` (krok 10).
+
+**Wzorzec**
+- Codex: podgląd dla człowieka jest osobnym strumieniem (latest-frame),
+  niezależnym od obserwacji modelu; kursor rysowany po stronie klienta z
+  pozycji podanej jako ułamek okna. Claude: `[cu-live-preview]` ≤2 kl./s.
+  Kod napisany od zera.
+
+**Co**
+- Helper Swift: `Preview.swift` — `PreviewStream` (`SCStream` okna celu,
+  `minimumFrameInterval` z fps, dłuższa krawędź ≤960 px, JPEG 0,6) i czysta
+  `PreviewPolicy` (fps 1–5, rozmiar, kiedy restart strumienia). Metody
+  `preview.start {fps}` / `preview.stop`; zdarzenie
+  `preview_frame {seq, image?, error?}` idzie poza kolejką żądań. Gdy obraz
+  się nie zmienia, co 1 s leci klatka bez obrazu („żyję”), żeby klient
+  odróżnił nieruchome okno od martwego strumienia. Nakładka-kursor nie jest
+  w obrazie (`sharingType = .none`).
+- `src/preview/controller.ts`: `PreviewController` — licznik widzów, jedno
+  źródło naraz (bieżąca tura), latest-frame z limitem fps (domyślnie 2,
+  maks. 5), stany `live | stale | unavailable | stopped`, `stale` po 3 s
+  ciszy, zatrzymanie producenta bez widzów i po turze.
+- `src/preview/surface.ts`: `defineSurface({kind: 'computer-preview'})`;
+  wejście `{type: 'configure', fps}`. Klatki idą wyłącznie jako
+  `surface.data` — nie do modelu i nie do logu sesji.
+- `ComputerBackend`: źródło podglądu per tura; żądania `preview.*` mają
+  sygnał, który nigdy nie jest przerywany (przerwanie żądania zamyka cały
+  transport helpera); odpięcie w `dispose` i po `transport.done`; po Stop
+  nie ma obrazu.
+- Desktop: `preview-model.ts` (czyste: stan widoku, etykieta, położenie
+  kursora, ukrycie per rozmowa / wszędzie w `localStorage`),
+  `useComputerPreview` (na `useSurface`, aktywny tylko gdy tura steruje
+  komputerem), głupi `ComputerPreviewPip` (canvas + znacznik kursora z
+  `computer.changed` + „Hide in this chat” / „Hide everywhere”);
+  `ComputerControlStrip` ma „Show the live view”, gdy podgląd ukryty.
+
+**Testy (Red → Green)**
+- Red: brak modułów `preview/*`, brak `preview_frame` w schemacie zdarzeń,
+  brak `surfaces` we wtyczce, brak `PreviewPolicy` w Swift, brak hooka i
+  komponentu w desktopie — każdy test padał na brakującym symbolu lub
+  zachowaniu.
+- Green: `controller.test.ts` 9 (backpressure, stale, liczniki, sprzątanie,
+  brak widzów = brak produkcji), `surface.test.ts` 2, `backend.test.ts`
+  „live preview” 5, `PreviewTests.swift` 3, e2e `helper.test.ts` „live
+  preview for the human” 2 (prawdziwy `SCStream` na aplikacji fixture),
+  desktop `preview-model`, `useComputerPreview`, `ComputerPreviewPip`,
+  `ComputerControlStrip`, `panel-model`.
+- `ChatSurface.test.tsx`: atrapa `@moxxy/client-core` dostała `isConnected`
+  i `toErrorMessage`, bo `ChatSurface` czyta teraz Surface.
+
+**Walidacja**
+- `swift test` 128/128; `./build.sh` OK.
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 27 plików / 286 testów.
+- `pnpm --filter @moxxy/desktop test` — 146 plików / 887 testów.
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów (96
+  wcześniejszych ostrzeżeń); `pnpm check:deps` 0 błędów.
+
+**Otwarte**
+- Pomiar CPU podglądu (JPEG) razem z H.264 w kroku 13.
+- Podgląd na Windows — krok 12; kanał mobilny nie ma jeszcze `computer.*`.
+

@@ -34,8 +34,9 @@ public struct SystemPermissions: Sendable {
 public enum Methods {
     /// `cursor` is `nil` where no overlay may be drawn (unit tests); `host` is the process Moxxy runs in.
     public static func standard(permissions: SystemPermissions, targets: Targets = Targets(), cursor: AgentCursor? = nil,
-                                input: InputSessions = InputSessions()) -> Dispatcher {
-        Dispatcher(handlers: [
+                                input: InputSessions = InputSessions(), preview: PreviewStream? = nil) -> Dispatcher {
+        targets.preview = preview
+        return Dispatcher(handlers: [
             "status": { _ in status(permissions) },
             "list_apps": listApps,
             "resolve_apps": resolveApps,
@@ -44,6 +45,20 @@ public enum Methods {
             "batch": { params in try batch(params, targets: targets, cursor: cursor, input: input) },
             "screenshot": { params in try screenshot(params, targets: targets, host: input.host) },
             "zoom": { params in try zoom(params, targets: targets, host: input.host) },
+            "preview.start": { params in
+                guard let preview else { throw HelperError(code: "unsupported_action", message: "This helper has no preview") }
+                guard permissions.granted(.screenRecording) else {
+                    throw HelperError(code: "permissions_not_granted", message: "Screen Recording is not allowed, so there is no preview")
+                }
+                var requested: Double?
+                if case let .number(fps)? = params["fps"] { requested = fps }
+                preview.start(fps: PreviewPolicy.fps(requested))
+                return .object(["started": .bool(true)])
+            },
+            "preview.stop": { _ in
+                preview?.stop()
+                return .object(["stopped": .bool(true)])
+            },
             "permissions.request": { params in
                 guard let raw = params["kind"]?.stringValue, let kind = SystemPermissions.Kind(rawValue: raw) else {
                     throw HelperError.invalidParams("kind must be accessibility or screen_recording")

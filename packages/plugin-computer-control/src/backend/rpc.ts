@@ -56,5 +56,17 @@ export const cursorEventSchemaFor = (version: number) => z.object({
   version: z.literal(version), event: z.literal('cursor'), cursor: computerCursorSchema.nullable(),
 }).strict();
 
+/**
+ * The live preview for the human, sent while `preview.start` is in effect. No
+ * `image` means "still capturing, nothing changed"; `error` means capture ended.
+ */
+export const previewFrameEventSchemaFor = (version: number) => z.object({
+  version: z.literal(version), event: z.literal('preview_frame'), seq: z.number().int().nonnegative(),
+  image: imageSchema.extend({ mediaType: z.literal('image/jpeg') }).strict().optional(),
+  error: z.string().max(500).optional(),
+}).strict();
+
 /** Every uncorrelated event a contract helper may send besides `control_state`. */
-export const contractEventsFor = (version: number) => ({ cursor: cursorEventSchemaFor(version) });
+export const contractEventsFor = (version: number) => ({
+  cursor: cursorEventSchemaFor(version), preview_frame: previewFrameEventSchemaFor(version),
+});

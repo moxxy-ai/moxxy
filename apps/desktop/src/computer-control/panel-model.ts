@@ -1,4 +1,4 @@
-import type { ComputerControlSnapshot, ComputerControlState } from '@moxxy/sdk';
+import type { ComputerControlSnapshot, ComputerControlState, ComputerCursor } from '@moxxy/sdk';
 import type { IconName } from '@moxxy/desktop-ui';
 
 export interface ComputerScope { workspaceId:string; sessionId:string; turnId:string }
@@ -26,9 +26,13 @@ export function usesComputer(tools:ReadonlyArray<{name:string}>):boolean {
   return tools.some(tool=>tool.name.startsWith('computer_'));
 }
 
+function turnOf(scope:ComputerScope, response:ComputerSnapshots):ComputerControlSnapshot|undefined {
+  if (response.workspaceId!==scope.workspaceId) return undefined;
+  return response.turns.find(item=>item.sessionId===scope.sessionId && item.turnId===scope.turnId);
+}
+
 export function computerPanel(scope:ComputerScope, response:ComputerSnapshots):ComputerPanelView|null {
-  if (response.workspaceId!==scope.workspaceId) return null;
-  const turn=response.turns.find(item=>item.sessionId===scope.sessionId && item.turnId===scope.turnId);
+  const turn=turnOf(scope,response);
   if (!turn) return null;
   const terminal=turn.state==='stopped' || turn.state==='failed';
   return {
@@ -38,4 +42,9 @@ export function computerPanel(scope:ComputerScope, response:ComputerSnapshots):C
     canTakeOver:!terminal && turn.state!=='paused_by_user',
     canResume:turn.state==='paused_by_user' || turn.state==='waiting_for_focus',
   };
+}
+
+/** Where the agent cursor is in the target window, for the live view; `null` when the turn shows none. */
+export function computerCursor(scope:ComputerScope, response:ComputerSnapshots|null):ComputerCursor|null {
+  return (response && turnOf(scope,response)?.cursor) ?? null;
 }

@@ -663,6 +663,59 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       });
     });
 
+    describe('live preview for the human', () => {
+      type Preview = { event: string; seq: number; image?: { mediaType: string; base64: string; width: number; height: number }; error?: string };
+      const until = async (done: () => boolean, ms: number) => {
+        const deadline = Date.now() + ms;
+        while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+        return done();
+      };
+
+      it('streams the observed window as small JPEG frames, follows changes, keeps saying it is alive, and stops', async () => {
+        const previews: Preview[] = [];
+        const transport = start((event) => { if (event.event === 'preview_frame') previews.push(event as unknown as Preview); });
+        const pictures = () => previews.filter((preview) => preview.image);
+        try {
+          const before = await observe(transport);
+          await transport.request('preview.start', { fps: 5 }, signal());
+          expect(await until(() => pictures().length > 0, 5000)).toBe(true);
+          const first = pictures()[0];
+          expect(first?.image?.mediaType).toBe('image/jpeg');
+          expect(Buffer.from(first?.image?.base64 ?? '', 'base64').subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
+          expect(Math.max(first?.image?.width ?? 0, first?.image?.height ?? 0)).toBeLessThanOrEqual(960);
+          expect(previews.every((preview) => preview.error === undefined)).toBe(true);
+
+          const seen = pictures().length;
+          await act(transport, { action: 'click', element_index: element(before, 'button:press').index, mouse_button: 'left', click_count: 1 });
+          expect(await until(() => pictures().length > seen, 5000)).toBe(true);
+          expect(pictures().at(-1)?.image?.base64).not.toBe(first?.image?.base64);
+          const sequence = previews.map((preview) => preview.seq);
+          expect(sequence).toEqual([...sequence].sort((a, b) => a - b));
+
+          // A window that does not change still reports that capture is running.
+          const quiet = previews.length;
+          expect(await until(() => previews.slice(quiet).some((preview) => !preview.image), 4000)).toBe(true);
+
+          await transport.request('preview.stop', {}, signal());
+          const stopped = previews.length;
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          expect(previews.length).toBe(stopped);
+        } finally { await transport.close(); }
+      });
+
+      it('starts capturing once a window is observed when the preview was asked for first', async () => {
+        const previews: Preview[] = [];
+        const transport = start((event) => { if (event.event === 'preview_frame') previews.push(event as unknown as Preview); });
+        try {
+          await transport.request('preview.start', {}, signal());
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          expect(previews.filter((preview) => preview.image)).toEqual([]);
+          await observe(transport);
+          expect(await until(() => previews.some((preview) => preview.image), 5000)).toBe(true);
+        } finally { await transport.close(); }
+      });
+    });
+
     it('asks for an observation before the first action', async () => {
       const transport = start();
       try {
