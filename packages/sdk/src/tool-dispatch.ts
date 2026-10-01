@@ -279,7 +279,7 @@ export async function* emitRequestsAndDetectStuck(
       input: t.input,
     });
     emitted.push(t);
-    const sig = detector.record(t.name, t.input);
+    const sig = detector.record(t.name, t.input, { liveState: ctx.tools.get(t.name)?.liveState === true });
     if (!sig.stuck) continue;
     for (const r of emitted) {
       yield await ctx.emit({
@@ -362,7 +362,7 @@ export async function* emitRequestsAndNudgeOnStuck(
       name: t.name,
       input: t.input,
     });
-    const sig = detector.record(t.name, t.input);
+    const sig = detector.record(t.name, t.input, { liveState: ctx.tools.get(t.name)?.liveState === true });
     if (!sig.stuck || trip) continue;
     trip = {
       toolName: t.name,

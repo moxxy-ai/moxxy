@@ -51,6 +51,72 @@ wywołań narzędzi. Zadanie 9 nie obejmowało przesunięcia klipu w CapCut
 To nadal nie jest pomiar progu: każde zadanie poszło raz. Próg (≥90%, 0
 fałszywych sukcesów) wymaga powtórzeń tej samej próby na niezmienionym kodzie.
 
+## Wynik D: powtórzenia serii A na niezmienionym kodzie (2026-10-01, noc)
+
+Ten sam kod co w serii A, `gpt-6-luna`, `xhigh`. Zaplanowane 5 powtórzeń;
+serię przerwano po dwóch na prośbę właściciela (trwała za długo). Stan przed
+każdą próbą przywracany, wynik czytany niezależnie od agenta.
+
+| Zadanie | Powt. 1 | Powt. 2 |
+|---|---|---|
+| x1 formularz | sukces 75 s (pierwszy przebieg odrzucony: nie odczytano stanu) | sukces 59 s |
+| x2 przesunięcie klipu | sukces 58 s | sukces 64 s |
+| x3 przycięcie klipu | sukces 61 s | sukces 64 s |
+| x10 odporność | sukces 87 s | sukces 91 s |
+| x4 Kalkulator | sukces 352 s, 26 wywołań | sukces 405 s, 29 wywołań |
+| x5 TextEdit | sukces 69 s | sukces 62 s |
+| x6 Finder | **porażka** 734 s, 43 wywołania | **porażka** 3568 s, 102 wywołania |
+| x7 Safari | **porażka** (tytuł dobry, nagłówek „strona pusta”) | sukces 45 s |
+| x8 Numbers | sukces 171 s | sukces 157 s |
+| x9 CapCut przycięcie | sukces 84 s | nie uruchomiono (nie udało się przywrócić stanu) |
+| x9e CapCut eksport | **porażka** 317 s | nie uruchomiono |
+
+Razem 21 ocenionych prób, 16 sukcesów (76%), 0 fałszywych sukcesów. Próg ≥90%
+**nie jest spełniony**. Seria A (11/11) była szczęśliwym pojedynczym przebiegiem.
+
+Przyczyny czterech porażek i poprawki:
+
+1. **Finder (x6).** Pole zmiany nazwy wisi w drzewie pod aplikacją, nie pod
+   oknem, więc model go nie widział; tekst wysłany do zaznaczonego wiersza
+   przepadał. Pole z fokusem spoza okna jest teraz dołączane do stanu, a pisanie
+   do elementu, który nie przyjmuje tekstu, jest odrzucane z podpowiedzią.
+2. **Strażnik pętli (x6, x4).** Każde `computer_get_app_state` z tym samym
+   wejściem liczyło się jako powtórka, choć między nimi były akcje. Narzędzia
+   patrzące na stan zewnętrzny (`liveState`) liczą się tylko, gdy idą jedno po
+   drugim.
+3. **Safari (x7).** Stan był czytany, zanim strona się wczytała (`AXWebArea`
+   bez dzieci). Dla przeglądarek helper czeka na treść (do 8 × 0,4 s), a gdy jej
+   nie ma, model dostaje o tym informację.
+4. **CapCut eksport (x9e).** Przyciski Qt przyjmują `AXPress` i nic nie robią.
+   Drugie wywołanie tej samej akcji idzie prawdziwym kliknięciem; gdy i ono nic
+   nie zmienia, wynik to `ineffective`, a trzecie wywołanie nie jest wysyłane.
+
+Po poprawkach każda z tych prób poszła raz (to nie jest pomiar progu):
+
+| Próba | Wynik |
+|---|---|
+| x6 Finder | sukces 47 s, 8 wywołań |
+| x7 Safari | sukces 26 s, 4 wywołania |
+| x9e CapCut eksport | sukces 61 s, 8 wywołań |
+| x4 Kalkulator | sukces 84 s, 13 wywołań |
+
+## Czas: skąd się brał i co zostało
+
+Pomiar na łączu (czas do nagłówków odpowiedzi dostawcy i czas narzędzia):
+
+- Każde żądanie niosło **513 narzędzi (410 KB, ok. 70 tys. tokenów)**:
+  ok. 161 wbudowanych i z pluginów oraz serwery MCP użytkownika. Jedno żądanie
+  trwało 7–9 s niezależnie od poziomu rozumowania; z 11 narzędziami 1,5 s.
+- Samo narzędzie (kliknięcie + odczekanie + nowy stan) to ok. 1,4 s, czyli
+  ok. 10% czasu kroku.
+- Kalkulator: 352–405 s przed, 106 s po automatycznym leniwym ładowaniu
+  narzędzi, 84 s po zmianie wskazówek. Krok to teraz ok. 5 s przy `xhigh`.
+- `low` i `medium` dają ok. 3 s na żądanie i ok. 50 s na zadanie, ale model
+  klikał wtedy złe cyfry. Tego nie wprowadzono.
+- Zostało: model nadal wysyła zwykle jedną akcję na odpowiedź i czasem woła
+  `load_skill` dla umiejętności użytkownika niezwiązanych z zadaniem. Próg 200
+  nie obejmuje instalacji bez serwerów MCP (ok. 161 narzędzi).
+
 ## Wynik B: zadanie 9 (CapCut) przed poprawkami, `medium` (2026-10-01)
 
 CapCut zainstalowany tego dnia; projekt „1001” z jednym klipem 10 s. Wszystkie
@@ -142,7 +208,8 @@ przetłumaczona nazwa aplikacji) zostają; znalazła je próba na innym modelu.
 
 - Scenariusze Stop/Przejmij, modal, drugi monitor i zabicie helpera: tylko
   testy end-to-end helpera, bez modelu.
-- Powtórzenia tej samej próby na niezmienionym kodzie (rozrzut wyników).
+- Pełnych 5 powtórzeń po poprawkach z serii D (zrobiono 2 powtórzenia przed
+  poprawkami i po jednej próbie po nich).
 - Windows: tylko testy na runnerze CI, bez prób z modelem.
 
 ## Jak powtórzyć

@@ -23,6 +23,16 @@ public struct NodeSnapshot: Sendable, Equatable {
     public var frame: CGRect? = nil
 }
 
+extension NodeSnapshot {
+    /// This window with one more element listed under it (see `AXReader.strayFocus`).
+    public func adopting(_ stray: NodeSnapshot?) -> NodeSnapshot {
+        guard let stray else { return self }
+        var copy = self
+        copy.children.append(stray)
+        return copy
+    }
+}
+
 /// An element as the model sees it (see `appTreeSchema` in `src/contract/tree.ts`), minus its index.
 public struct TreeElement: Sendable, Equatable {
     public let key: String

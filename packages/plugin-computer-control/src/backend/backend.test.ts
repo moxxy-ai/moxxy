@@ -93,6 +93,12 @@ describe('computer_request_access', () => {
 });
 
 describe('observation', () => {
+  it('marks the tools that only look as live state, so the loop guard lets them repeat between actions', () => {
+    const { tools } = backend();
+    const live = [...tools.values()].filter((tool) => tool.liveState).map((tool) => tool.name).sort();
+    expect(live).toEqual(['computer_get_app_state', 'computer_list_apps', 'computer_status', 'computer_zoom']);
+  });
+
   it('refuses an app that was not granted without asking the helper', async () => {
     const { tools } = backend();
     await expect(run(tools, 'computer_get_app_state', { app: 'TextEdit' })).rejects.toMatchObject({ code: 'app_not_allowed' });
@@ -110,6 +116,17 @@ describe('observation', () => {
     expect(helperRequests(requestsFile).at(-1)).toEqual({ method: 'get_app_state', params: { app: 'com.apple.TextEdit', screenshot: true } });
     expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).toMatch(/No changes/);
     expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit', disable_diff: true }))).toContain('[2] button "Save"');
+  });
+
+  it('asks a browser for its page content and says when the page is not readable yet', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['Safari', 'TextEdit'], reason: 'Read' });
+    const page = forModel(await run(tools, 'computer_get_app_state', { app: 'Safari' }));
+    const editor = forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }));
+    const asked = helperRequests(requestsFile).filter((request) => request.method === 'get_app_state').map((request) => request.params);
+    expect(asked).toEqual([{ app: 'com.apple.Safari', screenshot: true, web: true }, { app: 'com.apple.TextEdit', screenshot: true }]);
+    expect(page).toMatch(/page content is not readable yet.*look again/i);
+    expect(editor).not.toMatch(/not readable yet/);
   });
 
   it('shows every surface where the agent cursor is and which window it works in', async () => {
@@ -167,6 +184,17 @@ describe('actions', () => {
     // Typing changes the document: progress, and the count starts over.
     expect(forModel(await run(tools, 'computer_type_text', { app: 'TextEdit', text: '!' }))).not.toMatch(/Nothing visible changed/);
     expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toMatch(/Nothing visible changed/);
+  });
+
+  it('does not send again an action the helper itself found ineffective', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 4 }))).toMatch(/Nothing visible changed/);
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 4 }))).toMatch(/Action ineffective.*A real click changed nothing either/s);
+    const sent = methods().filter((method) => method === 'act').length;
+    await expect(run(tools, 'computer_click', { app: 'TextEdit', element_index: 4 })).rejects.toMatchObject({ code: 'no_progress' });
+    expect(methods().filter((method) => method === 'act')).toHaveLength(sent);
   });
 
   it('refuses an action above the granted level before it reaches the helper', async () => {

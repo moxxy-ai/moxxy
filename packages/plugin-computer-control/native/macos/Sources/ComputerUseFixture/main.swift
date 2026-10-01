@@ -17,6 +17,12 @@ final class Controller: NSObject {
     /// Deliberately does nothing: an agent must notice that and stop repeating it.
     @objc func dud() {}
 
+    private var stubbornClicks = 0
+    @objc func stubborn() {
+        stubbornClicks += 1
+        status.stringValue = "Stubborn \(stubbornClicks)"
+    }
+
     weak var window: NSWindow?
     @objc func showWindow() { window?.makeKeyAndOrderFront(nil) }
     @objc func hideWindow() { window?.orderOut(nil) }
@@ -34,6 +40,11 @@ final class Controller: NSObject {
             MainActor.assumeIsolated { status.stringValue = response == .OK ? "Saved" : "Not saved" }
         }
     }
+}
+
+/// Accepts an accessibility press and does nothing, as buttons of some toolkits (Qt) do; only a real click works.
+final class StubbornButton: NSButton {
+    override func accessibilityPerformPress() -> Bool { true }
 }
 
 /// Reports how long the last key was held, from the events' own timestamps.
@@ -236,7 +247,8 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     labels.orientation = .horizontal
     let dud = control(NSButton(title: "Dud", target: controller, action: #selector(Controller.dud)), "dud")
     let shift = control(NSButton(title: "Shift", target: controller, action: #selector(Controller.shift)), "shift")
-    let extras = NSStackView(views: [dud, shift])
+    let stubborn = control(StubbornButton(title: "Stubborn", target: controller, action: #selector(Controller.stubborn)), "stubborn")
+    let extras = NSStackView(views: [dud, shift, stubborn])
     extras.orientation = .horizontal
     // Hidden until "Shift" is pressed; then it takes room at the top and moves every control down.
     let spacer = NSView()

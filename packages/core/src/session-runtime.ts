@@ -62,7 +62,7 @@ export interface SessionRuntime {
   readonly resolver: PermissionResolver;
   readonly approvalResolver: ApprovalResolver | null;
   readonly elisionSettings: ElisionSettings | null;
-  readonly lazyTools: boolean;
+  readonly lazyTools: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
   /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */

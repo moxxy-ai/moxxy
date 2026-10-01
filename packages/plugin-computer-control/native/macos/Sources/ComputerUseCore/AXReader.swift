@@ -29,6 +29,15 @@ public final class AXReader {
         read(root, depth: 0)
     }
 
+    /// The element with keyboard focus when it is not part of the window just read and belongs to no other
+    /// window: Finder edits a file name in a field that hangs off the application itself.
+    func strayFocus(of app: AXUIElement, besides window: AXUIElement) -> NodeSnapshot? {
+        guard let focused: AXUIElement = Self.attribute(app, kAXFocusedUIElementAttribute),
+              !elements.contains(where: { CFEqual($0, focused) }) else { return nil }
+        if let owner: AXUIElement = Self.attribute(focused, kAXWindowAttribute), !CFEqual(owner, window) { return nil }
+        return read(focused, depth: Self.maxDepth)
+    }
+
     private func read(_ element: AXUIElement, depth: Int) -> NodeSnapshot {
         let handle = elements.count
         elements.append(element)

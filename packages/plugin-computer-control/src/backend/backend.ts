@@ -62,6 +62,9 @@ function withImage(text: string, image: HelperImage | undefined): string | ToolI
 /** Long enough for an app to read the gesture as a drag, not a click. */
 const DRAG_MS = 600;
 
+/** Tools that only look: the same call between actions is how the agent watches an app. */
+const LOOKING: ReadonlySet<string> = new Set(['computer_status', 'computer_list_apps', 'computer_get_app_state', 'computer_zoom']);
+
 /** Helpers get chords from the one xdotool parser instead of parsing key syntax themselves, and a drag as a path. */
 function forHelper(step: ComputerAction): Record<string, unknown> {
   if (step.action === 'drag') {
@@ -108,6 +111,7 @@ export class ComputerBackend {
         name, description, inputSchema: input,
         inputJsonSchema: zodToJsonSchema(input),
         permission: { action: 'prompt' }, icon: 'workspace',
+        ...(LOOKING.has(name) ? { liveState: true } : {}),
         isolation: { capabilities: { subprocess: true, commands: [this.profile.helperPath], net: { mode: 'none' } } },
         handler,
       });
@@ -160,7 +164,8 @@ export class ComputerBackend {
     },
     computer_get_app_state: async (input, ctx) => {
       const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
-      const params = { app: grant.id, ...(input.window_id ? { window_id: input.window_id } : {}), screenshot: true };
+      const web = categorize(grant) === 'browser' ? { web: true } : {};
+      const params = { app: grant.id, ...(input.window_id ? { window_id: input.window_id } : {}), screenshot: true, ...web };
       const { turn, result } = await this.call(ctx, 'get_app_state', params, appStateSchema, grant.name);
       return this.present(turn, grant, result, [], input.disable_diff);
     },
@@ -198,6 +203,11 @@ export class ComputerBackend {
 
   /** A delivered action that leaves the app looking the same twice in a row did not work: say so. */
   private judge(turn: Turn, app: string, signature: string, result: ActionResult, state: AppState): [ActionResult, string[]] {
+    if (result.outcome === 'ineffective') {
+      // The helper saw no change itself: that counts toward the limit like an unchanged state.
+      turn.progress.record(app, signature, false);
+      return [result, []];
+    }
     if (result.outcome !== 'delivered') {
       turn.progress.forget(app);
       return [result, []];
@@ -218,6 +228,7 @@ export class ComputerBackend {
     const parts = [...prefix, ...(hint ? [`Notes for ${grant.name}:\n${hint}`] : []), wrapUntrusted(view.text, grant.name)];
     if (state.screenshot) parts.push(`Screenshot ${state.screenshot.width}x${state.screenshot.height}: x and y in actions are pixels of this image.`);
     else if (state.screenshotUnavailable) parts.push(`No screenshot: ${state.screenshotUnavailable}`);
+    if (state.contentPending) parts.push('The page content is not readable yet (still loading, or the window is hidden): look again before you report what the page says.');
     return withImage(parts.join('\n\n'), state.screenshot);
   }
 

@@ -3,7 +3,7 @@ import { applyContextConfig, type ContextTarget } from './context-config.js';
 
 const target = (): ContextTarget => ({
   elisionSettings: null,
-  lazyTools: false,
+  lazyTools: undefined,
   loopGuard: undefined,
   reasoning: undefined,
 });
@@ -24,6 +24,14 @@ describe('applyContextConfig', () => {
 
     expect(session.lazyTools).toBe(true);
     expect(session.loopGuard).toEqual({ maxIterations: 7 });
+  });
+
+  it('keeps an explicit "off" for lazy tools, so a long tool list does not turn it on', () => {
+    const session = target();
+
+    applyContextConfig(session, { lazyTools: false });
+
+    expect(session.lazyTools).toBe(false);
   });
 
   it('leaves the session as it was without a context block', () => {

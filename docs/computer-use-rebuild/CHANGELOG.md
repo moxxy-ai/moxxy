@@ -1864,3 +1864,55 @@ dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
 - Nie sprawdzono: dekodowania tego strumienia w oknie desktopu na prawdziwym
   Windows (WebCodecs) ani systemu bez enkodera (zapas JPEG ma tylko test
   `PreviewController`).
+
+## Powtórzenia benchmarku, cztery poprawki i czas kroku — 2026-10-01
+
+**Co**
+- Powtórzenia serii A: 16/21 (76%), próg nie spełniony; szczegóły i przyczyny
+  w [`benchmark.md`](benchmark.md), wynik D.
+- SDK: `ToolDef.liveState` i strażnik pętli liczący takie narzędzia tylko
+  jedno po drugim (`mode/stuck-loop.ts`, `tool-dispatch.ts`, `define.ts`).
+- SDK/core/CLI: leniwe ładowanie narzędzi włącza się samo powyżej 200 narzędzi
+  (`tool-gating.ts`: `shouldGateTools`, rodziny `prefix_*`, `matchLoadableTools`;
+  `load_tool` przyjmuje `computer_*`). `context.lazyTools` nieustawione = auto.
+- Helper macOS: `RepeatKey` i `lastSoft` (ponowiona akcja AX bez zmiany idzie
+  prawdziwym kliknięciem, a gdy i ono nic nie zmienia, wynik to `ineffective`),
+  `AXReader.strayFocus` + `NodeSnapshot.adopting` (pole zmiany nazwy Findera),
+  `Typing.takesNoText`, `WebContent.isLoaded` i ponawianie stanu przeglądarki
+  (`web: true`, `contentPending`), `Foreground.awaitOnTop` po wyniesieniu okna.
+- Backend: wynik `ineffective` z helpera liczy się do limitu `no_progress`;
+  narzędzia patrzące mają `liveState`; notatka, gdy strona się nie wczytała.
+- Windows: helper przyjmuje i pomija pole `web` (sprawdza to tylko CI).
+- Wskazówki: nazwij aplikację od razu, wynik akcji ma już świeży stan, kilka
+  akcji w jednej odpowiedzi, cały tekst jednym wywołaniem.
+
+**Jak (decyzje)**
+- Powolność nie leżała w helperze (ok. 1,4 s na akcję), tylko w żądaniu do
+  dostawcy: 513 schematów narzędzi w każdym. Stąd auto-leniwe ładowanie, a nie
+  skracanie odczekania po akcji.
+- Niższy poziom rozumowania jest szybszy, ale model mylił cyfry; zostaje `xhigh`.
+- Eskalacja do prawdziwego kliknięcia dopiero przy powtórce, żeby pierwsza
+  próba nie zabierała użytkownikowi fokusu.
+
+**Testy (Red → Green)**
+- `stuck-loop.test.ts` (liveState), `tool-gating.test.ts` (próg, rodziny),
+  `synthesize.test.ts` (`load_tool` z `prefix*`), `context-config.test.ts`.
+- `backend.test.ts`: `web` dla przeglądarki, notatka `contentPending`, „does
+  not send again an action the helper itself found ineffective” (Red: trzecie
+  wywołanie nie było odrzucane).
+- Swift: `WebContentTests`, `RepeatKeyTests`, `StrayFocusTests`,
+  `TextTargetTests`. E2E: „clicks for real a control that accepts an
+  accessibility press and does nothing, once asked again” (przycisk Stubborn
+  w fixture).
+
+**Walidacja**
+- `swift test` 160/160; `./build.sh` OK.
+- Plugin przy bezczynnym wejściu: 20 plików / 287 testów (z e2e).
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów (96
+  ostrzeżeń); `pnpm check:deps` 0 błędów (1 ostrzeżenie).
+- Pakiety: sdk 471, core 533, cli 455, config 128, plugin-cli 335, runner 159.
+
+**Niezrobione / otwarte**
+- Pełne 5 powtórzeń po poprawkach; po poprawkach każda z czterech prób poszła raz.
+- Zmiana w `desktop.cpp` nie była kompilowana lokalnie.
+- Krok trwa ok. 5 s; model nadal wysyła jedną akcję na odpowiedź.

@@ -40,8 +40,12 @@ class Refusal extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
+let stubborn = 0;
+
 function perform(app, step) {
   if (step.action === 'click' && step.element_index === 3) return { outcome: 'blocked', code: 'target_blocked' };
+  // A control the helper itself gives up on once it is asked for it a second time.
+  if (step.action === 'click' && step.element_index === 4) return (stubborn += 1) > 1 ? { outcome: 'ineffective', hint: 'A real click changed nothing either.' } : { outcome: 'delivered', method: 'ax' };
   if (step.action === 'type_text') documents.set(app, documents.get(app) + step.text);
   return { outcome: 'delivered', method: 'ax' };
 }
@@ -78,7 +82,9 @@ const methods = {
       return { request, status: 'resolved', id: found[0].id, name: found[0].name };
     }),
   }),
-  get_app_state: ({ app, screenshot }) => {
+  get_app_state: ({ app, screenshot, web }) => {
+    // A browser whose page has not reached accessibility yet.
+    if (web) return { ...state(app, screenshot), contentPending: true };
     if (app === 'com.apple.Terminal') throw new Refusal('permissions_not_granted', 'Accessibility is off');
     // Like the native helper: the cursor appears over the observed window before the answer.
     process.stdout.write(JSON.stringify({ version: VERSION, event: 'cursor', cursor: { phase: 'idle', x: 0.5, y: 0.5 } }) + '\n');

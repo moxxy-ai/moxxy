@@ -202,4 +202,11 @@ enum Foreground {
         }
         return .refused(.blocked("not_frontmost", hint: "The app did not come to the front on this screen (its window may be on another Space or minimised). Ask the user to bring it here, or use element actions, which work in the background."))
     }
+
+    /// An app that just came forward is active before its window is on top everywhere; a hit test made in
+    /// that gap still names the window that was in front. Waits until the point belongs to the app.
+    static func awaitOnTop(at point: CGPoint, pid: pid_t, within limit: TimeInterval = 0.6) {
+        let until = Date().addingTimeInterval(limit)
+        while ScreenLayout.owner(at: point)?.pid != pid, Date() < until { Thread.sleep(forTimeInterval: 0.02) }
+    }
 }

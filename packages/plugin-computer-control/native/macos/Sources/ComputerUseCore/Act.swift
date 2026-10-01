@@ -44,12 +44,36 @@ struct Executor {
     /// The process Moxxy runs in; real input never goes to its windows.
     private var host: pid_t { input.host }
 
-    /// A gesture asked for twice in a row did not do its job the first time, so it is not sent the same way again.
+    /// A gesture asked for twice in a row did not do its job the first time, so it is not sent the same way again:
+    /// a background gesture always, an accessibility press only when it left the window as it was (some toolkits
+    /// accept the press and do nothing).
     func perform(_ request: ActionRequest) -> ActionResult {
-        let key = String(describing: request)
-        let result = run(request, retried: state.lastBackground == key)
-        state.lastBackground = result.method == .background ? key : nil
+        let key = RepeatKey.of(request) { point in
+            guard let frame = state.frame, let screen = onImage(point, frame) else { return nil }
+            return FrameHit.index(at: screen, in: state.frames)
+        }
+        let before = isClick(request) ? look() : nil
+        let result = run(request, retried: state.lastSoft == key)
+        switch result.method {
+        case .background: state.lastSoft = key
+        case .ax: state.lastSoft = before.map { !changed(since: $0) } == true ? key : nil
+        default: state.lastSoft = nil
+        }
         return result
+    }
+
+    private func isClick(_ request: ActionRequest) -> Bool {
+        if case .click = request { return true }
+        return false
+    }
+
+    private func look() -> (window: WindowCandidate, pixels: PixelBuffer, said: [String])? {
+        guard let window = state.window, let pixels = try? WindowCapture.capture(window).pixels else { return nil }
+        return (window, pixels, content())
+    }
+
+    private func changed(since before: (window: WindowCandidate, pixels: PixelBuffer, said: [String])) -> Bool {
+        redrawn(before.window, since: before.pixels) || content() != before.said
     }
 
     private func run(_ request: ActionRequest, retried: Bool) -> ActionResult {
@@ -60,7 +84,7 @@ struct Executor {
         case let .click(.element(index), button, count, modifiers):
             return live(index) { element in
                 if let refused = guardSave(confirmedBy: element) { return refused }
-                if case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
+                if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
                 }
@@ -72,7 +96,7 @@ struct Executor {
                 let hits = elements(at: screen)
                 for element in hits { if let refused = guardSave(confirmedBy: element) { return refused } }
                 // A control under the point is pressed through accessibility, in the background.
-                for element in hits {
+                for element in retried ? [] : hits {
                     if case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
                                                                        button: button, count: count, modifiers: !modifiers.isEmpty),
                        let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
@@ -84,7 +108,12 @@ struct Executor {
         case .notYetSupported:
             return .unsupported("unsupported_action")
         case let .typeText(.element(index)?, text):
-            return onElement(index) { element in type(text, into: element) }
+            return onElement(index) { element in
+                if Typing.takesNoText(role: AXReader.attribute(element, kAXRoleAttribute) ?? "") {
+                    return .unsupported("unsupported_action", hint: "This element holds no text. To type into whatever has keyboard focus (a name being edited, a cell), call computer_type_text without element_index.")
+                }
+                return type(text, into: element)
+            }
         case let .typeText(.point(point)?, text):
             return aimed(point) { screen in onText(at: screen) { element in type(text, into: element) } }
         case let .typeText(nil, text):
@@ -243,16 +272,23 @@ struct Executor {
         case .broughtForward:
             // An app in front can look different (focus rings, accent colours); the model must see that first.
             if let point, case let .refused(result) = aim(point) { return result }
+            Foreground.awaitOnTop(at: screen, pid: window.pid)
         case .alreadyFront: break
         }
         let displays = ScreenLayout.displays()
         for target in [screen] + others {
             if let refused = PointerGate.check(target, displays: displays, under: ScreenLayout.owner(at: target), target: window.pid, host: host) { return refused }
         }
-        return withCursor(at: screen, outline: nil) {
+        // A second try through the screen is the last method there is: when even that changes nothing, say so.
+        let before = retried ? look() : nil
+        let result = withCursor(at: screen, outline: nil) {
             send(screen, .screen)
             return .delivered(.input)
         }
+        if let before, !changed(since: before) {
+            return .ineffective(hint: "A real click changed nothing either; this control does nothing here. Try another element, a keyboard shortcut or a menu.")
+        }
+        return result
     }
 
     /// How long a window gets to show the effect of a gesture sent to it in the background.

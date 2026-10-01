@@ -56,3 +56,17 @@ import Testing
         #expect(!BusyProbe.isBusy(node("AXWindow", children: [node("AXButton"), node("AXProgressIndicator")])))
     }
 }
+
+@Suite struct WebContentTests {
+    private func node(_ role: String, children: [NodeSnapshot] = []) -> NodeSnapshot {
+        NodeSnapshot(role: role, roleDescription: nil, title: nil, description: nil, placeholder: nil, identifier: nil, value: nil,
+                     secure: false, enabled: true, focused: false, selected: false, expanded: nil, actions: [], handle: 0, children: children)
+    }
+
+    @Test func aPageCountsAsLoadedOnceItsWebAreaHasContent() {
+        let toolbar = node("AXToolbar", children: [node("AXTextField")])
+        #expect(!WebContent.isLoaded(node("AXWindow", children: [node("AXTabGroup"), toolbar])))
+        #expect(!WebContent.isLoaded(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea")]), toolbar])))
+        #expect(WebContent.isLoaded(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea", children: [node("AXHeading")])]), toolbar])))
+    }
+}

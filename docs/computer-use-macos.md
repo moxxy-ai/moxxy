@@ -52,6 +52,13 @@ helper, so the model sees one set of tools on both systems (see
   fresh state. `delivered` is not evidence that the task succeeded. The same
   action leaving the same state twice ends as `ineffective` with `no_progress`
   and the next method to try.
+- A control that accepts an accessibility press and does nothing (Qt buttons)
+  gets a real click when the same action is asked for again. If that changes
+  nothing either, the result is `ineffective` and a third try is not sent.
+- A focused field that sits outside the window (Finder's rename field) is part
+  of the state. Typing into an element that takes no text is refused.
+- For a browser, the state is read once the page content is there (up to
+  about 3 s); if it is not, the result says the page has not loaded.
 - A save dialog aimed at a protected place (`~/.ssh`, LaunchAgents, shell
   startup files, git hooks) is refused.
 - Escape stops the turn. Input from the user pauses the agent; an action waits
@@ -99,6 +106,7 @@ without input. `--filter=<pattern>` runs matching tests only.
 | Save… button | a save dialog, and the guard on protected places |
 | Shift button | the layout moves; indices stay with their elements |
 | Dud button | a control with no effect ends as `no_progress` |
+| Stubborn button | ignores an accessibility press, counts real clicks |
 | Pad | points, buttons, scrolling, drags on a view without elements |
 | Timeline | clips A and B on a canvas without elements: drag moves, right-edge drag trims |
 | Menu: Press Again, New Window, Close Window | Command shortcuts, and an app with no window |

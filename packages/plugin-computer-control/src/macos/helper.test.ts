@@ -114,6 +114,13 @@ const quitFixture = async () => {
   }
 };
 
+const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
+/** Another app takes the front, so a test can tell whether the fixture was brought forward. */
+const sendBehind = async () => {
+  spawnSync('osascript', ['-e', 'tell application "Finder" to activate']);
+  for (let attempt = 0; attempt < 50 && frontmost() !== 'Finder'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+};
+
 describe.skipIf(!fixtureBuilt)('macOS app state', () => {
   beforeAll(quitFixture);
   afterAll(quitFixture);
@@ -188,7 +195,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await transport.close(); }
   });
 
-  it('serves the model tools end to end through the shared backend', async () => {
+  it('serves the model tools end to end through the shared backend', { timeout: 30_000 }, async () => {
     const backend = new ComputerBackend(macosProfile);
     const tools = new Map(backend.tools().map((tool) => [tool.name, tool]));
     const events: MoxxyEvent[] = [];
@@ -226,7 +233,32 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const second = await run('computer_click', { app: FIXTURE, element_index: dud }) as ToolImageResult;
       expect(second.forModel).toMatch(/ineffective/i);
       await expect(run('computer_click', { app: FIXTURE, element_index: dud })).rejects.toMatchObject({ code: 'no_progress' });
-    } finally { await backend.release('session'); }
+    } finally { await backend.release('session'); await sendBehind(); }
+  });
+
+  it('clicks for real a control that accepts an accessibility press and does nothing, once asked again', { timeout: 30_000 }, async () => {
+    const backend = new ComputerBackend(macosProfile);
+    const tools = new Map(backend.tools().map((tool) => [tool.name, tool]));
+    const events: MoxxyEvent[] = [];
+    const run = async (name: string, input: unknown, callId = 'c') => {
+      const tool = tools.get(name);
+      if (!tool) throw new Error(name);
+      return tool.handler(tool.inputSchema.parse(input), toolContext(memoryLog(events), { callId }));
+    };
+    try {
+      const request = { apps: [FIXTURE], reason: 'Integration test' };
+      const base = { id: 'e', seq: 0, ts: 0, sessionId: 'session', turnId: 'turn', source: 'system' };
+      events.push({ ...base, type: 'tool_call_requested', callId: 'grant', name: REQUEST_ACCESS_TOOL, input: request } as MoxxyEvent);
+      events.push({ ...base, type: 'tool_call_approved', callId: 'grant', decidedBy: 'resolver', mode: 'allow' } as MoxxyEvent);
+      events.push({ ...base, type: 'tool_result', callId: 'grant', ok: true, output: await run(REQUEST_ACCESS_TOOL, request, 'grant') } as MoxxyEvent);
+      const state = await run('computer_get_app_state', { app: FIXTURE, disable_diff: true }) as ToolImageResult;
+      const stubborn = Number(/\[(\d+)\] button "Stubborn"/.exec(state.forModel ?? '')?.[1]);
+      const first = await run('computer_click', { app: FIXTURE, element_index: stubborn }) as ToolImageResult;
+      expect(first.forModel).toContain('Nothing visible changed after this action');
+      const second = await run('computer_click', { app: FIXTURE, element_index: stubborn }) as ToolImageResult;
+      expect(second.forModel).toContain('Action delivered');
+      expect(second.forModel).toMatch(/text "Stubborn 1"/);
+    } finally { await backend.release('session'); await sendBehind(); }
   });
 
   // Every action settles for at least a second before its fresh state comes back (as in Codex).
@@ -287,12 +319,6 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
 
     const name = async (transport: HelperTransport) => element(await observe(transport), 'text field:name');
     const chord = (key: string | null, modifiers: string[] = []) => ({ modifiers, key });
-    const frontmost = () => spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first process whose frontmost is true']).stdout.toString().trim();
-    /** Another app takes the front, so a test can tell whether the fixture was brought forward. */
-    const sendBehind = async () => {
-      spawnSync('osascript', ['-e', 'tell application "Finder" to activate']);
-      for (let attempt = 0; attempt < 50 && frontmost() !== 'Finder'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-    };
     type Framed = { tree: { elements: Listed[] } };
     const look = async (transport: HelperTransport) =>
       appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: true }, signal()));
@@ -644,7 +670,7 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         const transport = start();
         // Unmarked moves at the pointer's own position: the user's hand, without moving anything on screen.
         const hand = spawn('osascript', ['-l', 'JavaScript', '-e',
-          'ObjC.import("CoreGraphics"); for (let i = 0; i < 90; i++) { const at = $.CGEventGetLocation($.CGEventCreate(null)); $.CGEventPost($.kCGHIDEventTap, $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, at, 0)); delay(0.05); }']);
+          'ObjC.import("CoreGraphics"); for (let i = 0; i < 160; i++) { const at = $.CGEventGetLocation($.CGEventCreate(null)); $.CGEventPost($.kCGHIDEventTap, $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, at, 0)); delay(0.05); }']);
         try {
           const before = await look(transport);
           const point = centre(before, 'group:pad');

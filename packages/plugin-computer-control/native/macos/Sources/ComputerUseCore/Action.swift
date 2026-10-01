@@ -192,6 +192,20 @@ public enum AXLadder {
     }
 }
 
+/// Names what a click is aimed at, so that a second try at the same control is recognised however it was
+/// aimed (its index, or any point inside it). Everything else repeats only when it is identical.
+public enum RepeatKey {
+    public static func of(_ request: ActionRequest, elementAt: (CGPoint) -> Int?) -> String {
+        guard case let .click(target, button, count, modifiers) = request else { return String(describing: request) }
+        let element: Int? = switch target {
+        case let .element(index): index
+        case let .point(point): elementAt(point)
+        }
+        guard let element else { return String(describing: request) }
+        return "click element \(element) \(button) \(count) \(modifiers.rawValue)"
+    }
+}
+
 /// The element last observed under a screen point: the smallest frame that contains it.
 public enum FrameHit {
     public static func index(at point: CGPoint, in frames: [Int: CGRect]) -> Int? {

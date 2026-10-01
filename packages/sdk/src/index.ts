@@ -416,6 +416,9 @@ export {
 export {
   applyLazyTools,
   buildToolIndex,
+  matchLoadableTools,
+  shouldGateTools,
+  LAZY_TOOLS_AUTO_THRESHOLD,
   loadedToolNames,
   ALWAYS_ON_TOOLS,
   type GatedTools,

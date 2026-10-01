@@ -194,3 +194,10 @@ private final class Posted: @unchecked Sendable {
         #expect(KeyRoute.choose(target: 42, frontmost: nil) == .process)
     }
 }
+
+@Suite struct TextTargetTests {
+    @Test func picturesButtonsAndLabelsTakeNoText() {
+        for role in ["AXImage", "AXButton", "AXStaticText", "AXCheckBox", "AXMenuItem"] { #expect(Typing.takesNoText(role: role)) }
+        for role in ["AXTextField", "AXTextArea", "AXComboBox", "AXGroup", "AXWebArea", "AXCell"] { #expect(!Typing.takesNoText(role: role)) }
+    }
+}

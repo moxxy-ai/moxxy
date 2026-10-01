@@ -22,8 +22,8 @@ final class TargetState {
     var observed = false
     /// Set by the action executor; the next observation settles as after an action.
     var lastAction: Date?
-    /// The last gesture that went to the window in the background; asked again, it goes through the screen.
-    var lastBackground: String?
+    /// The last gesture that went to the app softly (background input, or an accessibility press that changed nothing); asked again, it goes through the screen.
+    var lastSoft: String?
     /// Accessibility actions its elements keep declining.
     let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
@@ -122,8 +122,18 @@ extension Methods {
         }
         // A fresh launch is still loading, like the app right after an action.
         Settler.settle(pid: running.processIdentifier, window: window, policy: launched || state.recentlyActed ? .afterAction : .observeOnly)
-        let reader = AXReader()
-        let root = reader.snapshot(window)
+        var reader = AXReader()
+        var root = reader.snapshot(window)
+        let wantsPage = params["web"]?.boolValue == true
+        if wantsPage {
+            for _ in 1..<WebContent.wait.attempts where !WebContent.isLoaded(root) {
+                Thread.sleep(forTimeInterval: WebContent.wait.pause)
+                reader = AXReader()
+                root = reader.snapshot(window)
+            }
+        }
+        let pageLoaded = WebContent.isLoaded(root)
+        root = root.adopting(reader.strayFocus(of: AXReader.application(running.processIdentifier), besides: window))
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
@@ -155,6 +165,7 @@ extension Methods {
         if let title = root.title { tree["window"] = .string(title) }
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
+        if wantsPage, !pageLoaded { result["contentPending"] = .bool(true) }
         return .object(result)
     }
 

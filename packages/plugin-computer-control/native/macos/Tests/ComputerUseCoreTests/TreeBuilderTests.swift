@@ -112,3 +112,13 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
         #expect(registry.assign(["b", "a"]) == [4, 0])
     }
 }
+
+@Suite struct StrayFocusTests {
+    @Test func aFocusedFieldOutsideTheWindowIsListedWithIt() {
+        // Finder edits a file name in a field that hangs off the application, not the window.
+        let rename = node("AXTextField", value: "untitled folder", roleDescription: "text field", focused: true)
+        let listed = TreeBuilder.build(window.adopting(rename), limit: 100).elements
+        #expect(listed.contains { $0.value == "untitled folder" && $0.states.contains("focused") })
+        #expect(TreeBuilder.build(window.adopting(nil), limit: 100).elements.count == TreeBuilder.build(window, limit: 100).elements.count)
+    }
+}

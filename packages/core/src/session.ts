@@ -198,8 +198,8 @@ export class Session implements ClientSession, SessionRuntime {
    * (elision on). Read into each turn's ModeContext.
    */
   elisionSettings: ElisionSettings | null = null;
-  /** Lazy tool loading toggle, from `config.context.lazyTools`. Default off. */
-  lazyTools = false;
+  /** Lazy tool loading, from `config.context.lazyTools`. Unset = automatic (on for a long tool list). */
+  lazyTools: boolean | undefined = undefined;
   /**
    * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
    * to each turn's ModeContext and on to the provider, which honors it only

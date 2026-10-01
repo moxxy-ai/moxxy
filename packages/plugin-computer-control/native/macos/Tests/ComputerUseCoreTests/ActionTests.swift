@@ -59,3 +59,22 @@ import Testing
         #expect(ActionResult.unsupported("unsupported_action").json == .object(["outcome": .string("unsupported"), "code": .string("unsupported_action")]))
     }
 }
+
+@Suite struct RepeatKeyTests {
+    private let frames: [Int: CGRect] = [7: CGRect(x: 100, y: 100, width: 80, height: 30), 9: CGRect(x: 300, y: 100, width: 80, height: 30)]
+    private func key(_ request: ActionRequest) -> String { RepeatKey.of(request) { FrameHit.index(at: $0, in: frames) } }
+    private func click(_ target: ActionTarget) -> ActionRequest { .click(target: target, button: .left, count: 1, modifiers: []) }
+
+    @Test func aClickOnTheSameControlIsTheSameAttemptHoweverItWasAimed() {
+        #expect(key(click(.element(7))) == key(click(.point(CGPoint(x: 120, y: 110)))))
+        #expect(key(click(.point(CGPoint(x: 120, y: 110)))) == key(click(.point(CGPoint(x: 123, y: 112)))))
+        #expect(key(click(.element(7))) != key(click(.element(9))))
+        #expect(key(click(.element(7))) != key(.click(target: .element(7), button: .right, count: 1, modifiers: [])))
+    }
+
+    @Test func aPointOnNoControlAndOtherActionsRepeatOnlyWhenIdentical() {
+        #expect(key(click(.point(CGPoint(x: 10, y: 10)))) == key(click(.point(CGPoint(x: 10, y: 10)))))
+        #expect(key(click(.point(CGPoint(x: 10, y: 10)))) != key(click(.point(CGPoint(x: 11, y: 10)))))
+        #expect(key(.setValue(element: 7, value: "a")) != key(.setValue(element: 7, value: "b")))
+    }
+}

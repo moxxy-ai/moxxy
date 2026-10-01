@@ -35,6 +35,14 @@ while the app stays in the background and the pointer stays with the user. If
 the window shows no change, or the system does not offer that route, the app
 comes forward and real input is used.
 
+A control that takes an accessibility press and does nothing gets a real click
+when the model asks for the same action again.
+
+A session with more than 200 tools (several MCP servers) sends the model an
+index instead of every tool schema; the model loads this plugin's tools with
+one call, `load_tool({ name: "computer_*" })`. Set `context.lazyTools` to
+`true` or `false` to force it either way.
+
 macOS and Windows x64 share these tools; each system has its own native
 helper behind them. Windows specifics are in
 [`docs/computer-use-windows.md`](https://github.com/moxxy-ai/moxxy/blob/main/docs/computer-use-windows.md).

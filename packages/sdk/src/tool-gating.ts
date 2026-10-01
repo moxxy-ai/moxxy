@@ -50,16 +50,61 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
 }
 
-/** Compact index (name + 1-line description) of not-yet-loaded tools. */
+/** Above this many registered tools, lazy loading turns itself on unless the config says otherwise. */
+export const LAZY_TOOLS_AUTO_THRESHOLD = 200;
+
+/** Whether to gate tools: an explicit setting wins; unset means "only when the list is long". */
+export function shouldGateTools(setting: boolean | undefined, toolCount: number): boolean {
+  return setting ?? toolCount > LAZY_TOOLS_AUTO_THRESHOLD;
+}
+
+/** A family needs this many members before the index folds it into one line. */
+const FAMILY_MIN = 4;
+
+/** The prefix a tool shares with its siblings: its MCP server, or the word before the first underscore. */
+function familyPrefix(name: string): string | null {
+  const mcp = /^mcp__[^_]+(?:_[^_]+)*__/.exec(name);
+  if (mcp) return mcp[0];
+  const cut = name.indexOf('_');
+  return cut > 0 ? name.slice(0, cut + 1) : null;
+}
+
+/** The tools a `load_tool` name stands for: one tool, or a family written as `prefix*`. */
+export function matchLoadableTools<T extends { readonly name: string }>(name: string, tools: ReadonlyArray<T>): T[] {
+  if (!name.endsWith('*')) return tools.filter((t) => t.name === name);
+  const prefix = name.slice(0, -1);
+  return prefix.length === 0 ? [] : tools.filter((t) => t.name.startsWith(prefix));
+}
+
+/** Compact index of not-yet-loaded tools: one line per family, one per tool outside a family. */
 export function buildToolIndex(hidden: ReadonlyArray<ToolDef>): string {
-  const lines = hidden
-    .map((t) => `- **${t.name}** — ${truncate(oneLine(t.description ?? ''), 100)}`)
-    .join('\n');
+  const families = new Map<string, string[]>();
+  for (const t of hidden) {
+    const prefix = familyPrefix(t.name);
+    if (prefix === null) continue;
+    const members = families.get(prefix);
+    if (members) members.push(t.name);
+    else families.set(prefix, [t.name]);
+  }
+  const listed = new Set<string>();
+  const lines: string[] = [];
+  for (const t of hidden) {
+    const prefix = familyPrefix(t.name);
+    const members = prefix === null ? undefined : families.get(prefix);
+    if (prefix !== null && members && members.length >= FAMILY_MIN) {
+      if (listed.has(prefix)) continue;
+      listed.add(prefix);
+      lines.push(`- **${prefix}*** (${members.length} tools: ${members.join(', ')})`);
+    } else {
+      lines.push(`- **${t.name}** — ${truncate(oneLine(t.description ?? ''), 100)}`);
+    }
+  }
   return (
     `## Loadable tools\n\n` +
     `These tools exist but their full schemas are not loaded right now. When a ` +
     `task needs one, call \`load_tool({ name: "<tool-name>" })\` first, then call ` +
-    `the tool on the next turn.\n\n${lines}`
+    `the tool on the next turn. A line ending in \`*\` is a family: load all of it ` +
+    `at once with its name, e.g. \`load_tool({ name: "computer_*" })\`.\n\n${lines.join('\n')}`
   );
 }
 
@@ -99,7 +144,8 @@ export function applyLazyTools(
   tools: ReadonlyArray<ToolDef>,
   log: EventLogReader,
 ): GatedTools {
-  const loaded = loadedToolNames(log);
+  const loaded = new Set<string>();
+  for (const name of loadedToolNames(log)) for (const t of matchLoadableTools(name, tools)) loaded.add(t.name);
   // Single partition pass: each tool is either visible (always-on or loaded) or
   // hidden, never both — so one loop yields the exact same two arrays (same
   // elements, same input order) the prior pair of complementary `filter`s did,

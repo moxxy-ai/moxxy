@@ -980,7 +980,7 @@ Windows::Data::Json::IJsonValue Desktop::execute(const std::wstring& method, con
   if (method == L"screenshot") { fields(params, {L"scale", L"allowed"}); return screenshot(params); }
   if (method == L"zoom") { fields(params, {L"region", L"app", L"scale", L"allowed"}); return zoom(params); }
   if (method == L"get_app_state") {
-    fields(params, {L"app", L"window_id", L"screenshot"});
+    fields(params, {L"app", L"window_id", L"screenshot", L"web"});
     const auto app=text(params,L"app",512);
     acquire();
     // Looking is allowed again as soon as the user resumes; the pause itself changes nothing here.

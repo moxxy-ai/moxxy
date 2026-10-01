@@ -186,3 +186,9 @@ wersję i plik, z którego wzięto wzorzec.
   helper na sesję tego nie dotyka; do zbadania przed obsługą wielu sesji.
 - **Branch bazowy.** `computer-use-rebuild` wyrasta z `google-gemini-tts`;
   scalenie z `development` tylko za zgodą właściciela.
+- **Czas kroku.** Większość czasu to żądanie do dostawcy, nie helper. Przy
+  wielu serwerach MCP narzędzia są ładowane leniwie (próg 200); poniżej progu
+  każde żądanie nadal niesie wszystkie schematy. Pomiary w
+  [`benchmark.md`](benchmark.md).
+- **Próg skuteczności.** Powtórzenia dały 76% przed czterema poprawkami; pełna
+  seria po poprawkach nie jest jeszcze zrobiona.

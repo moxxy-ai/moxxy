@@ -135,7 +135,7 @@ export const computerTools = {
     }),
   },
   computer_get_app_state: {
-    description: 'Observe one app: its focused window as indexed accessibility elements plus a screenshot. Launches the app in the background if needed and waits for it to settle. Returns only what changed since your last look unless disable_diff is true. Call it before acting and after every action you need to verify.',
+    description: 'Observe one app: its focused window as indexed accessibility elements plus a screenshot. Launches the app in the background if needed and waits for it to settle. Returns only what changed since your last look unless disable_diff is true. Call it before the first action; every action returns the fresh state itself, so look again only when that is not enough.',
     input: z.preprocess((input) => dropFiller(input), z.object({
       app,
       window_id: z.string().min(1).max(160).optional().describe('Windows only: a window from computer_list_apps. Leave it out for the app\'s main window.'),

@@ -212,4 +212,10 @@ export interface ToolDef {
    * enforces these bounds at every call. See `ToolIsolationSpec`.
    */
   readonly isolation?: ToolIsolationSpec;
+  /**
+   * The tool reads state that changes outside the conversation (an app's
+   * window, a running job), so the same call between other calls is normal.
+   * The stuck-loop guard then counts only a back-to-back run of it.
+   */
+  readonly liveState?: boolean;
 }

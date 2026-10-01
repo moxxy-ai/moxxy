@@ -96,7 +96,10 @@ export interface ModeContext {
   readonly cacheStrategy: CacheStrategyDef | null;
   /** Elision (context-on-demand) settings; undefined → defaults apply. */
   readonly elision?: ElisionSettings;
-  /** When true, send only always-on + loaded tool schemas; index the rest. */
+  /**
+   * Send only always-on + loaded tool schemas and index the rest. Unset means
+   * automatic: on once the registry holds more than `LAZY_TOOLS_AUTO_THRESHOLD` tools.
+   */
   readonly lazyTools?: boolean;
   /**
    * Per-provider reasoning/thinking preference, resolved from the active

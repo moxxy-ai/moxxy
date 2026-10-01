@@ -163,6 +163,12 @@ public enum Typing {
     /// One keyboard event carries at most 20 UTF-16 units; characters are never split.
     public static let unitsPerEvent = 20
 
+    /// Roles that never hold text. Typing "into" one would only move keyboard focus away from where the
+    /// user of the app is typing (a file name being edited, for one).
+    public static func takesNoText(role: String) -> Bool {
+        ["AXImage", "AXButton", "AXStaticText", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXMenuButton", "AXPopUpButton"].contains(role)
+    }
+
     public static func chunks(_ text: String, limit: Int = unitsPerEvent) -> [String] {
         var chunks: [String] = []
         var current = ""

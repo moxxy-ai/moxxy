@@ -457,7 +457,7 @@ function buildChildContext(
     compactor: parentSession.compactors.getActive(),
     cacheStrategy: parentSession.cacheStrategies.getActive(),
     ...(parentSession.elisionSettings ? { elision: parentSession.elisionSettings } : {}),
-    ...(parentSession.lazyTools ? { lazyTools: true } : {}),
+    ...(parentSession.lazyTools !== undefined ? { lazyTools: parentSession.lazyTools } : {}),
     ...(parentSession.loopGuard ? { loopGuard: parentSession.loopGuard } : {}),
     permissions: parentSession.resolver,
     // Intentionally no `approval` — fanning approval gates out to N

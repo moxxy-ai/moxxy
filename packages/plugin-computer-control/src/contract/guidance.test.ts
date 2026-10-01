@@ -24,3 +24,12 @@ it('names the Windows key on Windows', () => {
   const guided = withComputerGuidance('win32')({ model: 'm', messages: [], tools: [tool('computer_click')] });
   expect(guided.system).toMatch(/super.*Windows key/);
 });
+
+it('tells the model how to finish in few rounds', () => {
+  const { system } = withComputerGuidance('darwin')({ model: 'm', messages: [], tools: [tool('computer_click')] });
+  expect(system).toMatch(/several tool calls in one response/);
+  expect(system).toMatch(/run in the order/);
+  expect(system).toMatch(/result already (has|contains) the fresh state/);
+  expect(system).toMatch(/keyboard/);
+  expect(system).not.toMatch(/One action per call/);
+});

@@ -5,15 +5,19 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 ## Gdzie jesteśmy
 
 - **Bieżący krok:** kroki 0–14 wykonane; po nich: mysz w tle, 12 narzędzi,
-  dokładny zrzut okna, poziom `xhigh` (patrz [`CHANGELOG.md`](CHANGELOG.md)).
+  dokładny zrzut okna, poziom `xhigh`, cztery poprawki z powtórzeń i leniwe
+  ładowanie narzędzi (patrz [`CHANGELOG.md`](CHANGELOG.md)).
 - **Następna czynność:** pozycje z listy „Otwarte” niżej.
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.
 
 ## Otwarte
 
-- [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów) na losowanych, powtarzanych
-  próbach; dotąd każda próba była pojedyncza ([`benchmark.md`](benchmark.md)).
+- [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów): 2 powtórzenia przed
+  poprawkami dały 16/21 (76%). Po czterech poprawkach trzeba powtórzyć pełne
+  5 serii ([`benchmark.md`](benchmark.md), wynik D).
+- [ ] Czas kroku ok. 5 s przy `xhigh`: model wysyła jedną akcję na odpowiedź;
+  instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
 - [ ] W tle nie działają: skróty z Command, prawy i środkowy przycisk, okno na
   innym biurku (Space) bez przenoszenia.
 - [ ] Windows: próby z modelem, mysz w tle.

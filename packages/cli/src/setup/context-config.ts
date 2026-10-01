@@ -11,7 +11,7 @@ export type ContextTarget = Pick<Session, 'elisionSettings' | 'lazyTools' | 'loo
 export function applyContextConfig(session: ContextTarget, context: MoxxyConfig['context']): void {
   if (!context) return;
   if (context.elision) session.elisionSettings = context.elision;
-  if (context.lazyTools) session.lazyTools = true;
+  if (context.lazyTools !== undefined) session.lazyTools = context.lazyTools;
   if (context.loopGuard) session.loopGuard = context.loopGuard;
   if (context.reasoning) session.reasoning = context.reasoning;
 }

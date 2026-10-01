@@ -44,6 +44,16 @@ public struct SettleClock: Sendable {
     }
 }
 
+/// A browser builds a page's accessibility tree only after the first client asks, so the first
+/// look at a fresh tab can come back without the page.
+public enum WebContent {
+    static let wait = (attempts: 8, pause: 0.4)
+
+    public static func isLoaded(_ node: NodeSnapshot) -> Bool {
+        (node.role == "AXWebArea" && !node.children.isEmpty) || node.children.contains(where: isLoaded)
+    }
+}
+
 public enum BusyProbe {
     /// Spinners mean content is still arriving; a determinate progress bar may be a finished state.
     public static func isBusy(_ node: NodeSnapshot) -> Bool {
