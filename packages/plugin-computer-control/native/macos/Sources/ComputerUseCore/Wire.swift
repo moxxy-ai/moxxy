@@ -130,7 +130,7 @@ public enum Wire {
     }
 
     public static func failure(id: String, error: HelperError) -> Data {
-        let details: JSONValue = .object(["code": .string(String(error.code.prefix(80))), "message": .string(String(error.message.prefix(2048)))])
+        let details: JSONValue = .object(["code": .string(error.code.fitting(80)), "message": .string(error.message.fitting(2048))])
         return encode(["version": .number(Double(version)), "id": .string(id), "ok": .bool(false), "error": details])
     }
 

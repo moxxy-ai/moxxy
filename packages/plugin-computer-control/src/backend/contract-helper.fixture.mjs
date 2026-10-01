@@ -27,6 +27,8 @@ function tree(id) {
       { key: 'w/text', index: 1, depth: 1, role: 'text area', value: documents.get(id), states: ['focused'] },
       { key: 'w/save', index: 2, depth: 1, role: 'button', title: 'Save', actions: ['AXPress'] },
       { key: 'w/broken', index: 3, depth: 1, role: 'button', title: 'Broken' },
+      // A helper bug the contract must catch: two elements under one key.
+      ...(documents.get(id).includes('<twins>') ? [{ key: 'w/broken', index: 4, depth: 1, role: 'button', title: 'Twin' }] : []),
     ],
   };
 }

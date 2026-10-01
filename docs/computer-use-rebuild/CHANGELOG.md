@@ -1917,3 +1917,45 @@ dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
 - Zmiana w `desktop.cpp` nie była kompilowana lokalnie; CI Windows dla commita
   `40d310ea` (run 36920417527) jest zielone.
 - Krok trwa ok. 5 s; model nadal wysyła jedną akcję na odpowiedź.
+
+## Scenariusz Safari właściciela: trzy błędy z próby w desktopie — 2026-10-01
+
+**Co**
+- Helper macOS: `WireKey` (klucz dłuższy niż 512 jednostek dostaje skrót całej
+  ścieżki i czytelny koniec, więc zostaje unikalny), `String.fitting` (limity
+  w jednostkach UTF-16, bez cięcia znaku), tytuł w kluczu skrócony do 64.
+- Helper macOS: `insertAtCaret` sprawdza `TextFootprint` (wartość i kursor
+  tekstu) i przy braku zmiany oddaje pisanie klawiszom (`Typing.landed`).
+- Helper macOS: `OverlayPanel` nie pozwala AppKit zsuwać nakładki pod pasek menu.
+- Backend: błąd „invalid … result” podaje pole, które nie przeszło walidacji.
+- Fixture: pole „deaf” (przyjmuje tekst przez accessibility i go gubi).
+
+**Jak (decyzje)**
+- Kontrakt zostaje ścisły (unikalne klucze, limity); poprawiony jest helper,
+  który go łamał.
+- Tekst wpisany przez accessibility jest sprawdzany do 0,3 s; aplikacje
+  Chromium zgłaszają nową wartość z opóźnieniem.
+
+**Testy (Red → Green)**
+- Swift: `WireLimitTests` (Red: brak `fitting`), `InsertionCheckTests` (Red:
+  brak `TextFootprint`), `coversAWindowThatTouchesTheMenuBarWithoutSlidingDown`
+  (Red: ramka nakładki inna niż oczekiwana).
+- E2E: „types with keys into a field that accepts text through accessibility
+  and drops it” (Red: `method: 'ax'` zamiast `'input'`).
+- `backend.test.ts`: „names the field of a helper result that breaks the
+  contract” (napisany po zmianie, bez osobnego Red).
+
+**Walidacja**
+- `swift test` 165/165; `./build.sh` OK.
+- Plugin przy bezczynnym wejściu: 20 plików / 289 testów (z e2e).
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów;
+  `pnpm check:deps` 0 błędów (1 ostrzeżenie).
+- Próba z modelem: [`benchmark.md`](benchmark.md), wynik E.
+
+**Niezrobione / otwarte**
+- Scenariusz Safari poszedł po poprawce raz, w CLI, nie w aplikacji desktopowej.
+- Raz Safari w tle przestało udostępniać treść strony (22 elementy zamiast 700);
+  po wyniesieniu okna na wierzch wróciła. Nie odtworzone ponownie; model
+  dostaje wtedy notatkę, że strona nie jest czytelna.
+- Stan strony YouTube to ok. 700 elementów i 220 KB; nie skracano go.
+- Helper Windows: nie sprawdzano, czy ma ten sam błąd z kluczami.

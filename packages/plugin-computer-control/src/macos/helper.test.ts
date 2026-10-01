@@ -329,6 +329,16 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     };
     const pad = (state: Framed | undefined) => (state ? element(state, 'group:pad').description : undefined);
 
+    it('types with keys into a field that accepts text through accessibility and drops it', async () => {
+      const transport = start();
+      try {
+        const deaf = element(await observe(transport), 'deaf');
+        const typed = await act(transport, { action: 'type_text', element_index: deaf.index, text: 'Zażółć 1' });
+        expect(typed.result).toEqual({ outcome: 'delivered', method: 'input' });
+        expect(element(typed.state ?? await observe(transport), 'deaf').value).toBe('Zażółć 1');
+      } finally { await transport.close(); await sendBehind(); }
+    });
+
     it('selects text and types at the caret through accessibility, without bringing the app forward', async () => {
       const transport = start();
       try {

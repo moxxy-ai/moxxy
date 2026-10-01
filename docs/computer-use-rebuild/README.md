@@ -192,3 +192,6 @@ wersję i plik, z którego wzięto wzorzec.
   [`benchmark.md`](benchmark.md).
 - **Próg skuteczności.** Powtórzenia dały 76% przed czterema poprawkami; pełna
   seria po poprawkach nie jest jeszcze zrobiona.
+- **Strony WWW przez accessibility.** Głębokie strony dają setki elementów i
+  długie ścieżki; helper musi trzymać limity kontraktu (klucze, UTF-16), bo
+  jedno złamane pole odrzuca cały stan.

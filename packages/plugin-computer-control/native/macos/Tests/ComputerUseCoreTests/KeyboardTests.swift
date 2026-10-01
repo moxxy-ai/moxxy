@@ -201,3 +201,17 @@ private final class Posted: @unchecked Sendable {
         for role in ["AXTextField", "AXTextArea", "AXComboBox", "AXGroup", "AXWebArea", "AXCell"] { #expect(!Typing.takesNoText(role: role)) }
     }
 }
+
+/// An app can answer "done" to text set through accessibility and keep the field as it was.
+@Suite struct InsertionCheckTests {
+    @Test func countsAnInsertionOnlyWhenTheFieldOrItsCaretMoved() {
+        let empty = TextFootprint(value: "", caret: 0)
+        #expect(Typing.landed(before: empty, after: TextFootprint(value: "abc", caret: 3)))
+        #expect(Typing.landed(before: TextFootprint(value: "abc", caret: 0), after: TextFootprint(value: "abc", caret: 3)))
+        #expect(!Typing.landed(before: empty, after: empty))
+    }
+
+    @Test func trustsAFieldThatCannotBeRead() {
+        #expect(Typing.landed(before: nil, after: nil))
+    }
+}

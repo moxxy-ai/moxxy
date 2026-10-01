@@ -100,6 +100,36 @@ Po poprawkach każda z tych prób poszła raz (to nie jest pomiar progu):
 | x9e CapCut eksport | sukces 61 s, 8 wywołań |
 | x4 Kalkulator | sukces 84 s, 13 wywołań |
 
+## Wynik E: scenariusz właściciela w Safari (2026-10-01, noc)
+
+Zadanie: otworzyć zamknięte Safari, znaleźć kanał Tivolt na YouTube i podać
+najnowszy film, w nowej karcie otworzyć OLX, wyszukać „Tesla” i posortować od
+najtańszych.
+
+- Próba właściciela w aplikacji desktopowej: porażka. Po wejściu na kanał każde
+  narzędzie zwracało „invalid act/get_app_state result”, więc model nie widział
+  strony, którą sam otworzył.
+- Przyczyna: na głębokiej stronie klucze elementów były obcinane do 512 znaków,
+  dwa elementy dostawały ten sam klucz i kontrakt odrzucał cały stan (63 takie
+  klucze na stronie kanału). Limity liczono też w znakach, a kontrakt liczy
+  jednostki UTF-16 (emoji).
+- Po poprawce, `gpt-6-luna` `xhigh`, jedna próba: sukces, 21 wywołań, 187 s,
+  0 nieudanych wywołań. Stan sprawdzony niezależnie (AppleScript): karta 1
+  `youtube.com/@TivoltGames`, karta 2
+  `olx.pl/motoryzacja/q-Tesla/?search[order]=filter_float_price:asc`. Tytułu
+  najnowszego filmu nie sprawdzono niezależnie.
+
+W tej samej sesji właściciel zgłosił jeszcze dwa błędy, oba odtworzone:
+
+- Aplikacja ChatGPT (Chromium): `type_text` zwracało `delivered`, a pole
+  zostawało puste. Pole przyjmuje tekst przez accessibility i go gubi. Helper
+  sprawdza teraz, czy pole albo kursor tekstu się zmieniły, i w razie braku
+  zmiany pisze klawiszami. Sprawdzone na prawdziwej aplikacji: „test moxxy”
+  pojawia się w polu.
+- Kursor agenta rysowany 24 pt poniżej celu, gdy okno dotyka paska menu
+  (AppKit zsuwał nakładkę pod pasek). Zmierzone: nakładka na Y=39 zamiast 15;
+  po poprawce 15.
+
 ## Czas: skąd się brał i co zostało
 
 Pomiar na łączu (czas do nagłówków odpowiedzi dostawcy i czas narzędzia):

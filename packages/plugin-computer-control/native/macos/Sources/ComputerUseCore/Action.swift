@@ -150,7 +150,7 @@ public struct ActionResult: Equatable, Sendable {
     public var json: JSONValue {
         var fields: [String: JSONValue] = ["outcome": .string(outcome.rawValue)]
         if let code { fields["code"] = .string(code) }
-        if let hint { fields["hint"] = .string(String(hint.prefix(1000))) }
+        if let hint { fields["hint"] = .string(hint.fitting(1000)) }
         if let method { fields["method"] = .string(method.rawValue) }
         return .object(fields)
     }

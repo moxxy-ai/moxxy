@@ -20,6 +20,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
   instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
 - [ ] W tle nie działają: skróty z Command, prawy i środkowy przycisk, okno na
   innym biurku (Space) bez przenoszenia.
+- [ ] Scenariusz Safari (YouTube → OLX) powtórzyć w aplikacji desktopowej; po
+  poprawce poszedł raz w CLI ([`benchmark.md`](benchmark.md), wynik E).
+- [ ] Safari w tle potrafi nie udostępnić treści strony; stan dużej strony to
+  ok. 700 elementów.
+- [ ] Windows: sprawdzić unikalność i długość kluczy elementów na głębokiej stronie.
 - [ ] Windows: próby z modelem, mysz w tle.
 - [ ] Aplikacja mobilna nie ma paska stanu Computer Use (kanał już podaje `computer.snapshot` i `computer.changed`).
 - [ ] Starsza kopia pluginu w `~/.moxxy/plugins` zasłania kopię z repozytorium.

@@ -452,8 +452,27 @@ struct Executor {
     private func insertAtCaret(_ text: String, _ element: AXUIElement) -> ActionResult? {
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success, settable.boolValue else { return nil }
+        let before = footprint(element)
         let inserted = result(AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString))
-        return inserted.outcome == .unsupported ? nil : inserted
+        guard inserted.outcome == .delivered, !text.isEmpty else { return inserted.outcome == .unsupported ? nil : inserted }
+        // A web view reports its new value a moment after the call returns.
+        let deadline = Date().addingTimeInterval(0.3)
+        while !Typing.landed(before: before, after: footprint(element)) {
+            guard Date() < deadline else { return nil }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        return inserted
+    }
+
+    private func footprint(_ element: AXUIElement) -> TextFootprint? {
+        let count: Int? = AXReader.attribute(element, kAXNumberOfCharactersAttribute)
+        var caret: Int?
+        if let range: AXValue = AXReader.attribute(element, kAXSelectedTextRangeAttribute) {
+            var found = CFRange()
+            if AXValueGetValue(range, .cfRange, &found) { caret = found.location + found.length }
+        }
+        let value = AXReader.valueText(element) ?? count.map(String.init)
+        return value == nil && caret == nil ? nil : TextFootprint(value: value, caret: caret)
     }
 
     private func selectAll(_ element: AXUIElement) -> ActionResult {

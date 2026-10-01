@@ -155,14 +155,14 @@ extension Methods {
                     "width": .number(Double(image.frame.imageWidth)), "height": .number(Double(image.frame.imageHeight)),
                 ])
             case let .failure(reason):
-                result["screenshotUnavailable"] = .string(reason.message)
+                result["screenshotUnavailable"] = .string(reason.message.fitting(500))
             }
         }
         var tree: [String: JSONValue] = [
             "app": .string(name),
             "elements": .array(zip(indices, built.elements).map { json($1, index: $0, frame: state.frame) }),
         ]
-        if let title = root.title { tree["window"] = .string(title) }
+        if let title = root.title { tree["window"] = .string(title.fitting(1024)) }
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
         if wantsPage, !pageLoaded { result["contentPending"] = .bool(true) }
@@ -200,15 +200,15 @@ extension Methods {
 
     static func json(_ element: TreeElement, index: Int, frame: CoordinateFrame?) -> JSONValue {
         var fields: [String: JSONValue] = [
-            "key": .string(String(element.key.prefix(512))), "index": .number(Double(index)),
-            "depth": .number(Double(min(element.depth, 64))), "role": .string(String(element.role.prefix(128))),
+            "key": .string(WireKey.of(element.key)), "index": .number(Double(index)),
+            "depth": .number(Double(min(element.depth, 64))), "role": .string(element.role.fitting(128)),
         ]
-        if let title = element.title { fields["title"] = .string(String(title.prefix(10_000))) }
-        if let description = element.description { fields["description"] = .string(String(description.prefix(10_000))) }
-        if let value = element.value { fields["value"] = .string(String(value.prefix(10_000))) }
+        if let title = element.title { fields["title"] = .string(title.fitting(10_000)) }
+        if let description = element.description { fields["description"] = .string(description.fitting(10_000)) }
+        if let value = element.value { fields["value"] = .string(value.fitting(10_000)) }
         if element.secure { fields["secure"] = .bool(true) }
         if !element.states.isEmpty { fields["states"] = .array(element.states.map(JSONValue.string)) }
-        if !element.actions.isEmpty { fields["actions"] = .array(element.actions.prefix(32).map { .string(String($0.prefix(64))) }) }
+        if !element.actions.isEmpty { fields["actions"] = .array(element.actions.prefix(32).map { .string($0.fitting(64)) }) }
         if let screen = element.frame, let rect = frame?.imageRect(of: screen) {
             fields["frame"] = .object(["x": .number(rect.minX), "y": .number(rect.minY), "width": .number(rect.width), "height": .number(rect.height)])
         }

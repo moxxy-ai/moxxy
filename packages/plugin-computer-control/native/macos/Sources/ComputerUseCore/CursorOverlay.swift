@@ -100,7 +100,7 @@ public final class CursorOverlay {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = OverlayPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -164,4 +164,10 @@ public final class CursorOverlay {
         change()
         CATransaction.commit()
     }
+}
+
+/// AppKit keeps a window's top under the menu bar. The overlay's margin has to reach above a maximised
+/// window, or the whole panel slides down and the pointer is drawn below its target.
+final class OverlayPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }

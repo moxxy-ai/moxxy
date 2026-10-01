@@ -47,6 +47,12 @@ final class StubbornButton: NSButton {
     override func accessibilityPerformPress() -> Bool { true }
 }
 
+/// Accepts text set through accessibility and drops it, as web views of Chromium apps do; only keys type here.
+final class DeafField: NSTextField {
+    override func setAccessibilitySelectedText(_ accessibilitySelectedText: String?) {}
+    override func setAccessibilityValue(_ accessibilityValue: Any?) {}
+}
+
 /// Reports how long the last key was held, from the events' own timestamps.
 @MainActor
 final class KeyLog {
@@ -248,7 +254,9 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     let dud = control(NSButton(title: "Dud", target: controller, action: #selector(Controller.dud)), "dud")
     let shift = control(NSButton(title: "Shift", target: controller, action: #selector(Controller.shift)), "shift")
     let stubborn = control(StubbornButton(title: "Stubborn", target: controller, action: #selector(Controller.stubborn)), "stubborn")
-    let extras = NSStackView(views: [dud, shift, stubborn])
+    let deaf = control(DeafField(string: ""), "deaf")
+    deaf.widthAnchor.constraint(equalToConstant: 70).isActive = true
+    let extras = NSStackView(views: [dud, shift, stubborn, deaf])
     extras.orientation = .horizontal
     // Hidden until "Shift" is pressed; then it takes room at the top and moves every control down.
     let spacer = NSView()

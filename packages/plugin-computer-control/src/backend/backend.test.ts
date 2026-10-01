@@ -197,6 +197,14 @@ describe('actions', () => {
     expect(methods().filter((method) => method === 'act')).toHaveLength(sent);
   });
 
+  it('names the field of a helper result that breaks the contract', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await expect(run(tools, 'computer_type_text', { app: 'TextEdit', text: '<twins>' })).rejects.toMatchObject({
+      code: 'helper_failed', message: expect.stringMatching(/invalid act result \(state\.tree\.elements\.4\.key: Duplicate element key/),
+    });
+  });
+
   it('refuses an action above the granted level before it reaches the helper', async () => {
     const { tools } = backend();
     await requestAccess(tools, { apps: ['Safari'], reason: 'Read' });

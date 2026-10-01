@@ -98,7 +98,8 @@ public enum TreeBuilder {
     static func uniqueKey(_ parent: String?, role: String, node: NodeSnapshot, siblings: inout [String: Int]) -> String {
         let ordinal = (siblings["#" + role] ?? 0) + 1
         siblings["#" + role] = ordinal
-        let discriminator = nonEmpty(node.identifier) ?? nonEmpty(node.title) ?? "#\(ordinal)"
+        // A title can be a whole paragraph on a web page; its start is enough to tell siblings apart.
+        let discriminator = (nonEmpty(node.identifier) ?? nonEmpty(node.title))?.fitting(64) ?? "#\(ordinal)"
         let base = (parent.map { $0 + "/" } ?? "") + "\(role):\(discriminator)"
         let seen = (siblings[base] ?? 0) + 1
         siblings[base] = seen
@@ -162,5 +163,34 @@ public struct IndexRegistry: Sendable {
         }
         indices = current
         return assigned
+    }
+}
+
+extension String {
+    /// The longest run of whole characters within `units` UTF-16 code units, which is what the contract counts.
+    func fitting(_ units: Int, fromEnd: Bool = false) -> String {
+        guard utf16.count > units else { return self }
+        var used = 0
+        var kept: [Character] = []
+        for character in (fromEnd ? Array(reversed()) : Array(self)) {
+            let size = character.utf16.count
+            if used + size > units { break }
+            used += size
+            kept.append(character)
+        }
+        return String(fromEnd ? kept.reversed() : kept)
+    }
+}
+
+/// An element key as the contract takes it: at most 512 units and still unique on a deep page.
+enum WireKey {
+    static let limit = 512
+
+    /// A key that is too long keeps its readable end behind a hash of the whole path.
+    static func of(_ key: String) -> String {
+        guard key.utf16.count > limit else { return key }
+        let hash = key.utf8.reduce(UInt64(14_695_981_039_346_656_037)) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
+        let head = "~" + String(hash, radix: 16) + "/"
+        return head + key.fitting(limit - head.utf16.count, fromEnd: true)
     }
 }

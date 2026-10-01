@@ -169,6 +169,12 @@ public enum Typing {
         ["AXImage", "AXButton", "AXStaticText", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXMenuButton", "AXPopUpButton"].contains(role)
     }
 
+    /// Whether text set through accessibility arrived. Chromium web views answer "done" and change nothing;
+    /// a field that cannot be read is taken at its word.
+    public static func landed(before: TextFootprint?, after: TextFootprint?) -> Bool {
+        before == nil && after == nil || before != after
+    }
+
     public static func chunks(_ text: String, limit: Int = unitsPerEvent) -> [String] {
         var chunks: [String] = []
         var current = ""
@@ -181,5 +187,16 @@ public enum Typing {
         }
         if !current.isEmpty { chunks.append(current) }
         return chunks
+    }
+}
+
+/// What a text field shows of itself: enough to tell whether an insertion changed it.
+public struct TextFootprint: Equatable, Sendable {
+    public let value: String?
+    public let caret: Int?
+
+    public init(value: String?, caret: Int?) {
+        self.value = value
+        self.caret = caret
     }
 }

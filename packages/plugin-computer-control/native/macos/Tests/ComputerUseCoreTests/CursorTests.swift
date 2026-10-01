@@ -83,6 +83,20 @@ import Testing
 
     private func number(_ info: [String: Any]) -> Int { (info[kCGWindowNumber as String] as? Int) ?? -1 }
 
+    /// A maximised window starts right under the menu bar; the overlay's margin must still reach above it,
+    /// or the whole panel slides down and the pointer is drawn below its target.
+    @Test func coversAWindowThatTouchesTheMenuBarWithoutSlidingDown() throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.screens.first)
+        let top = screen.frame.height - screen.visibleFrame.maxY
+        let window = CGRect(x: 0, y: top, width: screen.frame.width, height: 400)
+        let overlay = CursorOverlay()
+        overlay.show(above: 0, frame: window, at: CGPoint(x: 0.5, y: 0.5))
+        defer { overlay.hide() }
+        let expected = OverlayGeometry.panelRect(window: window, primaryHeight: screen.frame.height, margin: CursorOverlay.margin)
+        #expect(try #require(overlay.panel).frame == expected)
+    }
+
     @Test func sitsJustAboveTheTargetWindowClickThroughAndOutOfCaptures() async throws {
         _ = NSApplication.shared
         let target = NSWindow(contentRect: NSRect(x: 300, y: 300, width: 320, height: 200), styleMask: [.titled], backing: .buffered, defer: false)

@@ -244,7 +244,11 @@ export class ComputerBackend {
       this.controls.activity(ctx.sessionId, ctx.turnId, 'idle');
     }
     const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new ComputerUseError('helper_failed', `The helper returned an invalid ${method} result`);
+    if (!parsed.success) {
+      const [issue] = parsed.error.issues;
+      const where = issue ? ` (${issue.path.join('.')}: ${issue.message})` : '';
+      throw new ComputerUseError('helper_failed', `The helper returned an invalid ${method} result${where}`);
+    }
     return { turn, result: parsed.data };
   }
 

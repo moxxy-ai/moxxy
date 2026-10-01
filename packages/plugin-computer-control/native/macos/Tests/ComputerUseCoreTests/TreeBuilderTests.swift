@@ -122,3 +122,31 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
         #expect(TreeBuilder.build(window.adopting(nil), limit: 100).elements.count == TreeBuilder.build(window, limit: 100).elements.count)
     }
 }
+
+/// The contract counts UTF-16 units and wants every key unique; a deep web page breaks both when text is cut naively.
+@Suite struct WireLimitTests {
+    private func element(_ key: String, title: String? = nil) -> TreeElement {
+        TreeElement(key: key, depth: 90, role: "link", title: title, description: nil, value: nil, secure: false,
+                    states: [], actions: [], handle: 0, frame: nil)
+    }
+    private func key(_ element: TreeElement) -> String { Methods.json(element, index: 0, frame: nil)["key"]?.stringValue ?? "" }
+
+    @Test func keepsLongKeysApartAndInsideTheLimit() {
+        let path = String(repeating: "group:#1/", count: 80)
+        let first = key(element(path + "link:Film 🔥 jeden")), second = key(element(path + "link:Film 🔥 dwa"))
+        #expect(first != second)
+        #expect(first.utf16.count <= 512 && second.utf16.count <= 512)
+        #expect(first.hasSuffix("link:Film 🔥 jeden"))
+        #expect(key(element("window/button:Press")) == "window/button:Press")
+        #expect(key(element(path + "link:Film 🔥 jeden")) == first)
+    }
+
+    @Test func countsTextInUTF16UnitsWithoutSplittingACharacter() {
+        let cut = String(repeating: "🔥", count: 6000).fitting(10_000)
+        #expect(cut.utf16.count == 10_000)
+        #expect(cut.allSatisfy { $0 == "🔥" })
+        #expect("zażółć".fitting(3) == "zaż")
+        let title = Methods.json(element("k", title: String(repeating: "🇵🇱", count: 4000)), index: 0, frame: nil)["title"]?.stringValue ?? ""
+        #expect(title.utf16.count <= 10_000 && !title.isEmpty)
+    }
+}
