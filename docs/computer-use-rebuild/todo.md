@@ -4,13 +4,13 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7d2 — brak postępu i pamięć `unsupported` (7d1 strażnik gotowy).
-- **Następna czynność:** testy Red w TS dla wykrywania braku postępu
-  (ta sama akcja, identyczne drzewo i obraz po niej 2× → `no_progress` z
-  podpowiedzią kolejnej metody, trzecia identyczna akcja odrzucona bez
-  wysyłania), potem w Swift pamięć akcji AX odrzuconych 3× (5 s pomijania).
-  Następnie 7d3: ochrona okien zapisu (`saveAsNameTextField`, `PathTextField`,
-  chronione katalogi i pliki).
+- **Bieżący krok:** 7d3 — ochrona okien zapisu (7d1, 7d2 gotowe).
+- **Następna czynność:** testy Red dla czystego `ProtectedPath` (katalogi
+  `.ssh`, LaunchAgents/Daemons, fish, `.gnupg`, pliki rc powłoki,
+  `.gitconfig`, hooki i config gita, skrypty `activate`, rozszerzenia
+  uruchamiane przy otwarciu), potem rozpoznanie panelu zapisu w AX
+  (`saveAsNameTextField`, `PathTextField`) na fixture z `NSSavePanel` i
+  blokada `protected_path` dla pisania/wklejania/ustawiania wartości.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -64,7 +64,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Fazy akcji i zdarzenia `cursor` → `TurnControls`; SDK snapshot z `cursor` i `target` (fazy poza `idle` wysyła wykonawca z kroku 7).
 
 ### Krok 7 — wykonawca akcji macOS
-- [ ] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed; 7c: fizyczne wejście jako zapas dla kliknięcia i przewijania; cache `unsupported` w 7d).
+- [x] Drabina AX → fizyczne wejście, fail-closed, cache `unsupported` (7a: część AX i fail-closed; 7c: fizyczne wejście jako zapas dla kliknięcia i przewijania; 7d2: `DeclineMemory` — 3 odmowy → 5 s pomijania).
 - [x] 7a: `act` po indeksie — klik przez `AXPress`/`AXShowMenu`, `set_value`, `perform_secondary_action` z listy elementu, `stale_state`/`no_state`, fazy kursora, świeży stan w odpowiedzi.
 - [x] click, type_text, paste, press_key, scroll, drag, set_value, select_text, secondary action, `computer_mouse`, `computer_hold_key` (7a: click po indeksie, set_value, secondary; 7b: type_text, press_key, paste, select_text — w tle; 7c: click/type_text/paste/scroll po punkcie, scroll po indeksie, drag, `computer_mouse`; 7c2: `computer_hold_key`).
 - [x] 7b: klawiatura i tekst w tle (AX w miejscu kursora, `postToPid`, ⌘A przez AX, inne ⌘ poza przodem → `not_frontmost`, wklejanie tekstu bez schowka, HTML przez schowek z przywróceniem).
@@ -72,7 +72,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] 7c: fizyczna mysz z bramkami — klik po punkcie (najpierw AXPress kontrolki pod punktem w tle), wielokrotny klik z modyfikatorami, drag ze ścieżką i czasem, `mouse` down/move/up, scroll (AX strona → pasek przewijania → kółko), pisanie/wklejanie w pole pod punktem.
 - [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu (7c: wszystkie poza ochroną okna zapisu — 7d; zgoda/poziom od kroku 3).
 - [x] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza) (7c: przywracanie wskaźnika i zwalnianie przycisku przy wyjściu helpera; 7d1: Escape = Stop przez nasłuchujący tap, pauza/wznowienie z hosta wstrzymuje akcję, czekanie na ciszę przed fizycznym wejściem, przygaszony kursor).
-- [ ] Wykrywanie braku postępu; wynik + świeży stan po akcji.
+- [x] Wykrywanie braku postępu; wynik + świeży stan po akcji (7d2: `ProgressTracker` w backendzie TS — wspólny dla macOS i Windows).
 
 ### Krok 8 — batch, zrzut pełnoekranowy, zoom
 - [ ] `computer_batch` z bramkami przed każdą akcją i stopem na pierwszym błędzie.

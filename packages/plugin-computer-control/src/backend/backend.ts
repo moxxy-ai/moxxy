@@ -1,7 +1,8 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import type { z } from 'zod';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
-import { ComputerUseError, describeResult, isErrorCode } from '../contract/outcome.js';
+import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
+import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type BatchAction } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
@@ -34,6 +35,9 @@ interface Turn {
   readonly transport: HelperTransport;
   /** Last tree the model saw per app; indices belong to this helper, so the map dies with it. */
   readonly trees: Map<string, AppTree>;
+  /** What the model last saw of each app, to notice an action that changed nothing. */
+  readonly seen: Map<string, string>;
+  readonly progress: ProgressTracker;
   dispose(): void;
 }
 
@@ -176,15 +180,32 @@ export class ComputerBackend {
     const grant = checkAccess(access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
     const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id) };
+    const signature = JSON.stringify(step);
+    (await this.turn(ctx)).progress.check(grant.id, signature);
     const { turn, result } = await this.call(ctx, 'act', params, actResultSchema, grant.name);
-    const outcome = describeResult(result.result);
-    return result.state ? this.present(turn, grant, result.state, [outcome]) : outcome;
+    const { state } = result;
+    if (!state) return describeResult(result.result);
+    const [outcome, note] = this.judge(turn, grant.id, signature, result.result, state);
+    return this.present(turn, grant, state, [describeResult(outcome), ...note]);
+  }
+
+  /** A delivered action that leaves the app looking the same twice in a row did not work: say so. */
+  private judge(turn: Turn, app: string, signature: string, result: ActionResult, state: AppState): [ActionResult, string[]] {
+    if (result.outcome !== 'delivered') {
+      turn.progress.forget(app);
+      return [result, []];
+    }
+    const before = turn.seen.get(app);
+    const unchanged = turn.progress.record(app, signature, before === undefined || before !== fingerprint(state.tree, state.screenshot));
+    if (unchanged >= 2) return [{ outcome: 'ineffective', code: 'no_progress' }, []];
+    return [result, unchanged === 1 ? ['Nothing visible changed after this action: the tree and screenshot are the same as before it.'] : []];
   }
 
   private present(turn: Turn, grant: AppGrant, state: AppState, prefix: string[], disableDiff = false): string | ToolImageResult {
     this.controls.target(turn.sessionId, turn.turnId, { app: grant.name, window: state.tree.window ?? null });
     const view: TreeView = disableDiff ? { kind: 'full', text: formatTree(state.tree) } : diffTrees(turn.trees.get(grant.id), state.tree);
     turn.trees.set(grant.id, state.tree);
+    turn.seen.set(grant.id, fingerprint(state.tree, state.screenshot));
     const parts = [...prefix, wrapUntrusted(view.text, grant.name)];
     if (state.screenshot) parts.push(`Screenshot ${state.screenshot.width}x${state.screenshot.height}: x and y in actions are pixels of this image.`);
     else if (state.screenshotUnavailable) parts.push(`No screenshot: ${state.screenshotUnavailable}`);
@@ -232,7 +253,7 @@ export class ComputerBackend {
     const abort = () => { void this.release(ctx.sessionId, ctx.turnId); };
     ctx.signal.addEventListener('abort', abort, { once: true });
     const turn: Turn = {
-      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(),
+      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(),
       dispose: () => ctx.signal.removeEventListener('abort', abort),
     };
     this.turns.set(key, turn);

@@ -429,12 +429,20 @@ struct Executor {
         }
     }
 
-    /// `nil` when the element declines the action, so real input may try instead.
+    /// `nil` when the element declines the action, so real input may try instead. An action the element
+    /// declined three times is not asked again for a while.
     private func tryPress(_ element: AXUIElement, _ name: String) -> ActionResult? {
+        let key = "\(CFHash(element)):\(name)"
+        if state.declines.skips(key) { return nil }
         switch AXLadder.outcome(AXUIElementPerformAction(element, name as CFString)) {
-        case .done: .delivered(.ax)
-        case .fallBack: nil
-        case let .refused(code): .blocked(code)
+        case .done:
+            state.declines.worked(key)
+            return .delivered(.ax)
+        case .fallBack:
+            state.declines.declined(key)
+            return nil
+        case let .refused(code):
+            return .blocked(code)
         }
     }
 

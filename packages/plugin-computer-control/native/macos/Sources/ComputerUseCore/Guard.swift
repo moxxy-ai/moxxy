@@ -70,3 +70,34 @@ public final class ControlGate: @unchecked Sendable {
         return true
     }
 }
+
+/// Accessibility actions an element keeps declining: after three declines it is skipped for five seconds,
+/// so each step goes straight to the next method instead of asking again.
+public final class DeclineMemory: @unchecked Sendable {
+    static let limit = 3
+    static let pause: TimeInterval = 5
+
+    private let lock = NSLock()
+    /// Guarded by `lock`.
+    private var entries: [String: (count: Int, until: Date?)] = [:]
+
+    public init() {}
+
+    func skips(_ key: String, at now: Date = Date()) -> Bool {
+        lock.withLock {
+            guard let until = entries[key]?.until else { return false }
+            if now < until { return true }
+            entries[key] = nil
+            return false
+        }
+    }
+
+    func declined(_ key: String, at now: Date = Date()) {
+        lock.withLock {
+            let count = (entries[key]?.count ?? 0) + 1
+            entries[key] = (count, count >= Self.limit ? now.addingTimeInterval(Self.pause) : nil)
+        }
+    }
+
+    func worked(_ key: String) { lock.withLock { entries[key] = nil } }
+}

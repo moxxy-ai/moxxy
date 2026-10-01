@@ -1090,3 +1090,53 @@ Commit kroku 7c2: `ce4e53d6`.
   Monitoring tap nie powstaje: Escape nie działa, a czekanie na ciszę widzi
   tylko pisanie — do pokazania w pasku sterowania (krok 9).
 - Akcje AX w tle nie czekają na ciszę (nie ruszają wskaźnika).
+
+---
+
+## Krok 7d2 — brak postępu i pamięć odmów AX (2026-10-01)
+
+Commit kroku 7d1: `a006a0c2`.
+
+**Wzorzec**
+- Plan (raporty Codex/Claude): oba systemy kończą pętle powtórzeń tylko
+  przez model; to, że ta sama akcja nic nie zmienia, ma wykrywać runtime i
+  kierować model na kolejną metodę (element → akcja drugorzędna → skrót →
+  współrzędne). Kod `no_progress` istniał w kontrakcie od kroku 2.
+
+**Co**
+- `src/contract/progress.ts` (czyste, wspólne dla platform):
+  `fingerprint(tree, image)` (SHA-256 drzewa i obrazu — zmiana samych
+  pikseli na płótnie to też postęp), `ProgressTracker` (`check` przed
+  wysłaniem, `record` po wyniku, `forget` po odmowie).
+- `backend.ts`: `Turn.seen` (odcisk tego, co model ostatnio widział, per
+  aplikacja; aktualizowany w `present`) i `Turn.progress`; `act` — trzecia
+  identyczna akcja po dwóch bez zmian → `ComputerUseError('no_progress')`
+  bez wysyłania; `judge` — pierwszy brak zmian dopisuje uwagę, drugi z
+  rzędu zamienia wynik na `ineffective` + `no_progress`.
+- Swift `Guard.swift`: `DeclineMemory` (3 odmowy akcji AX elementu → 5 s
+  pomijania, sukces czyści licznik); `TargetState.declines`; `tryPress`
+  pomija pamiętaną odmowę i od razu oddaje zapas (np. strony przewijania w
+  `NSScrollView`, które zawsze odmawiają -25205, po 3 razach idą prosto do
+  paska przewijania).
+
+**Testy (Red → Green)**
+- Red TS: brak modułu `./progress.js`; backend nie dopisywał „Nothing
+  visible changed”.
+- Red Swift: brak `DeclineMemory`.
+- Green: `progress.test.ts` (odcisk, liczenie, reset po zmianie/innej
+  akcji/innej aplikacji, `forget`); `backend.test.ts` — klik „Save” w
+  skryptowanym helperze: uwaga → `Action ineffective (no_progress)` →
+  trzeci klik odrzucony bez żądania `act`, a pisanie zeruje licznik;
+  Swift 112/112.
+
+**Walidacja**
+- `swift test` 112/112; `./build.sh` OK.
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 26 plików / 276 testów.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów; `pnpm check:deps`
+  0 błędów; `pnpm build` 88/88.
+
+**Pominięcia i dla następcy**
+- `computer_batch` nie liczy postępu kroków (stan jest dopiero na końcu).
+- Zrzut JPEG z migającym kursorem tekstowym może różnić się między
+  przechwyceniami — wtedy brak zmian nie zostanie wykryty (bezpieczny
+  kierunek: nigdy fałszywego `no_progress`).

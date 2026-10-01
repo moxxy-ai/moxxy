@@ -16,6 +16,8 @@ final class TargetState {
     var observed = false
     /// Set by the action executor; the next observation settles as after an action.
     var lastAction: Date?
+    /// Accessibility actions its elements keep declining.
+    let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
 }
 

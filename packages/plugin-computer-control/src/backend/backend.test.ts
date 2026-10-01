@@ -151,6 +151,21 @@ describe('actions', () => {
     });
   });
 
+  it('notices an action that leaves the app unchanged and refuses a third try of it', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
+    // Save changes nothing in the scripted app.
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toMatch(/Nothing visible changed/);
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toMatch(/Action ineffective \(no_progress\)/);
+    const sent = methods().filter((method) => method === 'act').length;
+    await expect(run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 })).rejects.toMatchObject({ code: 'no_progress' });
+    expect(methods().filter((method) => method === 'act')).toHaveLength(sent);
+    // Typing changes the document: progress, and the count starts over.
+    expect(forModel(await run(tools, 'computer_type_text', { app: 'TextEdit', text: '!' }))).not.toMatch(/Nothing visible changed/);
+    expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }))).toMatch(/Nothing visible changed/);
+  });
+
   it('refuses an action above the granted level before it reaches the helper', async () => {
     const { tools } = backend();
     await requestAccess(tools, { apps: ['Safari'], reason: 'Read' });

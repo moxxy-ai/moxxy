@@ -68,3 +68,28 @@ import Testing
         #expect(gate.waitWhilePaused() == false)
     }
 }
+
+@Suite struct DeclineMemoryTests {
+    private let start = Date(timeIntervalSince1970: 1_000)
+
+    @Test func skipsAnActionDeclinedThreeTimesForFiveSeconds() {
+        let memory = DeclineMemory()
+        for _ in 0..<2 { memory.declined("press:1", at: start) }
+        #expect(memory.skips("press:1", at: start) == false)
+        memory.declined("press:1", at: start)
+        #expect(memory.skips("press:1", at: start.addingTimeInterval(4.9)))
+        #expect(memory.skips("press:2", at: start) == false)
+        // After the pause the action gets a fresh chance, with a fresh count.
+        #expect(memory.skips("press:1", at: start.addingTimeInterval(5)) == false)
+        memory.declined("press:1", at: start.addingTimeInterval(5))
+        #expect(memory.skips("press:1", at: start.addingTimeInterval(5)) == false)
+    }
+
+    @Test func forgetsDeclinesOnceTheActionWorks() {
+        let memory = DeclineMemory()
+        for _ in 0..<2 { memory.declined("press:1", at: start) }
+        memory.worked("press:1")
+        memory.declined("press:1", at: start)
+        #expect(memory.skips("press:1", at: start) == false)
+    }
+}
