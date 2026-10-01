@@ -1850,3 +1850,17 @@ dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
 - Próg benchmarku nie jest zmierzony powtórzeniami (seria A: 11/11, każda
   próba raz).
 - Lista w [`todo.md`](todo.md), sekcja „Otwarte”.
+
+## Wynik CI Windows dla enkodera H.264 — 2026-10-01
+
+- Commit `c58ac4a8`, run 36892710179: kompilacja i `ctest` (10/10) zielone,
+  helper wysłał wideo, ale test był czerwony: „The key picture does not begin
+  with its parameter sets”. Enkoder Microsoftu zaczyna klatkę kluczową od
+  znacznika AUD (typ 9), potem SPS, PPS i obraz. Błąd był w teście, nie w
+  strumieniu.
+- Commit `b0ec73f4`, run 36893271486: zielony. Test sprawdza teraz kolejność
+  jednostek (SPS przed obrazem, PPS obecny), numerację kawałków i klatkę
+  kluczową po `preview.keyframe`.
+- Nie sprawdzono: dekodowania tego strumienia w oknie desktopu na prawdziwym
+  Windows (WebCodecs) ani systemu bez enkodera (zapas JPEG ma tylko test
+  `PreviewController`).
