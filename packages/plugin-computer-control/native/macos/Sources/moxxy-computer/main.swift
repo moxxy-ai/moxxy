@@ -87,7 +87,12 @@ let reader = Thread {
             case .incoming(.control(.pause)):
                 gate.pause()
                 cursor.dim(true)
+            case .incoming(.control(.takeover)):
+                gate.pause()
+                cursor.hide()
+                input.release()
             case .incoming(.control(.resume)):
+                cursor.reveal()
                 gate.resume()
                 cursor.dim(false)
             case let .fatal(fault):

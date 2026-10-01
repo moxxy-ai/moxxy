@@ -4,12 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 9 — status sterowania wypychany zdarzeniami i „Przejmij”
-  (krok 8 gotowy).
-- **Następna czynność:** skill `change-runner-protocol`: notyfikacja
-  `computer.changed` w runnerze (protokół 22 → 23) z testem „zmiana trafia do
-  każdego klienta”, potem zdarzenie IPC (`add-an-ipc-command`) i
-  `useComputerControl` bez pollingu.
+- **Bieżący krok:** 10 — przełączenie macOS na nowy backend i sprzątanie
+  (krok 9 gotowy).
+- **Następna czynność:** test wyboru backendu per platforma w
+  `src/index.test.ts` (darwin → nowy backend, brak helpera → tylko
+  `computer_status`), potem usunięcie `src/tools/*`, `shell.ts`,
+  `temporary-files.ts`, nowy skill i pakowanie helpera.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -78,9 +78,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] `computer_screenshot` bez aplikacji bez zgody, `computer_zoom`.
 
 ### Krok 9 — status sterowania wypychany zdarzeniami
-- [ ] Runner `computer.changed` (protokół 23), zdarzenie IPC, `useComputerControl` bez pollingu.
-- [ ] Komenda `takeover` („Przejmij sterowanie”).
-- [ ] `ComputerControlStrip`: aplikacja/okno, stan tekstem + ikoną, Stop / Przejmij / Wznów z klawiatury.
+- [x] Runner `computer.changed` (protokół 23), zdarzenie IPC, `useComputerControl` bez pollingu.
+- [x] Komenda `takeover` („Przejmij sterowanie”).
+- [x] `ComputerControlStrip`: aplikacja/okno, stan tekstem + ikoną, Stop / Przejmij / Wznów z klawiatury.
 
 ### Krok 10 — przełączenie macOS i sprzątanie
 - [ ] darwin → nowy backend; bez helpera tylko `computer_status` z powodem.

@@ -22,6 +22,7 @@ import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
+import { usesComputer } from '../computer-control/panel-model';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -100,7 +101,7 @@ export function ChatSurface({
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
-  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && actionCatalog.tools.some(tool=>tool.name==='computer_app_catalog')
+  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
   const voiceCall = useDesktopVoiceCall({
     surface: 'main',

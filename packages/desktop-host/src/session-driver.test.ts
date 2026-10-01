@@ -27,6 +27,7 @@ import {
   defineProvider,
   defineTool,
   z,
+  type ComputerControlSnapshot,
   type ModeContext,
   type MoxxyEvent,
   type UserPromptAttachment,
@@ -524,6 +525,33 @@ describe('SessionDriver, a turn another client runs', () => {
     expect(frames('runner.turn.complete')).toEqual([{ workspaceId: 'ws-chat', turnId: 'bot-turn', error: null }]);
     expect(driver.activeForegroundTurnId()).toBeNull();
     driver.dispose();
+  });
+});
+
+describe('SessionDriver Computer Use status', () => {
+  it('forwards every Computer Use change to the window as it happens, and stops after dispose', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('ok')] }));
+    let push: (turns: ReadonlyArray<ComputerControlSnapshot>) => void = () => undefined;
+    session.services.register('computerControl', {
+      snapshot: async () => [],
+      control: async () => undefined,
+      subscribe: (listener: typeof push) => { push = listener; return () => { push = () => undefined; }; },
+    });
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-cu');
+    const frames = () => sent.filter((f) => f.channel === 'computer.changed').map((f) => f.payload);
+    const turns = [{ sessionId: session.id, turnId: 't', state: 'paused_by_user', windowId: null }] as const;
+    push(turns);
+    await waitFor(() => frames().length > 0);
+    expect(frames()).toEqual([{ workspaceId: 'ws-cu', turns }]);
+    driver.dispose();
+    push([]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(frames()).toHaveLength(1);
   });
 });
 

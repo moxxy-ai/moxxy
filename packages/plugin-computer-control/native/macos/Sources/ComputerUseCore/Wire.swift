@@ -66,7 +66,8 @@ public enum ProtocolFault: Error, Equatable, Sendable {
 }
 
 public enum ControlCommand: String, Sendable, Equatable {
-    case pause, resume, stop
+    /// `takeover` pauses, hides the agent cursor and lets go of held keys and buttons.
+    case pause, resume, stop, takeover
 }
 
 public enum Incoming: Equatable, Sendable {

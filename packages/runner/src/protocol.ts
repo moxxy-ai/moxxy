@@ -3,6 +3,7 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   CommandOutput,
+  ComputerControlSnapshot,
   MoxxyEvent,
   PendingToolCall,
   PermissionContext,
@@ -169,7 +170,8 @@ import type {
 /** v20: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
 /** v21: `session.setAutoApprove` switches the conversation's auto-approve; `SessionInfo.autoApprove` reports it (additive). */
 /** v22: `SessionInfo.runningTurns` lists every running turn, including one a channel bot runs inside the runner, and `abort` reaches such a turn (additive). */
-export const RUNNER_PROTOCOL_VERSION = 22;
+/** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
+export const RUNNER_PROTOCOL_VERSION = 23;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -318,6 +320,11 @@ export const RunnerNotification = {
    * opened that surface simply ignores frames it has no pane for (v8).
    */
   SurfaceData: 'surface.data',
+  /**
+   * The session's Computer Use turns changed (state, cursor, target). Carries
+   * every turn of the session, so a client replaces what it showed (v23).
+   */
+  ComputerChanged: 'computer.changed',
 } as const;
 export type RunnerNotification = (typeof RunnerNotification)[keyof typeof RunnerNotification];
 
@@ -578,6 +585,9 @@ export interface TurnCompleteNotification {
 }
 export interface InfoChangedNotification {
   readonly info: SessionInfo;
+}
+export interface ComputerChangedNotification {
+  readonly turns: ReadonlyArray<ComputerControlSnapshot>;
 }
 export interface ReplayStartNotification {
   /** First seq this connection replays/streams; the mirror rebases to it. */

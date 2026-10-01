@@ -1,7 +1,21 @@
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { ComputerControlSnapshot } from '@moxxy/sdk';
 import { expect, it } from 'vitest';
 import { HelperTransport } from '../helper/transport.js';
 import { PROTOCOL_VERSION } from '../windows/contracts.js';
+import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
 import { TurnControls } from './turn-controls.js';
+
+/** A helper that writes every line it receives to a file, so a test can read what the host sent it. */
+function recordingHelper(version = CONTRACT_PROTOCOL_VERSION) {
+  const file = join(mkdtempSync(join(tmpdir(), 'moxxy-controls-')), 'stdin');
+  const transport = new HelperTransport(process.execPath, ['-e', `process.stdin.on('data', (d) => require('fs').appendFileSync(${JSON.stringify(file)}, d))`], { protocolVersion: version });
+  const sent = () => { try { return readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as unknown); } catch { return []; } };
+  return { transport, sent };
+}
+const until = async (check: () => boolean) => { for (let i = 0; i < 100 && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 20)); };
 
 it('distinguishes the independent panel Stop from a crashed worker', async () => {
   const controls = new TurnControls();
@@ -101,4 +115,62 @@ it('keeps each turn\'s cursor to itself and hides it when the helper dies', asyn
     await first.close();
     expect((await controls.forSession('a').snapshot())[0]).not.toHaveProperty('cursor');
   } finally { await Promise.all([first.close(), second.close()]); }
+});
+
+it('pushes every change of a session\'s turns to its subscribers, once per change and never to another session', async () => {
+  const controls = new TurnControls();
+  const first = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const other = new HelperTransport(process.execPath, ['-e', 'process.stdin.resume()'], { protocolVersion: PROTOCOL_VERSION });
+  const pushed: ReadonlyArray<ComputerControlSnapshot>[] = [];
+  const service = controls.forSession('a');
+  if (!service.subscribe) throw new Error('no subscribe');
+  const unsubscribe = service.subscribe((turns) => pushed.push(turns));
+  try {
+    controls.attach('a', 'one', first);
+    controls.attach('b', 'one', other);
+    controls.update('b', 'one', 'foreground');
+    expect(pushed).toEqual([[{ sessionId: 'a', turnId: 'one', state: 'idle', windowId: null }]]);
+    controls.update('a', 'one', 'foreground', 'w');
+    controls.update('a', 'one', 'foreground', 'w');
+    controls.cursor('a', 'one', { phase: 'moving', x: 0.5, y: 0.5 });
+    expect(pushed.map((turns) => turns[0]?.state)).toEqual(['idle', 'foreground', 'foreground']);
+    expect(pushed.at(-1)?.[0]?.cursor).toEqual({ phase: 'moving', x: 0.5, y: 0.5 });
+    // The helper dying is a change too: the turn fails and its cursor goes.
+    await first.close();
+    await until(() => pushed.at(-1)?.[0]?.state === 'failed');
+    expect(pushed.at(-1)?.[0]).toEqual({ sessionId: 'a', turnId: 'one', state: 'failed', windowId: 'w' });
+    controls.detach('a', 'one');
+    expect(pushed.at(-1)).toEqual([]);
+    unsubscribe();
+    controls.attach('a', 'two', other);
+    expect(pushed.at(-1)).toEqual([]);
+  } finally { unsubscribe(); await Promise.all([first.close(), other.close()]); }
+});
+
+it('takes over for the user: pauses the helper, hides the cursor and keeps it hidden until resumed', async () => {
+  const controls = new TurnControls();
+  const { transport, sent } = recordingHelper();
+  try {
+    controls.attach('s', 't', transport);
+    controls.cursor('s', 't', { phase: 'executing', x: 0.2, y: 0.2 });
+    const service = controls.forSession('s');
+    await service.control({ sessionId: 's', turnId: 't', command: 'takeover' });
+    expect((await service.snapshot())[0]).toEqual({ sessionId: 's', turnId: 't', state: 'paused_by_user', windowId: null });
+    controls.cursor('s', 't', { phase: 'moving', x: 0.4, y: 0.4 });
+    expect((await service.snapshot())[0]).not.toHaveProperty('cursor');
+    await service.control({ sessionId: 's', turnId: 't', command: 'resume' });
+    controls.cursor('s', 't', { phase: 'moving', x: 0.4, y: 0.4 });
+    expect((await service.snapshot())[0]?.cursor).toEqual({ phase: 'moving', x: 0.4, y: 0.4 });
+    await until(() => sent().length === 2);
+    expect(sent()).toEqual([{ version: CONTRACT_PROTOCOL_VERSION, control: 'takeover' }, { version: CONTRACT_PROTOCOL_VERSION, control: 'resume' }]);
+  } finally { await transport.close(); }
+});
+
+it('asks a helper without take-over to pause instead', async () => {
+  const { transport, sent } = recordingHelper(PROTOCOL_VERSION);
+  try {
+    transport.control('takeover');
+    await until(() => sent().length === 1);
+    expect(sent()).toEqual([{ version: PROTOCOL_VERSION, control: 'pause' }]);
+  } finally { await transport.close(); }
 });

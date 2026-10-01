@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { JsonLineDecoder, MAX_FRAME_BYTES, controlCommandSchema, controlStateSchemaFor, responseSchemaFor } from './protocol.js';
+import { JsonLineDecoder, MAX_FRAME_BYTES, TAKEOVER_PROTOCOL_VERSION, controlCommandSchema, controlStateSchemaFor, responseSchemaFor } from './protocol.js';
 
 /** A validated frame the helper emitted on its own (state changes, cursor moves, preview frames). */
 export interface HelperEvent { readonly event: string; readonly [field: string]: unknown }
@@ -43,6 +43,8 @@ export class HelperTransport {
   private stderrBytes = 0;
   get closed(): boolean { return this.stopped; }
   get stoppedByUser(): boolean { return this.userStopped; }
+  /** Settles once the helper process has exited, whatever the reason. */
+  get done(): Promise<void> { return this.exited; }
 
   private readonly version: number;
   private readonly timeoutMs: number;
@@ -111,7 +113,7 @@ export class HelperTransport {
   }
 
   /** Control uses the reader side of the helper, never its blocked request queue. */
-  control(command: 'pause' | 'resume' | 'stop'): void {
+  control(command: 'pause' | 'resume' | 'stop' | 'takeover'): void {
     controlCommandSchema.parse(command);
     if (this.stopped) throw new Error('Computer Use connection closed');
     if (command === 'stop') {
@@ -119,7 +121,8 @@ export class HelperTransport {
       this.fail(new Error('Computer Use stopped by user; action not retried.'));
       return;
     }
-    this.child.stdin.write(JSON.stringify({version: this.version, control: command}) + '\n');
+    const sent = command === 'takeover' && this.version < TAKEOVER_PROTOCOL_VERSION ? 'pause' : command;
+    this.child.stdin.write(JSON.stringify({version: this.version, control: sent}) + '\n');
   }
 
   private send(method: string, params: unknown, signal: AbortSignal): Promise<unknown> {

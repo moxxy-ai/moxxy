@@ -7,12 +7,17 @@ public final class AgentCursor: @unchecked Sendable {
     private var overlay: CursorOverlay?
     /// Where the cursor is in the target window; kept across targets like a real pointer. Request queue only.
     private var fraction = CGPoint(x: 0.5, y: 0.5)
+    /// Set while the user has taken over: the cursor shows nowhere, even when the model observes.
+    private let lock = NSLock()
+    private var takenOver = false
+    private var hidden: Bool { lock.withLock { takenOver } }
 
     public init(emit: @escaping @Sendable (Data) -> Void) { self.emit = emit }
 
     /// Shows the cursor over the window being worked in. A window on another Space or minimised gets
     /// no overlay (it would float over something else), but its position still goes to the PiP.
     func attach(to window: WindowCandidate) {
+        guard !hidden else { return }
         let id = WindowDirectory.onScreenWindowID(for: window)
         let fraction = fraction
         onMain { overlay in
@@ -24,7 +29,7 @@ public final class AgentCursor: @unchecked Sendable {
     /// Glides to `point` (screen) in `window`, then reports the phases around `body`: moving, executing,
     /// then delivered or failed. Without a window there is nothing to draw over, so it only runs `body`.
     func act(at point: CGPoint?, outline: CGRect?, in window: WindowCandidate?, _ body: () -> ActionResult) -> ActionResult {
-        guard let window else { return body() }
+        guard let window, !hidden else { return body() }
         let from = fraction
         if let point { fraction = OverlayGeometry.fraction(of: point, in: window.frame) }
         let to = fraction
@@ -54,6 +59,18 @@ public final class AgentCursor: @unchecked Sendable {
             MainActor.assumeIsolated { self.overlay?.dim(paused) }
         }
     }
+
+    /// The user took over: the cursor leaves the screen and every surface until `reveal()`.
+    public func hide() {
+        lock.withLock { takenOver = true }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { self.overlay?.hide() }
+        }
+        emit(CursorEvent.frame(phase: nil, at: .zero))
+    }
+
+    /// The user handed control back; the next observation or action shows the cursor again.
+    public func reveal() { lock.withLock { takenOver = false } }
 
     private func onMain<T: Sendable>(_ body: @MainActor (CursorOverlay) -> T) -> T {
         DispatchQueue.main.sync {

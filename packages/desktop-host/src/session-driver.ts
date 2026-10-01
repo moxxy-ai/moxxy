@@ -85,6 +85,18 @@ export class SessionDriver {
     this.syncOtherTurns();
     this.disposes.push(infoUnsub);
 
+    // Computer Use status is pushed, never polled: every change on the runner
+    // (from this app, a channel bot or the helper) reaches the control strip.
+    // A runner older than v23 has no push; the strip then shows the last read.
+    try {
+      const computerUnsub = this.session.computerControl.subscribe?.((turns) => {
+        this.send('computer.changed', { workspaceId, turns });
+      });
+      if (computerUnsub) this.disposes.push(computerUnsub);
+    } catch {
+      // Older runner: nothing to subscribe to.
+    }
+
     // `/new` from another client of the conversation (a channel bot, the TUI)
     // wiped the runner's log: clear this chat too, or it keeps the old one.
     this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));

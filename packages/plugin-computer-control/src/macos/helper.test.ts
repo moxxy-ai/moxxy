@@ -499,6 +499,29 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         } finally { await transport.close(); }
       });
 
+      it('lets the user take over: the held key is let go, the cursor leaves and stays away until resumed', async () => {
+        const cursors: unknown[] = [];
+        const transport = start((event) => { if (event.event === 'cursor') cursors.push(event.cursor); });
+        try {
+          await observe(transport);
+          const started = Date.now();
+          const holding = act(transport, { action: 'hold_key', key: 'shift', duration_s: 5, chord: chord(null, ['shift']) });
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          transport.control('takeover');
+          const held = await holding;
+          expect(Date.now() - started).toBeLessThan(3000);
+          expect(held.state && element(held.state, 'text:keys').title).toMatch(/^Held key 56 for [0-2]\.\d s$/);
+          // The model may look while the user has control; the cursor does not come back for it.
+          const hidden = cursors.lastIndexOf(null);
+          expect(hidden).toBeGreaterThanOrEqual(0);
+          await observe(transport);
+          expect(cursors.slice(hidden + 1)).toEqual([]);
+          transport.control('resume');
+          await observe(transport);
+          expect(cursors.at(-1)).toMatchObject({ phase: 'idle' });
+        } finally { await transport.close(); }
+      });
+
       it('refuses real pointer input while the user is moving the mouse', async () => {
         const transport = start();
         // Unmarked moves at the pointer's own position: the user's hand, without moving anything on screen.

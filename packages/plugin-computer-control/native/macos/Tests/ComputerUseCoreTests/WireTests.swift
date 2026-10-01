@@ -58,6 +58,7 @@ private func line(_ text: String) -> Data { Data(text.utf8) }
 
     @Test func decodesAControlFrame() throws {
         #expect(try Wire.decode(line("{\"version\":5,\"control\":\"pause\"}")) == .control(.pause))
+        #expect(try Wire.decode(line("{\"version\":5,\"control\":\"takeover\"}")) == .control(.takeover))
     }
 
     @Test(arguments: [

@@ -4,7 +4,9 @@ import { z } from 'zod';
 export const MAX_FRAME_BYTES = 3_000_000;
 const idSchema = z.string().min(1).max(160);
 
-export const controlCommandSchema = z.enum(['pause', 'resume', 'stop']);
+export const controlCommandSchema = z.enum(['pause', 'resume', 'stop', 'takeover']);
+/** The first helper protocol that understands `takeover`; older helpers are paused instead. */
+export const TAKEOVER_PROTOCOL_VERSION = 5;
 export const controlStates = ['idle', 'background', 'foreground', 'waiting_for_focus', 'paused_by_user', 'recovering', 'stopped', 'failed'] as const;
 
 /** A request-correlated state change; the transport suspends the request deadline while waiting. */

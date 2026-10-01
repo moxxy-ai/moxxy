@@ -1274,3 +1274,65 @@ Commit kroku 7d3: `0ad9ec06`.
 - Akcje nie przyjmują współrzędnych zrzutu pełnoekranowego — wszystkie
   działają na aplikacji i jej zrzucie; pełny ekran i zoom służą do czytania.
 - Batch nie liczy postępu (`ProgressTracker`) dla pojedynczych kroków.
+
+## Krok 9 — status wypychany zdarzeniami i „Przejmij” (2026-10-01)
+
+Poprzedni commit: `d9cd9481` (krok 8).
+
+**Wzorzec**
+- Codex pokazuje stan sterowania na żywo (bez odpytywania) i pozwala
+  człowiekowi przejąć okno; Claude ma „Stop” zawsze dostępny. U nas jeden
+  stan żyje w `TurnControls` (plugin) i jest wypychany do każdej powierzchni.
+
+**Co**
+- SDK: komenda `takeover`; `ComputerControlService.subscribe(listener)`
+  (opcjonalne — starsze usługi go nie mają).
+- Plugin: `TurnControls` trzyma słuchaczy per sesja i wypycha listę tur po
+  każdej zmianie (bez powtórek identycznego stanu), także po zakończeniu
+  procesu helpera (`HelperTransport.done`). `takeover` → `paused_by_user`,
+  kursor zdjęty i ukryty do `resume`. Protokół helpera v5
+  (`TAKEOVER_PROTOCOL_VERSION`); helper v4 dostaje zwykłe `pause`.
+- Helper Swift: ramka sterująca `takeover` — pauza bramki, `cursor.hide()`
+  (nakładka znika, zdarzenie `cursor: null`), zwolnienie trzymanych klawiszy
+  i przycisków; `resume` przywraca kursor przy następnej akcji.
+- Runner: notyfikacja `computer.changed`, `RUNNER_PROTOCOL_VERSION` 22 → 23,
+  `FLOOR_RUNNER_PROTOCOL` 23; serwer subskrybuje usługę i rozsyła do
+  wszystkich klientów; widok klienta ma `subscribe` (wymaga serwera v23).
+- Desktop: `SessionDriver` przekazuje zmiany jako zdarzenie IPC
+  `computer.changed {workspaceId, turns}`; `useComputerControl` — jedno
+  czytanie i subskrypcja zamiast timera 1 s; pasek pokazuje cel
+  (`aplikacja — okno`), stan tekstem i ikoną, przyciski Przejmij / Wznów /
+  Stop (Stop aktywny także w trakcie innej komendy). Pasek pojawia się przy
+  dowolnym narzędziu `computer_*` (wcześniej tylko `computer_app_catalog`
+  z Windows).
+
+**Testy (Red → Green)**
+- `turn-controls.test.ts` 8/8 (wypchnięcie na zmianę, takeover, helper v4);
+  `WireTests` (takeover); e2e helpera „lets the user take over…” — Red na
+  starej binarce (kod wyjścia 65), Green 1/1.
+- Runner: „pushes every Computer Use change to every attached client,
+  without polling” — 159/159.
+- `session-driver.test.ts` „forwards every Computer Use change…” — Red
+  (timeout), Green 16/16.
+- Desktop: `panel-model` (cel, ikona, `usesComputer`), `ComputerControlStrip`
+  (klawiatura, Stop podczas `busy`), `useComputerControl` (jedno czytanie,
+  inny workspace, zmiana przed odpowiedzią, takeover + koniec subskrypcji) —
+  Red 11 testów, Green 13/13.
+
+**Pominięcia i dla następcy**
+- Kanał mobilny (`plugin-channel-mobile`) nie obsługuje komend
+  `computer.*` ani zdarzenia — aplikacja mobilna nie ma paska sterowania.
+- Przycisk „Pause” zniknął z paska (zastąpił go „Take over”); komenda
+  `pause` zostaje w protokole dla strażnika helpera.
+
+**Walidacja**
+- `swift test` 125/125; `./build.sh` OK.
+- `pnpm --filter @moxxy/sdk --filter @moxxy/runner --filter @moxxy/desktop-ipc-contract --filter @moxxy/desktop-host --filter @moxxy/desktop test`
+  — 464, 159, 61, 802 (+1 pominięty), 874 testów zielonych.
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 26 plików / 284 testy.
+  W pierwszym przebiegu test „presses a control under a point through
+  accessibility” dostał `method: input` zamiast `ax` (okno fixture było
+  zasłonięte innym oknem, hit-test trafił w cudzy proces); sam i w drugim
+  pełnym przebiegu zielony — test zależy od tego, co leży nad fixture.
+- `pnpm build` 88/88; `pnpm typecheck` 150/150; `pnpm lint` 0 błędów
+  (96 wcześniejszych ostrzeżeń); `pnpm check:deps` 0 błędów.
