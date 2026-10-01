@@ -63,3 +63,16 @@ describe('hiding the preview', () => {
     expect(isPreviewHidden('ws-a')).toBe(false);
   });
 });
+
+it('remembers the size of a video stream instead of a picture, and forgets it when the turn stops', () => {
+  const chunk = { type: 'chunk', seq: 1, key: true, codec: 'avc1.4d001f', data: 'AAAA', timestamp: 0, width: 640, height: 400 };
+  const picture = { type: 'frame', seq: 1, image: { mediaType: 'image/jpeg', base64: 'abc', width: 320, height: 200 } };
+  const withPicture = applyPreview({ state: 'live' }, picture);
+  const video = applyPreview(withPicture, chunk);
+  expect(video).toEqual({ state: 'live', video: { width: 640, height: 400 } });
+  // The same size again changes nothing, so the canvas is not rebuilt for every chunk.
+  expect(applyPreview(video, { ...chunk, seq: 2, key: false })).toBe(video);
+  expect(applyPreview(video, { type: 'state', state: 'stale' })).toEqual({ state: 'stale', video: { width: 640, height: 400 } });
+  expect(applyPreview(video, picture)).toEqual({ state: 'live', frame: { seq: 1, image: picture.image } });
+  expect(applyPreview(video, { type: 'state', state: 'stopped' })).toEqual({ state: 'stopped' });
+});

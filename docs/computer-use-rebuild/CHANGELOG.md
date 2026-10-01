@@ -1567,3 +1567,74 @@ Poprzedni commit: `1060794a` (krok 11).
 - Run `36811088154`: sukces, 29 testów × 2 przebiegi (w tym prawdziwy
   Notatnik, schowek, panel strażnika, zabicie helpera w trakcie
   przeciągania).
+
+## Krok 13 — podgląd jako wideo H.264 z zapasem JPEG (2026-10-01)
+
+Poprzedni commit: `a8241c09` (krok 12).
+
+**Wzorzec**
+- Codex: podgląd dla człowieka to strumień wideo niezależny od obserwacji
+  modelu. Dokumentacja WebCodecs (Context7, `/w3c/webcodecs`, rejestracja
+  AVC): bez `description` w konfiguracji dekoder przyjmuje strumień Annex B —
+  dlatego helper wysyła Annex B z zestawami parametrów przed każdą klatką
+  kluczową i nie potrzeba kontenera.
+
+**Co**
+- Helper Swift: `Video.swift` — `VideoEncoder` (`VTCompressionSession`,
+  H.264 Main, tryb czasu rzeczywistego, bez przestawiania klatek, klatka
+  kluczowa co najwyżej co 10 s i na żądanie), czyste `H264.annexB` i
+  `H264.codec` (nazwa `avc1.PPCCLL` z SPS). `PreviewStream` ma kodek;
+  `preview.start {fps, codec?}`, nowe `preview.keyframe`. Dla nieruchomego
+  okna klatka kluczowa powstaje z ostatniego obrazu. Zdarzenie
+  `preview_chunk {seq, key, codec, data, timestamp, width, height}`.
+- TS: `PreviewController` negocjuje kodek — wideo tylko wtedy, gdy helper je
+  robi (`PlatformProfile.previewCodecs`, macOS: `h264`+`jpeg`) i każdy widz
+  umie je pokazać; inaczej JPEG dla wszystkich. Widz w strumieniu wideo nie
+  dostaje nic do najbliższej klatki kluczowej (po dołączeniu, po zgubionym
+  fragmencie, na własną prośbę). Surface: `configure {codecs}` i `keyframe`.
+  Helper bez wideo nie dostaje pola `codec` (Windows odrzuca nieznane pola).
+- Desktop: `video-preview.ts` — `gateChunk` (czysta polityka: delty są
+  porzucane, gdy kolejka dekodera > 3, aż do klatki kluczowej) i
+  `createVideoPainter` (WebCodecs `VideoDecoder` → canvas, nowy dekoder po
+  błędzie lub zmianie rozmiaru). `useComputerPreview` zgłasza `h264`, gdy
+  przeglądarka ma WebCodecs; `ComputerPreviewPip` oddaje canvas dekoderowi.
+
+**Testy (Red → Green)**
+- Red: brak `VideoChunk`/`H264`/`VideoEncoder` w Swift (błąd kompilacji
+  testów); `controller.accept/chunk/keyframe is not a function`; brak modułu
+  `video-preview`; hook nie wysyłał `configure`; komponent nie renderował
+  canvas dla wideo.
+- Green: `VideoTests.swift` 5 (w tym prawdziwy enkoder systemowy: klucz →
+  delty → klucz na żądanie), `controller.test.ts` +7, `surface.test.ts` +1,
+  `backend.test.ts` +2, e2e `helper.test.ts` +1 (prawdziwy `SCStream` →
+  H.264 z okna fixture), desktop `video-preview.test.ts` 7,
+  `preview-model` +1, `useComputerPreview` +2, `ComputerPreviewPip` +1.
+- Granica WebCodecs ma w testach jednostkowych atrapę (jsdom jej nie ma);
+  prawdziwe dekodowanie sprawdzone osobno: 40 fragmentów z helpera
+  zdekodowanych w Electronie 43.4.0 (Chrome 150) aplikacji — 40 klatek,
+  0 błędów, kodek `avc1.4d001f`, 960×648.
+
+**Pomiar** (`node native/macos/measure-preview.mjs 15`, aplikacja fixture,
+5 kl./s, zmiana treści co ~0,4 s, M-series)
+
+| kodek | obrazy | kB/s | CPU helpera | mediana opóźnienia |
+|---|---|---|---|---|
+| JPEG | 47 | 120,4 | 4,3% | 38 ms |
+| H.264 | 47 | 3,5 | 2,8% | 43 ms |
+
+Opóźnienie liczone od prośby o zmianę do pierwszego obrazu po niej; nie
+obejmuje dekodowania w rendererze.
+
+**Walidacja**
+- `swift test` 133/133; `./build.sh` OK (universal).
+- Plugin przy bezczynnym wejściu: 20 plików / 279 testów (z e2e).
+- Desktop 147 plików / 898 testów; `desktop-host` 75 / 805.
+- `pnpm build` 88/88; `pnpm -r typecheck` OK; `pnpm lint` 0 błędów;
+  `pnpm check:deps` 0 błędów.
+
+**Odstępstwo od planu**
+- Windows Media Foundation nie jest zrobione. Runner CI (Windows Server)
+  nie gwarantuje enkodera H.264, a lokalnie nie ma Windows, więc kod nie
+  miałby żadnej weryfikacji. Windows ogłasza tylko `jpeg` i działa przez tę
+  samą negocjację; dodanie enkodera to zmiana w `preview.cpp` + wpis
+  `previewCodecs` w `windows/profile.ts`.

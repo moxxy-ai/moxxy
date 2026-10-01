@@ -4,6 +4,7 @@ import { __setApiOverride, connectionStore } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { reloadPreviewHiddenFromStorage } from './preview-model';
 import { useComputerPreview } from './useComputerPreview';
+import type { VideoCodecs } from './video-preview';
 
 const CONNECTED: ConnectionPhase = { phase: 'connected', socket: '/tmp/serve.sock', sessionId: 's', activeProvider: null, activeMode: null };
 const image = { mediaType: 'image/jpeg' as const, base64: 'abc', width: 640, height: 400 };
@@ -62,4 +63,38 @@ it('stops watching when the user hides it, here or everywhere, and can show it a
   act(() => result.current.show());
   await waitFor(() => expect(result.current.view).not.toBeNull());
   expect(result.current.hidden).toBe(false);
+});
+
+it('tells the surface it can decode video, feeds chunks to the decoder and asks for a key frame when it falls behind', async () => {
+  const fake = installApi();
+  const decoded: string[] = [];
+  let queue = 0;
+  class Decoder {
+    get decodeQueueSize() { return queue; }
+    configure() { decoded.push('configure'); }
+    decode(chunk: { type: string }) { decoded.push(chunk.type); }
+    close() { decoded.push('close'); }
+  }
+  class Chunk { readonly type: string; constructor(init: { type: string }) { this.type = init.type; } }
+  const codecs = { Decoder, Chunk } as unknown as VideoCodecs;
+  const { result, unmount } = renderHook(() => useComputerPreview('ws', true, codecs));
+  await waitFor(() => expect(fake.calls.some((call) => call.channel === 'surface.input')).toBe(true));
+  expect(fake.calls.find((call) => call.channel === 'surface.input')?.args).toEqual({ workspaceId: 'ws', surfaceId: 'preview-1', message: { type: 'configure', codecs: ['h264', 'jpeg'] } });
+  const chunk = { type: 'chunk', seq: 1, key: true, codec: 'avc1.4d001f', data: btoa('unit'), timestamp: 0, width: 640, height: 400 };
+  fake.push(chunk);
+  fake.push({ ...chunk, seq: 2, key: false });
+  expect(decoded).toEqual(['configure', 'key', 'delta']);
+  expect(result.current.view).toEqual({ state: 'live', video: { width: 640, height: 400 } });
+  queue = 9;
+  fake.push({ ...chunk, seq: 3, key: false });
+  await waitFor(() => expect(fake.calls.at(-1)).toEqual({ channel: 'surface.input', args: { workspaceId: 'ws', surfaceId: 'preview-1', message: { type: 'keyframe' } } }));
+  unmount();
+  expect(decoded.at(-1)).toBe('close');
+});
+
+it('asks for pictures only where the browser has no video decoder', async () => {
+  const fake = installApi();
+  const { result } = renderHook(() => useComputerPreview('ws', true));
+  await waitFor(() => expect(result.current.view).not.toBeNull());
+  expect(fake.channels()).not.toContain('surface.input');
 });

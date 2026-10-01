@@ -1,11 +1,13 @@
 import { useSyncExternalStore } from 'react';
 import type { ComputerCursor } from '@moxxy/sdk';
+import { asVideoChunk } from './video-preview';
 
 /** Mirrors the `computer-preview` surface of @moxxy/plugin-computer-control. */
 export const COMPUTER_PREVIEW_SURFACE = 'computer-preview';
 export interface PreviewImage { mediaType: 'image/jpeg'; base64: string; width: number; height: number }
 export type PreviewState = 'live' | 'stale' | 'unavailable' | 'stopped';
-export interface PreviewView { state: PreviewState; reason?: string; frame?: { seq: number; image: PreviewImage } }
+/** A view shows the latest JPEG `frame`, or a `video` stream painted by the decoder (only its size is state). */
+export interface PreviewView { state: PreviewState; reason?: string; frame?: { seq: number; image: PreviewImage }; video?: { width: number; height: number } }
 export const STOPPED_PREVIEW: PreviewView = { state: 'stopped' };
 
 const states: ReadonlySet<string> = new Set(['live', 'stale', 'unavailable', 'stopped']);
@@ -23,11 +25,11 @@ function asFrame(value: unknown): PreviewView['frame'] {
   return image ? { seq: value.seq, image } : undefined;
 }
 
-function withState(view: PreviewView, state: unknown, reason: unknown, frame: PreviewView['frame']): PreviewView {
+function withState(view: PreviewView, state: unknown, reason: unknown, frame: PreviewView['frame'], video?: PreviewView['video']): PreviewView {
   if (typeof state !== 'string' || !states.has(state)) return view;
   // A stopped turn leaves nothing of the app on screen.
   if (state === 'stopped') return STOPPED_PREVIEW;
-  return { state: state as PreviewState, ...(typeof reason === 'string' ? { reason } : {}), ...(frame ? { frame } : {}) };
+  return { state: state as PreviewState, ...(typeof reason === 'string' ? { reason } : {}), ...(frame ? { frame } : {}), ...(video ? { video } : {}) };
 }
 
 /** Folds a surface snapshot or message into what the PiP shows; anything else leaves it unchanged. */
@@ -35,9 +37,18 @@ export function applyPreview(view: PreviewView, payload: unknown): PreviewView {
   if (!isRecord(payload)) return view;
   if (payload.type === 'frame') {
     const frame = asFrame(payload);
-    return frame && frame.seq > (view.frame?.seq ?? -1) ? { ...view, frame } : view;
+    if (!frame || (!view.video && frame.seq <= (view.frame?.seq ?? -1))) return view;
+    // Pictures replace a video stream, and the other way round below.
+    const { video: _video, ...rest } = view;
+    return { ...rest, frame };
   }
-  if (payload.type === 'state') return withState(view, payload.state, payload.reason, view.frame);
+  if (payload.type === 'chunk') {
+    const chunk = asVideoChunk(payload);
+    if (!chunk || (view.video?.width === chunk.width && view.video.height === chunk.height)) return view;
+    const { frame: _frame, ...rest } = view;
+    return { ...rest, video: { width: chunk.width, height: chunk.height } };
+  }
+  if (payload.type === 'state') return withState(view, payload.state, payload.reason, view.frame, view.video);
   return payload.type === undefined ? withState(view, payload.state, payload.reason, asFrame(payload.frame)) : view;
 }
 

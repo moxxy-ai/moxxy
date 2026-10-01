@@ -52,8 +52,15 @@ public enum Methods {
                 }
                 var requested: Double?
                 if case let .number(fps)? = params["fps"] { requested = fps }
-                preview.start(fps: PreviewPolicy.fps(requested))
+                guard let codec = PreviewPolicy.codec(params["codec"]?.stringValue) else {
+                    throw HelperError.invalidParams("codec must be jpeg or h264")
+                }
+                preview.start(fps: PreviewPolicy.fps(requested), codec: codec)
                 return .object(["started": .bool(true)])
+            },
+            "preview.keyframe": { _ in
+                preview?.keyframe()
+                return .object(["requested": .bool(true)])
             },
             "preview.stop": { _ in
                 preview?.stop()

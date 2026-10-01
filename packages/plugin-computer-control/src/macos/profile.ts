@@ -15,4 +15,5 @@ export const macosProfile: PlatformProfile = {
   unavailableMessage: 'The macOS Computer Use helper is missing or does not match this version. Reinstall Moxxy; chat remains available.',
   // Launching an app and letting it settle can take several seconds on its own.
   timeoutMs: 30_000,
+  previewCodecs: ['h264', 'jpeg'],
 };

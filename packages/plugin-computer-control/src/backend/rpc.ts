@@ -66,7 +66,16 @@ export const previewFrameEventSchemaFor = (version: number) => z.object({
   error: z.string().max(500).optional(),
 }).strict();
 
+/** One access unit of the preview video (H.264, Annex B, base64), sent when `preview.start` asked for `h264`. */
+export const previewChunkEventSchemaFor = (version: number) => z.object({
+  version: z.literal(version), event: z.literal('preview_chunk'), seq: z.number().int().nonnegative(),
+  key: z.boolean(), codec: z.string().regex(/^avc1\.[0-9a-f]{6}$/i), data: z.string().min(1).max(4_000_000),
+  timestamp: z.number().int().nonnegative(),
+  width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192),
+}).strict();
+
 /** Every uncorrelated event a contract helper may send besides `control_state`. */
 export const contractEventsFor = (version: number) => ({
   cursor: cursorEventSchemaFor(version), preview_frame: previewFrameEventSchemaFor(version),
+  preview_chunk: previewChunkEventSchemaFor(version),
 });

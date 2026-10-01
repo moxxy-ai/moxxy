@@ -10,9 +10,11 @@ interface Props {
   target: string | null;
   cursor: ComputerCursor | null;
   onHide(scope: HideScope): void;
+  /** Receives the canvas while the view is a video stream; the decoder paints into it. */
+  videoCanvas?: (canvas: HTMLCanvasElement | null) => void;
 }
 
-/** Paints the latest frame; a canvas so a video decoder can paint into the same element later. */
+/** Paints the latest JPEG frame; a video stream is painted into the same kind of element by its decoder. */
 function useFrame(image: PreviewImage | undefined) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -25,13 +27,15 @@ function useFrame(image: PreviewImage | undefined) {
   return canvas;
 }
 
-export function ComputerPreviewPip({ view, target, cursor, onHide }: Props): JSX.Element {
+export function ComputerPreviewPip({ view, target, cursor, onHide, videoCanvas }: Props): JSX.Element {
   const image = view.frame?.image;
   const canvas = useFrame(image);
+  const size = image ?? view.video;
   return <figure className="computer-preview" data-state={view.state}>
     <div className="computer-preview__picture">
-      {image && <canvas ref={canvas} role="img" aria-label={target ? `Live view of ${target}` : 'Live view of the app in use'} width={image.width} height={image.height} />}
-      {image && cursor && <span data-testid="computer-preview-cursor" className="computer-preview__cursor" data-phase={cursor.phase} style={cursorPlace(cursor)} />}
+      {size && <canvas key={image ? 'frames' : 'video'} ref={image ? canvas : videoCanvas} role="img"
+        aria-label={target ? `Live view of ${target}` : 'Live view of the app in use'} width={size.width} height={size.height} />}
+      {size && cursor && <span data-testid="computer-preview-cursor" className="computer-preview__cursor" data-phase={cursor.phase} style={cursorPlace(cursor)} />}
     </div>
     <figcaption>
       <span role="status" aria-live="polite">{previewLabel(view)}</span>

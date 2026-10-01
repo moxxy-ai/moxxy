@@ -18,7 +18,7 @@ import {
   actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema,
   type AppState, type HelperImage,
 } from './rpc.js';
-import { PreviewController, type PreviewSource } from '../preview/controller.js';
+import { PreviewController, type PreviewCodec, type PreviewSource } from '../preview/controller.js';
 import { buildComputerPreviewSurface } from '../preview/surface.js';
 import { TurnControls } from './turn-controls.js';
 
@@ -31,6 +31,8 @@ export interface PlatformProfile {
   readonly verifyHelper: () => Promise<void>;
   readonly unavailableMessage: string;
   readonly timeoutMs?: number;
+  /** What the helper's live preview can produce; JPEG frames only when absent. */
+  readonly previewCodecs?: readonly PreviewCodec[];
 }
 
 interface Turn {
@@ -270,8 +272,11 @@ export class ComputerBackend {
     // Preview requests carry a signal that never aborts: an aborted request ends the helper.
     const idle = new AbortController().signal;
     const source: PreviewSource = {
-      start: async (fps) => { await transport.request('preview.start', { fps }, idle); },
+      codecs: this.profile.previewCodecs ?? ['jpeg'],
+      // A helper that only makes pictures does not know the `codec` field.
+      start: async (fps, codec) => { await transport.request('preview.start', codec === 'jpeg' ? { fps } : { fps, codec }, idle); },
       stop: async () => { if (!transport.closed) await transport.request('preview.stop', {}, idle); },
+      keyframe: async () => { if (!transport.closed) await transport.request('preview.keyframe', {}, idle); },
     };
     const transport: HelperTransport = new HelperTransport(this.profile.helperPath, [...this.profile.helperArgs, '--parent', String(process.pid)], {
       protocolVersion: this.profile.protocolVersion,
@@ -284,6 +289,9 @@ export class ComputerBackend {
           const frame = events.preview_frame.parse(event);
           if (frame.error) this.preview.failed(source, frame.error);
           else this.preview.frame(source, frame.image);
+        } else if (event.event === 'preview_chunk') {
+          const { version: _version, event: _event, ...chunk } = events.preview_chunk.parse(event);
+          this.preview.chunk(source, chunk);
         }
       },
     });

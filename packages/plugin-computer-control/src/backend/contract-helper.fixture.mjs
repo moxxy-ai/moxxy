@@ -57,11 +57,14 @@ const methods = {
   }),
   'permissions.request': () => ({ opened: true }),
   // Like the native helper: capture answers at once and frames follow as events.
-  'preview.start': ({ fps }) => {
+  'preview.start': ({ fps, codec }) => {
     const image = { mediaType: 'image/jpeg', base64: `frame@${fps}`, width: 640, height: 400 };
-    setImmediate(() => process.stdout.write(JSON.stringify({ version: VERSION, event: 'preview_frame', seq: 1, image }) + '\n'));
+    const chunk = { seq: 1, key: true, codec: 'avc1.4d001f', data: 'dmlkZW8=', timestamp: 0, width: 640, height: 400 };
+    const event = codec === 'h264' ? { event: 'preview_chunk', ...chunk } : { event: 'preview_frame', seq: 1, image };
+    setImmediate(() => process.stdout.write(JSON.stringify({ version: VERSION, ...event }) + '\n'));
     return { started: true };
   },
+  'preview.keyframe': () => ({ requested: true }),
   'preview.stop': () => ({ stopped: true }),
   list_apps: ({ query, limit }) => {
     const matching = apps.filter((app) => !query || `${app.name} ${app.id}`.toLowerCase().includes(query.toLowerCase()));

@@ -232,7 +232,7 @@ export function ChatSurface({
         {notice}
         {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
           previewHidden={preview.hidden} onShowPreview={preview.show} />}
-        {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} />}
+        {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (

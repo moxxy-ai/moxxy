@@ -12,8 +12,28 @@ export interface PreviewImage {
  */
 export type PreviewState = 'live' | 'stale' | 'unavailable' | 'stopped';
 
+/** How the picture travels: single JPEG frames, or an H.264 stream for viewers that can decode one. */
+export type PreviewCodec = 'jpeg' | 'h264';
+const isCodec = (value: unknown): value is PreviewCodec => value === 'jpeg' || value === 'h264';
+/** The codecs in `value` this controller knows; anything else in the list is ignored. */
+export const previewCodecs = (value: unknown): PreviewCodec[] => (Array.isArray(value) ? value.filter(isCodec) : []);
+
+/** One access unit of the video, Annex B, base64. A key chunk decodes without anything before it. */
+export interface PreviewChunk {
+  readonly seq: number;
+  readonly key: boolean;
+  /** RFC 6381 codec string, e.g. `avc1.4d001f`. */
+  readonly codec: string;
+  readonly data: string;
+  /** Microseconds. */
+  readonly timestamp: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export type PreviewMessage =
   | { readonly type: 'frame'; readonly seq: number; readonly image: PreviewImage }
+  | ({ readonly type: 'chunk' } & PreviewChunk)
   | { readonly type: 'state'; readonly state: PreviewState; readonly reason?: string };
 
 export interface PreviewSnapshot {
@@ -24,28 +44,42 @@ export interface PreviewSnapshot {
 
 /** One turn's helper, as far as the preview is concerned. `start` on a running producer changes its rate. */
 export interface PreviewSource {
-  start(fps: number): Promise<void>;
+  /** What this helper can produce. */
+  readonly codecs: readonly PreviewCodec[];
+  start(fps: number, codec: PreviewCodec): Promise<void>;
   stop(): Promise<void>;
+  /** Make the next chunk a key frame. */
+  keyframe(): Promise<void>;
 }
 
 export const PREVIEW_FPS = { default: 2, min: 1, max: 5 } as const;
 const clampFps = (fps: number) => Math.min(PREVIEW_FPS.max, Math.max(PREVIEW_FPS.min, Math.round(fps)));
 
 type Listener = (message: PreviewMessage) => void;
+interface Viewer {
+  /** What this viewer can show. */
+  codecs: readonly PreviewCodec[];
+  /** In a video stream: nothing is sent to it until the next key frame. */
+  waiting: boolean;
+}
 
 /**
  * Connects the viewers of the preview to the helper of the turn that is using
  * the computer. The helper captures only while someone watches; viewers get the
- * latest frame at the chosen rate, never a backlog.
+ * latest frame at the chosen rate, never a backlog. Video is used when the
+ * helper makes it and every viewer can decode it; a viewer that cannot follow
+ * the stream gets nothing until the next key frame.
  */
 export class PreviewController {
-  private readonly listeners = new Set<Listener>();
+  private readonly listeners = new Map<Listener, Viewer>();
   private readonly staleAfterMs: number;
   private fps: number;
   /** The newest attached turn; older ones are ignored. */
   private active?: PreviewSource;
   /** What the active producer was last asked to do. */
-  private running?: { readonly source: PreviewSource; readonly fps: number };
+  private running?: { readonly source: PreviewSource; readonly fps: number; readonly codec: PreviewCodec };
+  /** Sequence number of the last chunk the producer sent. */
+  private lastChunk?: number;
   private state: PreviewState = 'stopped';
   private reason?: string;
   private seq = 0;
@@ -60,8 +94,8 @@ export class PreviewController {
   }
 
   /** A viewer joins: it gets the current state and latest frame at once, then every change. */
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
+  subscribe(listener: Listener, codecs: readonly PreviewCodec[] = ['jpeg']): () => void {
+    this.listeners.set(listener, { codecs, waiting: true });
     listener(this.stateMessage());
     if (this.latest) listener({ type: 'frame', ...this.latest });
     this.sync();
@@ -69,6 +103,22 @@ export class PreviewController {
       if (!this.listeners.delete(listener)) return;
       this.sync();
     };
+  }
+
+  /** A viewer says what it can show, after it joined. */
+  accept(listener: Listener, codecs: readonly PreviewCodec[]): void {
+    const viewer = this.listeners.get(listener);
+    if (!viewer) return;
+    viewer.codecs = codecs;
+    this.sync();
+  }
+
+  /** A viewer lost its place in the video (it dropped chunks or its decoder failed). */
+  keyframe(listener: Listener): void {
+    const viewer = this.listeners.get(listener);
+    if (!viewer || this.running?.codec !== 'h264') return;
+    viewer.waiting = true;
+    this.askForKey(this.running.source);
   }
 
   snapshot(): PreviewSnapshot {
@@ -98,20 +148,50 @@ export class PreviewController {
   /** A frame from a producer, or `undefined` for "still running, nothing changed". */
   frame(source: PreviewSource, image: PreviewImage | undefined): void {
     if (source !== this.active || this.listeners.size === 0) return;
-    this.setState('live');
-    clearTimeout(this.quiet);
-    this.quiet = setTimeout(() => this.setState('stale'), this.staleAfterMs);
-    if (!image) return;
+    this.alive();
+    if (!image || this.running?.codec === 'h264') return;
     this.latest = { seq: ++this.seq, image };
     const wait = this.deliveredAt + 1000 / this.fps - Date.now();
     if (wait <= 0) this.deliver();
     else this.flush ??= setTimeout(() => this.deliver(), wait);
   }
 
+  /** A piece of the video from a producer. */
+  chunk(source: PreviewSource, chunk: PreviewChunk): void {
+    if (source !== this.active || this.running?.codec !== 'h264' || this.listeners.size === 0) return;
+    this.alive();
+    // A chunk went missing: what follows cannot be decoded until the stream starts again.
+    const lost = !chunk.key && this.lastChunk !== undefined && chunk.seq !== this.lastChunk + 1;
+    this.lastChunk = chunk.seq;
+    if (lost) {
+      for (const viewer of this.listeners.values()) viewer.waiting = true;
+      this.askForKey(source);
+    }
+    for (const [listener, viewer] of this.listeners) {
+      if (chunk.key) viewer.waiting = false;
+      if (!viewer.waiting) listener({ type: 'chunk', ...chunk });
+    }
+  }
+
   failed(source: PreviewSource, reason: string): void {
     if (source !== this.active) return;
     clearTimeout(this.quiet);
     this.setState('unavailable', reason);
+  }
+
+  private alive(): void {
+    this.setState('live');
+    clearTimeout(this.quiet);
+    this.quiet = setTimeout(() => this.setState('stale'), this.staleAfterMs);
+  }
+
+  private askForKey(source: PreviewSource): void {
+    void source.keyframe().catch(() => undefined);
+  }
+
+  private codecFor(source: PreviewSource): PreviewCodec {
+    const everyone = [...this.listeners.values()].every((viewer) => viewer.codecs.includes('h264'));
+    return everyone && source.codecs.includes('h264') ? 'h264' : 'jpeg';
   }
 
   private deliver(): void {
@@ -122,9 +202,9 @@ export class PreviewController {
     this.emit({ type: 'frame', ...this.latest });
   }
 
-  /** Makes the producer match what is wanted: running at the current rate only while watched. */
+  /** Makes the producer match what is wanted: running at the current rate and codec only while watched. */
   private sync(): void {
-    const wanted = this.active && this.listeners.size > 0 ? { source: this.active, fps: this.fps } : undefined;
+    const wanted = this.active && this.listeners.size > 0 ? { source: this.active, fps: this.fps, codec: this.codecFor(this.active) } : undefined;
     const running = this.running;
     if (running && running.source !== wanted?.source) {
       this.running = undefined;
@@ -133,9 +213,19 @@ export class PreviewController {
       this.flush = undefined;
       void running.source.stop().catch(() => undefined);
     }
-    if (!wanted || (this.running?.source === wanted.source && this.running.fps === wanted.fps)) return;
-    this.running = wanted;
-    wanted.source.start(wanted.fps).catch((error: unknown) => this.failed(wanted.source, error instanceof Error ? error.message : String(error)));
+    if (!wanted) return;
+    const same = this.running?.source === wanted.source && this.running.fps === wanted.fps && this.running.codec === wanted.codec;
+    if (!same) {
+      if (this.running?.codec !== wanted.codec) {
+        // The other kind of stream starts from nothing: no old picture, no place in the old video.
+        this.forget();
+        for (const viewer of this.listeners.values()) viewer.waiting = true;
+      }
+      this.running = wanted;
+      wanted.source.start(wanted.fps, wanted.codec).catch((error: unknown) => this.failed(wanted.source, error instanceof Error ? error.message : String(error)));
+    }
+    // Whoever is waiting in a video stream (a new viewer, or all of them after a switch) needs a key frame.
+    if (wanted.codec === 'h264' && [...this.listeners.values()].some((viewer) => viewer.waiting) && this.lastChunk !== undefined) this.askForKey(wanted.source);
   }
 
   private forget(): void {
@@ -143,6 +233,7 @@ export class PreviewController {
     clearTimeout(this.flush);
     this.flush = undefined;
     this.latest = undefined;
+    this.lastChunk = undefined;
     this.deliveredAt = Number.NEGATIVE_INFINITY;
   }
 
@@ -158,6 +249,6 @@ export class PreviewController {
   }
 
   private emit(message: PreviewMessage): void {
-    for (const listener of this.listeners) listener(message);
+    for (const listener of this.listeners.keys()) listener(message);
   }
 }

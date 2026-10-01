@@ -15,7 +15,8 @@ let requestsFile: string;
 let events: MoxxyEvent[];
 let backends: ComputerBackend[];
 
-const profile = (): PlatformProfile => ({
+const profile = (extra: Partial<PlatformProfile> = {}): PlatformProfile => ({
+  ...extra,
   platform: 'darwin',
   protocolVersion: CONTRACT_PROTOCOL_VERSION,
   helperPath: process.execPath,
@@ -25,8 +26,8 @@ const profile = (): PlatformProfile => ({
   unavailableMessage: 'Computer Use helper is missing.',
 });
 
-function backend(hints: AppHint[] = []): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
-  const instance = new ComputerBackend(profile(), hints);
+function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
+  const instance = new ComputerBackend(profile(extra), hints);
   backends.push(instance);
   return { instance, tools: new Map(instance.tools().map((tool) => [tool.name, tool])) };
 }
@@ -347,6 +348,30 @@ describe('live preview', () => {
     const output = await run(tools, 'computer_get_app_state', { app: 'TextEdit' });
     expect(JSON.stringify(output)).not.toContain('frame@');
     expect(JSON.stringify(events)).not.toContain('frame@');
+  });
+
+  it('asks a helper that makes video for video when the viewer can decode it, and for a key frame on demand', async () => {
+    const { instance, tools } = backend([], { previewCodecs: ['h264', 'jpeg'] });
+    const messages: PreviewMessage[] = [];
+    const listener = (message: PreviewMessage) => { messages.push(message); };
+    instance.preview.subscribe(listener, ['h264', 'jpeg']);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    await waitFor(() => messages.some((message) => message.type === 'chunk'));
+    expect(messages.find((message) => message.type === 'chunk')).toEqual({
+      type: 'chunk', seq: 1, key: true, codec: 'avc1.4d001f', data: 'dmlkZW8=', timestamp: 0, width: 640, height: 400,
+    });
+    instance.preview.keyframe(listener);
+    await waitFor(() => methods().includes('preview.keyframe'));
+    expect(helperRequests(requestsFile).find((request) => request.method === 'preview.start')).toEqual({ method: 'preview.start', params: { fps: 2, codec: 'h264' } });
+  });
+
+  it('asks a helper without video for pictures, with no codec in the request', async () => {
+    const { instance, tools } = backend();
+    const messages: PreviewMessage[] = [];
+    instance.preview.subscribe((message) => messages.push(message), ['h264', 'jpeg']);
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit a note' });
+    await waitFor(() => messages.some((message) => message.type === 'frame'));
+    expect(helperRequests(requestsFile).filter((request) => request.method.startsWith('preview.'))).toEqual([{ method: 'preview.start', params: { fps: 2 } }]);
   });
 
   it('offers the preview as a surface of the plugin', () => {

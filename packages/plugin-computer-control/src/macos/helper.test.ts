@@ -703,6 +703,41 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         } finally { await transport.close(); }
       });
 
+      it('streams the window as H.264 when asked: a key frame first, and a new one on request', async () => {
+        type Chunk = { event: string; seq: number; key: boolean; codec: string; data: string; width: number; height: number; timestamp: number };
+        const chunks: Chunk[] = [];
+        const pictures: Preview[] = [];
+        const transport = start((event) => {
+          if (event.event === 'preview_chunk') chunks.push(event as unknown as Chunk);
+          if (event.event === 'preview_frame') pictures.push(event as unknown as Preview);
+        });
+        try {
+          await observe(transport);
+          await transport.request('preview.start', { fps: 5, codec: 'h264' }, signal());
+          expect(await until(() => chunks.length > 0, 5000)).toBe(true);
+          const first = chunks[0];
+          expect(first?.key).toBe(true);
+          expect(first?.codec).toMatch(/^avc1\.[0-9a-f]{6}$/);
+          const bytes = Buffer.from(first?.data ?? '', 'base64');
+          expect(bytes.subarray(0, 4)).toEqual(Buffer.from([0, 0, 0, 1]));
+          // The stream starts with its sequence parameter set, so a decoder needs nothing else.
+          expect((bytes[4] ?? 0) & 0x1f).toBe(7);
+          expect(Math.max(first?.width ?? 0, first?.height ?? 0)).toBeLessThanOrEqual(960);
+          expect((first?.width ?? 1) % 2).toBe(0);
+
+          // The window is still, so nothing new is encoded until a viewer needs to start decoding.
+          const seen = chunks.length;
+          await transport.request('preview.keyframe', {}, signal());
+          expect(await until(() => chunks.slice(seen).some((chunk) => chunk.key), 5000)).toBe(true);
+          expect(chunks.map((chunk) => chunk.seq)).toEqual([...chunks.map((chunk) => chunk.seq)].sort((a, b) => a - b));
+          // Video replaces the pictures; only "still running" frames without a picture remain.
+          expect(pictures.filter((preview) => preview.image)).toEqual([]);
+
+          await expect(transport.request('preview.start', { codec: 'vp9' }, signal())).rejects.toMatchObject({ code: 'invalid_params' });
+          await transport.request('preview.stop', {}, signal());
+        } finally { await transport.close(); }
+      });
+
       it('starts capturing once a window is observed when the preview was asked for first', async () => {
         const previews: Preview[] = [];
         const transport = start((event) => { if (event.event === 'preview_frame') previews.push(event as unknown as Preview); });

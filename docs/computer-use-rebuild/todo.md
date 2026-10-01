@@ -4,10 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 13 — podgląd jako wideo H.264 (krok 12 gotowy, CI
-  `Computer Use Windows` zielone: 29 testów na prawdziwym pulpicie, dwa razy).
-- **Następna czynność:** `VTCompressionSession` w helperze Swift, zdarzenia
-  `preview_chunk`, negocjacja kodeka i `VideoDecoder` w rendererze.
+- **Bieżący krok:** 14 — aplikacja testowa, benchmark, dokumentacja (krok 13
+  gotowy).
+- **Następna czynność:** płótno bez AX z osią czasu w fixture macOS, skrypt
+  testów, `docs/computer-use-macos.md`, potem próba Computer Use w samym moxxy.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -97,8 +97,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Zielone CI `computer-use-windows.yml` (run 36811088154; poprawki po pierwszej kompilacji w commitach `fix(computer-use): …`).
 
 ### Krok 13 — PiP jako wideo
-- [ ] H.264 (VideoToolbox / Media Foundation), zdarzenia `preview_chunk`.
-- [ ] WebCodecs w rendererze, negocjacja kodeka, fallback JPEG, porzucanie delt.
+- [x] H.264 na macOS (`VTCompressionSession`), zdarzenia `preview_chunk`, `preview.keyframe`.
+- [x] WebCodecs w rendererze, negocjacja kodeka, fallback JPEG, porzucanie delt do klatki kluczowej.
+- [x] Pomiar JPEG vs H.264 (`native/macos/measure-preview.mjs`).
+- [ ] Windows: Media Foundation — nie zrobione; Windows zostaje na JPEG przez negocjację (patrz CHANGELOG).
 
 ### Krok 14 — aplikacja testowa, benchmark, dokumentacja
 - [ ] Fixture macOS (w tym płótno bez AX z osią czasu) + skrypt testów.

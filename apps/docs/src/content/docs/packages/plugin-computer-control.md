@@ -30,6 +30,15 @@ macOS and Windows x64 share these tools; each system has its own native
 helper behind them. Windows specifics are in
 [`docs/computer-use-windows.md`](https://github.com/moxxy-ai/moxxy/blob/main/docs/computer-use-windows.md).
 
+## Live view
+
+While a turn works in an app, the desktop chat shows that window in a small
+live view with the agent's cursor drawn on top. It is the `computer-preview`
+surface of this plugin: the helper captures only while someone is watching,
+and the picture is never sent to the model or written to the session log.
+On macOS the view is H.264 video decoded with WebCodecs; a viewer without a
+video decoder, and every viewer on Windows, gets JPEG frames instead.
+
 ## Use
 
 ```ts

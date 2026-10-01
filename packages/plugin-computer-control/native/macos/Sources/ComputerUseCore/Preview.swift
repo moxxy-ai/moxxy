@@ -10,6 +10,12 @@ public enum PreviewPolicy {
     /// How often a running capture says so when nothing on screen changes.
     static let aliveInterval: TimeInterval = 1
 
+    /// What the viewer can show; without a wish it gets still pictures. `nil` for a name this helper does not know.
+    public static func codec(_ requested: String?) -> PreviewCodec? {
+        guard let requested else { return .jpeg }
+        return PreviewCodec(rawValue: requested)
+    }
+
     public static func fps(_ requested: Double?) -> Int {
         guard let requested else { return 2 }
         return min(5, max(1, Int(requested.rounded())))
@@ -31,7 +37,7 @@ public enum PreviewPolicy {
     }
 }
 
-/// Streams the window being worked in to the host as JPEG frames. The agent cursor is not in the
+/// Streams the window being worked in to the host, as JPEG frames or as H.264 video. The agent cursor is not in the
 /// picture (its overlay is excluded from capture); the host draws it from the cursor events.
 public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let emit: @Sendable (Data) -> Void
@@ -39,6 +45,11 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private let queue = DispatchQueue(label: "ai.moxxy.computer.preview")
     private let context = CIContext()
     private var fps: Int?
+    private var codec = PreviewCodec.jpeg
+    private var encoder: VideoEncoder?
+    /// The newest picture, kept so a key frame can be made for a viewer who joins a still window.
+    private var latest: CVPixelBuffer?
+    private var wantsKey = false
     private var window: WindowCandidate?
     private var stream: SCStream?
     private var alive: DispatchSourceTimer?
@@ -49,11 +60,21 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
     public init(emit: @escaping @Sendable (Data) -> Void) { self.emit = emit }
 
     /// Starts capturing, or changes the rate of a running capture. Without an observed window it waits for one.
-    public func start(fps: Int) {
+    public func start(fps: Int, codec: PreviewCodec = .jpeg) {
         queue.async {
-            guard self.fps != fps else { return }
+            guard self.fps != fps || self.codec != codec else { return }
             self.fps = fps
+            self.codec = codec
             self.restart()
+        }
+    }
+
+    /// A viewer cannot decode from where the stream is (it just joined, or it dropped frames): start it afresh.
+    public func keyframe() {
+        queue.async {
+            guard let encoder = self.encoder else { return }
+            guard let latest = self.latest else { self.wantsKey = true; return }
+            try? encoder.encode(latest, at: CMClockGetTime(CMClockGetHostTimeClock()), key: true)
         }
     }
 
@@ -78,11 +99,16 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         let generation = generation
         alive?.cancel()
         alive = nil
+        encoder?.finish()
+        encoder = nil
+        latest = nil
+        wantsKey = false
         if let old = stream {
             stream = nil
             old.stopCapture { _ in }
         }
         guard let fps, let window else { return }
+        let codec = codec
         Task {
             do {
                 let filter = try await WindowCapture.filter(for: window)
@@ -97,13 +123,18 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
                 configuration.backgroundColor = CGColor.black
                 let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
                 try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
+                let encoder = codec == .h264 ? try VideoEncoder(width: size.width, height: size.height, fps: fps) { [weak self] chunk in
+                    self?.queue.async { self?.send(chunk, generation: generation) }
+                } : nil
                 try await stream.startCapture()
                 self.queue.async {
                     guard self.generation == generation else {
                         stream.stopCapture { _ in }
+                        encoder?.finish()
                         return
                     }
                     self.stream = stream
+                    self.encoder = encoder
                     self.startAlive()
                 }
             } catch {
@@ -125,9 +156,22 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         alive = timer
     }
 
+    private func send(_ chunk: VideoChunk, generation: Int) {
+        guard generation == self.generation else { return }
+        seq += 1
+        emit(Wire.event("preview_chunk", [
+            "seq": .number(Double(seq)), "key": .bool(chunk.key), "codec": .string(chunk.codec),
+            "data": .string(chunk.data.base64EncodedString()), "timestamp": .number(Double(chunk.timestamp)),
+            "width": .number(Double(chunk.width)), "height": .number(Double(chunk.height)),
+        ]))
+    }
+
     private func report(error: String) {
         alive?.cancel()
         alive = nil
+        encoder?.finish()
+        encoder = nil
+        latest = nil
         stream = nil
         emit(Wire.event("preview_frame", ["seq": .number(Double(seq)), "error": .string(error)]))
     }
@@ -138,6 +182,14 @@ public final class PreviewStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
               let status = (attachments.first?[.status] as? Int).flatMap(SCFrameStatus.init(rawValue:)), status == .complete,
               let buffer = sampleBuffer.imageBuffer
         else { return }
+        if let encoder {
+            latest = buffer
+            let key = wantsKey
+            wantsKey = false
+            do { try encoder.encode(buffer, at: sampleBuffer.presentationTimeStamp, key: key) }
+            catch { report(error: "The preview video could not be encoded") }
+            return
+        }
         let picture = CIImage(cvPixelBuffer: buffer)
         guard let image = context.createCGImage(picture, from: picture.extent),
               let jpeg = try? WindowCapture.jpeg(image, quality: PreviewPolicy.jpegQuality)

@@ -30,3 +30,15 @@ it('lets the user hide it for this conversation or for all', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Hide the live view in all conversations' }));
   expect(hidden).toEqual(['conversation', 'all']);
 });
+
+it('hands its canvas to the video painter when the view is a video stream', () => {
+  const canvases: Array<HTMLCanvasElement | null> = [];
+  const { unmount } = render(<ComputerPreviewPip view={{ state: 'live', video: { width: 640, height: 400 } }} target="TextEdit" cursor={{ phase: 'moving', x: 0.5, y: 0.5 }}
+    onHide={() => undefined} videoCanvas={(canvas) => canvases.push(canvas)} />);
+  const picture = screen.getByRole('img', { name: 'Live view of TextEdit' });
+  expect(picture).toHaveAttribute('width', '640');
+  expect(canvases).toEqual([picture]);
+  expect(screen.getByTestId('computer-preview-cursor')).toBeInTheDocument();
+  unmount();
+  expect(canvases.at(-1)).toBeNull();
+});
