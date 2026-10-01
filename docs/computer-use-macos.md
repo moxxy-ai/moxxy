@@ -59,8 +59,13 @@ helper, so the model sees one set of tools on both systems (see
   of the state. Typing into an element that takes no text is refused.
 - Text typed through accessibility is checked: when the field and its caret stay
   as they were (Chromium apps), the text is sent as keys instead.
+- The helper switches on an app's full accessibility tree
+  (`AXEnhancedUserInterface`, `AXManualAccessibility`) the first time it looks
+  at the app, and switches off what it changed when it leaves.
 - For a browser, the state is read once the page content is there (up to
-  about 3 s); if it is not, the result says the page has not loaded.
+  about 3 s). A page that still does not show gets its window brought forward
+  once and is read again; only then does the result say the page is not
+  readable. A window with no page (the start page) is not waited for.
 - A save dialog aimed at a protected place (`~/.ssh`, LaunchAgents, shell
   startup files, git hooks) is refused.
 - Escape stops the turn. Input from the user pauses the agent; an action waits

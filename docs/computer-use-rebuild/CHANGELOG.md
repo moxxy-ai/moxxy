@@ -1959,3 +1959,36 @@ dostawcy sprawdzone na łączu: `gpt-6-luna {"effort":"xhigh"}`.
   dostaje wtedy notatkę, że strona nie jest czytelna.
 - Stan strony YouTube to ok. 700 elementów i 220 KB; nie skracano go.
 - Helper Windows: nie sprawdzano, czy ma ten sam błąd z kluczami.
+
+## Strona, której przeglądarka nie udostępnia: budzenie accessibility — 2026-10-01
+
+**Wzorzec.** `SkyComputerUseService` (Codex) ma `AXEnablementAssertion`,
+`enableEnhancedUserInterface` i `enableElectronAccessibility` oraz napisy
+`AXEnhancedUserInterface`, `AXManualAccessibility` (odczyt `strings`). Nasz
+helper nie ustawiał żadnego z nich. W `app.asar` Claude tych napisów nie
+znaleziono.
+
+**Co**
+- `AccessibilityWake`: przy pierwszej obserwacji aplikacji włącza oba
+  przełączniki; przy wyjściu helpera wyłącza te, które sam włączył.
+- `WebContent.awaited`: gdy strona nadal się nie pokazuje, okno jest raz
+  wynoszone na wierzch i odczyt jest ponawiany. Dopiero potem model dostaje
+  notatkę `contentPending`.
+- `WebContent.isPending`: czekamy tylko na stronę, której brakuje (pusty
+  `AXWebArea` albo pusta grupa kart). Strona startowa Safari nie ma na co
+  czekać: odczyt 1,8 s zamiast 7,9 s.
+
+**Testy (Red → Green)**: `AccessibilityWakeTests`,
+`keepsReadingWhileThePageLoadsWithoutTakingTheScreen`,
+`bringsTheWindowForwardOnceWhenThePageNeverShowsInTheBackground`,
+`waitsOnlyForAPageThatIsMissingNotForAWindowWithoutOne` (Red: brak typu lub
+funkcji).
+
+**Walidacja**: `swift test` 170/170; plugin 289/289 (z e2e); `pnpm build`
+88/88; typecheck i lint bez błędów.
+
+**Niezrobione / otwarte**
+- Stanu „22 elementy” nie udało się odtworzyć, więc poprawka nie jest
+  sprawdzona na tym przypadku, tylko testami jednostkowymi i na zwykłych
+  stronach w tle.
+- Nie sprawdzono na Chrome ani innych aplikacjach Electron poza ChatGPT.

@@ -49,6 +49,29 @@ public struct SettleClock: Sendable {
 public enum WebContent {
     static let wait = (attempts: 8, pause: 0.4)
 
+    /// Reads again while the page is not there. A page that never shows in a background window gets its
+    /// window brought forward once (a hidden browser tab can keep its content from accessibility), then the same wait.
+    public static func awaited<Page>(first: Page, loaded: (Page) -> Bool, again: () -> Page, pause: () -> Void, bringForward: () -> Void) -> Page {
+        var page = first
+        for round in 0..<2 {
+            for _ in 1..<wait.attempts where !loaded(page) {
+                pause()
+                page = again()
+            }
+            if loaded(page) || round == 1 { break }
+            bringForward()
+        }
+        return page
+    }
+
+    /// A page that should be there and is not: an empty web area, or a tab group with nothing in it.
+    /// A window that shows no page at all (the start page) has nothing to wait for.
+    public static func isPending(_ node: NodeSnapshot) -> Bool { !isLoaded(node) && hasHole(node) }
+
+    private static func hasHole(_ node: NodeSnapshot) -> Bool {
+        (["AXWebArea", "AXTabGroup"].contains(node.role) && node.children.isEmpty) || node.children.contains(where: hasHole)
+    }
+
     public static func isLoaded(_ node: NodeSnapshot) -> Bool {
         (node.role == "AXWebArea" && !node.children.isEmpty) || node.children.contains(where: isLoaded)
     }
@@ -148,6 +171,50 @@ final class Settler: @unchecked Sendable {
         DispatchQueue.main.async {
             guard let pointer = UnsafeMutableRawPointer(bitPattern: context) else { return }
             Unmanaged<Settler>.fromOpaque(pointer).release()
+        }
+    }
+}
+
+/// Browsers and Electron apps build their full accessibility tree only for a client that asks for it
+/// (Codex does the same: `enableEnhancedUserInterface`, `enableElectronAccessibility`). Without it a page
+/// in a background window can come back with no content at all. What was switched on is put back on exit.
+public final class AccessibilityWake: @unchecked Sendable {
+    static let enhanced = "AXEnhancedUserInterface"
+    static let manual = "AXManualAccessibility"
+
+    private let read: (pid_t, String) -> Bool?
+    private let write: (pid_t, String, Bool) -> Void
+    private let lock = NSLock()
+    /// Per woken app, the switches that were off before.
+    private var changed: [pid_t: [String]] = [:]
+
+    public init(read: @escaping (pid_t, String) -> Bool?, write: @escaping (pid_t, String, Bool) -> Void) {
+        self.read = read
+        self.write = write
+    }
+
+    public static let system = AccessibilityWake(
+        read: { pid, name in AXReader.attribute(AXReader.application(pid), name) },
+        write: { pid, name, on in
+            _ = AXUIElementSetAttributeValue(AXReader.application(pid), name as CFString, on ? kCFBooleanTrue : kCFBooleanFalse)
+        })
+
+    /// Returns whether this call woke the app, in which case its tree needs a moment to fill.
+    @discardableResult
+    public func wake(_ pid: pid_t) -> Bool {
+        lock.withLock {
+            guard changed[pid] == nil else { return false }
+            let off = [Self.enhanced, Self.manual].filter { read(pid, $0) != true }
+            off.forEach { write(pid, $0, true) }
+            changed[pid] = off
+            return true
+        }
+    }
+
+    public func restore() {
+        lock.withLock {
+            for (pid, names) in changed { names.forEach { write(pid, $0, false) } }
+            changed = [:]
         }
     }
 }

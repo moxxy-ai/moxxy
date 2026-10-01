@@ -195,3 +195,6 @@ wersję i plik, z którego wzięto wzorzec.
 - **Strony WWW przez accessibility.** Głębokie strony dają setki elementów i
   długie ścieżki; helper musi trzymać limity kontraktu (klucze, UTF-16), bo
   jedno złamane pole odrzuca cały stan.
+- **Przełączniki accessibility.** Helper włącza aplikacjom
+  `AXEnhancedUserInterface` i `AXManualAccessibility` (jak Codex) i wyłącza je
+  przy wyjściu. Zabity helper (SIGKILL) ich nie cofnie.

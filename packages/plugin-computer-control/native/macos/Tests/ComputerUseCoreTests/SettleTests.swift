@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ComputerUseCore
 
@@ -63,10 +64,71 @@ import Testing
                      secure: false, enabled: true, focused: false, selected: false, expanded: nil, actions: [], handle: 0, children: children)
     }
 
+    @Test func keepsReadingWhileThePageLoadsWithoutTakingTheScreen() {
+        var reads = 0, raised = 0
+        let page = WebContent.awaited(first: 0, loaded: { $0 >= 3 }, again: { reads += 1; return reads }, pause: {}, bringForward: { raised += 1 })
+        #expect(page == 3)
+        #expect(raised == 0)
+    }
+
+    @Test func bringsTheWindowForwardOnceWhenThePageNeverShowsInTheBackground() {
+        var reads = 0, raised = 0
+        _ = WebContent.awaited(first: 0, loaded: { _ in false }, again: { reads += 1; return reads }, pause: {}, bringForward: { raised += 1 })
+        #expect(raised == 1)
+        #expect(reads == 2 * (WebContent.wait.attempts - 1))
+        var woken = 0
+        let page = WebContent.awaited(first: 0, loaded: { $0 == -1 }, again: { woken > 0 ? -1 : 0 }, pause: {}, bringForward: { woken += 1 })
+        #expect(page == -1)
+    }
+
+    @Test func waitsOnlyForAPageThatIsMissingNotForAWindowWithoutOne() {
+        let toolbar = node("AXToolbar", children: [node("AXTextField")])
+        #expect(WebContent.isPending(node("AXWindow", children: [node("AXTabGroup"), toolbar])))
+        #expect(WebContent.isPending(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea")]), toolbar])))
+        // The start page is native: nothing to wait for.
+        #expect(!WebContent.isPending(node("AXWindow", children: [node("AXTabGroup", children: [node("AXScrollArea", children: [node("AXButton")])]), toolbar])))
+        #expect(!WebContent.isPending(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea", children: [node("AXHeading")])]), toolbar])))
+    }
+
     @Test func aPageCountsAsLoadedOnceItsWebAreaHasContent() {
         let toolbar = node("AXToolbar", children: [node("AXTextField")])
         #expect(!WebContent.isLoaded(node("AXWindow", children: [node("AXTabGroup"), toolbar])))
         #expect(!WebContent.isLoaded(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea")]), toolbar])))
         #expect(WebContent.isLoaded(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea", children: [node("AXHeading")])]), toolbar])))
+    }
+}
+
+/// Browsers and Electron apps build their full accessibility tree only once a client asks for it.
+@Suite struct AccessibilityWakeTests {
+    final class Fake: @unchecked Sendable {
+        var values: [String: Bool] = [:]
+        var writes: [String] = []
+        func key(_ pid: pid_t, _ name: String) -> String { "\(pid) \(name)" }
+        lazy var wake = AccessibilityWake(
+            read: { [unowned self] pid, name in self.values[self.key(pid, name)] },
+            write: { [unowned self] pid, name, on in
+                self.values[self.key(pid, name)] = on
+                self.writes.append("\(pid) \(name) \(on)")
+            })
+    }
+
+    @Test func turnsBothSwitchesOnOncePerApp() {
+        let fake = Fake()
+        #expect(fake.wake.wake(7))
+        #expect(!fake.wake.wake(7))
+        #expect(fake.writes == ["7 AXEnhancedUserInterface true", "7 AXManualAccessibility true"])
+    }
+
+    @Test func leavesAnAppThatWasAlreadyAwakeAndPutsBackOnlyWhatItChanged() {
+        let fake = Fake()
+        fake.values["7 AXEnhancedUserInterface"] = true
+        #expect(fake.wake.wake(7))
+        #expect(fake.wake.wake(9))
+        fake.writes = []
+        fake.wake.restore()
+        #expect(fake.writes.sorted() == ["7 AXManualAccessibility false", "9 AXEnhancedUserInterface false", "9 AXManualAccessibility false"])
+        fake.writes = []
+        fake.wake.restore()
+        #expect(fake.writes.isEmpty)
     }
 }

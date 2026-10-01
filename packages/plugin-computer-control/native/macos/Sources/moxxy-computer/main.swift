@@ -56,9 +56,12 @@ let activity = UserActivity { leave(ExitCode.userStopped) }
 activity.start()
 let input = InputSessions(gate: gate, activity: activity, host: parent)
 
-/// A mouse button or key the model left down is never left pressed for the user.
+let targets = Targets()
+
+/// A mouse button or key the model left down is never left pressed for the user, and apps get their accessibility switches back.
 func leave(_ code: Int32) -> Never {
     input.release()
+    targets.wake.restore()
     exit(code)
 }
 
@@ -66,7 +69,7 @@ guard let watch = ParentWatch(pid: parent, queue: .main, onExit: { leave(ExitCod
 
 let cursor = AgentCursor(emit: output.write)
 let preview = PreviewStream(emit: output.write)
-let dispatcher = Methods.standard(permissions: SystemPermissions(), cursor: cursor, input: input, preview: preview)
+let dispatcher = Methods.standard(permissions: SystemPermissions(), targets: targets, cursor: cursor, input: input, preview: preview)
 // Requests run one at a time off the main thread; the reader stays free for pause and stop.
 let requests = DispatchQueue(label: "ai.moxxy.computer.requests")
 

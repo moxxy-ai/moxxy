@@ -37,7 +37,10 @@ public final class Targets: @unchecked Sendable {
     /// Told about every observed window, so the human's preview shows what the model works in.
     var preview: PreviewStream?
 
-    public init() {}
+    /// Keeps the apps worked in awake for accessibility until the helper leaves.
+    public let wake: AccessibilityWake
+
+    public init(wake: AccessibilityWake = .system) { self.wake = wake }
 
     func state(for app: String) -> TargetState {
         if let state = states[app] { return state }
@@ -108,6 +111,7 @@ extension Methods {
             found = AppLauncher.window(of: running)
         }
         let name = running.localizedName ?? bundleId
+        if targets.wake.wake(running.processIdentifier) { launched = true }
         let state = targets.state(for: bundleId)
         state.observed = true
         state.pid = running.processIdentifier
@@ -126,13 +130,15 @@ extension Methods {
         var root = reader.snapshot(window)
         let wantsPage = params["web"]?.boolValue == true
         if wantsPage {
-            for _ in 1..<WebContent.wait.attempts where !WebContent.isLoaded(root) {
-                Thread.sleep(forTimeInterval: WebContent.wait.pause)
+            let pid = running.processIdentifier
+            root = WebContent.awaited(first: root, loaded: { !WebContent.isPending($0) }, again: {
                 reader = AXReader()
-                root = reader.snapshot(window)
-            }
+                return reader.snapshot(window)
+            }, pause: { Thread.sleep(forTimeInterval: WebContent.wait.pause) }, bringForward: {
+                _ = Foreground.bring(pid: pid, window: root.frame.map { WindowCandidate(pid: pid, frame: $0, title: root.title) })
+            })
         }
-        let pageLoaded = WebContent.isLoaded(root)
+        let pagePending = WebContent.isPending(root)
         root = root.adopting(reader.strayFocus(of: AXReader.application(running.processIdentifier), besides: window))
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
@@ -165,7 +171,7 @@ extension Methods {
         if let title = root.title { tree["window"] = .string(title.fitting(1024)) }
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
-        if wantsPage, !pageLoaded { result["contentPending"] = .bool(true) }
+        if wantsPage, pagePending { result["contentPending"] = .bool(true) }
         return .object(result)
     }
 
