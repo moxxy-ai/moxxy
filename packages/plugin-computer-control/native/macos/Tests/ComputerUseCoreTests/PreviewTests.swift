@@ -3,11 +3,12 @@ import Testing
 @testable import ComputerUseCore
 
 @Suite struct PreviewPolicyTests {
-    @Test func keepsTheRateBetweenOneAndFiveWithTwoAsDefault() {
+    @Test func keepsTheRateBetweenOneAndThirtyWithTwoAsDefault() {
         #expect(PreviewPolicy.fps(nil) == 2)
         #expect(PreviewPolicy.fps(4) == 4)
         #expect(PreviewPolicy.fps(0) == 1)
-        #expect(PreviewPolicy.fps(60) == 5)
+        #expect(PreviewPolicy.fps(30) == 30)
+        #expect(PreviewPolicy.fps(60) == 30)
         #expect(PreviewPolicy.fps(2.6) == 3)
     }
 

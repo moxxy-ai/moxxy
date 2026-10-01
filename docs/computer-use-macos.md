@@ -48,6 +48,9 @@ helper, so the model sees one set of tools on both systems (see
   land; a window the system list misses for a moment is looked up again.
 - Command shortcuts are menu key equivalents, so the app is brought forward for
   them. The helper never does that while the user is typing.
+- An app comes forward through accessibility first. A window that stays away
+  after 0.4 s (one in its own full-screen Space does) is brought through the
+  workspace, which switches to its Space.
 - Every action returns `delivered | ineffective | unsupported | blocked` and the
   fresh state. `delivered` is not evidence that the task succeeded. The same
   action leaving the same state twice ends as `ineffective` with `no_progress`
@@ -75,9 +78,9 @@ helper, so the model sees one set of tools on both systems (see
   for a quiet moment before using real input. "Take over" releases held input
   and hides the agent's cursor.
 - The agent's cursor is a click-through panel above the target window, kept out
-  of screenshots. The live view in the desktop chat is a separate stream (H.264,
-  or JPEG for a viewer without a video decoder) that never reaches the model or
-  the session log.
+  of screenshots. The live view in the desktop chat is a separate stream (H.264
+  at 30 pictures a second, or JPEG at 2 for a viewer without a video decoder)
+  that never reaches the model or the session log.
 
 Not supported: controlling a window on another Space without bringing it here,
 and apps that refuse both accessibility and synthetic input.

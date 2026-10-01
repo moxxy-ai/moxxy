@@ -28,8 +28,11 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
   accessibility aplikacji i w ostateczności wynosi okno na wierzch; samego
   przypadku nie odtworzono.
 - [ ] Windows: sprawdzić unikalność i długość kluczy elementów na głębokiej stronie.
-- [ ] Potwierdzić w desktopie obraz w PiP po poprawce (nieruchomy ekran) i
-  uruchomić e2e helpera po zmianie rysunku kursora.
+- [ ] Zadanie w Arc (nowa karta → Dysk Google → konto → folder → pobranie
+  pliku) powtórzyć po poprawce wyciągania okna pełnoekranowego; sprawdzono
+  tylko odczyt stanu, zrzut i `super+t`.
+- [ ] PiP 30 kl./s: zmierzono helper; koszt dekodowania w oknie desktopu
+  i wersja Windows niezmierzone.
 - [ ] Windows: próby z modelem, mysz w tle.
 - [ ] Aplikacja mobilna nie ma paska stanu Computer Use (kanał już podaje `computer.snapshot` i `computer.changed`).
 - [ ] Starsza kopia pluginu w `~/.moxxy/plugins` zasłania kopię z repozytorium.

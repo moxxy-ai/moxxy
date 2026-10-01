@@ -384,7 +384,7 @@ describe('live preview', () => {
     });
     instance.preview.keyframe(listener);
     await waitFor(() => methods().includes('preview.keyframe'));
-    expect(helperRequests(requestsFile).find((request) => request.method === 'preview.start')).toEqual({ method: 'preview.start', params: { fps: 2, codec: 'h264' } });
+    expect(helperRequests(requestsFile).find((request) => request.method === 'preview.start')).toEqual({ method: 'preview.start', params: { fps: 30, codec: 'h264' } });
   });
 
   it('asks a helper without video for pictures, with no codec in the request', async () => {

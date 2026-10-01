@@ -3,7 +3,7 @@ import CoreMedia
 import Foundation
 @preconcurrency import ScreenCaptureKit
 
-/// The live picture for the human is small and slow on purpose: it is watched in a corner, not read.
+/// The live picture for the human is small on purpose: it is watched in a corner, not read.
 public enum PreviewPolicy {
     static let maxEdge = 960
     static let jpegQuality = 0.6
@@ -18,7 +18,7 @@ public enum PreviewPolicy {
 
     public static func fps(_ requested: Double?) -> Int {
         guard let requested else { return 2 }
-        return min(5, max(1, Int(requested.rounded())))
+        return min(30, max(1, Int(requested.rounded())))
     }
 
     /// Pixels for a window of `points`: the longer edge at most `maxEdge`, both sides even (video encoders need that).

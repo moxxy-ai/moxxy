@@ -104,7 +104,7 @@ void run() {
 void start_preview(int fps, bool as_video) {
   video = as_video;
   wants_key = true;
-  rate = std::clamp(fps, 1, 5);
+  rate = std::clamp(fps, 1, 30);
   std::call_once(started, [] { std::thread(run).detach(); });
 }
 void preview_keyframe() { wants_key = true; }

@@ -52,8 +52,8 @@ export interface PreviewSource {
   keyframe(): Promise<void>;
 }
 
-export const PREVIEW_FPS = { default: 2, min: 1, max: 5 } as const;
-const clampFps = (fps: number) => Math.min(PREVIEW_FPS.max, Math.max(PREVIEW_FPS.min, Math.round(fps)));
+/** Pictures a second. Video is smooth; single pictures are each a whole JPEG, so they stay slow. */
+export const PREVIEW_FPS = { h264: { default: 30, max: 30 }, jpeg: { default: 2, max: 5 }, min: 1 } as const;
 
 type Listener = (message: PreviewMessage) => void;
 interface Viewer {
@@ -73,7 +73,8 @@ interface Viewer {
 export class PreviewController {
   private readonly listeners = new Map<Listener, Viewer>();
   private readonly staleAfterMs: number;
-  private fps: number;
+  /** What the viewer asked for; without a wish each kind of stream runs at its own default. */
+  private wish?: number;
   /** The newest attached turn; older ones are ignored. */
   private active?: PreviewSource;
   /** What the active producer was last asked to do. */
@@ -89,7 +90,7 @@ export class PreviewController {
   private quiet?: ReturnType<typeof setTimeout>;
 
   constructor(options: { fps?: number; staleAfterMs?: number } = {}) {
-    this.fps = clampFps(options.fps ?? PREVIEW_FPS.default);
+    this.wish = options.fps;
     this.staleAfterMs = options.staleAfterMs ?? 3000;
   }
 
@@ -126,7 +127,7 @@ export class PreviewController {
   }
 
   setFps(fps: number): void {
-    this.fps = clampFps(fps);
+    this.wish = fps;
     this.sync();
   }
 
@@ -152,7 +153,7 @@ export class PreviewController {
     // A producer asked for video that sends a picture cannot make video: the picture is shown.
     if (!image) return;
     this.latest = { seq: ++this.seq, image };
-    const wait = this.deliveredAt + 1000 / this.fps - Date.now();
+    const wait = this.deliveredAt + 1000 / this.rate('jpeg') - Date.now();
     if (wait <= 0) this.deliver();
     else this.flush ??= setTimeout(() => this.deliver(), wait);
   }
@@ -195,6 +196,11 @@ export class PreviewController {
     return everyone && source.codecs.includes('h264') ? 'h264' : 'jpeg';
   }
 
+  private rate(codec: PreviewCodec): number {
+    const { default: usual, max } = PREVIEW_FPS[codec];
+    return Math.min(max, Math.max(PREVIEW_FPS.min, Math.round(this.wish ?? usual)));
+  }
+
   private deliver(): void {
     clearTimeout(this.flush);
     this.flush = undefined;
@@ -205,7 +211,8 @@ export class PreviewController {
 
   /** Makes the producer match what is wanted: running at the current rate and codec only while watched. */
   private sync(): void {
-    const wanted = this.active && this.listeners.size > 0 ? { source: this.active, fps: this.fps, codec: this.codecFor(this.active) } : undefined;
+    const codec = this.active && this.codecFor(this.active);
+    const wanted = this.active && codec && this.listeners.size > 0 ? { source: this.active, fps: this.rate(codec), codec } : undefined;
     const running = this.running;
     if (running && running.source !== wanted?.source) {
       this.running = undefined;

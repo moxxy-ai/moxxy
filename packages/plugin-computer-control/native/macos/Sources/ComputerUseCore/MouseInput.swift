@@ -175,6 +175,8 @@ enum Foreground {
     enum Outcome { case alreadyFront, broughtForward, refused(ActionResult) }
 
     static let deadline: TimeInterval = 2
+    /// How long the accessibility request gets before the workspace is asked.
+    static let patience: TimeInterval = 0.4
 
     /// A fresh lookup: `NSWorkspace.frontmostApplication` goes stale in this helper, whose main thread never idles like an app's.
     static func isFrontmost(_ pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.isActive ?? false }
@@ -190,17 +192,29 @@ enum Foreground {
             return .refused(.blocked("user_intervened", hint: "The user is typing right now; bringing the app forward would send their keys into it. Nothing was done; retry after a pause in their typing."))
         }
         let app = AXReader.application(pid)
-        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
-        if window != nil, let element = AXReader.targetWindow(of: app) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
-        // An app with no window ignores the accessibility request; the workspace brings it forward instead.
-        if window == nil { NSRunningApplication(processIdentifier: pid)?.activate() }
-        // Switching to the app's Space animates; the window counts once the window server shows it here.
-        let until = Date().addingTimeInterval(deadline)
-        while Date() < until {
-            if isUp() { return .broughtForward }
-            Thread.sleep(forTimeInterval: 0.02)
+        let workspace = { _ = NSRunningApplication(processIdentifier: pid)?.activate() }
+        let accessibility = {
+            AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+            if let element = AXReader.targetWindow(of: app) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
         }
+        // An app with no window ignores the accessibility request, and so does a window in its own full-screen
+        // Space; the workspace brings those forward. Switching Space animates, so the wait is on the window server.
+        if attempt(window == nil ? [workspace] : [accessibility, workspace], patience: patience, deadline: deadline, isUp: isUp) { return .broughtForward }
         return .refused(.blocked("not_frontmost", hint: "The app did not come to the front on this screen (its window may be on another Space or minimised). Ask the user to bring it here, or use element actions, which work in the background."))
+    }
+
+    /// Tries each way in turn until the app is up: every way but the last gets `patience`, all of them `deadline`.
+    static func attempt(_ ways: [() -> Void], patience: TimeInterval, deadline: TimeInterval, isUp: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(deadline)
+        for (index, way) in ways.enumerated() {
+            way()
+            let until = index == ways.count - 1 ? end : min(end, Date().addingTimeInterval(patience))
+            while Date() < until {
+                if isUp() { return true }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+        }
+        return isUp()
     }
 
     /// An app that just came forward is active before its window is on top everywhere; a hit test made in

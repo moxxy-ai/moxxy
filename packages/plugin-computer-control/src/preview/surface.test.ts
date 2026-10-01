@@ -57,12 +57,12 @@ describe('computer-preview surface', () => {
     await settle();
     await instance.input({ type: 'configure', codecs: ['h264', 'jpeg'] });
     await settle();
-    expect(calls).toEqual(['start 2', 'start 2 h264']);
+    expect(calls).toEqual(['start 2', 'start 30 h264']);
     controller.chunk(source, { seq: 1, key: true, codec: 'avc1.4d001f', data: 'AAAA', timestamp: 0, width: 640, height: 400 });
     expect(payloads.at(-1)).toEqual({ type: 'chunk', seq: 1, key: true, codec: 'avc1.4d001f', data: 'AAAA', timestamp: 0, width: 640, height: 400 });
     await instance.input({ type: 'keyframe' });
     await instance.input({ type: 'configure', codecs: ['vp9', 7] });
     await settle();
-    expect(calls).toEqual(['start 2', 'start 2 h264', 'keyframe', 'start 2']);
+    expect(calls).toEqual(['start 2', 'start 30 h264', 'keyframe', 'start 2']);
   });
 });

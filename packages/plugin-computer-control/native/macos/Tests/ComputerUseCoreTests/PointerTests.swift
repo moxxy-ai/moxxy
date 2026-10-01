@@ -177,6 +177,32 @@ import Testing
     }
 }
 
+@Suite struct ForegroundTests {
+    @Test func triesTheNextWayWhenTheAppDidNotComeForward() {
+        var tried: [String] = []
+        var up = false
+        let came = Foreground.attempt([{ tried.append("accessibility") }, { tried.append("workspace"); up = true }], patience: 0.05, deadline: 1) { up }
+        #expect(came)
+        #expect(tried == ["accessibility", "workspace"])
+    }
+
+    @Test func stopsAtTheFirstWayThatWorks() {
+        var tried: [String] = []
+        var up = false
+        let came = Foreground.attempt([{ tried.append("accessibility"); up = true }, { tried.append("workspace") }], patience: 0.05, deadline: 1) { up }
+        #expect(came)
+        #expect(tried == ["accessibility"])
+    }
+
+    @Test func givesUpAtTheDeadline() {
+        var tried = 0
+        let started = Date()
+        #expect(!Foreground.attempt([{ tried += 1 }, { tried += 1 }], patience: 0.05, deadline: 0.2) { false })
+        #expect(tried == 2)
+        #expect(Date().timeIntervalSince(started) < 1)
+    }
+}
+
 @Suite struct PointerRequestTests {
     private func parse(_ fields: [String: JSONValue]) throws -> ActionRequest { try ActionRequest.parse(.object(fields)) }
 

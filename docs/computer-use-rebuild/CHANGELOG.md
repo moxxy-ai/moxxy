@@ -2064,3 +2064,61 @@ typecheck i lint bez błędów.
   w tym czasie testował aplikację; testy używają prawdziwej myszy).
 - Obrazu w PiP nie widziałem w działającej aplikacji; poprawka wynika z kodu
   i testu, potwierdzenie należy do właściciela.
+
+## Okno pełnoekranowe na innym biurku, PiP 30 kl./s — 2026-10-02
+
+**Zgłoszenie właściciela:** obraz w PiP jest; podnieść do 30 klatek i zmierzyć
+obciążenie. Zadanie w Arc (nowa karta, Dysk Google, pobranie pliku) skończyło
+się po 9 krokach komunikatem „Arc nie dał się uaktywnić”.
+
+**Przyczyna (log sesji + sondy)**
+- Arc był w trybie pełnoekranowym, czyli na własnym biurku (Space typu 4,
+  `AXFullScreen = 1`, `AXWindows` puste). Stan miał 13 wyłączonych przycisków
+  paska, bez strony i bez zrzutu („The window could not be captured”).
+- `Foreground.bring` prosił tylko przez accessibility (`AXFrontmost` +
+  `AXRaise`). Dla takiego okna oba wywołania zwracają sukces i nic się nie
+  dzieje (sonda: 3 s bez zmiany). `NSRunningApplication.activate()` przełącza
+  na to biurko w 0,19 s.
+- Po nieudanym stanie model sięgnął po narzędzia przeglądarki w oknie Moxxy
+  (`browser_tabs`), bo notatka dla przeglądarek kazała tak robić dla każdej
+  strony; zadanie przyszło z Telegrama, więc panelu nie było.
+
+**Co**
+- `MouseInput.swift`: `Foreground.attempt` próbuje kolejnych sposobów; okno
+  dostaje 0,4 s na prośbę przez accessibility, potem aktywację przez workspace.
+  Aplikacja bez okna od razu idzie przez workspace (jak dotąd).
+- `skills/computer-apps/browsers.md`: gdy użytkownik wskazuje tę przeglądarkę
+  albo zadanie wymaga jej kart, kont lub pobrania pliku, praca idzie przez
+  Computer Use; narzędzia przeglądarki otwierają inną przeglądarkę. Dodane
+  skróty nowej karty i pola adresu.
+- `controller.ts`: tempo zależy od rodzaju strumienia: wideo 30 kl./s (maks.
+  30), pojedyncze obrazy JPEG 2 (maks. 5), bo każdy to cały obraz. Helpery
+  macOS i Windows przyjmują do 30.
+
+**Testy (Red → Green)**: `ForegroundTests` ×3 (Red: `type 'Foreground' has no
+member 'attempt'`); „runs video at 30 pictures a second…” i pięć testów
+oczekujących `start 30 h264` (Red: `expected [ 'start 2 h264' ]`).
+
+**Sprawdzone na Arc w trybie pełnoekranowym, z innego biurka**
+- `computer_get_app_state`: zrzut jest, 974 elementy strony (było 13 i brak zrzutu).
+- `computer_press_key super+t`: `delivered` (było `not_frontmost`).
+
+**Pomiar PiP** (helper, okno 1200×760 w ciągłym ruchu, 15 s, M1 Max; procent
+jednego rdzenia)
+
+| Strumień | Obrazów/s | kbit/s | Helper | replayd |
+|---|---|---|---|---|
+| H.264, 2 kl./s | 2,0 | 574 | 0,6% | 0,4% |
+| H.264, 15 kl./s | 15,0 | 720 | 3,5% | 1,3% |
+| H.264, 30 kl./s | 29,7 | 1210 | 7,0% | 2,1% |
+| JPEG, 5 kl./s | 5,1 | 5015 | 5,3% | 0,7% |
+| H.264, 30 kl./s, okno nieruchome | 29,8 | 49 | 5,4% | 2,8% |
+
+WindowServer: 42–54% we wszystkich seriach, także bez podglądu (to koszt
+samego ruchomego okna); różnicy od tempa nie widać ponad szum.
+
+**Niezrobione / otwarte**
+- Całego zadania w Arc nie powtórzono z modelem.
+- Koszt po stronie odbiorcy (host, dekoder w oknie desktopu) niezmierzony.
+- Nieruchome okno nadal daje 30 obrazów/s; helper mógłby ich nie kodować.
+- Windows: zmiana limitu sprawdzona tylko przez CI.

@@ -147,7 +147,20 @@ describe('PreviewController', () => {
     expect(frames(watching.messages)).toEqual(['new']);
   });
 
-  it('keeps the frame rate between 1 and 5 and restarts a running producer at the new rate', async () => {
+  it('runs video at 30 pictures a second, up to 30 when the viewer chooses', async () => {
+    const controller = new PreviewController();
+    const helper = video();
+    controller.attach(helper);
+    controller.subscribe(() => undefined, ['h264', 'jpeg']);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.setFps(10);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.setFps(120);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(helper.calls).toEqual(['start 30 h264', 'start 10 h264', 'start 30 h264']);
+  });
+
+  it('keeps the rate of single pictures between 1 and 5 and restarts a running producer at the new rate', async () => {
     const controller = new PreviewController();
     const helper = source();
     controller.attach(helper);
@@ -177,14 +190,14 @@ describe('PreviewController video', () => {
     const modern = watch(controller, ['h264', 'jpeg']);
     await vi.advanceTimersByTimeAsync(0);
     // A new encoder starts with a key frame by itself.
-    expect(helper.calls).toEqual(['start 2 h264']);
+    expect(helper.calls).toEqual(['start 30 h264']);
     // A viewer that only shows pictures joins: everyone gets pictures.
     const plain = watch(controller);
     await vi.advanceTimersByTimeAsync(0);
     expect(helper.calls.at(-1)).toBe('start 2');
     plain.leave();
     await vi.advanceTimersByTimeAsync(0);
-    expect(helper.calls).toEqual(['start 2 h264', 'start 2', 'start 2 h264']);
+    expect(helper.calls).toEqual(['start 30 h264', 'start 2', 'start 30 h264']);
     modern.leave();
   });
 
@@ -205,7 +218,7 @@ describe('PreviewController video', () => {
     await vi.advanceTimersByTimeAsync(0);
     controller.accept(late.listener, ['h264', 'jpeg']);
     await vi.advanceTimersByTimeAsync(0);
-    expect(helper.calls).toEqual(['start 2', 'start 2 h264']);
+    expect(helper.calls).toEqual(['start 2', 'start 30 h264']);
   });
 
   it('gives a viewer nothing until a key frame, then every chunk in order', async () => {
@@ -238,7 +251,7 @@ describe('PreviewController video', () => {
     controller.attach(helper);
     const only = watch(controller, ['h264', 'jpeg']);
     await vi.advanceTimersByTimeAsync(0);
-    expect(helper.calls).toEqual(['start 2 h264']);
+    expect(helper.calls).toEqual(['start 30 h264']);
 
     controller.frame(helper, image('still'));
 
