@@ -4,10 +4,10 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 12 — Windows na nowym kontrakcie: kod i testy wypchnięte,
-  trwa doprowadzanie CI `computer-use-windows.yml` do zielonego (helper C++
-  kompiluje się tylko tam).
-- **Następna czynność:** po zielonym CI — krok 13 (podgląd H.264).
+- **Bieżący krok:** 13 — podgląd jako wideo H.264 (krok 12 gotowy, CI
+  `Computer Use Windows` zielone: 29 testów na prawdziwym pulpicie, dwa razy).
+- **Następna czynność:** `VTCompressionSession` w helperze Swift, zdarzenia
+  `preview_chunk`, negocjacja kodeka i `VideoDecoder` w rendererze.
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -94,7 +94,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] Helper C++ protokół v5: `list_apps`, `resolve_apps`, `get_app_state {app, window_id?}`, akcje po indeksie/punkcie, `batch`, `screenshot`, `zoom`.
 - [x] Kursor (okno warstwowe, `WDA_EXCLUDEFROMCAPTURE`) i PiP (WGC → JPEG).
 - [x] Usunięcie starych 21 narzędzi i `windows/{backend,contracts,guidance}.ts`; jeden `ComputerBackend` na obu platformach.
-- [ ] Zielone CI `computer-use-windows.yml` (poprawki po pierwszej kompilacji w osobnych commitach).
+- [x] Zielone CI `computer-use-windows.yml` (run 36811088154; poprawki po pierwszej kompilacji w commitach `fix(computer-use): …`).
 
 ### Krok 13 — PiP jako wideo
 - [ ] H.264 (VideoToolbox / Media Foundation), zdarzenia `preview_chunk`.

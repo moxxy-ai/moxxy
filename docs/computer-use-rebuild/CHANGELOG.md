@@ -1551,3 +1551,19 @@ Poprzedni commit: `1060794a` (krok 11).
 - Lokalnie brak Windows: pierwsza kompilacja nowego C++ odbywa się w CI.
 - Zadanie `installer` workflow (smoke zainstalowanych zasobów) uruchamia się
   tylko ręcznie (`workflow_dispatch`).
+
+**Wynik CI Windows (commity `a846016c` → poprawki)**
+- Pierwsza kompilacja nowego C++ przeszła od razu; 17 z 28 testów zielonych.
+- Poprawka 1: dialog otwarty przez ostatnią akcję pojawia się chwilę po
+  kliknięciu, więc okna zasłaniającego szukamy po odczekaniu (`settle`), nie
+  przed nim. Reszta czerwonych testów była następstwem otwartego dialogu.
+- Poprawka 2: indeksy elementów trzymane per okno (dialog nie kasuje
+  indeksów okna pod spodem); okno celu jest podnoszone na wierzch także
+  wtedy, gdy ma już fokus (aplikacja uruchomiona w tle); pisanie z
+  `element_index` najpierw ustawia fokus przez UIA, klik jest zapasem.
+- Poprawka 3: wskaźnik użytkownika wraca 40 ms po akcji — zwolnienie
+  przycisku bierze pozycję z chwili obsługi przez Windows, więc zbyt szybki
+  powrót gubił koniec przeciągania (test niestabilny).
+- Run `36811088154`: sukces, 29 testów × 2 przebiegi (w tym prawdziwy
+  Notatnik, schowek, panel strażnika, zabicie helpera w trakcie
+  przeciągania).
