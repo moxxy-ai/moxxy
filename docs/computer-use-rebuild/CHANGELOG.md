@@ -1743,3 +1743,31 @@ luna8d kliknęła kontener zamiast komórki) i została odwrócona.
 - Zadanie 7 częściowe, zadanie 9 nieuruchomione (brak aplikacji).
 - Windows: zmiany w schemacie są wspólne, ale bez prób z modelem; brak
   enkodera H.264.
+
+## Drzewo stron, element pod punktem, porównanie z `open-computer-use` — 2026-10-01
+
+**Co i jak**
+- `Tree.swift`: stan „collapsed” tylko dla ról, które się rozwijają; pusta
+  wartość tylko dla pól tekstowych; akcja własna pokazywana po nazwie, a
+  `perform_secondary_action` odnajduje ją po tej nazwie (`Act.swift`).
+  Powód: w Safari każdy element strony miał `value="" collapsed`, a akcje
+  własne zajmowały trzy wiersze.
+- `Act.swift`, `AppState.swift`, `Action.swift` (`FrameHit`): element pod
+  punktem brany też z ramek zapamiętanego stanu. Wzorzec: `clickCandidates` /
+  `bestElement(containing:)` w `open-computer-use`.
+- `helper.test.ts`: test nieaktualnych pikseli wyciąga aplikację testową na
+  wierzch, bo System Events nie sięga okna na innym biurku.
+- [`open-computer-use-comparison.md`](open-computer-use-comparison.md).
+
+**Testy (Red → Green)**
+- `WebContentTreeTests` (2 testy): Red błąd kompilacji (`no member 'action'`)
+  → Green.
+- `FrameHitTests`: Red `cannot find 'FrameHit'` → Green.
+- e2e „presses a control under a point…”: uruchomiony sam, z oknem na innym
+  biurku, czerwony (`method: input` zamiast `ax`) → zielony.
+
+**Próba z modelem:** Safari na lokalnej stronie (luna7b) — tytuł i nagłówek
+odczytane poprawnie.
+
+**Walidacja:** `swift test` 137/137; plugin 20 plików / 285 testów (z e2e);
+`pnpm build` 88/88; typecheck OK; lint 0 błędów; `check:deps` 0 błędów.

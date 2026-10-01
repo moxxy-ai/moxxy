@@ -79,6 +79,31 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
     }
 }
 
+@Suite struct WebContentTreeTests {
+    // WebKit answers "not expanded" and an empty value for every element, and names custom actions on three lines.
+    private let custom = "Name:Remove from Toolbar\nTarget:0x0\nSelector:(null)"
+
+    @Test func leavesOutStatesAndValuesThatSayNothing() {
+        let page = node("AXWindow", "Page", children: [
+            node("AXHeading", "Example Domain", value: "", expanded: false),
+            node("AXStaticText", value: "This domain", expanded: false),
+            node("AXTextField", "Search", value: "", expanded: false),
+            node("AXPopUpButton", "Size", value: "Small", expanded: false),
+        ])
+        let elements = TreeBuilder.build(page, limit: 100).elements
+        #expect(elements.map(\.states) == [[], [], [], [], ["collapsed"]])
+        #expect(elements.map(\.value) == [nil, nil, nil, "", "Small"])
+    }
+
+    @Test func showsACustomActionByItsNameAndFindsItAgain() {
+        let button = node("AXButton", "Share", actions: ["AXPress", "AXShowMenu", custom])
+        #expect(TreeBuilder.explicitActions(button) == ["AXShowMenu", "Remove from Toolbar"])
+        #expect(TreeBuilder.action(named: "Remove from Toolbar", in: button.actions) == custom)
+        #expect(TreeBuilder.action(named: "AXShowMenu", in: button.actions) == "AXShowMenu")
+        #expect(TreeBuilder.action(named: "AXDelete", in: button.actions) == nil)
+    }
+}
+
 @Suite struct IndexRegistryTests {
     @Test func keepsAnIndexWhileItsKeyLivesAndNeverReusesOne() {
         var registry = IndexRegistry()

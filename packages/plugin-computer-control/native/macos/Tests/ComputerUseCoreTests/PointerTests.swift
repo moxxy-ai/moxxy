@@ -190,3 +190,15 @@ import Testing
                                                        "click_count": .number(1), "held": .array([.string("hyper")])]) }
     }
 }
+
+@Suite struct FrameHitTests {
+    // The system hit test answers nothing for a window on another Space; the last observed frames still know.
+    private let frames: [Int: CGRect] = [0: CGRect(x: 0, y: 0, width: 400, height: 300), 3: CGRect(x: 20, y: 20, width: 80, height: 30), 7: CGRect(x: 10, y: 10, width: 200, height: 100)]
+
+    @Test func picksTheSmallestObservedElementUnderAPoint() {
+        #expect(FrameHit.index(at: CGPoint(x: 30, y: 30), in: frames) == 3)
+        #expect(FrameHit.index(at: CGPoint(x: 150, y: 60), in: frames) == 7)
+        #expect(FrameHit.index(at: CGPoint(x: 390, y: 290), in: frames) == 0)
+        #expect(FrameHit.index(at: CGPoint(x: 500, y: 500), in: frames) == nil)
+    }
+}

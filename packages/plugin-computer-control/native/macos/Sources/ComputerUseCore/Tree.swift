@@ -46,6 +46,9 @@ public enum TreeBuilder {
     /// Actions every clickable element has; the click tools cover them.
     static let implicitActions: Set<String> = ["AXPress", "AXScrollToVisible", "AXShowDefaultUI", "AXShowAlternateUI"]
     static let toggles: Set<String> = ["AXCheckBox", "AXRadioButton", "AXSwitch"]
+    /// Web content answers "not expanded" and an empty value for everything; only these roles mean it.
+    static let disclosing: Set<String> = ["AXDisclosureTriangle", "AXRow", "AXOutline", "AXPopUpButton", "AXComboBox", "AXMenuButton", "AXButton", "AXCell"]
+    static let entries: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
 
     public static func build(_ root: NodeSnapshot, limit: Int) -> (elements: [TreeElement], truncated: Bool) {
         var output: [TreeElement] = []
@@ -99,7 +102,7 @@ public enum TreeBuilder {
         if node.focused { states.append("focused") }
         if node.selected { states.append("selected") }
         if isToggle && node.value == "1" { states.append("checked") }
-        if let expanded = node.expanded { states.append(expanded ? "expanded" : "collapsed") }
+        if let expanded = node.expanded, expanded || disclosing.contains(node.role) { states.append(expanded ? "expanded" : "collapsed") }
         if !node.enabled { states.append("disabled") }
         let placeholder = nonEmpty(node.placeholder).map { "placeholder: \($0)" }
         return TreeElement(
@@ -107,12 +110,23 @@ public enum TreeBuilder {
             // Static text carries its words in the value; show them as the title.
             title: nonEmpty(node.title) ?? (isText ? nonEmpty(node.value) : nil),
             description: nonEmpty(node.description) ?? placeholder,
-            value: node.secure || isText || isToggle ? nil : node.value,
+            value: node.secure || isText || isToggle ? nil : (entries.contains(node.role) ? node.value : nonEmpty(node.value)),
             secure: node.secure, states: states, actions: explicitActions(node), handle: node.handle, frame: node.frame
         )
     }
 
-    static func explicitActions(_ node: NodeSnapshot) -> [String] { node.actions.filter { !implicitActions.contains($0) } }
+    static func explicitActions(_ node: NodeSnapshot) -> [String] { node.actions.filter { !implicitActions.contains($0) }.map(actionLabel) }
+
+    /// A custom action arrives as "Name:…\nTarget:…\nSelector:…"; the tree shows its name only.
+    static func actionLabel(_ raw: String) -> String {
+        guard raw.hasPrefix("Name:"), let line = raw.split(separator: "\n").first else { return raw }
+        return String(line.dropFirst("Name:".count))
+    }
+
+    /// The action of an element that the tree showed under `name`.
+    static func action(named name: String, in actions: [String]) -> String? {
+        actions.first { $0 == name || actionLabel($0) == name }
+    }
 
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }

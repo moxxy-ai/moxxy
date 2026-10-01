@@ -58,13 +58,15 @@ struct Executor {
             }
         case let .click(.point(point), button, count, modifiers):
             return aimed(point) { screen in
-                if let target = AXReader.element(at: screen, pid: state.window?.pid), let refused = guardSave(confirmedBy: target) { return refused }
+                let hits = elements(at: screen)
+                for element in hits { if let refused = guardSave(confirmedBy: element) { return refused } }
                 // A control under the point is pressed through accessibility, in the background.
-                if let element = AXReader.element(at: screen, pid: state.window?.pid),
-                   case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
-                                                                   button: button, count: count, modifiers: !modifiers.isEmpty),
-                   let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
-                    return pressed
+                for element in hits {
+                    if case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
+                                                                       button: button, count: count, modifiers: !modifiers.isEmpty),
+                       let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
+                        return pressed
+                    }
                 }
                 return physically(at: screen, aimedAt: point) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers) }
             }
@@ -102,9 +104,9 @@ struct Executor {
         case let .secondary(index, name):
             return onElement(index) { element in
                 // Only actions the element offers; a guessed one is never tried.
-                guard AXReader.actions(element).contains(name) else { return .unsupported("unsupported_action") }
+                guard let action = TreeBuilder.action(named: name, in: AXReader.actions(element)) else { return .unsupported("unsupported_action") }
                 if let refused = guardSave(confirmedBy: element) { return refused }
-                return tryPress(element, name) ?? .unsupported("unsupported_action")
+                return tryPress(element, action) ?? .unsupported("unsupported_action")
             }
         case let .scroll(.element(index), direction, pages):
             return live(index) { element in
@@ -288,9 +290,15 @@ struct Executor {
         return cursor.act(at: point, outline: outline, in: state.window, body)
     }
 
+    /// What is under a screen point: the system hit test answers for what is visible; for a window on another
+    /// Space or under another one, the frames observed with the state still name the element.
+    private func elements(at screen: CGPoint) -> [AXUIElement] {
+        [AXReader.element(at: screen, pid: state.window?.pid), FrameHit.index(at: screen, in: state.frames).flatMap { state.elements[$0] }].compactMap { $0 }
+    }
+
     /// The text field under a point of the app, for typing and pasting by coordinates.
     private func onText(at screen: CGPoint, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
-        guard let element = AXReader.element(at: screen, pid: state.window?.pid), AXReader.takesText(element) else {
+        guard let element = elements(at: screen).first(where: AXReader.takesText) else {
             return .unsupported("unsupported_action", hint: "There is no text field at that point. On a canvas or a spreadsheet cell, click the point first, then send the text with no target.")
         }
         return withCursor(at: screen, outline: AXReader.frame(element)) { body(element) }

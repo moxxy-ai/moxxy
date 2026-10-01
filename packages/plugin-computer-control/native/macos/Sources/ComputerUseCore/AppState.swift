@@ -6,6 +6,8 @@ import ApplicationServices
 final class TargetState {
     var registry = IndexRegistry()
     var elements: [Int: AXUIElement] = [:]
+    /// Screen frames of those elements when they were observed.
+    var frames: [Int: CGRect] = [:]
     /// Maps the last screenshot's pixels to the screen; `nil` until a screenshot was taken.
     var frame: CoordinateFrame?
     /// The last screenshot's pixels, compared around a point before acting on it.
@@ -123,6 +125,7 @@ extension Methods {
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
+        state.frames = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map(\.frame)).compactMap { index, frame in frame.map { (index, $0) } })
         state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
         state.root = window
         if let window = state.window { cursor?.attach(to: window) }

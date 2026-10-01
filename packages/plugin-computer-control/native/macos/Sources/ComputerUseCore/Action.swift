@@ -190,3 +190,10 @@ public enum AXLadder {
         }
     }
 }
+
+/// The element last observed under a screen point: the smallest frame that contains it.
+public enum FrameHit {
+    public static func index(at point: CGPoint, in frames: [Int: CGRect]) -> Int? {
+        frames.filter { $0.value.contains(point) }.min { ($0.value.width * $0.value.height, $0.key) < ($1.value.width * $1.value.height, $1.key) }?.key
+    }
+}

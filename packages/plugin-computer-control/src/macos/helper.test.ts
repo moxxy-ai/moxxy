@@ -405,6 +405,8 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           const outside = await act(transport, { action: 'click', x: 5000, y: 10, mouse_button: 'left', click_count: 1 });
           expect(outside.result).toMatchObject({ outcome: 'blocked', code: 'point_outside_frame' });
           // Another process changes the field behind the helper's back; the point is on its text, whose pixels change.
+          // System Events only reaches a window on the visible Space, so the fixture comes forward first.
+          spawnSync('open', ['-b', FIXTURE]);
           const setField = (value: string) => spawnSync('osascript', ['-e', `tell application "System Events" to set value of text field 1 of window 1 of process "MoxxyComputerFixture" to "${value}"`]);
           setField('MMMMMMMMMMMMMMMM');
           const field = await look(transport);

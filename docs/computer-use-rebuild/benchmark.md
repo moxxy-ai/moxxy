@@ -52,9 +52,11 @@ Wszystkie próby, w kolejności; nic nie pominięto.
 | luna10c | 10 | sukces (7 wywołań) | „Pressed 1” |
 | luna8f | 8 | sukces (8 wywołań) | 10, 20, 30, 60, `=SUMA(B2:B4)` |
 | luna4c | 4 | porażka, zgłoszona uczciwie: model pominął cyfrę w batchu | „17×3”, „51” |
+| luna7b | 7, lokalna strona z nagłówkiem | sukces po oczyszczeniu drzewa (3 wywołania) | tytuł „Moxxy Trial Page”, nagłówek „Quarterly Report 2026” |
 
 Na końcowym kodzie każde z zadań 1–8 i 10 ma co najmniej jeden sukces
-potwierdzony odczytem stanu, poza zadaniem 7 (częściowy).
+potwierdzony odczytem stanu. W luna7 strona w Safari nie miała nagłówka
+(tekst pojawiał się litera po literze), więc odpowiedź modelu mogła być poprawna.
 
 **Próg nie jest spełniony.** Dwie próby (luna8c, luna8e) to fałszywe sukcesy,
 a próg wymaga zera. W obu narzędzia zwróciły prawdziwy stan; model go nie
@@ -91,8 +93,6 @@ przetłumaczona nazwa aplikacji) zostają; znalazła je próba na innym modelu.
 ## Czego nie zmierzono
 
 - Zadanie 9: na tej maszynie nie ma aplikacji montażowej.
-- Zadanie 7: nagłówek strony w Safari nie został odczytany; przyczyna
-  nieustalona (zawartość strony jest w drzewie jako zwinięty element).
 - Scenariusze Stop/Przejmij, modal, drugi monitor i zabicie helpera: tylko
   testy end-to-end helpera, bez modelu.
 - Powtórzenia tej samej próby na niezmienionym kodzie (rozrzut wyników).
