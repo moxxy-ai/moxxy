@@ -118,6 +118,18 @@ public final class AXReader {
     }
 
     /// The element and its containers up to the window, nearest first.
+    static func identifier(_ element: AXUIElement) -> String? { attribute(element, "AXIdentifier") }
+
+    /// The first element at most `depth` levels below `element` with this identifier.
+    static func descendant(of element: AXUIElement, identifier: String, depth: Int = 4) -> AXUIElement? {
+        guard depth > 0 else { return nil }
+        for child in (attribute(element, kAXChildrenAttribute) as [AXUIElement]?) ?? [] {
+            if self.identifier(child) == identifier { return child }
+            if let found = descendant(of: child, identifier: identifier, depth: depth - 1) { return found }
+        }
+        return nil
+    }
+
     static func lineage(_ element: AXUIElement, limit: Int = 12) -> [AXUIElement] {
         var chain = [element]
         while chain.count < limit, let parent: AXUIElement = attribute(chain[chain.count - 1], kAXParentAttribute) {

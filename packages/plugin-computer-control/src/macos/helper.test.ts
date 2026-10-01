@@ -523,6 +523,35 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       });
     });
 
+    // What a save dialog writes can run later on its own, so its destination is checked before every step.
+    describe('save dialogs', () => {
+      const sheet = (command: string) => spawnSync('osascript', ['-e', `tell application "System Events" to tell splitter group 1 of sheet 1 of window 1 of process "MoxxyComputerFixture" to ${command}`]);
+
+      it('refuses to name, type or confirm a save into a protected place, and lets the user cancel', async () => {
+        const transport = start();
+        try {
+          const opened = await act(transport, { action: 'click', element_index: element(await observe(transport), 'button:save').index, mouse_button: 'left', click_count: 1 });
+          const dialog = opened.state ?? await observe(transport);
+          const field = element(dialog, ':saveAsNameTextField');
+          const typed = await act(transport, { action: 'type_text', element_index: field.index, text: '.zshrc' });
+          expect(typed.result).toMatchObject({ outcome: 'blocked', code: 'protected_path' });
+          const named = await act(transport, { action: 'set_value', element_index: field.index, value: 'authorized_keys' });
+          expect(named.result).toMatchObject({ outcome: 'blocked', code: 'protected_path' });
+          const fine = await act(transport, { action: 'set_value', element_index: field.index, value: 'Report' });
+          expect(fine.result).toEqual({ outcome: 'delivered', method: 'ax' });
+          // A name typed by someone else is still checked when the model confirms the save.
+          sheet('set value of text field 1 to ".bashrc"');
+          const saved = await act(transport, { action: 'click', element_index: element(dialog, ':OKButton').index, mouse_button: 'left', click_count: 1 });
+          expect(saved.result).toMatchObject({ outcome: 'blocked', code: 'protected_path' });
+          const cancelled = await act(transport, { action: 'click', element_index: element(saved.state ?? dialog, ':CancelButton').index, mouse_button: 'left', click_count: 1 });
+          expect(element(cancelled.state ?? dialog, 'text:status').title).toBe('Not saved');
+        } finally {
+          sheet('click button "Cancel"');
+          await transport.close();
+        }
+      });
+    });
+
     it('asks for an observation before the first action', async () => {
       const transport = start();
       try {

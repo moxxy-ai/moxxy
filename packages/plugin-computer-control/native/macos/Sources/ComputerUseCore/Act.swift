@@ -38,6 +38,7 @@ struct Executor {
         switch request {
         case let .click(.element(index), button, count, modifiers):
             return live(index) { element in
+                if let refused = guardSave(confirmedBy: element) { return refused }
                 if case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
@@ -47,6 +48,7 @@ struct Executor {
             }
         case let .click(.point(point), button, count, modifiers):
             return aimed(point) { screen in
+                if let target = AXReader.element(at: screen, pid: state.window?.pid), let refused = guardSave(confirmedBy: target) { return refused }
                 // A control under the point is pressed through accessibility, in the background.
                 if let element = AXReader.element(at: screen, pid: state.window?.pid),
                    case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
@@ -67,6 +69,10 @@ struct Executor {
         case let .pressKey(chord, count):
             guard let pid = state.window?.pid else { return noWindow }
             if chord.isSelectAll { return onFocused(selectAll) }
+            if chord.confirms, let focused: AXUIElement = AXReader.attribute(AXReader.application(pid), kAXFocusedUIElementAttribute),
+               let refused = guardSave(confirmedBy: focused, byReturn: true) {
+                return refused
+            }
             let press = { keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
             return chord.needsMenuBar ? inFront(press) : press()
         case let .holdKey(chord, duration):
@@ -87,6 +93,7 @@ struct Executor {
             return onElement(index) { element in
                 // Only actions the element offers; a guessed one is never tried.
                 guard AXReader.actions(element).contains(name) else { return .unsupported("unsupported_action") }
+                if let refused = guardSave(confirmedBy: element) { return refused }
                 return tryPress(element, name) ?? .unsupported("unsupported_action")
             }
         case let .scroll(.element(index), direction, pages):
@@ -358,6 +365,7 @@ struct Executor {
 
     /// Accessibility inserts at the caret (replacing a selection); keyboard events are the fallback.
     private func type(_ text: String, into element: AXUIElement) -> ActionResult {
+        if let refused = guardSave(writing: text, into: element) { return refused }
         if let refused = focus(element) { return refused }
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
@@ -378,6 +386,7 @@ struct Executor {
     /// Plain text and Markdown are inserted like typing, so the clipboard is never touched; rich text needs
     /// the clipboard and Command-V, so the app comes forward.
     private func paste(_ text: String, _ format: PasteFormat, into element: AXUIElement) -> ActionResult {
+        if let refused = guardSave(writing: text, into: element) { return refused }
         if let refused = focus(element) { return refused }
         if format != .html, let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
@@ -407,6 +416,30 @@ struct Executor {
         }
         guard let value = AXValueCreate(.cfRange, &target) else { return .blocked("helper_failed") }
         return result(AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value))
+    }
+
+    // MARK: Save dialogs
+
+    private static let home = FileManager.default.homeDirectoryForCurrentUser.path
+    private static let protectedHint = "A save dialog would write to a protected place (login items, shell start-up files, keys, git hooks or a file that runs when opened). Nothing was done; choose another name or folder, or ask the user to save it themselves."
+
+    /// Text for a save dialog's name or Go To field, alone and as it would read after insertion at the end.
+    private func guardSave(writing text: String, into element: AXUIElement, replacing: Bool = false) -> ActionResult? {
+        let field = AXReader.identifier(element)
+        let result = replacing ? text : (AXReader.valueText(element) ?? "") + text
+        guard SaveGuard.refusesTyping(text, into: field, home: Self.home) || SaveGuard.refusesTyping(result, into: field, home: Self.home) else { return nil }
+        return .blocked("protected_path", hint: Self.protectedHint)
+    }
+
+    /// Pressing Save, or Return anywhere in the dialog (`byReturn`), checks the name in the dialog and the
+    /// folder its Where menu shows.
+    private func guardSave(confirmedBy element: AXUIElement, byReturn: Bool = false) -> ActionResult? {
+        guard byReturn || AXReader.identifier(element) == SaveGuard.saveButton,
+              let panel = AXReader.lineage(element).first(where: { AXReader.identifier($0) == SaveGuard.panel })
+        else { return nil }
+        let name = AXReader.descendant(of: panel, identifier: SaveGuard.nameField).flatMap(AXReader.valueText)
+        let folder = AXReader.descendant(of: panel, identifier: SaveGuard.whereMenu).flatMap(AXReader.valueText)
+        return SaveGuard.refusesSaving(name: name, folder: folder, home: Self.home) ? .blocked("protected_path", hint: Self.protectedHint) : nil
     }
 
     /// Command shortcuts and rich-text paste go through the menu bar, which only the app in front has: the app
@@ -455,6 +488,7 @@ struct Executor {
     }
 
     private func setValue(_ element: AXUIElement, _ text: String) -> ActionResult {
+        if let refused = guardSave(writing: text, into: element, replacing: true) { return refused }
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success, settable.boolValue else {
             return .unsupported("unsupported_action")

@@ -1140,3 +1140,66 @@ Commit kroku 7d1: `a006a0c2`.
 - Zrzut JPEG z migającym kursorem tekstowym może różnić się między
   przechwyceniami — wtedy brak zmian nie zostanie wykryty (bezpieczny
   kierunek: nigdy fałszywego `no_progress`).
+
+---
+
+## Krok 7d3 — ochrona okien zapisu (2026-10-01)
+
+Commit kroku 7d2: `af1308b8`.
+
+**Wzorzec**
+- Claude.app 2.16120.0 (`app.asar`, read-only): listy chronionych miejsc dla
+  paneli zapisu — katalogi w domu (`.ssh`, `.gnupg`, `.aws`, `.kube`,
+  `.docker`, LaunchAgents/LaunchDaemons, konfiguracja fish i gita), katalogi
+  systemowe (`/etc`, `/private/etc`, `/Library/Launch*`, `/System`), nazwy
+  (pliki rc powłoki, `.gitconfig`, klucze SSH), rozszerzenia uruchamiane przy
+  otwarciu (`.command`, `.webloc`, `.mobileconfig`, …), wnętrze `.git` i
+  skrypty `bin/activate*`; sprawdzanie zarówno wpisywanego tekstu, jak i
+  potwierdzenia zapisu. Dopasowanie (normalizacja) napisane od nowa.
+- Identyfikatory AX `NSSavePanel` (macOS 26, sprawdzone sondą na fixture):
+  arkusz `save-panel`, pole nazwy `saveAsNameTextField` (wartość bez
+  rozszerzenia), menu „Gdzie” `where popup` (tylko nazwa folderu), przyciski
+  `OKButton`/`CancelButton`, pole „Idź do” `PathTextField`.
+
+**Co**
+- `ProtectedPath.swift` (nowy, czysty): `ProtectedPath.refuses(path, home:)`
+  i `normalized` (NFKC, usunięcie niewidocznych znaków, małe litery, `~`,
+  podwójne ukośniki, kropki i spacje na końcu członu — jak widzi to system
+  plików bez rozróżniania wielkości liter); `SaveGuard.refusesTyping` (tylko
+  pola nazwy i „Idź do”) i `SaveGuard.refusesSaving(name:folder:)` (nazwa
+  folderu z menu „Gdzie”).
+- `Act.swift`: `guardSave(writing:into:replacing:)` przed `type_text`,
+  `paste` i `set_value` (sprawdza sam tekst i wynik po wstawieniu);
+  `guardSave(confirmedBy:byReturn:)` przed kliknięciem `OKButton` (po
+  indeksie, po punkcie, akcja drugorzędna) i przed Return/Enter bez
+  modyfikatorów, gdy fokus jest w arkuszu zapisu. Wynik `blocked
+  protected_path` z podpowiedzią; nic nie jest wysyłane.
+- `AXReader`: `identifier(_:)`, `descendant(of:identifier:depth:)`;
+  `KeyChord.confirms`.
+- Fixture: przycisk „Save…” (`save`) otwiera arkusz `NSSavePanel`; status
+  „Saved” / „Not saved”.
+
+**Testy (Red → Green)**
+- Red Swift: brak `ProtectedPath`/`SaveGuard` (kompilacja). Red e2e na
+  binarce z 7d2: `type_text ".zshrc"` w polu nazwy → `delivered`.
+- Green: Swift 119/119 (`ProtectedPathTests` — katalogi, nazwy,
+  rozszerzenia, `.git`, `activate`, wielkość liter, znaki pełnej szerokości i
+  zerowej szerokości, zwykłe dokumenty przepuszczone; `SaveGuardTests`).
+  e2e „save dialogs”: `type_text ".zshrc"` i `set_value "authorized_keys"`
+  → `protected_path`, `set_value "Report"` → `delivered`, nazwa `.bashrc`
+  wpisana z zewnątrz (System Events) + klik Save → `protected_path`, Cancel →
+  „Not saved”.
+
+**Walidacja**
+- `swift test` 119/119; `./build.sh` OK.
+- `npx vitest run` (plugin) przy bezczynnym wejściu — 26 plików / 277 testów.
+- `pnpm typecheck` (plugin) OK; `pnpm lint` 0 błędów (96 ostrzeżeń, wszystkie
+  wcześniejsze); `pnpm check:deps` 0 błędów; `pnpm build` 88/88.
+
+**Pominięcia i dla następcy**
+- Pole „Idź do” (`PathTextField`) jest sprawdzane przy pisaniu, ale jego
+  potwierdzenie Returnem sprawdza tylko nazwę i menu „Gdzie” — menu pokazuje
+  nazwę folderu, nie pełną ścieżkę, więc folder o tej samej nazwie co
+  chroniony (np. `hooks`) też jest odrzucany (bezpieczny kierunek).
+- Zapis przeciągnięciem pliku albo przez skrót ⌘S w aplikacji bez panelu nie
+  przechodzi przez tę bramkę; dotyczy tylko `NSSavePanel`.

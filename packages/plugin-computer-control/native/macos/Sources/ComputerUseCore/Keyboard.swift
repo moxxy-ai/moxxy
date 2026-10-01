@@ -83,6 +83,9 @@ public struct KeyChord: Equatable, Sendable {
     /// (its menu items are disabled in the background).
     public var needsMenuBar: Bool { flags.contains(.maskCommand) }
 
+    /// Return and Enter press a dialog's default button.
+    public var confirms: Bool { flags.isEmpty && (key == .named(0x24) || key == .named(0x4C)) }
+
     public static func parse(_ value: JSONValue) throws -> KeyChord {
         guard case let .array(names)? = value["modifiers"] else { throw HelperError.invalidParams("chord needs modifiers") }
         let flags = try KeyCodes.flags(names)

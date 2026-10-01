@@ -4,13 +4,12 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Gdzie jesteśmy
 
-- **Bieżący krok:** 7d3 — ochrona okien zapisu (7d1, 7d2 gotowe).
-- **Następna czynność:** testy Red dla czystego `ProtectedPath` (katalogi
-  `.ssh`, LaunchAgents/Daemons, fish, `.gnupg`, pliki rc powłoki,
-  `.gitconfig`, hooki i config gita, skrypty `activate`, rozszerzenia
-  uruchamiane przy otwarciu), potem rozpoznanie panelu zapisu w AX
-  (`saveAsNameTextField`, `PathTextField`) na fixture z `NSSavePanel` i
-  blokada `protected_path` dla pisania/wklejania/ustawiania wartości.
+- **Bieżący krok:** 8 — `batch`, zrzut pełnoekranowy i zoom w helperze
+  macOS (krok 7 gotowy: 7a–7d3).
+- **Następna czynność:** testy Red dla `batch` w Swift (bramki przed każdym
+  krokiem, stop na pierwszym nie-`delivered`, pauza przerywa, stan na końcu),
+  potem `screenshot` (tylko aplikacje ze zgodą) i `zoom` (region ostatniego
+  zrzutu, odrzucenie regionu poza ramką i nieaktualnego zrzutu).
 - **Blokery:** brak.
 
 ## Rytuał każdego kroku
@@ -70,7 +69,7 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - [x] 7b: klawiatura i tekst w tle (AX w miejscu kursora, `postToPid`, ⌘A przez AX, inne ⌘ poza przodem → `not_frontmost`, wklejanie tekstu bez schowka, HTML przez schowek z przywróceniem).
 - [x] 7c2: `computer_hold_key` w tle (zwolnienie przy Stop i wyjściu helpera, wcześniejsze przerwanie czekania); skróty ⌘ i wklejanie HTML wyciągają aplikację na wierzch zamiast `not_frontmost` (nigdy podczas pisania użytkownika).
 - [x] 7c: fizyczna mysz z bramkami — klik po punkcie (najpierw AXPress kontrolki pod punktem w tle), wielokrotny klik z modyfikatorami, drag ze ścieżką i czasem, `mouse` down/move/up, scroll (AX strona → pasek przewijania → kółko), pisanie/wklejanie w pole pod punktem.
-- [ ] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu (7c: wszystkie poza ochroną okna zapisu — 7d; zgoda/poziom od kroku 3).
+- [x] Bramki: zgoda/poziom, frontmost, hit-test, punkt na ekranie, własne okno, łatka pikseli, ochrona okna zapisu (7c: wszystkie poza ochroną okna zapisu; 7d3: ochrona okna zapisu; zgoda/poziom od kroku 3).
 - [x] Przywracanie wskaźnika, strażnik (Escape = Stop, ingerencja = pauza) (7c: przywracanie wskaźnika i zwalnianie przycisku przy wyjściu helpera; 7d1: Escape = Stop przez nasłuchujący tap, pauza/wznowienie z hosta wstrzymuje akcję, czekanie na ciszę przed fizycznym wejściem, przygaszony kursor).
 - [x] Wykrywanie braku postępu; wynik + świeży stan po akcji (7d2: `ProgressTracker` w backendzie TS — wspólny dla macOS i Windows).
 

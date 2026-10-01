@@ -12,6 +12,16 @@ final class Controller: NSObject {
         presses += 1
         status.stringValue = "Pressed \(presses)"
     }
+
+    /// A real save dialog, as a sheet, so the helper's save-dialog protection meets the system panel.
+    @objc func save(_ sender: NSButton) {
+        guard let window = sender.window else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Untitled.txt"
+        panel.beginSheetModal(for: window) { [status] response in
+            MainActor.assumeIsolated { status.stringValue = response == .OK ? "Saved" : "Not saved" }
+        }
+    }
 }
 
 /// Reports how long the last key was held, from the events' own timestamps.
@@ -104,13 +114,14 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     let size = control(NSPopUpButton(frame: .zero, pullsDown: false), "size")
     size.addItems(withTitles: ["Small", "Large"])
     let disabled = control(NSButton(title: "Disabled", target: nil, action: nil), "disabled")
+    let save = control(NSButton(title: "Save…", target: controller, action: #selector(Controller.save(_:))), "save")
     disabled.isEnabled = false
     // Increment and decrement are secondary accessibility actions.
     let count = control(NSStepper(), "count")
     count.maxValue = 1000
 
     // Plain containers without titles or actions: the tree must not list them.
-    let inner = NSStackView(views: [press, remember, size, disabled, count])
+    let inner = NSStackView(views: [press, remember, size, disabled, count, save])
     inner.orientation = .horizontal
     // Content that finishes loading after launch, behind a spinner: settling must wait for it.
     let spinner = NSProgressIndicator()
