@@ -235,13 +235,15 @@ Point Desktop::aim(AppTarget& target, Window& window, const Json& step) {
   return screen_point(target,decimal(step,L"x",0,100'000),decimal(step,L"y",0,100'000));
 }
 void Desktop::bring_forward(Window& window) {
-  if (has_target_focus(window.hwnd)) return;
+  if (has_target_focus(window.hwnd)) { SetWindowPos(window.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE); return; }
   if (IsIconic(window.hwnd)) ShowWindowAsync(window.hwnd,SW_RESTORE);
   SetForegroundWindow(window.hwnd);
   // Windows may refuse a background process; the target's own accessibility focus is the second way in.
   if (!has_target_focus(window.hwnd)) { input_may_have_run=true; window.root->SetFocus(); }
   for (int i=0;i<10 && !has_target_focus(window.hwnd);++i)
     require(WaitForSingleObject(stop_event,50)==WAIT_TIMEOUT,"cancelled","Computer Use stopped");
+  // An app started in the background can hold the focus and still sit under another window.
+  SetWindowPos(window.hwnd,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
 }
 void Desktop::settle(HWND window, int budget) {
   // Quiet means the same place, foreground window and focused control for three looks in a row.
@@ -491,7 +493,9 @@ Json Desktop::app_state(const std::wstring& app, const std::optional<std::wstrin
   walk(window.root,L"",0,0);
 
   // Keys that are gone give up their index; it is never handed out again.
-  std::erase_if(target.indices,[&](const auto& item) { return !keys.contains(item.first); });
+  std::erase_if(target.indices,[&](const auto& item) { return !windows.contains(item.first); });
+  auto& indices=target.indices[picked.id];
+  std::erase_if(indices,[&](const auto& item) { return !keys.contains(item.first); });
   if (screenshot) {
     try {
       auto pixels=capture_window_pixels(window.hwnd);
@@ -507,9 +511,9 @@ Json Desktop::app_state(const std::wstring& app, const std::optional<std::wstrin
   }
   JsonArray elements;
   for (auto& entry:seen) {
-    auto known=target.indices.find(entry.key);
-    const int index=known!=target.indices.end() ? known->second : target.next_index++;
-    target.indices[entry.key]=index;
+    auto known=indices.find(entry.key);
+    const int index=known!=indices.end() ? known->second : target.next_index++;
+    indices[entry.key]=index;
     target.elements.emplace(index,entry.element);
     Json item; item.Insert(L"key",string_value(entry.key)); item.Insert(L"index",numeric(index));
     item.Insert(L"depth",numeric(std::min(entry.depth,64))); item.Insert(L"role",string_value(entry.role));
@@ -591,6 +595,22 @@ Json Desktop::perform(AppTarget& target, Window& window, const Json& step) {
     if (step.HasKey(L"element_index") && live(target,window,number(step,L"element_index",0,10'000'000)).secure)
       throw Refusal{L"unsupported",L"unsupported_action",L"Password fields are not typed into; ask the user to fill this one in."};
     const auto point=aim(target,window,step);
+    if (step.HasKey(L"element_index")) {
+      // Accessibility focus first: it needs no pointer and works when the element is partly covered.
+      auto& element=live(target,window,number(step,L"element_index",0,10'000'000));
+      bring_forward(window);
+      check_focus(window.hwnd);
+      try {
+        input_may_have_run=true;
+        com_ptr<IUIAutomationElement> focused;
+        BOOL same=FALSE;
+        if (SUCCEEDED(element.node->SetFocus()) && SUCCEEDED(automation->GetFocusedElement(focused.put())) && focused &&
+            SUCCEEDED(automation->CompareElements(focused.get(),element.node.get(),&same)) && same) {
+          show_cursor(window.hwnd,point,L"executing");
+          return;
+        }
+      } catch (const hresult_error&) { /* The element does not take focus that way; a click does. */ }
+    }
     physically(window,point,[&] { click_point(window.hwnd,point,L"left",1,{}); });
     require(WaitForSingleObject(stop_event,80)==WAIT_TIMEOUT,"cancelled","Computer Use stopped");
   };

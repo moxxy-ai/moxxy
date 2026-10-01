@@ -16,8 +16,9 @@ struct AppTarget {
   Rect bounds{};
   bool observed = false;
   std::map<int, Element> elements;
-  /// An element keeps its index while its key lives; indices are never reused.
-  std::map<std::wstring, int> indices;
+  /// An element keeps its index while its key lives; indices are never reused. Kept per window, so
+  /// a dialog that comes and goes leaves the indices of the window under it alone.
+  std::map<std::wstring, std::map<std::wstring, int>> indices;
   int next_index = 0;
   bool pictured = false;
   int image_width = 0, image_height = 0;
