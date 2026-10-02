@@ -13,11 +13,53 @@ export interface ActiveSessionShell {
   readonly sessionLoading: boolean;
 }
 
+// Both stand in for a runner snapshot that has not arrived yet. `attempt: 0`
+// marks them as a first start: nothing was lost, so nothing is reconnecting.
 const SELECTED_SESSION_LOADING_PHASE: ConnectionPhase = {
   phase: 'reconnecting',
   reason: 'loading selected session',
   attempt: 0,
 };
+
+// The first runner waits for the host's one-time preparation, which copies
+// the bundled extensions on a fresh install and can run for minutes.
+const FIRST_RUNNER_STARTING_PHASE: ConnectionPhase = {
+  phase: 'reconnecting',
+  reason: 'starting the agent runtime — after an install or update this can take a few minutes',
+  attempt: 0,
+};
+
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** One line for the banner shown while the active session is not connected. */
+export function describeConnectionPhase(phase: ConnectionPhase | undefined): string {
+  if (!phase) return 'Reconnecting…';
+  switch (phase.phase) {
+    case 'idle':
+      return 'Starting…';
+    case 'resolving-cli':
+      return 'Resolving moxxy CLI…';
+    case 'spawning':
+      return 'Starting agent runtime…';
+    case 'adopting':
+      return 'Attaching to running runner…';
+    case 'attaching':
+      return 'Attaching session…';
+    case 'reconnecting':
+      if (!phase.reason) return 'Reconnecting…';
+      if (phase.attempt === 0) return `${sentence(phase.reason)}${phase.reason.includes('—') ? '' : '…'}`;
+      return `Reconnecting — ${phase.reason}`;
+    case 'failed':
+      return phase.error ? `Disconnected — ${phase.error}` : 'Disconnected';
+    case 'protocol-incompatible':
+      // Terminal — say so plainly rather than implying a reconnect is coming.
+      return phase.hint;
+    default:
+      return 'Reconnecting…';
+  }
+}
 
 export function resolveActiveSessionShell({
   activeWorkspaceId,
@@ -76,7 +118,7 @@ export function resolveActiveSessionShell({
     // the selected runner is still being prepared. Keep the shell visible and
     // model the missing first snapshot as an ordinary loading phase.
     needsInitialSplash: false,
-    phase: SELECTED_SESSION_LOADING_PHASE,
+    phase: FIRST_RUNNER_STARTING_PHASE,
     connected: false,
     sessionLoading: true,
   };
