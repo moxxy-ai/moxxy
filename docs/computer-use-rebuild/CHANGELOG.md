@@ -2719,3 +2719,16 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 
 **Wniosek**
 - Część komputerowa zadania trwa 2–4 s; reszta (ponad 85%) to rundy modelu.
+
+## Próby z modelem bez leniwego ładowania narzędzi — 2026-10-02
+
+Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
+(na tym komputerze jest ponad 200 narzędzi, więc domyślnie ładują się leniwie).
+
+- Rund modelu jest o jedną mniej (bez `load_tool`), ale każda trwa 9–24 s
+  zamiast 5–10 s: całość 37,3 s, 53,3 s, 57,6 s (z leniwym ładowaniem:
+  24,2–37,6 s). Leniwe ładowanie zostaje szybsze; nie zmieniać.
+- `computer_run`: Ustawienia 3 kroki 2,1 s i 2,3 s (1 pytanie do Jev),
+  Finder 2 kroki 1,6 s (0 pytań, lekcje domyślne); narzędzia razem 2,3–3,0 s.
+- Rozkład rund przy leniwym ładowaniu (3 próby): decyzja o `load_tool` 5,9–6,9 s,
+  zgoda 7,1–9,7 s, napisanie `computer_run` 5,3–9,5 s, odpowiedź 2,7–7,2 s.
