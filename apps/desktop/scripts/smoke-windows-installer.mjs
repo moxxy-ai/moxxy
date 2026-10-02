@@ -27,7 +27,8 @@ let server;
 
 try {
   await removeInstallDir();
-  run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 120_000);
+  // The installer carries the voices and every plugin: unpacking takes minutes on a CI disk.
+  run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 600_000);
 
   await verifyDesktopResources(resourcesPath, { runtimePath });
 
