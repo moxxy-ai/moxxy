@@ -10,6 +10,7 @@ import { contractHelperScript, helperRequests, memoryLog, toolContext } from './
 import type { PreviewMessage } from '../preview/controller.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
 import type { AskJev, JevAnswers } from '../jev/client.js';
+import { RunMemory } from '../jev/memory.js';
 
 let directory: string;
 let requestsFile: string;
@@ -28,7 +29,7 @@ const profile = (extra: Partial<PlatformProfile> = {}): PlatformProfile => ({
 });
 
 function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}, jev?: (apiKey: string) => AskJev): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
-  const instance = new ComputerBackend(profile(extra), hints, jev);
+  const instance = new ComputerBackend(profile(extra), hints, jev, new RunMemory(join(directory, 'learned')));
   backends.push(instance);
   return { instance, tools: new Map(instance.tools().map((tool) => [tool.name, tool])) };
 }
@@ -265,14 +266,107 @@ describe('a run of steps', () => {
     ]);
   });
 
-  it('says how to turn it on when there is no TypeSafe key, without touching the app', async () => {
+  it('without a TypeSafe key answers with the state and no error, and touches nothing', async () => {
     vi.stubEnv('TYPESAFE_API_KEY', '');
     try {
       const { tools } = backend([], {}, jev([]));
       await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
-      await expect(run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps })).rejects.toThrow(/TYPESAFE_API_KEY[\s\S]*single/);
+      const output = forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }));
+      expect(output).toMatch(/computer_run is off[\s\S]*single tools/);
+      expect(output).toContain('[1] text area value="hello" focused');
       expect(methods()).not.toContain('act');
     } finally { vi.unstubAllEnvs(); }
+  });
+
+  describe('offered only with a key', () => {
+    const tool = (name: string) => ({ name, description: '', inputSchema: {} }) as never;
+    const offered = async (instance: ComputerBackend) => {
+      const request = { model: 'm', messages: [], tools: [tool('computer_run'), tool('computer_click'), tool('Read')] };
+      const hook = instance.hooks.onBeforeProviderCall as NonNullable<typeof instance.hooks.onBeforeProviderCall>;
+      const guided = (await hook(request, { sessionId: 'session', turnId: 'turn' } as never)) ?? request;
+      return { names: (guided.tools ?? []).map((entry) => entry.name), system: guided.system ?? '' };
+    };
+
+    it('hides computer_run and every word about it while there is no key', async () => {
+      vi.stubEnv('TYPESAFE_API_KEY', '');
+      try {
+        const { instance, tools } = backend([], {}, jev([]));
+        await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+        const { names, system } = await offered(instance);
+        expect(names).toEqual(['computer_click', 'Read']);
+        expect(system).not.toMatch(/computer_run/);
+        expect(system).toMatch(/several tool calls in one response/);
+      } finally { vi.unstubAllEnvs(); }
+    });
+
+    it('offers it once a tool call has seen the key in the vault', async () => {
+      vi.stubEnv('TYPESAFE_API_KEY', '');
+      try {
+        const { instance, tools } = backend([], {}, jev([]));
+        await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+        await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'turn', { TYPESAFE_API_KEY: 'vault-key' });
+        const { names, system } = await offered(instance);
+        expect(names).toContain('computer_run');
+        expect(system).toMatch(/computer_run/);
+      } finally { vi.unstubAllEnvs(); }
+    });
+
+    it('offers it from the first request when the key is in the environment', async () => {
+      vi.stubEnv('TYPESAFE_API_KEY', 'env-key');
+      try {
+        const { names } = await offered(backend([], {}, jev([])).instance);
+        expect(names).toContain('computer_run');
+      } finally { vi.unstubAllEnvs(); }
+    });
+  });
+
+  describe('learning', () => {
+    const secrets = { TYPESAFE_API_KEY: 'k' };
+    /** Like `jev`, and records which questions each request asked. */
+    const recording = (asked: string[][]) => (): AskJev => async (state, questions) => {
+      asked.push(Object.keys(questions));
+      return jev([])('k')(state, questions, new AbortController().signal);
+    };
+
+    it('remembers the element of a verified step: the same step later asks Jev only to check it', async () => {
+      const asked: string[][] = [];
+      const { tools } = backend([], {}, recording(asked));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', secrets);
+      expect(asked.flat()).toContain('target');
+      asked.length = 0;
+      const again = backend([], {}, recording(asked));
+      const output = forModel(await run(again.tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'later', secrets));
+      expect(output).toMatch(/2 of 2 steps done[\s\S]*1\. verified/);
+      expect(output).toMatch(/remembered/);
+      expect(asked.flat()).not.toContain('target');
+    });
+
+    it('shows the routes that reached their end with the app\'s first state of a turn', async () => {
+      const { tools } = backend([], {}, jev([]));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', secrets);
+      const first = forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'later', secrets));
+      expect(first).toMatch(/Routes that worked in this app before[\s\S]*Add a word[\s\S]*"target":"text area"/);
+      expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'later', secrets))).not.toMatch(/Routes that worked/);
+      vi.stubEnv('TYPESAFE_API_KEY', '');
+      try {
+        expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'no-key'))).not.toMatch(/Routes that worked/);
+      } finally { vi.unstubAllEnvs(); }
+    });
+
+    it('learns from the model: the element it used after a step failed is the step\'s element next time', async () => {
+      const asked: string[][] = [];
+      const { tools } = backend([], {}, recording(asked));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      const note = [{ do: 'type', target: 'the notes box', text: ' x', expect: 'the text ends with x' }];
+      expect(forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Note', steps: note }, 'turn', secrets))).toMatch(/1\. FAILED/);
+      await run(tools, 'computer_type_text', { app: 'TextEdit', element_index: 1, text: ' x' }, 'turn', secrets);
+      asked.length = 0;
+      const output = forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Note', steps: note }, 'later', secrets));
+      expect(output).toMatch(/1\. verified/);
+      expect(asked.flat()).not.toContain('target');
+    });
   });
 
   it('stops at a step the grant does not allow and leaves the rest', async () => {

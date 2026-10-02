@@ -2427,3 +2427,42 @@ otwórz Ogólne, potem Dźwięk, potem kliknij pole szukania”. Model sam wybra
 `computer_request_access` 36 ms, `computer_get_app_state` 2,2 s,
 `computer_run` 6,5 s), cała tura 20 s. Klucz ze środowiska aplikacji dotarł do
 narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
+
+## Pamięć `computer_run` i praca bez klucza — 2026-10-02
+
+**Co**
+- `src/jev/memory.ts` (+ testy): `RunMemory` (plik per aplikacja, zapis
+  atomowy, mutex, limity 200/20), `recall`, `describeRoutes`.
+- `src/jev/run.ts`: `known` w zależnościach biegu; krok z pamięci pomija
+  pytanie o element, zaczyna od sposobu, który zadziałał, i jest sprawdzany
+  po zapamiętanym efekcie; `used`, `recalled`, `stale` w wyniku kroku.
+- `src/backend/backend.ts`: nauka po biegu, nauka z poprawki modelu po
+  nieudanym kroku, trasy przy pierwszym stanie aplikacji w turze, stan klucza
+  per sesja. `src/contract/guidance.ts`: reguła 6 w dwóch wersjach, usuwanie
+  `computer_run` z żądania bez klucza.
+
+**Jak i dlaczego**
+- Jev to API bez stanu i bez trenowania, więc „uczenie” to pamięć lokalna.
+  Samo zapamiętanie elementu nie skróciło biegu (Jev nadal sprawdzał `expect`:
+  7,2 s i 4 żądania), dlatego pamiętany jest też efekt kroku.
+- Bez klucza poprzednia wersja rzucała błąd z `computer_run`. Teraz narzędzie
+  nie jest oferowane, a wywołane mimo to zwraca stan z notatką.
+- Hook nie ma dostępu do vaultu, więc o kluczu z vaultu backend dowiaduje się
+  przy pierwszym wywołaniu narzędzia w sesji.
+
+**Testy (Red → Green)**
+- `memory.test.ts` (10): Red — brak modułu. `run.test.ts` „what was learned
+  before” i „what a step showed last time” (8): Red — brak akcji / brak pól
+  `used`, `recalled`. `backend.test.ts` (6) i `guidance.test.ts` (1): Red —
+  błąd zamiast stanu bez klucza, `computer_run` w żądaniu, pytania `target`
+  w powtórzonym biegu. Wszystkie zielone po implementacji.
+
+**Walidacja**
+- Wtyczka `pnpm exec vitest run` — 380/380 (27 pominiętych: Linux) z e2e macOS.
+- `pnpm build`, `pnpm -r typecheck`, `pnpm lint`, `pnpm check:deps` — 0 błędów.
+- Na żywo, narzędziem (Ustawienia systemowe, prawdziwy Jev), ten sam plan
+  3 razy: 7,6 s i 4 żądania Jev → 4,0 s i 0 żądań → 4,0 s i 0 żądań.
+  Bez klucza w środowisku: notatka „computer_run is off” i stan, bez błędu.
+
+**Pominięte / dla następcy**
+- Bez próby z modelem. Otwarte pozycje w `todo.md`.

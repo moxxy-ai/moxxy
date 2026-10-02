@@ -6,6 +6,7 @@ import { diffTrees, formatElements, type AppElement, type AppTree } from '../con
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
 import { readTarget, targetQuestions, windowState, type Grounding } from './ground.js';
 import { judge, rungs } from './ladder.js';
+import { labelOf } from './memory.js';
 
 /** Ways tried on one step before the main model gets it back. */
 const MAX_ATTEMPTS = 4;
@@ -24,6 +25,9 @@ const EXPECTED_QUESTION: JevQuestion = {
   criteria: { true: 'What `performed.expect` describes is visible in `elements` now.', false: 'It is not visible, or the window shows something else.' },
 };
 
+/** A step's element from an earlier run, the way that worked, and the labels that appeared when it did. */
+export interface Recalled { readonly element: AppElement; readonly way: number; readonly effect?: readonly string[] }
+
 export interface RunDeps {
   readonly ask: AskJev;
   /** A fresh look at the window, once it has settled. */
@@ -32,6 +36,8 @@ export interface RunDeps {
   /** The chord that selects everything in a text field on this platform. */
   readonly selectAll: string;
   readonly signal: AbortSignal;
+  /** The element a step's target was in an earlier run, when the window still has it, and the way that worked. */
+  readonly known?: (step: RunStep, tree: AppTree) => Recalled | undefined;
 }
 
 export interface StepOutcome {
@@ -42,6 +48,12 @@ export interface StepOutcome {
   readonly why?: string;
   /** When no element matched: the lines that came closest. */
   readonly closest?: readonly string[];
+  /** What a verified step worked on and which of its ways did it: worth remembering. */
+  readonly used?: { readonly key: string; readonly label: string; readonly way: number; readonly effect?: readonly string[] };
+  /** The element came from memory, without asking Jev. */
+  readonly recalled?: true;
+  /** A remembered element was tried and did not do the step. */
+  readonly stale?: true;
 }
 
 export interface RunReport {
@@ -56,8 +68,22 @@ const lineOf = (tree: AppTree, element: AppElement) => (formatElements(tree)[tre
 const noul = (answers: JevAnswers, id: string) => { const answer = answers[id]; return answer?.type === 'noul' ? answer.noul : undefined; };
 
 /** What Jev is asked about a step before it is carried out: where its element is, and whether it is needed at all. */
-function before(step: RunStep, tree: AppTree): Record<string, JevQuestion> {
-  return { ...(step.target === undefined ? {} : targetQuestions(tree)), ...(step.expect === undefined ? {} : { already: ALREADY_QUESTION }) };
+function before(step: RunStep, tree: AppTree, recalled: Recalled | undefined): Record<string, JevQuestion> {
+  return {
+    ...(step.target === undefined || recalled ? {} : targetQuestions(tree)),
+    // A remembered effect is checked against the window itself.
+    ...(step.expect === undefined || recalled?.effect ? {} : { already: ALREADY_QUESTION }),
+  };
+}
+
+/** Labels kept as a step's effect; enough to tell one screen from another. */
+const EFFECT_LABELS = 8;
+const named = (tree: AppTree) => new Set(tree.elements.filter((element) => element.title).map(labelOf));
+const shows = (tree: AppTree, effect: readonly string[]) => { const labels = named(tree); return effect.every((label) => labels.has(label)); };
+/** What a step made appear: the named elements the window has now and did not have before. */
+function effectOf(previous: AppTree, now: AppTree): string[] {
+  const had = named(previous);
+  return [...named(now)].filter((label) => !had.has(label)).slice(0, EFFECT_LABELS);
 }
 
 /**
@@ -95,21 +121,27 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     return result;
   };
 
+  const remembered = (step: RunStep) => deps.known?.(step, state.tree);
+
   const carryOut = async (step: RunStep, next: RunStep | undefined): Promise<StepOutcome> => {
     const used = new Map<string, number>();
     let attempts = 0;
     let looked = false;
     let why = 'no element matches';
+    /** Memory is trusted for one try; after that Jev is asked. */
+    let stale = false;
     for (;;) {
       deps.signal.throwIfAborted();
-      const questions = before(step, state.tree);
+      const recalled = stale ? undefined : remembered(step);
+      if (recalled?.effect && shows(state.tree, recalled.effect)) return { status: attempts === 0 ? 'skipped' : 'verified', attempts, recalled: true };
+      const questions = before(step, state.tree, recalled);
       const answers = ahead ?? await ask({ step }, questions);
       ahead = undefined;
       if ((noul(answers, 'already') ?? 0) >= ALREADY) return { status: attempts === 0 ? 'skipped' : 'verified', attempts };
 
       let grounding: Grounding | undefined;
-      let element: AppElement | undefined;
-      if (step.target !== undefined) {
+      let element: AppElement | undefined = recalled?.element;
+      if (step.target !== undefined && !recalled) {
         if (!Object.keys(questions).some((id) => id.startsWith('target'))) return { status: 'failed', attempts, why: 'the window has too many elements to search' };
         grounding = readTarget(state.tree, answers);
         const candidates = grounding.kind === 'element' ? [grounding.element, ...grounding.others] : [];
@@ -122,9 +154,11 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
         }
       }
       const key = element?.key ?? '';
-      const rung = rungs(step, element, deps.selectAll)[used.get(key) ?? 0];
-      if (!rung || attempts >= MAX_ATTEMPTS) return { status: 'failed', attempts, why };
-      used.set(key, (used.get(key) ?? 0) + 1);
+      const ways = rungs(step, element, deps.selectAll);
+      const way = used.get(key) ?? (recalled && recalled.way < ways.length ? recalled.way : 0);
+      const rung = ways[way];
+      if (!rung || attempts >= MAX_ATTEMPTS) return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
+      used.set(key, way + 1);
       attempts += 1;
       const line = element ? lineOf(state.tree, element) : undefined;
 
@@ -132,17 +166,25 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       const result = await perform(rung);
       const changed = fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot);
       // One request: did this step do what it should, and where is the next step's element.
+      const seen = recalled?.effect !== undefined && shows(state.tree, recalled.effect);
+      const upcoming = next ? before(next, state.tree, remembered(next)) : {};
       const after = result.outcome === 'delivered'
         ? await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text, ...(next ? { step: next } : {}) },
-          { ...(step.expect === undefined ? {} : { expected: EXPECTED_QUESTION }), ...(next ? before(next, state.tree) : {}) })
+          { ...(step.expect === undefined || seen ? {} : { expected: EXPECTED_QUESTION }), ...upcoming })
         : {};
-      const verdict = judge({ step, result, changed, ...(step.expect === undefined ? {} : { expected: noul(after, 'expected') ?? 0 }) });
+      const verdict = judge({ step, result, changed, ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
       if (verdict.verdict === 'done') {
-        if (next && Object.keys(before(next, state.tree)).length > 0) ahead = after;
-        return { status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}) };
+        if (Object.keys(upcoming).length > 0) ahead = after;
+        const effect = seen ? recalled?.effect ?? [] : effectOf(previous.tree, state.tree);
+        return {
+          status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}),
+          ...(verdict.verified && element ? { used: { key: element.key, label: labelOf(element), way, ...(effect.length > 0 ? { effect } : {}) } } : {}),
+          ...(recalled ? { recalled: true as const } : {}), ...(stale ? { stale } : {}),
+        };
       }
       why = verdict.why;
-      if (verdict.verdict === 'stop') return { status: 'failed', attempts, why };
+      if (recalled) stale = true;
+      if (verdict.verdict === 'stop') return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
     }
   };
 
@@ -177,6 +219,7 @@ export function describeRun(report: RunReport, steps: readonly RunStep[]): strin
     const detail = [
       outcome.element ? ` → ${outcome.element}` : '',
       outcome.status === 'skipped' ? ' (what it expects already shows)' : '',
+      outcome.recalled ? ' (remembered)' : '',
       outcome.status === 'failed' ? `: ${outcome.why ?? 'failed'}${outcome.attempts > 1 ? ` after ${outcome.attempts} ways` : ''}` : outcome.attempts > 1 ? ` (way ${outcome.attempts})` : '',
       outcome.closest?.length ? `. Closest: ${outcome.closest.join('; ')}` : '',
     ].join('');

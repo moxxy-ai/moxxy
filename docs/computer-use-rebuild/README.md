@@ -162,6 +162,14 @@ macOS, Windows i Linuksa) wykonuje go na żywym drzewie elementów:
 - `run.ts` — pętla: jedno żądanie na krok (sprawdzenie kroku + element
   następnego), do 4 sposobów na krok, stop na pierwszym nieudanym.
 
+- `memory.ts` — pamięć per aplikacja w `~/.moxxy/computer-use/learned/`:
+  element i sposób dla opisu celu, efekt kroku (etykiety, które się pojawiły),
+  całe trasy. Powtórzony krok nie pyta Jev o nic.
+
+Bez klucza `computer_run` nie jest oferowany modelowi (hook
+`onBeforeProviderCall` usuwa narzędzie i wzmiankę w regułach); reszta Computer
+Use działa bez zmian.
+
 Klucz: sekret `TYPESAFE_API_KEY` (vault) albo zmienna środowiskowa. Bez klucza
 narzędzie odsyła do pojedynczych narzędzi. Do TypeSafe idzie tekst drzewa
 okna, nazwy aplikacji i okna, cel i krok; bez zrzutu ekranu. Wzorzec:

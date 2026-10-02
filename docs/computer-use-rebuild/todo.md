@@ -38,6 +38,14 @@ Otwarte dla Linuksa:
 - [ ] `computer_run`: próba z modelem na zadaniu webowym (Safari) i w
   aplikacji bez elementów; próba w Ustawieniach systemowych przeszła (niżej
   w `CHANGELOG.md`).
+- [ ] Pamięć `computer_run`: efekt kroku to do 8 etykiet nowych elementów;
+  jeśli te same etykiety są na innym ekranie, krok zostanie uznany za wykonany
+  błędnie. Nie zaobserwowano; sprawdzić na aplikacjach z powtarzalnymi ekranami.
+- [ ] Pamięć uczy się tylko z kroków z `expect` (sprawdzonych) i z poprawek
+  modelu po nieudanym kroku; zwykłe pojedyncze akcje modelu niczego nie uczą,
+  bo nie mają opisu celu.
+- [ ] Klucz z vaultu jest widoczny dopiero po pierwszym wywołaniu `computer_*`
+  w sesji; lista narzędzi zmienia się wtedy raz (jednorazowa utrata cache promptu).
 - [ ] `computer_run` nie obsługuje celów bez elementów (płótno, oś czasu) ani
   przeciągania; okno powyżej 1000 elementów nie jest przeszukiwane.
 - [ ] Czas czekania po akcji w helperach Windows i Linux nie był mierzony ani

@@ -46,3 +46,18 @@ it('sends known steps through computer_run and keeps trying other routes', () =>
   expect(system).toMatch(/Do not give up/);
   expect(system).toMatch(/several different routes/);
 });
+
+it('leaves computer_run out, tool and words, where it cannot run', () => {
+  const request: ProviderRequest = { model: 'm', messages: [], tools: [tool('computer_run'), tool('computer_click')] };
+  const off = withComputerGuidance('darwin', () => false)(request, { sessionId: 's' });
+  expect(off.tools?.map((entry) => entry.name)).toEqual(['computer_click']);
+  expect(off.system).not.toMatch(/computer_run/);
+  expect(off.system).toMatch(/several tool calls in one response/);
+  expect(off.system).toMatch(/Do not give up/);
+  const again = withComputerGuidance('darwin', () => false)({ ...request, system: off.system }, { sessionId: 's' });
+  expect(again.tools?.map((entry) => entry.name)).toEqual(['computer_click']);
+  expect(again.system).toBe(off.system);
+  const on = withComputerGuidance('darwin', (session) => session === 's')(request, { sessionId: 's' });
+  expect(on.tools).toBe(request.tools);
+  expect(on.system).toMatch(/computer_run/);
+});

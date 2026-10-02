@@ -172,6 +172,88 @@ describe('runSteps', () => {
   });
 });
 
+describe('what was learned before', () => {
+  it('acts on a remembered element without asking where it is', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Cancel')], (_action, elements) => { elements.push(button(3, 'Sheet')); });
+    const { ask, requests } = jev(() => undefined);
+    const known: RunDeps['known'] = (step, tree) => (step.target === 'Export' ? { element: tree.elements[1] as AppElement, way: 0 } : undefined);
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export' }], window.state(), { ...deps(window, ask), known });
+    expect(window.acted).toEqual([{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 }]);
+    expect(requests).toEqual([]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'done', recalled: true });
+  });
+
+  it('starts with the way that worked last time', async () => {
+    const window = app([button(1, 'Export')], (_action, elements) => { elements.push(button(3, 'Sheet')); });
+    const { ask } = jev(() => undefined);
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 1 });
+    await runSteps('Export', [{ do: 'click', target: 'Export' }], window.state(), { ...deps(window, ask), known });
+    expect(window.acted).toEqual([{ action: 'click', x: 140, y: 20, mouse_button: 'left', click_count: 1 }]);
+  });
+
+  it('reports what a verified step used, so it can be remembered', async () => {
+    const window = app([button(1, 'Export')], (action, elements) => { if (action.action === 'click') elements.push(button(2, 'Sheet')); });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export', expect: 'the sheet shows' }], window.state(), deps(window, ask));
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', used: { key: 'w/1', label: 'button\u001fExport', way: 0 } });
+    expect(report.outcomes[0]?.recalled).toBeUndefined();
+  });
+
+  it('asks Jev again when the remembered element no longer does it, and says the memory is stale', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Old')], (action, elements) => {
+      if (action.action === 'click' && action.element_index === 1) elements.push(button(3, 'Sheet'));
+    });
+    const { ask, requests } = jev((state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(state.elements.includes('"Sheet"') ? 0.9 : 0) : undefined));
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[2] as AppElement, way: 0 });
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export', expect: 'the sheet shows' }], window.state(), { ...deps(window, ask), known });
+    expect(window.acted.map((action) => (action as { element_index?: number }).element_index)).toEqual([2, 1]);
+    expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected'], ['target', 'already'], ['expected']]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', stale: true, used: { key: 'w/1' } });
+  });
+});
+
+describe('what a step showed last time', () => {
+  const sheet = 'button\u001fSheet';
+  const opens = () => app([button(1, 'Export')], (action, elements) => { if (action.action === 'click') elements.push(button(2, 'Sheet')); });
+  const step = { do: 'click' as const, target: 'Export', expect: 'the sheet shows' };
+
+  it('is reported with a verified step', async () => {
+    const window = opens();
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Export', [step], window.state(), deps(window, ask));
+    expect(report.outcomes[0]?.used).toEqual({ key: 'w/1', label: 'button\u001fExport', way: 0, effect: [sheet] });
+  });
+
+  it('checks a remembered step without Jev when the same shows again', async () => {
+    const window = opens();
+    const { ask, requests } = jev(() => undefined);
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
+    expect(requests).toEqual([]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', recalled: true, used: { key: 'w/1', effect: [sheet] } });
+    expect(report.asks).toBe(0);
+  });
+
+  it('skips a remembered step when what it showed is already there', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Sheet')]);
+    const { ask, requests } = jev(() => undefined);
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
+    expect(window.acted).toEqual([]);
+    expect(requests).toEqual([]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'skipped', recalled: true });
+  });
+
+  it('asks Jev when the window shows something else this time', async () => {
+    const window = app([button(1, 'Export')], (action, elements) => { if (action.action === 'click') elements.push(button(2, 'Error')); });
+    const { ask, requests } = jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
+    expect(requests.map((request) => request.ids)).toEqual([['expected']]);
+    expect(report.outcomes[0]?.status).toBe('verified');
+  });
+});
+
 describe('describeRun', () => {
   it('says what was done to which element and how long it took', async () => {
     const window = app([button(1, 'Export')], (_action, elements) => { elements.push(button(2, 'Dialog')); });

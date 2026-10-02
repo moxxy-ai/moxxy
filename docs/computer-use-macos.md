@@ -125,9 +125,33 @@ Linux; only the helper underneath differs.
   used, and the closest elements when none matched, followed by the fresh
   state. Steps without `expect` are reported as delivered, not verified.
 - **Key.** The secret `TYPESAFE_API_KEY` from the vault (`/vault set
-  TYPESAFE_API_KEY`), or the environment variable of the same name. Without it
-  the tool says so and the model uses the single tools. The tool may reach
-  only `api.typesafe.ai`.
+  TYPESAFE_API_KEY`), or the environment variable of the same name. The tool
+  may reach only `api.typesafe.ai`.
+- **Without a key** Computer Use works as before: `computer_run` is taken out
+  of the tools the model is offered and the rules do not mention it. A key in
+  the environment counts from the first request; a key in the vault is seen at
+  the session's first `computer_*` call. If the tool is called anyway, it
+  answers with the state and a note, not an error. A request to Jev that fails
+  (network, a wrong key) ends the run at that step with the reason and the
+  fresh state.
+- **Learning.** What runs teach is kept per app in
+  `~/.moxxy/computer-use/learned/<app>.json` (`src/jev/memory.ts`), on this
+  computer only:
+  - for every verified step: the target's words, the element (its key and
+    label), the way that worked, and the named elements that appeared;
+  - a step the run could not do, when the model then does it with a single
+    tool on an element and the window changes: that element;
+  - every run that reached its end with a verified step, as a route (goal and
+    steps). The five most used routes are shown to the model with the app's
+    first state of a turn, to be sent again unchanged.
+
+  The next time a step has the same words, its element is taken from memory
+  when the window still has it under the same label, and the step counts as
+  verified when the same elements appear, so a repeated step asks Jev
+  nothing. When what appears differs, Jev checks the step; when the
+  remembered element does not do it, Jev is asked for the element and the
+  memory is corrected. At most 200 targets and 20 routes per app. Jev itself
+  is not trained; nothing of this is sent anywhere.
 - **What leaves the computer.** Per request: the goal, the step, the app and
   window names, and the text lines of the window's elements (roles, titles,
   values; never the value of a secure field). No screenshot is sent.
@@ -137,6 +161,8 @@ Linux; only the helper underneath differs.
 
 Measured on System Settings (Polish), three clicks with `expect`: 3 of 3
 verified, 4 Jev requests, 7.5 s; before the helper changes below it was 24.1 s.
+The same plan again, from memory: 0 Jev requests, 4.0 s (two clicks; the third
+step's result already showed).
 
 ### Time per action
 

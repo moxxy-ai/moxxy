@@ -4,10 +4,11 @@ import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
-import { computerTools, type ComputerAction } from '../contract/tools.js';
+import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
-import { describeRun, runSteps } from '../jev/run.js';
+import { RunMemory, describeRoutes, labelOf, recall } from '../jev/memory.js';
+import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
@@ -48,8 +49,13 @@ interface Turn {
   readonly progress: ProgressTracker;
   /** Apps whose hint the model has already been shown in this turn. */
   readonly hinted: Set<string>;
+  /** Per app, the step a run could not do: what the model does next with a single tool teaches it. */
+  readonly failed: Map<string, RunStep>;
   dispose(): void;
 }
+
+/** The single tool that does what a step of a run does. */
+const SINGLE: Partial<Record<RunStep['do'], ComputerAction['action']>> = { click: 'click', type: 'type_text', set_value: 'set_value' };
 
 type ToolName = keyof typeof computerTools;
 type Input<N extends ToolName> = z.output<(typeof computerTools)[N]['input']>;
@@ -97,13 +103,24 @@ export class ComputerBackend {
     private readonly hints: ReadonlyArray<AppHint> = loadAppHints(),
     /** Jev for a TypeSafe key; a seam so tests need no network. */
     private readonly jev: (apiKey: string) => AskJev = jevClient,
+    private readonly memory: RunMemory = new RunMemory(),
   ) {
     this.hooks = {
-      onBeforeProviderCall: withComputerGuidance(profile.platform),
+      // Until a tool call has looked into the vault, the environment says whether there is a key.
+      onBeforeProviderCall: withComputerGuidance(profile.platform, (sessionId) => this.keyed.get(sessionId) ?? Boolean(process.env[JEV_SECRET])),
       onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
       onTurnEnd: (ctx) => this.release(ctx.sessionId, ctx.turnId),
       onShutdown: (ctx) => this.release(ctx.sessionId),
     };
+  }
+
+  /** Per session, whether the last tool call found a TypeSafe key: without one, runs of steps are not offered. */
+  private readonly keyed = new Map<string, boolean>();
+
+  private async jevKey(ctx: ToolContext): Promise<string | undefined> {
+    const key = (await ctx.getSecret?.(JEV_SECRET)?.catch(() => null)) || process.env[JEV_SECRET] || undefined;
+    this.keyed.set(ctx.sessionId, key !== undefined);
+    return key;
   }
 
   surfaces(): SurfaceDef[] {
@@ -113,7 +130,8 @@ export class ComputerBackend {
   tools(): ToolDef[] {
     return (Object.keys(computerTools) as ToolName[]).map((name) => {
       const { description, input } = computerTools[name];
-      const handler = this.handlers[name] as (input: unknown, ctx: ToolContext) => Promise<unknown>;
+      const handle = this.handlers[name] as (input: unknown, ctx: ToolContext) => Promise<unknown>;
+      const handler = async (input: unknown, ctx: ToolContext) => { await this.jevKey(ctx); return handle(input, ctx); };
       return defineTool({
         name, description, inputSchema: input,
         inputJsonSchema: zodToJsonSchema(input),
@@ -127,6 +145,7 @@ export class ComputerBackend {
   }
 
   async release(sessionId: string, turnId?: string): Promise<void> {
+    if (turnId === undefined) this.keyed.delete(sessionId);
     const closing: Promise<void>[] = [];
     for (const [key, turn] of this.turns) {
       if (turn.sessionId !== sessionId || (turnId !== undefined && key !== turnKey(sessionId, turnId))) continue;
@@ -173,22 +192,27 @@ export class ComputerBackend {
     computer_get_app_state: async (input, ctx) => {
       const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
       const { turn, result } = await this.observe(ctx, grant, input.window_id);
-      return this.present(turn, grant, result, [], input.disable_diff);
+      const shown = `${grant.id}#routes`;
+      const routes = this.keyed.get(ctx.sessionId) && !turn.hinted.has(shown) ? describeRoutes(await this.memory.read(grant.id)) : undefined;
+      turn.hinted.add(shown);
+      return this.present(turn, grant, result, routes ? [routes] : [], input.disable_diff);
     },
     computer_run: async (input, ctx) => {
       const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
-      const apiKey = (await ctx.getSecret?.(JEV_SECRET)) || process.env[JEV_SECRET];
-      if (!apiKey) {
-        throw new Error(`computer_run needs a TypeSafe API key in the secret ${JEV_SECRET} (the user sets it with /vault set ${JEV_SECRET}, or in the desktop's Secrets). Until then use the single tools; do not call computer_run again in this conversation.`);
-      }
+      const apiKey = await this.jevKey(ctx);
       const { turn, result: initial } = await this.observe(ctx, grant);
+      if (!apiKey) {
+        return this.present(turn, grant, initial, [`computer_run is off: there is no TypeSafe key (secret ${JEV_SECRET}). Nothing was done. Carry out the steps with the single tools on the state below.`]);
+      }
+      const learned = await this.memory.read(grant.id);
       const report = await runSteps(input.goal, input.steps, initial, {
-        ask: this.jev(apiKey), signal: ctx.signal,
+        ask: this.jev(apiKey), signal: ctx.signal, known: (step, tree) => recall(learned, step, tree),
         selectAll: this.profile.platform === 'darwin' ? 'super+a' : 'ctrl+a',
         observe: async () => (await this.observe(ctx, grant)).result,
         act: async (step) => (await this.perform(input.app, step, ctx)).result,
       });
       turn.progress.forget(grant.id);
+      await this.learn(turn, grant.id, input.goal, input.steps, report);
       return this.present(turn, grant, report.state, [describeRun(report, input.steps)]);
     },
     computer_click: (input, ctx) => this.act(input, 'click', ctx),
@@ -229,8 +253,39 @@ export class ComputerBackend {
     const { turn, grant, result } = await this.perform(app, step, ctx, (current, granted) => current.progress.check(granted.id, signature));
     const { state } = result;
     if (!state) return describeResult(result.result);
+    await this.learnFromModel(turn, grant.id, step, result.result, state);
     const [outcome, note] = this.judge(turn, grant.id, signature, result.result, state);
     return this.present(turn, grant, state, [describeResult(outcome), ...note]);
+  }
+
+  /** What a run teaches: the element of every verified step, a memory that proved stale, and a route that reached its end. */
+  private async learn(turn: Turn, app: string, goal: string, steps: readonly RunStep[], report: RunReport): Promise<void> {
+    const targets: Array<{ do: string; target: string; key: string; label: string; way: number; effect?: string[] }> = [];
+    for (const [index, outcome] of report.outcomes.entries()) {
+      const step = steps[index];
+      if (!step || step.target === undefined) continue;
+      if (outcome.used) {
+        const { effect, ...element } = outcome.used;
+        targets.push({ do: step.do, target: step.target, ...element, ...(effect ? { effect: [...effect] } : {}) });
+      } else if (outcome.stale) await this.memory.forget(app, { do: step.do, target: step.target });
+      if (outcome.status === 'failed') turn.failed.set(app, step);
+    }
+    const finished = report.outcomes.length === steps.length && report.outcomes.every((outcome) => outcome.status !== 'failed');
+    if (finished) turn.failed.delete(app);
+    const route = finished && report.outcomes.some((outcome) => outcome.status === 'verified') ? { goal, steps } : undefined;
+    if (targets.length > 0 || route) await this.memory.learn(app, { targets, ...(route ? { route } : {}) });
+  }
+
+  /** After a run could not do a step, the element the model then uses the same way, with effect, is that step's element. */
+  private async learnFromModel(turn: Turn, app: string, action: ComputerAction, result: ActionResult, state: AppState): Promise<void> {
+    const step = turn.failed.get(app);
+    if (!step || step.target === undefined) return;
+    turn.failed.delete(app);
+    const index = (action as { element_index?: number }).element_index;
+    if (SINGLE[step.do] !== action.action || index === undefined || result.outcome !== 'delivered') return;
+    const element = turn.trees.get(app)?.elements.find((candidate) => candidate.index === index);
+    if (!element || turn.seen.get(app) === fingerprint(state.tree, state.screenshot)) return;
+    await this.memory.learn(app, { targets: [{ do: step.do, target: step.target, key: element.key, label: labelOf(element), way: 0 }] });
   }
 
   /** A delivered action that leaves the app looking the same twice in a row did not work: say so. */
@@ -332,7 +387,7 @@ export class ComputerBackend {
     // A helper that stopped or died has no picture to show any more.
     void transport.done.then(detachPreview);
     const turn: Turn = {
-      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(), hinted: new Set(),
+      sessionId: ctx.sessionId, turnId: ctx.turnId, transport, trees: new Map(), seen: new Map(), progress: new ProgressTracker(), hinted: new Set(), failed: new Map(),
       dispose: () => { ctx.signal.removeEventListener('abort', abort); detachPreview(); },
     };
     this.turns.set(key, turn);

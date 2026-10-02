@@ -106,7 +106,7 @@ const onApp = <N extends ActionName>(name: N) =>
   build({ app, ...actions[name].shape }, actions[name].target) as unknown as z.ZodType<ActionOutput<N> & { app: string }, z.ZodTypeDef, unknown>;
 
 /** One step of computer_run: what to do, the element in words, and what must show afterwards. */
-const runStepShape = z.object({
+export const runStepShape = z.object({
   do: z.enum(['click', 'type', 'set_value', 'key', 'scroll']),
   target: z.string().min(1).max(300).optional()
     .describe('The element in words, the way it reads on screen: its label and kind, and where it is when that matters ("the Export button", "the file name field of the dialog"). Needed for click, set_value and scroll; leave it out of type to type into the focus.'),
