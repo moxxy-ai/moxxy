@@ -153,7 +153,7 @@ export function applyLazyTools(
   const visible: ToolDef[] = [];
   const hidden: ToolDef[] = [];
   for (const t of tools) {
-    (ALWAYS_ON_TOOLS.has(t.name) || loaded.has(t.name) ? visible : hidden).push(t);
+    (ALWAYS_ON_TOOLS.has(t.name) || t.alwaysLoaded === true || loaded.has(t.name) ? visible : hidden).push(t);
   }
   if (hidden.length === 0) return { messages, tools };
   return { messages: injectIntoSystem(messages, buildToolIndex(hidden)), tools: visible };

@@ -9,6 +9,9 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
   ładowanie narzędzi (patrz [`CHANGELOG.md`](CHANGELOG.md)).
 - **Po krokach, 2026-10-02:** `computer_run` (plan kroków + decyzje Jev) i
   krótsze czekanie helpera macOS po akcji; opis w `../computer-use-macos.md`.
+- **Po krokach, 2026-10-02 (później):** `computer_request_access` i
+  `computer_run` zawsze załadowane (`ToolDef.alwaysLoaded`); zadanie z modelem
+  2 wywołania, 23–31 s.
 - **Następna czynność:** pozycje z listy „Otwarte” niżej.
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.

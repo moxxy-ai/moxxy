@@ -117,6 +117,12 @@ describe('observation', () => {
     expect(live).toEqual(['computer_get_app_state', 'computer_list_apps', 'computer_status', 'computer_zoom']);
   });
 
+  it('keeps the two tools a task starts with loaded, so a long tool list costs no round to load them', () => {
+    const { tools } = backend();
+    const loaded = [...tools.values()].filter((tool) => tool.alwaysLoaded).map((tool) => tool.name).sort();
+    expect(loaded).toEqual(['computer_request_access', 'computer_run']);
+  });
+
   it('refuses an app that was not granted without asking the helper', async () => {
     const { tools } = backend();
     await expect(run(tools, 'computer_get_app_state', { app: 'TextEdit' })).rejects.toMatchObject({ code: 'app_not_allowed' });

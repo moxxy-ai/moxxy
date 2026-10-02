@@ -2732,3 +2732,36 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
   Finder 2 kroki 1,6 s (0 pytań, lekcje domyślne); narzędzia razem 2,3–3,0 s.
 - Rozkład rund przy leniwym ładowaniu (3 próby): decyzja o `load_tool` 5,9–6,9 s,
   zgoda 7,1–9,7 s, napisanie `computer_run` 5,3–9,5 s, odpowiedź 2,7–7,2 s.
+
+## Dwa narzędzia startowe zawsze załadowane — 2026-10-02
+
+**Co**
+- `packages/sdk/src/tool.ts`, `define.ts`, `tool-gating.ts`: pole
+  `ToolDef.alwaysLoaded` — narzędzie idzie w żądaniu w całości także przy
+  leniwym ładowaniu. Próg 200 bez zmian.
+- `src/backend/backend.ts`: `computer_request_access` i `computer_run` mają
+  `alwaysLoaded`; pozostałe narzędzia `computer_*` dalej ładuje `load_tool`.
+- `src/contract/guidance.ts`: reguły mówią, że oba są już załadowane.
+
+**Jak i dlaczego**
+- Przy ponad 200 narzędziach pierwsza runda modelu szła na
+  `load_tool("computer_*")` (5,9–6,9 s). Wyłączenie leniwego ładowania było
+  wolniejsze (37–58 s), więc zamiast tego dwa schematy startowe są wysyłane
+  zawsze; koszt to dwa schematy i reguły Computer Use w każdym żądaniu.
+- Sama flaga: 2 z 3 prób bez `load_tool`. Po zdaniu w regułach: 4 z 4.
+
+**Próby (CLI, `gpt-6-luna`, `xhigh`, Ustawienia, 3 panele + opis)**
+- Przedtem: 3 wywołania, 24,2–37,6 s.
+- Teraz (4 próby): 2 wywołania, 22,8 s, 28,4 s, 29,8 s, 30,8 s; narzędzia
+  3,7–4,0 s. Rundy: zgoda 10,6–13,2 s, `computer_run` 5,7–8,9 s,
+  odpowiedź 2,3–7,1 s. Pierwsza runda wydłużyła się (model myśli w niej to,
+  co wcześniej w dwóch), więc zysk to kilka sekund, nie cała runda.
+
+**Testy (Red → Green)**
+- SDK „sends a tool marked always loaded in full, and indexes the rest of its
+  family”; wtyczka „keeps the two tools a task starts with loaded…”; dopisek
+  w `guidance.test.ts` — każdy najpierw czerwony.
+
+**Otwarte**
+- Zostają trzy rundy modelu po 5–13 s. Zgoda i `computer_run` w jednym
+  wywołaniu oraz poziom rozumowania wymagają decyzji właściciela.

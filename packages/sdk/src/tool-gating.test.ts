@@ -53,6 +53,13 @@ describe('tool families', () => {
     expect(systemText(out)).toContain('mcp__zoho__*');
   });
 
+  it('sends a tool marked always loaded in full, and indexes the rest of its family', () => {
+    const run = defineTool({ name: 'computer_run', description: 'desc computer_run', inputSchema: z.object({}), alwaysLoaded: true, handler: () => '' });
+    const { messages: out, tools } = applyLazyTools(messages, [mk('Read'), run, ...computer], logOfLoads());
+    expect(tools.map((t) => t.name)).toEqual(['Read', 'computer_run']);
+    expect(systemText(out)).toContain('- **computer_*** (4 tools: computer_status, computer_click, computer_drag, computer_zoom)');
+  });
+
   it('resolves what a load_tool name stands for', () => {
     const all = [...computer, ...zoho];
     expect(matchLoadableTools('computer_*', all).map((t) => t.name)).toEqual(computer.map((t) => t.name));

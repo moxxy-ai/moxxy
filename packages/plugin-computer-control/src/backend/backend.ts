@@ -73,6 +73,8 @@ const DRAG_MS = 600;
 
 /** Tools that only look: the same call between actions is how the agent watches an app. */
 const LOOKING: ReadonlySet<string> = new Set(['computer_status', 'computer_list_apps', 'computer_get_app_state', 'computer_zoom']);
+/** What a task starts with: sent even when the tool list is gated, since loading them first is a model round. */
+const ENTRY: ReadonlySet<string> = new Set(['computer_request_access', 'computer_run']);
 
 /** Helpers get chords from the one xdotool parser instead of parsing key syntax themselves, and a drag as a path. */
 function forHelper(step: ComputerAction): Record<string, unknown> {
@@ -140,6 +142,7 @@ export class ComputerBackend {
         inputJsonSchema: zodToJsonSchema(input),
         permission: { action: 'prompt' }, icon: 'workspace',
         ...(LOOKING.has(name) ? { liveState: true } : {}),
+        ...(ENTRY.has(name) ? { alwaysLoaded: true } : {}),
         // Only a run of steps leaves the machine: it asks Jev where each element is.
         isolation: { capabilities: { subprocess: true, commands: [this.profile.helperPath], net: name === 'computer_run' ? { mode: 'allowlist', hosts: [JEV_HOST] } : { mode: 'none' } } },
         handler,

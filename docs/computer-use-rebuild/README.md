@@ -221,7 +221,9 @@ wersję i plik, z którego wzięto wzorzec.
   scalenie z `development` tylko za zgodą właściciela.
 - **Czas kroku.** Większość czasu to żądanie do dostawcy, nie helper. Przy
   wielu serwerach MCP narzędzia są ładowane leniwie (próg 200); poniżej progu
-  każde żądanie nadal niesie wszystkie schematy. Pomiary w
+  każde żądanie nadal niesie wszystkie schematy. `computer_request_access`
+  i `computer_run` są wysyłane zawsze (`alwaysLoaded`), więc zadanie nie
+  zaczyna się od `load_tool`. Pomiary w
   [`benchmark.md`](benchmark.md).
 - **Próg skuteczności.** Powtórzenia dały 76% przed czterema poprawkami; pełna
   seria po poprawkach nie jest jeszcze zrobiona.
