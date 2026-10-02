@@ -6,6 +6,8 @@ export const JEV_HOST = 'api.typesafe.ai';
 export const JEV_MODEL = 'jev-latest';
 /** The vault secret (or environment variable) that holds the TypeSafe API key. */
 export const JEV_SECRET = 'TYPESAFE_API_KEY';
+/** A vault entry of this name switches Jev off while the key stays stored. */
+export const JEV_OFF = 'JEV_DISABLED';
 
 /** A decision that takes longer than this is slower than asking the main model. */
 const TIMEOUT_MS = 8_000;

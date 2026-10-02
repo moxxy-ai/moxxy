@@ -109,6 +109,9 @@ function chosen(tree: AppTree, element: AppElement): boolean {
   return false;
 }
 
+/** Whether two looks list the same elements; an index is only a position in one look. */
+const sameElements = (a: AppTree, b: AppTree) => JSON.stringify(a.elements.map(({ index: _, ...rest }) => rest)) === JSON.stringify(b.elements.map(({ index: _, ...rest }) => rest));
+
 /** What a step made appear: the named elements the window has now and did not have before. */
 function effectOf(previous: AppTree, now: AppTree): string[] {
   const had = named(previous);
@@ -222,7 +225,10 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
         ? await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text, ...(next ? { step: next } : {}) },
           { ...(step.expect === undefined || seen ? {} : { expected: EXPECTED_QUESTION }), ...upcoming })
         : {};
-      let verdict = judge({ step, result, changed, ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
+      // Jev is shown elements only: a real click that moved pixels and no element is not its to judge.
+      const atPoint = rung.some((action) => action.action === 'click' && 'x' in action);
+      const unseen = () => atPoint && fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot) && sameElements(previous.tree, state.tree);
+      let verdict = judge({ step, result, changed, unseen: unseen(), ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
       let relooked = false;
       if (verdict.verdict === 'retry' && result.outcome === 'delivered' && step.expect !== undefined) {
         // The result can show a moment after the window first looked settled: look once more before another way.
@@ -232,7 +238,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
           relooked = true;
           seen = proves !== undefined && shows(state.tree, proves);
           after = seen ? {} : await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text }, { expected: EXPECTED_QUESTION });
-          verdict = judge({ step, result, changed: true, expected: seen ? 1 : noul(after, 'expected') ?? 0 });
+          verdict = judge({ step, result, changed: true, unseen: unseen(), expected: seen ? 1 : noul(after, 'expected') ?? 0 });
         }
       }
       if (verdict.verdict === 'done') {

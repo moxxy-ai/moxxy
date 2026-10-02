@@ -54,16 +54,21 @@ export interface Attempt {
   readonly changed: boolean;
   /** Jev's probability that `step.expect` holds now; absent when the step expects nothing. */
   readonly expected?: number;
+  /** A click at a point changed the screenshot and no element: what it did is outside what Jev is shown. */
+  readonly unseen?: boolean;
 }
 
+const UNSEEN = 'the click changed the screenshot but no element, so its result cannot be checked here and it was not clicked again (another click may undo it). Read the screenshot: when it shows the result, continue with the single tools by x and y';
+
 /** What one attempt at a step means for the run. */
-export function judge({ step, result, changed, expected }: Attempt): Verdict {
+export function judge({ step, result, changed, expected, unseen }: Attempt): Verdict {
   if (result.outcome !== 'delivered') {
     const why = `${result.outcome}${result.code ? ` (${result.code})` : ''}`;
     return result.code && FINAL.has(result.code) ? { verdict: 'stop', why } : { verdict: 'retry', why };
   }
   if (expected !== undefined) {
     if (expected >= HOLDS) return { verdict: 'done', verified: true };
+    if (unseen) return { verdict: 'stop', why: UNSEEN };
     if (expected <= FAILS || !changed) return { verdict: 'retry', why: 'the expected result does not show' };
     return { verdict: 'done', verified: false };
   }

@@ -126,10 +126,23 @@ Linux; only the helper underneath differs.
   over, access level, protected path). The report lists each step, the element
   used, and the closest elements when none matched, followed by the fresh
   state. Steps without `expect` are reported as delivered, not verified.
+- **A change only the screenshot shows.** Jev is shown elements, not pixels.
+  When a click at a point changes the screenshot and no element (a web page's
+  own menu that never reaches the accessibility tree), Jev cannot tell what
+  the click did, and a second click would close what the first one opened. The
+  step stops there instead of trying another way, and the report tells the
+  main model to read the screenshot and go on with the single tools by x and y.
 - **Key.** The secret `TYPESAFE_API_KEY` from the vault (`/vault set
   TYPESAFE_API_KEY`), or the environment variable of the same name. The tool
-  may reach only `api.typesafe.ai`.
-- **Without a key** Computer Use works as before: `computer_run` is taken out
+  may reach only `api.typesafe.ai`. The desktop sets it in Settings → Jev.
+- **Switch.** A vault entry named `JEV_DISABLED` turns Jev off while the key
+  stays stored, and overrides a key in the environment. It lives in the vault
+  so that every surface of a session reads the same switch: the desktop's
+  Settings → Jev toggle writes and removes it, and `/vault set JEV_DISABLED 1`
+  switches it off from the terminal or a channel. Switching back on means
+  removing the entry, which only the desktop (Settings → Jev, or Vault) does.
+  It is read at each `computer_*` call, so it applies from the next action.
+- **Without a key, or switched off,** Computer Use works as before: `computer_run` is taken out
   of the tools the model is offered and the rules do not mention it. A key in
   the environment counts from the first request; a key in the vault is seen at
   the session's first `computer_*` call. If the tool is called anyway, it

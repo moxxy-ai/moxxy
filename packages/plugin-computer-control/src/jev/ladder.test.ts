@@ -55,6 +55,12 @@ describe('judge', () => {
     expect(judge({ step, result: delivered, changed: false, expected: 0.45 })).toMatchObject({ verdict: 'retry' });
   });
 
+  it('stops when only the screenshot changed after a click at a point: Jev cannot see what the click did, and another click may undo it', () => {
+    const step = { do: 'click', target: 'Sort', expect: 'the sort options show' } as const;
+    expect(judge({ step, result: delivered, changed: true, expected: 0.1, unseen: true })).toMatchObject({ verdict: 'stop', why: expect.stringMatching(/screenshot/) });
+    expect(judge({ step, result: delivered, changed: true, expected: 0.9, unseen: true })).toEqual({ verdict: 'done', verified: true });
+  });
+
   it('tries another way after a click or a value that changed nothing', () => {
     expect(judge({ step: { do: 'click', target: 'Save' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });
     expect(judge({ step: { do: 'set_value', target: 'Name', text: 'a' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });
