@@ -356,8 +356,11 @@ jobs:
       - name: Reject unmitigated advisories
         run: pnpm audit:security
 
-      - name: Verify the locally patched parsers
-        run: node --test scripts/image-size-patch.test.mjs
+      - name: Verify the advisory acceptance policy
+        run: node --test scripts/security-audit-policy.test.mjs
+
+      - name: Verify image-size and the metro asset patch
+        run: node --test scripts/image-size.test.mjs
 
   dep-cruise-graph:
     name: Generate dependency graph
