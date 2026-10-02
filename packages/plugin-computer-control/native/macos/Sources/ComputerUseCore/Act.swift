@@ -14,12 +14,17 @@ extension Methods {
         let began = Date()
         state.sent = nil
         state.reacted = false
+        let heard = state.pid.map(Settler.listen)
+        defer { heard?.stop() }
         Timing.mark("act: begin")
         let result = input.gate?.waitWhilePaused() == true
             ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
             : Executor(state: state, cursor: cursor, input: input).perform(request)
         Timing.mark("act: performed \(result.method.map { "\($0)" } ?? result.code ?? "-")")
         if result.outcome == .delivered { state.lastAction = state.sent ?? began }
+        heard?.forget(before: Settler.uptime(of: state.sent ?? began))
+        state.heard = heard
+        defer { state.heard = nil }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
     }

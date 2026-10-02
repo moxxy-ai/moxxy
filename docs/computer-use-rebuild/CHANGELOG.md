@@ -2550,3 +2550,35 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 **Pominięte / dla następcy**
 - Bez próby z modelem na tej wersji. Zaznaczanie wiersza sprawdzone tylko
   w Ustawieniach. Lekcje domyślne tylko dla jednej aplikacji i jednego języka.
+
+## Nasłuch przed akcją, pierwsze spojrzenie na przeglądarkę — 2026-10-02
+
+**Co**
+- `Settle.swift`: `Settler.listen/stop/forget`, `settle(heard:)`; minimum po
+  reakcji liczone od akcji (`afterReaction`). `Act.swift`: nasłuch zaczyna się
+  przed akcją i trafia do odczytu stanu. `AppState.swift`: przeglądarka z już
+  zbudowaną stroną nie dostaje sekundy „na start”.
+
+**Jak i dlaczego**
+- `MOXXY_COMPUTER_TIMING` w Safari: po `super+t` i po wpisaniu adresu helper
+  czekał po 1,07 s, bo nasłuch zmian startował po akcji i reakcji już nie
+  słyszał; pierwsze spojrzenie w każdej turze kosztowało 1,1–1,2 s czekania,
+  choć strona była w drzewie. Sam odczyt Safari to 0,26 s (z tego obraz 0,19 s).
+- Powiadomienia sprzed wysłania wejścia są pomijane: odczyt elementów przed
+  akcją sam je wywołuje (Ustawienia systemowe).
+
+**Testy (Red → Green)**
+- `aChangeHeardBeforeTheWaitBeganIsTheReaction` — Red: czekał do 10,5 zamiast
+  10,125; Green po `afterReaction`.
+
+**Walidacja**
+- `swift test` 197/197; wtyczka 391/391; build, typecheck, lint, check:deps bez błędów.
+- Safari na żywo: 3 kroki (nowa karta, adres, Return z `expect`) 4,7 s → 3,7 s;
+  2 kroki (pole szukania Wikipedii, Return z `expect`) 5,1 s → 4,8 s (pierwsza
+  próba dzień wcześniej: 16,5 s). Ustawienia systemowe z pamięci: 25/25,
+  0,9–1,4 s, bez regresji.
+
+**Pominięte / dla następcy**
+- W Safari zostaje: 2–3 pytania do Jev po 0,35–0,55 s, pisanie 16 znaków 0,64 s,
+  ładowanie strony 0,9–1,8 s, obraz okna 0,13–0,2 s na odczyt.
+- Pierwsze spojrzenie na Safari bywa nadal 1,3 s (raz na dwa biegi) — nie zbadane.

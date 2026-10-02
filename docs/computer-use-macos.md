@@ -217,6 +217,14 @@ again from memory 0.8–1.2 s with no request to Jev. An action with its fresh
 state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
 helper write where each request's time went.
 
+The helper listens to the app from before each action, so a reaction that
+comes while a key or text is still going out is heard, and the wait after it
+is the quiet spell, not a full second. A browser that already has its page in
+the accessibility tree is not given a second to build it at the first look.
+Measured in Safari with Jev: new tab, address, Return (checked) 4.7 s → 3.7 s;
+type into a page's search field, Return (checked) 16.5 s at first → 4.8 s, of
+which about 1.8 s is the page loading.
+
 A background click reads the window once before it is sent (not twice), uses
 what the last observation said instead of reading the tree again, and the
 cursor glide takes 0.1–0.25 s. A click in System Settings with its fresh state

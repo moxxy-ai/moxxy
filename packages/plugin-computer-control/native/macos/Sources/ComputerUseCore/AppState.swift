@@ -36,6 +36,8 @@ final class TargetState {
     var observedAt: Date?
     /// The last action's effect was seen in the window before it returned.
     var reacted = false
+    /// Listens to the app since before the action being done; see `Methods.act`.
+    var heard: Settler?
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
     var lastClick: CGPoint?
     /// Accessibility actions its elements keep declining.
@@ -128,7 +130,7 @@ extension Methods {
         let name = running.localizedName ?? bundleId
         Timing.mark("state: app found")
         let wantsPage = params["web"]?.boolValue == true
-        if targets.wake.wake(running.processIdentifier), LateTree.fills(bundle: running.bundleURL, browser: wantsPage) { launched = true }
+        let woken = targets.wake.wake(running.processIdentifier) && LateTree.fills(bundle: running.bundleURL, browser: wantsPage)
         let state = targets.state(for: bundleId)
         state.observed = true
         state.pid = running.processIdentifier
@@ -145,10 +147,13 @@ extension Methods {
         Timing.mark("state: window found")
         let acted = state.recentlyActed
         var reader = AXReader()
+        // An app asked for its tree before (by anyone) already has the page in it and needs no time to build it.
+        if woken, !launched, !WebContent.isLoaded(reader.snapshot(window)) { launched = true }
         // The read that finds the window quiet and not busy is the state: no second read after the wait.
         var settled: NodeSnapshot?
         Settler.settle(pid: running.processIdentifier, policy: launched || acted ? .afterAction : .observeOnly,
-                       waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0, reacted: acted && state.reacted) {
+                       waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0, reacted: acted && state.reacted,
+                       heard: state.heard) {
             reader = AXReader()
             let read = reader.snapshot(window)
             settled = read

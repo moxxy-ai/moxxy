@@ -34,6 +34,8 @@ public struct SettleClock: Sendable {
     private let policy: SettlePolicy
     /// The policy's minimum less the time already spent, and never less than one quiet spell of listening.
     private let minimum: Double
+    /// What is left of the reacted minimum, which counts from the action.
+    private let afterReaction: Double
     private var lastChange: Double?
     private var reading: ClosedRange<Double>?
 
@@ -42,6 +44,7 @@ public struct SettleClock: Sendable {
         self.start = start
         self.policy = policy
         self.minimum = min(policy.minimum, max(policy.quiet, (reacted ? policy.reacted : policy.minimum) - waited))
+        self.afterReaction = max(0, policy.reacted - waited)
     }
 
     public mutating func record(at time: Double) {
@@ -56,7 +59,7 @@ public struct SettleClock: Sendable {
 
     /// When the app has had its time and has been still for `quiet`, or the wait is over anyway.
     private var quietAt: Double {
-        min(max(start + (lastChange == nil ? minimum : min(minimum, policy.reacted)), (lastChange ?? start) + policy.quiet), start + policy.maximum)
+        min(max(start + (lastChange == nil ? minimum : min(minimum, afterReaction)), (lastChange ?? start) + policy.quiet), start + policy.maximum)
     }
 
     /// Whether the window may be read for a busy indicator. Reading it makes some apps send notifications
@@ -160,15 +163,34 @@ final class Settler: @unchecked Sendable {
     private let lock = NSLock()
     private var changes: [Double] = []
     private let wake = DispatchSemaphore(value: 0)
+    private var subscription: Subscription?
 
     /// `busy` reads the window and says whether it shows a busy indicator; it is asked only once the app is quiet,
     /// so the caller can keep what it read as the settled state.
-    static func settle(pid: pid_t, policy: SettlePolicy, waited: Double = 0, reacted: Bool = false, busy: () -> Bool) {
-        let settler = Settler()
-        let subscription = settler.observe(pid)
-        defer { subscription.map(settler.stop) }
+    /// `heard` is a listener started before the action, so the app's reaction to it is not missed.
+    static func settle(pid: pid_t, policy: SettlePolicy, waited: Double = 0, reacted: Bool = false, heard: Settler? = nil, busy: () -> Bool) {
+        let settler = heard ?? listen(pid)
+        defer { if heard == nil { settler.stop() } }
         settler.wait(policy: policy, waited: waited, reacted: reacted, probe: busy)
     }
+
+    static func listen(_ pid: pid_t) -> Settler {
+        let settler = Settler()
+        settler.subscription = settler.observe(pid)
+        return settler
+    }
+
+    func stop() {
+        subscription.map(stop)
+        subscription = nil
+    }
+
+    /// Forgets what the app sent before `time`: reading it before an action makes some apps send changes.
+    func forget(before time: Double) {
+        lock.withLock { changes.removeAll { $0 < time } }
+    }
+
+    static func uptime(of date: Date) -> Double { ProcessInfo.processInfo.systemUptime - Date().timeIntervalSince(date) }
 
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }
 

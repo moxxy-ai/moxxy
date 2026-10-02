@@ -47,6 +47,14 @@ import Testing
         #expect(unseen.isSettled(now: 10.625, busy: false))
     }
 
+    @Test func aChangeHeardBeforeTheWaitBeganIsTheReaction() {
+        let policy = SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, reacted: 0.5)
+        var clock = SettleClock(start: 10, policy: policy, waited: 0.375)
+        clock.record(at: 9.875)
+        #expect(!clock.isSettled(now: 10.0, busy: false))
+        #expect(clock.isSettled(now: 10.125, busy: false))
+    }
+
     // Only apps that build their tree on demand need time after being asked for it the first time.
     @Test func knowsWhichAppsFillTheirTreeLate() {
         let electron = URL(fileURLWithPath: "/Applications/Slack.app")
