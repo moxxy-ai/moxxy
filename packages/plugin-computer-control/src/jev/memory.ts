@@ -55,6 +55,10 @@ export function sameWords(target: string): string {
 /** A toolbar button often has no title, only a description. */
 export const labelOf = (element: Pick<AppElement, 'role' | 'title' | 'description'>) => `${element.role}\u001f${element.title ?? element.description ?? ''}`;
 
+/** What a step is remembered under: its target, or for a key what it was pressed for. */
+export const targetOf = (step: Pick<RunStep, 'do' | 'target' | 'key' | 'expect'>): string | undefined =>
+  step.target ?? (step.do === 'key' && step.key !== undefined && step.expect !== undefined ? `${step.key} ${step.expect}` : undefined);
+
 const newest = <T extends { at: number }>(items: T[], limit: number) => items.sort((a, b) => b.at - a.at).slice(0, limit);
 
 const fileName = (app: string) => {
@@ -173,16 +177,24 @@ export async function promote(from: string, to: string): Promise<string[]> {
     const parsed = fileSchema.safeParse(JSON.parse(await readFile(join(from, file), 'utf8')));
     if (!parsed.success) continue;
     const { app, routes } = parsed.data;
-    await write(to, { ...merged(await readFileOf(to, app), parsed.data.targets.map(shippable), routes), ignored: [] });
+    // What a key made appear is all of its lesson, and that stays on the computer.
+    const targets = parsed.data.targets.filter((target) => target.label !== '').map(shippable);
+    await write(to, { ...merged(await readFileOf(to, app), targets, routes), ignored: [] });
     apps.push(app);
   }
   return apps.sort();
 }
 
 /** The live element a step's target was last time, when the window still has it reading the same. */
-export function recall(memory: AppMemory, step: RunStep, tree: AppTree): { element: AppElement; way: number; effect?: readonly string[] } | undefined {
-  if (step.target === undefined) return undefined;
-  const target = sameWords(step.target);
+export function recall(memory: AppMemory, step: RunStep, tree: AppTree): { element?: AppElement; way: number; effect?: readonly string[] } | undefined {
+  const named = targetOf(step);
+  if (named === undefined) return undefined;
+  const target = sameWords(named);
+  if (step.target === undefined) {
+    // A key has no element: all there is to remember is what it made appear.
+    const effect = memory.targets.find((known) => known.do === step.do && known.target === target && known.effect)?.effect;
+    return effect ? { way: 0, effect } : undefined;
+  }
   for (const known of memory.targets) {
     if (known.do !== step.do || known.target !== target) continue;
     const reading = tree.elements.filter((element) => labelOf(element) === known.label);

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppElement, AppTree } from '../contract/tree.js';
-import { RunMemory, describeRoutes, labelOf, promote, recall, sameWords } from './memory.js';
+import { RunMemory, describeRoutes, labelOf, promote, recall, sameWords, targetOf } from './memory.js';
 
 let directory: string;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'moxxy-run-memory-')); });
@@ -162,6 +162,14 @@ describe('recall', () => {
     expect(recall(memory, step, tree(element(3, 'w/cancel', 'Cancel'), live))).toEqual({ element: live, way: 1 });
     const withEffect = { targets: [{ ...memory.targets[0] as (typeof memory.targets)[number], effect: ['button\u001fSheet'] }], routes: [] };
     expect(recall(withEffect, step, tree(live))).toEqual({ element: live, way: 1, effect: ['button\u001fSheet'] });
+  });
+
+  it('remembers what a key made appear, by the key and what it was expected to do', () => {
+    const step = { do: 'key' as const, key: 'Return', expect: 'The results show' };
+    const learned = { targets: [{ do: 'key', target: sameWords(targetOf(step) as string), key: '', label: '', way: 0, effect: ['text\u001fResults'], uses: 1, at: 1 }], routes: [] };
+    expect(recall(learned, step, tree())).toEqual({ way: 0, effect: ['text\u001fResults'] });
+    expect(recall(learned, { ...step, key: 'Escape' }, tree())).toBeUndefined();
+    expect(recall(learned, { do: 'key', key: 'Return' }, tree())).toBeUndefined();
   });
 
   it('knows an element that has only a description (a toolbar button) by it', () => {

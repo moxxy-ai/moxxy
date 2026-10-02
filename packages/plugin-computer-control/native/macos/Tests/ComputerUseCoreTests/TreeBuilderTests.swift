@@ -27,6 +27,14 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
 @Suite struct TreeBuilderTests {
     let elements = TreeBuilder.build(window, limit: 100).elements
 
+    // A remembered step names what it showed last time as "role, then title or description".
+    @Test func tellsWhenTheWindowShowsWhatAStepIsWaitingFor() {
+        let listed = TreeBuilder.build(window, limit: 100).elements
+        #expect(Effect.shows(listed, ["button\u{1f}Press", "check box\u{1f}Remember"]))
+        #expect(!Effect.shows(listed, ["button\u{1f}Press", "button\u{1f}Export"]))
+        #expect(!Effect.shows(listed, []))
+    }
+
     // Safari lists its toolbar after the page: on a long page the cut must fall on the page, not on the toolbar.
     @Test func cutsALongPageAndKeepsTheWindowsOwnControls() {
         let page = node("AXWebArea", "Article", children: (0..<10).map { node("AXLink", "Link \($0)") })

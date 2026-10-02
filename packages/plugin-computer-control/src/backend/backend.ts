@@ -7,7 +7,7 @@ import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
-import { RunMemory, describeRoutes, labelOf, recall, shippedLearned } from '../jev/memory.js';
+import { RunMemory, describeRoutes, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
 import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
@@ -209,7 +209,7 @@ export class ComputerBackend {
         ask: this.jev(apiKey), signal: ctx.signal, known: (step, tree) => recall(learned, step, tree),
         selectAll: this.profile.platform === 'darwin' ? 'super+a' : 'ctrl+a',
         observe: async () => (await this.observe(ctx, grant)).result,
-        act: async (step) => (await this.perform(input.app, step, ctx)).result,
+        act: async (step, until) => (await this.perform(input.app, step, ctx, undefined, until)).result,
       });
       turn.progress.forget(grant.id);
       await this.learn(turn, grant.id, input.goal, input.steps, report);
@@ -237,11 +237,13 @@ export class ComputerBackend {
   }
 
   /** One action on an app, behind the grant's level and the key rules. */
-  private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined) {
+  private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined, until?: readonly string[]) {
     const access = accessFromLog(ctx.log);
     const grant = checkAccess(access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
-    const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id) };
+    // Only the macOS helper knows how to wait for an effect.
+    const awaited = until?.length && this.profile.platform === 'darwin' ? { until } : {};
+    const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id), ...awaited };
     beforeSending(await this.turn(ctx), grant);
     return { grant, ...(await this.call(ctx, 'act', params, actResultSchema, grant.name)) };
   }
@@ -263,11 +265,12 @@ export class ComputerBackend {
     const targets: Array<{ do: string; target: string; key: string; label: string; way: number; effect?: string[] }> = [];
     for (const [index, outcome] of report.outcomes.entries()) {
       const step = steps[index];
-      if (!step || step.target === undefined) continue;
+      const target = step ? targetOf(step) : undefined;
+      if (!step || target === undefined) continue;
       if (outcome.used) {
         const { effect, ...element } = outcome.used;
-        targets.push({ do: step.do, target: step.target, ...element, ...(effect ? { effect: [...effect] } : {}) });
-      } else if (outcome.stale) await this.memory.forget(app, { do: step.do, target: step.target });
+        targets.push({ do: step.do, target, ...element, ...(effect ? { effect: [...effect] } : {}) });
+      } else if (outcome.stale) await this.memory.forget(app, { do: step.do, target });
       if (outcome.status === 'failed') turn.failed.set(app, step);
     }
     const finished = report.outcomes.length === steps.length && report.outcomes.every((outcome) => outcome.status !== 'failed');

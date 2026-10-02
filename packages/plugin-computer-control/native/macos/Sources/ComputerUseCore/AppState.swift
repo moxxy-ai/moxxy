@@ -114,8 +114,29 @@ enum AppLauncher {
 extension Methods {
     static let treeLimit = 1000
 
-    /// `again` reads the app as it is: the wait after the action is over.
-    static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, again: Bool = false) throws -> JSONValue {
+    /// A reading of a window that needs no settling: it already shows what the step was waiting for.
+    struct Reading {
+        let window: AXUIElement
+        let reader: AXReader
+        let root: NodeSnapshot
+    }
+
+    /// The window as soon as it shows `labels`, or `nil` when it does not within `Effect.deadline`.
+    static func awaited(_ labels: [String], pid: pid_t) -> Reading? {
+        let end = Date().addingTimeInterval(Effect.deadline)
+        repeat {
+            if let window = AXReader.targetWindow(of: AXReader.application(pid)) {
+                let reader = AXReader()
+                let root = reader.snapshot(window)
+                if Effect.shows(TreeBuilder.build(root, limit: treeLimit).elements, labels) { return Reading(window: window, reader: reader, root: root) }
+            }
+            Thread.sleep(forTimeInterval: Effect.pause)
+        } while Date() < end
+        return nil
+    }
+
+    /// `again` reads the app as it is: the wait after the action is over. `ready` is the reading to use as the state.
+    static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, again: Bool = false, ready: Reading? = nil) throws -> JSONValue {
         guard let bundleId = params["app"]?.stringValue, !bundleId.isEmpty else { throw HelperError.invalidParams("app is required") }
         Timing.mark("state: begin")
         guard AXIsProcessTrusted() else {
@@ -137,7 +158,7 @@ extension Methods {
         let state = targets.state(for: bundleId)
         state.observed = true
         state.pid = running.processIdentifier
-        guard case let .window(window) = found else {
+        guard case let .window(seen) = found else {
             state.elements = [:]
             state.window = nil
             state.frontable = nil
@@ -149,20 +170,21 @@ extension Methods {
         }
         // A fresh launch is still loading, like the app right after an action.
         Timing.mark("state: window found")
-        let acted = state.recentlyActed && !again
-        var reader = AXReader()
+        let window = ready?.window ?? seen
+        let acted = state.recentlyActed && !again && ready == nil
+        var reader = ready?.reader ?? AXReader()
         // An app asked for its tree before (by anyone) already has the page in it and needs no time to build it.
         if woken, !launched, !WebContent.isLoaded(reader.snapshot(window)) { launched = true }
         // The read that finds the window quiet and not busy is the state: no second read after the wait.
-        var settled: NodeSnapshot?
-        Settler.settle(pid: running.processIdentifier, policy: launched || acted ? .afterAction : .observeOnly,
+        var settled: NodeSnapshot? = ready?.root
+        if ready == nil { Settler.settle(pid: running.processIdentifier, policy: launched || acted ? .afterAction : .observeOnly,
                        waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0, reacted: acted && state.reacted,
                        heard: state.heard) {
             reader = AXReader()
             let read = reader.snapshot(window)
             settled = read
             return AXReader.attribute(window, "AXElementBusy") == true || BusyProbe.isBusy(read)
-        }
+        } }
         var root = settled ?? reader.snapshot(window)
         // The action may have opened a window (a new one from the desktop, a dialog): that one is the state.
         if acted, let now = AXReader.targetWindow(of: AXReader.application(running.processIdentifier)), !CFEqual(now, window) {

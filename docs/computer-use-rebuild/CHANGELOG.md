@@ -2657,3 +2657,33 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
   element (2 biegi); „Nowa karta” na stronie startowej jest klikana (2,2 s,
   2 pytania). Regresja z pamięci: Ustawienia 25/25 (23 bez Jev), Finder 10/10
   (bez Jev), Safari 10/10.
+
+## Powrót, gdy widać efekt; pamięć kroków klawiszowych — 2026-10-02
+
+**Co**
+- Helper: `Effect.shows`, `Methods.awaited`, `appState(ready:)`, parametr `until` w `act`.
+- TS: `RunDeps.act(action, until)`, `backend.perform(..., until)` (tylko macOS),
+  `targetOf`, `recall` dla kroku `key`, `Recalled.element` opcjonalny,
+  `promote` nie wysyła lekcji klawiszowych.
+
+**Jak i dlaczego**
+- Pomiar pięciu wyuczonych kroków: 0,95 s na krok, z czego 0,6 s czekania na
+  ciszę po kliknięciu, choć pamięć wie, co ma się pokazać.
+- Krok `key` z `expect` pytał Jev o „już jest?” i „czy jest?” przy każdym biegu.
+
+**Testy (Red → Green)**
+- Swift: `tellsWhenTheWindowShowsWhatAStepIsWaitingFor` (brak symbolu).
+- TS: „a key with an expected result” (2), „remembers what a key made appear”
+  — Red, potem zielone. „tells the action what to wait for” napisany razem
+  z implementacją, bez osobnego przebiegu Red.
+
+**Walidacja**
+- `swift test` 199/199; wtyczka 400/400 (27 pominiętych: Linux); build exit 0;
+  typecheck, lint, check:deps bez błędów.
+- Na żywo, z pamięci: 5 paneli Ustawień w jednym biegu 5,9 s → 2,5 s (2 biegi);
+  Ustawienia 25/25 pojedynczo 0,3–1,0 s (jeden 2,7 s); Finder 10/10, 0,4–0,9 s;
+  Safari 10/10, przyciski 0,7–1,2 s, adres + Return 1,5–1,8 s, szukanie na
+  stronie + Return 2,7–3,4 s; Finder z biurka: nowe okno + miejsce 1,4 s.
+
+**Pominięte / dla następcy**
+- Bez próby z modelem. Windows/Linux bez `until`.

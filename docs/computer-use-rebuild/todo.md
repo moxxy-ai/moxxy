@@ -49,8 +49,10 @@ Otwarte dla Linuksa:
   `not_frontmost`; nowe okno nie było stanem po akcji. Naprawione.
 - [x] Zapamiętany efekt pomijał „Nowa karta” na stronie startowej. Naprawione:
   bez pytania pomijany jest tylko krok, którego element jest zaznaczony.
-- [ ] Krok `key` z `expect` pyta Jev dwa razy przy każdym biegu (nie ma
-  elementu, więc nie ma czego zapamiętać).
+- [x] Krok `key` z `expect` pytał Jev dwa razy przy każdym biegu. Teraz
+  pamiętane jest to, co klawisz pokazał (tylko na komputerze, nie w paczce).
+- [ ] Czekanie „aż pokaże się efekt” działa tylko w helperze macOS; Windows
+  i Linux czekają jak dotąd.
 - [ ] Na bardzo długiej stronie z otwartym paskiem bocznym Safari Jev nie
   wskazał przycisku paska bocznego (2 z 4 prób).
 - [ ] Trafienie w pamięć wymaga tych samych słów celu (po normalizacji);

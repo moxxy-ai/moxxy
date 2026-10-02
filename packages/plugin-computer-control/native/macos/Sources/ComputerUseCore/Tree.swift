@@ -48,6 +48,19 @@ public struct TreeElement: Sendable, Equatable {
     public let frame: CGRect?
 }
 
+/// What a remembered step showed last time, as labels "role\u{1f}title or description"; the host sends them
+/// with the step so the helper can return the moment they show instead of waiting for the app to go quiet.
+public enum Effect {
+    static let deadline = 1.2
+    static let pause = 0.03
+
+    public static func shows(_ elements: [TreeElement], _ labels: [String]) -> Bool {
+        guard !labels.isEmpty else { return false }
+        let present = Set(elements.compactMap { element in (element.title ?? element.description).map { "\(element.role)\u{1f}\($0)" } })
+        return labels.allSatisfy(present.contains)
+    }
+}
+
 public enum TreeBuilder {
     /// Containers that only lay things out; listed only when they carry a name, value or action.
     static let structural: Set<String> = ["AXGroup", "AXSplitGroup", "AXScrollArea", "AXLayoutArea", "AXLayoutItem", "AXUnknown", "AXGenericElement"]

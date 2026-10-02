@@ -228,6 +228,16 @@ toolbar after the page). What Jev reads is fitted to its input limit by
 shortening what elements say (300 → 120 → 60 → 30 → 12 characters) until the
 window is under 30 000 characters; every element stays listed.
 
+A remembered step is sent to the helper with what it showed last time
+(`until`). The helper reads the window every 30 ms after the action and
+returns the moment those elements are there, instead of waiting for the app
+to go quiet (up to 1.2 s, then the usual wait). A key pressed for a result
+(`expect`) is remembered by the key and that expectation, as what it made
+appear; that lesson stays on the computer. Measured, all without a request to
+Jev: five System Settings panes in one run 5.9 s → 2.5 s; one remembered click
+with its first look 0.4–0.8 s; Safari address and Return 2.6 s → 1.5–1.8 s;
+Finder new window from the desktop and a sidebar place 3.2 s → 1.4 s.
+
 A remembered step is taken for done without asking only when what it showed
 last time is there again and its element (or the row or cell around it) is
 the selected or checked one. Otherwise the look of the window may be a

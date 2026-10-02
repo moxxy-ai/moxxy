@@ -25,7 +25,11 @@ extension Methods {
         heard?.forget(before: Settler.uptime(of: state.sent ?? began))
         state.heard = heard
         defer { state.heard = nil }
-        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
+        var until: [String] = []
+        if case let .array(labels)? = params["until"] { until = labels.compactMap(\.stringValue) }
+        let ready = result.outcome == .delivered && !until.isEmpty ? state.pid.flatMap { awaited(until, pid: $0) } : nil
+        Timing.mark(ready == nil ? "act: no effect awaited" : "act: effect shows")
+        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor, ready: ready)
         return .object(["result": result.json, "state": fresh])
     }
 

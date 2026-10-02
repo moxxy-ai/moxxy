@@ -256,6 +256,16 @@ describe('what a step showed last time', () => {
     expect(report.asks).toBe(0);
   });
 
+  it('tells the action what to wait for, so it can return the moment that shows', async () => {
+    const window = opens();
+    const { ask } = jev(() => undefined);
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const waited: Array<readonly string[] | undefined> = [];
+    const act: RunDeps['act'] = (action, until) => { waited.push(until); return window.act(action); };
+    await runSteps('Export', [step], window.state(), { ...deps(window, ask), known, act });
+    expect(waited).toEqual([[sheet]]);
+  });
+
   it('skips a remembered step when what it showed is already there and its element is the chosen one', async () => {
     const window = app([button(1, 'Export', { role: 'row', states: ['selected'] }), button(2, 'Sheet')]);
     const { ask, requests } = jev(() => undefined);
@@ -319,6 +329,28 @@ describe('a step that says nothing of its result', () => {
     const opened = window();
     const report = await runSteps('Find', [steps[0] as RunStep, { do: 'key', key: 'Return' }], opened.state(), deps(opened, ask));
     expect(report.outcomes[0]?.used).toBeUndefined();
+  });
+});
+
+describe('a key with an expected result', () => {
+  const results = 'text\u001fResults';
+  const opens = () => app([button(1, 'Search')], (action, elements) => { if (action.action === 'press_key') elements.push(button(2, 'Results', { role: 'text' })); });
+  const step: RunStep = { do: 'key', key: 'Return', expect: 'results show' };
+
+  it('reports what it made appear, so it can be remembered', async () => {
+    const window = opens();
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Find', [step], window.state(), deps(window, ask));
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', used: { way: 0, effect: [results] } });
+  });
+
+  it('is checked without Jev when the same shows again', async () => {
+    const window = opens();
+    const { ask, requests } = jev(() => undefined);
+    const report = await runSteps('Find', [step], window.state(), { ...deps(window, ask), known: () => ({ way: 0, effect: [results] }) });
+    expect(requests).toEqual([]);
+    expect(window.acted).toHaveLength(1);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', recalled: true });
   });
 });
 
