@@ -201,3 +201,54 @@ describe('skillsWithinReach', () => {
     expect(kept).toEqual([]);
   });
 });
+
+describe('projectMessagesFromLog tool pairing across a compaction boundary', () => {
+  const t2 = asTurnId('t2');
+  const call = (seq: number, callId: string): MoxxyEvent =>
+    event(seq, { type: 'tool_call_requested', turnId: t1, source: 'model', callId, name: 'terminal', input: {} });
+  const result = (seq: number, callId: string): MoxxyEvent =>
+    event(seq, { type: 'tool_result', turnId: t1, source: 'tool', callId, ok: true, output: 'installed' });
+  const compaction = (seq: number, replacedRange: [number, number]): MoxxyEvent =>
+    event(seq, {
+      type: 'compaction',
+      turnId: t2,
+      source: 'compactor',
+      compactor: 'segments',
+      replacedRange,
+      summary: 'earlier work',
+      tokensSaved: 10,
+    });
+
+  const blocksOf = (events: ReadonlyArray<MoxxyEvent>) =>
+    projectMessagesFromLog({ log: reader(events) }).flatMap((m) => m.content);
+
+  it('drops a late tool_result whose tool call was summarized away', () => {
+    const blocks = blocksOf([
+      userPrompt(0, { text: 'install it' }),
+      call(1, 'late'),
+      userPrompt(2, { text: 'anything new?', turnId: t2 }),
+      result(3, 'late'),
+      compaction(4, [0, 1]),
+    ]);
+    expect(blocks.filter((b) => b.type === 'tool_result')).toEqual([]);
+    expect(blocks.filter((b) => b.type === 'tool_use')).toEqual([]);
+  });
+
+  it('answers a visible tool call whose result was summarized away', () => {
+    const messages = projectMessagesFromLog({
+      log: reader([
+        userPrompt(0, { text: 'install it' }),
+        call(1, 'cut'),
+        userPrompt(2, { text: 'anything new?', turnId: t2 }),
+        result(3, 'cut'),
+        compaction(4, [2, 3]),
+      ]),
+    });
+    const useIndex = messages.findIndex((m) => m.content.some((b) => b.type === 'tool_use' && b.id === 'cut'));
+    expect(useIndex).toBeGreaterThanOrEqual(0);
+    expect(messages[useIndex + 1]).toMatchObject({
+      role: 'tool_result',
+      content: [{ type: 'tool_result', toolUseId: 'cut', isError: true }],
+    });
+  });
+});

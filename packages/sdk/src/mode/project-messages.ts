@@ -276,7 +276,13 @@ export function projectMessages(
   // (or tool_call_denied) somewhere in the log. Used to synthesize a
   // fallback `[interrupted]` tool_result for orphan tool_use blocks
   // when the assistant message gets flushed.
-  const resolvedCallIds = resolvedCallIdSet(allEvents);
+  // Only VISIBLE results count: one swallowed by a compaction is never sent, so
+  // its still-visible tool_use needs the fallback just like a missing one.
+  const resolvedCallIds = resolvedCallIdSet(allEvents.filter((e) => !compactionFor(e.seq)));
+  // callIds whose tool_use block is projected. A tool_result outside this set
+  // answers a call a compaction summarized away (the result landed after later
+  // turns began); providers reject a result with no matching call.
+  const projectedCallIds = new Set<string>();
 
   let pendingAssistant: ProviderMessage | null = null;
   let pendingAssistantMaxSeq = -1;
@@ -407,6 +413,7 @@ export function projectMessages(
           }
         }
         pendingAssistantMaxSeq = Math.max(pendingAssistantMaxSeq, e.seq);
+        projectedCallIds.add(e.callId);
         (pendingAssistant.content as Array<ProviderMessage['content'][number]>).push({
           type: 'tool_use',
           id: e.callId,
@@ -416,6 +423,7 @@ export function projectMessages(
         break;
       }
       case 'tool_result': {
+        if (!projectedCallIds.has(e.callId)) break;
         flush();
         // Stub bulky old tool output to a recall-able marker (decision shared
         // with estimateContextTokens via toolResultStubbed).
