@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BrowserHost, type HostWebContents } from './host.js';
 
 /**
@@ -741,16 +741,26 @@ describe('BrowserHost — letting go of a tab nobody is using', () => {
   });
 
   it('holds on while the agent is still working the tab', async () => {
-    const a = fakeWc(1);
-    const host = new BrowserHost(() => a.wc, 60);
-    host.register(1);
+    // Simulated time: with real timers a slow Windows runner stretched the gaps past the window.
+    vi.useFakeTimers();
+    try {
+      const a = fakeWc(1);
+      const host = new BrowserHost(() => a.wc, 60);
+      host.register(1);
 
-    await host.snapshot();
-    await idle(35);
-    await host.snapshot();
-    await idle(35);
+      await host.snapshot();
+      await vi.advanceTimersByTimeAsync(40);
+      await host.snapshot();
+      await vi.advanceTimersByTimeAsync(40);
 
-    expect(a.isAttached()).toBe(true);
+      expect(a.isAttached()).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(30);
+
+      expect(a.isAttached()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('picks the tab back up on the next read', async () => {
