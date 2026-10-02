@@ -51,6 +51,9 @@ import Testing
         #expect(!Foreground.comesForward(rootRole: "AXScrollArea"))
         #expect(AXLadder.opensRow(cellActions: ["AXOpen"]))
         #expect(!AXLadder.opensRow(cellActions: []))
+        // The user watches the cursor travel to a row they can see; a row found again off screen is gone before a glide ends.
+        #expect(AXLadder.cursorTravels(toRowFoundAgain: false))
+        #expect(!AXLadder.cursorTravels(toRowFoundAgain: true))
         #expect(AXLadder.click(button: .left, count: 2, modifiers: false, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .left, count: 1, modifiers: true, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .middle, count: 1, modifiers: false, actions: ["AXPress"]) == .physical)

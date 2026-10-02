@@ -2,6 +2,16 @@
  "app": "com.apple.finder",
  "cases": [
   {
+   "goal": "Open a Finder window",
+   "steps": [
+    {
+     "do": "key",
+     "key": "super+n",
+     "expect": "a Finder window with a sidebar is shown"
+    }
+   ]
+  },
+  {
    "goal": "Open Ostatnie in Finder",
    "steps": [
     {

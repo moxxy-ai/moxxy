@@ -2900,3 +2900,37 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
 **Otwarte**
 - Przypadki są po polsku (macOS po polsku); angielski wymaga drugiego zestawu
   i maszyny w tym języku. Przypadki Safari wchodzą na Wikipedię.
+
+## Kursor dojeżdża do wiersza listy; trening Findera otwiera okno — 2026-10-02
+
+**Co**
+- `native/macos/.../Act.swift`, `Action.swift`: zaznaczenie wiersza listy
+  (pasek boczny Ustawień, Findera) idzie przez kursor agenta, jak każdy inny
+  klik — `AXLadder.cursorTravels(toRowFoundAgain:)`. Bez dojazdu zostaje tylko
+  wiersz odnaleziony ponownie poza ekranem, którego lista zaraz się pozbywa.
+- `learned/cases/com.apple.finder.json`: pierwszy przypadek otwiera okno
+  Findera (`super+n`), więc trening nie zależy od tego, co było otwarte.
+
+**Jak i dlaczego**
+- Zgłoszenie właściciela: kursor stał w miejscu, a kliknięcia działy się gdzie
+  indziej. Przy poprawce na wiersze pominąłem dojazd dla wszystkich wierszy,
+  choć powód dotyczył tylko tych niewidocznych.
+- Pomiar na Ustawieniach: zdarzenia `moving → executing → delivered` przy
+  każdym wierszu; krok z pamięci 0,5–0,8 s (przedtem 0,4–0,8 s).
+- `learned:train com.apple.finder`: bez okna Findera 10 z 10 przypadków nie
+  znajdowało paska bocznego; z nowym przypadkiem 22 z 22 biegów, 0,6–1,0 s.
+  `learned:train com.apple.systempreferences`: 49 z 50 biegów (jeden nieudany
+  w pierwszym przejściu; przyczyny nie sprawdziłem).
+
+**Testy**
+- `ActionTests`: dwa oczekiwania na `cursorTravels` — najpierw błąd kompilacji,
+  potem `swift test` 199/199.
+
+**Walidacja**
+- `pnpm build` exit 0; wtyczka 420 (27 pominiętych: Linux); typecheck, lint,
+  check:deps bez błędów.
+
+**Otwarte**
+- Czas kroku na Ustawieniach bywa chwilami 2–5 s (także bez tej zmiany,
+  sprawdzone przebudową helpera w obu wersjach); przyczyna nieustalona.
+- `learned:train` na Safari nieuruchomione (przypadki zamykają kartę).

@@ -118,10 +118,12 @@ struct Executor {
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
                 }
-                if !retried, AXLadder.selectsRow(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", button: button, count: count, modifiers: !modifiers.isEmpty),
-                   let selected = selectRow(around: element) {
-                    // No glide before it: a row that is not shown is gone again within a moment of being found.
-                    return selected
+                if !retried, AXLadder.selectsRow(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", button: button, count: count, modifiers: !modifiers.isEmpty) {
+                    let foundAgain = state.revived.first.map { CFEqual($0, element) } == true
+                    let selected = AXLadder.cursorTravels(toRowFoundAgain: foundAgain)
+                        ? attempt(on: element, { selectRow(around: element) })
+                        : selectRow(around: element)
+                    if let selected { return selected }
                 }
                 guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to click.") }
                 return physically(CGPoint(x: frame.midX, y: frame.midY), nil, [], button) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers, route: $1) }

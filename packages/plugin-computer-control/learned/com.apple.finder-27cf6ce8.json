@@ -7,8 +7,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#18/komórka:#1/tekst:#1",
    "label": "tekst\u001fKosz",
    "way": 0,
-   "uses": 3,
-   "at": 1790939982687,
+   "uses": 5,
+   "at": 1790949624742,
    "effect": [
     "okno standardowe\u001fKosz",
     "karta\u001fKosz"
@@ -20,8 +20,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#17/komórka:#1/tekst:#1",
    "label": "tekst\u001fSieć",
    "way": 0,
-   "uses": 3,
-   "at": 1790939981082,
+   "uses": 5,
+   "at": 1790949623407,
    "effect": [
     "okno standardowe\u001fSieć",
     "karta\u001fSieć"
@@ -33,8 +33,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#16/komórka:#1/tekst:#1",
    "label": "tekst\u001fAirDrop",
    "way": 0,
-   "uses": 2,
-   "at": 1790939979874,
+   "uses": 4,
+   "at": 1790949622302,
    "effect": [
     "okno standardowe\u001fAirDrop",
     "karta\u001fAirDrop"
@@ -46,8 +46,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#15/komórka:#1/tekst:#1",
    "label": "tekst\u001fMacintosh HD",
    "way": 0,
-   "uses": 3,
-   "at": 1790939978259,
+   "uses": 5,
+   "at": 1790949620959,
    "effect": [
     "okno standardowe\u001fMacintosh HD",
     "karta\u001fMacintosh HD"
@@ -59,8 +59,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#13/komórka:#1/tekst:#1",
    "label": "tekst\u001fiCloud Drive",
    "way": 0,
-   "uses": 3,
-   "at": 1790939976248
+   "uses": 5,
+   "at": 1790949619659
   },
   {
    "do": "click",
@@ -68,8 +68,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#11/komórka:#1/tekst:#1",
    "label": "tekst\u001fBiurko",
    "way": 0,
-   "uses": 3,
-   "at": 1790939974611,
+   "uses": 5,
+   "at": 1790949618279,
    "effect": [
     "okno standardowe\u001fBiurko"
    ]
@@ -80,8 +80,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#6/komórka:#1/tekst:#1",
    "label": "tekst\u001fPobrane rzeczy",
    "way": 0,
-   "uses": 3,
-   "at": 1790939972988,
+   "uses": 5,
+   "at": 1790949616903,
    "effect": [
     "okno standardowe\u001fPobrane rzeczy"
    ]
@@ -92,8 +92,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#5/komórka:#1/tekst:#1",
    "label": "tekst\u001fDokumenty",
    "way": 0,
-   "uses": 3,
-   "at": 1790939971405,
+   "uses": 5,
+   "at": 1790949615531,
    "effect": [
     "okno standardowe\u001fDokumenty"
    ]
@@ -104,8 +104,8 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#4/komórka:#1/tekst:#1",
    "label": "tekst\u001fAplikacje",
    "way": 0,
-   "uses": 3,
-   "at": 1790939969765,
+   "uses": 5,
+   "at": 1790949614093,
    "effect": [
     "okno standardowe\u001fAplikacje"
    ]
@@ -116,11 +116,11 @@
    "key": "okno standardowe:FinderWindow/obszar przewijania:_NS:61/zarys:_NS:8/wiersz zarysu:#1/komórka:#1/tekst:#1",
    "label": "tekst\u001fOstatnie",
    "way": 0,
-   "uses": 3,
-   "at": 1790939968106,
    "effect": [
     "okno standardowe\u001fOstatnie"
-   ]
+   ],
+   "uses": 3,
+   "at": 1790939968106
   }
  ],
  "routes": [
@@ -133,8 +133,8 @@
      "expect": "the window shows Kosz"
     }
    ],
-   "uses": 3,
-   "at": 1790939982687
+   "uses": 5,
+   "at": 1790949624742
   },
   {
    "goal": "Open Sieć in Finder",
@@ -145,8 +145,8 @@
      "expect": "the window shows Sieć"
     }
    ],
-   "uses": 3,
-   "at": 1790939981082
+   "uses": 5,
+   "at": 1790949623407
   },
   {
    "goal": "Open AirDrop in Finder",
@@ -157,8 +157,8 @@
      "expect": "the window shows AirDrop"
     }
    ],
-   "uses": 2,
-   "at": 1790939979874
+   "uses": 4,
+   "at": 1790949622302
   },
   {
    "goal": "Open Macintosh HD in Finder",
@@ -169,8 +169,8 @@
      "expect": "the window shows Macintosh HD"
     }
    ],
-   "uses": 3,
-   "at": 1790939978259
+   "uses": 5,
+   "at": 1790949620959
   },
   {
    "goal": "Open iCloud Drive in Finder",
@@ -181,8 +181,8 @@
      "expect": "the window shows iCloud Drive"
     }
    ],
-   "uses": 3,
-   "at": 1790939976248
+   "uses": 5,
+   "at": 1790949619659
   },
   {
    "goal": "Open Biurko in Finder",
@@ -193,8 +193,8 @@
      "expect": "the window shows Biurko"
     }
    ],
-   "uses": 3,
-   "at": 1790939974611
+   "uses": 5,
+   "at": 1790949618279
   },
   {
    "goal": "Open Pobrane rzeczy in Finder",
@@ -205,8 +205,8 @@
      "expect": "the window shows Pobrane rzeczy"
     }
    ],
-   "uses": 3,
-   "at": 1790939972988
+   "uses": 5,
+   "at": 1790949616903
   },
   {
    "goal": "Open Dokumenty in Finder",
@@ -217,8 +217,8 @@
      "expect": "the window shows Dokumenty"
     }
    ],
-   "uses": 3,
-   "at": 1790939971405
+   "uses": 5,
+   "at": 1790949615531
   },
   {
    "goal": "Open Aplikacje in Finder",
@@ -229,8 +229,20 @@
      "expect": "the window shows Aplikacje"
     }
    ],
-   "uses": 3,
-   "at": 1790939969765
+   "uses": 5,
+   "at": 1790949614093
+  },
+  {
+   "goal": "Open a Finder window",
+   "steps": [
+    {
+     "do": "key",
+     "key": "super+n",
+     "expect": "a Finder window with a sidebar is shown"
+    }
+   ],
+   "uses": 2,
+   "at": 1790949611888
   },
   {
    "goal": "Open Ostatnie in Finder",
