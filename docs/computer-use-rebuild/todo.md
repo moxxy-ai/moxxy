@@ -42,10 +42,17 @@ Otwarte dla Linuksa:
   instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
 - [x] CapCut z modelem `gpt-6-luna`: import, przycięcie do 15 s i eksport —
   udane (37 wywołań `computer_*`, 367 s; próba właściciela 2026-10-02).
-- [ ] Blender z modelem: kostka usunięta, pączek nie — model trafiał w „Object”
-  zamiast „Add” (etykiety co ok. 30 px) i poddał się po dwóch kliknięciach.
-  Dodana wskazówka dla Blendera (F3 i skróty) oraz poprawka skrótów z
-  modyfikatorem; powtórzyć zadanie z modelem.
+- [x] Blender z modelem `gpt-6-luna`: kostka usunięta, torus dodany przez F3
+  i wygładzony („Shade Smooth”) — udane (20 wywołań `computer_*`, 138 s; próba
+  właściciela 2026-10-02 po wskazówce i poprawce skrótów).
+- [ ] CapCut, pole nazwy w oknie eksportu: model potrzebował ok. 15 wywołań
+  (`type_text`, `set_value`, `super+a`, `ctrl+a`), żeby wpisać nazwę pliku.
+  Plik powstał pod właściwą nazwą; przyczyna nie zbadana.
+- [ ] CapCut: model odczytał długość eksportu jako 16 s, plik ma 15,28 s —
+  przycięcie przez przeciąganie nie trafia dokładnie w 15,00 s.
+- [ ] CapCut, próba z 03:26 (9 wywołań, 59 s): model zgłosił eksport
+  „1002 (2).mp4” do Pobranych, pliku tam nie ma (jest tylko w pamięci
+  podręcznej CapCut). Sprawdzić, czy to fałszywy sukces.
 - [ ] Celowanie modelu w małe etykiety okien rysowanych samodzielnie: brak
   ogólnego mechanizmu (wskazówka istnieje tylko dla Blendera).
 - [ ] Okno wyboru pliku: wyniki szukania po zmianie zakresu („Pobrane rzeczy”)

@@ -2352,3 +2352,16 @@ było widać w drzewie (zwinięta sekcja), więc wrócił do szukania i się pod
 **Pominięte / dla następcy**
 - Bez powtórki z modelem (robi ją właściciel). Ogólny problem celowania w małe
   etykiety w oknach bez elementów zostaje otwarty (`todo.md`).
+
+## Próby właściciela z modelem: Blender i CapCut — 2026-10-02
+
+Bez zmian w kodzie; fakty z `~/.moxxy/sessions/moxxy-channel-telegram.jsonl`.
+
+- Blender (03:23, `gpt-6-luna`): 20 wywołań `computer_*`, 138 s. Kostka
+  usunięta (`x`, Return), torus dodany przez F3, potem F3 + „Shade Smooth”.
+  Model nie klikał już menu nagłówka.
+- CapCut (03:27): 37 wywołań, 249 s. Import przez `super+shift+g`, przycięcie
+  trzema przeciągnięciami, eksport jako „moxxy video created.mp4” —
+  `ffprobe`: 15,28 s. Około 15 wywołań poszło na pole nazwy pliku.
+- CapCut (03:26): 9 wywołań, 59 s; zgłoszony plik „1002 (2).mp4” nie leży
+  w Pobranych — do wyjaśnienia (`todo.md`).
