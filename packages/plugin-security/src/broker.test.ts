@@ -270,7 +270,7 @@ describe('broker: exec', () => {
   // NAMED after an allowlisted binary (e.g. `<tmp>/echo -> /bin/cat`) passed the
   // basename gate yet executed the OTHER binary. The broker now canonicalizes a
   // path-form command and re-checks the resolved target's basename.
-  it.skipIf(!canSymlink)('denies a path-form command whose symlink resolves to a non-allowlisted binary', async () => {
+  it.skipIf(!canSymlink || !posixShell)('denies a path-form command whose symlink resolves to a non-allowlisted binary', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-'));
     const fake = path.join(dir, 'echo'); // basename 'echo' is allowlisted…
     try {
@@ -298,7 +298,7 @@ describe('broker: exec', () => {
 
   // Control: a path-form command whose symlink resolves to an allowlisted
   // binary is still permitted (no false rejection).
-  it.skipIf(!canSymlink)('allows a path-form command whose symlink resolves to an allowlisted binary', async () => {
+  it.skipIf(!canSymlink || !posixShell)('allows a path-form command whose symlink resolves to an allowlisted binary', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-ok-'));
     const link = path.join(dir, 'echo');
     try {
