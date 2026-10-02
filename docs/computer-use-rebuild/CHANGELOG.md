@@ -2363,5 +2363,6 @@ Bez zmian w kodzie; fakty z `~/.moxxy/sessions/moxxy-channel-telegram.jsonl`.
 - CapCut (03:27): 37 wywołań, 249 s. Import przez `super+shift+g`, przycięcie
   trzema przeciągnięciami, eksport jako „moxxy video created.mp4” —
   `ffprobe`: 15,28 s. Około 15 wywołań poszło na pole nazwy pliku.
-- CapCut (03:26): 9 wywołań, 59 s; zgłoszony plik „1002 (2).mp4” nie leży
-  w Pobranych — do wyjaśnienia (`todo.md`).
+- CapCut (03:26): 9 wywołań, 59 s; eksport „1002 (2).mp4” udany; plik
+  usunięty potem przez właściciela (jego potwierdzenie), więc to nie fałszywy
+  sukces.

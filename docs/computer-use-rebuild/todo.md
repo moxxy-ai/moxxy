@@ -50,9 +50,8 @@ Otwarte dla Linuksa:
   Plik powstał pod właściwą nazwą; przyczyna nie zbadana.
 - [ ] CapCut: model odczytał długość eksportu jako 16 s, plik ma 15,28 s —
   przycięcie przez przeciąganie nie trafia dokładnie w 15,00 s.
-- [ ] CapCut, próba z 03:26 (9 wywołań, 59 s): model zgłosił eksport
-  „1002 (2).mp4” do Pobranych, pliku tam nie ma (jest tylko w pamięci
-  podręcznej CapCut). Sprawdzić, czy to fałszywy sukces.
+- [x] CapCut, próba z 03:26 (9 wywołań, 59 s): eksport „1002 (2).mp4” udany;
+  pliku nie ma w Pobranych, bo właściciel go usunął (potwierdzone przez niego).
 - [ ] Celowanie modelu w małe etykiety okien rysowanych samodzielnie: brak
   ogólnego mechanizmu (wskazówka istnieje tylko dla Blendera).
 - [ ] Okno wyboru pliku: wyniki szukania po zmianie zakresu („Pobrane rzeczy”)
