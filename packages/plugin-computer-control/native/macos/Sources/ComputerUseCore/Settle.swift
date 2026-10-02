@@ -37,10 +37,11 @@ public struct SettleClock: Sendable {
     private var lastChange: Double?
     private var reading: ClosedRange<Double>?
 
-    public init(start: Double, policy: SettlePolicy, waited: Double = 0) {
+    /// `waited` is the time since the action went out; `reacted` says its effect was already seen in the window.
+    public init(start: Double, policy: SettlePolicy, waited: Double = 0, reacted: Bool = false) {
         self.start = start
         self.policy = policy
-        self.minimum = min(policy.minimum, max(policy.quiet, policy.minimum - waited))
+        self.minimum = min(policy.minimum, max(policy.quiet, (reacted ? policy.reacted : policy.minimum) - waited))
     }
 
     public mutating func record(at time: Double) {
@@ -118,6 +119,15 @@ public enum WebContent {
     }
 }
 
+/// Apps that build their accessibility tree only once asked (see `AccessibilityWake`): browsers and Electron apps.
+/// Only they need time after the first request; a native app's tree is already there.
+public enum LateTree {
+    public static func fills(bundle: URL?, browser: Bool, exists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> Bool {
+        guard let bundle else { return true }
+        return browser || exists(bundle.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path)
+    }
+}
+
 public enum BusyProbe {
     /// Spinners mean content is still arriving; a determinate progress bar may be a finished state.
     public static func isBusy(_ node: NodeSnapshot) -> Bool {
@@ -151,11 +161,13 @@ final class Settler: @unchecked Sendable {
     private var changes: [Double] = []
     private let wake = DispatchSemaphore(value: 0)
 
-    static func settle(pid: pid_t, window: AXUIElement, policy: SettlePolicy, waited: Double = 0) {
+    /// `busy` reads the window and says whether it shows a busy indicator; it is asked only once the app is quiet,
+    /// so the caller can keep what it read as the settled state.
+    static func settle(pid: pid_t, policy: SettlePolicy, waited: Double = 0, reacted: Bool = false, busy: () -> Bool) {
         let settler = Settler()
         let subscription = settler.observe(pid)
         defer { subscription.map(settler.stop) }
-        settler.wait(window: window, policy: policy, waited: waited)
+        settler.wait(policy: policy, waited: waited, reacted: reacted, probe: busy)
     }
 
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }
@@ -167,8 +179,8 @@ final class Settler: @unchecked Sendable {
         wake.signal()
     }
 
-    private func wait(window: AXUIElement, policy: SettlePolicy, waited: Double) {
-        var clock = SettleClock(start: now(), policy: policy, waited: waited)
+    private func wait(policy: SettlePolicy, waited: Double, reacted: Bool, probe: () -> Bool) {
+        var clock = SettleClock(start: now(), policy: policy, waited: waited, reacted: reacted)
         var busy = false
         while true {
             lock.lock()
@@ -178,7 +190,7 @@ final class Settler: @unchecked Sendable {
             for time in recent { clock.record(at: time) }
             let before = now()
             if clock.isQuiet(now: before) {
-                busy = BusyProbe.isBusy(window: window)
+                busy = probe()
                 clock.read(from: before, to: now())
             }
             let current = now()

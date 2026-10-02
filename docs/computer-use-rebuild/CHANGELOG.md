@@ -2502,3 +2502,51 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 
 **Pominięte / dla następcy**
 - Bez próby z modelem; jedna strona. Czas 16,5 s nierozbity na części.
+
+## Lekcje domyślne, zaznaczanie wiersza, krótszy helper — 2026-10-02
+
+**Co**
+- `learned/` (nowy katalog w paczce) + `scripts/promote-learned.mjs` +
+  `promote`/`shippedLearned` w `src/jev/memory.ts`; kolejność domyślne →
+  komputer → Jev; `ignored` dla błędnych lekcji domyślnych; luźniejsze
+  porównanie słów celu; efekt tylko dla kliknięć.
+- `src/jev/run.ts`: drugie spojrzenie, zanim krok pójdzie innym sposobem.
+- `src/contract/guidance.ts`: `computer_run` jako pierwsza droga, także dla
+  jednego kroku.
+- Helper macOS: `AXReader` (atrybuty jednym komunikatem, `find`), `Act.swift`
+  (zaznaczenie wiersza, odnalezienie zastąpionego elementu, okno sprzed
+  kliknięcia z ostatniej obserwacji), `Settle.swift` (`reacted`, `LateTree`,
+  odczyt w trakcie czekania), `Timing.swift` (stały, przez zmienną środowiskową).
+
+**Jak i dlaczego**
+- Pomiar: 1,1 s czekania przy pierwszym odczycie każdej aplikacji (budzenie
+  drzewa potrzebne tylko przeglądarkom i Electronowi), ok. 0,8 s czekania po
+  kliknięciu mimo potwierdzonej zmiany, 17 komunikatów AX na element.
+- Trening 24 paneli Ustawień wykazał: panele poniżej widocznej części listy
+  kończyły się `stale_state` (wiersze istnieją tylko w chwili odczytu), a trzy
+  panele wymagały drugiego sposobu, bo wynik pokazywał się po odczycie.
+- Efekty kroków zawierały nazwy sieci Wi‑Fi, urządzeń Bluetooth i aplikacji
+  z tego komputera, więc do paczki idą tylko etykiety powtarzające nazwę
+  klikniętego elementu (tu: tytuł okna).
+
+**Testy (Red → Green)**
+- Swift: `doesNotWaitForAReactionThatWasAlreadySeen`,
+  `knowsWhichAppsFillTheirTreeLate`, `selectsRow` w `ActionTests`,
+  `ReviveTests` — Red: brak symboli; Green po implementacji.
+- TS: „what ships with moxxy” (3), „what is shipped of an effect” (2),
+  normalizacja słów (2), „what typing showed” (1), „a result that shows late”
+  (2), `guidance.test.ts` — Red przed implementacją, potem zielone.
+
+**Walidacja**
+- `swift test` — 196/196; wtyczka `pnpm exec vitest run` — 391/391 (27
+  pominiętych: Linux); `pnpm build`, `pnpm -r typecheck`, `pnpm lint`,
+  `pnpm check:deps` — 0 błędów.
+- Na żywo (Ustawienia systemowe, prawdziwy Jev, 25 biegów po jednym kroku):
+  pierwszy raz 25/25 `verified`, 1,4–1,9 s (dwa panele 2,6–3,0 s); drugi raz
+  z pamięci 24/24 `verified` bez pytań do Jev (jeden panel z jednym pytaniem),
+  0,8–1,2 s (dwa panele 1,9–2,0 s). Akcja ze świeżym stanem w helperze:
+  0,8–1,1 s (wcześniej 1,9 s, na początku 5,5–7,2 s).
+
+**Pominięte / dla następcy**
+- Bez próby z modelem na tej wersji. Zaznaczanie wiersza sprawdzone tylko
+  w Ustawieniach. Lekcje domyślne tylko dla jednej aplikacji i jednego języka.

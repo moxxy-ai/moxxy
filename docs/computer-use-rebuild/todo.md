@@ -42,6 +42,13 @@ Otwarte dla Linuksa:
 - [ ] `computer_run`: próba z modelem na zadaniu webowym (Safari) i w
   aplikacji bez elementów; próba w Ustawieniach systemowych przeszła (niżej
   w `CHANGELOG.md`).
+- [ ] Lekcje domyślne (`learned/`): tylko Ustawienia systemowe, macOS po
+  polsku (24 panele + pole szukania). Dodać kolejne aplikacje i język
+  angielski; dopasowanie po roli i tytule nie działa między językami.
+- [ ] Trafienie w pamięć wymaga tych samych słów celu (po normalizacji);
+  model pisze je różnie. Trasy pokazywane modelowi to łagodzą, nie usuwają.
+- [ ] Zaznaczanie wiersza zamiast kliknięcia: sprawdzone w Ustawieniach;
+  Finder, Poczta, tabele z przyciskami w wierszach — nie sprawdzone.
 - [ ] Pamięć `computer_run`: efekt kroku to do 8 etykiet nowych elementów;
   jeśli te same etykiety są na innym ekranie, krok zostanie uznany za wykonany
   błędnie. Nie zaobserwowano; sprawdzić na aplikacjach z powtarzalnymi ekranami.

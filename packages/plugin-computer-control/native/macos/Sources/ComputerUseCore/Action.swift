@@ -169,6 +169,15 @@ public enum AXLadder {
         return .axAction(wanted)
     }
 
+    /// What a list row shows; a plain click on any of it selects the row.
+    static let rowContent: Set<String> = ["AXStaticText", "AXImage", "AXCell", "AXRow"]
+
+    /// Whether a click can be done by selecting the row around the element: no pointer, and it reaches a row
+    /// that is scrolled out of view.
+    public static func selectsRow(role: String, button: MouseButton, count: Int, modifiers: Bool) -> Bool {
+        button == .left && count == 1 && !modifiers && rowContent.contains(role)
+    }
+
     /// Roles whose press does the same wherever inside them the click lands; anything else (text, canvases,
     /// lists) cares about the exact point and gets a real click.
     static let pressable: Set<String> = [

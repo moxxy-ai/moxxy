@@ -166,16 +166,29 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       const result = await perform(rung);
       const changed = fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot);
       // One request: did this step do what it should, and where is the next step's element.
-      const seen = recalled?.effect !== undefined && shows(state.tree, recalled.effect);
+      let seen = recalled?.effect !== undefined && shows(state.tree, recalled.effect);
       const upcoming = next ? before(next, state.tree, remembered(next)) : {};
-      const after = result.outcome === 'delivered'
+      let after = result.outcome === 'delivered'
         ? await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text, ...(next ? { step: next } : {}) },
           { ...(step.expect === undefined || seen ? {} : { expected: EXPECTED_QUESTION }), ...upcoming })
         : {};
-      const verdict = judge({ step, result, changed, ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
+      let verdict = judge({ step, result, changed, ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
+      let relooked = false;
+      if (verdict.verdict === 'retry' && result.outcome === 'delivered' && step.expect !== undefined) {
+        // The result can show a moment after the window first looked settled: look once more before another way.
+        const first = state;
+        state = await deps.observe();
+        if (fingerprint(first.tree, first.screenshot) !== fingerprint(state.tree, state.screenshot)) {
+          relooked = true;
+          seen = recalled?.effect !== undefined && shows(state.tree, recalled.effect);
+          after = seen ? {} : await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text }, { expected: EXPECTED_QUESTION });
+          verdict = judge({ step, result, changed: true, expected: seen ? 1 : noul(after, 'expected') ?? 0 });
+        }
+      }
       if (verdict.verdict === 'done') {
-        if (Object.keys(upcoming).length > 0) ahead = after;
-        const effect = seen ? recalled?.effect ?? [] : effectOf(previous.tree, state.tree);
+        if (!relooked && Object.keys(upcoming).length > 0) ahead = after;
+        // What typing shows is the text itself, different every time: only a click's effect is worth keeping.
+        const effect = seen ? recalled?.effect ?? [] : step.do === 'click' ? effectOf(previous.tree, state.tree) : [];
         return {
           status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}),
           ...(verdict.verified && element ? { used: { key: element.key, label: labelOf(element), way, ...(effect.length > 0 ? { effect } : {}) } } : {}),

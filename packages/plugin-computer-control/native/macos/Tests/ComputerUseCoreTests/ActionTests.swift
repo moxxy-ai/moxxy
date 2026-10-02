@@ -34,6 +34,15 @@ import Testing
         #expect(AXLadder.click(button: .left, count: 1, modifiers: false, actions: ["AXPress"]) == .axAction("AXPress"))
         #expect(AXLadder.click(button: .right, count: 1, modifiers: false, actions: ["AXPress", "AXShowMenu"]) == .axAction("AXShowMenu"))
         #expect(AXLadder.click(button: .left, count: 1, modifiers: false, actions: []) == .physical)
+        // A plain click on the text, picture or cell of a list row selects the row: that needs no pointer,
+        // and works for a row scrolled out of view.
+        #expect(AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 1, modifiers: false))
+        #expect(AXLadder.selectsRow(role: "AXCell", button: .left, count: 1, modifiers: false))
+        #expect(!AXLadder.selectsRow(role: "AXButton", button: .left, count: 1, modifiers: false))
+        #expect(!AXLadder.selectsRow(role: "AXTextField", button: .left, count: 1, modifiers: false))
+        #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 2, modifiers: false))
+        #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .right, count: 1, modifiers: false))
+        #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 1, modifiers: true))
         #expect(AXLadder.click(button: .left, count: 2, modifiers: false, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .left, count: 1, modifiers: true, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .middle, count: 1, modifiers: false, actions: ["AXPress"]) == .physical)
@@ -76,5 +85,20 @@ import Testing
         #expect(key(click(.point(CGPoint(x: 10, y: 10)))) == key(click(.point(CGPoint(x: 10, y: 10)))))
         #expect(key(click(.point(CGPoint(x: 10, y: 10)))) != key(click(.point(CGPoint(x: 11, y: 10)))))
         #expect(key(.setValue(element: 7, value: "a")) != key(.setValue(element: 7, value: "b")))
+    }
+}
+
+/// An app can replace the elements it handed out (a list does so for rows it does not show).
+@Suite struct ReviveTests {
+    private func element(_ role: String, _ title: String?, _ description: String? = nil) -> TreeElement {
+        TreeElement(key: UUID().uuidString, depth: 1, role: role, title: title, description: description, value: nil, secure: false, states: [], actions: [], handle: 0, frame: nil)
+    }
+
+    @Test func namesAnElementByWhatItReadsAndWhichOfItsKindItIs() {
+        let signs = Revive.signs([element("text", "General"), element("button", "General"), element("text", "Sound"), element("text", "General")])
+        #expect(signs.map(\.nth) == [0, 0, 0, 1])
+        #expect(signs[0].sign == ElementSign(role: "text", title: "General", description: nil))
+        #expect(signs[0].sign == signs[3].sign)
+        #expect(signs[0].sign != signs[1].sign)
     }
 }

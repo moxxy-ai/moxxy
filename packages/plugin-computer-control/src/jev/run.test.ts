@@ -172,6 +172,28 @@ describe('runSteps', () => {
   });
 });
 
+describe('a result that shows late', () => {
+  it('is looked for once more before another way is tried', async () => {
+    const elements = [button(1, 'Privacy')];
+    const window = app(elements);
+    const late = async () => { if (window.acted.length > 0 && elements.length === 1) elements.push(button(2, 'Privacy pane')); return window.observe(); };
+    const { ask, requests } = jev((state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(state.elements.includes('Privacy pane') ? 0.9 : 0.1) : undefined));
+    const report = await runSteps('Open Privacy', [{ do: 'click', target: 'Privacy', expect: 'the Privacy pane shows' }], window.state(), { ...deps(window, ask), observe: late });
+    expect(window.acted).toHaveLength(1);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', attempts: 1 });
+    expect(requests.map((request) => request.ids)).toEqual([['target', 'already'], ['expected'], ['expected']]);
+  });
+
+  it('is not waited for twice: a step that still does not show its result goes another way', async () => {
+    const window = app([button(1, 'Privacy')]);
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const report = await runSteps('Open Privacy', [{ do: 'click', target: 'Privacy', expect: 'the Privacy pane shows' }], window.state(), deps(window, ask));
+    expect(window.acted).toHaveLength(2);
+    expect(window.looks).toBe(2);
+    expect(report.outcomes[0]?.status).toBe('failed');
+  });
+});
+
 describe('what was learned before', () => {
   it('acts on a remembered element without asking where it is', async () => {
     const window = app([button(1, 'Export'), button(2, 'Cancel')], (_action, elements) => { elements.push(button(3, 'Sheet')); });
@@ -251,6 +273,18 @@ describe('what a step showed last time', () => {
     const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
     expect(requests.map((request) => request.ids)).toEqual([['expected']]);
     expect(report.outcomes[0]?.status).toBe('verified');
+  });
+});
+
+describe('what typing showed', () => {
+  it('is not kept as a step\'s effect: the text differs every time', async () => {
+    const window = app([button(1, 'Search', { role: 'text field', value: '' })], (action, elements) => {
+      if (action.action === 'type_text') elements.push(button(2, action.text, { role: 'text' }));
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Find', [{ do: 'type', target: 'Search', text: 'Kopernik', expect: 'the field holds Kopernik' }], window.state(), deps(window, ask));
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', used: { key: 'w/1', way: 0 } });
+    expect(report.outcomes[0]?.used?.effect).toBeUndefined();
   });
 });
 

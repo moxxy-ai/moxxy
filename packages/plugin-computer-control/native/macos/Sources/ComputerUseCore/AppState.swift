@@ -28,6 +28,14 @@ final class TargetState {
     var sent: Date?
     /// What the elements said at the last observation, until an action is done; see `Executor.look`.
     var said: [String]?
+    /// What each index read as, to find its element again when the app replaced it.
+    var signs: [Int: (sign: ElementSign, nth: Int)] = [:]
+    /// The last element found again, followed by what contains it, nearest first.
+    var revived: [AXUIElement] = []
+    /// When the window was last read and pictured.
+    var observedAt: Date?
+    /// The last action's effect was seen in the window before it returned.
+    var reacted = false
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
     var lastClick: CGPoint?
     /// Accessibility actions its elements keep declining.
@@ -104,6 +112,7 @@ extension Methods {
 
     static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?) throws -> JSONValue {
         guard let bundleId = params["app"]?.stringValue, !bundleId.isEmpty else { throw HelperError.invalidParams("app is required") }
+        Timing.mark("state: begin")
         guard AXIsProcessTrusted() else {
             throw HelperError(code: "permissions_not_granted", message: "Accessibility is not allowed for this app")
         }
@@ -117,7 +126,9 @@ extension Methods {
             found = AppLauncher.window(of: running)
         }
         let name = running.localizedName ?? bundleId
-        if targets.wake.wake(running.processIdentifier) { launched = true }
+        Timing.mark("state: app found")
+        let wantsPage = params["web"]?.boolValue == true
+        if targets.wake.wake(running.processIdentifier), LateTree.fills(bundle: running.bundleURL, browser: wantsPage) { launched = true }
         let state = targets.state(for: bundleId)
         state.observed = true
         state.pid = running.processIdentifier
@@ -131,12 +142,20 @@ extension Methods {
             ])
         }
         // A fresh launch is still loading, like the app right after an action.
+        Timing.mark("state: window found")
         let acted = state.recentlyActed
-        Settler.settle(pid: running.processIdentifier, window: window, policy: launched || acted ? .afterAction : .observeOnly,
-                       waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0)
         var reader = AXReader()
-        var root = reader.snapshot(window)
-        let wantsPage = params["web"]?.boolValue == true
+        // The read that finds the window quiet and not busy is the state: no second read after the wait.
+        var settled: NodeSnapshot?
+        Settler.settle(pid: running.processIdentifier, policy: launched || acted ? .afterAction : .observeOnly,
+                       waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0, reacted: acted && state.reacted) {
+            reader = AXReader()
+            let read = reader.snapshot(window)
+            settled = read
+            return AXReader.attribute(window, "AXElementBusy") == true || BusyProbe.isBusy(read)
+        }
+        var root = settled ?? reader.snapshot(window)
+        Timing.mark("state: settled and read")
         if wantsPage {
             let pid = running.processIdentifier
             root = WebContent.awaited(first: root, loaded: { !WebContent.isPending($0) }, again: {
@@ -146,17 +165,21 @@ extension Methods {
                 _ = Foreground.bring(pid: pid, window: root.frame.map { WindowCandidate(pid: pid, frame: $0, title: root.title) })
             })
         }
+        Timing.mark("state: page awaited")
         let pagePending = WebContent.isPending(root)
         root = root.adopting(reader.strayFocus(of: AXReader.application(running.processIdentifier), besides: window))
         let built = TreeBuilder.build(root, limit: treeLimit)
         let indices = state.registry.assign(built.elements.map(\.key))
         state.elements = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map { reader.elements[$0.handle] }))
+        state.signs = Dictionary(uniqueKeysWithValues: zip(indices, Revive.signs(built.elements)))
         state.frames = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map(\.frame)).compactMap { index, frame in frame.map { (index, $0) } })
         state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
         state.root = window
         if let window = state.window { cursor?.attach(to: window) }
         targets.preview?.target(state.window)
         state.said = Executor.said(built.elements)
+        state.observedAt = Date()
+        Timing.mark("state: tree built")
         var result: [String: JSONValue] = [:]
         state.frame = nil
         state.pixels = nil
@@ -182,6 +205,7 @@ extension Methods {
         result["tree"] = .object(tree)
         if wantsPage, pagePending { result["contentPending"] = .bool(true) }
         if FilePanel.identifiers.contains(root.identifier ?? "") { result["filePanel"] = .bool(true) }
+        Timing.mark("state: captured")
         return .object(result)
     }
 

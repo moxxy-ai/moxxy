@@ -7,7 +7,7 @@ import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
-import { RunMemory, describeRoutes, labelOf, recall } from '../jev/memory.js';
+import { RunMemory, describeRoutes, labelOf, recall, shippedLearned } from '../jev/memory.js';
 import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
@@ -103,7 +103,7 @@ export class ComputerBackend {
     private readonly hints: ReadonlyArray<AppHint> = loadAppHints(),
     /** Jev for a TypeSafe key; a seam so tests need no network. */
     private readonly jev: (apiKey: string) => AskJev = jevClient,
-    private readonly memory: RunMemory = new RunMemory(),
+    private readonly memory: RunMemory = new RunMemory(undefined, Date.now, shippedLearned),
   ) {
     this.hooks = {
       // Until a tool call has looked into the vault, the environment says whether there is a key.

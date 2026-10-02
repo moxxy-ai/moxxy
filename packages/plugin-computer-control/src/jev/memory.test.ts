@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppElement, AppTree } from '../contract/tree.js';
-import { RunMemory, describeRoutes, recall } from './memory.js';
+import { RunMemory, describeRoutes, promote, recall, sameWords } from './memory.js';
 
 let directory: string;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'moxxy-run-memory-')); });
@@ -22,7 +22,7 @@ describe('RunMemory', () => {
     time = 200;
     await memory.learn('com.example.editor', { targets: [{ ...exportButton, target: '  The EXPORT  button ', way: 0 }], route });
     const kept = await new RunMemory(directory).read('com.example.editor');
-    expect(kept.targets).toEqual([{ do: 'click', target: 'the export button', key: 'w/export', label: 'button\u001fExport', way: 0, uses: 2, at: 200 }]);
+    expect(kept.targets).toEqual([{ do: 'click', target: 'export button', key: 'w/export', label: 'button\u001fExport', way: 0, uses: 2, at: 200 }]);
     expect(kept.routes).toEqual([{ ...route, uses: 2, at: 200 }]);
     expect(await memory.read('com.example.other')).toEqual({ targets: [], routes: [] });
   });
@@ -74,8 +74,87 @@ describe('RunMemory', () => {
   });
 });
 
+describe('what ships with moxxy', () => {
+  const shipped = () => join(directory, 'shipped');
+  const mine = () => join(directory, 'mine');
+  const ship = async (lesson: Parameters<RunMemory['learn']>[1]) => new RunMemory(shipped()).learn('app', lesson);
+  const route = (goal: string) => ({ goal, steps: [{ do: 'click' as const, target: goal }] });
+
+  it('is read before what this computer learned, and never written', async () => {
+    await ship({ targets: [exportButton], route: route('Export') });
+    const before = readFileSync(join(shipped(), readdirSync(shipped())[0] as string), 'utf8');
+    const memory = new RunMemory(mine(), Date.now, shipped());
+    await memory.learn('app', { targets: [{ ...exportButton, key: 'w/mine' }, { ...exportButton, target: 'Save' }], route: route('Save') });
+    const read = await memory.read('app');
+    expect(read.targets.map((target) => [target.target, target.key])).toEqual([['export button', 'w/export'], ['export button', 'w/mine'], ['save', 'w/export']]);
+    expect(read.routes.map((known) => known.goal)).toEqual(['Export', 'Save']);
+    expect(readFileSync(join(shipped(), readdirSync(shipped())[0] as string), 'utf8')).toBe(before);
+  });
+
+  it('stops using a shipped target that proved wrong here, without touching the shipped file', async () => {
+    await ship({ targets: [exportButton] });
+    const memory = new RunMemory(mine(), Date.now, shipped());
+    await memory.forget('app', { do: 'click', target: 'the Export button' });
+    expect((await memory.read('app')).targets).toEqual([]);
+    expect((await new RunMemory(mine(), Date.now, shipped()).read('app')).targets).toEqual([]);
+    await memory.learn('app', { targets: [{ ...exportButton, key: 'w/right' }] });
+    expect((await memory.read('app')).targets.map((target) => target.key)).toEqual(['w/right']);
+    expect((await new RunMemory(shipped()).read('app')).targets).toHaveLength(1);
+  });
+
+  it('is filled from what this computer learned, keeping what was shipped before', async () => {
+    await ship({ targets: [exportButton], route: route('Export') });
+    const memory = new RunMemory(mine());
+    await memory.learn('app', { targets: [{ ...exportButton, target: 'Save' }], route: route('Save') });
+    await memory.learn('other', { targets: [exportButton] });
+    expect(await promote(mine(), shipped())).toEqual(['app', 'other']);
+    const now = await new RunMemory(shipped()).read('app');
+    expect(now.targets.map((target) => target.target).sort()).toEqual(['export button', 'save']);
+    expect(now.routes.map((known) => known.goal).sort()).toEqual(['Export', 'Save']);
+    expect((await new RunMemory(shipped()).read('other')).targets).toHaveLength(1);
+  });
+});
+
+describe('what is shipped of an effect', () => {
+  it('is only what repeats the element\'s own name: the rest can be the trainer\'s networks, devices and files', async () => {
+    const mine = join(directory, 'mine');
+    const shipped = join(directory, 'shipped');
+    await new RunMemory(mine).learn('app', { targets: [
+      { ...exportButton, target: 'Wi-Fi', label: 'text\u001fWi‑Fi', effect: ['heading\u001fWi‑Fi', 'text\u001fHome_5G', 'text\u001fConnected'] },
+      { ...exportButton, target: 'General', label: 'text\u001fGeneral', effect: ['text\u001fManage the setup of this Mac'] },
+    ] });
+    await promote(mine, shipped);
+    const { targets } = await new RunMemory(shipped).read('app');
+    expect(targets.find((target) => target.target === 'wi fi')?.effect).toEqual(['heading\u001fWi‑Fi']);
+    expect(targets.find((target) => target.target === 'general')?.effect).toBeUndefined();
+    expect((await new RunMemory(mine).read('app')).targets[0]?.effect).toHaveLength(3);
+  });
+
+  it('is completed by what this computer saw the same element do', () => {
+    const live = element(4, 'w/export', 'Export');
+    const memory = { targets: [
+      { ...exportButton, target: 'export button', uses: 1, at: 1 },
+      { ...exportButton, target: 'export button', effect: ['button\u001fSheet'], uses: 1, at: 2 },
+    ], routes: [] };
+    expect(recall(memory, { do: 'click', target: 'Export button' }, tree(live))).toEqual({ element: live, way: 1, effect: ['button\u001fSheet'] });
+  });
+});
+
 describe('recall', () => {
-  const memory = { targets: [{ ...exportButton, target: 'the export button', uses: 1, at: 1 }], routes: [] };
+  it('takes a target for the same whatever its articles and punctuation', () => {
+    expect(sameWords('  The "Export"  button. ')).toBe(sameWords('export button'));
+    expect(sameWords('Sound (Dźwięk) in the sidebar')).toBe('sound dźwięk sidebar');
+    expect(sameWords('the Dźwięk item in the left sidebar')).toBe(sameWords('Dźwięk in the left sidebar'));
+    expect(sameWords('the left arrow')).not.toBe(sameWords('the right arrow'));
+  });
+
+  it('takes the first remembered element the window still has', () => {
+    const both = { targets: [{ ...exportButton, target: 'export button', uses: 1, at: 1 }, { ...exportButton, target: 'export button', key: 'w/other', label: 'button\u001fSend', uses: 1, at: 1 }], routes: [] };
+    const send = element(5, 'w/other', 'Send');
+    expect(recall(both, { do: 'click', target: 'Export button' }, tree(send))).toEqual({ element: send, way: 1 });
+  });
+
+  const memory = { targets: [{ ...exportButton, target: 'export button', uses: 1, at: 1 }], routes: [] };
   const step = { do: 'click' as const, target: 'The Export  button' };
 
   it('finds the remembered element by its place and label, with the way that worked', () => {

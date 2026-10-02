@@ -45,6 +45,8 @@ it('sends known steps through computer_run and keeps trying other routes', () =>
   expect(system).toMatch(/expect/);
   expect(system).toMatch(/Do not give up/);
   expect(system).toMatch(/several different routes/);
+  expect(system).toMatch(/even a single step/);
+  expect(system).toMatch(/remembers what worked/);
 });
 
 it('leaves computer_run out, tool and words, where it cannot run', () => {

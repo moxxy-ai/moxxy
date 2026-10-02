@@ -166,6 +166,10 @@ macOS, Windows i Linuksa) wykonuje go na żywym drzewie elementów:
   element i sposób dla opisu celu, efekt kroku (etykiety, które się pojawiły),
   całe trasy. Powtórzony krok nie pyta Jev o nic.
 
+Kolejność: lekcje dostarczane z moxxy (`learned/` w paczce wtyczki, wypełniane
+przez `pnpm --filter @moxxy/plugin-computer-control learned:promote`) → pamięć
+tego komputera → Jev.
+
 Bez klucza `computer_run` nie jest oferowany modelowi (hook
 `onBeforeProviderCall` usuwa narzędzie i wzmiankę w regułach); reszta Computer
 Use działa bez zmian.

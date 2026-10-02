@@ -36,6 +36,27 @@ import Testing
         #expect(quick.isSettled(now: 10.75, busy: false))
     }
 
+    // A click whose effect was already seen in the window needs no second proof that the app reacted.
+    @Test func doesNotWaitForAReactionThatWasAlreadySeen() {
+        let policy = SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, reacted: 0.5)
+        let seen = SettleClock(start: 10, policy: policy, waited: 0.375, reacted: true)
+        #expect(!seen.isSettled(now: 10.125, busy: false))
+        #expect(seen.isSettled(now: 10.25, busy: false))
+        let unseen = SettleClock(start: 10, policy: policy, waited: 0.375)
+        #expect(!unseen.isSettled(now: 10.5, busy: false))
+        #expect(unseen.isSettled(now: 10.625, busy: false))
+    }
+
+    // Only apps that build their tree on demand need time after being asked for it the first time.
+    @Test func knowsWhichAppsFillTheirTreeLate() {
+        let electron = URL(fileURLWithPath: "/Applications/Slack.app")
+        let has: (String) -> Bool = { $0 == "/Applications/Slack.app/Contents/Frameworks/Electron Framework.framework" }
+        #expect(LateTree.fills(bundle: electron, browser: false, exists: has))
+        #expect(!LateTree.fills(bundle: URL(fileURLWithPath: "/System/Applications/System Settings.app"), browser: false, exists: has))
+        #expect(LateTree.fills(bundle: URL(fileURLWithPath: "/Applications/Safari.app"), browser: true, exists: has))
+        #expect(LateTree.fills(bundle: nil, browser: false, exists: has))
+    }
+
     @Test func waitsLessOnceTheAppHasReacted() {
         var clock = SettleClock(start: 0, policy: SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, reacted: 0.5))
         #expect(!clock.isSettled(now: 0.75, busy: false))

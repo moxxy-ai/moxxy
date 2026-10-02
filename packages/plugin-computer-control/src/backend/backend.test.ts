@@ -29,7 +29,7 @@ const profile = (extra: Partial<PlatformProfile> = {}): PlatformProfile => ({
 });
 
 function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}, jev?: (apiKey: string) => AskJev): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
-  const instance = new ComputerBackend(profile(extra), hints, jev, new RunMemory(join(directory, 'learned')));
+  const instance = new ComputerBackend(profile(extra), hints, jev, new RunMemory(join(directory, 'learned'), Date.now, join(directory, 'shipped')));
   backends.push(instance);
   return { instance, tools: new Map(instance.tools().map((tool) => [tool.name, tool])) };
 }

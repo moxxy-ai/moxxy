@@ -145,6 +145,20 @@ Linux; only the helper underneath differs.
     steps). The five most used routes are shown to the model with the app's
     first state of a turn, to be sent again unchanged.
 
+  Lessons are read in this order: what ships with moxxy
+  (`packages/plugin-computer-control/learned/`), then this computer's own
+  file, then Jev for what neither has. The shipped files are filled by the
+  moxxy team: run cases on a real machine, then `pnpm --filter
+  @moxxy/plugin-computer-control learned:promote` and commit the diff. Of a
+  step's effect only labels that repeat the element's own name are shipped
+  (the rest can be the trainer's networks, devices and files); the user's
+  computer completes it at first use. A shipped target that proves wrong on a
+  computer is ignored there from then on. Elements are matched by role and
+  title as the system shows them, so shipped lessons help only in the
+  language they were learned in (today: System Settings, macOS in Polish).
+  Words of a target are compared without case, punctuation, articles and
+  "in/on/at/of/to/item".
+
   The next time a step has the same words, its element is taken from memory
   when the window still has it under the same label, and the step counts as
   verified when the same elements appear, so a repeated step asks Jev
@@ -183,6 +197,25 @@ comes seconds later; that counts as a page not readable yet, so the helper
 reads again (up to 8 times, 0.4 s apart). Typing into a field of a page works
 while Safari stays in the background: the app names no focused element then,
 so the field's own focus counts.
+
+A plain click on the text, picture or cell of a list row selects the row
+through accessibility: no pointer, no cursor glide, and it reaches rows
+scrolled out of view (the lower panes of System Settings). Such rows exist
+only for the moment they are read, so the helper finds the element again by
+what it reads and acts at once.
+
+Other cuts: all attributes of an element are read in one message (tree of 150
+elements: 0.27 s → 0.14 s); the read that finds the window quiet is the state
+(no second read); a native app is not given a second to build its tree at the
+first look (only browsers and Electron apps are); after an action whose effect
+was already seen, the wait is one quiet spell; when a step's result does not
+show, `computer_run` looks once more before it tries another way.
+
+Measured on System Settings (25 single-step runs, each with a fresh look, the
+click and the check): first time with Jev 1.4–1.9 s (two slow panes 2.6–3.0 s);
+again from memory 0.8–1.2 s with no request to Jev. An action with its fresh
+state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
+helper write where each request's time went.
 
 A background click reads the window once before it is sent (not twice), uses
 what the last observation said instead of reading the tree again, and the

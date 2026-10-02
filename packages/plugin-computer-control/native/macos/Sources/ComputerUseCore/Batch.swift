@@ -38,7 +38,7 @@ extension Methods {
         guard state.observed else { return .object(["results": .array([ActionResult.blocked("no_state").json])]) }
         var first = true
         let results = Batch.run(steps, waitedOut: {
-            if !first, let root = state.root, let pid = state.window?.pid { Settler.settle(pid: pid, window: root, policy: betweenSteps) }
+            if !first, let root = state.root, let pid = state.window?.pid { Settler.settle(pid: pid, policy: betweenSteps) { BusyProbe.isBusy(window: root) } }
             first = false
             return input.gate?.waitWhilePaused() == true
         }) { step in

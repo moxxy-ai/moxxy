@@ -1,0 +1,535 @@
+{
+ "app": "com.apple.systempreferences",
+ "targets": [
+  {
+   "do": "click",
+   "target": "drukarki i skanery left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#38/komórka:#1/tekst:com.apple.Print-Scan-Settings.extension",
+   "label": "tekst\u001fDrukarki i skanery",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911224237,
+   "effect": [
+    "okno standardowe\u001fDrukarki i skanery"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "kontrolery do gier left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#37/komórka:#1/tekst:com.apple.Game-Controller-Settings.extension",
+   "label": "tekst\u001fKontrolery do gier",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911222681,
+   "effect": [
+    "okno standardowe\u001fKontrolery do gier"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "gładzik left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#36/komórka:#1/tekst:com.apple.Trackpad-Settings.extension",
+   "label": "tekst\u001fGładzik",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911221114,
+   "effect": [
+    "okno standardowe\u001fGładzik"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "klawiatura left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#35/komórka:#1/tekst:com.apple.Keyboard-Settings.extension",
+   "label": "tekst\u001fKlawiatura",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911219487,
+   "effect": [
+    "okno standardowe\u001fKlawiatura"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "prywatność i ochrona left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#26/komórka:#1/tekst:com.apple.settings.PrivacySecurity.extension",
+   "label": "tekst\u001fPrywatność i ochrona",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911217755,
+   "effect": [
+    "okno standardowe\u001fPrywatność i ochrona"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "ekran blokady left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#25/komórka:#1/tekst:com.apple.Lock-Screen-Settings.extension",
+   "label": "tekst\u001fEkran blokady",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911216003,
+   "effect": [
+    "okno standardowe\u001fEkran blokady"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "czas przed ekranem left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#23/komórka:#1/tekst:com.apple.Screen-Time-Settings.extension",
+   "label": "tekst\u001fCzas przed ekranem",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911214397,
+   "effect": [
+    "okno standardowe\u001fCzas przed ekranem"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "tryb skupienia left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#22/komórka:#1/tekst:com.apple.Focus-Settings.extension",
+   "label": "tekst\u001fTryb skupienia",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911212814,
+   "effect": [
+    "okno standardowe\u001fTryb skupienia"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "dźwięk left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#21/komórka:#1/tekst:com.apple.Sound-Settings.extension",
+   "label": "tekst\u001fDźwięk",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911211133,
+   "effect": [
+    "okno standardowe\u001fDźwięk"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "powiadomienia left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#20/komórka:#1/tekst:com.apple.Notifications-Settings.extension",
+   "label": "tekst\u001fPowiadomienia",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911209346,
+   "effect": [
+    "okno standardowe\u001fPowiadomienia"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "wyświetlacze left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#18/komórka:#1/tekst:com.apple.Displays-Settings.extension",
+   "label": "tekst\u001fWyświetlacze",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911207322,
+   "effect": [
+    "okno standardowe\u001fWyświetlacze"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "wygląd left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#17/komórka:#1/tekst:com.apple.Appearance-Settings.extension",
+   "label": "tekst\u001fWygląd",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911205685,
+   "effect": [
+    "okno standardowe\u001fWygląd"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "tapeta left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#16/komórka:#1/tekst:com.apple.Wallpaper-Settings.extension",
+   "label": "tekst\u001fTapeta",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911203993,
+   "effect": [
+    "okno standardowe\u001fTapeta"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "spotlight left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#15/komórka:#1/tekst:com.apple.Spotlight-Settings.extension",
+   "label": "tekst\u001fSpotlight",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911202001,
+   "effect": [
+    "okno standardowe\u001fSpotlight"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "pasek menu left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#14/komórka:#1/tekst:com.apple.ControlCenter-Settings.extension",
+   "label": "tekst\u001fPasek menu",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911200121
+  },
+  {
+   "do": "click",
+   "target": "dostępność left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#13/komórka:#1/tekst:com.apple.Accessibility-Settings.extension",
+   "label": "tekst\u001fDostępność",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911197851,
+   "effect": [
+    "okno standardowe\u001fDostępność"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "biurko i dock left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#12/komórka:#1/tekst:com.apple.Desktop-Settings.extension",
+   "label": "tekst\u001fBiurko i Dock",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911196161,
+   "effect": [
+    "okno standardowe\u001fBiurko i Dock"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "apple intelligence i siri left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#11/komórka:#1/tekst:com.apple.Siri-Settings.extension*siri-sae",
+   "label": "tekst\u001fApple Intelligence i Siri",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911194315,
+   "effect": [
+    "okno standardowe\u001fApple Intelligence i Siri"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "ogólne left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#10/komórka:#1/tekst:com.apple.systempreferences.GeneralSettings",
+   "label": "tekst\u001fOgólne",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911192702
+  },
+  {
+   "do": "click",
+   "target": "bateria left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#8/komórka:#1/tekst:com.apple.Battery-Settings.extension*BatteryPreferences",
+   "label": "tekst\u001fBateria",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911191166
+  },
+  {
+   "do": "click",
+   "target": "vpn left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#7/komórka:#1/tekst:com.apple.NetworkExtensionSettingsUI.NESettingsUIExtension*vpn",
+   "label": "tekst\u001fVPN",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911189574,
+   "effect": [
+    "okno standardowe\u001fVPN"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "sieć left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#6/komórka:#1/tekst:com.apple.Network-Settings.extension",
+   "label": "tekst\u001fSieć",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911188092,
+   "effect": [
+    "okno standardowe\u001fSieć"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "bluetooth left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#5/komórka:#1/tekst:com.apple.BluetoothSettings",
+   "label": "tekst\u001fBluetooth",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911185549,
+   "effect": [
+    "okno standardowe\u001fBluetooth"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "wi fi left sidebar",
+   "key": "okno standardowe:main/obszar przewijania:#1/lista:#1/wiersz zarysu:#4/komórka:#1/tekst:com.apple.wifi-settings-extension",
+   "label": "tekst\u001fWi‑Fi",
+   "way": 0,
+   "uses": 2,
+   "at": 1790911181887,
+   "effect": [
+    "okno standardowe\u001fWi‑Fi"
+   ]
+  },
+  {
+   "do": "click",
+   "target": "szukaj search field top sidebar",
+   "key": "okno standardowe:main/pole wyszukiwania tekstu:#1",
+   "label": "pole wyszukiwania tekstu\u001f",
+   "way": 0,
+   "uses": 1,
+   "at": 1790911179166
+  }
+ ],
+ "routes": [
+  {
+   "goal": "Open the Drukarki i skanery settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Drukarki i skanery in the left sidebar",
+     "expect": "the Drukarki i skanery settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911224237
+  },
+  {
+   "goal": "Open the Kontrolery do gier settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Kontrolery do gier in the left sidebar",
+     "expect": "the Kontrolery do gier settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911222681
+  },
+  {
+   "goal": "Open the Gładzik settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Gładzik in the left sidebar",
+     "expect": "the Gładzik settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911221114
+  },
+  {
+   "goal": "Open the Klawiatura settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Klawiatura in the left sidebar",
+     "expect": "the Klawiatura settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911219487
+  },
+  {
+   "goal": "Open the Prywatność i ochrona settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Prywatność i ochrona in the left sidebar",
+     "expect": "the Prywatność i ochrona settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911217755
+  },
+  {
+   "goal": "Open the Ekran blokady settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Ekran blokady in the left sidebar",
+     "expect": "the Ekran blokady settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911216003
+  },
+  {
+   "goal": "Open the Czas przed ekranem settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Czas przed ekranem in the left sidebar",
+     "expect": "the Czas przed ekranem settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911214397
+  },
+  {
+   "goal": "Open the Tryb skupienia settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Tryb skupienia in the left sidebar",
+     "expect": "the Tryb skupienia settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911212814
+  },
+  {
+   "goal": "Open the Dźwięk settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Dźwięk in the left sidebar",
+     "expect": "the Dźwięk settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911211133
+  },
+  {
+   "goal": "Open the Powiadomienia settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Powiadomienia in the left sidebar",
+     "expect": "the Powiadomienia settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911209346
+  },
+  {
+   "goal": "Open the Wyświetlacze settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Wyświetlacze in the left sidebar",
+     "expect": "the Wyświetlacze settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911207322
+  },
+  {
+   "goal": "Open the Wygląd settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Wygląd in the left sidebar",
+     "expect": "the Wygląd settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911205685
+  },
+  {
+   "goal": "Open the Tapeta settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Tapeta in the left sidebar",
+     "expect": "the Tapeta settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911203993
+  },
+  {
+   "goal": "Open the Spotlight settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Spotlight in the left sidebar",
+     "expect": "the Spotlight settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911202001
+  },
+  {
+   "goal": "Open the Pasek menu settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Pasek menu in the left sidebar",
+     "expect": "the Pasek menu settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911200121
+  },
+  {
+   "goal": "Open the Dostępność settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Dostępność in the left sidebar",
+     "expect": "the Dostępność settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911197851
+  },
+  {
+   "goal": "Open the Biurko i Dock settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Biurko i Dock in the left sidebar",
+     "expect": "the Biurko i Dock settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911196161
+  },
+  {
+   "goal": "Open the Apple Intelligence i Siri settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Apple Intelligence i Siri in the left sidebar",
+     "expect": "the Apple Intelligence i Siri settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911194315
+  },
+  {
+   "goal": "Open the Ogólne settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Ogólne in the left sidebar",
+     "expect": "the Ogólne settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911192702
+  },
+  {
+   "goal": "Open the Bateria settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Bateria in the left sidebar",
+     "expect": "the Bateria settings pane is shown"
+    }
+   ],
+   "uses": 1,
+   "at": 1790911191166
+  }
+ ]
+}

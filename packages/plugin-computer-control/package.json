@@ -41,10 +41,13 @@
     "dist",
     "src",
     "skills",
+    "learned",
+    "scripts",
     "bin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "learned:promote": "node scripts/promote-learned.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"

@@ -13,9 +13,12 @@ extension Methods {
         // A step that waited out a pause acts on nothing: the app may have changed while the user had it.
         let began = Date()
         state.sent = nil
+        state.reacted = false
+        Timing.mark("act: begin")
         let result = input.gate?.waitWhilePaused() == true
             ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
             : Executor(state: state, cursor: cursor, input: input).perform(request)
+        Timing.mark("act: performed \(result.method.map { "\($0)" } ?? result.code ?? "-")")
         if result.outcome == .delivered { state.lastAction = state.sent ?? began }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
@@ -54,7 +57,7 @@ struct Executor {
             guard let frame = state.frame, let screen = onImage(point, frame) else { return nil }
             return FrameHit.index(at: screen, in: state.frames)
         }
-        let before = isClick(request) ? look() : nil
+        let before = isClick(request) ? seenBefore() : nil
         // What the window said at the observation is true only until something is done to it.
         state.said = nil
         let result = run(request, retried: state.lastSoft == key, seen: before)
@@ -78,8 +81,20 @@ struct Executor {
         return (window, pixels, state.said ?? content())
     }
 
+    /// How long the picture and words of an observation stand for the window as it is.
+    private static let freshFor: TimeInterval = 2
+
+    /// The window before a click: what the observation just before it showed, else a new look.
+    private func seenBefore() -> Look? {
+        if let window = state.window, let pixels = state.pixels, let said = state.said,
+           let at = state.observedAt, Date().timeIntervalSince(at) < Self.freshFor { return (window, pixels, said) }
+        return look()
+    }
+
     private func changed(since before: Look) -> Bool {
-        redrawn(before.window, since: before.pixels) || content() != before.said
+        let changed = redrawn(before.window, since: before.pixels) || content() != before.said
+        if changed { state.reacted = true }
+        return changed
     }
 
     private func run(_ request: ActionRequest, retried: Bool, seen: Look?) -> ActionResult {
@@ -93,6 +108,11 @@ struct Executor {
                 if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
+                }
+                if !retried, AXLadder.selectsRow(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", button: button, count: count, modifiers: !modifiers.isEmpty),
+                   let selected = selectRow(around: element) {
+                    // No glide before it: a row that is not shown is gone again within a moment of being found.
+                    return selected
                 }
                 guard let frame = AXReader.frame(element) else { return .unsupported("unsupported_action", hint: "The element has no place on screen to click.") }
                 return physically(CGPoint(x: frame.midX, y: frame.midY), nil, [], button) { pointer.perform(MouseScript.click(at: $0, button: button, count: count), flags: modifiers, route: $1) }
@@ -316,7 +336,7 @@ struct Executor {
     private func redrawn(_ window: WindowCandidate, since before: PixelBuffer) -> Bool {
         let until = Date().addingTimeInterval(Self.redrawDeadline)
         repeat {
-            Thread.sleep(forTimeInterval: 0.1)
+            Thread.sleep(forTimeInterval: 0.05)
             if let now = try? WindowCapture.capture(window).pixels, PixelPatch.changed(before, now) { return true }
         } while Date() < until
         return false
@@ -340,12 +360,27 @@ struct Executor {
 
     /// Resolves an index to its live element.
     private func live(_ index: Int, _ body: (AXUIElement) -> ActionResult) -> ActionResult {
-        guard let element = state.elements[index] else { return .blocked("stale_state") }
+        guard var element = state.elements[index] else { return .blocked("stale_state") }
         AXUIElementSetMessagingTimeout(element, AXReader.messagingTimeout)
         var role: CFTypeRef?
-        let alive = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        var alive = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        // A list hands out the rows it does not show only for the moment it is read: find the element again.
+        if alive == .invalidUIElement, let again = revived(index) {
+            element = again
+            alive = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        }
         if case let .refused(code) = AXLadder.outcome(alive) { return .blocked(code) }
         return body(element)
+    }
+
+    /// The element that now sits where the observed one did, by its key.
+    private func revived(_ index: Int) -> AXUIElement? {
+        guard let wanted = state.signs[index], wanted.sign.title != nil || wanted.sign.description != nil, let root = state.root,
+              let chain = AXReader.find(wanted.sign, nth: wanted.nth, under: root), let element = chain.first else { return nil }
+        state.revived = chain
+        AXUIElementSetMessagingTimeout(element, AXReader.messagingTimeout)
+        state.elements[index] = element
+        return element
     }
 
     /// Resolves an index and runs `body` with the cursor on the element.
@@ -608,6 +643,22 @@ struct Executor {
 
     /// `nil` when the element declines the action, so real input may try instead. An action the element
     /// declined three times is not asked again for a while.
+    /// Selects the list row the element is in; `nil` when there is none to select, or it is selected already
+    /// (a click on a selected row means something else, and goes through the pointer).
+    private func selectRow(around element: AXUIElement) -> ActionResult? {
+        // An element found again comes with what contains it; it would not name its parent itself.
+        let around = state.revived.first.map { CFEqual($0, element) } == true ? state.revived : AXReader.lineage(element, limit: 4)
+        guard let row = around.prefix(4).first(where: { AXReader.attribute($0, kAXRoleAttribute) == (kAXRowRole as String) }),
+              AXReader.attribute(row, kAXSelectedAttribute) == false else { return nil }
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(row, kAXSelectedAttribute as CFString, &settable) == .success, settable.boolValue else { return nil }
+        switch AXLadder.outcome(AXUIElementSetAttributeValue(row, kAXSelectedAttribute as CFString, kCFBooleanTrue)) {
+        case .done: return .delivered(.ax)
+        case .fallBack: return nil
+        case let .refused(code): return .blocked(code)
+        }
+    }
+
     private func tryPress(_ element: AXUIElement, _ name: String) -> ActionResult? {
         let key = "\(CFHash(element)):\(name)"
         if state.declines.skips(key) { return nil }

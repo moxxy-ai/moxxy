@@ -165,6 +165,31 @@ public enum TreeBuilder {
 }
 
 /// Element indices for one target: an index lives as long as its key and is never handed to another element.
+/// What an element reads as, enough to find it again in the live window.
+public struct ElementSign: Sendable, Equatable {
+    public let role: String
+    public let title: String?
+    public let description: String?
+
+    public init(role: String, title: String?, description: String?) {
+        self.role = role
+        self.title = title
+        self.description = description
+    }
+}
+
+public enum Revive {
+    /// For each listed element, its sign and how many elements before it read the same.
+    public static func signs(_ elements: [TreeElement]) -> [(sign: ElementSign, nth: Int)] {
+        var seen: [ElementSign] = []
+        return elements.map { element in
+            let sign = ElementSign(role: element.role, title: element.title, description: element.description)
+            defer { seen.append(sign) }
+            return (sign, seen.filter { $0 == sign }.count)
+        }
+    }
+}
+
 public struct IndexRegistry: Sendable {
     private var indices: [String: Int] = [:]
     private var next = 0
