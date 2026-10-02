@@ -2934,3 +2934,35 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
 - Czas kroku na Ustawieniach bywa chwilami 2–5 s (także bez tej zmiany,
   sprawdzone przebudową helpera w obu wersjach); przyczyna nieustalona.
 - `learned:train` na Safari nieuruchomione (przypadki zamykają kartę).
+
+## Windows: pierwszy obraz podglądu wideo przy nieruchomym oknie — 2026-10-02
+
+**Co**
+- `native/src/video-format.hpp`: `VideoFeed` — ile obrazów enkoder zatrzymał
+  bez oddania kawałka; `again()` mówi, czy obraz idzie ponownie jako kluczowy,
+  `silent()` po 5 obrazach bez odpowiedzi.
+- `native/src/preview.cpp`: gdy enkoder nic nie oddał, a okno stoi, ten sam
+  obraz jest kodowany ponownie przy następnym takcie; enkoder, który milczy
+  5 razy z rzędu, jest porzucany i widz dostaje pojedyncze obrazy.
+
+**Jak i dlaczego**
+- CI `computer-use-windows.yml` na `352ce3af` (commit bez zmian w kodzie
+  Windows): test „the live preview sends H.264 video…" dał 0 kawałków i 0
+  obrazów. Ten sam commit w drugim przebiegu: 20 kawałków; wcześniejsze
+  commity: 1 albo 21. Test był więc niestabilny od początku.
+- Pętla podglądu karmiła enkoder tylko nowym obrazem okna albo na prośbę o
+  klatkę kluczową. Gdy enkoder zatrzymał pierwszy obraz, a okno się nie
+  zmieniało, nic więcej do niego nie trafiało i widz nie dostawał niczego.
+- To, że enkoder zatrzymał obraz, wnioskuję z kodu i z rozrzutu wyników;
+  na Windows tego nie obserwowałem (brak maszyny).
+
+**Testy**
+- `tests/video-format.cpp`: oczekiwania na `VideoFeed` — najpierw błąd
+  kompilacji (`unknown type name 'VideoFeed'`), potem `video-format passed`
+  (lokalnie `clang++ -std=c++20`).
+
+**Walidacja**
+- `preview.cpp` kompiluje się tylko na Windows: sprawdza go CI.
+
+**Otwarte**
+- Jeden zielony przebieg CI nie dowodzi, że test przestał być niestabilny.

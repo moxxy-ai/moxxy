@@ -52,5 +52,21 @@ int main() {
   for (int y = 0; y < 2; ++y) for (int x = 2; x < 4; ++x) for (int c = 0; c < 4; ++c) wide[(y * 4 + x) * 4 + c] = 255;
   bgra_to_nv12(wide.data(), 4, 2, 2, 2, nv12);
   check(nv12.size() == 6 && nv12[0] == 16 && nv12[1] == 235 && nv12[2] == 16 && nv12[3] == 235, "Scaling down is wrong");
+  // An encoder may give nothing back for a picture. A window that stands still sends no other one, so the
+  // same picture goes in again, as a key picture, until the viewer has something to start from.
+  VideoFeed feed;
+  check(!feed.again(false), "A still window is encoded again although nothing is owed");
+  check(feed.again(true), "A key picture that was asked for is not made");
+  feed.fed(0);
+  check(feed.again(false), "A picture the encoder kept is not fed again");
+  feed.fed(1);
+  check(!feed.again(false), "A delivered picture is fed again");
+  // An encoder that never answers cannot make video: the viewer gets pictures instead.
+  for (int i = 0; i < VideoFeed::patience - 1; ++i) feed.fed(0);
+  check(!feed.silent(), "The encoder is given up on too early");
+  feed.fed(0);
+  check(feed.silent(), "An encoder that never answers is fed forever");
+  feed.fed(2);
+  check(!feed.silent() && !feed.again(false), "An answer does not clear what was owed");
   std::cout << "video-format passed\n";
 }

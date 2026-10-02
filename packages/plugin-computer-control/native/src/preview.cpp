@@ -52,6 +52,7 @@ void run() {
   Pixels shown;
   // This system cannot encode video, so the viewer gets pictures.
   bool pictures_only = false;
+  VideoFeed feed;
   for (;;) {
     const int fps = rate.load();
     if (WaitForSingleObject(stop_event, fps > 0 ? 1000 / fps : 200) != WAIT_TIMEOUT) return;
@@ -66,7 +67,7 @@ void run() {
       if (!as_video) encoder.reset();
       Pixels pixels;
       if (!stream->latest(pixels)) {
-        if (as_video && encoder && shown.width > 0 && wants_key.load()) pixels = shown;
+        if (as_video && encoder && shown.width > 0 && feed.again(wants_key.load())) pixels = shown;
         else {
           // An unchanged window still says it is being watched, once a second.
           if (GetTickCount64() - last_sent >= 1000) { emit_frame(sequence++, nullptr, nullptr); last_sent = GetTickCount64(); }
@@ -76,19 +77,25 @@ void run() {
       last_sent = GetTickCount64();
       if (!as_video) { emit_frame(sequence++, &pixels, nullptr); continue; }
       const auto [width, height] = video_size(pixels.width, pixels.height, max_edge);
-      bool key = wants_key.exchange(false);
+      bool key = feed.again(wants_key.exchange(false));
       if (!encoder || encoder->width() != width || encoder->height() != height) {
         try { encoder = std::make_unique<VideoEncoder>(width, height, fps); }
         catch (...) { encoder.reset(); pictures_only = true; emit_frame(sequence++, &pixels, nullptr); continue; }
         video_started = GetTickCount64();
+        feed = {};
         key = true;
       }
       try {
+        size_t sent = 0;
         for (const auto& chunk : encoder->encode(pixels, static_cast<int64_t>(GetTickCount64() - video_started) * 1000, key)) {
           // A chunk too large for one protocol frame is dropped; the next one starts the picture again.
           if (chunk.data.size() > 2'000'000) { wants_key = true; continue; }
           emit_chunk(chunk_sequence++, chunk, width, height);
+          ++sent;
         }
+        feed.fed(sent);
+        // An encoder that keeps every picture cannot make a live view.
+        if (feed.silent()) { encoder.reset(); pictures_only = true; emit_frame(sequence++, &pixels, nullptr); continue; }
         shown = std::move(pixels);
       } catch (...) {
         encoder.reset(); pictures_only = true; emit_frame(sequence++, &pixels, nullptr);

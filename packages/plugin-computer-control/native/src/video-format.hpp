@@ -68,6 +68,19 @@ inline std::vector<uint8_t> with_parameter_sets(const std::vector<uint8_t>& pict
   return all;
 }
 
+/// What the preview still owes its viewer. An encoder may give nothing back for a picture, and a window that
+/// stands still sends no other one, so the same picture goes in again until a chunk comes out.
+struct VideoFeed {
+  /// Pictures in a row an encoder may keep before it counts as unable to make video.
+  static constexpr int patience = 5;
+  /// Whether the next picture, or the last one again when the window stands still, goes in as a key picture.
+  bool again(bool key_asked) const { return key_asked || kept > 0; }
+  void fed(size_t chunks) { kept = chunks > 0 ? 0 : kept + 1; }
+  bool silent() const { return kept >= patience; }
+ private:
+  int kept = 0;
+};
+
 /// `source` (BGRA, `source_width` x `source_height`) sampled to `width` x `height` (both even) as NV12 in
 /// studio-range BT.601: the luma plane, then one interleaved U,V pair per 2x2 block.
 inline void bgra_to_nv12(const uint8_t* source, int source_width, int source_height, int width, int height, std::vector<uint8_t>& output) {
