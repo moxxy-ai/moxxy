@@ -45,6 +45,10 @@ import Testing
         #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 1, modifiers: true))
         // A source list (Finder's sidebar) opens a place on one click; selecting its row would only highlight it.
         // The cell says so itself. A file row's cell does not: there one click selects.
+        // Finder with no window open is observed through its desktop, which is no window to bring forward:
+        // the app alone comes forward, as for an app with nothing open.
+        #expect(Foreground.comesForward(rootRole: "AXWindow"))
+        #expect(!Foreground.comesForward(rootRole: "AXScrollArea"))
         #expect(AXLadder.opensRow(cellActions: ["AXOpen"]))
         #expect(!AXLadder.opensRow(cellActions: []))
         #expect(AXLadder.click(button: .left, count: 2, modifiers: false, actions: ["AXPress"]) == .physical)

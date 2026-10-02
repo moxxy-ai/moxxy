@@ -36,6 +36,8 @@ final class TargetState {
     var observedAt: Date?
     /// The last action's effect was seen in the window before it returned.
     var reacted = false
+    /// The window to bring forward for real input; `nil` for the desktop, where the app alone comes forward.
+    var frontable: WindowCandidate?
     /// Listens to the app since before the action being done; see `Methods.act`.
     var heard: Settler?
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
@@ -112,7 +114,8 @@ enum AppLauncher {
 extension Methods {
     static let treeLimit = 1000
 
-    static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?) throws -> JSONValue {
+    /// `again` reads the app as it is: the wait after the action is over.
+    static func appState(_ params: JSONValue, targets: Targets, cursor: AgentCursor?, again: Bool = false) throws -> JSONValue {
         guard let bundleId = params["app"]?.stringValue, !bundleId.isEmpty else { throw HelperError.invalidParams("app is required") }
         Timing.mark("state: begin")
         guard AXIsProcessTrusted() else {
@@ -137,6 +140,7 @@ extension Methods {
         guard case let .window(window) = found else {
             state.elements = [:]
             state.window = nil
+            state.frontable = nil
             state.root = nil
             return .object([
                 "tree": .object(["app": .string(name), "elements": .array([])]),
@@ -145,7 +149,7 @@ extension Methods {
         }
         // A fresh launch is still loading, like the app right after an action.
         Timing.mark("state: window found")
-        let acted = state.recentlyActed
+        let acted = state.recentlyActed && !again
         var reader = AXReader()
         // An app asked for its tree before (by anyone) already has the page in it and needs no time to build it.
         if woken, !launched, !WebContent.isLoaded(reader.snapshot(window)) { launched = true }
@@ -160,6 +164,10 @@ extension Methods {
             return AXReader.attribute(window, "AXElementBusy") == true || BusyProbe.isBusy(read)
         }
         var root = settled ?? reader.snapshot(window)
+        // The action may have opened a window (a new one from the desktop, a dialog): that one is the state.
+        if acted, let now = AXReader.targetWindow(of: AXReader.application(running.processIdentifier)), !CFEqual(now, window) {
+            return try appState(params, targets: targets, cursor: cursor, again: true)
+        }
         Timing.mark("state: settled and read")
         if wantsPage {
             let pid = running.processIdentifier
@@ -180,6 +188,7 @@ extension Methods {
         state.frames = Dictionary(uniqueKeysWithValues: zip(indices, built.elements.map(\.frame)).compactMap { index, frame in frame.map { (index, $0) } })
         state.window = root.frame.map { WindowCandidate(pid: running.processIdentifier, frame: $0, title: root.title) }
         state.root = window
+        state.frontable = Foreground.comesForward(rootRole: root.role) ? state.window : nil
         if let window = state.window { cursor?.attach(to: window) }
         targets.preview?.target(state.window)
         state.said = Executor.said(built.elements)

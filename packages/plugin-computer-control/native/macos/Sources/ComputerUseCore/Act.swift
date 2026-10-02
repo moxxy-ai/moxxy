@@ -551,7 +551,7 @@ struct Executor {
         if let refused = focus(element) { return refused }
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
-        if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.window) { return result }
+        if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.frontable) { return result }
         let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: AXReader.takesText(element)))
         pointForKeys(pid)
         var sent = 0
@@ -630,7 +630,7 @@ struct Executor {
     /// comes forward (never while the user types) and stays there.
     private func inFront(_ body: () -> ActionResult) -> ActionResult {
         guard let pid = state.pid else { return noWindow }
-        if case let .refused(result) = Foreground.bring(pid: pid, window: state.window) { return result }
+        if case let .refused(result) = Foreground.bring(pid: pid, window: state.frontable) { return result }
         return body()
     }
 

@@ -228,6 +228,17 @@ toolbar after the page). What Jev reads is fitted to its input limit by
 shortening what elements say (300 → 120 → 60 → 30 → 12 characters) until the
 window is under 30 000 characters; every element stays listed.
 
+A remembered step is taken for done without asking only when what it showed
+last time is there again and its element (or the row or cell around it) is
+the selected or checked one. Otherwise the look of the window may be a
+look-alike ("new tab" on a start page), so Jev is asked, and what already
+showed before the step does not count as its proof.
+
+Finder with no window open is observed through its desktop. The desktop is
+not brought forward as a window: the app alone comes forward. When an action
+opens another window (a new one from the desktop, a dialog), that window is
+the state the action returns.
+
 A step that checks nothing itself (typing into a field) is remembered when a
 later step of the same run was seen to work. An element with no title is
 known by its description (toolbar buttons).

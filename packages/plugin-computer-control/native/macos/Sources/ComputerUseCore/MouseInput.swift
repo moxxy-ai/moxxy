@@ -189,6 +189,9 @@ enum Foreground {
     /// A fresh lookup: `NSWorkspace.frontmostApplication` goes stale in this helper, whose main thread never idles like an app's.
     static func isFrontmost(_ pid: pid_t) -> Bool { NSRunningApplication(processIdentifier: pid)?.isActive ?? false }
 
+    /// Whether what was observed is a window the window server can show in front; the desktop is not.
+    static func comesForward(rootRole: String) -> Bool { rootRole != "AXScrollArea" }
+
     static func bring(_ window: WindowCandidate) -> Outcome { bring(pid: window.pid, window: window) }
 
     /// Without a window (a document app with nothing open) the app itself comes forward, for its menu shortcuts.

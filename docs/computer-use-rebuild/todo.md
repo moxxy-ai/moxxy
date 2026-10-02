@@ -45,11 +45,12 @@ Otwarte dla Linuksa:
 - [ ] Lekcje domyślne (`learned/`): Ustawienia systemowe (24 panele + pole
   szukania), Finder (10 miejsc paska bocznego), Safari (pasek narzędzi, pole
   adresu) — macOS po polsku. Dodać kolejne aplikacje i język angielski; dopasowanie po roli i tytule nie działa między językami.
-- [ ] Finder bez otwartego okna (samo biurko): `press_key super+n` kończy się
-  `not_frontmost`. Nie naprawione.
-- [ ] Zapamiętany efekt „pokazuje się strona startowa” pomija kliknięcie
-  „Nowa karta”, gdy bieżąca karta już jest stroną startową (krok uznany za
-  zrobiony, nowej karty nie ma).
+- [x] Finder bez otwartego okna (samo biurko): `press_key super+n` kończył się
+  `not_frontmost`; nowe okno nie było stanem po akcji. Naprawione.
+- [x] Zapamiętany efekt pomijał „Nowa karta” na stronie startowej. Naprawione:
+  bez pytania pomijany jest tylko krok, którego element jest zaznaczony.
+- [ ] Krok `key` z `expect` pyta Jev dwa razy przy każdym biegu (nie ma
+  elementu, więc nie ma czego zapamiętać).
 - [ ] Na bardzo długiej stronie z otwartym paskiem bocznym Safari Jev nie
   wskazał przycisku paska bocznego (2 z 4 prób).
 - [ ] Trafienie w pamięć wymaga tych samych słów celu (po normalizacji);

@@ -256,14 +256,25 @@ describe('what a step showed last time', () => {
     expect(report.asks).toBe(0);
   });
 
-  it('skips a remembered step when what it showed is already there', async () => {
-    const window = app([button(1, 'Export'), button(2, 'Sheet')]);
+  it('skips a remembered step when what it showed is already there and its element is the chosen one', async () => {
+    const window = app([button(1, 'Export', { role: 'row', states: ['selected'] }), button(2, 'Sheet')]);
     const { ask, requests } = jev(() => undefined);
     const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
     const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
     expect(window.acted).toEqual([]);
     expect(requests).toEqual([]);
     expect(report.outcomes[0]).toMatchObject({ status: 'skipped', recalled: true });
+  });
+
+  // "New tab" on a start page: the window already looks like the result, and the step still has to be done.
+  it('does not take a step for done by the look of the window when its element is not a chosen one', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Sheet')], (action, elements) => { if (action.action === 'click') elements.push(button(3, 'Second sheet')); });
+    const { ask, requests } = jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known });
+    expect(window.acted).toHaveLength(1);
+    expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected']]);
+    expect(report.outcomes[0]?.status).toBe('verified');
   });
 
   it('asks Jev when the window shows something else this time', async () => {

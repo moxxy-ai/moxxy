@@ -2627,3 +2627,33 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 - Patrz nowe pozycje w `todo.md` (Finder bez okna, pominięta „Nowa karta”,
   pasek boczny na długiej stronie). Podczas treningu zamknięta została jedna
   karta Safari ze stroną startową właściciela.
+
+## Finder z samego biurka, krok „jeszcze jeden” — 2026-10-02
+
+**Co**
+- `Foreground.comesForward(rootRole:)`, `TargetState.frontable`; `appState(again:)`
+  czyta okno, które otworzyła akcja.
+- `run.ts`: `chosen()`; pominięcie bez pytania tylko dla zaznaczonego elementu;
+  efekt widoczny przed krokiem nie jest dowodem; dopisek w pytaniu `already`.
+
+**Jak i dlaczego**
+- Biurko nie jest na liście okien systemu (`excludeDesktopElements`), więc
+  aplikacja nigdy nie była „na wierzchu” i klawisz kończył się `not_frontmost`.
+- Okno do odczytu było wybierane przed czekaniem; nowe okno powstawało
+  w trakcie i stanem zostawało biurko z paskiem menu (Jev wybierał pozycję menu,
+  obraz okna zabierał 2,1 s).
+- „Nowa karta” na stronie startowej: zapamiętany efekt już był widoczny, krok
+  był pomijany, a zamknięcie karty zamykało kartę właściciela.
+
+**Testy (Red → Green)**
+- Swift: `comesForward` w `ActionTests` (brak symbolu).
+- TS: „does not take a step for done by the look of the window…” (krok był
+  pomijany); test pominięcia zmieniony na zaznaczony wiersz.
+
+**Walidacja**
+- `swift test` 198/198; wtyczka 396/396; build exit 0; typecheck, lint,
+  check:deps bez błędów.
+- Na żywo: Finder z biurka `super+n` + „Aplikacje” 5,2 s → 3,2 s i właściwy
+  element (2 biegi); „Nowa karta” na stronie startowej jest klikana (2,2 s,
+  2 pytania). Regresja z pamięci: Ustawienia 25/25 (23 bez Jev), Finder 10/10
+  (bez Jev), Safari 10/10.
