@@ -178,6 +178,12 @@ and takes the picture. What it waits for:
 - notifications that the helper's own reading of the window causes (System
   Settings destroys the elements it made to answer) are not counted.
 
+Browsers: Safari first answers with a tab's empty containers and the page
+comes seconds later; that counts as a page not readable yet, so the helper
+reads again (up to 8 times, 0.4 s apart). Typing into a field of a page works
+while Safari stays in the background: the app names no focused element then,
+so the field's own focus counts.
+
 A background click reads the window once before it is sent (not twice), uses
 what the last observation said instead of reading the tree again, and the
 cursor glide takes 0.1–0.25 s. A click in System Settings with its fresh state

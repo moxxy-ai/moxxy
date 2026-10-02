@@ -35,6 +35,10 @@ Otwarte dla Linuksa:
 
 ## Otwarte
 
+- [ ] Safari: `computer_run` z dwoma krokami (wpisanie w pole Wikipedii,
+  Return) trwał 16,5 s; nie zmierzono, ile z tego to ładowanie strony, a ile
+  czekanie i odczyt drzewa (504 elementy). YouTube/OLX nie sprawdzone
+  (limit 1000 elementów).
 - [ ] `computer_run`: próba z modelem na zadaniu webowym (Safari) i w
   aplikacji bez elementów; próba w Ustawieniach systemowych przeszła (niżej
   w `CHANGELOG.md`).

@@ -67,6 +67,14 @@ import Testing
 }
 
 @Suite struct TypingTests {
+    // Safari in the background names no focused element for the app, while the page's field says it has focus.
+    @Test func trustsTheFieldWhenTheAppNamesNoFocusAtAll() {
+        #expect(Typing.holdsFocus(appFocusIsTheElement: true, elementSaysFocused: false))
+        #expect(!Typing.holdsFocus(appFocusIsTheElement: false, elementSaysFocused: true))
+        #expect(Typing.holdsFocus(appFocusIsTheElement: nil, elementSaysFocused: true))
+        #expect(!Typing.holdsFocus(appFocusIsTheElement: nil, elementSaysFocused: false))
+    }
+
     @Test func splitsTextIntoEventSizedChunksWithoutBreakingCharacters() {
         #expect(Typing.chunks("abc", limit: 2) == ["ab", "c"])
         #expect(Typing.chunks("a😀b", limit: 2) == ["a", "😀", "b"])

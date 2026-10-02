@@ -142,6 +142,9 @@ import Testing
         let toolbar = node("AXToolbar", children: [node("AXTextField")])
         #expect(WebContent.isPending(node("AXWindow", children: [node("AXTabGroup"), toolbar])))
         #expect(WebContent.isPending(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea")]), toolbar])))
+        // Safari first answers with the tab's empty containers; the page comes seconds later.
+        let shell = node("AXTabGroup", children: [node("AXGroup", children: [node("AXGroup", children: [node("AXScrollArea")])])])
+        #expect(WebContent.isPending(node("AXWindow", children: [node("AXSplitGroup", children: [shell]), toolbar])))
         // The start page is native: nothing to wait for.
         #expect(!WebContent.isPending(node("AXWindow", children: [node("AXTabGroup", children: [node("AXScrollArea", children: [node("AXButton")])]), toolbar])))
         #expect(!WebContent.isPending(node("AXWindow", children: [node("AXScrollArea", children: [node("AXWebArea", children: [node("AXHeading")])]), toolbar])))

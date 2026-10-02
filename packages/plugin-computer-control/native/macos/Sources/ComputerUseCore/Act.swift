@@ -518,7 +518,7 @@ struct Executor {
         for chunk in chunks {
             // Stop as soon as focus leaves the element: the rest would land somewhere else.
             let focused: AXUIElement? = AXReader.attribute(AXReader.application(pid), kAXFocusedUIElementAttribute)
-            guard let focused, CFEqual(focused, element) else {
+            guard Typing.holdsFocus(appFocusIsTheElement: focused.map { CFEqual($0, element) }, elementSaysFocused: AXReader.attribute(element, kAXFocusedAttribute) == true) else {
                 return .blocked("target_blocked", hint: "Keyboard focus left the field after \(sent) of \(text.count) characters; observe again before typing the rest.")
             }
             KeyboardInput.type(chunk, pid: pid)

@@ -10,7 +10,7 @@ const FAILS = 0.3;
 /** What only the user or the main model can resolve; trying another way would not help. */
 const FINAL: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   'user_stopped', 'user_intervened', 'screen_locked', 'permissions_not_granted', 'permissions_pending', 'tier_insufficient',
-  'app_not_allowed', 'target_blocked', 'protected_path', 'system_key_combo', 'clipboard_not_granted', 'own_window',
+  'app_not_allowed', 'protected_path', 'system_key_combo', 'clipboard_not_granted', 'own_window',
 ]);
 
 const click = (target: { element_index: number } | { x: number; y: number }): ComputerAction => ({ action: 'click', ...target, mouse_button: 'left', click_count: 1 });

@@ -2466,3 +2466,39 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 
 **Pominięte / dla następcy**
 - Bez próby z modelem. Otwarte pozycje w `todo.md`.
+
+## `computer_run` w Safari — 2026-10-02
+
+**Co**
+- `Settle.swift`: karta przeglądarki z samymi pustymi kontenerami liczy się
+  jako strona jeszcze nieczytelna (`WebContent.isHollow`).
+- `Keyboard.swift`, `Act.swift`: `Typing.holdsFocus` — gdy aplikacja nie podaje
+  elementu z fokusem (Safari w tle), liczy się fokus samego pola.
+- `src/jev/ladder.ts`: `target_blocked` nie kończy biegu; próbowany jest
+  kolejny sposób.
+
+**Jak i dlaczego**
+- Próba na pl.wikipedia.org w Safari w tle. Pierwszy odczyt dawał 22 elementy
+  (pasek narzędzi) bez strony i bez ostrzeżenia; strona (503 elementy)
+  pojawiała się po kilku sekundach. Wcześniej zasłaniało to 5 s czekania,
+  skrócone w poprzednim kroku.
+- Jev wskazał pole poprawnie („Przeszukaj Wikipedię”, nie pasek adresu), ale
+  pisanie kończyło się `target_blocked` po 0 znakach — także pojedynczym
+  narzędziem `computer_type_text`.
+
+**Testy (Red → Green)**
+- `waitsOnlyForAPageThatIsMissingNotForAWindowWithoutOne` (nowy przypadek):
+  Red — `isPending` fałsz dla pustej skorupy karty.
+- `trustsTheFieldWhenTheAppNamesNoFocusAtAll`: Red — brak `holdsFocus`.
+- `ladder.test.ts` „takes another way…”: Red — `stop` zamiast `retry`.
+
+**Walidacja**
+- `swift test` — 193/193; wtyczka `pnpm exec vitest run` — 381/381 (27
+  pominiętych: Linux); `pnpm build`, `pnpm -r typecheck`, `pnpm lint`,
+  `pnpm check:deps` — 0 błędów.
+- Na żywo, narzędziem (Safari uruchomione na zimno, w tle, prawdziwy Jev):
+  „type” w pole Wikipedii + Return — 2/2 `verified`, 3 żądania Jev, 16,5 s,
+  otwarty artykuł „Mikołaj Kopernik”.
+
+**Pominięte / dla następcy**
+- Bez próby z modelem; jedna strona. Czas 16,5 s nierozbity na części.

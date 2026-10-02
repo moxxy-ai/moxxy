@@ -173,6 +173,12 @@ public enum Typing {
     /// reads one character from each key event, so it gets them key by key.
     public static func unitsPerEvent(intoText: Bool) -> Int { intoText ? maxUnitsPerEvent : 1 }
 
+    /// Whether typing may go on. `appFocusIsTheElement` is nil when the app names no focused element, as a
+    /// browser in the background does for a field of its page; the field's own word counts then.
+    public static func holdsFocus(appFocusIsTheElement: Bool?, elementSaysFocused: Bool) -> Bool {
+        appFocusIsTheElement ?? elementSaysFocused
+    }
+
     /// Roles that never hold text. Typing "into" one would only move keyboard focus away from where the
     /// user of the app is typing (a file name being edited, for one).
     public static func takesNoText(role: String) -> Bool {

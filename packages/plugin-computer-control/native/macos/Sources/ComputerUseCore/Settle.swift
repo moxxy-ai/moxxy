@@ -102,8 +102,15 @@ public enum WebContent {
     /// A window that shows no page at all (the start page) has nothing to wait for.
     public static func isPending(_ node: NodeSnapshot) -> Bool { !isLoaded(node) && hasHole(node) }
 
+    private static let containers: Set<String> = ["AXGroup", "AXScrollArea", "AXSplitGroup"]
+
+    /// Only containers below: Safari first answers with a tab's empty shell, and the page comes seconds later.
+    private static func isHollow(_ node: NodeSnapshot) -> Bool {
+        node.children.allSatisfy { containers.contains($0.role) && isHollow($0) }
+    }
+
     private static func hasHole(_ node: NodeSnapshot) -> Bool {
-        (["AXWebArea", "AXTabGroup"].contains(node.role) && node.children.isEmpty) || node.children.contains(where: hasHole)
+        (node.role == "AXWebArea" && node.children.isEmpty) || (node.role == "AXTabGroup" && isHollow(node)) || node.children.contains(where: hasHole)
     }
 
     public static func isLoaded(_ node: NodeSnapshot) -> Bool {

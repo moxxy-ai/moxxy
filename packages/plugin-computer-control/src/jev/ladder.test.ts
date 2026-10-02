@@ -71,8 +71,13 @@ describe('judge', () => {
   });
 
   it('stops at once for what only the user or the main model can resolve', () => {
-    for (const code of ['user_stopped', 'user_intervened', 'screen_locked', 'permissions_not_granted', 'tier_insufficient', 'app_not_allowed', 'target_blocked', 'protected_path'] as const) {
+    for (const code of ['user_stopped', 'user_intervened', 'screen_locked', 'permissions_not_granted', 'tier_insufficient', 'app_not_allowed', 'protected_path'] as const) {
       expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'blocked', code }, changed: false })).toMatchObject({ verdict: 'stop' });
     }
+  });
+
+  it('takes another way when the element would not take the input: focus left the field, or something covers it', () => {
+    const step = { do: 'type' as const, target: 'the search field', text: 'x' };
+    expect(judge({ step, result: { outcome: 'blocked', code: 'target_blocked' }, changed: false })).toEqual({ verdict: 'retry', why: 'blocked (target_blocked)' });
   });
 });
