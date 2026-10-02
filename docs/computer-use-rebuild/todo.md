@@ -40,6 +40,13 @@ Otwarte dla Linuksa:
   modelu (17 żądań). Stan stron jest już o ok. 60% krótszy.
 - [ ] Czas kroku ok. 5 s przy `xhigh`: model wysyła jedną akcję na odpowiedź;
   instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
+- [ ] Blender i CapCut po poprawkach sprawdzone tylko narzędziami, bez modelu:
+  powtórzyć oba zadania z `gpt-6-luna` (pączek w Blenderze; import, przycięcie
+  i eksport w CapCut).
+- [ ] Okno wyboru pliku z fokusem w polu szukania: pierwsze kliknięcie pliku
+  bywa zgłaszane jako dostarczone w tle bez efektu (przypuszczalnie migający
+  kursor tekstowy liczony jako zmiana obrazu; niesprawdzone). Powtórzenie
+  kliknięcia idzie prawdziwą myszą i zaznacza plik.
 - [ ] W tle nie działają: skróty z Command, prawy i środkowy przycisk, okno na
   innym biurku (Space) bez przenoszenia.
 - [ ] Scenariusz Safari (YouTube → OLX) powtórzyć w aplikacji desktopowej; po

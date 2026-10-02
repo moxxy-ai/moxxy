@@ -74,6 +74,14 @@ helper, so the model sees one set of tools on both systems (see
   readable. A window with no page (the start page) is not waited for.
 - A save dialog aimed at a protected place (`~/.ssh`, LaunchAgents, shell
   startup files, git hooks) is refused.
+- An open or save panel is drawn by a system service inside the app's window;
+  a click on a file in it counts as a click on the app.
+- A window the app draws itself, with no elements below its title bar (Blender,
+  a game), gets real clicks only: such apps read the pointer from the system,
+  so a click sent in the background would land under the user's pointer.
+  Before keys go to such a window, the app is told the pointer is where the
+  last click went, because it sends keys to the editor under the pointer. Text
+  typed there goes key by key, one character per key event.
 - Escape stops the turn. Input from the user pauses the agent; an action waits
   for a quiet moment before using real input. "Take over" releases held input
   and hides the agent's cursor.

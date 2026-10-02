@@ -20,6 +20,10 @@ public enum HitTest {
         return windows.first { $0.pid == pid && $0.alpha > 0 && $0.frame.contains(point) }
             ?? ScreenWindow(id: 0, pid: pid, layer: -1, frame: .zero, alpha: 1, owner: name)
     }
+
+    /// The process a click on an element goes to, from the processes of the element and its containers up to its
+    /// window. An open or save panel is drawn by a system service inside the app's window, which takes the click.
+    public static func host(of lineage: [pid_t]) -> pid_t? { lineage.last }
 }
 
 /// Checks made right before real input: the point must be on a display and land on the target app.

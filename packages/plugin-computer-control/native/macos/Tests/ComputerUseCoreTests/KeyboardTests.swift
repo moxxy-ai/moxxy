@@ -72,6 +72,30 @@ import Testing
         #expect(Typing.chunks("a😀b", limit: 2) == ["a", "😀", "b"])
         #expect(Typing.chunks("", limit: 20) == [])
     }
+
+    @Test func typesKeyByKeyWhereNoTextFieldTakesTheText() {
+        // A canvas app (Blender, a game) reads one character from each key event.
+        #expect(Typing.chunks("torus", limit: Typing.unitsPerEvent(intoText: false)) == ["t", "o", "r", "u", "s"])
+        #expect(Typing.chunks("torus", limit: Typing.unitsPerEvent(intoText: true)) == ["torus"])
+    }
+}
+
+@Suite struct KeyAimTests {
+    private let window = CGRect(x: 0, y: 39, width: 2056, height: 1198)
+    private let clicked = CGPoint(x: 400, y: 439)
+
+    @Test func pointsACanvasAppAtTheLastClickBeforeKeys() {
+        // Such an app sends keys to the editor under the pointer, and the user's pointer is somewhere else.
+        #expect(KeyAim.pointer(lastClick: clicked, window: window, focusRole: "AXWindow") == clicked)
+        #expect(KeyAim.pointer(lastClick: clicked, window: window, focusRole: nil) == clicked)
+    }
+
+    @Test func leavesThePointerAloneWhenAnElementHasFocusOrNothingWasClicked() {
+        #expect(KeyAim.pointer(lastClick: clicked, window: window, focusRole: "AXTextField") == nil)
+        #expect(KeyAim.pointer(lastClick: nil, window: window, focusRole: "AXWindow") == nil)
+        #expect(KeyAim.pointer(lastClick: CGPoint(x: 400, y: 10), window: window, focusRole: "AXWindow") == nil)
+        #expect(KeyAim.pointer(lastClick: clicked, window: nil, focusRole: "AXWindow") == nil)
+    }
 }
 
 @Suite struct KeyboardRequestTests {

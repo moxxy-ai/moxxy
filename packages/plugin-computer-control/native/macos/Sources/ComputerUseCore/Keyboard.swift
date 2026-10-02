@@ -161,7 +161,11 @@ public enum TextLocator {
 
 public enum Typing {
     /// One keyboard event carries at most 20 UTF-16 units; characters are never split.
-    public static let unitsPerEvent = 20
+    public static let maxUnitsPerEvent = 20
+
+    /// A text field takes a whole chunk from one event. Anything else (a canvas app such as Blender, a game)
+    /// reads one character from each key event, so it gets them key by key.
+    public static func unitsPerEvent(intoText: Bool) -> Int { intoText ? maxUnitsPerEvent : 1 }
 
     /// Roles that never hold text. Typing "into" one would only move keyboard focus away from where the
     /// user of the app is typing (a file name being edited, for one).
@@ -175,7 +179,7 @@ public enum Typing {
         before == nil && after == nil || before != after
     }
 
-    public static func chunks(_ text: String, limit: Int = unitsPerEvent) -> [String] {
+    public static func chunks(_ text: String, limit: Int = maxUnitsPerEvent) -> [String] {
         var chunks: [String] = []
         var current = ""
         for character in text {
@@ -187,6 +191,16 @@ public enum Typing {
         }
         if !current.isEmpty { chunks.append(current) }
         return chunks
+    }
+}
+
+/// Where an app that has no focused element of its own should think the pointer is before it gets keys.
+public enum KeyAim {
+    /// A canvas app sends keys to the editor under the pointer, and the user's pointer is somewhere else: such an
+    /// app is told the pointer is where the last click in its window went.
+    public static func pointer(lastClick: CGPoint?, window: CGRect?, focusRole: String?) -> CGPoint? {
+        guard let lastClick, let window, window.contains(lastClick), focusRole == nil || focusRole == "AXWindow" else { return nil }
+        return lastClick
     }
 }
 

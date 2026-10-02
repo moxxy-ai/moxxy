@@ -21,6 +21,13 @@ import Testing
         #expect(HitTest.owner(at: CGPoint(x: 10, y: 10), in: windows, pid: nil) == nil)
     }
 
+    @Test func namesTheAppWhoseWindowHoldsAnElementDrawnByAnotherProcess() {
+        // An open panel's file list belongs to the system panel service, inside the app's own window.
+        #expect(HitTest.host(of: [15489, 15488, 15488]) == 15488)
+        #expect(HitTest.host(of: [10]) == 10)
+        #expect(HitTest.host(of: []) == nil)
+    }
+
     @Test func treatsAnAppWithoutAWindowThereAsTheDesktop() throws {
         let finder = try #require(HitTest.owner(at: CGPoint(x: 700, y: 700), in: [], pid: 4, name: "Finder"))
         #expect(finder.layer < 0)

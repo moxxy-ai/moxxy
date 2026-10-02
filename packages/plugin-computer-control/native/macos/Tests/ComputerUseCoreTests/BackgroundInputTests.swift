@@ -25,6 +25,25 @@ import Testing
     @Test func goesThroughTheScreenWhenTheSameGestureIsAskedAgain() {
         #expect(PointerRoute.choose(available: true, window: address, button: .left, repeated: true) == .screen)
     }
+
+    // Blender and games read the pointer from the system: a click sent to their window lands under the user's pointer.
+    @Test func goesThroughTheScreenForAWindowTheAppDrawsItself() {
+        #expect(PointerRoute.choose(available: true, window: address, button: .left, repeated: false, selfDrawn: true) == .screen)
+    }
+}
+
+@Suite struct SelfDrawnTests {
+    private let window = CGRect(x: 0, y: 39, width: 2056, height: 1198)
+
+    @Test func isAWindowWithNothingBelowItsTitleBar() {
+        let titleBar = [CGRect(x: 7, y: 45, width: 14, height: 16), CGRect(x: 47, y: 45, width: 14, height: 16), CGRect(x: 80, y: 44, width: 200, height: 18)]
+        #expect(SelfDrawn.window(window, elements: titleBar))
+        #expect(SelfDrawn.window(window, elements: []))
+    }
+
+    @Test func isNotAWindowWithAnElementInItsContent() {
+        #expect(!SelfDrawn.window(window, elements: [CGRect(x: 7, y: 45, width: 14, height: 16), CGRect(x: 900, y: 700, width: 80, height: 30)]))
+    }
 }
 
 @Suite struct WindowEventTests {

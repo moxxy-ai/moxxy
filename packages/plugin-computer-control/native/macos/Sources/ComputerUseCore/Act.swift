@@ -125,11 +125,11 @@ struct Executor {
                let refused = guardSave(confirmedBy: focused, byReturn: true) {
                 return refused
             }
-            let press = { keyboard { for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
+            let press = { keyboard { pointForKeys(pid); for _ in 0..<count { try KeyboardInput.press(chord, pid: pid) } } }
             return chord.needsMenuBar || focusIsElsewhere(pid) ? inFront(press) : press()
         case let .holdKey(chord, duration):
             guard let pid = state.pid else { return noWindow }
-            let hold = { keyboard { input.keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
+            let hold = { keyboard { pointForKeys(pid); return input.keys.hold(KeyScript.hold(chord, stroke: try KeyboardInput.stroke(for: chord)), pid: pid, for: duration) } }
             return chord.needsMenuBar || focusIsElsewhere(pid) ? inFront(hold) : hold()
         case let .paste(.element(index)?, text, format):
             return onElement(index) { element in paste(text, format, into: element) }
@@ -257,7 +257,9 @@ struct Executor {
         if pointer.holding != nil {
             return .unsupported("unsupported_action", hint: "A mouse button is still down from computer_mouse; release it with event up first.")
         }
-        let route = PointerRoute.choose(available: WindowServerLink.shared.available, window: WindowDirectory.address(of: window), button: button, repeated: retried)
+        state.lastClick = screen
+        let route = PointerRoute.choose(available: WindowServerLink.shared.available, window: WindowDirectory.address(of: window), button: button, repeated: retried,
+                                        selfDrawn: SelfDrawn.window(window.frame, elements: state.frames.values))
         if case .window = route, let before = try? WindowCapture.capture(window).pixels {
             let said = content()
             _ = withCursor(at: screen, outline: nil) {
@@ -429,6 +431,14 @@ struct Executor {
         return AXReader.lineage(focused).contains { FilePanel.identifiers.contains(AXReader.attribute($0, kAXIdentifierAttribute) ?? "") }
     }
 
+    /// See `KeyAim`: a canvas app is told the pointer is where the model last clicked, so its keys go there.
+    private func pointForKeys(_ pid: pid_t) {
+        let focused: AXUIElement? = AXReader.attribute(AXReader.application(pid), kAXFocusedUIElementAttribute)
+        let role: String? = focused.flatMap { AXReader.attribute($0, kAXRoleAttribute) }
+        guard let point = KeyAim.pointer(lastClick: state.lastClick, window: state.window?.frame, focusRole: role) else { return }
+        pointer.hint(at: point, pid: pid)
+    }
+
     private var noWindow: ActionResult { .unsupported("unsupported_action", hint: "The app has no open window to send keys to.") }
 
     /// Runs `body` on the element that has keyboard focus in the app.
@@ -493,7 +503,8 @@ struct Executor {
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
         if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.window) { return result }
-        let chunks = Typing.chunks(text)
+        let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: AXReader.takesText(element)))
+        pointForKeys(pid)
         var sent = 0
         for chunk in chunks {
             // Stop as soon as focus leaves the element: the rest would land somewhere else.

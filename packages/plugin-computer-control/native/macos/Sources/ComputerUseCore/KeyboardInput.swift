@@ -31,8 +31,12 @@ enum KeyboardInput {
         }
     }
 
-    /// Text as Unicode key events, one chunk per event.
+    /// Text as Unicode key events, one chunk per event. A single character goes out on the key that types it,
+    /// for apps that read the key and not the text.
     static func type(_ chunk: String, pid: pid_t) {
+        if chunk.count == 1, let character = chunk.first, let stroke = KeyLayout.stroke(for: character) ?? KeyCodes.ansi(character) {
+            return tap(stroke.code, flags: stroke.shift ? .maskShift : [], pid: pid, text: chunk)
+        }
         let units = Array(chunk.utf16)
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { continue }

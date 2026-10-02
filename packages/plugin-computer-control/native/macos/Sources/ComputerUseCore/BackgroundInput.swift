@@ -16,10 +16,21 @@ public enum PointerRoute: Equatable, Sendable {
     /// Through the screen like a hand on the mouse: the app comes forward and the pointer moves, then returns.
     case screen
 
-    /// `repeated` means the model asked for this same gesture last time and it went to the window.
-    public static func choose(available: Bool, window: WindowAddress?, button: MouseButton, repeated: Bool) -> PointerRoute {
-        guard available, button == .left, !repeated, let window else { return .screen }
+    /// `repeated` means the model asked for this same gesture last time and it went to the window. A window the
+    /// app draws itself only goes through the screen: see `SelfDrawn`.
+    public static func choose(available: Bool, window: WindowAddress?, button: MouseButton, repeated: Bool, selfDrawn: Bool = false) -> PointerRoute {
+        guard available, button == .left, !repeated, !selfDrawn, let window else { return .screen }
         return .window(window)
+    }
+}
+
+/// A window with no accessibility element below its title bar is drawn by the app itself (Blender, a game). Such
+/// apps read the pointer from the system, so a click sent to the window would land under the user's pointer.
+public enum SelfDrawn {
+    static let titleBar: CGFloat = 60
+
+    public static func window(_ window: CGRect, elements: some Sequence<CGRect>) -> Bool {
+        !elements.contains { $0 != window && $0.maxY > window.minY + titleBar }
     }
 }
 

@@ -24,6 +24,8 @@ final class TargetState {
     var lastAction: Date?
     /// The last gesture that went to the app softly (background input, or an accessibility press that changed nothing); asked again, it goes through the screen.
     var lastSoft: String?
+    /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
+    var lastClick: CGPoint?
     /// Accessibility actions its elements keep declining.
     let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }

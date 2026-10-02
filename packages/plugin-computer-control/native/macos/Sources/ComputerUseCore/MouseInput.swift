@@ -26,8 +26,11 @@ enum ScreenLayout {
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element) == .success, let element else {
             return nil
         }
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        let lineage = AXReader.lineage(element, limit: AXReader.maxDepth).compactMap { part -> pid_t? in
+            var pid: pid_t = 0
+            return AXUIElementGetPid(part, &pid) == .success ? pid : nil
+        }
+        guard let pid = HitTest.host(of: lineage) else { return nil }
         return HitTest.owner(at: point, in: windows(), pid: pid, name: NSRunningApplication(processIdentifier: pid)?.localizedName ?? "another app")
     }
 
@@ -82,6 +85,11 @@ public final class PointerSession: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.01)
         }
         if holding == nil { restore(start) }
+    }
+
+    /// Tells one app where the pointer is, without moving the user's pointer.
+    func hint(at point: CGPoint, pid: pid_t) {
+        mouseEvent(MouseStep(type: .mouseMoved, point: point, button: .left, clickState: 0, delay: 0), flags: [])?.postToPid(pid)
     }
 
     /// The whole gesture goes to one window. The app is told its window has focus for as long as the gesture

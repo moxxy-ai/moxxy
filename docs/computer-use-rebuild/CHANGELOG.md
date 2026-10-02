@@ -2236,3 +2236,49 @@ kategorie ×4, profil i wybór platformy ×3, wskazówka o klawiszu Super
 - Lista braków: `todo.md`, sekcja „Linux”.
 
 **Commit:** `66633a8d`. CI „Computer Use Linux” (przebieg 36940389898): x64 i arm64 zielone — budowa, testy jednostkowe i 27 testów e2e.
+
+## Okno wyboru pliku i aplikacje rysowane samodzielnie (Blender) — 2026-10-02
+
+Dwa zgłoszenia z prób w aplikacji desktopowej: w CapCut agent nie zaznaczył
+pliku w oknie importu, w Blenderze nie dodał torusa przez wyszukiwarkę (F3).
+Oba odtworzone narzędziami wtyczki, bez modelu.
+
+**Przyczyny i poprawki**
+- Okno otwierania/zapisu rysuje proces systemowy („Open and Save Panel
+  Service”) wewnątrz okna aplikacji. Test trafienia brał proces elementu pod
+  punktem; ten proces nie ma własnego okna, więc punkt uchodził za pulpit
+  i prawdziwe kliknięcie było blokowane (`hit_test_mismatch`). Teraz liczy się
+  proces okna, w którym element siedzi (`HitTest.host`).
+- Blender (okno bez elementów pod paskiem tytułu) czyta pozycję wskaźnika
+  z systemu: kliknięcie wysłane do okna w tle trafiało pod wskaźnik
+  użytkownika (otworzyło menu „Visible Tabs” w edytorze właściwości). Takie
+  okno dostaje tylko prawdziwe kliknięcia (`SelfDrawn`, `PointerRoute.choose`).
+- Blender kieruje klawisze do edytora pod wskaźnikiem. Po kliknięciu wskaźnik
+  wraca do użytkownika, więc F3 otwierało wyszukiwarkę nad innym edytorem
+  („No results found” dla „torus”). Przed klawiszami aplikacja bez własnego
+  elementu z fokusem dostaje zdarzenie ruchu wskaźnika w miejscu ostatniego
+  kliknięcia, wysłane tylko do jej procesu (`KeyAim`, `PointerSession.hint`).
+- Tekst szedł jako jedno zdarzenie klawisza z całym fragmentem; Blender bierze
+  z niego jeden znak (z „torus” zostawało „t”). Tam, gdzie tekstu nie
+  przyjmuje pole tekstowe, każdy znak idzie własnym klawiszem
+  (`Typing.unitsPerEvent(intoText:)`, `KeyboardInput.type`).
+
+**Testy (Red → Green)**
+- `PointerTests`: proces okna dla elementu rysowanego przez inny proces.
+- `BackgroundInputTests`: droga przez ekran dla okna rysowanego samodzielnie;
+  `SelfDrawnTests`.
+- `KeyboardTests`: pisanie znak po znaku poza polem tekstowym; `KeyAimTests`.
+- Red: błędy kompilacji (brak `HitTest.host`, `SelfDrawn`, `KeyAim`,
+  `unitsPerEvent(intoText:)`).
+
+**Walidacja**
+- `swift test` — 186/186; `./build.sh` OK (x86_64 arm64).
+- `pnpm exec vitest run` we wtyczce — 307/307 z e2e macOS (27 testów Linuksa pominiętych).
+- `pnpm build` — 88/88; typecheck wtyczki 0 błędów; `pnpm lint` 0 błędów; `pnpm check:deps` 0 błędów.
+- Na żywo, narzędziami: TextEdit — plik w oknie otwierania zaznaczony, „Otwórz”
+  aktywne; CapCut — `1001.mp4` zaznaczony w arkuszu importu, „Import” aktywny;
+  Blender 5.2.1 — klik w widok, F3, „Torus”, Return dodało obiekt Torus.
+
+**Pominięte / dla następcy**
+- Bez próby z modelem (patrz `todo.md`).
+- Windows i Linux bez zmian; nie sprawdzano tam Blendera.
