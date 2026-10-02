@@ -10,7 +10,7 @@ const logFile = logIndex > 0 ? process.argv[logIndex + 1] : undefined;
 const PNG = 'iVBORw0KGgo=';
 
 const apps = [
-  { id: 'com.apple.TextEdit', name: 'TextEdit', running: true },
+  { id: 'com.apple.TextEdit', name: 'TextEdit', running: true, also: 'text editor' },
   { id: 'com.apple.Safari', name: 'Safari', running: false },
   { id: 'com.apple.Terminal', name: 'Terminal', running: true },
   { id: 'com.example.notes.one', name: 'Notes', running: false },
@@ -76,11 +76,11 @@ const methods = {
   'preview.stop': () => ({ stopped: true }),
   list_apps: ({ query, limit }) => {
     const matching = apps.filter((app) => !query || `${app.name} ${app.id}`.toLowerCase().includes(query.toLowerCase()));
-    return { apps: matching.slice(0, limit), truncated: matching.length > limit };
+    return { apps: matching.slice(0, limit).map(({ also, ...app }) => app), truncated: matching.length > limit };
   },
   resolve_apps: ({ names }) => ({
     apps: names.map((request) => {
-      const found = apps.filter((app) => app.id.toLowerCase() === request.toLowerCase() || app.name.toLowerCase() === request.toLowerCase());
+      const found = apps.filter((app) => [app.id, app.name, app.also ?? ''].some((name) => name.toLowerCase() === request.toLowerCase()));
       if (found.length === 0) return { request, status: 'not_found' };
       if (found.length > 1) return { request, status: 'ambiguous', candidates: found.map(({ id, name }) => ({ id, name })) };
       return { request, status: 'resolved', id: found[0].id, name: found[0].name };

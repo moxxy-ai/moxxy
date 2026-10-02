@@ -2687,3 +2687,35 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 
 **Pominięte / dla następcy**
 - Bez próby z modelem. Windows/Linux bez `until`.
+
+## Próby z modelem; mniej rund, lekcje mimo innych słów — 2026-10-02
+
+**Co**
+- `guess()` w `src/jev/memory.ts`, `RunDeps.guess` i jedno pytanie `same_N`
+  na bieg w `src/jev/run.ts`.
+- `src/contract/guidance.ts`: po zgodzie od razu `computer_run`.
+- `src/backend/backend.ts`: `granted()` — aplikacja znana też pod nazwą,
+  pod którą o nią poproszono.
+
+**Jak i dlaczego (próby: CLI, `gpt-6-luna`, `xhigh`, Ustawienia systemowe, 3 panele + opis)**
+- Przed zmianami (2 próby): 25,8 s i 36,6 s; 5 wywołań narzędzi, 6 zapytań
+  do modelu; narzędzia 2,6–5,4 s, model 23–31 s. Jedna runda stracona na
+  `"System Settings" is not granted` (zgoda była na „Ustawienia systemowe”).
+- Po zmianie reguł (3 próby): 3 wywołania, 5 zapytań… ale model pisał cele
+  własnymi słowami, lekcje nie trafiały: `computer_run` 5,0–5,2 s, 4 pytania
+  do Jev (jedna próba 1,6 s, gdy słowa się powtórzyły).
+- Po `guess` (3 próby, inne panele, cele po polsku i po angielsku):
+  `computer_run` 2,1–2,6 s, 1 pytanie do Jev; narzędzia razem 2,7–4,4 s;
+  całość 24,2 s, 30,5 s, 37,6 s — model 21–33 s.
+
+**Testy (Red → Green)**
+- „guesses the lesson a differently worded target is about”, „a target worded
+  differently than the lesson” (2), „an app asked for under another name” (2),
+  dopiski w `guidance.test.ts` — Red, potem zielone.
+
+**Walidacja**
+- `swift test` 199/199; wtyczka 405/405 (27 pominiętych: Linux); build exit 0;
+  typecheck, lint, check:deps bez błędów.
+
+**Wniosek**
+- Część komputerowa zadania trwa 2–4 s; reszta (ponad 85%) to rundy modelu.

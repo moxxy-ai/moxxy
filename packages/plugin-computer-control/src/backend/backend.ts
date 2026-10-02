@@ -7,7 +7,7 @@ import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
-import { RunMemory, describeRoutes, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
+import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
 import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
@@ -15,6 +15,7 @@ import { HelperError, HelperTransport } from '../helper/transport.js';
 import {
   accessFromLog, accessGrantSchema, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
   type AccessGrant, type AccessTier, type AppGrant,
+  type AccessState,
 } from './access.js';
 import { hintFor, loadAppHints, type AppHint } from './app-hints.js';
 import {
@@ -116,6 +117,8 @@ export class ComputerBackend {
 
   /** Per session, whether the last tool call found a TypeSafe key: without one, runs of steps are not offered. */
   private readonly keyed = new Map<string, boolean>();
+  /** Per session, the names apps were asked for under and the app each resolved to: the model keeps using its own name. */
+  private readonly asked = new Map<string, Map<string, string>>();
 
   private async jevKey(ctx: ToolContext): Promise<string | undefined> {
     const key = (await ctx.getSecret?.(JEV_SECRET)?.catch(() => null)) || process.env[JEV_SECRET] || undefined;
@@ -146,6 +149,7 @@ export class ComputerBackend {
 
   async release(sessionId: string, turnId?: string): Promise<void> {
     if (turnId === undefined) this.keyed.delete(sessionId);
+    if (turnId === undefined) this.asked.delete(sessionId);
     const closing: Promise<void>[] = [];
     for (const [key, turn] of this.turns) {
       if (turn.sessionId !== sessionId || (turnId !== undefined && key !== turnKey(sessionId, turnId))) continue;
@@ -176,7 +180,10 @@ export class ComputerBackend {
       const elevated = new Set((input.full_access ?? []).map((name) => name.toLowerCase()));
       const granted = new Map<string, AppGrant>();
       const unresolved: AccessGrant['unresolved'] = [];
+      const asked = this.asked.get(ctx.sessionId) ?? new Map<string, string>();
+      this.asked.set(ctx.sessionId, asked);
       for (const app of result.apps) {
+        if (app.status === 'resolved') asked.set(app.request.toLowerCase(), app.id);
         if (app.status === 'not_found') { unresolved.push({ app: app.request, reason: 'not_found' }); continue; }
         if (app.status === 'ambiguous') { unresolved.push({ app: app.request, reason: 'ambiguous', candidates: app.candidates }); continue; }
         const tier: AccessTier = elevated.has(app.request.toLowerCase()) ? 'full' : defaultTier(categorize(app));
@@ -190,7 +197,7 @@ export class ComputerBackend {
       });
     },
     computer_get_app_state: async (input, ctx) => {
-      const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
+      const grant = this.granted(ctx, accessFromLog(ctx.log), input.app, 'read');
       const { turn, result } = await this.observe(ctx, grant, input.window_id);
       const shown = `${grant.id}#routes`;
       const routes = this.keyed.get(ctx.sessionId) && !turn.hinted.has(shown) ? describeRoutes(await this.memory.read(grant.id)) : undefined;
@@ -198,7 +205,7 @@ export class ComputerBackend {
       return this.present(turn, grant, result, routes ? [routes] : [], input.disable_diff);
     },
     computer_run: async (input, ctx) => {
-      const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
+      const grant = this.granted(ctx, accessFromLog(ctx.log), input.app, 'read');
       const apiKey = await this.jevKey(ctx);
       const { turn, result: initial } = await this.observe(ctx, grant);
       if (!apiKey) {
@@ -206,7 +213,7 @@ export class ComputerBackend {
       }
       const learned = await this.memory.read(grant.id);
       const report = await runSteps(input.goal, input.steps, initial, {
-        ask: this.jev(apiKey), signal: ctx.signal, known: (step, tree) => recall(learned, step, tree),
+        ask: this.jev(apiKey), signal: ctx.signal, known: (step, tree) => recall(learned, step, tree), guess: (step, tree) => guess(learned, step, tree),
         selectAll: this.profile.platform === 'darwin' ? 'super+a' : 'ctrl+a',
         observe: async () => (await this.observe(ctx, grant)).result,
         act: async (step, until) => (await this.perform(input.app, step, ctx, undefined, until)).result,
@@ -224,7 +231,7 @@ export class ComputerBackend {
     computer_perform_secondary_action: (input, ctx) => this.act(input, 'perform_secondary_action', ctx),
     computer_zoom: async (input, ctx) => {
       const access = accessFromLog(ctx.log);
-      const grant = checkAccess(access, input.app, 'read');
+      const grant = this.granted(ctx, access, input.app, 'read');
       const params = { region: input.region, app: grant.id, allowed: access.apps.map((app) => app.id) };
       const { result } = await this.call(ctx, 'zoom', params, imageSchema, grant.name);
       return withImage(`Zoomed region [${input.region.join(', ')}] at ${result.width}x${result.height}. Reading aid only: coordinates keep referring to the screenshot, never to this image.`, result);
@@ -237,9 +244,15 @@ export class ComputerBackend {
   }
 
   /** One action on an app, behind the grant's level and the key rules. */
+  /** The grant for `app`, which may be the name it was asked for under instead of the one it has on this system. */
+  private granted(ctx: ToolContext, access: AccessState, app: string, needed: AccessTier): AppGrant {
+    const known = access.apps.some((grant) => [grant.id, grant.name].some((name) => name.toLowerCase() === app.toLowerCase()));
+    return checkAccess(access, known ? app : this.asked.get(ctx.sessionId)?.get(app.toLowerCase()) ?? app, needed);
+  }
+
   private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined, until?: readonly string[]) {
     const access = accessFromLog(ctx.log);
-    const grant = checkAccess(access, app, requiredTier(step));
+    const grant = this.granted(ctx, access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
     // Only the macOS helper knows how to wait for an effect.
     const awaited = until?.length && this.profile.platform === 'darwin' ? { until } : {};

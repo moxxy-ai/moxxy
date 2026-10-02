@@ -228,6 +228,19 @@ toolbar after the page). What Jev reads is fitted to its input limit by
 shortening what elements say (300 → 120 → 60 → 30 → 12 characters) until the
 window is under 30 000 characters; every element stays listed.
 
+The model words a target its own way ("panel Ogólne na pasku bocznym", "the
+Tapeta item in the System Settings sidebar"), so a lesson rarely matches word
+for word. When exactly one lesson's element name stands in the target as
+words of its own, that lesson is a guess; one request to Jev at the start of
+the run asks about all guesses at once, and a confirmed guess runs from
+memory and is then remembered under the new wording too.
+
+The rules tell the model that `computer_run` looks at the window itself: after
+`computer_request_access` it goes straight to `computer_run`, without
+`computer_list_apps` or `computer_get_app_state`. An app may be named in later
+calls the way it was asked for ("System Settings"), not only the way the
+system names it ("Ustawienia systemowe").
+
 A remembered step is sent to the helper with what it showed last time
 (`until`). The helper reads the window every 30 ms after the action and
 returns the moment those elements are there, instead of waiting for the app

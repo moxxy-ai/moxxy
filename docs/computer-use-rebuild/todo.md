@@ -51,6 +51,12 @@ Otwarte dla Linuksa:
   bez pytania pomijany jest tylko krok, którego element jest zaznaczony.
 - [x] Krok `key` z `expect` pytał Jev dwa razy przy każdym biegu. Teraz
   pamiętane jest to, co klawisz pokazał (tylko na komputerze, nie w paczce).
+- [ ] Czas całego zadania to dziś czas modelu: 4 zapytania do modelu po 5–8 s
+  (`gpt-6-luna`, `xhigh`) przy 2–4 s pracy narzędzi. Dalsze cięcie wymaga
+  decyzji właściciela: mniej rund (zgoda i bieg w jednym wywołaniu, narzędzia
+  bez `load_tool`) albo niższy wysiłek rozumowania.
+- [ ] Model nie wysyła `computer_request_access` i `computer_run` w jednej
+  odpowiedzi, choć reguły na to pozwalają (0 z 3 prób).
 - [ ] Czekanie „aż pokaże się efekt” działa tylko w helperze macOS; Windows
   i Linux czekają jak dotąd.
 - [ ] Na bardzo długiej stronie z otwartym paskiem bocznym Safari Jev nie

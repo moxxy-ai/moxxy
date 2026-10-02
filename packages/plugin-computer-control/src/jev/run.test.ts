@@ -332,6 +332,30 @@ describe('a step that says nothing of its result', () => {
   });
 });
 
+describe('a target worded differently than the lesson', () => {
+  const sheet = 'button\u001fSheet';
+  const opens = () => app([button(1, 'Export'), button(2, 'Share')], (action, elements) => { if (action.action === 'click' && action.element_index === 1) elements.push(button(3, 'Sheet')); });
+  const steps: RunStep[] = [{ do: 'click', target: 'the Export control up top', expect: 'the sheet shows' }];
+  const guessed: RunDeps['guess'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+
+  it('asks Jev once whether the guessed lessons fit, then runs from memory', async () => {
+    const window = opens();
+    const { ask, requests } = jev((_state, id) => (id === 'same_0' ? yes(0.95) : undefined));
+    const report = await runSteps('Export', steps, window.state(), { ...deps(window, ask), guess: guessed });
+    expect(requests.map((request) => request.ids)).toEqual([['same_0']]);
+    expect(window.acted).toEqual([{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 }]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', recalled: true, used: { key: 'w/1' } });
+  });
+
+  it('finds the element the usual way when Jev says the guess is another element', async () => {
+    const window = opens();
+    const { ask, requests } = jev((_state, id) => (id === 'same_0' ? yes(0.1) : id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Export', steps, window.state(), { ...deps(window, ask), guess: guessed });
+    expect(requests.map((request) => request.ids)).toEqual([['same_0'], ['target', 'already'], ['expected']]);
+    expect(report.outcomes[0]?.recalled).toBeUndefined();
+  });
+});
+
 describe('a key with an expected result', () => {
   const results = 'text\u001fResults';
   const opens = () => app([button(1, 'Search')], (action, elements) => { if (action.action === 'press_key') elements.push(button(2, 'Results', { role: 'text' })); });

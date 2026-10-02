@@ -185,6 +185,37 @@ export async function promote(from: string, to: string): Promise<string[]> {
   return apps.sort();
 }
 
+/** The element a lesson is about, when the window still has it reading the same. */
+function live(memory: AppMemory, known: LearnedTarget, tree: AppTree): { element: AppElement; way: number; effect?: readonly string[] } | undefined {
+  const reading = tree.elements.filter((element) => labelOf(element) === known.label);
+  const element = reading.find((candidate) => candidate.key === known.key) ?? (reading.length === 1 ? reading[0] : undefined);
+  if (!element) return undefined;
+  // A shipped lesson carries little of the effect; what this computer saw the same element do completes it.
+  const effect = known.effect ?? memory.targets.find((other) => other.do === known.do && other.target === known.target && other.label === known.label && other.effect)?.effect;
+  return { element, way: known.way, ...(effect ? { effect } : {}) };
+}
+
+const wordsOf = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(' ');
+
+/**
+ * The lesson a target written in other words is probably about: the one lesson whose element's name stands in
+ * the target as words of its own. A guess, to be confirmed before it is used.
+ */
+export function guess(memory: AppMemory, step: RunStep, tree: AppTree): { element: AppElement; way: number; effect?: readonly string[] } | undefined {
+  if (step.target === undefined) return undefined;
+  const said = ` ${wordsOf(step.target)} `;
+  const named = memory.targets.filter((known) => {
+    const name = wordsOf(titleOf(known.label));
+    return known.do === step.do && name !== '' && said.includes(` ${name} `);
+  });
+  if (new Set(named.map((known) => known.label)).size !== 1) return undefined;
+  for (const known of named) {
+    const found = live(memory, known, tree);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** The live element a step's target was last time, when the window still has it reading the same. */
 export function recall(memory: AppMemory, step: RunStep, tree: AppTree): { element?: AppElement; way: number; effect?: readonly string[] } | undefined {
   const named = targetOf(step);
@@ -197,12 +228,8 @@ export function recall(memory: AppMemory, step: RunStep, tree: AppTree): { eleme
   }
   for (const known of memory.targets) {
     if (known.do !== step.do || known.target !== target) continue;
-    const reading = tree.elements.filter((element) => labelOf(element) === known.label);
-    const element = reading.find((candidate) => candidate.key === known.key) ?? (reading.length === 1 ? reading[0] : undefined);
-    if (!element) continue;
-    // A shipped lesson carries little of the effect; what this computer saw the same element do completes it.
-    const effect = known.effect ?? memory.targets.find((other) => other.do === step.do && other.target === target && other.label === known.label && other.effect)?.effect;
-    return { element, way: known.way, ...(effect ? { effect } : {}) };
+    const found = live(memory, known, tree);
+    if (found) return found;
   }
   return undefined;
 }

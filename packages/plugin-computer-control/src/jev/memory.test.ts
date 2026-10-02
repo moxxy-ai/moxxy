@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppElement, AppTree } from '../contract/tree.js';
-import { RunMemory, describeRoutes, labelOf, promote, recall, sameWords, targetOf } from './memory.js';
+import { RunMemory, describeRoutes, guess, labelOf, promote, recall, sameWords, targetOf } from './memory.js';
 
 let directory: string;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'moxxy-run-memory-')); });
@@ -170,6 +170,22 @@ describe('recall', () => {
     expect(recall(learned, step, tree())).toEqual({ way: 0, effect: ['text\u001fResults'] });
     expect(recall(learned, { ...step, key: 'Escape' }, tree())).toBeUndefined();
     expect(recall(learned, { do: 'key', key: 'Return' }, tree())).toBeUndefined();
+  });
+
+  it('guesses the lesson a differently worded target is about, by the element\'s name in it', () => {
+    const general = element(4, 'w/row/general', 'General', 'text');
+    const sound = element(5, 'w/row/sound', 'Sound', 'text');
+    const learned = { targets: [
+      { do: 'click', target: 'general left sidebar', key: 'w/row/general', label: 'text\u001fGeneral', way: 0, effect: ['window\u001fGeneral'], uses: 1, at: 1 },
+      { do: 'click', target: 'sound left sidebar', key: 'w/row/sound', label: 'text\u001fSound', way: 0, uses: 1, at: 1 },
+    ], routes: [] };
+    const window = tree(general, sound);
+    expect(recall(learned, { do: 'click', target: 'the General pane in the settings list' }, window)).toBeUndefined();
+    expect(guess(learned, { do: 'click', target: 'the General pane in the settings list' }, window)).toEqual({ element: general, way: 0, effect: ['window\u001fGeneral'] });
+    // Not a word of its own, another action, or two lessons named in it: no guess.
+    expect(guess(learned, { do: 'click', target: 'the Generals list' }, window)).toBeUndefined();
+    expect(guess(learned, { do: 'type', target: 'the General pane', text: 'x' }, window)).toBeUndefined();
+    expect(guess(learned, { do: 'click', target: 'the Sound button in the General pane' }, window)).toBeUndefined();
   });
 
   it('knows an element that has only a description (a toolbar button) by it', () => {

@@ -47,6 +47,10 @@ it('sends known steps through computer_run and keeps trying other routes', () =>
   expect(system).toMatch(/several different routes/);
   expect(system).toMatch(/even a single step/);
   expect(system).toMatch(/remembers what worked/);
+  // Every look is a model round of seconds: computer_run looks itself.
+  expect(system).toMatch(/computer_run looks at the window itself/);
+  expect(system).toMatch(/straight after computer_request_access/);
+  expect(system).toMatch(/two tool calls in one response/);
 });
 
 it('leaves computer_run out, tool and words, where it cannot run', () => {

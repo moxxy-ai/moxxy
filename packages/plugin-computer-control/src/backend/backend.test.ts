@@ -94,6 +94,22 @@ describe('computer_request_access', () => {
   });
 });
 
+describe('an app asked for under another name', () => {
+  // The system's name for an app can differ from the one the model used ("System Settings" is "Ustawienia systemowe").
+  it('is known by the name it was asked for, not only by the name it was granted under', async () => {
+    const { tools } = backend();
+    const output = await requestAccess(tools, { apps: ['Text Editor'], reason: 'Edit a note' }) as { granted: unknown[] };
+    expect(output.granted).toEqual([{ id: 'com.apple.TextEdit', name: 'TextEdit', tier: 'full' }]);
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'Text Editor' }))).toContain('App: TextEdit');
+  });
+
+  it('stays refused when it was never granted', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['Text Editor'], reason: 'Edit a note' });
+    await expect(run(tools, 'computer_get_app_state', { app: 'Safari' })).rejects.toThrow(/not granted/);
+  });
+});
+
 describe('observation', () => {
   it('marks the tools that only look as live state, so the loop guard lets them repeat between actions', () => {
     const { tools } = backend();
