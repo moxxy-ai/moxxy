@@ -35,6 +35,7 @@ rmSync(path.join(cliDir, 'node_modules', '.pnpm', 'node_modules', '@moxxy', 'cli
 
 runNode([path.join(desktopDir, 'scripts', 'bundle-plugins-seed.mjs')]);
 runNode([path.join(desktopDir, 'scripts', 'bundle-models-seed.mjs')]);
+runNode([path.join(desktopDir, 'scripts', 'bundle-runtimes-seed.mjs')]);
 
 const report = await verifyDesktopResources(resourcesDir);
 console.log(

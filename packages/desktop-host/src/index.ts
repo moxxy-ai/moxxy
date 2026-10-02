@@ -23,6 +23,7 @@ export {
 export { seedModelsFromResources, type SeedModelsResult } from './seed-models.js';
 export { adoptSeededLocalPiper } from './local-piper.js';
 export { activateManagedNode } from './node-manager.js';
+export { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes } from './seed-runtimes.js';
 export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
 export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';
 export { DeferredPackageUpdates, type ManagedPackageUpdate } from './deferred-package-updates.js';

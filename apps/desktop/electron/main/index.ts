@@ -60,6 +60,9 @@ import {
   type ProviderUpdateOffer,
   ensureDesktopVaultKey,
   activateManagedNode,
+  activateRuntimes,
+  bundledRuntimesReady,
+  prepareBundledRuntimes,
   startLoopbackServer,
   installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
@@ -241,6 +244,7 @@ async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<stri
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
+  await bundledRuntimesReady();
   if (app.isPackaged) {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
@@ -910,6 +914,19 @@ app.whenReady().then(async () => {
   // automatically"), put that managed Node back on PATH before any runner
   // spawns so `moxxy serve` / npm resolve it without a manual PATH edit.
   activateManagedNode(app.getPath('userData'));
+
+  // The installer carries Node and Python for a computer that has neither.
+  // Those unpacked on an earlier run are on PATH at once; a first launch
+  // unpacks them in the background, and the runner and the Node check wait.
+  if (app.isPackaged) {
+    const moxxyHome = process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
+    activateRuntimes(moxxyHome);
+    void prepareBundledRuntimes({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+  }
 
   // The pool exists before the window so IPC can bind immediately, but its
   // expensive preparation + first supervisor are lazy and run after first

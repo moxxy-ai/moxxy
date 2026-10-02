@@ -100,6 +100,17 @@ export function boundedSink(cap: number): {
 }
 
 /**
+ * `/bin/sh -l` reads the system profile, which on macOS rebuilds PATH with the
+ * system folders in front. The folders the host names in `MOXXY_PATH_FIRST`
+ * (the desktop's bundled Python) are put back ahead of them, so `python3` is
+ * the bundled one and not the system's install prompt.
+ */
+export function withPathFirst(command: string, first: string | undefined): string {
+  if (!first) return command;
+  return `export PATH='${first.replace(/'/g, `'\\''`)}':"$PATH"\n${command}`;
+}
+
+/**
  * Spawn `command` under /bin/sh with a secret-scrubbed env (model-supplied
  * `env` overlaid) and piped output. POSIX children lead their own process
  * group so {@link killTree} reaches every descendant.
@@ -108,9 +119,10 @@ export function spawnShell(
   command: string,
   opts: { readonly cwd: string; readonly env?: Readonly<Record<string, string>> },
 ): ChildProcess & { stdout: NonNullable<ChildProcess['stdout']>; stderr: NonNullable<ChildProcess['stderr']> } {
-  return spawn('/bin/sh', ['-lc', command], {
+  const env = { ...scrubbedEnv(process.env), ...(opts.env ?? {}) };
+  return spawn('/bin/sh', ['-lc', withPathFirst(command, env.MOXXY_PATH_FIRST)], {
     cwd: opts.cwd,
-    env: { ...scrubbedEnv(process.env), ...(opts.env ?? {}) },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     // `detached` only detaches the controlling terminal/group — piped stdio
     // and exit reporting are unaffected. Not meaningful on win32.

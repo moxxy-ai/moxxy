@@ -14,6 +14,7 @@ import type { RunnerPool } from '../runner-pool';
 import { probeOnboarding, provisionProvider, saveProviderKey } from '../onboarding';
 import { installMoxxyCli, probeNode } from '../installer';
 import { installManagedNode } from '../node-manager';
+import { bundledRuntimesReady } from '../seed-runtimes';
 import { assertSafeExternalUrl } from '../security';
 import { handle } from './shared';
 
@@ -21,7 +22,11 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
   // ---- Onboarding ----------------------------------------------------------
 
   handle('onboarding.status', () => probeOnboarding());
-  handle('onboarding.probeNode', () => probeNode());
+  // The Node the installer carries is unpacked as the app starts: look for one only after that.
+  handle('onboarding.probeNode', async () => {
+    await bundledRuntimesReady();
+    return probeNode();
+  });
   handle('onboarding.installMoxxyCli', async () => {
     const target = BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
     if (!target) throw new Error('no window to stream install progress to');

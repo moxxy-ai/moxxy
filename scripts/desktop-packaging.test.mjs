@@ -10,6 +10,7 @@ import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/d
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
 import { VOICE_CATALOG } from '../packages/plugin-tts-local/dist/voices.js';
+import { NODE_VERSION, PYTHON_VERSION, RUNTIME_TARGETS, runtimeTargets } from '../apps/desktop/scripts/runtimes-catalog.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -21,7 +22,7 @@ test('desktop extraResources copies the dependency trees and the voices from the
     {
       from: 'resources',
       to: '.',
-      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*', 'models-seed/**/*'],
+      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*', 'models-seed/**/*', 'runtimes-seed/**/*'],
     },
   ]);
 });
@@ -153,6 +154,62 @@ test('desktop resource verifier rejects a bundled voice that is not the pinned o
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       new RegExp(`Bundled voice ${voice.id} is not the pinned archive`),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave Node or Python to be installed by hand', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-runtime-resources-'));
+  try {
+    await writeValidResources(root);
+    await rm(path.join(root, 'runtimes-seed', 'win32-x64', 'python.tar.gz'));
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled python runtime for win32-x64 is missing/,
+    );
+
+    await rm(path.join(root, 'runtimes-seed', 'linux-x64'), { recursive: true });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'linux', arch: 'x64' }),
+      /Bundled runtimes for linux-x64 are missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier wants both architectures in a macOS app, which is universal', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-one-arch-resources-'));
+  try {
+    await writeValidResources(root);
+    assert.deepEqual(runtimeTargets('darwin', 'arm64'), ['darwin-arm64', 'darwin-x64']);
+    await rm(path.join(root, 'runtimes-seed', 'darwin-x64'), { recursive: true });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'darwin' }),
+      /Bundled runtimes for darwin-x64 are missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a bundled runtime that is not the pinned version', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-old-runtime-resources-'));
+  try {
+    await writeValidResources(root);
+    await writeJson(path.join(root, 'runtimes-seed', 'win32-x64', 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: 'v18.0.0-aaaaaaaaaaaa', archive: 'node.zip' },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+      ],
+    });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled node runtime for win32-x64 is not the pinned version/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -316,6 +373,19 @@ async function writeValidResources(
   for (const name of seedPackages) {
     await writePackage(path.join(seedDir, 'node_modules', name), name, {
       moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
+    });
+  }
+  for (const target of Object.keys(RUNTIME_TARGETS)) {
+    const dir = path.join(root, 'runtimes-seed', target);
+    await mkdir(dir, { recursive: true });
+    const nodeArchive = target.startsWith('win32') ? 'node.zip' : target.startsWith('linux') ? 'node.tar.xz' : 'node.tar.gz';
+    await writeFile(path.join(dir, nodeArchive), 'node');
+    await writeFile(path.join(dir, 'python.tar.gz'), 'python');
+    await writeJson(path.join(dir, 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: `${NODE_VERSION}-aaaaaaaaaaaa`, archive: nodeArchive },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+      ],
     });
   }
   for (const voice of VOICE_CATALOG) {

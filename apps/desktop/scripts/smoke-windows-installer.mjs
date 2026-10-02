@@ -5,6 +5,7 @@ import net from 'node:net';
 import * as path from 'node:path';
 
 import { seedPluginsFromResources } from '../../../packages/desktop-host/dist/seed-plugins.js';
+import { smokeRuntimes } from './smoke-runtimes.mjs';
 import { verifyDesktopResources } from './verify-desktop-resources.mjs';
 
 const installerPath = process.argv[2];
@@ -31,6 +32,8 @@ try {
   run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 300_000);
 
   await verifyDesktopResources(resourcesPath, { runtimePath });
+  // The agent's Python, pip, Node and npm come from the installer: run them as a first launch would unpack them.
+  await smokeRuntimes(resourcesPath);
 
   await mkdir(smokeHome, { recursive: true });
   await seedPluginsFromResources({

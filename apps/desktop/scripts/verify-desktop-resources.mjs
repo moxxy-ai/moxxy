@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { access, constants, readFile } from 'node:fs/promises';
+import { access, constants, readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
 import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
 import { VOICE_CATALOG } from '../../../packages/plugin-tts-local/dist/voices.js';
+import { NODE_VERSION, PYTHON_VERSION, runtimeTargets } from './runtimes-catalog.mjs';
 
 /** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
 const COMPUTER_HELPERS = {
@@ -95,6 +96,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
   }
 
   await verifyBundledVoices(path.join(root, 'models-seed', 'tts'));
+  await verifyBundledRuntimes(path.join(root, 'runtimes-seed'), options.platform ?? process.platform, options.arch ?? process.arch);
 
   if (options.runCli !== false) {
     verifyCliStarts(options.runtimePath ?? process.execPath, cliBin);
@@ -127,6 +129,26 @@ async function verifyBundledVoices(voicesDir) {
     }
     if (marker !== voice.sha256.toLowerCase()) {
       throw new Error(`Bundled voice ${voice.id} is not the pinned archive`);
+    }
+  }
+}
+
+/** Node and Python are there for every architecture this installer serves, in the pinned versions —
+ *  otherwise the agent could not run a script or npm on a computer that has neither. */
+async function verifyBundledRuntimes(seedRoot, platform, arch) {
+  const pinned = { node: NODE_VERSION, python: PYTHON_VERSION };
+  for (const target of runtimeTargets(platform, arch)) {
+    let runtimes;
+    try {
+      ({ runtimes } = JSON.parse(await readFile(path.join(seedRoot, target, 'manifest.json'), 'utf8')));
+    } catch (error) {
+      throw new Error(`Bundled runtimes for ${target} are missing`, { cause: error });
+    }
+    for (const [name, version] of Object.entries(pinned)) {
+      const entry = Array.isArray(runtimes) ? runtimes.find((runtime) => runtime.name === name) : undefined;
+      const size = entry ? await stat(path.join(seedRoot, target, String(entry.archive))).then((info) => info.size, () => 0) : 0;
+      if (size === 0) throw new Error(`Bundled ${name} runtime for ${target} is missing`);
+      if (!String(entry.id).startsWith(`${version}-`)) throw new Error(`Bundled ${name} runtime for ${target} is not the pinned version`);
     }
   }
 }
