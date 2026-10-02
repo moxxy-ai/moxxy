@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$HelperPath = (Join-Path $PSScriptRoot 'moxxy-computer.exe'),
   [string]$FixturePath = (Join-Path $PSScriptRoot 'moxxy-computer-fixture.exe'),
   [string]$ReportDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('moxxy-computer-tests-' + [guid]::NewGuid())),
@@ -34,7 +34,9 @@ function Start-Peer {
   $info.RedirectStandardOutput = $true
   $info.RedirectStandardError = $true
   $info.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
-  $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
+  # Windows PowerShell 5.1 has no StandardInputEncoding; there the child's stdin follows the console's.
+  if ($info.PSObject.Properties['StandardInputEncoding']) { $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false) }
+  else { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) }
   $peer = [Diagnostics.Process]::new(); $peer.StartInfo = $info
   if (-not $peer.Start()) { throw 'Helper did not start' }
   Add-Member -InputObject $peer -NotePropertyName PendingRead -NotePropertyValue $null -Force
@@ -582,9 +584,10 @@ try {
         if ($script:helper) { Close-Peer $script:helper }
         $script:helper=Start-Peer
         $apps=(Call 'list_apps' @{ query='notepad'; limit=20 }).apps
-        $notepad=@($apps | Where-Object name -eq 'Notepad')[0]
+        # Windows shows Notepad under a translated name ("Notatnik" in Polish); its file name is the same everywhere.
+        $notepad=@($apps | Where-Object { $_.id -like '*\notepad.exe' })[0]
         Check ($null -ne $notepad) ('Notepad is not in the app list: ' + ($apps | ConvertTo-Json -Compress -Depth 4))
-        $named=(Call 'resolve_apps' @{ names=@('Notepad') }).apps[0]
+        $named=(Call 'resolve_apps' @{ names=@($notepad.name) }).apps[0]
         Check ($named.status -eq 'resolved' -and $named.id -eq $notepad.id) 'The display name did not resolve to the listed app'
         $unknown = Request $script:helper 'get_app_state' @{ app='notepad.exe & echo unexpected'; screenshot=$false }
         Check (-not $unknown.ok -and $unknown.error.code -eq 'app_not_found') ('Unresolved command text was accepted: ' + ($unknown | ConvertTo-Json -Compress -Depth 4))

@@ -104,6 +104,9 @@ contains the helper, fixture and `Run-ComputerUseTests.ps1`. Open PowerShell the
 powershell.exe -NoProfile -File .\Run-ComputerUseTests.ps1
 ```
 
+The script runs in Windows PowerShell 5.1, the one every Windows 10 and 11 has, and
+does not depend on the display language: it finds Notepad by its file name.
+
 Inspect the script first and start explicitly when prompted. Do not use the mouse
 or keyboard while tests run. Test windows belong to the fixture; files go into a
 unique temporary report directory. Reports stay local; nothing is uploaded by the
