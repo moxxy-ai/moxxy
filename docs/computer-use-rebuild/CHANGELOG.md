@@ -2418,3 +2418,12 @@ Bez zmian w kodzie; fakty z `~/.moxxy/sessions/moxxy-channel-telegram.jsonl`.
 **Pominięte / dla następcy**
 - Bez próby z modelem. Windows i Linux: warstwa decyzji jest wspólna, ale ich
   helpery nie były mierzone. Otwarte pozycje w `todo.md`.
+
+## Próba właściciela z modelem: `computer_run` w Ustawieniach — 2026-10-02
+
+Bez zmian w kodzie. Aplikacja desktopowa, `gpt-6-luna`, 04:20: „w Ustawieniach
+otwórz Ogólne, potem Dźwięk, potem kliknij pole szukania”. Model sam wybrał
+`computer_run`: 4 wywołania narzędzi (`computer_list_apps` 149 ms,
+`computer_request_access` 36 ms, `computer_get_app_state` 2,2 s,
+`computer_run` 6,5 s), cała tura 20 s. Klucz ze środowiska aplikacji dotarł do
+narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.

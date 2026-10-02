@@ -35,10 +35,9 @@ Otwarte dla Linuksa:
 
 ## Otwarte
 
-- [ ] `computer_run`: próba z modelem `gpt-6-luna` (robi właściciel) — czy
-  model wybiera `computer_run` i ile trwa zadanie w porównaniu z pojedynczymi
-  narzędziami. Dotąd tylko wywołanie narzędzia bez modelu (Ustawienia
-  systemowe, 3/3 kroki, 7,5 s).
+- [ ] `computer_run`: próba z modelem na zadaniu webowym (Safari) i w
+  aplikacji bez elementów; próba w Ustawieniach systemowych przeszła (niżej
+  w `CHANGELOG.md`).
 - [ ] `computer_run` nie obsługuje celów bez elementów (płótno, oś czasu) ani
   przeciągania; okno powyżej 1000 elementów nie jest przeszukiwane.
 - [ ] Czas czekania po akcji w helperach Windows i Linux nie był mierzony ani
