@@ -138,6 +138,15 @@ import Testing
         #expect(script.release == [KeyEvent(code: 0x7D, down: false, flags: .maskShift), KeyEvent(code: 0x38, down: false, flags: [])])
     }
 
+    // Blender and games follow the modifier keys themselves; a flag on the letter alone arrives as the bare letter.
+    @Test func tapsAChordWithItsModifierKeysGoingDownAndUpAroundTheKey() {
+        let shiftA = KeyChord(flags: .maskShift, key: .character("a"))
+        #expect(KeyScript.tap(shiftA, stroke: KeyCodes.Stroke(code: 0x00, shift: false)) == [
+            KeyEvent(code: 0x38, down: true, flags: .maskShift), KeyEvent(code: 0x00, down: true, flags: .maskShift),
+            KeyEvent(code: 0x00, down: false, flags: .maskShift), KeyEvent(code: 0x38, down: false, flags: []),
+        ])
+    }
+
     @Test func holdsAModifierAloneAndAddsShiftTheLayoutNeeds() {
         let shift = KeyScript.hold(KeyChord(flags: .maskShift, key: nil), stroke: nil)
         #expect(shift.press == [KeyEvent(code: 0x38, down: true, flags: .maskShift)])

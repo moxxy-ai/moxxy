@@ -28,7 +28,7 @@ describe('app hints', () => {
     expect(loadAppHints(join(tmpdir(), 'moxxy-no-such-hints'))).toEqual([]);
   });
 
-  it('ships hints for browsers, Finder, office suites, video editors and design tools', () => {
+  it('ships hints for browsers, Finder, office suites, video editors, design tools and 3D tools', () => {
     const hints = loadAppHints();
     const text = (id: string) => hintFor(hints, { id, name: '' });
     expect(text('com.apple.Safari')).toMatch(/browser/i);
@@ -41,6 +41,8 @@ describe('app hints', () => {
     expect(text('com.adobe.PremierePro.25')).toMatch(/timeline/i);
     expect(text('com.figma.Desktop')).toMatch(/canvas/i);
     expect(text('com.adobe.Photoshop')).toMatch(/canvas/i);
+    expect(text('org.blenderfoundation.blender')).toMatch(/F3/);
+    expect(hintFor(hints, { id: 'blender', name: 'Blender' })).toMatch(/F3/);
   });
 
   it('keeps every shipped hint a valid skill and short enough to show inline', () => {

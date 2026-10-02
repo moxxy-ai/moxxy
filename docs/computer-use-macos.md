@@ -85,6 +85,11 @@ helper, so the model sees one set of tools on both systems (see
   Before keys go to such a window, the app is told the pointer is where the
   last click went, because it sends keys to the editor under the pointer. Text
   typed there goes key by key, one character per key event.
+- A shortcut with modifiers (`shift+a`, `super+z`) presses the modifier keys
+  themselves around the key, the way a hand does: Blender follows the modifier
+  keys and takes a flag on the letter alone as the bare letter.
+- Blender has its own notes (`skills/computer-apps/blender.md`): commands by
+  name through `F3`, shortcuts instead of the small header menus.
 - Escape stops the turn. Input from the user pauses the agent; an action waits
   for a quiet moment before using real input. "Take over" releases held input
   and hides the agent's cursor.

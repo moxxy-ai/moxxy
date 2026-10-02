@@ -15,18 +15,20 @@ enum KeyboardInput {
             }
             return
         }
+        guard chord.flags.isEmpty else {
+            // The modifier keys go down and up themselves: an app that follows them does not read the flags on the key.
+            for event in KeyScript.tap(chord, stroke: try stroke(for: chord)) { post(event, pid: pid) }
+            return
+        }
         switch key {
         case let .named(code):
-            tap(code, flags: chord.flags, pid: pid)
+            tap(code, flags: [], pid: pid)
         case let .character(character):
             if let stroke = KeyLayout.stroke(for: character) ?? KeyCodes.ansi(character) {
                 // Unmodified characters carry their text, so the layout cannot change what arrives.
-                tap(stroke.code, flags: chord.flags.union(stroke.shift ? .maskShift : []), pid: pid,
-                    text: chord.flags.isEmpty ? String(character) : nil)
-            } else if chord.flags.isEmpty {
-                type(String(character), pid: pid)
+                tap(stroke.code, flags: stroke.shift ? .maskShift : [], pid: pid, text: String(character))
             } else {
-                throw HelperError(code: "invalid_key", message: "No key on this keyboard produces \(character) with modifiers")
+                type(String(character), pid: pid)
             }
         }
     }

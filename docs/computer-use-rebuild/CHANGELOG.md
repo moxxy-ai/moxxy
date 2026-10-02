@@ -2313,3 +2313,42 @@ było widać w drzewie (zwinięta sekcja), więc wrócił do szukania i się pod
 
 **Pominięte / dla następcy**
 - Bez powtórki z modelem. Otwarte pozycje okna wyboru pliku: `todo.md`.
+
+## Blender: skróty z modyfikatorem i wskazówka dla modelu — 2026-10-02
+
+**Skąd**
+- Próba właściciela z `gpt-6-luna` (dwie tury, 13 + 6 wywołań `computer_*`):
+  kostka usunięta (`x`, Return), pączek nie. Zrzuty z logu sesji: kliknięcia
+  dochodziły, ale w `x=210–220, y=49` leży „Object”, a „Add” jest w `x≈185`;
+  `x=100` otworzyło listę „Object Mode”. Model nie użył skrótu ani F3.
+- Sprawdzenie narzędziami ujawniło błąd helpera: `shift+a` docierało jako samo
+  `a` (zaznaczało wszystko). Blender śledzi klawisze modyfikatorów, a helper
+  wysyłał tylko flagę na literze.
+
+**Co i jak**
+- `KeyScript.tap` + `KeyboardInput.press`: skrót z modyfikatorami wysyła
+  wciśnięcie klawiszy modyfikatorów, klawisz i puszczenie w odwrotnej
+  kolejności (ta sama sekwencja co `hold_key`). Klawisze bez modyfikatorów bez
+  zmian.
+- `skills/computer-apps/blender.md`: wskazówka pokazywana raz na turę —
+  kliknij pusty widok 3D, polecenia po nazwie przez `F3`, `shift+a`, `x` +
+  Return, `g`/`r`/`s`, weryfikacja w Outlinerze; ostrzeżenie o małych
+  etykietach nagłówka.
+
+**Testy (Red → Green)**
+- `KeyboardTests.tapsAChordWithItsModifierKeysGoingDownAndUpAroundTheKey`:
+  Red — `type 'KeyScript' has no member 'tap'`; Green po implementacji.
+- `app-hints.test.ts`: Red — brak wskazówki dla
+  `org.blenderfoundation.blender` (`toMatch` dostał `undefined`); Green po
+  dodaniu pliku.
+
+**Walidacja**
+- `swift test` — 187/187; wtyczka `pnpm exec vitest run` — 308/308 z e2e macOS.
+- `pnpm build`, `pnpm -r typecheck`, `pnpm lint`, `pnpm check:deps` — 0 błędów.
+- Na żywo, narzędziami (Blender 5.2.1): `shift+a` otwiera menu Add; F3,
+  „Torus”, Return dodaje Torus; `x` + Return usuwa; `super+z` cofa,
+  `super+shift+z` ponawia. Stan zawiera „Notes for Blender”.
+
+**Pominięte / dla następcy**
+- Bez powtórki z modelem (robi ją właściciel). Ogólny problem celowania w małe
+  etykiety w oknach bez elementów zostaje otwarty (`todo.md`).

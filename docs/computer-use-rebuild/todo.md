@@ -40,9 +40,14 @@ Otwarte dla Linuksa:
   modelu (17 żądań). Stan stron jest już o ok. 60% krótszy.
 - [ ] Czas kroku ok. 5 s przy `xhigh`: model wysyła jedną akcję na odpowiedź;
   instalacje poniżej 200 narzędzi nadal wysyłają wszystkie schematy.
-- [ ] Blender i CapCut po poprawkach sprawdzone tylko narzędziami, bez modelu:
-  powtórzyć oba zadania z `gpt-6-luna` (pączek w Blenderze; import, przycięcie
-  i eksport w CapCut).
+- [x] CapCut z modelem `gpt-6-luna`: import, przycięcie do 15 s i eksport —
+  udane (37 wywołań `computer_*`, 367 s; próba właściciela 2026-10-02).
+- [ ] Blender z modelem: kostka usunięta, pączek nie — model trafiał w „Object”
+  zamiast „Add” (etykiety co ok. 30 px) i poddał się po dwóch kliknięciach.
+  Dodana wskazówka dla Blendera (F3 i skróty) oraz poprawka skrótów z
+  modyfikatorem; powtórzyć zadanie z modelem.
+- [ ] Celowanie modelu w małe etykiety okien rysowanych samodzielnie: brak
+  ogólnego mechanizmu (wskazówka istnieje tylko dla Blendera).
 - [ ] Okno wyboru pliku: wyniki szukania po zmianie zakresu („Pobrane rzeczy”)
   pojawiają się po ustaleniu stanu, więc model widzi pustą listę. Notatka
   odsyła model do „Idź do”; samo czekanie na wyniki nie jest zrobione.

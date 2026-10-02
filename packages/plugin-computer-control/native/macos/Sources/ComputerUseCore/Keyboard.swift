@@ -132,6 +132,12 @@ public enum KeyScript {
         }
         return (press, release)
     }
+
+    /// A chord pressed and let go at once.
+    public static func tap(_ chord: KeyChord, stroke: KeyCodes.Stroke?) -> [KeyEvent] {
+        let script = hold(chord, stroke: stroke)
+        return script.press + script.release
+    }
 }
 
 public enum TextPlacement: String, Sendable {
