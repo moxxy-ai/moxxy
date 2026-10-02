@@ -2970,5 +2970,9 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
   (lokalnie `clang++ -std=c++20`).
 
 **Walidacja**
-- `preview.cpp` kompiluje się tylko na Windows: sprawdza go CI (wynik niżej,
-  po przebiegu).
+- `preview.cpp` kompiluje się tylko na Windows: CI `computer-use-windows.yml`
+  zielone (run 37020537481), oba przejścia testów: 21 kawałków i 1 kawałek.
+
+**Otwarte**
+- Jeden zielony przebieg (dwa przejścia) nie dowodzi, że test przestał być
+  niestabilny; przyczyna braku klatki startowej strumienia nieustalona.
