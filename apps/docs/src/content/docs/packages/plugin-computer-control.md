@@ -73,6 +73,11 @@ session.pluginHost.registerStatic(computerControlPlugin);
   `computer_request_access` and recorded in the session log, so every client
   of the conversation sees the same grant. Browsers default to read-only and
   terminals to click-only.
+- `computer_run` on an app that is not granted yet grants it at its default
+  level when the user approved that very call (a prompt answered, the run's
+  allow-list, or auto-approve). A call let through by a standing "always
+  allow" rule grants nothing: nobody saw which app it was for, so the model has
+  to ask with `computer_request_access`.
 - The helper checks before each action that the target app is granted, is the
   one under the point, and has not changed since the model last looked.
 - The user sees the agent's cursor and a control strip with Stop, Take over and

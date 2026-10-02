@@ -94,6 +94,7 @@ export async function* dispatchToolCall(
       callId: asToolCallId(t.id),
       decidedBy: 'resolver',
       mode: decision.mode,
+      ...(decision.decidedNow ? { decidedNow: true } : {}),
     });
 
     try {

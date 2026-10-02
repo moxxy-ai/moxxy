@@ -2765,3 +2765,74 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
 **Otwarte**
 - Zostają trzy rundy modelu po 5–13 s. Zgoda i `computer_run` w jednym
   wywołaniu oraz poziom rozumowania wymagają decyzji właściciela.
+
+## Zgoda na aplikację przez zatwierdzenie `computer_run`; próby `medium`/`high` — 2026-10-02
+
+**Co**
+- SDK: `PermissionDecision.decidedNow` i to samo pole w zdarzeniu
+  `tool_call_approved` (`permission.ts`, `events.ts`, `tool-dispatch.ts`).
+  Ustawiają je: odpowiedź na dialog (`createDeferredPermissionResolver`,
+  arkusz desktopu w `desktop-host/src/session-driver.ts`), lista
+  `--allow-tools` (`createAllowListResolver`) i auto-approve rozmowy
+  (`core/src/session.ts`, sterownik desktopu). Nie ustawia go trwała reguła z
+  `permissions.json` ani zapamiętana wcześniejsza odpowiedź.
+- Wtyczka: `approvedThroughRun()` w `src/backend/access.ts`,
+  `ComputerBackend.access()` w `src/backend/backend.ts` — aplikacja z
+  `computer_run` zatwierdzonego jako to wywołanie jest nadana na rozmowę na
+  poziomie domyślnym (przeglądarka tylko odczyt, terminal tylko klik).
+- Reguły i opisy narzędzi: zadanie zaczyna się od `computer_run`;
+  `computer_request_access` zostaje dla pełnego dostępu do przeglądarki lub
+  terminala, schowka, skrótów systemowych i gdy `computer_run` odpowie
+  `app_not_allowed`.
+
+**Jak i dlaczego**
+- Runda modelu na samą prośbę o dostęp trwała 10,6–13,2 s. Zatwierdzenie
+  `computer_run` pokazuje aplikację, cel i kroki, więc jest zgodą na tę
+  aplikację.
+- W logu nie dało się odróżnić zgody klikniętej w dialogu od reguły „zawsze
+  zezwalaj na `computer_run`”; bez `decidedNow` taka reguła dodawałaby po cichu
+  nowe aplikacje. Z nim wywołanie przepuszczone regułą dostaje
+  `app_not_allowed` jak dotąd.
+- Poziom wybrany w dialogu dostępu ma pierwszeństwo przed domyślnym z biegu.
+- Stan zgody dalej wynika z logu sesji; w pamięci jest tylko to, na co helper
+  rozwiązał nazwę aplikacji.
+
+**Próby (CLI, `gpt-6-luna`, Ustawienia: 3 panele + opis; po 4 na poziom)**
+
+| Poziom | Całość | Runda `computer_run` | Runda odpowiedzi | Uwagi |
+|---|---|---|---|---|
+| `xhigh` | 12,3 / 13,4 / 14,4 / 20,7 s | 5,7–11,2 s | 2,5–3,9 s | 1 wywołanie w każdej próbie |
+| `high` | 10,5 / 12,5 / 17,0 / 17,3 s | 4,2–6,5 s | 2,5–7,4 s | 1 wywołanie w każdej próbie |
+| `medium` | 10,9 / 11,3 / 13,4 / 19,5 s | 3,8–5,1 s | 2,7–4,6 s | 2 z 4 prób zaczęły od zbędnych `load_skill` i `load_tool` |
+
+- Przed tą zmianą (`xhigh`, 2 wywołania): 22,8–30,8 s.
+- `computer_run` 1,5–3,5 s, wszystkie 12 prób: 3 z 3 kroków. Poziom
+  rozumowania zostaje `xhigh`; decyzja o zmianie należy do właściciela.
+- Wcześniejsza seria `medium`/`high` na starym przepływie (po 3 próby:
+  19,5–29,4 s i 23,7–36,4 s) biegła równolegle z testami wtyczki, więc czasy
+  narzędzi w niej są zawyżone (5,8–6,8 s na bieg); nie brać jej do porównań.
+
+**Błąd po drodze**
+- Jedna seria prób poszła na zepsutym buildzie wtyczki (apostrof w regułach),
+  wtyczka się nie załadowała i model w jednej próbie użył narzędzia `terminal`
+  (ok. 20 poleceń `osascript`/`open` na Ustawieniach systemowych). Skrypt prób
+  przerywa teraz, gdy lista narzędzi nie zawiera `computer_run`.
+
+**Testy (Red → Green)**
+- SDK: „a decision made now” (2), „how an approval was reached”; core:
+  „marks its approvals as decided now, and an allow rule from the policy as
+  standing”; desktop-host: „marks an answered ask as decided now…”;
+  wtyczka: „approvedThroughRun” (2), „on an app not granted yet” (5),
+  `guidance.test.ts`.
+
+**Walidacja**
+- `pnpm build` 88/88; sdk 477, core 534, desktop-host 806, runner 159,
+  plugin-cli 335, wtyczka 413 (27 pominiętych: Linux); typecheck 0 błędów;
+  lint 0 błędów; check:deps 0 błędów.
+
+**Otwarte**
+- Przy regule „zawsze zezwalaj na `computer_run`” pierwsze zadanie na nowej
+  aplikacji traci rundę (`app_not_allowed` → `computer_request_access`).
+- Kalkulator: próba treningu przerwana — kroki bez `expect` nie zapisują
+  lekcji, a „Wymaż” na pustym wyświetlaczu nic nie zmienia; do powtórzenia
+  z `expect`.

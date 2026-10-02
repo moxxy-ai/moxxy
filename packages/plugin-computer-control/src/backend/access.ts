@@ -57,6 +57,23 @@ export function accessFromLog(log: EventLogReader): AccessState {
   return { apps: [...apps.values()], flags };
 }
 
+export const RUN_TOOL = 'computer_run';
+
+/**
+ * The apps of the runs a person approved as that very call, in log order: approving a run on an app is consent
+ * to the app. A run let through by a standing rule names nothing, since nobody saw which app it was for.
+ */
+export function approvedThroughRun(log: EventLogReader): string[] {
+  const decided = new Set(log.ofType('tool_call_approved').filter((event) => event.decidedNow === true).map((event) => event.callId));
+  const names = new Set<string>();
+  for (const event of log.ofType('tool_call_requested')) {
+    if (event.name !== RUN_TOOL || !decided.has(event.callId)) continue;
+    const app = (event.input as { app?: unknown } | null)?.app;
+    if (typeof app === 'string' && app.length > 0) names.add(app);
+  }
+  return [...names];
+}
+
 /** The grant for `app` (identifier or display name) if it allows `needed`. */
 export function checkAccess(access: AccessState, app: string, needed: AccessTier): AppGrant {
   const wanted = app.toLowerCase();

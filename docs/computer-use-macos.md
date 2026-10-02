@@ -11,7 +11,9 @@ helper, so the model sees one set of tools on both systems (see
 ## Operating contract
 
 - Every operation uses the tool permission pipeline, and an app must be granted
-  with `computer_request_access` before it is observed or operated. Browsers
+  before it is observed or operated: with `computer_request_access`, or by the
+  user approving a `computer_run` call on it (that very call, not a standing
+  "always allow" rule), which grants the app at its default level. Browsers
   default to read-only and terminals to click-only. UI text is untrusted.
 - An app is addressed by its bundle identifier. A request may also name it by
   the name the system shows (which may be translated, such as "Kalkulator"), by
@@ -235,9 +237,9 @@ words of its own, that lesson is a guess; one request to Jev at the start of
 the run asks about all guesses at once, and a confirmed guess runs from
 memory and is then remembered under the new wording too.
 
-The rules tell the model that `computer_run` looks at the window itself: after
-`computer_request_access` it goes straight to `computer_run`, without
-`computer_list_apps` or `computer_get_app_state`. An app may be named in later
+The rules tell the model that `computer_run` looks at the window itself and
+asks for its own app: a task starts with `computer_run`, without
+`computer_request_access`, `computer_list_apps` or `computer_get_app_state`. An app may be named in later
 calls the way it was asked for ("System Settings"), not only the way the
 system names it ("Ustawienia systemowe").
 

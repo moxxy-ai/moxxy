@@ -1,7 +1,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import {
-  REQUEST_ACCESS_TOOL, accessFromLog, categorize, checkAccess, checkKeys, defaultTier, requiredTier, type AccessGrant, type AccessTier,
+  REQUEST_ACCESS_TOOL, accessFromLog, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, requiredTier, type AccessGrant, type AccessTier,
 } from './access.js';
 import type { ComputerAction } from '../contract/tools.js';
 import { memoryLog } from './helper.fixture.js';
@@ -137,5 +137,22 @@ describe('checkKeys', () => {
   it('lets ordinary keys and non-key steps through', () => {
     expect(() => checkKeys({ action: 'press_key', key: 'Return', repeat: 1 }, none, 'darwin')).not.toThrow();
     expect(() => checkKeys({ action: 'type_text', text: 'x' }, none, 'darwin')).not.toThrow();
+  });
+});
+
+describe('approvedThroughRun', () => {
+  const runCall = (callId: string, app: string, approval: Record<string, unknown> | null): MoxxyEvent[] => [
+    { ...base(), type: 'tool_call_requested', callId, name: 'computer_run', input: { app, goal: 'g', steps: [] } },
+    ...(approval ? [{ ...base(), type: 'tool_call_approved', callId, decidedBy: 'resolver', mode: 'allow', ...approval }] : [{ ...base(), type: 'tool_call_denied', callId, decidedBy: 'resolver', reason: 'no' }]),
+  ] as MoxxyEvent[];
+
+  it('names the apps of the runs that were approved as that very call', () => {
+    const log = memoryLog([...runCall('a', 'Notes', { decidedNow: true }), ...runCall('b', 'Calculator', { decidedNow: true })]);
+    expect(approvedThroughRun(log)).toEqual(['Notes', 'Calculator']);
+  });
+
+  it('leaves out a run let through by a standing rule, and one that was refused', () => {
+    const log = memoryLog([...runCall('a', 'Notes', {}), ...runCall('b', 'Mail', null)]);
+    expect(approvedThroughRun(log)).toEqual([]);
   });
 });

@@ -247,7 +247,7 @@ describe('SessionDriver approval-gate survival', () => {
     const req = askFrame.payload as AskRequest;
     answerAsk(req.requestId, { mode: 'allow_session' } as never);
 
-    await expect(decision).resolves.toEqual({ mode: 'allow_session' });
+    await expect(decision).resolves.toEqual({ mode: 'allow_session', decidedNow: true });
     expect(sent).toContainEqual({
       channel: 'ask.resolved',
       payload: { workspaceId: 'ws-ask', requestId: req.requestId },
@@ -388,8 +388,24 @@ describe('SessionDriver auto-approve', () => {
     assertDefined(captured.permission, 'captured permission resolver');
     const res = await captured.permission.check({ name: 'Write', input: {} }, {});
 
-    expect(res).toEqual({ mode: 'allow' });
+    expect(res).toEqual({ mode: 'allow', decidedNow: true });
     expect(sent.some((f) => f.channel === 'ask.request')).toBe(false);
+    driver.dispose();
+  });
+
+  it('marks an answered ask as decided now, and a cancelled one as a plain deny', async () => {
+    const { remote, captured } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws');
+
+    assertDefined(captured.permission, 'captured permission resolver');
+    const pending = captured.permission.check({ name: 'computer_run', input: { app: 'Notes' } }, {});
+    await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
+    const ask = sent.find((f) => f.channel === 'ask.request');
+    assertDefined(ask, 'ask request');
+    answerAsk((ask.payload as { requestId: string }).requestId, { mode: 'allow_session' });
+
+    expect(await pending).toEqual({ mode: 'allow_session', decidedNow: true });
     driver.dispose();
   });
 

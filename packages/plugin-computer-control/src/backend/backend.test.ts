@@ -399,6 +399,55 @@ describe('a run of steps', () => {
     expect(methods()).not.toContain('act');
   });
 
+  describe('on an app not granted yet', () => {
+    /** Record a run the way dispatch does before the handler: requested, then approved. */
+    const approveRun = (input: Record<string, unknown>, approval: Record<string, unknown>) => {
+      const callId = `call-${seq}`;
+      events.push({ ...base('turn'), type: 'tool_call_requested', callId, name: 'computer_run', input } as MoxxyEvent);
+      events.push({ ...base('turn'), type: 'tool_call_approved', callId, decidedBy: 'resolver', mode: 'allow', ...approval } as MoxxyEvent);
+    };
+    const secrets = { TYPESAFE_API_KEY: 'k' };
+
+    it('runs when the user approved that very call, and the app stays granted for the conversation', async () => {
+      const { tools } = backend([], {}, jev([]));
+      const input = { app: 'TextEdit', goal: 'Add a word', steps };
+      approveRun(input, { decidedNow: true });
+      expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).toMatch(/computer_run: 2 of 2 steps done/);
+      expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).toContain('App: TextEdit');
+    });
+
+    it('is refused when a standing rule let the call through: nobody was asked about this app', async () => {
+      const { tools } = backend([], {}, jev([]));
+      const input = { app: 'TextEdit', goal: 'Add a word', steps };
+      approveRun(input, {});
+      await expect(run(tools, 'computer_run', input, 'turn', secrets)).rejects.toMatchObject({ code: 'app_not_allowed' });
+      expect(methods()).not.toContain('act');
+    });
+
+    it('gives a browser reached this way its read-only default', async () => {
+      const { tools } = backend([], {}, jev([]));
+      const input = { app: 'Safari', goal: 'Save', steps: [{ do: 'click', target: 'Save' }] };
+      approveRun(input, { decidedNow: true });
+      expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).toMatch(/0 of 1 steps[\s\S]*tier_insufficient/);
+      expect(methods()).not.toContain('act');
+    });
+
+    it('keeps the level the user chose in the access dialog over the default of a later run', async () => {
+      const { tools } = backend([], {}, jev([]));
+      await requestAccess(tools, { apps: ['Safari'], reason: 'Fill a form', full_access: ['Safari'] });
+      const input = { app: 'Safari', goal: 'Save', steps: [{ do: 'click', target: 'Save' }] };
+      approveRun(input, { decidedNow: true });
+      expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).not.toMatch(/tier_insufficient/);
+    });
+
+    it('says which app it could not find', async () => {
+      const { tools } = backend([], {}, jev([]));
+      const input = { app: 'Mail', goal: 'Read', steps: [{ do: 'click', target: 'Inbox' }] };
+      approveRun(input, { decidedNow: true });
+      await expect(run(tools, 'computer_run', input, 'turn', secrets)).rejects.toMatchObject({ code: 'app_not_allowed' });
+    });
+  });
+
   it('may reach TypeSafe and nothing else on the network', () => {
     const { tools } = backend();
     expect(tools.get('computer_run')?.isolation?.capabilities.net).toEqual({ mode: 'allowlist', hosts: ['api.typesafe.ai'] });

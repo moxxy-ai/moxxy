@@ -49,14 +49,17 @@ it('sends known steps through computer_run and keeps trying other routes', () =>
   expect(system).toMatch(/remembers what worked/);
   // Every look is a model round of seconds: computer_run looks itself.
   expect(system).toMatch(/computer_run looks at the window itself/);
-  expect(system).toMatch(/straight after computer_request_access/);
-  expect(system).toMatch(/both are loaded already.*without load_tool/);
-  expect(system).toMatch(/two tool calls in one response/);
+  // Asking for the app first is a round too: approving the run is the consent to its app.
+  expect(system).toMatch(/start with computer_run[^.]*without computer_request_access/);
+  expect(system).toMatch(/computer_request_access only for[^.]*app_not_allowed/);
+  expect(system).not.toMatch(/Ask once with computer_request_access for every app/);
+  expect(system).toMatch(/loaded already[^.]*without load_tool/);
 });
 
 it('leaves computer_run out, tool and words, where it cannot run', () => {
   const request: ProviderRequest = { model: 'm', messages: [], tools: [tool('computer_run'), tool('computer_click')] };
   const off = withComputerGuidance('darwin', () => false)(request, { sessionId: 's' });
+  expect(off.system).toMatch(/Ask once with computer_request_access for every app/);
   expect(off.tools?.map((entry) => entry.name)).toEqual(['computer_click']);
   expect(off.system).not.toMatch(/computer_run/);
   expect(off.system).toMatch(/several tool calls in one response/);

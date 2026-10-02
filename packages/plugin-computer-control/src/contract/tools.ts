@@ -151,7 +151,7 @@ export const computerTools = {
     input: z.object({ query: z.string().max(256).optional().describe('Case-insensitive filter on name and identifier.'), limit: z.number().int().min(1).max(200).default(50) }).strict(),
   },
   computer_request_access: {
-    description: 'Ask the user, in one dialog, to let you control a set of applications for this conversation. Required before acting on an app. Browsers default to read-only and terminals to click-only; the user can raise the level.',
+    description: 'Ask the user, in one dialog, to let you control a set of applications for this conversation. Required before the single tools act on an app; computer_run asks for its own app. Browsers default to read-only and terminals to click-only; ask here for full control of them, for the clipboard and for system chords.',
     input: z.object({
       apps: z.array(app).min(1).max(32),
       reason: z.string().min(1).max(500).describe('One sentence for the dialog: the task, not the mechanism.'),
@@ -180,7 +180,7 @@ export const computerTools = {
   computer_set_value: { description: `Set the value of an editable element directly (text fields, sliders, steppers).${AFTER}`, input: onApp('set_value') },
   computer_perform_secondary_action: { description: `Run an accessibility action an element lists besides a click (show menu, expand, increment, cancel).${AFTER}`, input: onApp('perform_secondary_action') },
   computer_run: {
-    description: 'Run several steps on one app in a row, without a round trip per step. Describe each element in words; the element is found on the live window, also on a screen you have not seen yet, each `expect` is checked, and a step that does not work is tried another way. Stops at the first step that cannot be done and returns what was done plus the fresh app state. Use it whenever the next steps are known; use the single tools for work by x and y.',
+    description: 'Run several steps on one app in a row, without a round trip per step. Describe each element in words; the element is found on the live window, also on a screen you have not seen yet, each `expect` is checked, and a step that does not work is tried another way. Stops at the first step that cannot be done and returns what was done plus the fresh app state. Use it whenever the next steps are known; use the single tools for work by x and y. On an app not granted yet, approving this call grants the app for the conversation at its default level (browsers read-only, terminals click-only).',
     input: z.object({
       app,
       goal: z.string().min(1).max(500).describe('What these steps achieve, in one sentence. It tells similar elements apart.'),

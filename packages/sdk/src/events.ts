@@ -141,6 +141,8 @@ export interface ToolCallApprovedEvent extends EventBase {
   readonly callId: ToolCallId;
   readonly decidedBy: 'policy' | 'resolver' | 'hook';
   readonly mode: 'allow' | 'allow_session' | 'allow_always';
+  /** See `PermissionDecision.decidedNow`. */
+  readonly decidedNow?: boolean;
 }
 
 export interface ToolCallDeniedEvent extends EventBase {

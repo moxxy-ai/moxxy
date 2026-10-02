@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createDeferredPermissionResolver, evaluateToolRule } from './resolvers.js';
+import { createAllowListResolver, createDeferredPermissionResolver, evaluateToolRule } from './resolvers.js';
 import type { PendingToolCall, PermissionRule } from './permission.js';
 
 function call(name: string, input: unknown = {}): PendingToolCall {
@@ -68,5 +68,18 @@ describe('createDeferredPermissionResolver scoped session grants', () => {
     await resolver.check(call('Write', { file_path: 'two.ts', content: 'b' }), ctx);
 
     expect(prompts).toBe(2);
+  });
+});
+
+describe('a decision made now', () => {
+  it('is marked when the prompt was answered for this call, not when an earlier answer is reused', async () => {
+    const resolver = createDeferredPermissionResolver({ prompt: async () => ({ mode: 'allow_session' }) });
+    const ctx = { sessionId: 's' };
+    expect((await resolver.check(call('computer_run', { app: 'Notes' }), ctx)).decidedNow).toBe(true);
+    expect((await resolver.check(call('computer_run', { app: 'Mail' }), ctx)).decidedNow).toBeUndefined();
+  });
+
+  it('is marked for a tool the run was started with on its allow-list', async () => {
+    expect((await createAllowListResolver(['computer_run']).check(call('computer_run', {}), { sessionId: 's' })).decidedNow).toBe(true);
   });
 });

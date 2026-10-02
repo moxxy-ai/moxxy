@@ -715,7 +715,7 @@ function wrapWithPolicy(
           // Auto-approve replaces only the asking: policy denies above still
           // win, and a scoped resolver (subagent, goal run) keeps its own say.
           const scoped = currentPermissionScope();
-          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve' };
+          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve', decidedNow: true };
           return (scoped ?? target).check(call, ctx);
         };
       }

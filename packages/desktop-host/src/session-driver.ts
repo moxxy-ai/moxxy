@@ -120,7 +120,7 @@ export class SessionDriver {
         // Auto-approve ("yolo") short-circuit: allow without prompting so
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
-        if (this.autoApprove) return { mode: 'allow' };
+        if (this.autoApprove) return { mode: 'allow', decidedNow: true };
         const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
         const res = await withComputerApprovalFocus(this.session.computerControl,
           String(this.session.id), call, ctx, signal, () => openAsk(
@@ -143,7 +143,8 @@ export class SessionDriver {
         if (res.mode === 'allow_always') {
           void this.session.permissions.addAllow({ name: call.name });
         }
-        return { mode: res.mode ?? 'deny' };
+        // A sheet that was answered decided this call; a vanished one did not.
+        return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
       },
     });
     this.session.setApprovalResolver({
