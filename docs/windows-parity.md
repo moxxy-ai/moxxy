@@ -54,6 +54,10 @@ Still open, and worth knowing before building on top of them:
 - The `.claude/skills`, `.claude/agents`, `.codex/*` symlinks into `.ai/` check
   out as small text files on Windows (symlinks need extra rights), so skills
   are found only under `.ai/` there.
+- `apps/desktop/scripts/prepare-resources.mjs` runs `node $npm_execpath`. That
+  holds when pnpm is a JS file (`npm i -g pnpm`, the CI action) and fails with
+  `SyntaxError: Invalid or unexpected token` when pnpm is the standalone
+  `pnpm.exe` (the `@pnpm/exe` build).
 - `scripts/security-audit.mjs` runs `spawnSync('pnpm', …)`, which cannot find
   `pnpm.cmd`. It works in CI because that job runs on Ubuntu.
 
