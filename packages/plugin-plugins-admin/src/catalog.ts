@@ -74,8 +74,8 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   },
   {
     id: 'computer-control',
-    label: 'Computer control (macOS)',
-    description: 'Screenshot, click, type, open, clipboard, AppleScript tools. macOS only.',
+    label: 'Computer control',
+    description: 'Operate desktop apps through a native helper: app state, click, type, drag, screenshots. macOS and Windows x64.',
     packageName: '@moxxy/plugin-computer-control',
     installSpec: '@moxxy/plugin-computer-control',
   },

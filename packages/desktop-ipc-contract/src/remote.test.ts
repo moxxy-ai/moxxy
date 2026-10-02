@@ -35,6 +35,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'session.hasTranscriber',
       'session.transcribe',
       'chat.loadHistory',
+      'computer.snapshot',
       'scheduler.list',
       'scheduler.setEnabled',
       'scheduler.delete',
@@ -61,6 +62,9 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // settings writes; a paired phone holds a conversation, it doesn't retune
       // the runner's generation config.
       'settings.setReasoning',
+      // Pause, resume and take over belong to the person at the computer; a
+      // phone stops a turn with `session.abortTurn`.
+      'computer.control',
       'app.updateCli',
       'app.checkComponents',
       'app.updateComponents',

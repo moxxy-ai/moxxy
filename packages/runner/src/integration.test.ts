@@ -468,6 +468,10 @@ describe('runner end-to-end', () => {
     for await (const _event of remote.runTurn('think')) void _event;
     expect(provider.received.at(-1)?.reasoning).toEqual({ effort: 'high' });
 
+    await remote.providerAdmin.setReasoning('xhigh');
+    await waitFor(() => typeof session.reasoning === 'object' && session.reasoning.effort === 'xhigh');
+    expect(session.reasoning).toEqual({ effort: 'xhigh' });
+
     // 'off' clears it — the next turn's request carries no reasoning param.
     await remote.providerAdmin.setReasoning('off');
     await waitFor(() => session.reasoning === undefined);

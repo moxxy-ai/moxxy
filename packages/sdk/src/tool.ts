@@ -212,4 +212,16 @@ export interface ToolDef {
    * enforces these bounds at every call. See `ToolIsolationSpec`.
    */
   readonly isolation?: ToolIsolationSpec;
+  /**
+   * The tool reads state that changes outside the conversation (an app's
+   * window, a running job), so the same call between other calls is normal.
+   * The stuck-loop guard then counts only a back-to-back run of it.
+   */
+  readonly liveState?: boolean;
+  /**
+   * Sent in full even when the tool list is gated: a tool a task starts with,
+   * where loading it first would cost a model round. Each one is paid for on
+   * every request, so mark the entry point of a family, not the family.
+   */
+  readonly alwaysLoaded?: boolean;
 }

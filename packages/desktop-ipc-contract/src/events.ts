@@ -1,4 +1,4 @@
-import type { ApprovalRequest, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
+import type { ApprovalRequest, ComputerControlSnapshot, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
 
 import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
@@ -61,6 +61,9 @@ export interface IpcEvents {
    *  on its EventBus so every info-derived view (Settings tabs, mode badge,
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
+  /** The session's Computer Use turns changed (state, cursor, target). Carries
+   *  every turn of the session; the control strip replaces what it showed. */
+  'computer.changed': { workspaceId: string; turns: ReadonlyArray<ComputerControlSnapshot> };
   /** The shared per-session model override changed. */
   'session.model.changed': { workspaceId: string; model: string | null; contextWindow?: number };
   /** The shared per-session auto-approve flag changed. */

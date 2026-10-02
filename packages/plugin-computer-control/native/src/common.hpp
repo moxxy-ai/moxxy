@@ -19,8 +19,10 @@ namespace Windows = winrt::Windows;
 using namespace winrt;
 using namespace Windows::Data::Json;
 using Json = JsonObject;
-inline constexpr int protocol_version = 4;
+inline constexpr int protocol_version = 5;
 inline constexpr size_t frame_limit = 3'000'000;
+/// How long one step may run before the watchdog ends the helper.
+inline constexpr ULONGLONG step_budget = 20'000;
 struct Error : std::runtime_error {
   std::string code;
   Error(std::string c, const char* message) : std::runtime_error(message), code(std::move(c)) {}
@@ -93,13 +95,51 @@ bool has_target_focus(HWND window);
 HWND blocking_window(HWND window);
 void approval_focus_changed(HWND window);
 bool approval_focus(HWND window, IUIAutomationElement* root, IUIAutomationElement* focused, const Json& params, std::string& reason);
-void click_point(HWND window, Point point, const std::wstring& button, int count);
+/// One protocol frame on stdout; responses, state changes and preview frames come from different threads.
+void write_frame(const Json& frame);
+/// A key or character with the modifiers held around it, already mapped to virtual keys.
+struct Chord { std::vector<WORD> modifiers; WORD key = 0; wchar_t character = 0; };
+Chord parse_chord(const Json& chord);
+std::vector<WORD> parse_held(const Json& step);
+void click_point(HWND window, Point point, const std::wstring& button, int count, const std::vector<WORD>& held);
 void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus);
-void key_press(HWND window, const Json& params);
+void press_chord(HWND window, const Chord& chord, int repeat);
+void hold_chord(HWND window, const Chord& chord, int milliseconds);
 void scroll_at(HWND window, Point point, int dx, int dy);
-void drag_to(HWND window, Point from, Point to, int duration);
-Json clipboard(const Json& params);
-struct Capture { Rect source; int width; int height; std::string base64; std::wstring media_type; bool fallback; };
-Capture capture_window(HWND window, int max_dim, bool jpeg, int quality, bool allow_fallback, std::optional<Rect> crop);
+void drag_path(HWND window, const std::vector<Point>& path, const std::wstring& button, int duration, const std::vector<WORD>& held);
+bool pointer_held();
+void pointer_down(HWND window, Point point, const std::wstring& button, const std::vector<WORD>& held);
+void pointer_move(HWND window, Point point);
+void pointer_up(HWND window, Point point);
+/// The clipboard's text, or nothing when it holds no text.
+std::optional<std::wstring> clipboard_text();
+bool clipboard_has_content();
+void set_clipboard_text(const std::wstring& value);
+void clear_clipboard();
+struct Pixels { std::vector<uint8_t> bgra; int width = 0; int height = 0; };
+/// The window's own pixels through Windows Graphics Capture, whatever covers it on screen.
+Pixels capture_window_pixels(HWND window);
+/// What is visible on screen inside `bounds`.
+Pixels capture_screen_pixels(Rect bounds);
+Pixels crop_pixels(const Pixels& source, Rect region);
+/// Blacks out everything outside `keep`, a region in the picture's own coordinates.
+void keep_only(Pixels& pixels, HRGN keep);
+/// Base64 of the pixels scaled to `width` x `height`.
+std::string encode_pixels(const Pixels& source, int width, int height, bool jpeg, int quality);
+/// Largest size with the same aspect inside the vision limits (see `imageBudget` in src/contract/image.ts).
+std::pair<int,int> image_budget(int width, int height);
+/// The agent cursor: a click-through marker next to the point being acted on, never part of a capture.
+void create_cursor_overlay();
+void show_cursor(HWND target, Point screen, const wchar_t* phase);
+void hide_cursor();
+/// Base64 of `bytes`, on one line.
+std::string base64(const uint8_t* bytes, size_t size);
+/// The live picture for the human: `preview_frame` events with pictures, or `preview_chunk` events with H.264
+/// video when `video` is asked for and the system can encode it.
+void start_preview(int fps, bool video);
+/// The next video chunk starts a picture a viewer can join at.
+void preview_keyframe();
+void stop_preview();
+void preview_target(HWND window);
 Rect window_bounds(HWND window);
 }

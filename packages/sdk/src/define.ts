@@ -49,6 +49,8 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
   compact?: ToolCompactPresentation;
   icon?: ToolIcon;
   isolation?: ToolIsolationSpec;
+  liveState?: boolean;
+  alwaysLoaded?: boolean;
 }): ToolDef {
   return Object.freeze({
     name: spec.name,
@@ -62,6 +64,8 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     compact: spec.compact,
     icon: spec.icon,
     isolation: spec.isolation,
+    ...(spec.liveState ? { liveState: true } : {}),
+    ...(spec.alwaysLoaded ? { alwaysLoaded: true } : {}),
   });
 }
 

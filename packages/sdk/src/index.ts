@@ -46,9 +46,11 @@ export {
   computerControlStateSchema, computerControlOwnerSchema,
   computerControlCommandSchema, computerControlSnapshotSchema,
   computerApprovalFocusSchema, type ComputerApprovalFocus,
+  computerCursorPhaseSchema, computerCursorSchema, computerTargetSchema,
 } from './computer-control.js';
 export type {
   ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
+  ComputerCursor, ComputerTarget,
 } from './computer-control.js';
 
 // Identity. The type + pure helpers ride the main barrel; the OS resolver needs
@@ -203,6 +205,7 @@ export type {
   ContentBlock,
   ProviderMessage,
   ProviderRequest,
+  ReasoningEffort,
   ProviderEvent,
   CacheHint,
   TokenUsage,
@@ -342,6 +345,7 @@ export {
   projectMessagesFromLog,
   projectMessages,
   buildSystemPromptWithSkills,
+  skillsWithinReach,
   createStuckLoopDetector,
   stableHash,
   runReactLoop,
@@ -413,6 +417,9 @@ export {
 export {
   applyLazyTools,
   buildToolIndex,
+  matchLoadableTools,
+  shouldGateTools,
+  LAZY_TOOLS_AUTO_THRESHOLD,
   loadedToolNames,
   ALWAYS_ON_TOOLS,
   type GatedTools,

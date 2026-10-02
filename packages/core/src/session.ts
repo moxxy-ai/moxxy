@@ -8,6 +8,7 @@ import type {
   LoopGuardSettings,
   MoxxyEvent,
   Principal,
+  ReasoningEffort,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -197,14 +198,14 @@ export class Session implements ClientSession, SessionRuntime {
    * (elision on). Read into each turn's ModeContext.
    */
   elisionSettings: ElisionSettings | null = null;
-  /** Lazy tool loading toggle, from `config.context.lazyTools`. Default off. */
-  lazyTools = false;
+  /** Lazy tool loading, from `config.context.lazyTools`. Unset = automatic (on for a long tool list). */
+  lazyTools: boolean | undefined = undefined;
   /**
    * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
    * to each turn's ModeContext and on to the provider, which honors it only
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
-  reasoning: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined = undefined;
+  reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
   /**
    * Stuck-loop guard tuning, from `config.context.loopGuard`. Forwarded to each
    * turn's ModeContext and on to the mode's stuck-loop detector. Undefined →
@@ -714,7 +715,7 @@ function wrapWithPolicy(
           // Auto-approve replaces only the asking: policy denies above still
           // win, and a scoped resolver (subagent, goal run) keeps its own say.
           const scoped = currentPermissionScope();
-          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve' };
+          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve', decidedNow: true };
           return (scoped ?? target).check(call, ctx);
         };
       }

@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   ApprovalResolver,
+  ComputerControlService,
   MoxxyEvent,
   PendingToolCall,
   PermissionContext,
@@ -126,6 +127,9 @@ export class RunnerServer {
   private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
   private readonly surfacesUnsub: () => void;
+  /** The Computer Use service this runner pushes changes from; a plugin reload may replace it. */
+  private computerService: ComputerControlService | undefined;
+  private computerUnsub: () => void = () => undefined;
   /**
    * Resolvers for unscoped (local) turns - the fall-through path. Seeded from
    * whatever was installed before we wrapped the session, then kept current by
@@ -195,6 +199,20 @@ export class RunnerServer {
     this.surfacesUnsub = session.surfaces.onData((data) =>
       this.broadcast(RunnerNotification.SurfaceData, { data }),
     );
+    this.watchComputerControl();
+  }
+
+  /**
+   * Push every Computer Use change to every client (v23), so no surface polls.
+   * Re-checked with each info broadcast: a plugin reload registers a new service.
+   */
+  private watchComputerControl(): void {
+    const service = this.session.computerControl;
+    if (service === this.computerService) return;
+    this.computerUnsub();
+    this.computerService = service;
+    this.computerUnsub = service?.subscribe?.((turns) => this.broadcast(RunnerNotification.ComputerChanged, { turns }))
+      ?? (() => undefined);
   }
 
   get address(): string {
@@ -208,6 +226,7 @@ export class RunnerServer {
     this.logClearUnsub();
     this.modesUnsub();
     this.surfacesUnsub();
+    this.computerUnsub();
     abortActiveSyntheses();
     void this.session.surfaces.closeAll();
     for (const client of this.clients) client.peer.close();
@@ -544,6 +563,7 @@ export class RunnerServer {
   }
 
   private broadcastInfo(): void {
+    this.watchComputerControl();
     this.broadcast(RunnerNotification.InfoChanged, { info: this.info() });
   }
 

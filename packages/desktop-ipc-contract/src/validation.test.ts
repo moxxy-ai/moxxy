@@ -163,7 +163,7 @@ describe('IPC payload validation', () => {
   });
 
   it('pins settings.setReasoning effort to the known enum', () => {
-    for (const effort of ['off', 'low', 'medium', 'high'] as const) {
+    for (const effort of ['off', 'low', 'medium', 'high', 'xhigh'] as const) {
       expect(() => validateIpcInput('settings.setReasoning', { effort })).not.toThrow();
     }
     expect(() =>

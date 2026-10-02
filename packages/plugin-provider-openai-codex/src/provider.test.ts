@@ -211,6 +211,19 @@ describe('CodexProvider.stream', () => {
     expect(bodies[1]?.reasoning).toMatchObject({ effort: 'high' });
   });
 
+  it('sends the xhigh reasoning effort a request asks for', async () => {
+    let body: Record<string, unknown> = {};
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({ tokens: makeTokens(), fetch: fakeFetch as unknown as typeof fetch });
+
+    await collect(provider.stream({ ...baseRequest(), reasoning: { effort: 'xhigh' } }));
+
+    expect(body.reasoning).toMatchObject({ effort: 'xhigh' });
+  });
+
   it('uses a stable default session id across turns so the prefix cache can hit', async () => {
     const keys: unknown[] = [];
     const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {

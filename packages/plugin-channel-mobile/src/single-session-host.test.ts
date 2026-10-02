@@ -731,3 +731,53 @@ describe('MobileSessionHost', () => {
     expect(errs).toHaveLength(1);
   });
 });
+
+describe('MobileSessionHost Computer Use', () => {
+  const turn = { sessionId: 'sess-1', turnId: 'turn-1', state: 'active' as const, target: 'Calculator' };
+
+  function computerControl() {
+    const listeners = new Set<(turns: ReadonlyArray<unknown>) => void>();
+    return {
+      push: (turns: ReadonlyArray<unknown>) => listeners.forEach((listener) => listener(turns)),
+      listeners,
+      service: {
+        snapshot: async () => [turn],
+        control: async () => {},
+        subscribe: (listener: (turns: ReadonlyArray<unknown>) => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+    };
+  }
+
+  it('answers computer.snapshot with the turns under Computer Use', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession({ computerControl: computerControl().service });
+    new MobileSessionHost(bus, session).register();
+
+    expect(await bus.invoke('computer.snapshot', { workspaceId: 'sess-1' })).toEqual({ workspaceId: 'sess-1', turns: [turn] });
+  });
+
+  it('answers computer.snapshot with no turns when the session has no Computer Use', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession();
+    new MobileSessionHost(bus, session).register();
+
+    expect(await bus.invoke('computer.snapshot', { workspaceId: 'sess-1' })).toEqual({ workspaceId: 'sess-1', turns: [] });
+  });
+
+  it('pushes computer.changed to clients on every change and stops after dispose', () => {
+    const bus = new FakeBus();
+    const control = computerControl();
+    const { session } = fakeSession({ computerControl: control.service });
+    const host = new MobileSessionHost(bus, session);
+    host.wire();
+
+    control.push([turn]);
+    expect(bus.event('computer.changed').map((event) => event.payload)).toEqual([{ workspaceId: 'sess-1', turns: [turn] }]);
+
+    host.dispose();
+    expect(control.listeners.size).toBe(0);
+  });
+});

@@ -236,7 +236,7 @@ export const contextConfigSchema = z.object({
   caching: z.boolean().optional(),
   // The active CacheStrategy now lives at `plugins.cacheStrategy.default`.
   elision: elisionConfigSchema.optional(),
-  /** Lazy tool loading: send only core + loaded tool schemas, index the rest. Default false. */
+  /** Lazy tool loading: send only core + loaded tool schemas, index the rest. Unset = on above 200 tools. */
   lazyTools: z.boolean().optional(),
   /**
    * Reasoning/thinking preview. `true` enables it at the model's default depth;
@@ -244,7 +244,7 @@ export const contextConfigSchema = z.object({
    * reasoning (Anthropic adaptive thinking, OpenAI/Codex reasoning). Default off.
    */
   reasoning: z
-    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high']).optional() })])
+    .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional() })])
     .optional(),
   /**
    * Stuck-loop guard tuning. The guard bails a turn early when the model keeps

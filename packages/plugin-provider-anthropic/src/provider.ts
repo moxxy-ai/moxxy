@@ -12,6 +12,7 @@ import { resolveProviderTools } from '@moxxy/sdk';
 type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
 type MessageCountTokensParams = Anthropic.Messages.MessageCountTokensParams;
 import { toFriendlyError } from '@moxxy/sdk';
+import { anthropicEffort } from './effort.js';
 import type { AnthropicContentBlock } from './translate.js';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
@@ -294,7 +295,7 @@ export class AnthropicProvider implements LLMProvider {
       const effort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
       const body = requestBody as unknown as Record<string, unknown>;
       body.thinking = { type: 'adaptive', display: 'summarized' };
-      if (effort) body.output_config = { effort };
+      if (effort) body.output_config = { effort: anthropicEffort(effort) };
     }
 
     const fallbackRequestBody: MessageStreamParams | null = hostedTools.length > 0

@@ -85,6 +85,18 @@ export class SessionDriver {
     this.syncOtherTurns();
     this.disposes.push(infoUnsub);
 
+    // Computer Use status is pushed, never polled: every change on the runner
+    // (from this app, a channel bot or the helper) reaches the control strip.
+    // A runner older than v23 has no push; the strip then shows the last read.
+    try {
+      const computerUnsub = this.session.computerControl.subscribe?.((turns) => {
+        this.send('computer.changed', { workspaceId, turns });
+      });
+      if (computerUnsub) this.disposes.push(computerUnsub);
+    } catch {
+      // Older runner: nothing to subscribe to.
+    }
+
     // `/new` from another client of the conversation (a channel bot, the TUI)
     // wiped the runner's log: clear this chat too, or it keeps the old one.
     this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));
@@ -108,7 +120,7 @@ export class SessionDriver {
         // Auto-approve ("yolo") short-circuit: allow without prompting so
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
-        if (this.autoApprove) return { mode: 'allow' };
+        if (this.autoApprove) return { mode: 'allow', decidedNow: true };
         const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
         const res = await withComputerApprovalFocus(this.session.computerControl,
           String(this.session.id), call, ctx, signal, () => openAsk(
@@ -131,7 +143,8 @@ export class SessionDriver {
         if (res.mode === 'allow_always') {
           void this.session.permissions.addAllow({ name: call.name });
         }
-        return { mode: res.mode ?? 'deny' };
+        // A sheet that was answered decided this call; a vanished one did not.
+        return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
       },
     });
     this.session.setApprovalResolver({

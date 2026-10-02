@@ -110,6 +110,9 @@ vi.mock('@moxxy/client-core', () => ({
   // instrument bar's telemetry and the composer's mode menu), so its hook's
   // dependencies have to exist on the mock too.
   useConnection: () => ({ snapshot: undefined, hasEverConnected: false, retry: vi.fn() }),
+  // The live Computer Use view rides a surface, which reads the connection too.
+  isConnected: () => false,
+  toErrorMessage: (error: unknown) => String(error),
   chatStore: {
     subscribe: () => () => undefined,
     getModel: () => null,

@@ -18,6 +18,18 @@ describe('createStuckLoopDetector', () => {
     expect(d.record('Read', input).stuck).toBe(true); // 8th identical call trips
   });
 
+  it('lets a live-state tool repeat between other calls, and still trips on a back-to-back run', () => {
+    const d = createStuckLoopDetector({ repeatThreshold: 3 });
+    const look = { app: 'Finder' };
+    for (let i = 0; i < 10; i++) {
+      expect(d.record('computer_get_app_state', look, { liveState: true }).stuck).toBe(false);
+      expect(d.record('computer_click', { element_index: i }).stuck).toBe(false);
+    }
+    expect(d.record('computer_get_app_state', look, { liveState: true }).stuck).toBe(false);
+    expect(d.record('computer_get_app_state', look, { liveState: true }).stuck).toBe(false);
+    expect(d.record('computer_get_app_state', look, { liveState: true })).toMatchObject({ stuck: true, count: 3, kind: 'exact' });
+  });
+
   it('never trips when disabled (relies on maxIterations alone)', () => {
     const d = createStuckLoopDetector({ enabled: false, repeatThreshold: 2 });
     const input = { x: 1 };

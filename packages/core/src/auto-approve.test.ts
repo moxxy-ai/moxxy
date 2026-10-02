@@ -46,6 +46,17 @@ describe('conversation auto-approve', () => {
     expect(prompted).toHaveBeenCalledOnce();
   });
 
+  it('marks its approvals as decided now, and an allow rule from the policy as standing', async () => {
+    const { s, ctx } = promptingSession();
+    await s.permissions.addAllow({ name: 'computer_run' });
+    await s.setAutoApprove(true);
+
+    expect((await s.resolver.check(call('Bash'), ctx)).decidedNow).toBe(true);
+    const standing = await s.resolver.check(call('computer_run'), ctx);
+    expect(standing.mode).toBe('allow');
+    expect(standing.decidedNow).toBeUndefined();
+  });
+
   it('a deny rule from the permission policy still wins', async () => {
     const { s, ctx } = promptingSession();
     await s.permissions.addDeny({ name: 'Bash', reason: 'no shell' });

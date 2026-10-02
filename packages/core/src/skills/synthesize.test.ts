@@ -197,6 +197,17 @@ describe('buildSynthesizeSkillPlugin', () => {
     expect(session.tools.has('reload_skills')).toBe(true);
   });
 
+  it('load_tool accepts a family written as prefix* and names what it loaded', async () => {
+    const session = newSessionWithProvider(new InlineProvider([]));
+    session.pluginHost.registerStatic(buildSynthesizeSkillPlugin(session));
+    const ctx = { turnId: 't', sessionId: String(session.id), callId: 'c1' };
+
+    const out = await session.tools.execute('load_tool', { name: 'load_*' }, session.signal, ctx);
+
+    expect(out).toMatchObject({ loaded: true, tools: ['load_skill', 'load_tool'] });
+    await expect(session.tools.execute('load_tool', { name: 'nothing_*' }, session.signal, ctx)).rejects.toThrow(/no tool/);
+  });
+
   it('load_skill emits skill_invoked with the active turnId from ctx', async () => {
     const provider = new InlineProvider([]);
     const session = newSessionWithProvider(provider);

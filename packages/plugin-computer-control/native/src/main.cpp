@@ -85,6 +85,10 @@ int main(int argc, char** argv) {
               number(command,L"version",protocol_version,protocol_version);
               auto action=text(command,L"control");
               if (action==L"pause") guard_control(ControlCommand::pause);
+              else if (action==L"takeover") {
+                // The user has the computer: nothing stays held and the agent cursor goes away.
+                guard_control(ControlCommand::pause); release_input(); hide_cursor();
+              }
               else if (action==L"resume") guard_control(ControlCommand::resume);
               else if (action==L"stop") guard_control(ControlCommand::stop);
               else throw Error("invalid-input","Unknown control command");
@@ -111,6 +115,7 @@ int main(int argc, char** argv) {
         HWND_MESSAGE,nullptr,klass.hInstance,nullptr);
       if (!indicator) { SetEvent(stop.value); return; }
       control_window = indicator;
+      create_cursor_overlay();
       auto hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
         focus_changed, 0, 0, WINEVENT_OUTOFCONTEXT);
       if (!hook) { SetEvent(stop.value); return; }
@@ -134,7 +139,8 @@ int main(int argc, char** argv) {
       std::string line;
       { std::unique_lock lock(mutex); ready.wait(lock, [&] { return !frames.empty(); });
         line = std::move(frames.front()); frames.pop_front(); }
-      operation_deadline = GetTickCount64() + 12000;
+      // The executor resets this before each step of a long request.
+      operation_deadline = GetTickCount64() + step_budget;
       input_may_have_run=false;
       Json response; response.Insert(L"version", numeric(protocol_version));
       std::wstring id = L"invalid";
@@ -147,25 +153,17 @@ int main(int argc, char** argv) {
         auto result = desktop.execute(text(request, L"method"), request.GetNamedObject(L"params"));
         response.Insert(L"ok", moxxy::boolean(true)); response.Insert(L"result", result);
       } catch (const Error& error) {
-        if (error.code == "needs-observation") {
-          Json result; result.Insert(L"status",string_value(L"needs_observation"));
-          result.Insert(L"delivered",moxxy::boolean(false)); result.Insert(L"verificationRequired",moxxy::boolean(true));
-          result.Insert(L"effect",string_value(input_may_have_run ? L"possible" : L"none"));
-          response.Insert(L"ok",moxxy::boolean(true)); response.Insert(L"result",result);
-        } else {
         Json detail; detail.Insert(L"code", string_value(to_hstring(error.code)));
         detail.Insert(L"message", string_value(to_hstring(error.what())));
         response.Insert(L"ok", moxxy::boolean(false)); response.Insert(L"error", detail);
-        }
       } catch (...) {
-        Json detail; detail.Insert(L"code", string_value(L"native-error"));
-        detail.Insert(L"message", string_value(L"Native operation failed or target became unavailable; observe again."));
+        Json detail; detail.Insert(L"code", string_value(L"helper_failed"));
+        detail.Insert(L"message", string_value(L"The native operation failed or the target became unavailable"));
         response.Insert(L"ok", moxxy::boolean(false)); response.Insert(L"error", detail);
       }
       response.Insert(L"id", string_value(id));
-      auto wire = to_string(response.Stringify());
-      require(wire.size() <= frame_limit, "output-limit", "Response exceeds protocol limit");
-      std::cout << wire << '\n' << std::flush;
+      // write_frame drops an oversized frame; the host then times this request out without a retry.
+      write_frame(response);
       operation_deadline = 0;
       publish_guard_state(ControlState::idle);
     }

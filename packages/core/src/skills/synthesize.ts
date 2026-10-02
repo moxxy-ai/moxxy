@@ -9,6 +9,7 @@ import {
   type Skill,
   type SkillScope,
   type TurnId,
+  matchLoadableTools,
 } from '@moxxy/sdk';
 import { z } from 'zod';
 import { defaultProjectSkillsDir, defaultUserSkillsDir } from './loader.js';
@@ -374,7 +375,7 @@ export function buildSynthesizeSkillPlugin(
           'on the next turn. Only needed when lazy tool loading is enabled — core tools ' +
           '(Read/Write/Edit/Bash/Grep/Glob) are always available.',
         inputSchema: z.object({
-          name: z.string().min(1).describe('Exact tool name from the "Loadable tools" index.'),
+          name: z.string().min(1).describe('Exact tool name from the "Loadable tools" index, or a family as listed there, e.g. "computer_*".'),
         }),
         permission: { action: 'allow' },
         // Registry lookup — the schema inclusion happens on later requests.
@@ -383,6 +384,11 @@ export function buildSynthesizeSkillPlugin(
           // The call itself is recorded in the log; `applyLazyTools` reads that
           // to include the tool's schema on subsequent requests. Here we just
           // validate the name and echo the description so the model can proceed.
+          if (name.endsWith('*')) {
+            const family = matchLoadableTools(name, session.tools.list());
+            if (family.length === 0) throw new Error(`load_tool: no tool matches "${name}".`);
+            return { name, tools: family.map((t) => t.name), loaded: true };
+          }
           const tool = session.tools.get(name);
           if (!tool) {
             const known = session.tools

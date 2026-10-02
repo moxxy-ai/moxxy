@@ -6,6 +6,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-resources.mjs';
+import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/dist/backend/rpc.js';
+import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +23,17 @@ test('desktop extraResources copies both dependency trees from their parent', as
       filter: ['moxxy-cli/**/*', 'plugins-seed/**/*'],
     },
   ]);
+});
+
+test('universal macOS merge accepts the Computer Use helper, which is already universal', async () => {
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  const names = manifest.build.mac.x64ArchFiles.replace(/^\{|\}$/g, '').split(',');
+  assert.ok(names.includes('moxxy-computer'), manifest.build.mac.x64ArchFiles);
+});
+
+test('the app bundle leaves out the native sources and build output of the Computer Use helper', async () => {
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  assert.ok(manifest.build.files.includes('!**/node_modules/@moxxy/plugin-computer-control/native/**'), manifest.build.files.join(', '));
 });
 
 test('desktop resource verifier rejects the shipped Windows failure shape', async () => {
@@ -91,7 +104,7 @@ test('desktop resource verifier rejects a plugin seed without its package lock',
   }
 });
 
-test('Windows resources reject a computer extension without the native component', async () => {
+test('desktop resources reject a computer extension without the native component', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-native-resource-test-'));
   try {
     await writeValidResources(root);
@@ -108,7 +121,20 @@ test('Windows resources reject a computer extension without the native component
     await mkdir(path.join(plugin, 'dist'), { recursive: true });
     await writeJson(path.join(plugin, 'package.json'), { name, version: '1.2.3', moxxy: { plugin: { entry: './dist/index.js' } } });
     await writeFile(path.join(plugin, 'dist/index.js'), 'export {};');
-    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'win32' }), /Computer Use/);
+    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'win32' }), /Windows Computer Use/);
+    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use/);
+    await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'linux' }), /Linux Computer Use/);
+
+    // A universal Mach-O header with its manifest is what the macOS build ships.
+    const helper = path.join(plugin, 'bin', 'darwin-universal', 'moxxy-computer');
+    await mkdir(path.dirname(helper), { recursive: true });
+    const header = Buffer.alloc(8 + 2 * 20);
+    header.writeUInt32BE(0xcafebabe, 0);
+    header.writeUInt32BE(2, 4);
+    header.writeUInt32BE(0x01000007, 8);
+    header.writeUInt32BE(0x0100000c, 28);
+    await writeFile(helper, header);
+    await writeHelperManifest(helper, { protocolVersion: CONTRACT_PROTOCOL_VERSION, architecture: 'universal' });
     await verifyDesktopResources(root, { runCli: false, platform: 'darwin' });
   } finally { await rm(root, { recursive: true, force: true }); }
 });

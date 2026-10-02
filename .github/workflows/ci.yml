@@ -152,6 +152,11 @@ jobs:
       - name: Test packaging contracts
         run: node --test scripts/desktop-packaging.test.mjs
 
+      - name: Build macOS Computer Use component
+        # Needs the plugin's dist/ (manifest writer) from the workspace build.
+        if: runner.os == 'macOS'
+        run: packages/plugin-computer-control/native/macos/build.sh
+
       - name: Prepare embedded CLI and plugins
         # The native executable is a full-installer resource, not a JS hot update.
         if: runner.os != 'Windows'

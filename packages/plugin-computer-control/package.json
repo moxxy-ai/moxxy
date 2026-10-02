@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-computer-control",
   "version": "0.41.1",
-  "description": "Permission-gated computer control with macOS tools and an independent Windows x64 native backend.",
+  "description": "Permission-gated control of desktop applications through bundled native helpers for macOS, Windows x64 and Linux (X11).",
   "keywords": [
     "moxxy",
     "agent",
@@ -41,10 +41,14 @@
     "dist",
     "src",
     "skills",
+    "learned",
+    "scripts",
     "bin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "learned:promote": "node scripts/promote-learned.mjs",
+    "learned:train": "node scripts/train-learned.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"

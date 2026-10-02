@@ -96,7 +96,7 @@ export function buildSessionConfigApplier(
     }
 
     if (next.context?.lazyTools !== last.context?.lazyTools) {
-      session.lazyTools = next.context?.lazyTools ?? false;
+      session.lazyTools = next.context?.lazyTools;
       applied.push('lazyTools');
     }
 

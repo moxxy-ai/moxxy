@@ -29,6 +29,45 @@ void move(HWND window, Point point) {
   input.mi.dx = static_cast<LONG>(static_cast<int64_t>(point.x-x)*65535/(width-1));
   input.mi.dy = static_cast<LONG>(static_cast<int64_t>(point.y-y)*65535/(height-1)); send(input);
 }
+DWORD press_flag(const std::wstring& button) {
+  return button == L"right" ? MOUSEEVENTF_RIGHTDOWN : button == L"middle" ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_LEFTDOWN;
+}
+DWORD lift_flag(const std::wstring& button) {
+  return button == L"right" ? MOUSEEVENTF_RIGHTUP : button == L"middle" ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_LEFTUP;
+}
+void hold(const std::vector<WORD>& modifiers) {
+  for (auto modifier : modifiers) down(key(modifier, false), key(modifier, true));
+}
+/// Puts the user's pointer back where it was once the agent's input is done.
+struct PointerReturn {
+  POINT saved{}; bool known;
+  PointerReturn() : known(GetCursorPos(&saved) != FALSE) {}
+  // A release takes its position from the pointer at the moment Windows handles it, so the pointer
+  // stays where the agent acted until the app has had the last event.
+  ~PointerReturn() { if (known) { Sleep(40); SetCursorPos(saved.x, saved.y); } }
+};
+bool held_button = false;
+const std::map<std::wstring, WORD> modifier_codes{{L"ctrl",VK_CONTROL},{L"alt",VK_MENU},{L"shift",VK_SHIFT},{L"meta",VK_LWIN}};
+const std::map<std::wstring, WORD> key_codes{
+  {L"enter",VK_RETURN},{L"tab",VK_TAB},{L"escape",VK_ESCAPE},{L"space",VK_SPACE},{L"backspace",VK_BACK},
+  {L"forward_delete",VK_DELETE},{L"insert",VK_INSERT},{L"home",VK_HOME},{L"end",VK_END},{L"page_up",VK_PRIOR},
+  {L"page_down",VK_NEXT},{L"left",VK_LEFT},{L"right",VK_RIGHT},{L"up",VK_UP},{L"down",VK_DOWN},
+  {L"caps_lock",VK_CAPITAL},{L"help",VK_HELP},{L"menu",VK_APPS},{L"numpad_enter",VK_RETURN},{L"numpad_add",VK_ADD},
+  {L"numpad_subtract",VK_SUBTRACT},{L"numpad_multiply",VK_MULTIPLY},{L"numpad_divide",VK_DIVIDE},{L"numpad_decimal",VK_DECIMAL},
+};
+void add_modifier(std::vector<WORD>& modifiers, WORD code) {
+  if (std::find(modifiers.begin(), modifiers.end(), code) == modifiers.end()) modifiers.push_back(code);
+}
+std::vector<WORD> modifier_list(const JsonArray& names) {
+  require(names.Size() <= 4, "invalid_key", "Too many modifiers");
+  std::vector<WORD> result;
+  for (const auto& item : names) {
+    auto found = modifier_codes.find(std::wstring(item.GetString()));
+    require(found != modifier_codes.end(), "invalid_key", "Unknown modifier");
+    add_modifier(result, found->second);
+  }
+  return result;
+}
 void no_user_modifiers() {
   for (const auto vk : {VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON, VK_MBUTTON})
     require((GetAsyncKeyState(vk) & 0x8000) == 0, "user-input-active", "Release keyboard modifiers and mouse buttons before automation");
@@ -62,83 +101,129 @@ bool has_target_focus(HWND window) {
 void check_focus(HWND window) {
   wait_for_access(window,true);
 }
-void click_point(HWND window, Point point, const std::wstring& button, int count) {
+Chord parse_chord(const Json& chord) {
+  Chord result;
+  result.modifiers = modifier_list(chord.GetNamedArray(L"modifiers"));
+  auto value = chord.GetNamedValue(L"key");
+  if (value.ValueType() == JsonValueType::Null) return result;
+  auto name = std::wstring(value.GetString());
+  require(!name.empty() && name.size() <= 32, "invalid_key", "Unknown key");
+  if (auto found = key_codes.find(name); found != key_codes.end()) { result.key = found->second; return result; }
+  if (name.size() > 1 && name[0] == L'f') {
+    for (int i = 1; i <= 24; ++i) if (name == L"f" + std::to_wstring(i)) { result.key = static_cast<WORD>(VK_F1 + i - 1); return result; }
+  }
+  if (name.rfind(L"numpad_", 0) == 0 && name.size() == 8 && name[7] >= L'0' && name[7] <= L'9') {
+    result.key = static_cast<WORD>(VK_NUMPAD0 + (name[7] - L'0')); return result;
+  }
+  require(name.size() == 1, "invalid_key", "There is no such key on a Windows keyboard");
+  auto mapped = VkKeyScanW(name[0]);
+  if (mapped == -1) {
+    // A character the layout cannot produce is sent as text; it cannot take part in a shortcut.
+    require(result.modifiers.empty(), "invalid_key", "This character is not a key on the current keyboard layout");
+    result.character = name[0]; return result;
+  }
+  result.key = static_cast<WORD>(LOBYTE(mapped));
+  auto shift_state = HIBYTE(mapped);
+  if (shift_state & 1) add_modifier(result.modifiers, VK_SHIFT);
+  if (shift_state & 2) add_modifier(result.modifiers, VK_CONTROL);
+  if (shift_state & 4) add_modifier(result.modifiers, VK_MENU);
+  return result;
+}
+std::vector<WORD> parse_held(const Json& step) {
+  return step.HasKey(L"held") ? modifier_list(step.GetNamedArray(L"held")) : std::vector<WORD>{};
+}
+void click_point(HWND window, Point point, const std::wstring& button, int count, const std::vector<WORD>& held) {
   no_user_modifiers();
-  DWORD press = button == L"right" ? MOUSEEVENTF_RIGHTDOWN : button == L"middle" ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_LEFTDOWN;
-  DWORD lift = button == L"right" ? MOUSEEVENTF_RIGHTUP : button == L"middle" ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_LEFTUP;
+  PointerReturn back;
   for (int i = 0; i < count; ++i) {
-    Release release; move(window, point); check_focus(window); down(mouse(press), mouse(lift));
+    Release release; hold(held); move(window, point); check_focus(window); down(mouse(press_flag(button)), mouse(lift_flag(button)));
   }
 }
 void type_text(HWND window, const std::wstring& value, const std::function<void()>& validate_focus) {
   no_user_modifiers();
+  size_t typed = 0;
   for (wchar_t code_unit : value) {
-    Release release; check_focus(window); validate_focus();
+    Release release; check_focus(window);
+    // Reading the focused control is a cross-process call; once per word is enough to notice a change.
+    if (typed++ % 16 == 0) validate_focus();
     if (code_unit == L'\n') down(key(VK_RETURN, false), key(VK_RETURN, true));
     else if (code_unit != L'\r') down(key(0, false, code_unit), key(0, true, code_unit));
   }
 }
-void key_press(HWND window, const Json& params) {
-  auto name = text(params, L"key", 16);
-  const std::map<std::wstring, WORD> names = {
-    {L"enter", VK_RETURN}, {L"tab", VK_TAB}, {L"escape", VK_ESCAPE}, {L"space", VK_SPACE},
-    {L"backspace", VK_BACK}, {L"delete", VK_DELETE}, {L"home", VK_HOME}, {L"end", VK_END},
-    {L"pageup", VK_PRIOR}, {L"pagedown", VK_NEXT}, {L"left", VK_LEFT}, {L"right", VK_RIGHT}, {L"up", VK_UP}, {L"down", VK_DOWN},
-  };
-  WORD code = 0;
-  if (name.size() == 1 && ((name[0] >= L'a' && name[0] <= L'z') || (name[0] >= L'0' && name[0] <= L'9'))) code = static_cast<WORD>(towupper(name[0]));
-  else if (auto it = names.find(name); it != names.end()) code = it->second;
-  else for (int i=1; i<=12; ++i) if (name == L"f"+std::to_wstring(i)) code = static_cast<WORD>(VK_F1+i-1);
-  require(code != 0, "invalid-key", "Unsupported Windows key");
-  const std::map<std::wstring, WORD> modifier_codes{{L"windows",VK_LWIN},{L"control",VK_CONTROL},{L"alt",VK_MENU},{L"shift",VK_SHIFT}};
-  std::set<WORD> modifiers;
-  auto array = params.GetNamedArray(L"modifiers"); require(array.Size() <= 4, "invalid-input", "Too many modifiers");
-  for (const auto& item : array) {
-    auto it = modifier_codes.find(std::wstring(item.GetString()));
-    require(it != modifier_codes.end(), "invalid-key", "Unsupported Windows modifier (Cmd/Option are macOS-only)");
-    modifiers.insert(it->second);
+void press_chord(HWND window, const Chord& chord, int repeat) {
+  no_user_modifiers();
+  for (int i = 0; i < repeat; ++i) {
+    Release release; check_focus(window); hold(chord.modifiers); check_focus(window);
+    if (chord.character) down(key(0, false, chord.character), key(0, true, chord.character));
+    else if (chord.key) down(key(chord.key, false), key(chord.key, true));
   }
-  no_user_modifiers(); Release release; check_focus(window);
-  for (auto modifier : modifiers) down(key(modifier, false), key(modifier, true));
-  check_focus(window); down(key(code, false), key(code, true));
+}
+void hold_chord(HWND window, const Chord& chord, int milliseconds) {
+  no_user_modifiers(); Release release; check_focus(window); hold(chord.modifiers);
+  if (chord.key) down(key(chord.key, false), key(chord.key, true));
+  require(WaitForSingleObject(stop_event, milliseconds) == WAIT_TIMEOUT, "cancelled", "Key hold cancelled");
 }
 void scroll_at(HWND window, Point point, int dx, int dy) {
-  no_user_modifiers(); move(window, point); check_focus(window);
+  no_user_modifiers(); PointerReturn back; move(window, point); check_focus(window);
   if (dx) send(mouse(MOUSEEVENTF_HWHEEL, static_cast<DWORD>(dx)));
   if (dy) { check_focus(window); send(mouse(MOUSEEVENTF_WHEEL, static_cast<DWORD>(dy))); }
 }
-void drag_to(HWND window, Point from, Point to, int duration) {
-  no_user_modifiers(); Release release; move(window, from);
-  down(mouse(MOUSEEVENTF_LEFTDOWN), mouse(MOUSEEVENTF_LEFTUP));
-  for (int step = 1; step <= 20; ++step) {
-    require(WaitForSingleObject(stop_event, duration/20) == WAIT_TIMEOUT, "cancelled", "Drag cancelled");
-    move(window, {from.x+(to.x-from.x)*step/20, from.y+(to.y-from.y)*step/20});
+void drag_path(HWND window, const std::vector<Point>& path, const std::wstring& button, int duration, const std::vector<WORD>& held) {
+  require(path.size() >= 2, "invalid-input", "A drag needs at least two points");
+  no_user_modifiers(); PointerReturn back; Release release; hold(held); move(window, path.front());
+  down(mouse(press_flag(button)), mouse(lift_flag(button)));
+  const int segments = static_cast<int>(path.size()) - 1;
+  const int steps = std::max(4, 20 / segments);
+  // Applications need to see the pointer travel; an instant jump is often not a drag.
+  const int pause = std::max(5, duration / (segments * steps));
+  for (int segment = 0; segment < segments; ++segment) {
+    const auto from = path[segment], to = path[segment + 1];
+    for (int step = 1; step <= steps; ++step) {
+      require(WaitForSingleObject(stop_event, pause) == WAIT_TIMEOUT, "cancelled", "Drag cancelled");
+      move(window, {from.x + (to.x - from.x) * step / steps, from.y + (to.y - from.y) * step / steps});
+    }
   }
 }
-Json clipboard(const Json& params) {
-  auto action = text(params, L"action");
-  require(action == L"read" || action == L"write", "invalid-input", "Unsupported clipboard action");
-  std::wstring value;
-  if (action == L"write") value = text(params, L"text", 64000);
-  else require(!params.HasKey(L"text"), "invalid-input", "Read must not include text");
+bool pointer_held() { return held_button; }
+void pointer_down(HWND window, Point point, const std::wstring& button, const std::vector<WORD>& held) {
+  no_user_modifiers();
+  try {
+    hold(held); move(window, point); check_focus(window); down(mouse(press_flag(button)), mouse(lift_flag(button)));
+  } catch (...) { release_input(); throw; }
+  held_button = true;
+}
+void pointer_move(HWND window, Point point) {
+  try { move(window, point); } catch (...) { held_button = false; release_input(); throw; }
+}
+void pointer_up(HWND window, Point point) {
+  struct Lift { ~Lift() { held_button = false; release_input(); } } lift;
+  move(window, point);
+}
+std::optional<std::wstring> clipboard_text() {
+  require(OpenClipboard(control_window.load()), "clipboard-busy", "Clipboard unavailable");
+  struct Close { ~Close() { CloseClipboard(); } } close;
+  auto memory = GetClipboardData(CF_UNICODETEXT);
+  if (!memory) return std::nullopt;
+  auto capacity = GlobalSize(memory) / sizeof(wchar_t);
+  auto buffer = static_cast<const wchar_t*>(GlobalLock(memory));
+  require(buffer != nullptr, "native-error", "Cannot read clipboard");
+  std::wstring value(buffer, wcsnlen_s(buffer, capacity)); GlobalUnlock(memory);
+  return value;
+}
+bool clipboard_has_content() { return CountClipboardFormats() > 0; }
+void set_clipboard_text(const std::wstring& value) {
   // Win32 requires an owner HWND for EmptyClipboard + SetClipboardData.
   require(OpenClipboard(control_window.load()), "clipboard-busy", "Clipboard unavailable");
   struct Close { ~Close() { CloseClipboard(); } } close;
-  if (action == L"read") {
-    auto memory = GetClipboardData(CF_UNICODETEXT);
-    require(memory != nullptr, "clipboard-format", "Clipboard does not contain text");
-    auto capacity = GlobalSize(memory)/sizeof(wchar_t);
-    require(capacity > 0 && capacity <= 64001, "output-limit", "Clipboard text too large");
-    auto buffer = static_cast<const wchar_t*>(GlobalLock(memory)); require(buffer != nullptr, "native-error", "Cannot read clipboard");
-    auto length = wcsnlen_s(buffer, capacity); value.assign(buffer, length); GlobalUnlock(memory);
-  } else {
-    auto memory = GlobalAlloc(GMEM_MOVEABLE, (value.size()+1)*sizeof(wchar_t));
-    require(memory != nullptr, "native-error", "Cannot allocate clipboard data");
-    auto buffer = GlobalLock(memory);
-    if (!buffer) { GlobalFree(memory); throw Error("native-error", "Cannot lock clipboard data"); }
-    memcpy(buffer, value.c_str(), (value.size()+1)*sizeof(wchar_t)); GlobalUnlock(memory);
-    if (!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT, memory)) { GlobalFree(memory); throw Error("native-error", "Cannot write clipboard"); }
-  }
-  Json result; result.Insert(L"text", string_value(value)); return result;
+  auto memory = GlobalAlloc(GMEM_MOVEABLE, (value.size() + 1) * sizeof(wchar_t));
+  require(memory != nullptr, "native-error", "Cannot allocate clipboard data");
+  auto buffer = GlobalLock(memory);
+  if (!buffer) { GlobalFree(memory); throw Error("native-error", "Cannot lock clipboard data"); }
+  memcpy(buffer, value.c_str(), (value.size() + 1) * sizeof(wchar_t)); GlobalUnlock(memory);
+  if (!EmptyClipboard() || !SetClipboardData(CF_UNICODETEXT, memory)) { GlobalFree(memory); throw Error("native-error", "Cannot write clipboard"); }
+}
+void clear_clipboard() {
+  if (!OpenClipboard(control_window.load())) return;
+  EmptyClipboard(); CloseClipboard();
 }
 }

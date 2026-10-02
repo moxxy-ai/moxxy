@@ -22,6 +22,9 @@ import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
+import { usesComputer } from '../computer-control/panel-model';
+import { useComputerPreview } from '../computer-control/useComputerPreview';
+import { ComputerPreviewPip } from '../computer-control/ComputerPreviewPip';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -100,8 +103,10 @@ export function ChatSurface({
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
-  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && actionCatalog.tools.some(tool=>tool.name==='computer_app_catalog')
+  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
+  // The live view exists only while a turn can still act on the computer.
+  const preview = useComputerPreview(workspaceId, computer.view?.canStop === true);
   const voiceCall = useDesktopVoiceCall({
     surface: 'main',
     workspaceId,
@@ -222,10 +227,12 @@ export function ChatSurface({
       <div
         key={workspaceId}
         className="anim-fade-in"
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}
       >
         {notice}
-        {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)} />}
+        {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
+          previewHidden={preview.hidden} onShowPreview={preview.show} />}
+        {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (

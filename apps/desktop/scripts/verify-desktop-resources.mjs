@@ -3,7 +3,15 @@ import { spawnSync } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/windows/artifact.js';
+import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
+import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
+
+/** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
+const COMPUTER_HELPERS = {
+  win32: ['Windows', ['bin', 'win32-x64', 'moxxy-computer.exe'], CONTRACT_PROTOCOL_VERSION],
+  darwin: ['macOS', ['bin', 'darwin-universal', 'moxxy-computer'], CONTRACT_PROTOCOL_VERSION],
+  linux: ['Linux', ['bin', `linux-${process.arch}`, 'moxxy-computer'], CONTRACT_PROTOCOL_VERSION],
+};
 
 const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
@@ -60,11 +68,13 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
       await requireFile(path.resolve(path.dirname(manifestPath), entry), `${dependency} entrypoint`);
     }
     if (dependency === CODEX_PROVIDER) providerManifest = manifest;
-    if (dependency === '@moxxy/plugin-computer-control' && (options.platform ?? process.platform) === 'win32') {
+    const helper = COMPUTER_HELPERS[options.platform ?? process.platform];
+    if (dependency === '@moxxy/plugin-computer-control' && helper) {
+      const [label, segments, protocol] = helper;
       try {
-        await verifyHelperArtifact(path.join(path.dirname(manifestPath), 'bin', 'win32-x64', 'moxxy-computer.exe'));
+        await verifyHelperArtifact(path.join(path.dirname(manifestPath), ...segments), protocol);
       } catch (error) {
-        throw new Error('Windows Computer Use component missing or incompatible in desktop resources', { cause: error });
+        throw new Error(`${label} Computer Use component missing or incompatible in desktop resources`, { cause: error });
       }
     }
   }

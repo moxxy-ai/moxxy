@@ -1,5 +1,6 @@
 import {
   buildSystemPromptWithSkills,
+  skillsWithinReach,
   runSingleShotTurn,
   type ModeContext,
   type ProviderMessage,
@@ -52,7 +53,7 @@ function buildPlannerMessages(
   userMessages: ProviderMessage[],
 ): ProviderMessage[] {
   const systemWithSkills =
-    buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list()) ?? '';
+    buildSystemPromptWithSkills(ctx.systemPrompt, skillsWithinReach(ctx.skills.list(), ctx.tools.list().map((tool) => tool.name))) ?? '';
   return [
     {
       role: 'system',
