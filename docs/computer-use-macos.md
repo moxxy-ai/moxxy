@@ -76,6 +76,9 @@ helper, so the model sees one set of tools on both systems (see
   startup files, git hooks) is refused.
 - An open or save panel is drawn by a system service inside the app's window;
   a click on a file in it counts as a click on the app.
+- With the first state of an open or save panel in a turn the model gets a
+  note: choose the file with `super+shift+g`, the full path and Return, then
+  press the panel's confirm button; the search field is not to be used.
 - A window the app draws itself, with no elements below its title bar (Blender,
   a game), gets real clicks only: such apps read the pointer from the system,
   so a click sent in the background would land under the user's pointer.

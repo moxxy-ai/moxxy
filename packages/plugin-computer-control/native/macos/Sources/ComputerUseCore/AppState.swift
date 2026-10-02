@@ -174,6 +174,7 @@ extension Methods {
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
         if wantsPage, pagePending { result["contentPending"] = .bool(true) }
+        if FilePanel.identifiers.contains(root.identifier ?? "") { result["filePanel"] = .bool(true) }
         return .object(result)
     }
 

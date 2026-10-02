@@ -2282,3 +2282,34 @@ Oba odtworzone narzędziami wtyczki, bez modelu.
 **Pominięte / dla następcy**
 - Bez próby z modelem (patrz `todo.md`).
 - Windows i Linux bez zmian; nie sprawdzano tam Blendera.
+
+**Commit:** `16154e9c`.
+
+## Notatka o oknie wyboru pliku — 2026-10-02
+
+Próba w aplikacji (CapCut, `gpt-6-luna`): model znalazł plik szukaniem, zmienił
+zakres na „Pobrane rzeczy” i zobaczył pustą listę (wyniki doszły później),
+potem przez „Idź do” zaznaczył plik — „Import” był aktywny — ale pliku nie
+było widać w drzewie (zwinięta sekcja), więc wrócił do szukania i się poddał.
+
+**Co i jak**
+- Helper macOS oznacza stan, gdy obserwowane okno to systemowy panel
+  otwierania/zapisu (`filePanel` w wyniku `get_app_state`; pole opcjonalne,
+  protokół bez zmiany wersji).
+- Backend dokleja wtedy raz na turę i aplikację notatkę `FILE_PANEL_NOTE`:
+  `super+shift+g`, pełna ścieżka przez `computer_set_value` (pole bywa już
+  wypełnione starą ścieżką — pisanie ją dopisywało), Return, potem przycisk
+  potwierdzenia; bez pola szukania.
+
+**Testy (Red → Green)**
+- `backend.test.ts` „file panel notes”: Red — `Unrecognized key(s) in object:
+  'filePanel'`; Green po dodaniu pola do schematu i notatki.
+
+**Walidacja**
+- Wtyczka `pnpm exec vitest run` — 308/308 z e2e macOS; `swift test` — 186/186.
+- `pnpm build` 88/88; typecheck, `pnpm lint`, `pnpm check:deps` — 0 błędów.
+- Na żywo, narzędziami: CapCut — „Idź do”, ścieżka, Return, „Import”:
+  „Reklama mojej firmy.mp4” (00:30) trafiła do plików projektu.
+
+**Pominięte / dla następcy**
+- Bez powtórki z modelem. Otwarte pozycje okna wyboru pliku: `todo.md`.

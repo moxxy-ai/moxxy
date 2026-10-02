@@ -43,6 +43,13 @@ Otwarte dla Linuksa:
 - [ ] Blender i CapCut po poprawkach sprawdzone tylko narzędziami, bez modelu:
   powtórzyć oba zadania z `gpt-6-luna` (pączek w Blenderze; import, przycięcie
   i eksport w CapCut).
+- [ ] Okno wyboru pliku: wyniki szukania po zmianie zakresu („Pobrane rzeczy”)
+  pojawiają się po ustaleniu stanu, więc model widzi pustą listę. Notatka
+  odsyła model do „Idź do”; samo czekanie na wyniki nie jest zrobione.
+- [ ] Okno wyboru pliku: plik zaznaczony w zwiniętej sekcji listy nie jest
+  widoczny w drzewie (widać tylko aktywny przycisk „Import”).
+- [ ] Jedno kliknięcie przycisku „anuluj” w polu szukania zwróciło
+  `helper_failed` („The window could not be captured”); nieodtworzone.
 - [ ] Okno wyboru pliku z fokusem w polu szukania: pierwsze kliknięcie pliku
   bywa zgłaszane jako dostarczone w tle bez efektu (przypuszczalnie migający
   kursor tekstowy liczony jako zmiana obrazu; niesprawdzone). Powtórzenie

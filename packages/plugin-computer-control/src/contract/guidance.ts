@@ -17,6 +17,9 @@ The computer_* tools operate real applications on the user's computer through a 
 9. The user can pause, take over or stop at any time. After a pause or take-over, observe again before acting. After Stop, do not try to regain control by other means (shell, scripts, another agent).
 10. If a permission is missing, call computer_status and tell the user which setting to allow; do not retry blindly.`;
 
+/** Shown with the first state of an open or save panel in a turn. */
+export const FILE_PANEL_NOTE = `File dialog: to choose a file or folder, press super+shift+g, put its full path into the path field with computer_set_value (the field may already hold an older path) and press Return. The file is then selected even when the list does not show it, and the dialog's confirm button (Open, Import, Choose) is enabled: press it next. Do not use the dialog's search field: its results arrive late and changing the search scope clears them.`;
+
 /** Adds the working rules to a request that carries Computer Use tools, once. */
 export function withComputerGuidance(platform: KeyPlatform): (request: ProviderRequest) => ProviderRequest {
   const guidance = rules(platform);

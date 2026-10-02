@@ -321,6 +321,19 @@ describe('app hints', () => {
   });
 });
 
+describe('file panel notes', () => {
+  it('tells how to choose a file when an open or save panel shows, once in a turn', async () => {
+    const { tools } = backend();
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Open a file' });
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).not.toContain('File dialog');
+    const opened = forModel(await run(tools, 'computer_type_text', { app: 'TextEdit', text: '<file-panel>' }));
+    expect(opened).toContain('File dialog');
+    expect(opened).toMatch(/super\+shift\+g/);
+    expect(opened).toMatch(/selected even when the list does not show it/);
+    expect(forModel(await run(tools, 'computer_get_app_state', { app: 'TextEdit' }))).not.toContain('File dialog');
+  });
+});
+
 describe('live preview', () => {
   const waitFor = async (done: () => boolean) => {
     for (let tries = 0; tries < 200 && !done(); tries++) await new Promise((resolve) => setTimeout(resolve, 10));

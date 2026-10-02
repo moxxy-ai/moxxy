@@ -47,6 +47,8 @@ export const appStateSchema = z.object({
   screenshotUnavailable: z.string().max(500).optional(),
   /** A browser window whose page has not reached the accessibility tree yet. */
   contentPending: z.boolean().optional(),
+  /** The window is the system's open or save panel. */
+  filePanel: z.boolean().optional(),
 }).strict();
 export type AppState = z.infer<typeof appStateSchema>;
 

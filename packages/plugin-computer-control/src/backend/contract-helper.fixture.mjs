@@ -36,6 +36,8 @@ function tree(id) {
 const state = (id, screenshot = true) => ({
   tree: tree(id),
   ...(screenshot ? { screenshot: { mediaType: 'image/png', base64: PNG, width: 800, height: 600 } } : {}),
+  // The system's open or save panel is what the app shows.
+  ...(documents.get(id).includes('<file-panel>') ? { filePanel: true } : {}),
 });
 
 class Refusal extends Error {

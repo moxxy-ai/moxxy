@@ -1,6 +1,6 @@
 import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import { z } from 'zod';
-import { withComputerGuidance } from '../contract/guidance.js';
+import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
@@ -225,7 +225,10 @@ export class ComputerBackend {
     turn.seen.set(grant.id, fingerprint(state.tree, state.screenshot));
     const hint = turn.hinted.has(grant.id) ? undefined : hintFor(this.hints, grant);
     turn.hinted.add(grant.id);
-    const parts = [...prefix, ...(hint ? [`Notes for ${grant.name}:\n${hint}`] : []), wrapUntrusted(view.text, grant.name)];
+    const panel = `${grant.id}#file-panel`;
+    const panelNote = state.filePanel && !turn.hinted.has(panel) ? [FILE_PANEL_NOTE] : [];
+    if (state.filePanel) turn.hinted.add(panel);
+    const parts = [...prefix, ...(hint ? [`Notes for ${grant.name}:\n${hint}`] : []), ...panelNote, wrapUntrusted(view.text, grant.name)];
     if (state.screenshot) parts.push(`Screenshot ${state.screenshot.width}x${state.screenshot.height}: x and y in actions are pixels of this image.`);
     else if (state.screenshotUnavailable) parts.push(`No screenshot: ${state.screenshotUnavailable}`);
     if (state.contentPending) parts.push('The page content is not readable yet (still loading, or the window is hidden): look again before you report what the page says.');
