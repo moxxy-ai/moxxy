@@ -147,6 +147,26 @@ Zasady przekrojowe:
 - klatki PiP nigdy nie trafiają do modelu ani do logu sesji;
 - komponenty UI są prezentacyjne, a logika siedzi w hookach.
 
+## Warstwa decyzji Jev (`computer_run`) — 2026-10-02
+
+Główny model pisze plan kroków w jednym wywołaniu; `src/jev/` (wspólne dla
+macOS, Windows i Linuksa) wykonuje go na żywym drzewie elementów:
+
+- `client.ts` — żądanie do `api.typesafe.ai/v1/systemone` (`jev-latest`),
+  limit 8 s, jedno ponowienie przy 429/529, odpowiedzi sprawdzane przez zod.
+- `ground.ts` — pytanie Choice „który element” (porcje po 250 opcji, do 1000
+  elementów, opcja „none”); prawdopodobieństwo sumowane po przodkach i
+  potomkach elementu.
+- `ladder.ts` — kolejne sposoby wykonania kroku i ocena wyniku (`done`,
+  `retry`, `stop`); kody ostateczne (np. `user_intervened`) kończą bieg.
+- `run.ts` — pętla: jedno żądanie na krok (sprawdzenie kroku + element
+  następnego), do 4 sposobów na krok, stop na pierwszym nieudanym.
+
+Klucz: sekret `TYPESAFE_API_KEY` (vault) albo zmienna środowiskowa. Bez klucza
+narzędzie odsyła do pojedynczych narzędzi. Do TypeSafe idzie tekst drzewa
+okna, nazwy aplikacji i okna, cel i krok; bez zrzutu ekranu. Wzorzec:
+`savka777/jev-use` (planer + ugruntowanie przez Jev), kod własny.
+
 ## Mapa plików referencyjnych (tylko do odczytu)
 
 Codex (`/Applications/ChatGPT.app`, 26.928.21956). `OAI` =

@@ -24,6 +24,10 @@ final class TargetState {
     var lastAction: Date?
     /// The last gesture that went to the app softly (background input, or an accessibility press that changed nothing); asked again, it goes through the screen.
     var lastSoft: String?
+    /// When the last action's input went out, where the executor knows it.
+    var sent: Date?
+    /// What the elements said at the last observation, until an action is done; see `Executor.look`.
+    var said: [String]?
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
     var lastClick: CGPoint?
     /// Accessibility actions its elements keep declining.
@@ -127,7 +131,9 @@ extension Methods {
             ])
         }
         // A fresh launch is still loading, like the app right after an action.
-        Settler.settle(pid: running.processIdentifier, window: window, policy: launched || state.recentlyActed ? .afterAction : .observeOnly)
+        let acted = state.recentlyActed
+        Settler.settle(pid: running.processIdentifier, window: window, policy: launched || acted ? .afterAction : .observeOnly,
+                       waited: acted ? state.lastAction.map { Date().timeIntervalSince($0) } ?? 0 : 0)
         var reader = AXReader()
         var root = reader.snapshot(window)
         let wantsPage = params["web"]?.boolValue == true
@@ -150,6 +156,7 @@ extension Methods {
         state.root = window
         if let window = state.window { cursor?.attach(to: window) }
         targets.preview?.target(state.window)
+        state.said = Executor.said(built.elements)
         var result: [String: JSONValue] = [:]
         state.frame = nil
         state.pixels = nil

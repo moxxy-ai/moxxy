@@ -11,10 +11,12 @@ extension Methods {
         let state = targets.state(for: app)
         guard state.observed else { return .object(["result": ActionResult.blocked("no_state").json]) }
         // A step that waited out a pause acts on nothing: the app may have changed while the user had it.
+        let began = Date()
+        state.sent = nil
         let result = input.gate?.waitWhilePaused() == true
             ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
             : Executor(state: state, cursor: cursor, input: input).perform(request)
-        if result.outcome == .delivered { state.lastAction = Date() }
+        if result.outcome == .delivered { state.lastAction = state.sent ?? began }
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
         return .object(["result": result.json, "state": fresh])
     }
@@ -53,7 +55,9 @@ struct Executor {
             return FrameHit.index(at: screen, in: state.frames)
         }
         let before = isClick(request) ? look() : nil
-        let result = run(request, retried: state.lastSoft == key)
+        // What the window said at the observation is true only until something is done to it.
+        state.said = nil
+        let result = run(request, retried: state.lastSoft == key, seen: before)
         switch result.method {
         case .background: state.lastSoft = key
         case .ax: state.lastSoft = before.map { !changed(since: $0) } == true ? key : nil
@@ -67,18 +71,20 @@ struct Executor {
         return false
     }
 
-    private func look() -> (window: WindowCandidate, pixels: PixelBuffer, said: [String])? {
+    private typealias Look = (window: WindowCandidate, pixels: PixelBuffer, said: [String])
+
+    private func look() -> Look? {
         guard let window = state.window, let pixels = try? WindowCapture.capture(window).pixels else { return nil }
-        return (window, pixels, content())
+        return (window, pixels, state.said ?? content())
     }
 
-    private func changed(since before: (window: WindowCandidate, pixels: PixelBuffer, said: [String])) -> Bool {
+    private func changed(since before: Look) -> Bool {
         redrawn(before.window, since: before.pixels) || content() != before.said
     }
 
-    private func run(_ request: ActionRequest, retried: Bool) -> ActionResult {
+    private func run(_ request: ActionRequest, retried: Bool, seen: Look?) -> ActionResult {
         let physically = { (screen: CGPoint, point: CGPoint?, others: [CGPoint], button: MouseButton, send: (CGPoint, PointerRoute) -> Void) in
-            self.physically(at: screen, aimedAt: point, alsoOn: others, button: button, retried: retried, send)
+            self.physically(at: screen, aimedAt: point, alsoOn: others, button: button, retried: retried, seen: seen, send)
         }
         switch request {
         case let .click(.element(index), button, count, modifiers):
@@ -251,7 +257,7 @@ struct Executor {
     /// can be seen, real input follows: the app comes forward (never while the user types), the point must land
     /// on it, and the user's pointer goes back afterwards. `aimedAt` is checked again when coming forward
     /// changed the window.
-    private func physically(at screen: CGPoint, aimedAt point: CGPoint? = nil, alsoOn others: [CGPoint] = [], button: MouseButton, retried: Bool,
+    private func physically(at screen: CGPoint, aimedAt point: CGPoint? = nil, alsoOn others: [CGPoint] = [], button: MouseButton, retried: Bool, seen: Look? = nil,
                             _ send: (CGPoint, PointerRoute) -> Void) -> ActionResult {
         guard let window = state.window else { return noWindow }
         if pointer.holding != nil {
@@ -260,13 +266,13 @@ struct Executor {
         state.lastClick = screen
         let route = PointerRoute.choose(available: WindowServerLink.shared.available, window: WindowDirectory.address(of: window), button: button, repeated: retried,
                                         selfDrawn: SelfDrawn.window(window.frame, elements: state.frames.values))
-        if case .window = route, let before = try? WindowCapture.capture(window).pixels {
-            let said = content()
+        if case .window = route, let before = seen ?? look() {
             _ = withCursor(at: screen, outline: nil) {
+                state.sent = Date()
                 send(screen, route)
                 return .delivered(.background)
             }
-            if redrawn(window, since: before) || content() != said { return .delivered(.background) }
+            if changed(since: before) { return .delivered(.background) }
         }
         if let busy = waitForQuiet() { return busy }
         switch Foreground.bring(window) {
@@ -284,6 +290,7 @@ struct Executor {
         // A second try through the screen is the last method there is: when even that changes nothing, say so.
         let before = retried ? look() : nil
         let result = withCursor(at: screen, outline: nil) {
+            state.sent = Date()
             send(screen, .screen)
             return .delivered(.input)
         }
@@ -299,9 +306,11 @@ struct Executor {
     /// What the window's elements say, for an effect that shows in accessibility and not in the picture.
     private func content() -> [String] {
         guard let root = state.root else { return [] }
-        return TreeBuilder.build(AXReader().snapshot(root), limit: Methods.treeLimit).elements.map {
-            [$0.key, $0.title ?? "", $0.description ?? "", $0.value ?? "", $0.states.joined(separator: ",")].joined(separator: "\u{1F}")
-        }
+        return Self.said(TreeBuilder.build(AXReader().snapshot(root), limit: Methods.treeLimit).elements)
+    }
+
+    static func said(_ elements: [TreeElement]) -> [String] {
+        elements.map { [$0.key, $0.title ?? "", $0.description ?? "", $0.value ?? "", $0.states.joined(separator: ",")].joined(separator: "\u{1F}") }
     }
 
     private func redrawn(_ window: WindowCandidate, since before: PixelBuffer) -> Bool {

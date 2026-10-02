@@ -105,6 +105,36 @@ export type ComputerAction = { [N in ActionName]: { action: N } & ActionOutput<N
 const onApp = <N extends ActionName>(name: N) =>
   build({ app, ...actions[name].shape }, actions[name].target) as unknown as z.ZodType<ActionOutput<N> & { app: string }, z.ZodTypeDef, unknown>;
 
+/** One step of computer_run: what to do, the element in words, and what must show afterwards. */
+const runStepShape = z.object({
+  do: z.enum(['click', 'type', 'set_value', 'key', 'scroll']),
+  target: z.string().min(1).max(300).optional()
+    .describe('The element in words, the way it reads on screen: its label and kind, and where it is when that matters ("the Export button", "the file name field of the dialog"). Needed for click, set_value and scroll; leave it out of type to type into the focus.'),
+  text: z.string().max(20_000).optional().describe('The exact text for type and set_value.'),
+  key: chord().optional().describe('The chord for key, in xdotool syntax.'),
+  direction: fields.direction.optional().describe('For scroll.'),
+  expect: z.string().min(1).max(300).optional()
+    .describe('What the window shows once this step worked ("an export dialog is open"). The step is checked against it and tried another way when it does not hold.'),
+}).strict();
+export type RunStep = z.infer<typeof runStepShape>;
+
+const needs: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
+  click: ['target'], type: ['text'], set_value: ['target', 'text'], key: ['key'], scroll: ['target', 'direction'],
+};
+
+/** null and "" are filler, except an empty text for set_value, which clears the field. */
+function dropStepFiller(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
+  const step = input as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(step).filter(([name, value]) => value !== null && (value !== '' || (name === 'text' && step.do === 'set_value'))));
+}
+
+const runStep = z.preprocess(dropStepFiller, runStepShape.superRefine((step, ctx) => {
+  for (const field of needs[step.do]) {
+    if (step[field] === undefined || (field === 'text' && step.do === 'type' && step.text === '')) ctx.addIssue({ code: 'custom', path: [field], message: `${step.do} needs ${field}` });
+  }
+}));
+
 const region = z.array(z.number().int().nonnegative()).length(4).refine(([x0 = 0, y0 = 0, x1 = 0, y1 = 0]) => x1 > x0 && y1 > y0, 'region must be [x0, y0, x1, y1] with x1 > x0 and y1 > y0')
   .describe('[x0, y0, x1, y1] in the coordinate frame of the latest screenshot.');
 export interface ComputerToolSpec<I = unknown> { readonly description: string; readonly input: z.ZodType<I, z.ZodTypeDef, unknown> }
@@ -149,6 +179,14 @@ export const computerTools = {
   computer_drag: { description: `Drag with the left button from one screenshot point to another: moving or trimming clips on a timeline, sliders, selections. The grab point decides what happens (a clip's edge trims, its body moves), so aim it exactly.${AFTER}`, input: onApp('drag') },
   computer_set_value: { description: `Set the value of an editable element directly (text fields, sliders, steppers).${AFTER}`, input: onApp('set_value') },
   computer_perform_secondary_action: { description: `Run an accessibility action an element lists besides a click (show menu, expand, increment, cancel).${AFTER}`, input: onApp('perform_secondary_action') },
+  computer_run: {
+    description: 'Run several steps on one app in a row, without a round trip per step. Describe each element in words; the element is found on the live window, also on a screen you have not seen yet, each `expect` is checked, and a step that does not work is tried another way. Stops at the first step that cannot be done and returns what was done plus the fresh app state. Use it whenever the next steps are known; use the single tools for work by x and y.',
+    input: z.object({
+      app,
+      goal: z.string().min(1).max(500).describe('What these steps achieve, in one sentence. It tells similar elements apart.'),
+      steps: z.array(runStep).min(1).max(30),
+    }).strict(),
+  },
   computer_zoom: {
     description: 'Look closer at a region of the latest screenshot of an app, to read small text or find an exact edge. Reading aid only: coordinates keep referring to the screenshot, never to the zoomed image.',
     input: z.object({ app, region }).strict(),

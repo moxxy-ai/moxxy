@@ -34,7 +34,8 @@ export const appTreeSchema = z.object({
   });
 });
 export type AppTree = z.infer<typeof appTreeSchema>;
-type Element = AppTree['elements'][number];
+export type AppElement = AppTree['elements'][number];
+type Element = AppElement;
 
 const quote = (value: string, limit: number) =>
   JSON.stringify(value.length > limit ? `${value.slice(0, limit)}…` : value);
@@ -57,12 +58,13 @@ const header = (tree: AppTree) =>
 
 const TRUNCATED = '(tree truncated: not every element is listed)';
 
+/** Every element on its own line, indented by depth, as `[index] role "title" …`. */
+export function formatElements(tree: AppTree): string[] {
+  return tree.elements.map((element) => `${'  '.repeat(element.depth)}${line(element)}`);
+}
+
 export function formatTree(tree: AppTree): string {
-  return [
-    header(tree),
-    ...tree.elements.map((element) => `${'  '.repeat(element.depth)}${line(element)}`),
-    ...(tree.truncated ? [TRUNCATED] : []),
-  ].join('\n');
+  return [header(tree), ...formatElements(tree), ...(tree.truncated ? [TRUNCATED] : [])].join('\n');
 }
 
 export interface TreeView { readonly kind: 'full' | 'diff' | 'unchanged'; readonly text: string }

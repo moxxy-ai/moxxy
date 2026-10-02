@@ -1,46 +1,80 @@
 import ApplicationServices
 import Foundation
 
-/// How long to let an app settle: at least `minimum` after an action, then until no change for
-/// `quiet` seconds and no busy indicator, never past `maximum` (Codex: about 1 s, up to 5 s).
+/// How long to let an app settle: at least `minimum` after an action (`reacted` once the app has shown a change),
+/// then until no change for `quiet` seconds and no busy indicator, never past `maximum` (Codex: about 1 s, up to 5 s).
 public struct SettlePolicy: Sendable, Equatable {
     public let minimum: Double
     public let quiet: Double
     public let maximum: Double
+    /// The minimum once a change notification has arrived: the app is reacting, so its quiet says it is done.
+    public let reacted: Double
+    /// How long nothing but a spinner may move before the wait ends: some spinners never stop.
+    public let still: Double
 
-    public static let afterAction = SettlePolicy(minimum: 1.0, quiet: 0.3, maximum: 5.0)
-    public static let observeOnly = SettlePolicy(minimum: 0, quiet: 0.3, maximum: 5.0)
+    public init(minimum: Double, quiet: Double, maximum: Double, reacted: Double? = nil, still: Double? = nil) {
+        self.minimum = minimum
+        self.quiet = quiet
+        self.maximum = maximum
+        self.reacted = reacted ?? minimum
+        self.still = still ?? maximum
+    }
+
+    public static let afterAction = SettlePolicy(minimum: 1.0, quiet: 0.3, maximum: 5.0, reacted: 0.4, still: 1.5)
+    public static let observeOnly = SettlePolicy(minimum: 0, quiet: 0.3, maximum: 5.0, still: 1.5)
 }
 
 /// The settle decision as a pure function of time, so it is tested without an app.
 public struct SettleClock: Sendable {
     static let busyPoll = 0.25
+    /// How long after a reading of the window its own notifications may still arrive.
+    static let echo = 0.1
 
     private let start: Double
     private let policy: SettlePolicy
+    /// The policy's minimum less the time already spent, and never less than one quiet spell of listening.
+    private let minimum: Double
     private var lastChange: Double?
+    private var reading: ClosedRange<Double>?
 
-    public init(start: Double, policy: SettlePolicy) {
+    public init(start: Double, policy: SettlePolicy, waited: Double = 0) {
         self.start = start
         self.policy = policy
+        self.minimum = min(policy.minimum, max(policy.quiet, policy.minimum - waited))
     }
 
     public mutating func record(at time: Double) {
+        if let reading, reading.contains(time) { return }
         lastChange = max(lastChange ?? time, time)
+    }
+
+    /// The window was read for a busy indicator: what it sends because of that is not a change.
+    public mutating func read(from: Double, to: Double) {
+        reading = from...(to + Self.echo)
+    }
+
+    /// When the app has had its time and has been still for `quiet`, or the wait is over anyway.
+    private var quietAt: Double {
+        min(max(start + (lastChange == nil ? minimum : min(minimum, policy.reacted)), (lastChange ?? start) + policy.quiet), start + policy.maximum)
+    }
+
+    /// Whether the window may be read for a busy indicator. Reading it makes some apps send notifications
+    /// themselves (System Settings destroys the elements it made to answer), which must not count as a change.
+    public func isQuiet(now: Double) -> Bool {
+        now >= (lastChange == nil ? start + minimum : quietAt)
     }
 
     public func isSettled(now: Double, busy: Bool) -> Bool {
         if now - start >= policy.maximum { return true }
-        if busy || now < start + policy.minimum { return false }
-        guard let lastChange else { return true }
-        return now - lastChange >= policy.quiet
+        guard isQuiet(now: now) else { return false }
+        return !busy || now >= (lastChange ?? start) + policy.still
     }
 
     /// When the decision can next change; a change notification may wake the waiter earlier.
     public func nextCheck(now: Double, busy: Bool) -> Double {
         let limit = start + policy.maximum
         if busy { return min(now + Self.busyPoll, limit) }
-        return min(max(start + policy.minimum, (lastChange ?? now) + policy.quiet), limit)
+        return lastChange == nil ? min(start + minimum, limit) : quietAt
     }
 }
 
@@ -110,11 +144,11 @@ final class Settler: @unchecked Sendable {
     private var changes: [Double] = []
     private let wake = DispatchSemaphore(value: 0)
 
-    static func settle(pid: pid_t, window: AXUIElement, policy: SettlePolicy) {
+    static func settle(pid: pid_t, window: AXUIElement, policy: SettlePolicy, waited: Double = 0) {
         let settler = Settler()
         let subscription = settler.observe(pid)
         defer { subscription.map(settler.stop) }
-        settler.wait(window: window, policy: policy)
+        settler.wait(window: window, policy: policy, waited: waited)
     }
 
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }
@@ -126,15 +160,20 @@ final class Settler: @unchecked Sendable {
         wake.signal()
     }
 
-    private func wait(window: AXUIElement, policy: SettlePolicy) {
-        var clock = SettleClock(start: now(), policy: policy)
+    private func wait(window: AXUIElement, policy: SettlePolicy, waited: Double) {
+        var clock = SettleClock(start: now(), policy: policy, waited: waited)
+        var busy = false
         while true {
             lock.lock()
             let recent = changes
             changes.removeAll()
             lock.unlock()
             for time in recent { clock.record(at: time) }
-            let busy = BusyProbe.isBusy(window: window)
+            let before = now()
+            if clock.isQuiet(now: before) {
+                busy = BusyProbe.isBusy(window: window)
+                clock.read(from: before, to: now())
+            }
             let current = now()
             if clock.isSettled(now: current, busy: busy) { return }
             _ = wake.wait(timeout: .now() + max(0.01, clock.nextCheck(now: current, busy: busy) - current))

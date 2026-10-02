@@ -33,9 +33,9 @@ public enum OverlayGeometry {
 /// How the cursor travels: an arc whose time grows with distance, like Codex's spring-timed glide,
 /// straight for short hops, and no travel at all under Reduce Motion.
 public enum CursorMotion {
-    public static let minimumDuration = 0.18
-    public static let maximumDuration = 0.5
-    static let secondsPerPoint = 0.0006
+    public static let minimumDuration = 0.1
+    public static let maximumDuration = 0.25
+    static let secondsPerPoint = 0.0003
     static let straightBelow: CGFloat = 40
     static let arcRatio: CGFloat = 0.15
     public static let maximumArc: CGFloat = 60

@@ -41,6 +41,8 @@ import Testing
         #expect(short < long)
         #expect(CursorMotion.duration(distance: 0, reduceMotion: false) == CursorMotion.minimumDuration)
         #expect(CursorMotion.duration(distance: 100_000, reduceMotion: false) == CursorMotion.maximumDuration)
+        // Every action waits for the glide, so it stays short.
+        #expect(CursorMotion.maximumDuration <= 0.25)
     }
 
     @Test func jumpsWhenTheUserAsksForReducedMotion() {

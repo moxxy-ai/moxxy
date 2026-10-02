@@ -6,6 +6,8 @@ import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
+import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
+import { describeRun, runSteps } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
@@ -90,7 +92,12 @@ export class ComputerBackend {
 
   readonly hooks: LifecycleHooks;
 
-  constructor(private readonly profile: PlatformProfile, private readonly hints: ReadonlyArray<AppHint> = loadAppHints()) {
+  constructor(
+    private readonly profile: PlatformProfile,
+    private readonly hints: ReadonlyArray<AppHint> = loadAppHints(),
+    /** Jev for a TypeSafe key; a seam so tests need no network. */
+    private readonly jev: (apiKey: string) => AskJev = jevClient,
+  ) {
     this.hooks = {
       onBeforeProviderCall: withComputerGuidance(profile.platform),
       onInit: (ctx) => { ctx.services.register('computerControl', this.controls.forSession(ctx.sessionId)); },
@@ -112,7 +119,8 @@ export class ComputerBackend {
         inputJsonSchema: zodToJsonSchema(input),
         permission: { action: 'prompt' }, icon: 'workspace',
         ...(LOOKING.has(name) ? { liveState: true } : {}),
-        isolation: { capabilities: { subprocess: true, commands: [this.profile.helperPath], net: { mode: 'none' } } },
+        // Only a run of steps leaves the machine: it asks Jev where each element is.
+        isolation: { capabilities: { subprocess: true, commands: [this.profile.helperPath], net: name === 'computer_run' ? { mode: 'allowlist', hosts: [JEV_HOST] } : { mode: 'none' } } },
         handler,
       });
     });
@@ -164,10 +172,24 @@ export class ComputerBackend {
     },
     computer_get_app_state: async (input, ctx) => {
       const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
-      const web = categorize(grant) === 'browser' ? { web: true } : {};
-      const params = { app: grant.id, ...(input.window_id ? { window_id: input.window_id } : {}), screenshot: true, ...web };
-      const { turn, result } = await this.call(ctx, 'get_app_state', params, appStateSchema, grant.name);
+      const { turn, result } = await this.observe(ctx, grant, input.window_id);
       return this.present(turn, grant, result, [], input.disable_diff);
+    },
+    computer_run: async (input, ctx) => {
+      const grant = checkAccess(accessFromLog(ctx.log), input.app, 'read');
+      const apiKey = (await ctx.getSecret?.(JEV_SECRET)) || process.env[JEV_SECRET];
+      if (!apiKey) {
+        throw new Error(`computer_run needs a TypeSafe API key in the secret ${JEV_SECRET} (the user sets it with /vault set ${JEV_SECRET}, or in the desktop's Secrets). Until then use the single tools; do not call computer_run again in this conversation.`);
+      }
+      const { turn, result: initial } = await this.observe(ctx, grant);
+      const report = await runSteps(input.goal, input.steps, initial, {
+        ask: this.jev(apiKey), signal: ctx.signal,
+        selectAll: this.profile.platform === 'darwin' ? 'super+a' : 'ctrl+a',
+        observe: async () => (await this.observe(ctx, grant)).result,
+        act: async (step) => (await this.perform(input.app, step, ctx)).result,
+      });
+      turn.progress.forget(grant.id);
+      return this.present(turn, grant, report.state, [describeRun(report, input.steps)]);
     },
     computer_click: (input, ctx) => this.act(input, 'click', ctx),
     computer_type_text: (input, ctx) => this.act(input, 'type_text', ctx),
@@ -185,16 +207,26 @@ export class ComputerBackend {
     },
   };
 
-  private async act(input: { app: string } & Record<string, unknown>, action: ComputerAction['action'], ctx: ToolContext): Promise<unknown> {
-    const { app, ...fields } = input;
-    const step = { action, ...fields } as ComputerAction;
+  private observe(ctx: ToolContext, grant: AppGrant, windowId?: string) {
+    const web = categorize(grant) === 'browser' ? { web: true } : {};
+    return this.call(ctx, 'get_app_state', { app: grant.id, ...(windowId ? { window_id: windowId } : {}), screenshot: true, ...web }, appStateSchema, grant.name);
+  }
+
+  /** One action on an app, behind the grant's level and the key rules. */
+  private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined) {
     const access = accessFromLog(ctx.log);
     const grant = checkAccess(access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
     const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id) };
+    beforeSending(await this.turn(ctx), grant);
+    return { grant, ...(await this.call(ctx, 'act', params, actResultSchema, grant.name)) };
+  }
+
+  private async act(input: { app: string } & Record<string, unknown>, action: ComputerAction['action'], ctx: ToolContext): Promise<unknown> {
+    const { app, ...fields } = input;
+    const step = { action, ...fields } as ComputerAction;
     const signature = JSON.stringify(step);
-    (await this.turn(ctx)).progress.check(grant.id, signature);
-    const { turn, result } = await this.call(ctx, 'act', params, actResultSchema, grant.name);
+    const { turn, grant, result } = await this.perform(app, step, ctx, (current, granted) => current.progress.check(granted.id, signature));
     const { state } = result;
     if (!state) return describeResult(result.result);
     const [outcome, note] = this.judge(turn, grant.id, signature, result.result, state);

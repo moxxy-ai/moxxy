@@ -1,0 +1,78 @@
+import { describe, expect, it } from 'vitest';
+import type { AppElement } from '../contract/tree.js';
+import { judge, rungs } from './ladder.js';
+
+const field: AppElement = { key: 'w/name', index: 7, depth: 1, role: 'text field', title: 'Name', frame: { x: 100, y: 40, width: 200, height: 20 } };
+const bare: AppElement = { key: 'w/bare', index: 8, depth: 1, role: 'button' };
+
+describe('rungs', () => {
+  it('clicks the element, then the point in its middle', () => {
+    expect(rungs({ do: 'click', target: 'Name' }, field, 'super+a')).toEqual([
+      [{ action: 'click', element_index: 7, mouse_button: 'left', click_count: 1 }],
+      [{ action: 'click', x: 200, y: 50, mouse_button: 'left', click_count: 1 }],
+    ]);
+    expect(rungs({ do: 'click', target: 'x' }, bare, 'super+a')).toHaveLength(1);
+  });
+
+  it('sets a value directly, then by clicking the field, selecting what it holds and typing', () => {
+    expect(rungs({ do: 'set_value', target: 'Name', text: 'clip' }, field, 'ctrl+a')).toEqual([
+      [{ action: 'set_value', element_index: 7, value: 'clip' }],
+      [
+        { action: 'click', element_index: 7, mouse_button: 'left', click_count: 1 },
+        { action: 'press_key', key: 'ctrl+a', repeat: 1 },
+        { action: 'type_text', text: 'clip' },
+      ],
+    ]);
+  });
+
+  it('types into a described element, then into whatever a click on it focuses', () => {
+    expect(rungs({ do: 'type', target: 'Name', text: 'hi' }, field, 'super+a')).toEqual([
+      [{ action: 'type_text', element_index: 7, text: 'hi' }],
+      [{ action: 'click', element_index: 7, mouse_button: 'left', click_count: 1 }, { action: 'type_text', text: 'hi' }],
+    ]);
+  });
+
+  it('has one way to type into the focus, press a key or scroll', () => {
+    expect(rungs({ do: 'type', text: 'hi' }, undefined, 'super+a')).toEqual([[{ action: 'type_text', text: 'hi' }]]);
+    expect(rungs({ do: 'key', key: 'Return' }, undefined, 'super+a')).toEqual([[{ action: 'press_key', key: 'Return', repeat: 1 }]]);
+    expect(rungs({ do: 'scroll', target: 'list', direction: 'down' }, field, 'super+a')).toEqual([[{ action: 'scroll', element_index: 7, direction: 'down', pages: 1 }]]);
+  });
+});
+
+describe('judge', () => {
+  const delivered = { outcome: 'delivered' } as const;
+
+  it('goes on after an action that was delivered and changed the window', () => {
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: delivered, changed: true })).toEqual({ verdict: 'done', verified: false });
+  });
+
+  it('trusts Jev on what the step was expected to show', () => {
+    const step = { do: 'click', target: 'Save', expect: 'a save dialog is open' } as const;
+    expect(judge({ step, result: delivered, changed: true, expected: 0.9 })).toEqual({ verdict: 'done', verified: true });
+    expect(judge({ step, result: delivered, changed: true, expected: 0.1 })).toMatchObject({ verdict: 'retry' });
+    // Jev undecided: a changed window is taken as progress, an unchanged one is not.
+    expect(judge({ step, result: delivered, changed: true, expected: 0.45 })).toEqual({ verdict: 'done', verified: false });
+    expect(judge({ step, result: delivered, changed: false, expected: 0.45 })).toMatchObject({ verdict: 'retry' });
+  });
+
+  it('tries another way after a click or a value that changed nothing', () => {
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });
+    expect(judge({ step: { do: 'set_value', target: 'Name', text: 'a' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });
+  });
+
+  it('accepts a key or a scroll that changed nothing visible', () => {
+    expect(judge({ step: { do: 'key', key: 'Escape' }, result: delivered, changed: false })).toEqual({ verdict: 'done', verified: false });
+    expect(judge({ step: { do: 'scroll', target: 'list', direction: 'down' }, result: delivered, changed: false })).toEqual({ verdict: 'done', verified: false });
+  });
+
+  it('tries another way when the action did not go through', () => {
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'unsupported', code: 'unsupported_action' }, changed: false })).toMatchObject({ verdict: 'retry' });
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'blocked', code: 'hit_test_mismatch' }, changed: false })).toMatchObject({ verdict: 'retry' });
+  });
+
+  it('stops at once for what only the user or the main model can resolve', () => {
+    for (const code of ['user_stopped', 'user_intervened', 'screen_locked', 'permissions_not_granted', 'tier_insufficient', 'app_not_allowed', 'target_blocked', 'protected_path'] as const) {
+      expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'blocked', code }, changed: false })).toMatchObject({ verdict: 'stop' });
+    }
+  });
+});

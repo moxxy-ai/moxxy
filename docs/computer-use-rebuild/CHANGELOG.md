@@ -2366,3 +2366,55 @@ Bez zmian w kodzie; fakty z `~/.moxxy/sessions/moxxy-channel-telegram.jsonl`.
 - CapCut (03:26): 9 wywołań, 59 s; eksport „1002 (2).mp4” udany; plik
   usunięty potem przez właściciela (jego potwierdzenie), więc to nie fałszywy
   sukces.
+
+## Plan kroków z decyzjami Jev i krótsze czekanie po akcji — 2026-10-02
+
+**Co**
+- `src/jev/{client,ground,ladder,run}.ts` z testami; narzędzie `computer_run`
+  (`contract/tools.ts`, `backend/backend.ts`); `formatElements` w
+  `contract/tree.ts`; reguły 6 i 11 w `contract/guidance.ts`;
+  `skills/computer-control.md`.
+- macOS: `Settle.swift` (`reacted`, `still`, `waited`, pomijanie echa własnego
+  odczytu), `Act.swift` (jeden odczyt okna przed kliknięciem, treść z ostatniej
+  obserwacji, czas wysłania wejścia), `AppState.swift`, `Cursor.swift`
+  (lot 0,1–0,25 s zamiast 0,18–0,5 s).
+
+**Jak i dlaczego**
+- Pomiar formatu pytania na prawdziwych drzewach (Ustawienia 147 elementów,
+  CapCut 57): tekst drzewa w `state.elements`, opcje = indeksy + `none` —
+  16/16 trafień, średnio 263 ms na żądanie.
+- Pierwsza próba na żywo: 3/3 kroki poprawne, ale 24,1 s. Jev zajął ok. 1,2 s;
+  resztę helper. Przyczyny: sprawdzanie wskaźnika zajętości czytało okno w
+  każdej pętli, Ustawienia odpowiadały na to powiadomieniami o zniszczonych
+  elementach, więc okno nigdy nie wyglądało na spokojne (5 s do limitu);
+  minimum 1 s liczone od początku czekania, a nie od akcji; panel Bluetooth
+  kręci wskaźnikiem bez końca; kliknięcie czytało okno dwa razy.
+- „Agent poddaje się po dwóch próbach”: twardej blokady nie ma —
+  `ProgressTracker` odrzuca tylko identyczną akcję po dwóch wynikach bez
+  zmiany. Dodana reguła 11: nie rezygnować, zanim nie zawiedzie kilka różnych
+  dróg.
+
+**Testy (Red → Green)**
+- Swift: `waitsLessOnceTheAppHasReacted`,
+  `saysWhenTheAppIsQuietEnoughToBeAskedWhetherItIsBusy`,
+  `stopsWaitingForASpinnerOnceNothingElseChanges`,
+  `doesNotCountTheNotificationsItsOwnReadingCauses`,
+  `countsTheTimeTheActionItselfTook` — Red: `extra argument 'reacted'`,
+  `'still'`, `'waited'`, brak `isQuiet`; Green po implementacji. Lot kursora:
+  `maximumDuration <= 0.25`.
+- TS: `src/jev/*.test.ts`, „a run of steps” w `backend.test.ts`, nowe testy w
+  `tools.test.ts` i `guidance.test.ts`. Uchybienie: schemat `computer_run`
+  powstał przed swoimi testami (testy dopisane zaraz potem).
+  `skill.test.ts` wykrył brak `computer_run` w skillu (Red), dopisane (Green).
+
+**Walidacja**
+- `swift test` — 192/192; `pnpm exec vitest run` we wtyczce — 355/355
+  (27 pominiętych: Linux) z e2e macOS.
+- `pnpm build`, `pnpm -r typecheck`, `pnpm lint`, `pnpm check:deps` — 0 błędów.
+- Na żywo, narzędziem bez modelu (Ustawienia systemowe, prawdziwy Jev):
+  3/3 kroki `verified`, 4 żądania, 7,5 s (przed zmianami helpera 24,1 s).
+  Klik ze świeżym stanem: 1,9–2,0 s (wcześniej 5,5–7,2 s).
+
+**Pominięte / dla następcy**
+- Bez próby z modelem. Windows i Linux: warstwa decyzji jest wspólna, ale ich
+  helpery nie były mierzone. Otwarte pozycje w `todo.md`.

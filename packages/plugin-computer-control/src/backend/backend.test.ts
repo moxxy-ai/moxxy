@@ -2,13 +2,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AppContext, ComputerControlService, MoxxyEvent, ToolDef, ToolImageResult } from '@moxxy/sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REQUEST_ACCESS_TOOL } from './access.js';
 import type { AppHint } from './app-hints.js';
 import { ComputerBackend, type PlatformProfile } from './backend.js';
 import { contractHelperScript, helperRequests, memoryLog, toolContext } from './helper.fixture.js';
 import type { PreviewMessage } from '../preview/controller.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
+import type { AskJev, JevAnswers } from '../jev/client.js';
 
 let directory: string;
 let requestsFile: string;
@@ -26,8 +27,8 @@ const profile = (extra: Partial<PlatformProfile> = {}): PlatformProfile => ({
   unavailableMessage: 'Computer Use helper is missing.',
 });
 
-function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
-  const instance = new ComputerBackend(profile(extra), hints);
+function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}, jev?: (apiKey: string) => AskJev): { instance: ComputerBackend; tools: Map<string, ToolDef> } {
+  const instance = new ComputerBackend(profile(extra), hints, jev);
   backends.push(instance);
   return { instance, tools: new Map(instance.tools().map((tool) => [tool.name, tool])) };
 }
@@ -35,10 +36,10 @@ function backend(hints: AppHint[] = [], extra: Partial<PlatformProfile> = {}): {
 let seq = 0;
 const base = (turnId: string) => ({ id: `e${seq}`, seq: seq++, ts: 0, sessionId: 'session', turnId, source: 'system' });
 
-async function run(tools: Map<string, ToolDef>, name: string, input: unknown, turnId = 'turn'): Promise<unknown> {
+async function run(tools: Map<string, ToolDef>, name: string, input: unknown, turnId = 'turn', secrets: Record<string, string> = {}): Promise<unknown> {
   const tool = tools.get(name);
   if (!tool) throw new Error(`no tool ${name}`);
-  return tool.handler(tool.inputSchema.parse(input), toolContext(memoryLog(events), { turnId }));
+  return tool.handler(tool.inputSchema.parse(input), toolContext(memoryLog(events), { turnId, getSecret: async (secret) => secrets[secret] ?? null }));
 }
 
 /** Record a request the way dispatch does: requested → approved → result. */
@@ -234,6 +235,58 @@ describe('actions', () => {
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
     await run(tools, 'computer_drag', { app: 'TextEdit', from_x: 558, from_y: 660, to_x: 340, to_y: 660 });
     expect(helperRequests(requestsFile).at(-1)?.params.action).toEqual({ action: 'drag', path: [[558, 660], [340, 660]], duration_ms: 600, mouse_button: 'left' });
+  });
+});
+
+describe('a run of steps', () => {
+  /** Jev that finds an element by a word of its line and believes every expectation. */
+  const jev = (keys: string[]) => (apiKey: string): AskJev => async (state, questions) => {
+    keys.push(apiKey);
+    const { elements, step } = state as { elements: string; step?: { target?: string } };
+    const line = elements.split('\n').find((candidate) => step?.target !== undefined && candidate.includes(step.target));
+    const index = line ? (/\[(\d+)\]/.exec(line) ?? [])[1] ?? 'none' : 'none';
+    return Object.fromEntries(Object.entries(questions).map(([id, question]) =>
+      [id, question.type === 'choice' ? { type: 'choice', choice: index, probabilities: { [index]: 0.9 }, confidence: 0.9 } : { type: 'noul', noul: id === 'expected' ? 0.9 : 0 }])) as JevAnswers;
+  };
+  const steps = [{ do: 'type', target: 'text area', text: ' world', expect: 'the text ends with world' }, { do: 'key', key: 'Return' }];
+
+  it('carries out the steps through the helper with the key from the vault, and returns the report with the fresh state', async () => {
+    const keys: string[] = [];
+    const { tools } = backend([], {}, jev(keys));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', { TYPESAFE_API_KEY: 'vault-key' }));
+    expect(output).toMatch(/computer_run: 2 of 2 steps done/);
+    expect(output).toContain('1. verified — type "text area" " world" → [1] text area value="hello" focused');
+    expect(output).toContain('[1] text area value="hello world" focused');
+    expect(new Set(keys)).toEqual(new Set(['vault-key']));
+    expect(helperRequests(requestsFile).filter((request) => request.method === 'act').map((request) => request.params.action)).toEqual([
+      { action: 'type_text', element_index: 1, text: ' world' },
+      { action: 'press_key', key: 'Return', repeat: 1, chord: { modifiers: [], key: 'enter' } },
+    ]);
+  });
+
+  it('says how to turn it on when there is no TypeSafe key, without touching the app', async () => {
+    vi.stubEnv('TYPESAFE_API_KEY', '');
+    try {
+      const { tools } = backend([], {}, jev([]));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      await expect(run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps })).rejects.toThrow(/TYPESAFE_API_KEY[\s\S]*single/);
+      expect(methods()).not.toContain('act');
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('stops at a step the grant does not allow and leaves the rest', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['Safari'], reason: 'Read' });
+    const output = forModel(await run(tools, 'computer_run', { app: 'Safari', goal: 'Save', steps: [{ do: 'click', target: 'Save' }, { do: 'key', key: 'Return' }] }, 'turn', { TYPESAFE_API_KEY: 'k' }));
+    expect(output).toMatch(/0 of 2 steps[\s\S]*1\. FAILED[\s\S]*tier_insufficient[\s\S]*Not run: step 2/);
+    expect(methods()).not.toContain('act');
+  });
+
+  it('may reach TypeSafe and nothing else on the network', () => {
+    const { tools } = backend();
+    expect(tools.get('computer_run')?.isolation?.capabilities.net).toEqual({ mode: 'allowlist', hosts: ['api.typesafe.ai'] });
+    expect(tools.get('computer_click')?.isolation?.capabilities.net).toEqual({ mode: 'none' });
   });
 });
 

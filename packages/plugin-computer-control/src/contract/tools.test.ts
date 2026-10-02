@@ -6,11 +6,11 @@ const input = <N extends keyof typeof computerTools>(name: N): (typeof computerT
 const properties = (name: keyof typeof computerTools) => Object.keys((zodToJsonSchema(computerTools[name].input) as { properties: object }).properties).sort();
 
 describe('computerTools', () => {
-  // Nine tools as in Codex, plus the access request, the permission status and a closer look.
+  // Nine tools as in Codex, plus the access request, the permission status, a closer look and a run of steps.
   it('exposes a small tool set a model can fill without guessing', () => {
     expect(Object.keys(computerTools).sort()).toEqual([
       'computer_click', 'computer_drag', 'computer_get_app_state', 'computer_list_apps', 'computer_perform_secondary_action',
-      'computer_press_key', 'computer_request_access', 'computer_scroll', 'computer_set_value', 'computer_status',
+      'computer_press_key', 'computer_request_access', 'computer_run', 'computer_scroll', 'computer_set_value', 'computer_status',
       'computer_type_text', 'computer_zoom',
     ]);
     expect(actionNames).toEqual(['click', 'type_text', 'press_key', 'scroll', 'drag', 'set_value', 'perform_secondary_action']);
@@ -151,5 +151,37 @@ describe('observation and access tools', () => {
     expect(() => input('computer_zoom').parse({ app: 'CapCut', region: [10, 10, 5, 50] })).toThrow(/region/);
     expect(() => input('computer_zoom').parse({ app: 'CapCut', region: [0, 0, 1] })).toThrow();
     expect(() => input('computer_zoom').parse({ region: [0, 0, 100, 50] })).toThrow(/app/);
+  });
+});
+
+describe('computer_run', () => {
+  const run = (steps: unknown[]) => input('computer_run').parse({ app: 'TextEdit', goal: 'Save the note', steps });
+
+  it('takes steps that name their element in words', () => {
+    expect(run([
+      { do: 'click', target: 'the Save button', expect: 'a save dialog is open' },
+      { do: 'set_value', target: 'the name field', text: 'note' },
+      { do: 'type', text: 'hello' },
+      { do: 'key', key: 'Return' },
+      { do: 'scroll', target: 'the file list', direction: 'down' },
+    ]).steps).toHaveLength(5);
+  });
+
+  // A strict provider fills every field of every step.
+  it('drops the filler a model puts into fields a step does not use', () => {
+    expect(run([{ do: 'key', key: 'Return', target: '', text: '', direction: null, expect: null }]).steps).toEqual([{ do: 'key', key: 'Return' }]);
+    expect(run([{ do: 'click', target: 'Save', text: null, key: '', expect: '' }]).steps).toEqual([{ do: 'click', target: 'Save' }]);
+  });
+
+  it('keeps an empty text for set_value, which clears the field', () => {
+    expect(run([{ do: 'set_value', target: 'the name field', text: '' }]).steps).toEqual([{ do: 'set_value', target: 'the name field', text: '' }]);
+  });
+
+  it('refuses a step without what it needs, and a run without steps or a goal', () => {
+    for (const step of [{ do: 'click' }, { do: 'type' }, { do: 'type', text: '' }, { do: 'set_value', target: 'x' }, { do: 'key' }, { do: 'key', key: 'not a key+' }, { do: 'scroll', target: 'list' }, { do: 'drag' }]) {
+      expect(() => run([step]), JSON.stringify(step)).toThrow();
+    }
+    expect(() => run([])).toThrow();
+    expect(() => input('computer_run').parse({ app: 'TextEdit', steps: [{ do: 'key', key: 'Return' }] })).toThrow();
   });
 });

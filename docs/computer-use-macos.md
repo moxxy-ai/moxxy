@@ -101,6 +101,62 @@ helper, so the model sees one set of tools on both systems (see
 Not supported: controlling a window on another Space without bringing it here,
 and apps that refuse both accessibility and synthetic input.
 
+## Runs of steps (`computer_run`)
+
+`computer_run({ app, goal, steps })` carries out up to 30 steps in one tool
+call. A step is `click`, `type`, `set_value`, `key` or `scroll`; it names its
+control in words (`target`) and may say what the window shows afterwards
+(`expect`). The code is in `src/jev/` and is the same on macOS, Windows and
+Linux; only the helper underneath differs.
+
+- **Who decides what.** The main model writes the plan. Jev (TypeSafe System
+  One, `jev-latest`) answers two kinds of question about the live element
+  tree: which element a step means (a Choice over the elements, with "none"),
+  and whether what `expect` describes shows (a Noul). Code does the rest:
+  it picks the way to act, and the next way when one fails (element action,
+  then a click at the element's centre; `type_text` on the element, then click
+  and type; `set_value`, then click, select all, type), up to four ways per
+  step.
+- **One request per step.** The check of a step and the search for the next
+  step's element go in one request (about 0.3 s for 150–250 elements).
+- **Where it stops.** At the first step it cannot do: no element matches, the
+  expectation does not show after every way, or the helper refuses (user took
+  over, access level, protected path). The report lists each step, the element
+  used, and the closest elements when none matched, followed by the fresh
+  state. Steps without `expect` are reported as delivered, not verified.
+- **Key.** The secret `TYPESAFE_API_KEY` from the vault (`/vault set
+  TYPESAFE_API_KEY`), or the environment variable of the same name. Without it
+  the tool says so and the model uses the single tools. The tool may reach
+  only `api.typesafe.ai`.
+- **What leaves the computer.** Per request: the goal, the step, the app and
+  window names, and the text lines of the window's elements (roles, titles,
+  values; never the value of a secure field). No screenshot is sent.
+- **Limits.** A window with more than 1000 elements is not searched. Targets
+  that exist only in the picture (canvases, timelines) have no element; use
+  the single tools with `x` and `y` there.
+
+Measured on System Settings (Polish), three clicks with `expect`: 3 of 3
+verified, 4 Jev requests, 7.5 s; before the helper changes below it was 24.1 s.
+
+### Time per action
+
+After an action the helper waits for the app to settle, then reads the tree
+and takes the picture. What it waits for:
+
+- at least 1 s from the moment the input went out when the app sends no
+  change notification, 0.4 s once it has sent one, then 0.3 s without
+  changes; time the action itself took counts;
+- a spinner holds the wait only while something else changes too: 1.5 s
+  without other changes ends it (the Bluetooth pane spins for as long as it is
+  open); 5 s is the limit in every case;
+- notifications that the helper's own reading of the window causes (System
+  Settings destroys the elements it made to answer) are not counted.
+
+A background click reads the window once before it is sent (not twice), uses
+what the last observation said instead of reading the tree again, and the
+cursor glide takes 0.1–0.25 s. A click in System Settings with its fresh state
+takes about 1.9 s (5.5–7.2 s before).
+
 ## Permissions
 
 The helper needs Accessibility and Screen Recording. Both belong to the app

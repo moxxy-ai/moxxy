@@ -24,6 +24,63 @@ import Testing
         #expect(clock.isSettled(now: 1.125, busy: false))
     }
 
+    // Notifications show the app reacting; an app that sends none (a game, Blender) gets the full minimum.
+    // A click that took two seconds to confirm has already given the app its time.
+    @Test func countsTheTimeTheActionItselfTook() {
+        let policy = SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, reacted: 0.5)
+        let slow = SettleClock(start: 10, policy: policy, waited: 2)
+        #expect(!slow.isSettled(now: 10.125, busy: false))
+        #expect(slow.isSettled(now: 10.25, busy: false))
+        let quick = SettleClock(start: 10, policy: policy, waited: 0.25)
+        #expect(!quick.isSettled(now: 10.5, busy: false))
+        #expect(quick.isSettled(now: 10.75, busy: false))
+    }
+
+    @Test func waitsLessOnceTheAppHasReacted() {
+        var clock = SettleClock(start: 0, policy: SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, reacted: 0.5))
+        #expect(!clock.isSettled(now: 0.75, busy: false))
+        clock.record(at: 0.125)
+        #expect(!clock.isSettled(now: 0.375, busy: false))
+        #expect(clock.isSettled(now: 0.5, busy: false))
+        #expect(clock.nextCheck(now: 0.25, busy: false) == 0.5)
+        clock.record(at: 0.375)
+        #expect(!clock.isSettled(now: 0.5, busy: false))
+        #expect(clock.isSettled(now: 0.625, busy: false))
+    }
+
+    // Reading the window makes some apps send notifications of their own, so it is read only once they are quiet.
+    @Test func saysWhenTheAppIsQuietEnoughToBeAskedWhetherItIsBusy() {
+        var clock = SettleClock(start: 0, policy: policy)
+        #expect(!clock.isQuiet(now: 0.5))
+        #expect(clock.isQuiet(now: 1.0))
+        clock.record(at: 1.0)
+        #expect(!clock.isQuiet(now: 1.125))
+        #expect(clock.isQuiet(now: 1.25))
+        #expect(clock.isQuiet(now: 5.0))
+    }
+
+    // The Bluetooth pane of System Settings spins for as long as it is open.
+    @Test func stopsWaitingForASpinnerOnceNothingElseChanges() {
+        var clock = SettleClock(start: 0, policy: SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, still: 1.0))
+        clock.record(at: 0.5)
+        #expect(!clock.isSettled(now: 1.25, busy: true))
+        #expect(clock.isSettled(now: 1.5, busy: true))
+        clock.record(at: 1.5)
+        #expect(!clock.isSettled(now: 2.25, busy: true))
+        #expect(clock.isSettled(now: 2.5, busy: true))
+    }
+
+    @Test func doesNotCountTheNotificationsItsOwnReadingCauses() {
+        var clock = SettleClock(start: 0, policy: SettlePolicy(minimum: 1.0, quiet: 0.25, maximum: 5.0, still: 1.0))
+        clock.record(at: 0.5)
+        clock.read(from: 1.0, to: 1.0625)
+        clock.record(at: 1.03125)
+        clock.record(at: 1.125)
+        #expect(clock.isSettled(now: 1.5, busy: true))
+        clock.record(at: 1.375)
+        #expect(!clock.isSettled(now: 1.5, busy: true))
+    }
+
     @Test func keepsWaitingWhileTheAppShowsItIsBusy() {
         let clock = SettleClock(start: 0, policy: policy)
         #expect(!clock.isSettled(now: 3.0, busy: true))

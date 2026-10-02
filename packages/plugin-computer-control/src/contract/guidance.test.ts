@@ -38,3 +38,11 @@ it('names the Super key for Linux', () => {
   const { system } = withComputerGuidance('linux')({ model: 'm', messages: [], tools: [tool('computer_click')] });
   expect(system).toContain('"super" is the Super (Windows) key');
 });
+
+it('sends known steps through computer_run and keeps trying other routes', () => {
+  const { system } = withComputerGuidance('darwin')({ model: 'm', messages: [], tools: [tool('computer_click')] });
+  expect(system).toMatch(/computer_run/);
+  expect(system).toMatch(/expect/);
+  expect(system).toMatch(/Do not give up/);
+  expect(system).toMatch(/several different routes/);
+});

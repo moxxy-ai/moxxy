@@ -7,6 +7,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - **Bieżący krok:** kroki 0–14 wykonane; po nich: mysz w tle, 12 narzędzi,
   dokładny zrzut okna, poziom `xhigh`, cztery poprawki z powtórzeń i leniwe
   ładowanie narzędzi (patrz [`CHANGELOG.md`](CHANGELOG.md)).
+- **Po krokach, 2026-10-02:** `computer_run` (plan kroków + decyzje Jev) i
+  krótsze czekanie helpera macOS po akcji; opis w `../computer-use-macos.md`.
 - **Następna czynność:** pozycje z listy „Otwarte” niżej.
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.
@@ -32,6 +34,18 @@ Otwarte dla Linuksa:
 - [ ] Brak: `window_id`, ochrona okna zapisu, przewijanie bez prawdziwego wejścia, start aplikacji bez przejęcia fokusu, wideo H.264.
 
 ## Otwarte
+
+- [ ] `computer_run`: próba z modelem `gpt-6-luna` (robi właściciel) — czy
+  model wybiera `computer_run` i ile trwa zadanie w porównaniu z pojedynczymi
+  narzędziami. Dotąd tylko wywołanie narzędzia bez modelu (Ustawienia
+  systemowe, 3/3 kroki, 7,5 s).
+- [ ] `computer_run` nie obsługuje celów bez elementów (płótno, oś czasu) ani
+  przeciągania; okno powyżej 1000 elementów nie jest przeszukiwane.
+- [ ] Czas czekania po akcji w helperach Windows i Linux nie był mierzony ani
+  zmieniany (zmiana dotyczy tylko macOS).
+- [ ] Klik w tle na macOS nadal ok. 1,9 s ze świeżym stanem; zostało: zrzut
+  przed (0,17 s), lot kursora (do 0,25 s), potwierdzenie zmiany (ok. 0,25 s),
+  czekanie (0,3–0,4 s), drzewo (0,27 s), zrzut (0,15 s).
 
 - [ ] Próg benchmarku (≥90%, 0 fałszywych sukcesów): 2 powtórzenia przed
   poprawkami dały 16/21 (76%). Po czterech poprawkach trzeba powtórzyć pełne

@@ -17,7 +17,7 @@ export function memoryLog(events: MoxxyEvent[]): EventLogReader {
   };
 }
 
-export function toolContext(log: EventLogReader, opts: { sessionId?: string; turnId?: string; callId?: string; signal?: AbortSignal } = {}): ToolContext {
+export function toolContext(log: EventLogReader, opts: { sessionId?: string; turnId?: string; callId?: string; signal?: AbortSignal; getSecret?: ToolContext['getSecret'] } = {}): ToolContext {
   const quiet = () => undefined;
   return {
     sessionId: (opts.sessionId ?? 'session') as SessionId,
@@ -27,6 +27,7 @@ export function toolContext(log: EventLogReader, opts: { sessionId?: string; tur
     signal: opts.signal ?? new AbortController().signal,
     log,
     logger: { debug: quiet, info: quiet, warn: quiet, error: quiet },
+    ...(opts.getSecret ? { getSecret: opts.getSecret } : {}),
   };
 }
 
