@@ -24,6 +24,8 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { nativePnpm } from './pnpm-command.mjs';
+
 import {
   execExecutableTargetSync,
   resolveExecutableTarget,
@@ -86,9 +88,12 @@ const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');
 const tarDir = mkdtempSync(path.join(tmpdir(), 'moxxy-seed-tars-'));
 
 const run = (cmd, args, opts = {}) => {
-  const target = resolveExecutableTarget(cmd, {
-    nodeEntryHint: packageManagerEntryHint(cmd),
-  });
+  // The pnpm running this build wins over whatever `pnpm` is on PATH: it is the
+  // version the workspace pins, and a native one needs no JS entry to be found.
+  const runningPnpm = cmd === 'pnpm' ? nativePnpm(process.env.npm_execpath) : undefined;
+  const target = runningPnpm
+    ? { kind: 'direct', command: runningPnpm }
+    : resolveExecutableTarget(cmd, { nodeEntryHint: packageManagerEntryHint(cmd) });
   if (!target) throw new Error(`Build command not found on PATH: ${cmd}`);
   execExecutableTargetSync(target, args, {
     stdio: ['ignore', 'inherit', 'inherit'],

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { nativePnpm, pnpmCommand } from '../apps/desktop/scripts/pnpm-command.mjs';
 import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-resources.mjs';
 import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/dist/backend/rpc.js';
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
@@ -395,3 +396,33 @@ async function writeValidResources(
     await writeFile(path.join(voiceDir, '.model.ok'), `${voice.sha256}\n`);
   }
 }
+
+test('pnpm is run through node only when its entrypoint is a script', () => {
+  const node = path.join('opt', 'node');
+  assert.deepEqual(pnpmCommand(path.join('lib', 'pnpm', 'bin', 'pnpm.cjs'), node), {
+    command: node,
+    prefix: [path.join('lib', 'pnpm', 'bin', 'pnpm.cjs')],
+  });
+  assert.deepEqual(pnpmCommand(path.join('lib', 'pnpm', 'dist', 'pnpm.mjs'), node), {
+    command: node,
+    prefix: [path.join('lib', 'pnpm', 'dist', 'pnpm.mjs')],
+  });
+  // pnpm 11+ and the standalone build hand scripts a native executable.
+  for (const native of ['C:\\store\\@pnpm\\exe\\pnpm.exe', '/store/@pnpm/exe/pnpm', 'C:\\store\\PNPM.EXE']) {
+    assert.deepEqual(pnpmCommand(native, node), { command: native, prefix: [] });
+  }
+});
+
+test('pnpm entrypoint is required, since the deploy step cannot guess it', () => {
+  assert.throws(() => pnpmCommand(undefined, 'node'), /run through pnpm/);
+  assert.throws(() => pnpmCommand('', 'node'), /run through pnpm/);
+});
+
+test('a native pnpm that is running the build is used as is, a script entrypoint is not', () => {
+  assert.equal(nativePnpm('C:\\store\\@pnpm\\exe\\pnpm.exe'), 'C:\\store\\@pnpm\\exe\\pnpm.exe');
+  assert.equal(nativePnpm('/store/@pnpm/exe/pnpm'), '/store/@pnpm/exe/pnpm');
+  assert.equal(nativePnpm('/lib/pnpm/bin/pnpm.cjs'), undefined);
+  assert.equal(nativePnpm('/lib/npm/bin/npm-cli.js'), undefined);
+  assert.equal(nativePnpm('/usr/bin/yarn'), undefined);
+  assert.equal(nativePnpm(undefined), undefined);
+});
