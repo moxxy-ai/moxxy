@@ -1,8 +1,9 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import {
   ensurePrivateDir,
   ensurePrivateFile,
@@ -37,7 +38,7 @@ describe('writeFileAtomic', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it('enforces the requested mode past umask', async () => {
+  it.skipIf(!posixFileModes)('enforces the requested mode past umask', async () => {
     const target = join(dir, 'secret.json');
     await writeFileAtomic(target, 'shh', { mode: 0o600 });
     const mode = (await stat(target)).mode & 0o777;
@@ -133,7 +134,7 @@ describe('writeFileAtomicSync', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it('enforces the requested mode past umask', async () => {
+  it.skipIf(!posixFileModes)('enforces the requested mode past umask', async () => {
     const target = join(dir, 'secret.json');
     writeFileAtomicSync(target, 'shh', { mode: 0o600 });
     const mode = (await stat(target)).mode & 0o777;
@@ -168,12 +169,12 @@ describe('moxxyHome / moxxyPath', () => {
   it('honors MOXXY_HOME when set', () => {
     process.env.MOXXY_HOME = '/custom/moxxy';
     expect(moxxyHome()).toBe('/custom/moxxy');
-    expect(moxxyPath('vault.json')).toBe('/custom/moxxy/vault.json');
+    expect(moxxyPath('vault.json')).toBe(join('/custom/moxxy', 'vault.json'));
   });
 
   it('falls back to ~/.moxxy when unset', () => {
     delete process.env.MOXXY_HOME;
-    expect(moxxyHome().endsWith('/.moxxy')).toBe(true);
+    expect(moxxyHome()).toBe(join(homedir(), '.moxxy'));
   });
 });
 

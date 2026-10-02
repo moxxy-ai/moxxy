@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import {
   createFileAuthStorage,
   createWhatsAppAuthState,
@@ -94,7 +95,7 @@ describe('createFileAuthStorage', () => {
 
     const file = path.join(dir, 'auth', 'creds.json');
     const mode = (await fs.stat(file)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (posixFileModes) expect(mode).toBe(0o600);
 
     await storage.clear();
     expect(await storage.read('creds')).toBeNull();

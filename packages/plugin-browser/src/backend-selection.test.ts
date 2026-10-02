@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { buildBrowserPlugin } from './index.js';
 import { resetBrowserBackendForTests } from './browser-session.js';
 import { BRIDGE_SOCKET_ENV, BRIDGE_TOKEN_ENV } from './bridge-client.js';
@@ -77,7 +77,9 @@ describe('browser_session — which browser it actually drives', () => {
   async function fakeBridge(): Promise<{ socketPath: string; token: string; seen: string[] }> {
     const seen: string[] = [];
     const token = 'test-token';
-    const socketPath = join(mkdtempSync(join(tmpdir(), 'moxxy-bridge-test-')), 'b.sock');
+    const dir = mkdtempSync(join(tmpdir(), 'moxxy-bridge-test-'));
+    // Windows can only listen on a named pipe, never on a path in a directory.
+    const socketPath = process.platform === 'win32' ? `\\\\.\\pipe\\${basename(dir)}` : join(dir, 'b.sock');
     const server = createServer((socket) => {
       socket.setEncoding('utf8');
       let buf = '';

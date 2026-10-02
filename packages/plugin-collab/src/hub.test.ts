@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import { createCollaborationHub, type CollaborationHub } from './hub.js';
 import { CollabHubClient } from './client.js';
 import type { CollabEvent, RosterEntry } from './hub-types.js';
@@ -19,7 +20,7 @@ afterEach(() => {
 
 async function startHub(): Promise<{ hub: CollaborationHub; socketPath: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'mc-'));
-  const socketPath = join(dir, 's');
+  const socketPath = platformSocket(basename(dir), join(dir, 's'));
   const hub = await createCollaborationHub({
     socketPath,
     task: 'build the thing',

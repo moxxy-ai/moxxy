@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -246,7 +247,7 @@ describe('createCombinedKeySource', () => {
     expect(entries).toEqual([]);
   });
 
-  it('writes the disk key file with mode 0o600', async () => {
+  it.skipIf(!posixFileModes)('writes the disk key file with mode 0o600', async () => {
     const src = createCombinedKeySource({
       passphrasePrompt: async () => 'pw',
       diskKeyPath,

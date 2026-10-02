@@ -6,10 +6,16 @@ import type { ComputerControlService, ComputerControlSnapshot } from '@moxxy/sdk
 import { Session } from '@moxxy/core';
 import { startRunnerServer } from './server.js';
 import { connectRemoteSession } from './remote-session.js';
+import { platformSocket } from './socket-path.js';
+
+function tmpSocket(): string {
+  const name = `cu-${randomUUID()}`;
+  return platformSocket(name, join(tmpdir(), `${name}.sock`));
+}
 
 it('keeps chat attach available without Computer Use and rejects stale session control', async () => {
   const session = new Session({cwd: process.cwd()});
-  const socketPath = join(tmpdir(), `cu-${randomUUID()}.sock`);
+  const socketPath = tmpSocket();
   const server = await startRunnerServer(session, {socketPath});
   const remote = await connectRemoteSession({socketPath});
   try {
@@ -29,7 +35,7 @@ it('pushes every Computer Use change to every attached client, without polling',
     subscribe: (listener) => { push = listener; return () => { push = () => undefined; }; },
   };
   session.services.register('computerControl', service);
-  const socketPath = join(tmpdir(), `cu-${randomUUID()}.sock`);
+  const socketPath = tmpSocket();
   const server = await startRunnerServer(session, {socketPath});
   const desktop = await connectRemoteSession({socketPath});
   const phone = await connectRemoteSession({socketPath});

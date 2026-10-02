@@ -269,8 +269,9 @@ describe('sweepAbandonedBridges', () => {
    */
   it('removes a directory whose process is gone and keeps a live one', () => {
     const root = mkdtempSync(join(tmpdir(), 'moxxy-sweep-test-'));
-    // pid 1 is init: always alive, never ours to touch.
-    const alive = join(root, 'moxxy-browser-1');
+    // The process that started this test: alive for as long as the test runs,
+    // and not ours to touch.
+    const alive = join(root, `moxxy-browser-${process.ppid}`);
     // A pid this high is not running; if it somehow were, the probe says so
     // and we leave it, which is the safe direction.
     const dead = join(root, 'moxxy-browser-4194303');

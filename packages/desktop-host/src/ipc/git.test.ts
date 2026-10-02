@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 
 // shared.ts (imported transitively) touches electron; importing it must not
 // require the GUI binary.
@@ -49,7 +50,7 @@ describe('confineDiffPath', () => {
     );
   });
 
-  it('rejects a symlink inside the workspace that points outside it', async () => {
+  it.skipIf(!canSymlink)('rejects a symlink inside the workspace that points outside it', async () => {
     symlinkSync(path.join(outside, 'secret.txt'), path.join(root, 'link.txt'));
     await expect(confineDiffPath(root, 'link.txt')).rejects.toThrow(/escapes the workspace.*symlink/);
   });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isWindows } from '@moxxy/vitest-preset/platform';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,7 +15,7 @@ const origWrite = process.stdout.write.bind(process.stdout);
 
 beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'moxxy-svc-cmd-'));
-  process.env.HOME = home;
+  process.env.HOME = process.env.USERPROFILE = home;
   process.env.MOXXY_HOME = path.join(home, '.moxxy');
   out = '';
   process.stdout.write = ((chunk: string | Uint8Array) => {
@@ -39,7 +40,7 @@ const argv = (positional: string[], flags: ParsedArgv['flags'] = {}): ParsedArgv
 });
 
 describe('moxxy service — discord', () => {
-  it('knows a discord unit that runs the paired bot headless (--no-wizard), as JSON', async () => {
+  it.skipIf(isWindows)('knows a discord unit that runs the paired bot headless (--no-wizard), as JSON', async () => {
     const code = await runServiceCommand(argv(['status', 'discord'], { json: true }));
 
     expect(code).toBe(0);
@@ -52,7 +53,7 @@ describe('moxxy service — discord', () => {
     });
   });
 
-  it('keeps the human-readable status when --json is not passed', async () => {
+  it.skipIf(isWindows)('keeps the human-readable status when --json is not passed', async () => {
     await runServiceCommand(argv(['status', 'discord']));
     expect(() => JSON.parse(out)).toThrow();
     expect(out).toMatch(/discord/);

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { canSymlink, posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -113,24 +114,24 @@ describe('editTool', () => {
 });
 
 describe('bashTool', () => {
-  it('runs a command and captures stdout', async () => {
+  it.skipIf(!posixShell)('runs a command and captures stdout', async () => {
     const out = (await bashTool.handler({ command: 'echo hi', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('hi');
     expect(out).toContain('[exit 0]');
   });
 
-  it('captures non-zero exit', async () => {
+  it.skipIf(!posixShell)('captures non-zero exit', async () => {
     const out = (await bashTool.handler({ command: 'exit 3', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('[exit 3]');
   });
 
-  it('times out long commands', async () => {
+  it.skipIf(!posixShell)('times out long commands', async () => {
     await expect(
       bashTool.handler({ command: 'sleep 1', timeoutMs: 50 }, baseCtx()),
     ).rejects.toThrow(/timed out/);
   });
 
-  it('respects abort signal', async () => {
+  it.skipIf(!posixShell)('respects abort signal', async () => {
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
     const p = bashTool.handler({ command: 'sleep 2', timeoutMs: 5000 }, ctx) as Promise<string>;
@@ -186,7 +187,7 @@ describe('bashTool', () => {
     return !isAlive(pid);
   };
 
-  it('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
+  it.skipIf(!posixShell)('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const p = bashTool.handler({ command: stubbornChildCommand(pidFile), timeoutMs: 300 }, baseCtx());
     const rejection = expect(p).rejects.toThrow(/timed out/);
@@ -197,7 +198,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
+  it.skipIf(!posixShell)('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
@@ -211,7 +212,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it('scrubs secret-looking parent env vars before spawning the shell', async () => {
+  it.skipIf(!posixShell)('scrubs secret-looking parent env vars before spawning the shell', async () => {
     // A secret the runner holds in process.env must not reach the child shell;
     // a benign var must still pass through (usability preserved).
     process.env.MOX_TEST_SECRET_TOKEN = 'leak-me';
@@ -229,7 +230,7 @@ describe('bashTool', () => {
     }
   });
 
-  it('lets the model re-supply a needed var via the env input', async () => {
+  it.skipIf(!posixShell)('lets the model re-supply a needed var via the env input', async () => {
     process.env.MOX_TEST_API_KEY = 'inherited-secret';
     try {
       const out = (await bashTool.handler(
@@ -244,7 +245,7 @@ describe('bashTool', () => {
     }
   });
 
-  it('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
+  it.skipIf(!posixShell)('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
     // Emit a run of 4-byte emoji; if the sink decoded per-chunk, a sequence
     // split across two data events would yield replacement chars.
     const out = (await bashTool.handler(
@@ -255,7 +256,7 @@ describe('bashTool', () => {
     expect(out).toContain('🚀');
   }, 30_000);
 
-  it('bounds output retention during streaming and reports full truncated size', async () => {
+  it.skipIf(!posixShell)('bounds output retention during streaming and reports full truncated size', async () => {
     const total = 2_097_152; // 2 MiB of 'x' — far beyond the 200k clamp
     const out = (await bashTool.handler(
       { command: `head -c ${total} /dev/zero | tr '\\0' x`, timeoutMs: 30_000 },
@@ -295,7 +296,7 @@ describe('grepTool', () => {
 });
 
 describe('globTool symlinks', () => {
-  it('does not emit a directory symlink as a file match, but still matches a file symlink', async () => {
+  it.skipIf(!canSymlink)('does not emit a directory symlink as a file match, but still matches a file symlink', async () => {
     await fs.mkdir(path.join(tmp, 'target'));
     await fs.symlink(path.join(tmp, 'target'), path.join(tmp, 'dlink'), 'dir');
     // A dir-symlink is a directory, not a file — globbing its name as a file
@@ -311,7 +312,7 @@ describe('globTool symlinks', () => {
     expect(fileOut).toContain('flink.txt');
   });
 
-  it('does not follow a symlink outside the workspace root', async () => {
+  it.skipIf(!canSymlink)('does not follow a symlink outside the workspace root', async () => {
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-tools-outside-'));
     try {
       await fs.writeFile(path.join(outside, 'private.txt'), 'secret');
@@ -331,8 +332,8 @@ describe('globTool', () => {
     await fs.writeFile(path.join(tmp, 'src/b.ts'), '');
     await fs.writeFile(path.join(tmp, 'src/c.md'), '');
     const out = (await globTool.handler({ pattern: 'src/**/*.ts' }, baseCtx())) as string;
-    expect(out).toContain('src/a.ts');
-    expect(out).toContain('src/b.ts');
+    expect(out).toContain(path.join('src', 'a.ts'));
+    expect(out).toContain(path.join('src', 'b.ts'));
     expect(out).not.toContain('c.md');
   });
 

@@ -23,14 +23,14 @@ beforeEach(() => {
   tmpHome = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'moxxy-skills-')));
   savedHome = process.env.HOME;
   savedMoxxyHome = process.env.MOXXY_HOME;
-  process.env.HOME = tmpHome;
+  process.env.HOME = process.env.USERPROFILE = tmpHome;
   // skillsDir() = moxxyHome()/skills; with no $MOXXY_HOME it falls to
   // <HOME>/.moxxy/skills. Clear any leaked override so the HOME route applies.
   delete process.env.MOXXY_HOME;
 });
 
 afterEach(() => {
-  process.env.HOME = savedHome;
+  process.env.HOME = process.env.USERPROFILE = savedHome;
   if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = savedMoxxyHome;
   rmSync(tmpHome, { recursive: true, force: true });

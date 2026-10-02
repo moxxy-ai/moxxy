@@ -4,11 +4,13 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { platformSocket } from './socket-path.js';
 import { createUnixSocketServer, connectUnixSocket, type SocketLogger } from './unix-socket.js';
 import type { Transport, TransportServer } from './transport.js';
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-sock-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-sock-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 const servers: TransportServer[] = [];
@@ -203,7 +205,8 @@ describe('unix-socket transport (NDJSON framing)', () => {
     raw.destroy();
   });
 
-  it('reclaims a stale socket file left by a crashed runner', async () => {
+  // A named pipe dies with its process, so Windows has no stale file to reclaim.
+  it.skipIf(process.platform === 'win32')('reclaims a stale socket file left by a crashed runner', async () => {
     const socketPath = tmpSocket();
     // Simulate a leftover file with nothing listening.
     fs.writeFileSync(socketPath, '');

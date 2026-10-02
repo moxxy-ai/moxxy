@@ -2,6 +2,7 @@ import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import {
   asSessionId,
   asToolCallId,
@@ -266,7 +267,7 @@ describe('Session', () => {
     expect(prompted).toBe(1);
   });
 
-  it('auto-allows scoped reads only for real paths inside the workspace', async () => {
+  it.skipIf(!canSymlink)('auto-allows scoped reads only for real paths inside the workspace', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'moxxy-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'moxxy-outside-'));
     const insideFile = join(workspace, 'inside.txt');

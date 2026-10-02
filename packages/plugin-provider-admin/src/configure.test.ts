@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -125,7 +126,7 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
     expect(stored.defaultModel).toBe('glm-4.5-air');
   });
 
-  it('rolls back the live def to the prior registration when the disk write fails', async () => {
+  it.skipIf(!posixFileModes)('rolls back the live def to the prior registration when the disk write fails', async () => {
     // The entry is readable on disk AND already live in the registry (owned by
     // the plugin via onInit), but the write target is made unwritable so
     // upsertStoredProvider rejects after the live replace() — driving the

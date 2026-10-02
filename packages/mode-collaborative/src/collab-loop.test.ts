@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import { createCollaborationHub, type CollaborationHub } from '@moxxy/plugin-collab';
 import { runCollaborative, waitForAgent, waitForAgents, type CollabDeps } from './collab-loop.js';
@@ -569,7 +570,7 @@ describe('waiting on agents', () => {
   async function liveHub(ids: ReadonlyArray<string>): Promise<CollaborationHub> {
     const dir = mkdtempSync(join(tmpdir(), 'mc-wait-'));
     const hub = await createCollaborationHub({
-      socketPath: join(dir, 'hub.sock'),
+      socketPath: platformSocket(basename(dir), join(dir, 'hub.sock')),
       task: 'wait probe',
       roster: ids.map((id) => ({ id, name: id, role: 'implementer' as const, subtask: 'noop' })),
     });

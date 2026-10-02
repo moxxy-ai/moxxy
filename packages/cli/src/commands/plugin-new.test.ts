@@ -16,7 +16,7 @@ beforeEach(async () => {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-pnew-'));
   origHome = process.env.HOME;
   // os.homedir() honors $HOME on POSIX; sufficient to mock the user home.
-  process.env.HOME = tmpHome;
+  process.env.HOME = process.env.USERPROFILE = tmpHome;
   origCwd = process.cwd();
   process.chdir(tmpHome);
 
@@ -39,7 +39,7 @@ afterEach(async () => {
   process.stderr.write = origStderrWrite;
   process.chdir(origCwd);
   if (origHome === undefined) delete process.env.HOME;
-  else process.env.HOME = origHome;
+  else process.env.HOME = process.env.USERPROFILE = origHome;
   await fs.rm(tmpHome, { recursive: true, force: true });
 });
 

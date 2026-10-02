@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { loadOrCreateIdentity } from './node.js';
 
 describe('loadOrCreateIdentity', () => {
@@ -19,7 +20,7 @@ describe('loadOrCreateIdentity', () => {
     expect(first.secretKey.length).toBe(32);
 
     const mode = (await stat(path)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (posixFileModes) expect(mode).toBe(0o600);
 
     const second = await loadOrCreateIdentity(path);
     expect([...second.secretKey]).toEqual([...first.secretKey]);

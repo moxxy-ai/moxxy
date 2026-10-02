@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { asToolCallId } from '@moxxy/sdk';
 import { describePermissionRequest, previewToolInput } from './PermissionDialog.js';
@@ -98,7 +99,7 @@ describe('describePermissionRequest — consequence-first copy', () => {
       '/repo',
     );
     expect(result.title).toBe('Change this file?');
-    expect(result.target).toBe('src/app.ts');
+    expect(result.target).toBe(path.join('src', 'app.ts'));
     expect(result.sessionScope.inputKeys).toEqual(['file_path']);
   });
 });

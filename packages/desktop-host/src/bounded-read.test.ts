@@ -5,6 +5,7 @@
  * the read rather than to a prior look at the path.
  */
 import { afterEach, describe, expect, it } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -44,7 +45,7 @@ describe('readBoundedFile', () => {
     expect((await readBoundedFile(file, 100, 'bad')).length).toBe(100);
   });
 
-  it('rejects a symlink even when its target would pass every guard', async () => {
+  it.skipIf(!canSymlink)('rejects a symlink even when its target would pass every guard', async () => {
     const dir = await tmp();
     const target = path.join(dir, 'target.json');
     const link = path.join(dir, 'link.json');

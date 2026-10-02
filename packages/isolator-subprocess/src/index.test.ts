@@ -5,6 +5,7 @@
  * Extended op coverage lives in plugin-security's broker.test.ts.
  */
 import { describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -159,7 +160,7 @@ describe('subprocessIsolator', () => {
       // Sanity: the child's cwd is NOT the parent runner's cwd.
       expect(out.cwd).not.toBe(process.cwd());
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 
@@ -213,7 +214,7 @@ describe('subprocessIsolator', () => {
       }
       expect(dead).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   }, 15_000);
 
@@ -277,7 +278,7 @@ describe('subprocessIsolator', () => {
     }
   });
 
-  it('runs exec through the broker', async () => {
+  it.skipIf(!posixShell)('runs exec through the broker', async () => {
     const iso = createSubprocessIsolator();
     const out = (await iso.run(
       baseCall('execViaBroker', { cmd: '/bin/echo', args: ['subproc-exec'] }),
@@ -347,7 +348,7 @@ describe('subprocess hardening', () => {
   // requests are rejected back to the child with the cap error; the
   // parent degrades (some ops capped) but never crashes, and every
   // request is accounted for.
-  it('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
+  it.skipIf(!posixShell)('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
     const iso = createSubprocessIsolator({ maxInflightBrokerOps: 4 });
     const out = (await iso.run(
       baseCall('floodBrokerOps', { count: 48, sleepSec: 0.3 }, {
@@ -370,7 +371,7 @@ describe('subprocess hardening', () => {
 
   // A handler whose parallelism stays under the ceiling must NOT see any
   // ops capped — the bound is a flood guard, not a throttle on normal use.
-  it('does not cap brokered ops that stay under the ceiling', async () => {
+  it.skipIf(!posixShell)('does not cap brokered ops that stay under the ceiling', async () => {
     const iso = createSubprocessIsolator({ maxInflightBrokerOps: 8 });
     const out = (await iso.run(
       baseCall('floodBrokerOps', { count: 4, sleepSec: 0.1 }, {
@@ -426,7 +427,7 @@ describe('subprocess hardening', () => {
       }
       expect(wrote).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   }, 15_000);
 });

@@ -12,7 +12,7 @@ it('deleting a workflow through the view retires its cron and preserves other sc
   const dir = await mkdtemp(join(tmpdir(), 'workflow-delete-'));
   const oldHome = process.env.MOXXY_HOME;
   const oldUserHome = process.env.HOME;
-  process.env.HOME = dir;
+  process.env.HOME = process.env.USERPROFILE = dir;
   process.env.MOXXY_HOME = join(dir, 'home');
   const definitions = join(dir, '.moxxy/workflows');
   await mkdir(definitions, { recursive: true });
@@ -39,7 +39,7 @@ it('deleting a workflow through the view retires its cron and preserves other sc
   } finally {
     integration.stop(); await remote.close(); await server.close(); await session.close();
     if (oldHome === undefined) delete process.env.MOXXY_HOME; else process.env.MOXXY_HOME = oldHome;
-    if (oldUserHome === undefined) delete process.env.HOME; else process.env.HOME = oldUserHome;
+    if (oldUserHome === undefined) delete process.env.HOME; else process.env.HOME = process.env.USERPROFILE = oldUserHome;
     await rm(dir, { recursive: true, force: true });
   }
 });

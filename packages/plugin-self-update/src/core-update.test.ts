@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import {
   countCorruptCoreTxns,
   coreTxnDir,
@@ -80,7 +81,7 @@ describe('safeRepoPath', () => {
     expect(safeRepoPath('/repo', 'packages/core/src/a.ts')).toBe(path.resolve('/repo', 'packages/core/src/a.ts'));
   });
 
-  it('refuses a path that traverses a symlink out of the repo', async () => {
+  it.skipIf(!canSymlink)('refuses a path that traverses a symlink out of the repo', async () => {
     const repo = await tmp();
     const outside = await tmp();
     await fs.writeFile(path.join(outside, 'secret'), 'top secret\n', 'utf8');
@@ -97,7 +98,7 @@ describe('safeRepoPath', () => {
     expect(p.endsWith(path.join('packages', 'core', 'src', 'a.ts'))).toBe(true);
   });
 
-  it('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
+  it.skipIf(!canSymlink)('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
     // Regression: when the repo root resolves through a symlink (the norm on
     // macOS, where the tmp dir lives under /var→/private/var, and anywhere
     // $HOME/.moxxy is symlinked), a legitimate absolute path *inside* the repo

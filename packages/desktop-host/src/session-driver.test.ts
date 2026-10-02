@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
+import { platformSocket } from '@moxxy/runner';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
   asPluginId,
@@ -106,7 +107,8 @@ const gateModePlugin = definePlugin({
 });
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-driver-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-driver-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 /** Minimal stand-in for an Electron BrowserWindow — SessionDriver only

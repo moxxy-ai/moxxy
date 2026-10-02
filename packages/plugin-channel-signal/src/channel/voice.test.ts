@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { MAX_AUDIO_BYTES, pickAudioAttachment, transcribeVoiceAttachment } from './voice.js';
@@ -123,7 +124,7 @@ describe('transcribeVoiceAttachment', () => {
         attachmentsDir: '/data/attachments',
         reply: r.reply,
         readFile: async (p) => {
-          expect(p).toBe('/data/attachments/12345.opus');
+          expect(p).toBe(path.join('/data/attachments', '12345.opus'));
           return new Uint8Array([1, 2, 3]);
         },
       },

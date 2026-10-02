@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
@@ -87,7 +88,7 @@ describe('LocalWhisperTranscriber.transcribe', () => {
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2',
     ]);
     const req = host.reqs[0]!;
-    expect(req.encoder).toContain('sherpa-onnx-whisper-base/base-encoder.onnx');
+    expect(req.encoder).toContain(path.join('sherpa-onnx-whisper-base', 'base-encoder.onnx'));
     expect(req.decoder).toContain('base-decoder.onnx');
     expect(req.tokens).toContain('base-tokens.txt');
     expect(req.sampleRate).toBe(16_000);

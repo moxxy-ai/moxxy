@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -182,7 +183,7 @@ describe('provider_add', () => {
     expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
   });
 
-  it('restores the prior def (not deletes it) when the disk write fails on a replace', async () => {
+  it.skipIf(!posixFileModes)('restores the prior def (not deletes it) when the disk write fails on a replace', async () => {
     // Seed a 'zai' entry on disk + run onInit so the PLUGIN owns the live def (a
     // def WE registered, not an external built-in). A later provider_add of the
     // same slug is a genuine replace; if the disk write fails the prior owned
@@ -213,7 +214,7 @@ describe('provider_add', () => {
     expect(reg.defs.get('zai')).toBe(priorDef);
   });
 
-  it('unregisters a brand-new provider when the disk write fails (no phantom)', async () => {
+  it.skipIf(!posixFileModes)('unregisters a brand-new provider when the disk write fails (no phantom)', async () => {
     // Fresh slug (not owned, not in registry) → register + write. Make the dir
     // read-only so the write fails; the phantom registration must be rolled back.
     const reg = new FakeRegistry();

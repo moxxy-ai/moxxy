@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -87,7 +88,7 @@ describe('moxxy channels rotate-token', () => {
     expect(typeof first.token).toBe('string');
     expect(first.token).toHaveLength(64); // 32 random bytes as hex
     // 0600 — never world/group readable (secret material).
-    expect(fs.statSync(file).mode & 0o077).toBe(0);
+    if (posixFileModes) expect(fs.statSync(file).mode & 0o077).toBe(0);
   });
 
   it('replaces the previous secret on each rotation', async () => {

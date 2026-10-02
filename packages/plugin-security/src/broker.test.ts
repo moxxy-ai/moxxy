@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { canSymlink, posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -221,7 +222,7 @@ describe('broker: exec', () => {
     if (!res.ok) expect(res.errorMessage).toMatch(/subprocess: true/);
   });
 
-  it('runs when subprocess is allowed', async () => {
+  it.skipIf(!posixShell)('runs when subprocess is allowed', async () => {
     const res = await handleBrokerRequest(
       req('exec', ['/bin/echo', ['hello-broker']]),
       { caps: { subprocess: true }, cwd: '/tmp', signal: new AbortController().signal },
@@ -234,7 +235,7 @@ describe('broker: exec', () => {
     }
   });
 
-  it('honors a commands allowlist (allow)', async () => {
+  it.skipIf(!posixShell)('honors a commands allowlist (allow)', async () => {
     const res = await handleBrokerRequest(
       req('exec', ['/bin/echo', ['ok']]),
       {
@@ -269,7 +270,7 @@ describe('broker: exec', () => {
   // NAMED after an allowlisted binary (e.g. `<tmp>/echo -> /bin/cat`) passed the
   // basename gate yet executed the OTHER binary. The broker now canonicalizes a
   // path-form command and re-checks the resolved target's basename.
-  it('denies a path-form command whose symlink resolves to a non-allowlisted binary', async () => {
+  it.skipIf(!canSymlink)('denies a path-form command whose symlink resolves to a non-allowlisted binary', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-'));
     const fake = path.join(dir, 'echo'); // basename 'echo' is allowlisted…
     try {
@@ -297,7 +298,7 @@ describe('broker: exec', () => {
 
   // Control: a path-form command whose symlink resolves to an allowlisted
   // binary is still permitted (no false rejection).
-  it('allows a path-form command whose symlink resolves to an allowlisted binary', async () => {
+  it.skipIf(!canSymlink)('allows a path-form command whose symlink resolves to an allowlisted binary', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-ok-'));
     const link = path.join(dir, 'echo');
     try {
@@ -368,7 +369,7 @@ describe('broker: exec', () => {
   });
 
   // u105-3 regression: brokerExec must cap buffered output, not OOM the host.
-  it('rejects when subprocess output exceeds the byte cap', async () => {
+  it.skipIf(!posixShell)('rejects when subprocess output exceeds the byte cap', async () => {
     // `yes` floods stdout forever; the broker should kill it once the cap is
     // crossed rather than buffering gigabytes.
     const res = await handleBrokerRequest(
@@ -380,7 +381,7 @@ describe('broker: exec', () => {
   }, 20000);
 
   // u105-3 control: a normal, small output is NOT truncated/rejected.
-  it('returns normal-sized output unchanged', async () => {
+  it.skipIf(!posixShell)('returns normal-sized output unchanged', async () => {
     const res = await handleBrokerRequest(
       req('exec', ['/bin/echo', ['small-output']]),
       { caps: { subprocess: true }, cwd: '/tmp', signal: new AbortController().signal },
@@ -396,7 +397,7 @@ describe('broker: exec', () => {
   // allowlisted child via a per-call LD_PRELOAD/DYLD_* env override — that would
   // turn an allowlisted `echo`/`cat` into arbitrary code execution regardless of
   // the command allowlist. The broker strips loader-injection vars from opts.env.
-  it('strips LD_PRELOAD from a per-call opts.env before spawning', async () => {
+  it.skipIf(!posixShell)('strips LD_PRELOAD from a per-call opts.env before spawning', async () => {
     const res = await handleBrokerRequest(
       req('exec', ['/bin/sh', ['-c', 'printf "%s" "${LD_PRELOAD:-NONE}"'], {
         env: { LD_PRELOAD: '/tmp/evil.so' },
@@ -414,7 +415,7 @@ describe('broker: exec', () => {
   // u105-9 regression: aborting must settle the broker request PROMPTLY even
   // for a child that traps SIGTERM — the old code only killed and then waited
   // for 'close', which a trapped child never emits, wedging the request forever.
-  it('rejects promptly on abort even when the child ignores SIGTERM', async () => {
+  it.skipIf(!posixShell)('rejects promptly on abort even when the child ignores SIGTERM', async () => {
     const ac = new AbortController();
     // `trap '' TERM` makes the child ignore SIGTERM; a naive kill+wait-for-close
     // would hang on the `sleep 30`.
@@ -636,7 +637,7 @@ describe('broker: fetch body cap (u105-3)', () => {
 
 // ---------- u105-4: symlink / realpath scope re-check ----------
 
-describe('broker: fs symlink escape (u105-4)', () => {
+describe.skipIf(!canSymlink)('broker: fs symlink escape (u105-4)', () => {
   let scope = '';
   let outside = '';
 
