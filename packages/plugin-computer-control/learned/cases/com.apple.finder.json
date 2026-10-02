@@ -1,0 +1,105 @@
+{
+ "app": "com.apple.finder",
+ "cases": [
+  {
+   "goal": "Open Ostatnie in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Ostatnie in the sidebar",
+     "expect": "the window shows Ostatnie"
+    }
+   ]
+  },
+  {
+   "goal": "Open Aplikacje in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Aplikacje in the sidebar",
+     "expect": "the window shows Aplikacje"
+    }
+   ]
+  },
+  {
+   "goal": "Open Dokumenty in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Dokumenty in the sidebar",
+     "expect": "the window shows Dokumenty"
+    }
+   ]
+  },
+  {
+   "goal": "Open Pobrane rzeczy in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Pobrane rzeczy in the sidebar",
+     "expect": "the window shows Pobrane rzeczy"
+    }
+   ]
+  },
+  {
+   "goal": "Open Biurko in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Biurko in the sidebar",
+     "expect": "the window shows Biurko"
+    }
+   ]
+  },
+  {
+   "goal": "Open iCloud Drive in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "iCloud Drive in the sidebar",
+     "expect": "the window shows iCloud Drive"
+    }
+   ]
+  },
+  {
+   "goal": "Open Macintosh HD in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Macintosh HD in the sidebar",
+     "expect": "the window shows Macintosh HD"
+    }
+   ]
+  },
+  {
+   "goal": "Open AirDrop in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "AirDrop in the sidebar",
+     "expect": "the window shows AirDrop"
+    }
+   ]
+  },
+  {
+   "goal": "Open Sieć in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Sieć in the sidebar",
+     "expect": "the window shows Sieć"
+    }
+   ]
+  },
+  {
+   "goal": "Open Kosz in Finder",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Kosz in the sidebar",
+     "expect": "the window shows Kosz"
+    }
+   ]
+  }
+ ]
+}

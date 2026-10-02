@@ -2871,3 +2871,32 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
 - Krok bez trwałego śladu nadal pyta Jev dwa razy (przed i po).
 - `learned:promote` bierze wszystko z katalogu użytkownika; przydałby się
   wybór aplikacji, żeby próby z modelem nie mieszały się z treningiem.
+
+## Trening domyślnych lekcji jedną komendą — 2026-10-02
+
+**Co**
+- `learned/cases/*.json`: przypadki treningowe czterech aplikacji (Ustawienia
+  25, Finder 10, Safari 10, Kalkulator 39) — dotąd były tylko poza repo.
+- `src/jev/train.ts` (`parseCases`, `train`) i `scripts/train-learned.mjs`;
+  komenda `pnpm --filter @moxxy/plugin-computer-control learned:train
+  [aplikacja …] [--passes N]`.
+
+**Jak i dlaczego**
+- Lekcje mają być odnawiane przy każdym wydaniu; bez przypadków w repo nie
+  dało się tego powtórzyć. Trening wymaga prawdziwego komputera z aplikacjami
+  i klucza TypeSafe, więc jest komendą dla zespołu, nie krokiem CI.
+- Skrypt uczy w pustym katalogu (`MOXXY_HOME` na czas biegu) i dopiero stamtąd
+  dopisuje do `learned/`: nic z codziennego użycia komputera nie trafia do
+  wydania (wcześniej `learned:promote` wciągnął lekcje z prób z modelem).
+- Kończy się kodem 1, gdy któryś przypadek się nie udał.
+
+**Próba**
+- `learned:train com.apple.calculator`: 78 z 78 biegów wykonanych, zmieniony
+  tylko plik Kalkulatora.
+
+**Testy (Red → Green)**
+- `src/jev/train.test.ts` (3): najpierw brak modułu, potem zielone.
+
+**Otwarte**
+- Przypadki są po polsku (macOS po polsku); angielski wymaga drugiego zestawu
+  i maszyny w tym języku. Przypadki Safari wchodzą na Wikipedię.

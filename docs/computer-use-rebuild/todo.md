@@ -15,6 +15,8 @@ Plan: [`README.md`](README.md). Przebieg prac: [`CHANGELOG.md`](CHANGELOG.md).
 - **Po krokach, 2026-10-02 (wieczór):** zatwierdzenie `computer_run` nadaje
   dostęp do jego aplikacji (`decidedNow`); zadanie z modelem to 1 wywołanie,
   12–21 s przy `xhigh`.
+- **Trening lekcji:** `learned:train` + `learned/cases/` (4 aplikacje, PL);
+  uruchamiać przed wydaniem.
 - **Następna czynność:** pozycje z listy „Otwarte” niżej.
 - **Blokery:** brak lokalnego Windows (tylko CI). Próby z modelem tylko na
   `gpt-6-luna` z `reasoning.effort: xhigh`.

@@ -7,17 +7,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Equals",
    "label": "przycisk\u001fRówna się",
    "way": 0,
-   "uses": 12,
-   "at": 1790948476130
-  },
-  {
-   "do": "click",
-   "target": "przycisk 1",
-   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:One",
-   "label": "przycisk\u001f1",
-   "way": 0,
-   "uses": 11,
-   "at": 1790948474968
+   "uses": 16,
+   "at": 1790948928488
   },
   {
    "do": "click",
@@ -25,8 +16,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Subtract",
    "label": "przycisk\u001fOdejmij",
    "way": 0,
-   "uses": 12,
-   "at": 1790948472313,
+   "uses": 16,
+   "at": 1790948925497,
    "effect": []
   },
   {
@@ -35,8 +26,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Divide",
    "label": "przycisk\u001fPodziel",
    "way": 0,
-   "uses": 12,
-   "at": 1790948468678,
+   "uses": 16,
+   "at": 1790948921550,
    "effect": []
   },
   {
@@ -45,8 +36,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Seven",
    "label": "przycisk\u001f7",
    "way": 0,
-   "uses": 14,
-   "at": 1790948466886,
+   "uses": 20,
+   "at": 1790948919761,
    "effect": []
   },
   {
@@ -55,8 +46,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Add",
    "label": "przycisk\u001fDodaj",
    "way": 0,
-   "uses": 12,
-   "at": 1790948464941,
+   "uses": 16,
+   "at": 1790948917961,
    "effect": []
   },
   {
@@ -65,8 +56,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Three",
    "label": "przycisk\u001f3",
    "way": 0,
-   "uses": 12,
-   "at": 1790948463011,
+   "uses": 16,
+   "at": 1790948916119,
    "effect": []
   },
   {
@@ -75,18 +66,9 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Multiply",
    "label": "przycisk\u001fPomnóż",
    "way": 0,
-   "uses": 12,
-   "at": 1790948461033,
+   "uses": 16,
+   "at": 1790948914332,
    "effect": []
-  },
-  {
-   "do": "click",
-   "target": "przycisk 4",
-   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Four",
-   "label": "przycisk\u001f4",
-   "way": 1,
-   "uses": 21,
-   "at": 1790948451525
   },
   {
    "do": "click",
@@ -94,8 +76,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Five",
    "label": "przycisk\u001f5",
    "way": 0,
-   "uses": 24,
-   "at": 1790948447798,
+   "uses": 31,
+   "at": 1790948903288,
    "effect": []
   },
   {
@@ -104,18 +86,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Six",
    "label": "przycisk\u001f6",
    "way": 0,
-   "uses": 12,
-   "at": 1790948446101,
-   "effect": []
-  },
-  {
-   "do": "click",
-   "target": "przycisk 8",
-   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Eight",
-   "label": "przycisk\u001f8",
-   "way": 0,
-   "uses": 12,
-   "at": 1790948442512,
+   "uses": 16,
+   "at": 1790948901462,
    "effect": []
   },
   {
@@ -124,8 +96,8 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Nine",
    "label": "przycisk\u001f9",
    "way": 0,
-   "uses": 12,
-   "at": 1790948440751,
+   "uses": 16,
+   "at": 1790948895932,
    "effect": []
   },
   {
@@ -134,8 +106,18 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Zero",
    "label": "przycisk\u001f0",
    "way": 0,
-   "uses": 3,
-   "at": 1790948438792
+   "uses": 6,
+   "at": 1790948893881
+  },
+  {
+   "do": "click",
+   "target": "przycisk 4",
+   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Four",
+   "label": "przycisk\u001f4",
+   "way": 1,
+   "uses": 25,
+   "at": 1790948891443,
+   "effect": []
   },
   {
    "do": "click",
@@ -143,9 +125,28 @@
    "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Two",
    "label": "przycisk\u001f2",
    "way": 0,
-   "uses": 14,
-   "at": 1790948346606,
+   "uses": 18,
+   "at": 1790948887711,
    "effect": []
+  },
+  {
+   "do": "click",
+   "target": "przycisk 8",
+   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:Eight",
+   "label": "przycisk\u001f8",
+   "way": 0,
+   "uses": 15,
+   "at": 1790948873015,
+   "effect": []
+  },
+  {
+   "do": "click",
+   "target": "przycisk 1",
+   "key": "okno standardowe:main/grupa:CalculatorKeypadView/przycisk:One",
+   "label": "przycisk\u001f1",
+   "way": 0,
+   "uses": 14,
+   "at": 1790948859439
   }
  ],
  "routes": [
@@ -158,20 +159,8 @@
      "expect": "the display shows a result instead of the expression being typed"
     }
    ],
-   "uses": 12,
-   "at": 1790948476130
-  },
-  {
-   "goal": "Press 1 in Kalkulator",
-   "steps": [
-    {
-     "do": "click",
-     "target": "przycisk 1",
-     "expect": "the expression on the display ends with 1"
-    }
-   ],
-   "uses": 11,
-   "at": 1790948474968
+   "uses": 16,
+   "at": 1790948928488
   },
   {
    "goal": "Press Odejmij in Kalkulator",
@@ -182,8 +171,8 @@
      "expect": "the expression on the display ends with a minus sign"
     }
    ],
-   "uses": 12,
-   "at": 1790948472313
+   "uses": 16,
+   "at": 1790948925497
   },
   {
    "goal": "Press Podziel in Kalkulator",
@@ -194,8 +183,8 @@
      "expect": "the expression on the display ends with ÷"
     }
    ],
-   "uses": 12,
-   "at": 1790948468678
+   "uses": 16,
+   "at": 1790948921550
   },
   {
    "goal": "Press 7 in Kalkulator",
@@ -206,8 +195,8 @@
      "expect": "the expression on the display ends with 7"
     }
    ],
-   "uses": 14,
-   "at": 1790948466886
+   "uses": 20,
+   "at": 1790948919761
   },
   {
    "goal": "Press Dodaj in Kalkulator",
@@ -218,8 +207,8 @@
      "expect": "the expression on the display ends with +"
     }
    ],
-   "uses": 12,
-   "at": 1790948464941
+   "uses": 16,
+   "at": 1790948917961
   },
   {
    "goal": "Press 3 in Kalkulator",
@@ -230,8 +219,8 @@
      "expect": "the expression on the display ends with 3"
     }
    ],
-   "uses": 12,
-   "at": 1790948463011
+   "uses": 16,
+   "at": 1790948916119
   },
   {
    "goal": "Press Pomnóż in Kalkulator",
@@ -242,20 +231,8 @@
      "expect": "the expression on the display ends with ×"
     }
    ],
-   "uses": 12,
-   "at": 1790948461033
-  },
-  {
-   "goal": "Press 4 in Kalkulator",
-   "steps": [
-    {
-     "do": "click",
-     "target": "przycisk 4",
-     "expect": "the expression on the display ends with 4"
-    }
-   ],
-   "uses": 21,
-   "at": 1790948451525
+   "uses": 16,
+   "at": 1790948914332
   },
   {
    "goal": "Press 5 in Kalkulator",
@@ -266,8 +243,8 @@
      "expect": "the expression on the display ends with 5"
     }
    ],
-   "uses": 24,
-   "at": 1790948447798
+   "uses": 31,
+   "at": 1790948903288
   },
   {
    "goal": "Press 6 in Kalkulator",
@@ -278,20 +255,8 @@
      "expect": "the expression on the display ends with 6"
     }
    ],
-   "uses": 12,
-   "at": 1790948446101
-  },
-  {
-   "goal": "Press 8 in Kalkulator",
-   "steps": [
-    {
-     "do": "click",
-     "target": "przycisk 8",
-     "expect": "the expression on the display ends with 8"
-    }
-   ],
-   "uses": 12,
-   "at": 1790948442512
+   "uses": 16,
+   "at": 1790948901462
   },
   {
    "goal": "Press 9 in Kalkulator",
@@ -302,8 +267,8 @@
      "expect": "the expression on the display ends with 9"
     }
    ],
-   "uses": 12,
-   "at": 1790948440751
+   "uses": 16,
+   "at": 1790948895932
   },
   {
    "goal": "Press 0 in Kalkulator",
@@ -314,8 +279,20 @@
      "expect": "the expression on the display ends with 0"
     }
    ],
-   "uses": 3,
-   "at": 1790948438792
+   "uses": 6,
+   "at": 1790948893881
+  },
+  {
+   "goal": "Press 4 in Kalkulator",
+   "steps": [
+    {
+     "do": "click",
+     "target": "przycisk 4",
+     "expect": "the expression on the display ends with 4"
+    }
+   ],
+   "uses": 25,
+   "at": 1790948891443
   },
   {
    "goal": "Press 2 in Kalkulator",
@@ -326,8 +303,32 @@
      "expect": "the expression on the display ends with 2"
     }
    ],
+   "uses": 18,
+   "at": 1790948887711
+  },
+  {
+   "goal": "Press 8 in Kalkulator",
+   "steps": [
+    {
+     "do": "click",
+     "target": "przycisk 8",
+     "expect": "the expression on the display ends with 8"
+    }
+   ],
+   "uses": 15,
+   "at": 1790948873015
+  },
+  {
+   "goal": "Press 1 in Kalkulator",
+   "steps": [
+    {
+     "do": "click",
+     "target": "przycisk 1",
+     "expect": "the expression on the display ends with 1"
+    }
+   ],
    "uses": 14,
-   "at": 1790948346606
+   "at": 1790948859439
   }
  ]
 }
