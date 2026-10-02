@@ -1,4 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+/** Setup file every moxxy test project must load; see isolate.js. */
+export const isolateSetupFile = fileURLToPath(new URL('./isolate.js', import.meta.url));
 
 export const moxxyVitestPreset = defineConfig({
   test: {
@@ -7,6 +11,7 @@ export const moxxyVitestPreset = defineConfig({
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     passWithNoTests: true,
+    setupFiles: [isolateSetupFile],
     testTimeout: 10_000,
     coverage: {
       provider: 'v8',

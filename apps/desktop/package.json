@@ -62,6 +62,7 @@
   "devDependencies": {
     "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",

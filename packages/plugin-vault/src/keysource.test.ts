@@ -55,6 +55,8 @@ beforeEach(async () => {
   keytarState.failSet = false;
   delete process.env[ENV_VAR];
   delete process.env.MOXXY_VAULT_PASSPHRASE;
+  // The preset switches the keychain off for every test; these tests are about it.
+  delete process.env.MOXXY_NO_KEYCHAIN;
 });
 
 afterEach(async () => {
@@ -214,6 +216,20 @@ describe('createCombinedKeySource', () => {
     expect(onDisk).toBe(key.toString('base64'));
     await flushMicrotasks();
     expect(keytarState.store.size).toBe(0);
+  });
+
+  it('MOXXY_NO_KEYCHAIN neither reads nor writes the keychain', async () => {
+    process.env.MOXXY_NO_KEYCHAIN = '1';
+    const stored = Buffer.alloc(32, 7).toString('base64');
+    keytarState.store.set(KEYTAR_KEY, stored);
+    const src = createCombinedKeySource({ passphrasePrompt: async () => 'pw', diskKeyPath });
+
+    const key = await src.obtain(generateSalt());
+
+    expect(src.name).toBe('generated');
+    expect(key.toString('base64')).not.toBe(stored);
+    expect((await fs.readFile(diskKeyPath, 'utf8')).trim()).toBe(key.toString('base64'));
+    expect(keytarState.store.get(KEYTAR_KEY)).toBe(stored);
   });
 
   it('diskKeyPath:false disables the disk cache (keytar-only persistence)', async () => {
