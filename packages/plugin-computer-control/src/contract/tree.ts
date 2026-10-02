@@ -40,27 +40,27 @@ type Element = AppElement;
 const quote = (value: string, limit: number) =>
   JSON.stringify(value.length > limit ? `${value.slice(0, limit)}…` : value);
 
-function describe(element: Element): string {
+function describe(element: Element, textLimit = 300): string {
   const parts = [element.role];
-  if (element.title !== undefined) parts.push(quote(element.title, 200));
-  if (element.description !== undefined) parts.push(`description=${quote(element.description, 200)}`);
+  if (element.title !== undefined) parts.push(quote(element.title, Math.min(200, textLimit)));
+  if (element.description !== undefined) parts.push(`description=${quote(element.description, Math.min(200, textLimit))}`);
   if (element.secure) parts.push('value=<secure>');
-  else if (element.value !== undefined) parts.push(`value=${quote(element.value, 300)}`);
+  else if (element.value !== undefined) parts.push(`value=${quote(element.value, Math.min(300, textLimit))}`);
   parts.push(...(element.states ?? []));
   if (element.actions?.length) parts.push(`actions=[${element.actions.join(', ')}]`);
   return parts.join(' ');
 }
 
-const line = (element: Element) => `[${element.index}] ${describe(element)}`;
+const line = (element: Element, textLimit?: number) => `[${element.index}] ${describe(element, textLimit)}`;
 
 const header = (tree: AppTree) =>
   `App: ${tree.app}${tree.window === undefined ? '' : ` — window ${quote(tree.window, 200)}`}`;
 
 const TRUNCATED = '(tree truncated: not every element is listed)';
 
-/** Every element on its own line, indented by depth, as `[index] role "title" …`. */
-export function formatElements(tree: AppTree): string[] {
-  return tree.elements.map((element) => `${'  '.repeat(element.depth)}${line(element)}`);
+/** Every element on its own line, indented by depth, as `[index] role "title" …`; `textLimit` cuts what each one says. */
+export function formatElements(tree: AppTree, textLimit?: number): string[] {
+  return tree.elements.map((element) => `${'  '.repeat(element.depth)}${line(element, textLimit)}`);
 }
 
 export function formatTree(tree: AppTree): string {

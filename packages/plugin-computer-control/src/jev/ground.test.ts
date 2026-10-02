@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppTree } from '../contract/tree.js';
 import type { ChoiceAnswer } from './client.js';
-import { OPTIONS_PER_QUESTION, readTarget, targetQuestions, windowState } from './ground.js';
+import { OPTIONS_PER_QUESTION, STATE_CHARS, readTarget, targetQuestions, windowState } from './ground.js';
 
 const tree: AppTree = {
   app: 'Settings', window: 'General',
@@ -30,6 +30,16 @@ describe('windowState', () => {
     expect(state.window).toBe('General');
     expect(state.elements.split('\n')[0]).toBe('[0] window "General"');
     expect(state.elements).toContain('      [3] text "Bluetooth"');
+  });
+
+  it('shortens what elements say until a long page fits Jev, keeping every element', () => {
+    const page: AppTree = { app: 'Browser', elements: Array.from({ length: 400 }, (_, index) => ({ key: `k${index}`, index, depth: 1, role: 'text', title: `Paragraph ${index} ${'word '.repeat(40)}` })) };
+    const whole = windowState(page, 1_000_000).elements;
+    const fitted = windowState(page).elements;
+    expect(whole.length).toBeGreaterThan(STATE_CHARS);
+    expect(fitted.length).toBeLessThanOrEqual(STATE_CHARS);
+    expect(fitted.split('\n')).toHaveLength(400);
+    expect(fitted).toContain('[399] text "Paragraph 399 word');
   });
 });
 

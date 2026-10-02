@@ -288,6 +288,29 @@ describe('what typing showed', () => {
   });
 });
 
+describe('a step that says nothing of its result', () => {
+  const window = () => app([button(1, 'Search', { role: 'text field', value: '' })], (action, elements) => {
+    if (action.action === 'type_text') (elements[0] as AppElement).value = action.text;
+    if (action.action === 'press_key') elements.push(button(2, 'Results', { role: 'text' }));
+  });
+  const steps: RunStep[] = [{ do: 'type', target: 'Search', text: 'Kopernik' }, { do: 'key', key: 'Return', expect: 'results show' }];
+
+  it('is learned once a later step of the run was seen to work', async () => {
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const opened = window();
+    const report = await runSteps('Find', steps, opened.state(), deps(opened, ask));
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['done', 'verified']);
+    expect(report.outcomes[0]?.used).toMatchObject({ key: 'w/1', way: 0 });
+  });
+
+  it('is not learned when nothing after it was seen to work', async () => {
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const opened = window();
+    const report = await runSteps('Find', [steps[0] as RunStep, { do: 'key', key: 'Return' }], opened.state(), deps(opened, ask));
+    expect(report.outcomes[0]?.used).toBeUndefined();
+  });
+});
+
 describe('describeRun', () => {
   it('says what was done to which element and how long it took', async () => {
     const window = app([button(1, 'Export')], (_action, elements) => { elements.push(button(2, 'Dialog')); });

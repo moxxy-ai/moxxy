@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppElement, AppTree } from '../contract/tree.js';
-import { RunMemory, describeRoutes, promote, recall, sameWords } from './memory.js';
+import { RunMemory, describeRoutes, labelOf, promote, recall, sameWords } from './memory.js';
 
 let directory: string;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'moxxy-run-memory-')); });
@@ -162,6 +162,13 @@ describe('recall', () => {
     expect(recall(memory, step, tree(element(3, 'w/cancel', 'Cancel'), live))).toEqual({ element: live, way: 1 });
     const withEffect = { targets: [{ ...memory.targets[0] as (typeof memory.targets)[number], effect: ['button\u001fSheet'] }], routes: [] };
     expect(recall(withEffect, step, tree(live))).toEqual({ element: live, way: 1, effect: ['button\u001fSheet'] });
+  });
+
+  it('knows an element that has only a description (a toolbar button) by it', () => {
+    const described = (index: number, key: string, description: string): AppElement => ({ key, index, depth: 1, role: 'button', description });
+    const newTab = described(5, 'elsewhere/new-tab', 'New Tab');
+    const learned = { targets: [{ do: 'click' as const, target: 'new tab button', key: 'w/toolbar/3', label: labelOf(newTab), way: 0, uses: 1, at: 1 }], routes: [] };
+    expect(recall(learned, { do: 'click', target: 'the New Tab button' }, tree(described(4, 'w/toolbar/2', 'Share'), newTab))).toEqual({ element: newTab, way: 0 });
   });
 
   it('finds it by its label alone when it moved, as long as only one element reads so', () => {

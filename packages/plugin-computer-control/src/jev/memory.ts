@@ -52,7 +52,8 @@ export function sameWords(target: string): string {
   const telling = words.filter((word) => !ARTICLES.has(word));
   return (telling.length > 0 ? telling : words).join(' ');
 }
-export const labelOf = (element: Pick<AppElement, 'role' | 'title'>) => `${element.role}\u001f${element.title ?? ''}`;
+/** A toolbar button often has no title, only a description. */
+export const labelOf = (element: Pick<AppElement, 'role' | 'title' | 'description'>) => `${element.role}\u001f${element.title ?? element.description ?? ''}`;
 
 const newest = <T extends { at: number }>(items: T[], limit: number) => items.sort((a, b) => b.at - a.at).slice(0, limit);
 

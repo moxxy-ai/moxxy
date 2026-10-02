@@ -42,9 +42,16 @@ Otwarte dla Linuksa:
 - [ ] `computer_run`: próba z modelem na zadaniu webowym (Safari) i w
   aplikacji bez elementów; próba w Ustawieniach systemowych przeszła (niżej
   w `CHANGELOG.md`).
-- [ ] Lekcje domyślne (`learned/`): tylko Ustawienia systemowe, macOS po
-  polsku (24 panele + pole szukania). Dodać kolejne aplikacje i język
-  angielski; dopasowanie po roli i tytule nie działa między językami.
+- [ ] Lekcje domyślne (`learned/`): Ustawienia systemowe (24 panele + pole
+  szukania), Finder (10 miejsc paska bocznego), Safari (pasek narzędzi, pole
+  adresu) — macOS po polsku. Dodać kolejne aplikacje i język angielski; dopasowanie po roli i tytule nie działa między językami.
+- [ ] Finder bez otwartego okna (samo biurko): `press_key super+n` kończy się
+  `not_frontmost`. Nie naprawione.
+- [ ] Zapamiętany efekt „pokazuje się strona startowa” pomija kliknięcie
+  „Nowa karta”, gdy bieżąca karta już jest stroną startową (krok uznany za
+  zrobiony, nowej karty nie ma).
+- [ ] Na bardzo długiej stronie z otwartym paskiem bocznym Safari Jev nie
+  wskazał przycisku paska bocznego (2 z 4 prób).
 - [ ] Trafienie w pamięć wymaga tych samych słów celu (po normalizacji);
   model pisze je różnie. Trasy pokazywane modelowi to łagodzą, nie usuwają.
 - [ ] Zaznaczanie wiersza zamiast kliknięcia: sprawdzone w Ustawieniach;

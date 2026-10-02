@@ -43,6 +43,10 @@ import Testing
         #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 2, modifiers: false))
         #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .right, count: 1, modifiers: false))
         #expect(!AXLadder.selectsRow(role: "AXStaticText", button: .left, count: 1, modifiers: true))
+        // A source list (Finder's sidebar) opens a place on one click; selecting its row would only highlight it.
+        // The cell says so itself. A file row's cell does not: there one click selects.
+        #expect(AXLadder.opensRow(cellActions: ["AXOpen"]))
+        #expect(!AXLadder.opensRow(cellActions: []))
         #expect(AXLadder.click(button: .left, count: 2, modifiers: false, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .left, count: 1, modifiers: true, actions: ["AXPress"]) == .physical)
         #expect(AXLadder.click(button: .middle, count: 1, modifiers: false, actions: ["AXPress"]) == .physical)

@@ -27,6 +27,17 @@ private let window = node("AXWindow", "Moxxy Fixture", children: [
 @Suite struct TreeBuilderTests {
     let elements = TreeBuilder.build(window, limit: 100).elements
 
+    // Safari lists its toolbar after the page: on a long page the cut must fall on the page, not on the toolbar.
+    @Test func cutsALongPageAndKeepsTheWindowsOwnControls() {
+        let page = node("AXWebArea", "Article", children: (0..<10).map { node("AXLink", "Link \($0)") })
+        let browser = node("AXWindow", "Browser", children: [page, node("AXToolbar", children: [node("AXButton", "Back")])])
+        let tree = TreeBuilder.build(browser, limit: 6)
+        #expect(tree.truncated)
+        #expect(tree.elements.map(\.title) == ["Browser", "Article", "Link 0", "Link 1", nil, "Back"])
+        // The same holds while reading: the page may not use up every node the reader takes.
+        #expect(AXReader.cap(onPage: true) < AXReader.cap(onPage: false))
+    }
+
     @Test func flattensPlainContainersAndDropsScrollBars() {
         #expect(elements.map(\.role) == ["window", "text field", "secure text field", "button", "check box", "pop up button", "button", "text"])
         #expect(elements.map(\.depth) == [0, 1, 1, 1, 1, 1, 1, 1])

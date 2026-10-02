@@ -50,6 +50,8 @@ export interface StepOutcome {
   readonly closest?: readonly string[];
   /** What a verified step worked on and which of its ways did it: worth remembering. */
   readonly used?: { readonly key: string; readonly label: string; readonly way: number; readonly effect?: readonly string[] };
+  /** The same for a step that checked nothing itself; kept only when a later step vouches for it. */
+  readonly tried?: StepOutcome['used'];
   /** The element came from memory, without asking Jev. */
   readonly recalled?: true;
   /** A remembered element was tried and did not do the step. */
@@ -78,7 +80,7 @@ function before(step: RunStep, tree: AppTree, recalled: Recalled | undefined): R
 
 /** Labels kept as a step's effect; enough to tell one screen from another. */
 const EFFECT_LABELS = 8;
-const named = (tree: AppTree) => new Set(tree.elements.filter((element) => element.title).map(labelOf));
+const named = (tree: AppTree) => new Set(tree.elements.filter((element) => element.title ?? element.description).map(labelOf));
 const shows = (tree: AppTree, effect: readonly string[]) => { const labels = named(tree); return effect.every((label) => labels.has(label)); };
 /** What a step made appear: the named elements the window has now and did not have before. */
 function effectOf(previous: AppTree, now: AppTree): string[] {
@@ -191,7 +193,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
         const effect = seen ? recalled?.effect ?? [] : step.do === 'click' ? effectOf(previous.tree, state.tree) : [];
         return {
           status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}),
-          ...(verdict.verified && element ? { used: { key: element.key, label: labelOf(element), way, ...(effect.length > 0 ? { effect } : {}) } } : {}),
+          ...(element ? { [verdict.verified ? 'used' : 'tried']: { key: element.key, label: labelOf(element), way, ...(effect.length > 0 ? { effect } : {}) } } : {}),
           ...(recalled ? { recalled: true as const } : {}), ...(stale ? { stale } : {}),
         };
       }
@@ -211,6 +213,11 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     }
     outcomes.push(outcome);
     if (outcome.status === 'failed') break;
+  }
+  // A step that checked nothing itself worked when a later step of the same run was seen to work.
+  const vouched = outcomes.findLastIndex((outcome) => outcome.status === 'verified');
+  for (const [index, { tried, ...outcome }] of outcomes.entries()) {
+    outcomes[index] = tried && index < vouched ? { ...outcome, used: tried } : outcome;
   }
   return { outcomes, state, asks, ms: Math.round(performance.now() - started) };
 }

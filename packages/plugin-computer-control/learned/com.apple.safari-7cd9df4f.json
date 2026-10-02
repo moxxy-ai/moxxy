@@ -1,0 +1,143 @@
+{
+ "app": "com.apple.Safari",
+ "targets": [
+  {
+   "do": "click",
+   "target": "forward button idź dalej toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=true&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E58/pasek narzędzi:#1/grupa:#2/przycisk:ForwardButton",
+   "label": "przycisk\u001fIdź dalej",
+   "way": 0,
+   "uses": 6,
+   "at": 1790939964500
+  },
+  {
+   "do": "click",
+   "target": "back button wróć toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=true&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E58/pasek narzędzi:#1/grupa:#2/przycisk:BackButton",
+   "label": "przycisk\u001fWróć",
+   "way": 0,
+   "uses": 9,
+   "at": 1790939962344
+  },
+  {
+   "do": "type",
+   "target": "wikipedia search field page przeszukaj wikipedię",
+   "key": "okno standardowe:SafariWindow?IsSecure=true&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E58/grupa tabeli:#1/obszar przewijania:#1/zawartość html:#1/pole złożone:Przeszukaj Wikipedię",
+   "label": "pole złożone\u001fPrzeszukaj Wikipedię",
+   "way": 0,
+   "uses": 2,
+   "at": 1790939960131
+  },
+  {
+   "do": "type",
+   "target": "address field inteligentne pole wyszukiwania toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=false&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E5/pasek narzędzi:#1/grupa:#3/pole tekstowe:WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",
+   "label": "pole tekstowe\u001finteligentne pole wyszukiwania",
+   "way": 0,
+   "uses": 2,
+   "at": 1790939955760
+  },
+  {
+   "do": "click",
+   "target": "tab overview button podgląd kart toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=false&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E5/pasek narzędzi:#1/przycisk:TabOverviewButton",
+   "label": "przycisk\u001fPodgląd kart",
+   "way": 0,
+   "uses": 8,
+   "at": 1790939951228
+  },
+  {
+   "do": "click",
+   "target": "sidebar button pokaż pasek boczny toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=false&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E5/pasek narzędzi:#1/grupa:#1/przycisk:SidebarButton",
+   "label": "przycisk\u001fpokaż pasek boczny",
+   "way": 0,
+   "uses": 7,
+   "at": 1790939947526
+  },
+  {
+   "do": "click",
+   "target": "new tab button nowa karta toolbar",
+   "key": "okno standardowe:SafariWindow?IsSecure=false&UUID=35ABABDC-BBEA-452C-9DCE-03AF5E5/pasek narzędzi:#1/przycisk:NewTabButton",
+   "label": "przycisk\u001fNowa karta",
+   "way": 0,
+   "uses": 7,
+   "at": 1790939559968
+  }
+ ],
+ "routes": [
+  {
+   "goal": "Go to Polish Wikipedia in Safari",
+   "steps": [
+    {
+     "do": "type",
+     "target": "the address field (inteligentne pole wyszukiwania) in the toolbar",
+     "text": "https://pl.wikipedia.org/wiki/Wikipedia:Strona_główna"
+    },
+    {
+     "do": "key",
+     "key": "Return",
+     "expect": "the Wikipedia main page is shown"
+    }
+   ],
+   "uses": 12,
+   "at": 1790939955760
+  },
+  {
+   "goal": "Show all tabs in Safari",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the tab overview button (Podgląd kart) in the toolbar",
+     "expect": "the tab overview with thumbnails of the open tabs is shown"
+    }
+   ],
+   "uses": 8,
+   "at": 1790939951228
+  },
+  {
+   "goal": "Show the Safari sidebar",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the sidebar button (pokaż pasek boczny) in the toolbar",
+     "expect": "the sidebar is shown at the left of the window"
+    }
+   ],
+   "uses": 7,
+   "at": 1790939947526
+  },
+  {
+   "goal": "Open a new tab in Safari",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the New Tab button (Nowa karta) in the toolbar",
+     "expect": "a new empty tab with the start page is open"
+    }
+   ],
+   "uses": 7,
+   "at": 1790939559968
+  },
+  {
+   "goal": "open Polish Wikipedia in a new tab",
+   "steps": [
+    {
+     "do": "key",
+     "key": "super+t"
+    },
+    {
+     "do": "type",
+     "text": "https://pl.wikipedia.org/wiki/Wikipedia:Strona_główna"
+    },
+    {
+     "do": "key",
+     "key": "Return",
+     "expect": "the Wikipedia main page is shown"
+    }
+   ],
+   "uses": 2,
+   "at": 1790911746707
+  }
+ ]
+}

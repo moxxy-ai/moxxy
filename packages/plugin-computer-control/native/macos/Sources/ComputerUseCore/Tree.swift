@@ -63,6 +63,10 @@ public enum TreeBuilder {
     public static func build(_ root: NodeSnapshot, limit: Int) -> (elements: [TreeElement], truncated: Bool) {
         var output: [TreeElement] = []
         var truncated = false
+        // The page gets what the window's own controls leave: a browser lists its toolbar after the page.
+        var room = limit
+        var onPage = 0
+        var measuring = true
 
         /// `said` is what the nearest listed ancestor already shows as its name.
         func visit(_ node: NodeSnapshot, depth: Int, parentKey: String?, siblings: inout [String: Int], web: Bool, said: [String]) {
@@ -71,6 +75,10 @@ public enum TreeBuilder {
                 for child in node.children { visit(child, depth: depth, parentKey: parentKey, siblings: &siblings, web: web, said: said) }
                 return
             }
+            if web, !measuring {
+                guard onPage < room else { truncated = true; return }
+                onPage += 1
+            }
             guard output.count < limit else { truncated = true; return }
             let role = roleName(node)
             let key = uniqueKey(parentKey, role: role, node: node, siblings: &siblings)
@@ -78,12 +86,16 @@ public enum TreeBuilder {
             output.append(listed)
             var children: [String: Int] = [:]
             let inside = web || node.role == "AXWebArea"
+            if inside, measuring { return }
             for child in node.children {
                 visit(child, depth: depth + 1, parentKey: key, siblings: &children, web: inside, said: [listed.title, listed.description].compactMap { $0 })
             }
         }
 
         var roots: [String: Int] = [:]
+        visit(root, depth: 0, parentKey: nil, siblings: &roots, web: false, said: [])
+        room = max(0, limit - output.count)
+        (output, truncated, roots, measuring) = ([], false, [:], false)
         visit(root, depth: 0, parentKey: nil, siblings: &roots, web: false, said: [])
         return (output, truncated)
     }

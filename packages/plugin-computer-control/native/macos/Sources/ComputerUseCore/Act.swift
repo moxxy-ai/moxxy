@@ -653,6 +653,8 @@ struct Executor {
     private func selectRow(around element: AXUIElement) -> ActionResult? {
         // An element found again comes with what contains it; it would not name its parent itself.
         let around = state.revived.first.map { CFEqual($0, element) } == true ? state.revived : AXReader.lineage(element, limit: 4)
+        if let cell = around.prefix(4).first(where: { AXReader.attribute($0, kAXRoleAttribute) == (kAXCellRole as String) }),
+           AXLadder.opensRow(cellActions: AXReader.actions(cell)), let opened = tryPress(cell, "AXOpen") { return opened }
         guard let row = around.prefix(4).first(where: { AXReader.attribute($0, kAXRoleAttribute) == (kAXRowRole as String) }),
               AXReader.attribute(row, kAXSelectedAttribute) == false else { return nil }
         var settable = DarwinBoolean(false)

@@ -2582,3 +2582,48 @@ narzędzia. Około 11 s z 20 s to odpowiedzi modelu, nie narzędzia.
 - W Safari zostaje: 2–3 pytania do Jev po 0,35–0,55 s, pisanie 16 znaków 0,64 s,
   ładowanie strony 0,9–1,8 s, obraz okna 0,13–0,2 s na odczyt.
 - Pierwsze spojrzenie na Safari bywa nadal 1,3 s (raz na dwa biegi) — nie zbadane.
+
+## Trening Findera i Safari; cztery błędy, które wykazał — 2026-10-02
+
+**Co**
+- `learned/com.apple.finder-27cf6ce8.json` (10 celów, 10 tras),
+  `learned/com.apple.safari-7cd9df4f.json` (7 celów, 5 tras).
+- Helper: `AXLadder.opensRow` + `Act.selectRow` (komórka z `AXOpen`),
+  `AXReader.cap(onPage:)`, `TreeBuilder.build` (strona dostaje resztę limitu).
+- TS: `windowState(tree, budget)` + `STATE_CHARS`, `formatElements(tree, textLimit)`,
+  `labelOf` (tytuł albo opis), `StepOutcome.tried` → `used`, gdy późniejszy
+  krok został potwierdzony.
+
+**Jak i dlaczego (każdy punkt wyszedł w treningu)**
+- Finder: zaznaczenie wiersza paska bocznego podświetlało go, okno zostawało
+  w starym folderze; działał dopiero drugi sposób (3,4–4,3 s, 4 pytania do Jev).
+- Safari, długi artykuł: pasek narzędzi znikał ze stanu („no element matches”
+  dla Wróć/Dalej) — czytnik zużywał 4000 węzłów na stronę, a drzewo 1000
+  elementów; pasek leży po stronie.
+- Po przywróceniu paska Jev odpowiadał HTTP 400 `max_tokens_exceeded` (limit
+  32 tys. tokenów na stan z najdłuższym pytaniem, docs.typesafe.ai/models).
+- Przyciski paska Safari mają tylko opis: etykieta `przycisk/` była wspólna
+  dla wszystkich, więc pamięć ich nie rozróżniała.
+- Z pliku Safari usunięte ręcznie trasy z treścią przykładu (Kopernik).
+  Plik Ustawień bez zmian (promocja zmieniała tylko liczniki).
+
+**Testy (Red → Green)**
+- Swift: `opensRow` w `ActionTests` (brak symbolu), `cutsALongPageAndKeepsTheWindowsOwnControls`
+  (lista kończyła się na stronie), `AXReader.cap`.
+- TS: „knows an element that has only a description”, „shortens what elements
+  say until a long page fits Jev”, „a step that says nothing of its result” (2).
+
+**Walidacja**
+- `swift test` 198/198; wtyczka 395/395 (27 pominiętych: Linux); `pnpm build`
+  exit 0; typecheck 0 błędów; lint 0 błędów; check:deps 0 błędów.
+- Finder na żywo: pierwszy raz 10/10, 1,2–2,0 s (jeden 3,6 s); z pamięci
+  10/10, 0,6–1,4 s, 9 bez pytań do Jev.
+- Safari na żywo (10 biegów × 2): 10/10 w obu; przyciski z pamięci 0,8–1,5 s
+  bez Jev; adres + Return 3,1 → 2,6 s; szukanie na stronie + Return 4,3 → 3,7 s.
+- Ustawienia z pamięci: 24/25; jeden bieg „blocked” (nie powtórzył się
+  w trzech ponownych próbach, przyczyna nieustalona).
+
+**Pominięte / dla następcy**
+- Patrz nowe pozycje w `todo.md` (Finder bez okna, pominięta „Nowa karta”,
+  pasek boczny na długiej stronie). Podczas treningu zamknięta została jedna
+  karta Safari ze stroną startową właściciela.

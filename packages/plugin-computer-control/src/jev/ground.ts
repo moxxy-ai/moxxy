@@ -10,6 +10,11 @@ const SURE = 0.5;
 /** Another element worth a try when the first one does not work. */
 const WORTH_A_TRY = 0.15;
 
+/** Jev takes 32k tokens of state with the longest question; a window's lines run at about 1.4 characters a token. */
+export const STATE_CHARS = 30_000;
+/** How much of its text an element may show, tried in turn until the window fits. */
+const TEXT_LIMITS = [300, 120, 60, 30, 12];
+
 const NONE = 'none';
 
 export type Grounding =
@@ -17,8 +22,10 @@ export type Grounding =
   | { readonly kind: 'none'; readonly closest: readonly AppElement[] };
 
 /** The window as Jev reads it: the same lines the main model gets. */
-export function windowState(tree: AppTree): { app: string; window?: string; elements: string } {
-  return { app: tree.app, ...(tree.window === undefined ? {} : { window: tree.window }), elements: formatElements(tree).join('\n') };
+export function windowState(tree: AppTree, budget = STATE_CHARS): { app: string; window?: string; elements: string } {
+  const fitting = (limit: number) => formatElements(tree, limit).join('\n');
+  const elements = TEXT_LIMITS.map(fitting).find((text) => text.length <= budget) ?? fitting(0);
+  return { app: tree.app, ...(tree.window === undefined ? {} : { window: tree.window }), elements };
 }
 
 const TARGET = 'Which element of `elements` is the one that `step.target` describes, so that `step.do` can be performed on it? '

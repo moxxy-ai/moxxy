@@ -5,6 +5,10 @@ public final class AXReader {
     /// A slow app must not stall the helper: every AX call on its elements gives up after this.
     static let messagingTimeout: Float = 1.0
     static let maxNodes = 4000
+    /// What a web page may take of them: a browser lists its toolbar after the page, and it must still be read.
+    static let pageNodes = 3500
+
+    static func cap(onPage: Bool) -> Int { onPage ? pageNodes : maxNodes }
     static let maxDepth = 64
 
     private(set) var elements: [AXUIElement] = []
@@ -67,7 +71,7 @@ public final class AXReader {
         return CGRect(origin: origin, size: extent)
     }
 
-    private func read(_ element: AXUIElement, depth: Int) -> NodeSnapshot {
+    private func read(_ element: AXUIElement, depth: Int, onPage: Bool = false) -> NodeSnapshot {
         let handle = elements.count
         elements.append(element)
         let found = Self.attributes(element, Self.batch)
@@ -76,7 +80,8 @@ public final class AXReader {
         var children: [NodeSnapshot] = []
         if depth < Self.maxDepth {
             let kids = found[2] as? [AXUIElement] ?? []
-            for kid in kids where elements.count < Self.maxNodes { children.append(read(kid, depth: depth + 1)) }
+            let inside = onPage || found[0] as? String == "AXWebArea"
+            for kid in kids where elements.count < Self.cap(onPage: inside) { children.append(read(kid, depth: depth + 1, onPage: inside)) }
         }
         return NodeSnapshot(
             role: found[0] as? String ?? "AXUnknown",

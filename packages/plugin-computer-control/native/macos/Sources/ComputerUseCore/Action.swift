@@ -178,6 +178,9 @@ public enum AXLadder {
         button == .left && count == 1 && !modifiers && rowContent.contains(role)
     }
 
+    /// Whether one click on the row opens what it names, which its cell then offers as an action.
+    public static func opensRow(cellActions: [String]) -> Bool { cellActions.contains("AXOpen") }
+
     /// Roles whose press does the same wherever inside them the click lands; anything else (text, canvases,
     /// lists) cares about the exact point and gets a real click.
     static let pressable: Set<String> = [

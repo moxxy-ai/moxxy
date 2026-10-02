@@ -217,6 +217,24 @@ again from memory 0.8–1.2 s with no request to Jev. An action with its fresh
 state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
 helper write where each request's time went.
 
+In a source list whose cell offers "open" itself (Finder's sidebar), a click
+on the row performs that action: selecting the row there only highlights it.
+A file row's cell has no such action, so one click still selects.
+
+A long web page cannot push the window's own controls out of the state: the
+reader keeps 500 of its 4000 nodes for what follows the page, and the page
+gets what the other elements leave of the 1000 listed (Safari lists its
+toolbar after the page). What Jev reads is fitted to its input limit by
+shortening what elements say (300 → 120 → 60 → 30 → 12 characters) until the
+window is under 30 000 characters; every element stays listed.
+
+A step that checks nothing itself (typing into a field) is remembered when a
+later step of the same run was seen to work. An element with no title is
+known by its description (toolbar buttons).
+
+Shipped lessons now cover System Settings, Finder (ten sidebar places) and
+Safari (toolbar buttons, the address field), all for macOS in Polish.
+
 The helper listens to the app from before each action, so a reaction that
 comes while a key or text is still going out is heard, and the wait after it
 is the quiet spell, not a full second. A browser that already has its page in
