@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
@@ -204,6 +204,11 @@ test('desktop resources reject a computer extension without the native component
     header.writeUInt32BE(0x0100000c, 28);
     await writeFile(helper, header);
     await writeHelperManifest(helper, { protocolVersion: CONTRACT_PROTOCOL_VERSION, architecture: 'universal' });
+    // Packing a plugin drops the permission to run its files; Windows has no such permission.
+    if (process.platform !== 'win32') {
+      await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use component cannot be run/);
+      await chmod(helper, 0o755);
+    }
     await verifyDesktopResources(root, { runCli: false, platform: 'darwin' });
   } finally { await rm(root, { recursive: true, force: true }); }
 });

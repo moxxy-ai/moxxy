@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
@@ -76,10 +76,17 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     const helper = COMPUTER_HELPERS[options.platform ?? process.platform];
     if (dependency === '@moxxy/plugin-computer-control' && helper) {
       const [label, segments, protocol] = helper;
+      const helperPath = path.join(path.dirname(manifestPath), ...segments);
       try {
-        await verifyHelperArtifact(path.join(path.dirname(manifestPath), ...segments), protocol);
+        await verifyHelperArtifact(helperPath, protocol);
       } catch (error) {
         throw new Error(`${label} Computer Use component missing or incompatible in desktop resources`, { cause: error });
+      }
+      // `pnpm pack` drops the permission to run a file; Windows has no such permission.
+      if (process.platform !== 'win32' && label !== 'Windows') {
+        await access(helperPath, constants.X_OK).catch((error) => {
+          throw new Error(`${label} Computer Use component cannot be run: it lost its executable permission`, { cause: error });
+        });
       }
     }
   }

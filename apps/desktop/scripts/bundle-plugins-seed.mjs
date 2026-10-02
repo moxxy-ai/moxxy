@@ -19,7 +19,7 @@
  * silently skipped by plugin discovery at runtime.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -116,6 +116,7 @@ run('npm', [
   ...tarballs,
 ]);
 
+if (process.platform !== 'win32') restoreExecutables();
 if (process.platform === 'darwin') installOtherDarwinArchPackages();
 
 // npm records direct local tarballs exactly as `file:/tmp/moxxy-seed-tars-*`.
@@ -191,4 +192,24 @@ function packageManagerEntryHint(command) {
   if (command === 'pnpm' && (basename === 'pnpm.cjs' || basename === 'pnpm.js')) return entry;
   if (command === 'npm' && (basename === 'npm-cli.js' || basename === 'npm.js')) return entry;
   return undefined;
+}
+
+/**
+ * `pnpm pack` records every file outside `bin` as not executable, so a packed
+ * native program (the Computer Use helper) arrives unable to start. Give each
+ * seeded file back the permission its source in the workspace has.
+ */
+function restoreExecutables() {
+  for (const p of [...SEED_PLUGINS, ...CLOSURE]) {
+    const source = path.join(repo, 'packages', p);
+    const { name } = JSON.parse(readFileSync(path.join(source, 'package.json'), 'utf8'));
+    const seeded = path.join(seedDir, 'node_modules', name);
+    for (const entry of readdirSync(seeded, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const file = path.join(entry.parentPath, entry.name);
+      if (file.includes(`${path.sep}node_modules${path.sep}`, seeded.length)) continue;
+      const original = path.join(source, path.relative(seeded, file));
+      if (existsSync(original) && (statSync(original).mode & 0o111) !== 0) chmodSync(file, 0o755);
+    }
+  }
 }

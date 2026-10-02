@@ -3,7 +3,7 @@ import { connect, type Socket } from 'node:net';
 import { mkdtempSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BrowserBridge, sweepAbandonedBridges } from './bridge.js';
+import { BrowserBridge, bridgeEndpoint, sweepAbandonedBridges } from './bridge.js';
 import { BrowserHost, type HostWebContents } from './host.js';
 
 /**
@@ -239,6 +239,25 @@ describe('BrowserBridge — serving the agent', () => {
 
     c.socket.write('{ to nie jest json\n');
     expect(await c.send('snapshot', {})).toMatchObject({ ok: true });
+  });
+});
+
+describe('bridgeEndpoint', () => {
+  /**
+   * Windows cannot listen on a file path: there the bridge never started and
+   * the browser tools fell back to a Playwright the installer does not carry.
+   */
+  it('is a named pipe on Windows, with no directory to make', () => {
+    const endpoint = bridgeEndpoint({ pid: 4242, id: 'ab12', tmp: 'C:\\Temp', platform: 'win32' });
+
+    expect(endpoint).toEqual({ socketPath: '\\\\.\\pipe\\moxxy-browser-4242-ab12', dir: null });
+  });
+
+  it('is a socket file in an owner-only directory elsewhere', () => {
+    const endpoint = bridgeEndpoint({ pid: 4242, id: 'ab12', tmp: tmpdir(), platform: 'darwin' });
+
+    const dir = join(tmpdir(), 'moxxy-browser-4242');
+    expect(endpoint).toEqual({ socketPath: join(dir, 'ab12.sock'), dir });
   });
 });
 
