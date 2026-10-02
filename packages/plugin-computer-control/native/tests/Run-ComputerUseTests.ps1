@@ -413,7 +413,8 @@ try {
       $chunks = @($script:events | Where-Object { $_.event -eq 'preview_chunk' })
       $pictures = @($script:events | Where-Object { $_.event -eq 'preview_frame' -and $_.PSObject.Properties['image'] })
       Write-Host ("  video chunks: {0}, pictures: {1}" -f $chunks.Count, $pictures.Count)
-      Check ($chunks.Count -gt 0 -or $pictures.Count -gt 0) 'Neither video nor pictures arrived'
+      $empty = @($script:events | Where-Object { $_.event -eq 'preview_frame' -and -not $_.PSObject.Properties['image'] })
+      Check ($chunks.Count -gt 0 -or $pictures.Count -gt 0) ('Neither video nor pictures arrived: ' + (@($empty | Select-Object -First 3) | ConvertTo-Json -Compress -Depth 4))
       if ($chunks.Count -gt 0) {
         $first = $chunks[0]
         Check ($first.key -eq $true) 'The video does not start with a key picture'
