@@ -150,6 +150,27 @@ describe('runtimePathDirs', () => {
     });
   });
 
+  it('puts the bundled Git last where the computer has a Git of its own', async () => {
+    await unpack('node', ['bin/node']);
+    await unpack('git', ['cmd/git']);
+
+    expect(runtimePathDirs(home, 'darwin', true)).toEqual({
+      first: [],
+      last: [path.join(home, 'runtimes', 'node', 'bin'), path.join(home, 'runtimes', 'git', 'cmd')],
+    });
+    expect(runtimePathDirs(home, 'win32', true).last).toEqual([path.join(home, 'runtimes', 'node'), path.join(home, 'runtimes', 'git', 'cmd')]);
+  });
+
+  it('puts the bundled Git first on a Mac whose git only offers to install the developer tools', async () => {
+    await unpack('python', ['bin/python3']);
+    await unpack('git', ['cmd/git']);
+
+    expect(runtimePathDirs(home, 'darwin', false)).toEqual({
+      first: [path.join(home, 'runtimes', 'python', 'bin'), path.join(home, 'runtimes', 'git', 'cmd')],
+      last: [],
+    });
+  });
+
   it('names nothing for a runtime that was never fully unpacked', async () => {
     await fs.mkdir(path.join(home, 'runtimes', 'python', 'bin'), { recursive: true });
 

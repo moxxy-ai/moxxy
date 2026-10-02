@@ -17,12 +17,13 @@ of what moxxy needs to run and where each piece comes from.
 | Gemini voice | `@moxxy/plugin-tts-gemini` (needs only the user's Google API key) | in the installer, inside the plugin seed |
 | Adding or updating plugins from npm, the in-app "Update CLI", `npx` MCP servers | Node + npm (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/node` on first launch | in the installer |
 | Scripts the agent writes and runs (data, charts, documents, web pages) | Python + pip with a set of common packages (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/python` on first launch | in the installer |
+| Cloning a repository, the developer and collaborative modes, the agent's own `git` commands | Git (`resources/runtimes-seed`), unpacked to `~/.moxxy/runtimes/git` on first launch | in the installer |
 
 A first launch therefore needs no download: the agent, its plugins, offline
-voice with its voices, Node and Python are all on disk. A freshly installed
+voice with its voices, Node, Python and Git are all on disk. A freshly installed
 Piper becomes the voice unless the user already chose another one.
 
-### Node and Python for the agent
+### Node, Python and Git for the agent
 
 A person asks the agent for something and the agent runs a script for it, so
 the tools a script needs cannot be left to the computer. The installer carries:
@@ -34,8 +35,15 @@ the tools a script needs cannot be left to the computer. The installer carries:
   `apps/desktop/runtimes/python-requirements.txt`: requests, numpy, pandas,
   matplotlib, openpyxl, python-docx, pypdf, pillow, beautifulsoup4, lxml,
   pyyaml. Anything else the agent installs with `pip`, which needs a network.
+- **Git** — the Git project publishes source only, so the binaries come from
+  the maintained builds of it: on Windows MinGit of Git for Windows (the build
+  git-scm.com offers), on macOS and Linux the build GitHub makes for GitHub Desktop
+  (`desktop/dugite-native`, with `git-lfs`). That build looks for its own
+  programs under `/`; the seed adds `cmd/git`, a launcher that names them from
+  wherever the folder was unpacked, and `cmd` is what goes on `PATH` on every
+  platform.
 
-Both are checked against a sha256 when the installer is built. A macOS
+All are checked against a sha256 when the installer is built. A macOS
 installer is universal, so it carries each for arm64 and x64 and the app
 unpacks the one for the computer. They are unpacked outside the app because
 `pip install` writes into the Python folder; `.runtime.ok` records which
@@ -50,8 +58,12 @@ into it) alone, and a newer installer replaces it.
   macOS rebuilds `PATH` with `/usr/bin` in front; the host names its folders in
   `MOXXY_PATH_FIRST` and the tool puts them back first. On Windows `pip` and
   `pip3` are `.cmd` shims and `python3.exe` is a copy of `python.exe`.
-- **Node last.** A Node the user installed themselves keeps winning; the
-  bundled one serves a computer without any.
+- **Node and Git last.** The ones the user installed themselves keep winning;
+  the bundled ones serve a computer without any. A user's Git also knows their
+  credential helper, which the bundled one does not.
+- **Git first on a Mac without the developer tools.** There `/usr/bin/git` is a
+  stub that asks to install them, so the bundled Git goes in front like Python
+  (`hasSystemGit` in `packages/desktop-host/src/seed-runtimes.ts`).
 
 `moxxy` installed from npm and run in a terminal does not get these runtimes;
 they belong to the desktop app.
@@ -95,8 +107,8 @@ plugin seed (`bundle-plugins-seed.mjs`) and fetches the voices
 (`bundle-models-seed.mjs`, sha256-pinned by the plugin's own catalog; voices
 already in place are reused) and the runtimes (`bundle-runtimes-seed.mjs`;
 on an Apple Silicon Mac the x64 Python is prepared under Rosetta). `verify:resources` and `verify:packaged` fail the
-build when the seed lacks Piper, the Gemini voice, any Piper voice, or Node or
-Python for an architecture the installer serves. `scripts/smoke-runtimes.mjs`
+build when the seed lacks Piper, the Gemini voice, any Piper voice, or Node,
+Python or Git for an architecture the installer serves. `scripts/smoke-runtimes.mjs`
 unpacks the runtimes as a first launch does and runs them.
 
 The Windows installer is built on Windows (CI: the `Packaged desktop smoke`

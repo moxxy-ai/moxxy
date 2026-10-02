@@ -11,7 +11,7 @@ import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/d
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
 import { VOICE_CATALOG } from '../packages/plugin-tts-local/dist/voices.js';
-import { NODE_VERSION, PYTHON_VERSION, RUNTIME_TARGETS, runtimeTargets } from '../apps/desktop/scripts/runtimes-catalog.mjs';
+import { NODE_VERSION, PYTHON_VERSION, RUNTIME_TARGETS, gitVersion, runtimeTargets } from '../apps/desktop/scripts/runtimes-catalog.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -175,6 +175,32 @@ test('desktop resource verifier rejects resources that leave Node or Python to b
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false, platform: 'linux', arch: 'x64' }),
       /Bundled runtimes for linux-x64 are missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave Git to be installed by hand', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-git-resources-'));
+  try {
+    await writeValidResources(root);
+    await writeJson(path.join(root, 'runtimes-seed', 'win32-x64', 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: `${NODE_VERSION}-aaaaaaaaaaaa`, archive: 'node.zip' },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+        { name: 'git', id: `${gitVersion('darwin-arm64')}-cccccccccccc`, archive: 'git.tar.gz' },
+      ],
+    });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled git runtime for win32-x64 is not the pinned version/,
+    );
+
+    await rm(path.join(root, 'runtimes-seed', 'darwin-x64', 'git.tar.gz'));
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'darwin' }),
+      /Bundled git runtime for darwin-x64 is missing/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -382,10 +408,12 @@ async function writeValidResources(
     const nodeArchive = target.startsWith('win32') ? 'node.zip' : target.startsWith('linux') ? 'node.tar.xz' : 'node.tar.gz';
     await writeFile(path.join(dir, nodeArchive), 'node');
     await writeFile(path.join(dir, 'python.tar.gz'), 'python');
+    await writeFile(path.join(dir, 'git.tar.gz'), 'git');
     await writeJson(path.join(dir, 'manifest.json'), {
       runtimes: [
         { name: 'node', id: `${NODE_VERSION}-aaaaaaaaaaaa`, archive: nodeArchive },
         { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+        { name: 'git', id: `${gitVersion(target)}-cccccccccccc`, archive: 'git.tar.gz' },
       ],
     });
   }

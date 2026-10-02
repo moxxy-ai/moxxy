@@ -4,7 +4,7 @@ import { existsSync, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
 /**
- * First-launch runtime seeding: unpack the Node and Python the installer ships
+ * First-launch runtime seeding: unpack the Node, Python and Git the installer ships
  * (`runtimes-seed/<platform>-<arch>`, assembled by
  * apps/desktop/scripts/bundle-runtimes-seed.mjs) into `<moxxyHome>/runtimes`,
  * so the agent can run scripts and npm on a computer that has neither. They
@@ -120,25 +120,45 @@ function run(command: string, args: ReadonlyArray<string>): Promise<void> {
   });
 }
 
+type RuntimeName = 'python' | 'node' | 'git';
+
 /** Where each runtime keeps its programs, relative to its folder. */
-const PROGRAM_DIRS: Readonly<Record<'python' | 'node', (platform: NodeJS.Platform) => ReadonlyArray<string>>> = {
+const PROGRAM_DIRS: Readonly<Record<RuntimeName, (platform: NodeJS.Platform) => ReadonlyArray<string>>> = {
   python: (platform) => (platform === 'win32' ? ['', 'Scripts'] : ['bin']),
   node: (platform) => (platform === 'win32' ? [''] : ['bin']),
+  git: () => ['cmd'],
 };
 
-const programDirs = (moxxyHome: string, name: 'python' | 'node', platform: NodeJS.Platform): string[] => {
+const programDirs = (moxxyHome: string, name: RuntimeName, platform: NodeJS.Platform): string[] => {
   const root = path.join(runtimesRoot(moxxyHome), name);
   return existsSync(path.join(root, RUNTIME_MARKER)) ? PROGRAM_DIRS[name](platform).map((dir) => path.join(root, dir)) : [];
 };
 
+/** Where macOS keeps the Git of the developer tools; without them `/usr/bin/git` only offers to install them. */
+const MAC_DEVELOPER_GIT = ['/Library/Developer/CommandLineTools/usr/bin/git', '/Applications/Xcode.app/Contents/Developer/usr/bin/git'];
+
+/** False only on a Mac whose `git` is the stub that asks to install the developer tools. */
+export function hasSystemGit(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'darwin' || MAC_DEVELOPER_GIT.some((file) => existsSync(file));
+}
+
 /**
  * The folders of the unpacked runtimes that belong on PATH. Python goes first:
  * a clean Windows or macOS answers `python` with a stub that offers to install
- * it, which would shadow the bundled one. Node goes last: a Node the user
- * installed themselves keeps winning.
+ * it, which would shadow the bundled one. Node and Git go last: the ones the
+ * user installed themselves keep winning. The exception is a Mac without the
+ * developer tools, where the system `git` is such a stub too.
  */
-export function runtimePathDirs(moxxyHome: string, platform: NodeJS.Platform = process.platform): { first: string[]; last: string[] } {
-  return { first: programDirs(moxxyHome, 'python', platform), last: programDirs(moxxyHome, 'node', platform) };
+export function runtimePathDirs(
+  moxxyHome: string,
+  platform: NodeJS.Platform = process.platform,
+  systemGit: boolean = hasSystemGit(platform),
+): { first: string[]; last: string[] } {
+  const git = programDirs(moxxyHome, 'git', platform);
+  return {
+    first: [...programDirs(moxxyHome, 'python', platform), ...(systemGit ? [] : git)],
+    last: [...programDirs(moxxyHome, 'node', platform), ...(systemGit ? git : [])],
+  };
 }
 
 /** Puts the unpacked runtimes on PATH for everything this process starts. Idempotent. */
@@ -150,7 +170,7 @@ export function activateRuntimes(moxxyHome: string, platform: NodeJS.Platform = 
   const own = new Set([...first, ...last]);
   const rest = (env[key] ?? '').split(delimiter).filter((dir) => dir !== '' && !own.has(dir));
   env[key] = [...first, ...rest, ...last].join(delimiter);
-  // A login shell rebuilds PATH from the system profile; the Bash tool reads this to put Python back in front.
+  // A login shell rebuilds PATH from the system profile; the Bash tool reads this to put these back in front.
   if (first.length > 0) env.MOXXY_PATH_FIRST = first.join(delimiter);
 }
 

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Assemble `resources/runtimes-seed` — the Node and the Python the desktop
- * ships, so the agent can run scripts, `pip` and `npm` on a computer that has
- * neither. The packaged app unpacks them into `~/.moxxy/runtimes` on first
+ * Assemble `resources/runtimes-seed` — the Node, the Python and the Git the
+ * desktop ships, so the agent can run scripts, `pip`, `npm` and `git` on a
+ * computer that has none of them. The packaged app unpacks them into `~/.moxxy/runtimes` on first
  * launch (see `@moxxy/desktop-host` seed-runtimes.ts).
  *
  * Node goes in as the official archive, byte for byte. Python is the pinned
  * standalone build with the packages of `runtimes/python-requirements.txt`
- * installed into it, packed again. Both are checked against the sha256 in
+ * installed into it, packed again. Git is the pinned build, packed again
+ * under one folder with a launcher on macOS and Linux. All are checked against the sha256 in
  * `runtimes-catalog.mjs`. A runtime already assembled from the same inputs is
  * reused, so a rebuild downloads nothing.
  *
@@ -16,13 +17,13 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { tarCommand } from '../../../packages/desktop-host/dist/seed-runtimes.js';
-import { NODE_VERSION, PYTHON_IMPORTS, PYTHON_VERSION, RUNTIME_TARGETS, runtimeTargets } from './runtimes-catalog.mjs';
+import { NODE_VERSION, PYTHON_IMPORTS, PYTHON_VERSION, RUNTIME_TARGETS, gitVersion, runtimeTargets } from './runtimes-catalog.mjs';
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const seedRoot = path.join(desktopDir, 'resources', 'runtimes-seed');
@@ -35,6 +36,17 @@ const tar = tarCommand();
 /** `build.mac.minimumSystemVersion` of the desktop app. */
 const MACOS_MINIMUM = Number.parseInt(JSON.parse(readFileSync(path.join(desktopDir, 'package.json'), 'utf8')).build.mac.minimumSystemVersion, 10);
 
+/**
+ * The macOS and Linux build of Git looks for its own programs under `/`, where
+ * it was built. GitHub Desktop tells it where they are through the
+ * environment; so does this launcher, from wherever the folder was unpacked.
+ * Git for Windows finds them by itself and has `cmd/git.exe` already.
+ */
+const GIT_LAUNCHER = `#!/bin/sh
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+GIT_EXEC_PATH="$root/libexec/git-core" GIT_TEMPLATE_DIR="$root/share/git-core/templates" exec "$root/bin/git" "$@"
+`;
+
 const targets = runtimeTargets();
 if (targets.length === 0) throw new Error(`No bundled runtimes are defined for ${process.platform}-${process.arch}`);
 
@@ -44,7 +56,7 @@ for (const name of readdirSync(seedRoot)) {
 }
 
 for (const target of targets) {
-  const { node, python } = RUNTIME_TARGETS[target];
+  const { node, python, git } = RUNTIME_TARGETS[target];
   const targetDir = path.join(seedRoot, target);
   mkdirSync(targetDir, { recursive: true });
   const previous = readManifest(targetDir);
@@ -80,10 +92,35 @@ for (const target of targets) {
     console.log(`runtimes-seed: ${target} Python ${PYTHON_VERSION} with its packages added`);
   }
 
+  const gitArchive = 'git.tar.gz';
+  const gitId = `${gitVersion(target)}-${sha256Text(`${git.sha256}\n${GIT_LAUNCHER}`).slice(0, 12)}`;
+  if (!reusable(previous, targetDir, 'git', gitId, gitArchive)) {
+    const work = path.join(stagingDir, `work-git-${target}`);
+    const root = path.join(work, 'git');
+    rmSync(work, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    // Neither download has a top-level folder; the app unpacks one.
+    run(tar, ['-xf', await download(git), '-C', root]);
+    if (!windows) {
+      mkdirSync(path.join(root, 'cmd'));
+      writeFileSync(path.join(root, 'cmd', 'git'), GIT_LAUNCHER);
+      chmodSync(path.join(root, 'cmd', 'git'), 0o755);
+    }
+    if (runsHere(target)) {
+      const answer = execFileSync(path.join(root, 'cmd', windows ? 'git.exe' : 'git'), ['--version'], { encoding: 'utf8', windowsHide: true });
+      if (!answer.includes(gitVersion(target))) throw new Error(`The bundled Git for ${target} answered "${answer.trim()}", expected ${gitVersion(target)}`);
+    }
+    rmSync(path.join(targetDir, gitArchive), { force: true });
+    run(tar, ['-czf', path.join(targetDir, gitArchive), '-C', work, 'git'], { COPYFILE_DISABLE: '1' });
+    rmSync(work, { recursive: true, force: true });
+    console.log(`runtimes-seed: ${target} Git ${gitVersion(target)} added`);
+  }
+
   await writeFile(path.join(targetDir, 'manifest.json'), `${JSON.stringify({
     runtimes: [
       { name: 'node', id: nodeId, archive: nodeArchive },
       { name: 'python', id: pythonId, archive: pythonArchive },
+      { name: 'git', id: gitId, archive: gitArchive },
     ],
   }, null, 2)}\n`);
 }
@@ -131,6 +168,11 @@ function makeRelocatable(root, windows) {
     const head = readFileSync(file).subarray(0, 512).toString('latin1');
     if (head.startsWith('#!') && (head.split('\n')[0] ?? '').includes(root)) rmSync(file, { force: true });
   }
+}
+
+/** A Mac runs both of its architectures (x64 under Rosetta); everything else only its own. */
+function runsHere(target) {
+  return target.startsWith(`${process.platform}-`) && (process.platform === 'darwin' || target.endsWith(`-${process.arch}`));
 }
 
 function reusable(manifest, targetDir, name, id, archive) {

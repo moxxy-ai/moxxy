@@ -181,7 +181,7 @@ jobs:
       - name: Verify unpacked desktop resources
         run: pnpm --filter @moxxy/desktop run verify:packaged
 
-      - name: Run the bundled Python and Node
+      - name: Run the bundled Python, Node and Git
         # Windows runs them from the installed app in the installer smoke below.
         if: runner.os != 'Windows'
         run: node apps/desktop/scripts/smoke-runtimes.mjs apps/desktop/resources

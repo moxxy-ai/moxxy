@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
 import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
 import { VOICE_CATALOG } from '../../../packages/plugin-tts-local/dist/voices.js';
-import { NODE_VERSION, PYTHON_VERSION, runtimeTargets } from './runtimes-catalog.mjs';
+import { NODE_VERSION, PYTHON_VERSION, gitVersion, runtimeTargets } from './runtimes-catalog.mjs';
 
 /** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
 const COMPUTER_HELPERS = {
@@ -133,11 +133,11 @@ async function verifyBundledVoices(voicesDir) {
   }
 }
 
-/** Node and Python are there for every architecture this installer serves, in the pinned versions —
- *  otherwise the agent could not run a script or npm on a computer that has neither. */
+/** Node, Python and Git are there for every architecture this installer serves, in the pinned versions —
+ *  otherwise the agent could not run a script, npm or git on a computer that has none of them. */
 async function verifyBundledRuntimes(seedRoot, platform, arch) {
-  const pinned = { node: NODE_VERSION, python: PYTHON_VERSION };
   for (const target of runtimeTargets(platform, arch)) {
+    const pinned = { node: NODE_VERSION, python: PYTHON_VERSION, git: gitVersion(target) };
     let runtimes;
     try {
       ({ runtimes } = JSON.parse(await readFile(path.join(seedRoot, target, 'manifest.json'), 'utf8')));
