@@ -85,7 +85,7 @@ function before(step: RunStep, tree: AppTree, recalled: Recalled | undefined): R
   return {
     ...(step.target === undefined || recalled?.element ? {} : targetQuestions(tree)),
     // A remembered effect that does not show says the step is still to do; one that shows may be a look-alike.
-    ...(step.expect === undefined || (recalled?.effect && !shows(tree, recalled.effect)) ? {} : { already: ALREADY_QUESTION }),
+    ...(step.expect === undefined || (signOf(recalled) && !shows(tree, signOf(recalled) ?? [])) ? {} : { already: ALREADY_QUESTION }),
   };
 }
 
@@ -93,6 +93,8 @@ function before(step: RunStep, tree: AppTree, recalled: Recalled | undefined): R
 const EFFECT_LABELS = 8;
 const named = (tree: AppTree) => new Set(tree.elements.filter((element) => element.title ?? element.description).map(labelOf));
 const shows = (tree: AppTree, effect: readonly string[]) => { const labels = named(tree); return effect.every((label) => labels.has(label)); };
+/** What a lesson says the step makes appear; an empty list says it leaves nothing that repeats, so there is nothing to look for. */
+const signOf = (recalled: Recalled | undefined) => (recalled?.effect?.length ? recalled.effect : undefined);
 /** Whether the element, or a row or cell around it, is the selected or checked one: the step's result is a state of it. */
 function chosen(tree: AppTree, element: AppElement): boolean {
   const is = (candidate: AppElement) => candidate.states?.some((state) => state === 'selected' || state === 'checked') === true;
@@ -178,7 +180,8 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     for (;;) {
       deps.signal.throwIfAborted();
       const recalled = stale ? undefined : remembered(step);
-      if (recalled?.effect && recalled.element && shows(state.tree, recalled.effect) && chosen(state.tree, recalled.element)) return { status: attempts === 0 ? 'skipped' : 'verified', attempts, recalled: true };
+      const sign = signOf(recalled);
+      if (sign && recalled?.element && shows(state.tree, sign) && chosen(state.tree, recalled.element)) return { status: attempts === 0 ? 'skipped' : 'verified', attempts, recalled: true };
       const questions = before(step, state.tree, recalled);
       const answers = ahead ?? await ask({ step }, questions);
       ahead = undefined;
@@ -209,7 +212,7 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
 
       const previous = state;
       // What already showed before the step proves nothing about it.
-      const proves = recalled?.effect !== undefined && !shows(previous.tree, recalled.effect) ? recalled.effect : undefined;
+      const proves = sign !== undefined && !shows(previous.tree, sign) ? sign : undefined;
       const result = await perform(rung, proves);
       const changed = fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot);
       // One request: did this step do what it should, and where is the next step's element.
@@ -235,11 +238,15 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       if (verdict.verdict === 'done') {
         if (!relooked && Object.keys(upcoming).length > 0) ahead = after;
         // What typing shows is the text itself, different every time: only a click's effect is worth keeping.
-        const effect = seen ? recalled?.effect ?? [] : step.do === 'click' || step.do === 'key' ? effectOf(previous.tree, state.tree) : [];
+        // A sign that did not show again was that time's content, not the step's: what repeated is kept, or nothing.
+        const fickle = !seen && (proves !== undefined || recalled?.effect?.length === 0);
+        const shown = named(state.tree);
+        const effect = seen ? proves ?? [] : fickle ? (proves ?? []).filter((label) => shown.has(label)) : step.do === 'click' || step.do === 'key' ? effectOf(previous.tree, state.tree) : [];
+        const kept = effect.length > 0 || fickle ? { effect } : {};
         return {
           status: verdict.verified ? 'verified' : 'done', attempts, ...(line ? { element: line } : {}),
-          ...(element ? { [verdict.verified ? 'used' : 'tried']: { key: element.key, label: labelOf(element), way, ...(effect.length > 0 ? { effect } : {}) } } : {}),
-          ...(!element && verdict.verified && effect.length > 0 ? { used: { key: '', label: '', way: 0, effect } } : {}),
+          ...(element ? { [verdict.verified ? 'used' : 'tried']: { key: element.key, label: labelOf(element), way, ...kept } } : {}),
+          ...(!element && verdict.verified && (effect.length > 0 || fickle) ? { used: { key: '', label: '', way: 0, effect } } : {}),
           ...(recalled ? { recalled: true as const } : {}), ...(stale ? { stale } : {}),
         };
       }

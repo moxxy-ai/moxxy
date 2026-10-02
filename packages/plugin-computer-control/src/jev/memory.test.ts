@@ -130,6 +130,14 @@ describe('what is shipped of an effect', () => {
     expect((await new RunMemory(mine).read('app')).targets[0]?.effect).toHaveLength(3);
   });
 
+  it('says so when the step leaves nothing that repeats, so no install waits for a sign that never comes', async () => {
+    const mine = join(directory, 'mine');
+    const shipped = join(directory, 'shipped');
+    await new RunMemory(mine).learn('app', { targets: [{ ...exportButton, target: 'Seven', label: 'button\u001f7', effect: [] }] });
+    await promote(mine, shipped);
+    expect((await new RunMemory(shipped).read('app')).targets[0]?.effect).toEqual([]);
+  });
+
   it('is completed by what this computer saw the same element do', () => {
     const live = element(4, 'w/export', 'Export');
     const memory = { targets: [

@@ -297,6 +297,40 @@ describe('what a step showed last time', () => {
   });
 });
 
+describe('what a step shows differently every time', () => {
+  // A calculator key: what appears is the number on the display, never the same twice.
+  const sheet = 'button\u001fSheet';
+  const step = { do: 'click' as const, target: 'Export', expect: 'the sheet shows' };
+  const changing = () => app([button(1, 'Export')], (action, elements) => { if (action.action === 'click') elements.push(button(2, 'Error')); });
+  const judged = () => jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+
+  it('is forgotten as its sign: the lesson then says the step leaves none', async () => {
+    const window = changing();
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, judged().ask), known });
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', used: { key: 'w/1', effect: [] } });
+  });
+
+  it('keeps the part of the sign that did show again', async () => {
+    const window = app([button(1, 'Export')], (action, elements) => { if (action.action === 'click') elements.push(button(2, 'Sheet'), button(3, 'Error')); });
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet, 'button\u001f42'] });
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, judged().ask), known });
+    expect(report.outcomes[0]?.used?.effect).toEqual([sheet]);
+  });
+
+  it('is not waited for once the lesson says so, and stays that way', async () => {
+    const window = changing();
+    const { ask, requests } = judged();
+    const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [] });
+    const waited: Array<readonly string[] | undefined> = [];
+    const act: RunDeps['act'] = (action, until) => { waited.push(until); return window.act(action); };
+    const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known, act });
+    expect(waited).toEqual([undefined]);
+    expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected']]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'verified', used: { effect: [] } });
+  });
+});
+
 describe('what typing showed', () => {
   it('is not kept as a step\'s effect: the text differs every time', async () => {
     const window = app([button(1, 'Search', { role: 'text field', value: '' })], (action, elements) => {

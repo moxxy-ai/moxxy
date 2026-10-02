@@ -2836,3 +2836,38 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
 - Kalkulator: próba treningu przerwana — kroki bez `expect` nie zapisują
   lekcji, a „Wymaż” na pustym wyświetlaczu nic nie zmienia; do powtórzenia
   z `expect`.
+
+## Krok bez trwałego śladu; domyślne lekcje Kalkulatora — 2026-10-02
+
+**Co**
+- `src/jev/run.ts`: zapamiętany efekt, który po udanym kroku się nie pokazał,
+  nie jest zastępowany nowym. Zostaje z niego to, co się powtórzyło, albo
+  pusta lista — znak, że krok nie zostawia nic stałego (`signOf`). Na pusty
+  efekt nikt nie czeka.
+- `src/jev/memory.ts`: pusty efekt trafia też do lekcji dostarczanych.
+- `learned/com.apple.calculator-eace95fc.json`: 15 przycisków Kalkulatora
+  (cyfry, cztery działania, „Równa się”), macOS po polsku.
+
+**Jak i dlaczego**
+- Przycisk Kalkulatora pokazuje liczbę na wyświetlaczu, za każdym razem inną.
+  Taki „efekt” był zapamiętywany, przy powtórce helper czekał na niego do
+  końca limitu (1,2 s), po czym i tak pytał Jev: 2,1 s zamiast 1,2 s przy
+  pierwszym razie. Po poprawce: 2,1 s raz, potem 1,1–1,4 s (2 pytania do
+  Jev); przy takim samym wyświetlaczu jak ostatnio 0,5–0,6 s bez Jev.
+- `learned:promote` przepisał też pliki Findera, Safari i Ustawień z tego, co
+  zapisały próby z modelem (cele własnymi słowami modelu, +1100 linii).
+  Cofnięte; do repo trafia tylko plik Kalkulatora, sprawdzony ręcznie (same
+  nazwy przycisków, bez danych osobistych).
+
+**Testy (Red → Green)**
+- „what a step shows differently every time” (3) w `run.test.ts`, „says so
+  when the step leaves nothing that repeats…” w `memory.test.ts`.
+
+**Walidacja**
+- `pnpm build` exit 0; wtyczka 417 (27 pominiętych: Linux); typecheck, lint,
+  check:deps bez błędów. `swift test` bez zmian w helperze.
+
+**Otwarte**
+- Krok bez trwałego śladu nadal pyta Jev dwa razy (przed i po).
+- `learned:promote` bierze wszystko z katalogu użytkownika; przydałby się
+  wybór aplikacji, żeby próby z modelem nie mieszały się z treningiem.

@@ -20,7 +20,7 @@ const learnedTarget = z.object({
   key: z.string(), label: z.string(),
   /** Which of the step's ways worked, counted from 0. */
   way: z.number().int().nonnegative(),
-  /** Labels of the elements that appeared when the step worked: seeing them again verifies it without Jev. */
+  /** Labels of the elements that appeared when the step worked: seeing them again verifies it without Jev. Empty: nothing repeats. */
   effect: z.array(z.string()).optional(),
   uses: z.number().int().positive(), at: z.number(),
 });
@@ -163,7 +163,8 @@ const titleOf = (label: string) => label.slice(label.indexOf('\u001f') + 1);
 function shippable(target: LearnedTarget): LearnedTarget {
   const { effect, ...rest } = target;
   const own = (effect ?? []).filter((label) => titleOf(label) === titleOf(target.label));
-  return own.length > 0 ? { ...rest, effect: own } : rest;
+  // An empty effect is a lesson of its own: the step leaves nothing that repeats.
+  return own.length > 0 || effect?.length === 0 ? { ...rest, effect: own } : rest;
 }
 
 /**
