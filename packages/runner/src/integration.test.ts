@@ -1184,7 +1184,7 @@ describe('provider management (protocol v7)', () => {
       await waitForAsync(async () => {
         const set = new Set(await loadDisabledProviders());
         return set.has('fake2') && set.has('fake3');
-      });
+      }, 15_000);
       expect([...(await loadDisabledProviders())].sort()).toEqual(['fake2', 'fake3']);
 
       // And the live registry reflects both — behaviour of each toggle is

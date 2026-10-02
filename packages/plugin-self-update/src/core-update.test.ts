@@ -105,7 +105,8 @@ describe('safeRepoPath', () => {
     // must not be misread as escaping. The realpath re-check must anchor the
     // already-validated in-repo segments onto realRoot, not re-resolve the raw
     // (possibly absolute) input against it.
-    const base = await tmp();
+    // Realpath first: a Windows temp dir can come back in its 8.3 short form.
+    const base = await fs.realpath(await tmp());
     const realTarget = path.join(base, 'real-repo');
     await fs.mkdir(path.join(realTarget, 'packages', 'core', 'src'), { recursive: true });
     // A symlink to the repo root: the raw path differs from its realpath on

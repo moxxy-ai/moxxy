@@ -156,7 +156,8 @@ describe('subprocessIsolator', () => {
         {},
         new AbortController().signal,
       )) as { cwd: string };
-      expect(out.cwd).toBe(expected);
+      // Windows may hand the child the 8.3 short form of the same directory.
+      expect(await fs.realpath(out.cwd)).toBe(expected);
       // Sanity: the child's cwd is NOT the parent runner's cwd.
       expect(out.cwd).not.toBe(process.cwd());
     } finally {
