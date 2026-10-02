@@ -254,6 +254,50 @@ jobs:
           pnpm --filter @moxxy/desktop-host exec vitest run src/cli-resolver.test.ts src/runner-pool.test.ts src/ipc/provider-login.test.ts
           pnpm --filter @moxxy/plugin-plugins-admin exec vitest run src/install.test.ts src/shared.test.ts
 
+  # The whole test suite on Windows, for every change. `Build + test` is Ubuntu
+  # only and the two Windows jobs above run for some paths and a few suites, so
+  # a change to sockets, paths, processes or permissions used to reach Windows
+  # untested. A test that needs something Windows lacks says so with a
+  # capability from @moxxy/vitest-preset/platform instead of failing here.
+  windows-test:
+    name: Windows test
+    runs-on: windows-2022
+    env:
+      MOXXY_FIXTURES: replay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-windows-${{ github.sha }}
+          restore-keys: |
+            turbo-windows-
+
+      - name: Build
+        shell: bash
+        run: pnpm exec turbo run build --filter='!docs'
+
+      - name: Test
+        shell: bash
+        run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
+
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest

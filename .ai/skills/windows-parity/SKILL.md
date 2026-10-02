@@ -5,9 +5,9 @@ description: Keep a change working on Windows when you can only run macOS/Linux 
 
 # Windows parity
 
-A green PR is not a Windows run. `Build + test` is Ubuntu only. The Windows
-jobs start only when the changed paths match `desktop-package-scope` in
-`.github/workflows/ci.yml`, and then run four suites plus the installer smoke.
+`Windows test` runs the whole suite on Windows for every PR, but nobody on
+macOS can run it before pushing, and the installer smoke starts only when the
+changed paths match `desktop-package-scope` in `.github/workflows/ci.yml`.
 History and the full table: `docs/windows-parity.md`.
 
 Checklist:
@@ -30,10 +30,13 @@ Checklist:
    text file (`core.autocrlf` rewrites line endings).
 7. Take `platform` as an argument (default `process.platform`) and test the
    `'win32'` value next to the `'darwin'` one — it runs on any machine.
-8. Outside the scope filter? Add the package to `desktop-package-scope` and its
-   suite to `Windows runtime tests`, so a Windows job really runs.
-9. Read the Windows jobs: *skipped* is not *passed*. For installed-app changes
-   have someone install the `moxxy-windows-test-installer` artifact.
+8. Tests: a test that needs its own home moves `HOME` and `USERPROFILE`
+   together. One that needs a POSIX shell, real mode bits or symlinks says so
+   with `it.skipIf(!posixShell | !posixFileModes | !canSymlink)` from
+   `@moxxy/vitest-preset/platform` — and prefer a portable fixture to a skip.
+9. Read the Windows jobs: `Windows test` must be green; *skipped* is not
+   *passed*. For installed-app changes have someone install the
+   `moxxy-windows-test-installer` artifact.
 10. In the PR, state what was not run on Windows and which tests stand in.
 
 Known POSIX-only today: the `Bash` tool and its background jobs

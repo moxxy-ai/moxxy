@@ -12,21 +12,24 @@ The short version is in the `windows-parity` skill (`.ai/skills/windows-parity`)
 | Job | Runs on | When | What it proves |
 |---|---|---|---|
 | `Build + test` | Ubuntu, Node 20/22/24 | every PR | the whole test suite passes on **Linux** |
+| `Windows test` | Windows, Node 22 | every PR | the whole test suite passes on **Windows**, except the tests that declare a capability Windows lacks (see "Tests" below) |
 | `Windows runtime tests` | Windows, Node 20/22/24 | only when the changed paths match `desktop-package-scope` | **four** suites pass: process invocation (SDK), `moxxy update` (CLI), CLI resolver / runner pool / provider login (desktop-host), plugin install (plugins-admin) |
 | `Packaged desktop smoke (windows-2022)` | Windows | same condition | the native helper compiles, the NSIS installer builds, installs and boots, and its resources are complete |
 
-Two consequences:
+`Windows test` was added on 2026-10-02. Before it, a change outside the
+`desktop-package-scope` paths (`runner`, `core`, `tools-builtin`,
+`plugin-browser`, a channel, …) started no Windows job at all, and the full
+suite had never been green on Windows: run locally it failed in 28 packages.
+Most of those were tests that assumed POSIX, but six were faults in the
+product that the tests had been reporting all along (the six rows of the
+table below from "Collaborative mode could not start" on).
 
-1. **A green PR does not mean the change was exercised on Windows.** The scope
-   filter in `.github/workflows/ci.yml` covers `apps/desktop/`, `packages/cli`,
-   `sdk`, `desktop-host`, `desktop-ipc-contract`, `plugin-oauth`,
-   `plugin-provider-openai-codex`, `plugin-plugins-admin`, `scripts/desktop-*`
-   and the lockfile. A change confined to any other package (`runner`, `core`,
-   `tools-builtin`, `plugin-browser`, a channel, …) starts **no Windows job**.
-2. **The full suite has never been green on Windows.** Run locally on Windows
-   10 on 2026-10-02 it failed in 28 packages, almost all in tests that assume
-   POSIX (see the table below). Those tests are not run on Windows in CI, so
-   they say nothing about whether the code under them works there.
+A green `Windows test` still leaves two gaps:
+
+1. **A skipped test proves nothing.** What is skipped on Windows is listed
+   under "Tests" below; the code under it has no Windows coverage.
+2. **Tests do not install the app.** Only `Packaged desktop smoke` does, and
+   it still runs only for the `desktop-package-scope` paths.
 
 ## What has broken on Windows
 
@@ -43,6 +46,13 @@ Each row is a real fault, with the commit that fixed it.
 | The Windows installer smoke test timed out | the full installer takes longer to unpack than the test allowed | `4c733f4a` |
 | Local Piper setup needed Git | the install path assumed Git is present | `1d983d9d` |
 | The live view showed nothing for a window that stood still | the preview waited for a change that a still window never produces | `569750ec`, `2ee03cd5` |
+| Collaborative mode could not start | the coordinator, hub and peer addresses were `.sock` paths in the run directory | `collabCoordinatorSocketPath` / `hubSocketPath` / `peerSocketPath` now go through `platformSocket` |
+| An isolation scope of one folder level (`/work/*`) also allowed every nested file, and `dir/**` did not allow `dir` itself | the scope matcher only treated `/` as a separator; normalised Windows paths use the other one | `matchesGlob` in `packages/plugin-security/src/cap-check.ts` |
+| `Glob` found nothing for a pattern with a folder in it (`src/**/*.ts`) | the pattern was matched against a path with Windows separators | `packages/tools-builtin/src/glob.ts` |
+| The diff of a new, untracked file was empty in the desktop | git was handed the Windows `nul` device; git only reads `/dev/null` as "no file", on every platform | `packages/desktop-host/src/git.ts` |
+| `moxxy mobile` could not start or stop the Expo app | `spawn('npm')`, and a `SIGTERM` that never reaches npm's child | `packages/plugin-channel-mobile/src/expo-launcher.ts` |
+| Updating extensions failed for anyone with a linked plugin | `fs.cp` recreates a directory link as a symlink, which an ordinary account may not create; a junction needs no privilege | `copyTree` in `packages/desktop-host/src/component-update.ts` |
+| Running the tests wrote fixtures into the developer's real `~/.moxxy` and rewrote the vault key | tests moved `HOME`; Windows resolves the home from `USERPROFILE` | `tooling/vitest-preset/isolate.js` |
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |
 
 Still open, and worth knowing before building on top of them:
@@ -54,12 +64,36 @@ Still open, and worth knowing before building on top of them:
 - The `.claude/skills`, `.claude/agents`, `.codex/*` symlinks into `.ai/` check
   out as small text files on Windows (symlinks need extra rights), so skills
   are found only under `.ai/` there.
-- `apps/desktop/scripts/prepare-resources.mjs` runs `node $npm_execpath`. That
-  holds when pnpm is a JS file (`npm i -g pnpm`, the CI action) and fails with
-  `SyntaxError: Invalid or unexpected token` when pnpm is the standalone
-  `pnpm.exe` (the `@pnpm/exe` build).
 - `scripts/security-audit.mjs` runs `spawnSync('pnpm', …)`, which cannot find
   `pnpm.cmd`. It works in CI because that job runs on Ubuntu.
+
+## Tests
+
+Every test process starts in a throwaway home: `tooling/vitest-preset/isolate.js`
+points `HOME` and `USERPROFILE` at a temp directory, clears `MOXXY_HOME` and
+sets `MOXXY_NO_KEYCHAIN=1` so the vault never opens the OS keychain. A test
+that needs its own home must move **both** variables
+(`process.env.HOME = process.env.USERPROFILE = dir`).
+
+A test that needs something Windows lacks says which thing, with a capability
+from `@moxxy/vitest-preset/platform`:
+
+```ts
+import { canSymlink, posixFileModes, posixShell } from '@moxxy/vitest-preset/platform';
+
+it.skipIf(!canSymlink)('does not follow a link out of the workspace', …);
+```
+
+| Capability | False on Windows because | What is therefore not tested there |
+|---|---|---|
+| `posixShell` | there is no `/bin/sh`, `echo`, `yes`, `sleep`, and a `#!` script is not a program | the `Bash` tool and background jobs; `exec` through the isolation brokers (subprocess, worker, wasm, inproc); the Claude Code provider and the TUI voice capture, whose tests run a fake CLI written as a `#!` script |
+| `posixFileModes` | `chmod` is a no-op and `stat` reports no real mode | that secret files are written `0600`, and the "disk write fails" rollbacks, which use a read-only directory to make the write fail |
+| `canSymlink` | creating a symlink needs Developer Mode or an elevated shell | every "a link must not lead out of the workspace" guard. GitHub's Windows runners can create symlinks, so these do run in CI |
+
+Prefer a portable fixture over a skip: `process.execPath` instead of `sh`,
+`platformSocket` instead of a `.sock` path, `path.join` in the expected
+value, a junction (`symlinkSync(target, link, 'junction')`) for a linked
+directory. Skip only when the behaviour itself does not exist on Windows.
 
 ## The assumptions that cause it
 
@@ -97,14 +131,13 @@ You cannot run Windows. These steps are the substitute, in order of value.
    result on any machine. Give new platform-dependent code the same seam and
    write the `win32` case next to the `darwin` one. This is the only Windows
    check that runs on your own machine.
-4. **Make sure a Windows job will actually run.** If the change is outside the
-   `desktop-package-scope` paths, add its package to that filter and its suite
-   to `Windows runtime tests` in `.github/workflows/ci.yml`. A suite listed
-   there must pass on Windows — write its fixtures with `os.tmpdir()`,
-   `path.join`, a named pipe and `process.execPath` instead of `sh`.
-5. **Read the Windows jobs, not only the summary.** `Windows runtime tests`
-   and `Packaged desktop smoke` show as *skipped* when the filter did not
-   match; skipped is not passed.
+4. **Write tests that can run on Windows.** `Windows test` runs every suite, so
+   write fixtures with `os.tmpdir()`, `path.join`, a named pipe and
+   `process.execPath` instead of `sh`, and declare a capability (see "Tests")
+   only for behaviour Windows does not have.
+5. **Read the Windows jobs, not only the summary.** `Windows test` must be
+   green. `Windows runtime tests` and `Packaged desktop smoke` show as
+   *skipped* when the path filter did not match; skipped is not passed.
 6. **For anything that changes the installed app, try the installer.** The
    `Packaged desktop smoke (windows-2022)` job uploads
    `moxxy-windows-test-installer`. Ask a person with Windows to install it and
