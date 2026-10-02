@@ -4,12 +4,12 @@
  * profile. Only the npm registry lookup is a stand-in (the network).
  */
 
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { execExecutableTargetSync, resolveExecutableTarget, type SafeExecFileSyncOptions } from '@moxxy/sdk/server';
 import {
   applyComponentUpdate,
   findNpm,
@@ -28,6 +28,13 @@ const tarball = (name: string, version: string) =>
   path.join(tarballs, `${name.replace('@', '').replace('/', '-')}-${version}.tgz`);
 const spec = (name: string, version: string) => `file:${tarball(name, version)}`;
 
+/** npm is a .cmd shim on Windows; run it the way the desktop does. */
+function runNpm(args: ReadonlyArray<string>, opts: SafeExecFileSyncOptions): void {
+  const target = resolveExecutableTarget('npm');
+  if (!target) throw new Error('npm is not on PATH');
+  execExecutableTargetSync(target, args, opts);
+}
+
 function packFixture(name: string, version: string, files: Record<string, string>, extra: object = {}): void {
   const dir = mkdtempSync(path.join(root, 'src-'));
   writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version, type: 'module', ...extra }));
@@ -35,7 +42,7 @@ function packFixture(name: string, version: string, files: Record<string, string
     mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     writeFileSync(path.join(dir, file), body);
   }
-  execFileSync('npm', ['pack', '--pack-destination', tarballs, '--silent'], { cwd: dir, stdio: 'ignore' });
+  runNpm(['pack', '--pack-destination', tarballs, '--silent'], { cwd: dir, stdio: 'ignore' });
 }
 
 const plugin = (label: string) => ({
@@ -66,7 +73,7 @@ function profile(installed: ReadonlyArray<string> = ['@moxxy/plugin-a', '@moxxy/
   const plugins = path.join(home, 'plugins');
   mkdirSync(plugins);
   writeFileSync(path.join(plugins, 'package.json'), JSON.stringify({ name: 'moxxy-user-plugins', private: true }));
-  execFileSync('npm', ['install', '--prefix', plugins, '--no-audit', '--no-fund', ...installed.map((n) => spec(n, '0.1.0'))], { stdio: 'ignore' });
+  runNpm(['install', '--prefix', plugins, '--no-audit', '--no-fund', ...installed.map((n) => spec(n, '0.1.0'))], { stdio: 'ignore' });
   // Registry installs record exact versions; the tarball paths above are only how the fixture got them.
   const manifestPath = path.join(plugins, 'package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dependencies?: Record<string, string> };
@@ -78,7 +85,8 @@ function profile(installed: ReadonlyArray<string> = ['@moxxy/plugin-a', '@moxxy/
   writeFileSync(path.join(linkedSrc, 'package.json'), JSON.stringify({ name: '@moxxy/plugin-linked', version: '0.1.0' }));
   manifest.dependencies['@moxxy/plugin-linked'] = 'file:../linked-src';
   mkdirSync(path.join(plugins, 'node_modules', '@moxxy'), { recursive: true });
-  symlinkSync('../../../linked-src', path.join(plugins, 'node_modules', '@moxxy', 'plugin-linked'));
+  // What npm link leaves: a symlink, or on Windows a junction (which needs no privilege).
+  symlinkSync(linkedSrc, path.join(plugins, 'node_modules', '@moxxy', 'plugin-linked'), 'junction');
   writeFileSync(manifestPath, JSON.stringify(manifest));
   const lockPath = path.join(plugins, 'package-lock.json');
   if (existsSync(lockPath)) {

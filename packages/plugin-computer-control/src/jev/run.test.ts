@@ -79,6 +79,32 @@ describe('runSteps', () => {
     expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['done', 'done']);
   });
 
+  it('does not click again when a click at a point changed only the screenshot: a menu the elements do not list would close', async () => {
+    const acted: ComputerAction[] = [];
+    let open = false;
+    const state = (): AppState => ({
+      tree: { app: 'Safari', window: 'Listings', elements: [{ key: 'w', index: 0, depth: 0, role: 'window' }, button(1, 'Sort'), button(2, 'Sort label')] },
+      screenshot: { mediaType: 'image/jpeg', base64: open ? 'b3Blbg==' : 'Y2xvc2Vk', width: 10, height: 10 },
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const report = await runSteps('Sort the listings', [{ do: 'click', target: 'the sort menu', expect: 'the sort options show' }], state(), {
+      ask, selectAll: 'super+a', signal: new AbortController().signal, observe: async () => state(),
+      act: async (action) => {
+        acted.push(action);
+        // Only a real click reaches the page's menu, and every one toggles it.
+        if (action.action === 'click' && 'x' in action) open = !open;
+        return { result: { outcome: 'delivered' }, state: state() };
+      },
+    });
+    expect(acted).toEqual([
+      { action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 },
+      { action: 'click', x: 140, y: 20, mouse_button: 'left', click_count: 1 },
+    ]);
+    expect(open).toBe(true);
+    expect(report.outcomes).toMatchObject([{ status: 'failed', attempts: 2, why: expect.stringMatching(/screenshot/) }]);
+    expect(report.state.screenshot?.base64).toBe('b3Blbg==');
+  });
+
   it('skips a step whose expected result already shows', async () => {
     const window = app([button(1, 'Export')]);
     const { ask } = jev((_state, id) => (id === 'already' ? yes(0.95) : id === 'target' ? pick(1) : undefined));

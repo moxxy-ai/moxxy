@@ -5,6 +5,7 @@
 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 
 export const COLLAB_MODE_NAME = 'collaborative';
 export const COLLAB_ARCHITECT_MODE_NAME = 'collab-architect';
@@ -51,7 +52,7 @@ export function collabRunId(sessionId: string, turnId: string): string {
  *  authoritative discovery. Kept short (macOS caps unix-socket paths at ~104
  *  chars) and homedir-based (not MOXXY_HOME) to match the run/socket helpers. */
 export function collabCoordinatorSocketPath(): string {
-  return join(homedir(), '.moxxy', 'collab', 'coordinator.sock');
+  return platformSocket('collab-coordinator', join(homedir(), '.moxxy', 'collab', 'coordinator.sock'));
 }
 
 /** Per-run directory holding the hub + peer sockets. */
@@ -60,11 +61,11 @@ export function collabRunDir(runId: string): string {
 }
 
 export function hubSocketPath(runId: string): string {
-  return join(collabRunDir(runId), 'hub.sock');
+  return platformSocket(`collab-${runId}-hub`, join(collabRunDir(runId), 'hub.sock'));
 }
 
 export function peerSocketPath(runId: string, agentId: string): string {
-  return join(collabRunDir(runId), `p-${agentId}.sock`);
+  return platformSocket(`collab-${runId}-p-${agentId}`, join(collabRunDir(runId), `p-${agentId}.sock`));
 }
 
 /** Per-agent charter file (architect-authored role brief). Lives in the run dir

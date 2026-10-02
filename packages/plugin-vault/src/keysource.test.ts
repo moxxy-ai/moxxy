@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -55,6 +56,8 @@ beforeEach(async () => {
   keytarState.failSet = false;
   delete process.env[ENV_VAR];
   delete process.env.MOXXY_VAULT_PASSPHRASE;
+  // The preset switches the keychain off for every test; these tests are about it.
+  delete process.env.MOXXY_NO_KEYCHAIN;
 });
 
 afterEach(async () => {
@@ -216,6 +219,20 @@ describe('createCombinedKeySource', () => {
     expect(keytarState.store.size).toBe(0);
   });
 
+  it('MOXXY_NO_KEYCHAIN neither reads nor writes the keychain', async () => {
+    process.env.MOXXY_NO_KEYCHAIN = '1';
+    const stored = Buffer.alloc(32, 7).toString('base64');
+    keytarState.store.set(KEYTAR_KEY, stored);
+    const src = createCombinedKeySource({ passphrasePrompt: async () => 'pw', diskKeyPath });
+
+    const key = await src.obtain(generateSalt());
+
+    expect(src.name).toBe('generated');
+    expect(key.toString('base64')).not.toBe(stored);
+    expect((await fs.readFile(diskKeyPath, 'utf8')).trim()).toBe(key.toString('base64'));
+    expect(keytarState.store.get(KEYTAR_KEY)).toBe(stored);
+  });
+
   it('diskKeyPath:false disables the disk cache (keytar-only persistence)', async () => {
     const src = createCombinedKeySource({
       passphrasePrompt: async () => 'pw',
@@ -230,7 +247,7 @@ describe('createCombinedKeySource', () => {
     expect(entries).toEqual([]);
   });
 
-  it('writes the disk key file with mode 0o600', async () => {
+  it.skipIf(!posixFileModes)('writes the disk key file with mode 0o600', async () => {
     const src = createCombinedKeySource({
       passphrasePrompt: async () => 'pw',
       diskKeyPath,

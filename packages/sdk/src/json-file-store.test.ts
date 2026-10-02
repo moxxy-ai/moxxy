@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { z } from 'zod';
 import { createJsonFileStore } from './json-file-store.js';
 
@@ -230,7 +231,7 @@ describe('createJsonFileStore', () => {
     // versionless, name-key `rows`, compact, trailing newline
     expect(raw).toBe('{"rows":[{"id":"a","n":1}]}\n');
     const { stat } = await import('node:fs/promises');
-    expect((await stat(f)).mode & 0o777).toBe(0o600);
+    if (posixFileModes) expect((await stat(f)).mode & 0o777).toBe(0o600);
   });
 
   it('invalidate() forces a re-read from disk', async () => {

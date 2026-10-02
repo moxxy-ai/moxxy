@@ -300,6 +300,16 @@ describe('a run of steps', () => {
     } finally { vi.unstubAllEnvs(); }
   });
 
+  it('switched off in the vault answers like no key, even with one stored', async () => {
+    const keys: string[] = [];
+    const { tools } = backend([], {}, jev(keys));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', { TYPESAFE_API_KEY: 'vault-key', JEV_DISABLED: '1' }));
+    expect(output).toMatch(/computer_run is off[\s\S]*single tools/);
+    expect(keys).toEqual([]);
+    expect(methods()).not.toContain('act');
+  });
+
   describe('offered only with a key', () => {
     const tool = (name: string) => ({ name, description: '', inputSchema: {} }) as never;
     const offered = async (instance: ComputerBackend) => {
@@ -330,6 +340,18 @@ describe('a run of steps', () => {
         const { names, system } = await offered(instance);
         expect(names).toContain('computer_run');
         expect(system).toMatch(/computer_run/);
+      } finally { vi.unstubAllEnvs(); }
+    });
+
+    it('hides it once a tool call has seen it switched off in the vault', async () => {
+      vi.stubEnv('TYPESAFE_API_KEY', 'env-key');
+      try {
+        const { instance, tools } = backend([], {}, jev([]));
+        await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+        await run(tools, 'computer_get_app_state', { app: 'TextEdit' }, 'turn', { JEV_DISABLED: '1' });
+        const { names, system } = await offered(instance);
+        expect(names).toEqual(['computer_click', 'Read']);
+        expect(system).not.toMatch(/computer_run/);
       } finally { vi.unstubAllEnvs(); }
     });
 

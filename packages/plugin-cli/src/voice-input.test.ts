@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import {
   buildFfmpegArgs,
   checkVoiceCaptureAvailable,
@@ -125,7 +126,7 @@ describe('buildFfmpegArgs', () => {
 });
 
 describe('startVoiceRecording', () => {
-  it('collects stdout PCM bytes and stops ffmpeg with q before kill fallback', async () => {
+  it.skipIf(!posixShell)('collects stdout PCM bytes and stops ffmpeg with q before kill fallback', async () => {
     const executable = await makeFakeFfmpeg();
 
     const recording = await startVoiceRecording({
@@ -145,7 +146,7 @@ describe('startVoiceRecording', () => {
       .toThrow(/ffmpeg/i);
   });
 
-  it('bounds the captured PCM at the byte ceiling and stops ffmpeg (no unbounded buffer)', async () => {
+  it.skipIf(!posixShell)('bounds the captured PCM at the byte ceiling and stops ffmpeg (no unbounded buffer)', async () => {
     const executable = await makeFakeFfmpegStreaming();
 
     const recording = await startVoiceRecording({
@@ -167,7 +168,7 @@ describe('startVoiceRecording', () => {
 });
 
 describe('checkVoiceCaptureAvailable', () => {
-  it('reports ffmpeg capture as ready when the executable responds', async () => {
+  it.skipIf(!posixShell)('reports ffmpeg capture as ready when the executable responds', async () => {
     const executable = await makeFakeFfmpegVersion();
 
     await expect(checkVoiceCaptureAvailable({ command: executable })).resolves.toEqual({

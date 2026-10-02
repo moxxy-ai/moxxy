@@ -32,6 +32,7 @@ import {
   startRunnerServer,
   type RemoteSession,
   type RunnerServer,
+  platformSocket,
 } from '@moxxy/runner';
 import { asTurnId, type MoxxyEvent } from '@moxxy/sdk';
 import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
@@ -76,7 +77,8 @@ async function startRunner(): Promise<{ session: Session; remote: RemoteSession 
     logger: silentLogger,
     permissionResolver: autoAllowResolver,
   });
-  const socketPath = path.join(os.tmpdir(), `moxxy-live-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-live-${Math.random().toString(36).slice(2, 10)}`;
+  const socketPath = platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
   const server: RunnerServer = await startRunnerServer(session, { socketPath });
   const remote = await connectRemoteSession({ socketPath, role: 'desktop-test' });
   cleanups.push(async () => {

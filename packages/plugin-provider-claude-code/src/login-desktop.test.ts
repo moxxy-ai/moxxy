@@ -2,6 +2,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import type { ProviderAuthContext } from '@moxxy/sdk';
 import { claudeLogin } from './login.js';
 
@@ -72,7 +73,7 @@ function desktopContext(executable: string, answer: () => Promise<string>) {
 }
 
 describe('Claude sign-in driven from the desktop', () => {
-  it('shows the CLI progress and hands the code pasted in the desktop to the CLI', async () => {
+  it.skipIf(!posixShell)('shows the CLI progress and hands the code pasted in the desktop to the CLI', async () => {
     const { ctx, output, questions } = desktopContext(await fakeClaude(), async () => 'code#state');
 
     await expect(claudeLogin(ctx)).resolves.toEqual({ accountId: 'me@example.com' });
@@ -82,7 +83,7 @@ describe('Claude sign-in driven from the desktop', () => {
     expect(questions[0]).toMatch(/paste/i);
   });
 
-  it('finishes when the browser completes the sign-in, without waiting for a pasted code', async () => {
+  it.skipIf(!posixShell)('finishes when the browser completes the sign-in, without waiting for a pasted code', async () => {
     process.env.FAKE_CLAUDE_CALLBACK = '1';
     const { ctx } = desktopContext(await fakeClaude(), () => new Promise<string>(() => {}));
 

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   checkFsCap,
@@ -324,17 +325,17 @@ describe('urlInScope (hostMatches edges)', () => {
 // declaration must not silently widen the cap to a sibling dir or filesystem root.
 describe('expandHomeAndCwd ($cwd / ~ token handling)', () => {
   it('expands the $cwd token (alone and with a sub-path)', () => {
-    expect(expandHomeAndCwd('$cwd', '/work')).toBe('/work');
-    expect(expandHomeAndCwd('$cwd/**', '/work')).toBe('/work/**');
-    expect(expandHomeAndCwd('$cwd/sub/f.txt', '/work')).toBe('/work/sub/f.txt');
+    expect(expandHomeAndCwd('$cwd', '/work')).toBe(path.normalize('/work'));
+    expect(expandHomeAndCwd('$cwd/**', '/work')).toBe(path.normalize('/work/**'));
+    expect(expandHomeAndCwd('$cwd/sub/f.txt', '/work')).toBe(path.normalize('/work/sub/f.txt'));
   });
 
   it('does NOT treat $cwd-prefixed-without-separator as the cwd token', () => {
     // `$cwdsecret` must not become `/worksecret` (a sibling of cwd); it stays a
     // relative literal and resolves UNDER cwd, never escaping it.
     const r = expandHomeAndCwd('$cwdsecret', '/work');
-    expect(r.startsWith('/work')).toBe(true);
-    expect(r).not.toBe('/worksecret');
+    expect(r.startsWith(path.resolve('/work') + path.sep)).toBe(true);
+    expect(r).not.toBe(path.resolve('/worksecret'));
   });
 
   it('throws on a ~/ pattern when no home dir is resolvable', () => {

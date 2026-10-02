@@ -79,7 +79,7 @@ describe('ChannelsIndex', () => {
 describe('SettingsIndex', () => {
   it('groups the sections by what they are about', () => {
     render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
-    for (const group of ['agent', 'extend', 'voice', 'trust', 'app']) {
+    for (const group of ['agent', 'extend', 'voice', 'computer use', 'trust', 'app']) {
       expect(screen.getByText(group)).toBeTruthy();
     }
     // A flat row gave "Vault" and "Skills" the same standing, when one is a
@@ -107,6 +107,7 @@ describe('SettingsIndex', () => {
     expect(screen.getByText('trust')).toBeTruthy();
     expect(screen.getByText('app')).toBeTruthy();
     expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
+    expect(screen.getByTestId('settings-tab-jev')).toBeTruthy();
     expect(screen.queryByTestId('settings-tab-skills')).toBeNull();
   });
 

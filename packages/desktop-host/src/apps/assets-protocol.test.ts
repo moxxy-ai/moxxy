@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import { mkdtemp, mkdir, rm, writeFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -64,7 +65,7 @@ describe('resolveAssetRequest', () => {
     expect(resolveAssetRequest(root, 'moxxy-app://assets/anonymizer/nope.json')).toBeNull();
   });
 
-  it('rejects a symlink that escapes the app dir', async () => {
+  it.skipIf(!canSymlink)('rejects a symlink that escapes the app dir', async () => {
     // A symlink INSIDE the app dir pointing at the outside secret must not be
     // served (realpath-escape insurance).
     await symlink(path.join(root, 'secret.txt'), path.join(appRoot, 'leak.txt'));

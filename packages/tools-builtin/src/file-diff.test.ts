@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isToolDisplayResult, type FileDiffDisplay } from '@moxxy/sdk';
 import { buildFileDiffDisplay } from './file-diff.js';
@@ -50,7 +51,7 @@ describe('buildFileDiffDisplay', () => {
 
   it('uses the relative display path but keeps the absolute path for the model', () => {
     const r = buildFileDiffDisplay({ cwd, absPath: '/repo/src/a.ts', before: 'x', after: 'y', mode: 'update' });
-    expect((r.display as FileDiffDisplay).path).toBe('src/a.ts');
+    expect((r.display as FileDiffDisplay).path).toBe(path.join('src', 'a.ts'));
     expect(r.forModel).toContain('/repo/src/a.ts');
   });
 

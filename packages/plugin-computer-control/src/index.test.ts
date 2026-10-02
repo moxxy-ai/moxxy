@@ -85,8 +85,8 @@ describe('createComputerControlPlugin', () => {
     expect(names(plugin.tools)).toEqual(Object.keys(computerTools).sort());
     expect(plugin.surfaces?.map((surface) => surface.kind)).toEqual(['computer-preview']);
     expect(linuxProfile('x64')).toMatchObject({ platform: 'linux', protocolVersion: macosProfile.protocolVersion, previewCodecs: ['jpeg'] });
-    expect(linuxProfile('x64').helperPath).toMatch(/bin\/linux-x64\/moxxy-computer$/);
-    expect(linuxProfile('arm64').helperPath).toMatch(/bin\/linux-arm64\/moxxy-computer$/);
+    expect(linuxProfile('x64').helperPath.replaceAll('\\', '/')).toMatch(/bin\/linux-x64\/moxxy-computer$/);
+    expect(linuxProfile('arm64').helperPath.replaceAll('\\', '/')).toMatch(/bin\/linux-arm64\/moxxy-computer$/);
   });
 
   it('offers only computer_status, with the reason, when the Linux helper is missing', async () => {

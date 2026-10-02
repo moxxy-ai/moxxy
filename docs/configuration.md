@@ -43,6 +43,7 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, skills, sessions, and services. |
 | `MOXXY_DEBUG=1` | Enables verbose CLI errors and process diagnostics. |
 | `MOXXY_VAULT_PASSPHRASE` | Supplies a headless vault passphrase instead of using the OS keychain. |
+| `MOXXY_NO_KEYCHAIN` | Set to `1` to keep the vault off the OS keychain: the key is read from and written to `~/.moxxy/vault.key` only. The test suite sets it. |
 | `MOXXY_SESSION_ID` | Resumes a specific persisted session when running `moxxy serve`. |
 | `MOXXY_RUNNER_SOCKET` | Overrides the runner's Unix socket path. |
 | `MOXXY_RUNNER_STRICT_ABORT=1` | Denies cross-client turn aborts instead of allowing and audit-logging them. |

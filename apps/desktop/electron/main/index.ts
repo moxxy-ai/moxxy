@@ -50,6 +50,8 @@ import {
   installAccountPortalRecovery,
   preferredCliEntry,
   seedPluginsFromResources,
+  seedModelsFromResources,
+  adoptSeededLocalPiper,
   offerBundledComputerUpdate,
   offerBundledProviderUpdate,
   DeferredPackageUpdates,
@@ -58,6 +60,9 @@ import {
   type ProviderUpdateOffer,
   ensureDesktopVaultKey,
   activateManagedNode,
+  activateRuntimes,
+  bundledRuntimesReady,
+  prepareBundledRuntimes,
   startLoopbackServer,
   installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
@@ -220,9 +225,26 @@ const bundledUpdates = new DeferredPackageUpdates({
   log: (message) => console.log(`[moxxy] ${message}`),
 });
 
+/** Offline voice works on the first launch: the installer's Piper voices land
+ *  in the models dir and a freshly seeded Piper becomes the voice. A failure
+ *  here only means the voice downloads on first use, as it did before. */
+async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<string>): Promise<void> {
+  try {
+    await seedModelsFromResources({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+    if (await adoptSeededLocalPiper(seeded)) console.log('[moxxy] offline voice selected');
+  } catch (err) {
+    console.warn('[moxxy] offline voice preparation failed:', err);
+  }
+}
+
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
+  await bundledRuntimesReady();
   if (app.isPackaged) {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
@@ -236,6 +258,7 @@ async function prepareRunnerEnvironment(): Promise<void> {
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
+      await prepareOfflineVoice(moxxyHome, seed.copied);
       await bundledUpdates.prepare<ProviderUpdateOffer>(
         (['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const).map((plugin) => ({
           plugin,
@@ -891,6 +914,19 @@ app.whenReady().then(async () => {
   // automatically"), put that managed Node back on PATH before any runner
   // spawns so `moxxy serve` / npm resolve it without a manual PATH edit.
   activateManagedNode(app.getPath('userData'));
+
+  // The installer carries Node and Python for a computer that has neither.
+  // Those unpacked on an earlier run are on PATH at once; a first launch
+  // unpacks them in the background, and the runner and the Node check wait.
+  if (app.isPackaged) {
+    const moxxyHome = process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
+    activateRuntimes(moxxyHome);
+    void prepareBundledRuntimes({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+  }
 
   // The pool exists before the window so IPC can bind immediately, but its
   // expensive preparation + first supervisor are lazy and run after first

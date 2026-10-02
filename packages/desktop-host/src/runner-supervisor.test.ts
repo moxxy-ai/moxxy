@@ -30,7 +30,7 @@ beforeEach(() => {
   tmp = mkdtempSync(path.join(os.tmpdir(), 'sup-'));
   process.env = { ...originalEnv };
   process.env.PATH = tmp;
-  process.env.HOME = tmp; // suppress augmentedPaths' nvm walk
+  process.env.HOME = process.env.USERPROFILE = tmp; // suppress augmentedPaths' nvm walk
   delete process.env.MOXXY_CLI_ENTRY;
   // Move cwd into the tmp tree so monorepo walk-up doesn't find our
   // own packages/cli/dist/bin.js.

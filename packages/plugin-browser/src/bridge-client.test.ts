@@ -2,8 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { BridgeClient, bridgeAddressFromEnv, BRIDGE_SOCKET_ENV, BRIDGE_TOKEN_ENV } from './bridge-client.js';
+
+/** Windows can only listen on a named pipe, never on a path in a directory. */
+const socketIn = (dir: string): string =>
+  process.platform === 'win32' ? `\\\\.\\pipe\\${basename(dir)}` : join(dir, 'b.sock');
 
 /**
  * Client half of the desktop bridge. Driven against a real socket serving the
@@ -22,7 +26,7 @@ afterEach(async () => {
 /** A stand-in bridge: checks the token, then answers from `handler`. */
 function fakeBridge(opts: { token: string; handler?: (method: string) => unknown; dropAfterHello?: boolean }) {
   const dir = mkdtempSync(join(tmpdir(), 'moxxy-bridge-test-'));
-  const socketPath = join(dir, 'b.sock');
+  const socketPath = socketIn(dir);
   const server = createServer((socket) => {
     socket.setEncoding('utf8');
     let buf = '';

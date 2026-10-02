@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import * as os from 'node:os';
 import { asSessionId, asToolCallId, asTurnId, invariant } from '@moxxy/sdk';
 import type { AppContext, ToolContext } from '@moxxy/sdk';
@@ -45,7 +46,7 @@ describe('background jobs', () => {
     expect(out).toContain('Wait');
   });
 
-  it('Wait wakes the moment the job exits instead of sleeping out its timeout', async () => {
+  it.skipIf(!posixShell)('Wait wakes the moment the job exits instead of sleeping out its timeout', async () => {
     const id = await startJob('sleep 0.3; echo built');
     const startedAt = Date.now();
 
@@ -56,7 +57,7 @@ describe('background jobs', () => {
     expect(out).toContain('built');
   });
 
-  it('Wait with until returns as soon as the job prints the expected line', async () => {
+  it.skipIf(!posixShell)('Wait with until returns as soon as the job prints the expected line', async () => {
     const id = await startJob('echo booting; sleep 0.2; echo "server ready on 3000"; sleep 30');
     const startedAt = Date.now();
 
@@ -67,7 +68,7 @@ describe('background jobs', () => {
     expect(out).toContain('server ready on 3000');
   });
 
-  it('a deadline reports the job as still running, not as an error', async () => {
+  it.skipIf(!posixShell)('a deadline reports the job as still running, not as an error', async () => {
     const id = await startJob('sleep 30');
 
     const out = await wait({ jobId: id, timeoutSeconds: 0.2 });
@@ -75,7 +76,7 @@ describe('background jobs', () => {
     expect(out).toContain(`job ${id} is still running`);
   });
 
-  it('each Wait shows only the output printed since the previous one', async () => {
+  it.skipIf(!posixShell)('each Wait shows only the output printed since the previous one', async () => {
     const id = await startJob('echo first; sleep 0.3; echo second; sleep 30');
     await wait({ jobId: id, until: 'first' });
 
@@ -85,7 +86,7 @@ describe('background jobs', () => {
     expect(out).not.toContain('first');
   });
 
-  it('Wait without a job id wakes on whichever running job finishes first', async () => {
+  it.skipIf(!posixShell)('Wait without a job id wakes on whichever running job finishes first', async () => {
     const slow = await startJob('sleep 30');
     const fast = await startJob('sleep 0.2; echo quick');
 
@@ -97,7 +98,7 @@ describe('background jobs', () => {
 
   // Real models fill optional fields with placeholders (`until: ".*"`,
   // `jobId: " "`); those must mean "not given", not "wake at once".
-  it('treats an until pattern that matches empty output as not given', async () => {
+  it.skipIf(!posixShell)('treats an until pattern that matches empty output as not given', async () => {
     const id = await startJob('sleep 0.3; echo built');
 
     const out = await wait({ jobId: id, until: '.*' });
@@ -106,13 +107,13 @@ describe('background jobs', () => {
     expect(out).toContain('built');
   });
 
-  it('treats a blank until as not given', async () => {
+  it.skipIf(!posixShell)('treats a blank until as not given', async () => {
     const id = await startJob('echo "first line"; sleep 0.3; echo built');
 
     await expect(wait({ jobId: id, until: ' ' })).resolves.toContain(`job ${id} exited with code 0`);
   });
 
-  it('treats a blank job id as "any running job"', async () => {
+  it.skipIf(!posixShell)('treats a blank job id as "any running job"', async () => {
     const id = await startJob('sleep 0.2; echo quick');
 
     await expect(wait({ jobId: ' ' })).resolves.toContain(`job ${id} exited with code 0`);
@@ -128,7 +129,7 @@ describe('background jobs', () => {
     await expect(wait({ jobId: id })).rejects.toThrow(/No background job/u);
   });
 
-  it('stopping the turn ends the Wait but leaves the job running', async () => {
+  it.skipIf(!posixShell)('stopping the turn ends the Wait but leaves the job running', async () => {
     const id = await startJob('sleep 30');
     const turn = new AbortController();
     const waiting = wait({ jobId: id }, ctx('jobs-session', turn.signal));
@@ -139,7 +140,7 @@ describe('background jobs', () => {
     await expect(wait({ jobId: id, timeoutSeconds: 0.1 })).resolves.toContain('is still running');
   });
 
-  it('StopJob ends the job and reports its last output', async () => {
+  it.skipIf(!posixShell)('StopJob ends the job and reports its last output', async () => {
     const id = await startJob('echo working; sleep 30');
     await wait({ jobId: id, until: 'working' });
 

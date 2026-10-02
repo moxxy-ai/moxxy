@@ -160,4 +160,11 @@ describe('workbenchTabForTool', () => {
     expect(workbenchTabForTool('browser_session')).toBe('browser');
     expect(workbenchTabForTool('Read')).toBeUndefined();
   });
+
+  it('opens the browser for every browser tool, so a tab the agent asks for has a pane to open in', () => {
+    for (const tool of ['browser_tabs', 'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_batch']) {
+      expect(workbenchTabForTool(tool)).toBe('browser');
+    }
+    expect(workbenchTabForTool('browser')).toBeUndefined();
+  });
 });

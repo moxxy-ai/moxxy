@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 
 import { groupSimilarPrompts, runSkillsCommand, tokenize, usedLabel, type AuditEntry } from './skills.js';
 import type { ParsedArgv } from '../argv.js';
@@ -72,7 +73,7 @@ describe('removeAuditEntry (via skills audit revert)', () => {
     expect(slugsOnDisk()).toEqual(['alpha', 'gamma']);
   });
 
-  it('writes atomically — a failed rewrite leaves the original log intact', async () => {
+  it.skipIf(!posixFileModes)('writes atomically — a failed rewrite leaves the original log intact', async () => {
     seedAudit(['alpha', 'beta']);
     const before = readFileSync(auditPath(), 'utf8');
     // writeFileAtomic writes a sibling temp then renames it over the target, so a

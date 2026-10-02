@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { nativePnpm, pnpmCommand } from '../apps/desktop/scripts/pnpm-command.mjs';
 import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-resources.mjs';
 import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/dist/backend/rpc.js';
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
+import { VOICE_CATALOG } from '../packages/plugin-tts-local/dist/voices.js';
+import { NODE_VERSION, PYTHON_VERSION, RUNTIME_TARGETS, gitVersion, runtimeTargets } from '../apps/desktop/scripts/runtimes-catalog.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('desktop extraResources copies both dependency trees from their parent', async () => {
+test('desktop extraResources copies the dependency trees and the voices from their parent', async () => {
   const manifest = JSON.parse(
     await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'),
   );
@@ -20,7 +23,7 @@ test('desktop extraResources copies both dependency trees from their parent', as
     {
       from: 'resources',
       to: '.',
-      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*'],
+      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*', 'models-seed/**/*', 'runtimes-seed/**/*'],
     },
   ]);
 });
@@ -29,6 +32,13 @@ test('universal macOS merge accepts the Computer Use helper, which is already un
   const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
   const names = manifest.build.mac.x64ArchFiles.replace(/^\{|\}$/g, '').split(',');
   assert.ok(names.includes('moxxy-computer'), manifest.build.mac.x64ArchFiles);
+});
+
+test('universal macOS merge accepts the prebuilt binaries that come with the offline voice', async () => {
+  // model-fetch → tar-stream → bare-fs/bare-path/bare-url ship one `.bare` per platform.
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  const names = manifest.build.mac.x64ArchFiles.replace(/^\{|\}$/g, '').split(',');
+  assert.ok(names.includes('*.bare'), manifest.build.mac.x64ArchFiles);
 });
 
 test('the app bundle leaves out the native sources and build output of the Computer Use helper', async () => {
@@ -70,7 +80,8 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
     const report = await verifyDesktopResources(root);
     assert.equal(report.cliVersion, '1.2.3');
     assert.equal(report.providerVersion, '1.2.3');
-    assert.equal(report.seedPackageCount, 2);
+    assert.equal(report.seedPackageCount, 4);
+    assert.equal(report.voiceCount, VOICE_CATALOG.length);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -84,6 +95,148 @@ test('desktop resource verifier rejects a plugin seed without the Claude sign-in
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-provider-claude-code/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the offline voice', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-piper-resources-'));
+  try {
+    await writeValidResources(root, { offlineVoice: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-tts-local/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the Gemini voice the settings offer', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-gemini-resources-'));
+  try {
+    await writeValidResources(root, { cloudVoice: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-tts-gemini/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave a voice to be downloaded', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-voice-resources-'));
+  try {
+    await writeValidResources(root);
+    const [voice] = VOICE_CATALOG;
+    await rm(path.join(root, 'models-seed', 'tts', voice.id, voice.archiveRootDir, voice.modelFile));
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      new RegExp(`Bundled voice ${voice.id} is missing`),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a bundled voice that is not the pinned one', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-wrong-voice-resources-'));
+  try {
+    await writeValidResources(root);
+    const [voice] = VOICE_CATALOG;
+    await writeFile(path.join(root, 'models-seed', 'tts', voice.id, '.model.ok'), 'f'.repeat(64));
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      new RegExp(`Bundled voice ${voice.id} is not the pinned archive`),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave Node or Python to be installed by hand', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-runtime-resources-'));
+  try {
+    await writeValidResources(root);
+    await rm(path.join(root, 'runtimes-seed', 'win32-x64', 'python.tar.gz'));
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled python runtime for win32-x64 is missing/,
+    );
+
+    await rm(path.join(root, 'runtimes-seed', 'linux-x64'), { recursive: true });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'linux', arch: 'x64' }),
+      /Bundled runtimes for linux-x64 are missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave Git to be installed by hand', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-git-resources-'));
+  try {
+    await writeValidResources(root);
+    await writeJson(path.join(root, 'runtimes-seed', 'win32-x64', 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: `${NODE_VERSION}-aaaaaaaaaaaa`, archive: 'node.zip' },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+        { name: 'git', id: `${gitVersion('darwin-arm64')}-cccccccccccc`, archive: 'git.tar.gz' },
+      ],
+    });
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled git runtime for win32-x64 is not the pinned version/,
+    );
+
+    await rm(path.join(root, 'runtimes-seed', 'darwin-x64', 'git.tar.gz'));
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'darwin' }),
+      /Bundled git runtime for darwin-x64 is missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier wants both architectures in a macOS app, which is universal', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-one-arch-resources-'));
+  try {
+    await writeValidResources(root);
+    assert.deepEqual(runtimeTargets('darwin', 'arm64'), ['darwin-arm64', 'darwin-x64']);
+    await rm(path.join(root, 'runtimes-seed', 'darwin-x64'), { recursive: true });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'darwin' }),
+      /Bundled runtimes for darwin-x64 are missing/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a bundled runtime that is not the pinned version', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-old-runtime-resources-'));
+  try {
+    await writeValidResources(root);
+    await writeJson(path.join(root, 'runtimes-seed', 'win32-x64', 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: 'v18.0.0-aaaaaaaaaaaa', archive: 'node.zip' },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+      ],
+    });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, platform: 'win32', arch: 'x64' }),
+      /Bundled node runtime for win32-x64 is not the pinned version/,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -135,6 +288,11 @@ test('desktop resources reject a computer extension without the native component
     header.writeUInt32BE(0x0100000c, 28);
     await writeFile(helper, header);
     await writeHelperManifest(helper, { protocolVersion: CONTRACT_PROTOCOL_VERSION, architecture: 'universal' });
+    // Packing a plugin drops the permission to run its files; Windows has no such permission.
+    if (process.platform !== 'win32') {
+      await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use component cannot be run/);
+      await chmod(helper, 0o755);
+    }
     await verifyDesktopResources(root, { runCli: false, platform: 'darwin' });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -199,12 +357,19 @@ async function writePackage(packageDir, name, extra = {}) {
   await writeFile(path.join(packageDir, 'dist', 'index.js'), 'export {};\n');
 }
 
+const OFFLINE_VOICE = '@moxxy/plugin-tts-local';
+const CLOUD_VOICE = '@moxxy/plugin-tts-gemini';
 const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
 
 async function writeValidResources(
   root,
-  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS } = {},
+  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS, offlineVoice = true, cloudVoice = true } = {},
 ) {
+  const seedPackages = [
+    ...seedProviders,
+    ...(offlineVoice ? [OFFLINE_VOICE] : []),
+    ...(cloudVoice ? [CLOUD_VOICE] : []),
+  ];
   const cliDir = path.join(root, 'moxxy-cli');
   await mkdir(path.join(cliDir, 'dist'), { recursive: true });
   await writeJson(path.join(cliDir, 'package.json'), {
@@ -219,7 +384,7 @@ async function writeValidResources(
 
   const seedDir = path.join(root, 'plugins-seed');
   await mkdir(seedDir, { recursive: true });
-  const dependencies = Object.fromEntries(seedProviders.map((name) => [name, '1.2.3']));
+  const dependencies = Object.fromEntries(seedPackages.map((name) => [name, '1.2.3']));
   await writeJson(path.join(seedDir, 'package.json'), {
     name: 'moxxy-plugins-seed',
     version: '1.0.0',
@@ -232,9 +397,60 @@ async function writeValidResources(
       packages: { '': { dependencies } },
     });
   }
-  for (const name of seedProviders) {
+  for (const name of seedPackages) {
     await writePackage(path.join(seedDir, 'node_modules', name), name, {
       moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
     });
   }
+  for (const target of Object.keys(RUNTIME_TARGETS)) {
+    const dir = path.join(root, 'runtimes-seed', target);
+    await mkdir(dir, { recursive: true });
+    const nodeArchive = target.startsWith('win32') ? 'node.zip' : target.startsWith('linux') ? 'node.tar.xz' : 'node.tar.gz';
+    await writeFile(path.join(dir, nodeArchive), 'node');
+    await writeFile(path.join(dir, 'python.tar.gz'), 'python');
+    await writeFile(path.join(dir, 'git.tar.gz'), 'git');
+    await writeJson(path.join(dir, 'manifest.json'), {
+      runtimes: [
+        { name: 'node', id: `${NODE_VERSION}-aaaaaaaaaaaa`, archive: nodeArchive },
+        { name: 'python', id: `${PYTHON_VERSION}-bbbbbbbbbbbb`, archive: 'python.tar.gz' },
+        { name: 'git', id: `${gitVersion(target)}-cccccccccccc`, archive: 'git.tar.gz' },
+      ],
+    });
+  }
+  for (const voice of VOICE_CATALOG) {
+    const voiceDir = path.join(root, 'models-seed', 'tts', voice.id);
+    await mkdir(path.join(voiceDir, voice.archiveRootDir), { recursive: true });
+    await writeFile(path.join(voiceDir, voice.archiveRootDir, voice.modelFile), 'model');
+    await writeFile(path.join(voiceDir, '.model.ok'), `${voice.sha256}\n`);
+  }
 }
+
+test('pnpm is run through node only when its entrypoint is a script', () => {
+  const node = path.join('opt', 'node');
+  assert.deepEqual(pnpmCommand(path.join('lib', 'pnpm', 'bin', 'pnpm.cjs'), node), {
+    command: node,
+    prefix: [path.join('lib', 'pnpm', 'bin', 'pnpm.cjs')],
+  });
+  assert.deepEqual(pnpmCommand(path.join('lib', 'pnpm', 'dist', 'pnpm.mjs'), node), {
+    command: node,
+    prefix: [path.join('lib', 'pnpm', 'dist', 'pnpm.mjs')],
+  });
+  // pnpm 11+ and the standalone build hand scripts a native executable.
+  for (const native of ['C:\\store\\@pnpm\\exe\\pnpm.exe', '/store/@pnpm/exe/pnpm', 'C:\\store\\PNPM.EXE']) {
+    assert.deepEqual(pnpmCommand(native, node), { command: native, prefix: [] });
+  }
+});
+
+test('pnpm entrypoint is required, since the deploy step cannot guess it', () => {
+  assert.throws(() => pnpmCommand(undefined, 'node'), /run through pnpm/);
+  assert.throws(() => pnpmCommand('', 'node'), /run through pnpm/);
+});
+
+test('a native pnpm that is running the build is used as is, a script entrypoint is not', () => {
+  assert.equal(nativePnpm('C:\\store\\@pnpm\\exe\\pnpm.exe'), 'C:\\store\\@pnpm\\exe\\pnpm.exe');
+  assert.equal(nativePnpm('/store/@pnpm/exe/pnpm'), '/store/@pnpm/exe/pnpm');
+  assert.equal(nativePnpm('/lib/pnpm/bin/pnpm.cjs'), undefined);
+  assert.equal(nativePnpm('/lib/npm/bin/npm-cli.js'), undefined);
+  assert.equal(nativePnpm('/usr/bin/yarn'), undefined);
+  assert.equal(nativePnpm(undefined), undefined);
+});

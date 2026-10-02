@@ -54,7 +54,7 @@ export interface CombinedKeySourceOptions {
 /**
  * Resolves the vault master key in priority order:
  *   1. `MOXXY_VAULT_PASSPHRASE` env var (derive on each call — no persistence).
- *   2. OS keychain via `@napi-rs/keyring`.
+ *   2. OS keychain via `@napi-rs/keyring` (skipped with `MOXXY_NO_KEYCHAIN=1`).
  *   3. On-disk cached key at `~/.moxxy/vault.key` (mode 0600).
  *   4. A randomly GENERATED key, persisted for next time.
  *   5. Interactive passphrase prompt (only when a passphrase is required, or
@@ -218,7 +218,17 @@ type KeyringModule = {
   Entry?: new (service: string, account: string) => KeyringEntry;
 };
 
+/**
+ * `MOXXY_NO_KEYCHAIN=1` keeps the process away from the OS keychain, like
+ * `disableKeytar` but inherited by child processes. The test preset sets it so
+ * a test run can never read or replace the developer's real master key.
+ */
+function keychainOff(): boolean {
+  return process.env.MOXXY_NO_KEYCHAIN === '1';
+}
+
 async function tryKeychainGet(): Promise<string | null> {
+  if (keychainOff()) return null;
   try {
     const mod = (await import('@napi-rs/keyring')) as KeyringModule;
     if (!mod.Entry) return null;
@@ -230,6 +240,7 @@ async function tryKeychainGet(): Promise<string | null> {
 }
 
 async function tryKeychainSet(value: string): Promise<void> {
+  if (keychainOff()) return;
   try {
     const mod = (await import('@napi-rs/keyring')) as KeyringModule;
     if (!mod.Entry) return;

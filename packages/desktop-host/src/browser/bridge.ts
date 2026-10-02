@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import type { BrowserHost } from './host';
 
 /**
@@ -49,10 +50,9 @@ export class BrowserBridge {
   async start(): Promise<BridgeAddress> {
     if (this.address) return this.address;
     sweepAbandonedBridges();
-    const dir = join(tmpdir(), `moxxy-browser-${process.pid}`);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const { socketPath, dir } = bridgeEndpoint({ pid: process.pid, id: randomBytes(8).toString('hex') });
+    if (dir !== null) mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.dir = dir;
-    const socketPath = join(dir, `${randomBytes(8).toString('hex')}.sock`);
     const token = randomBytes(32).toString('hex');
 
     const server = createServer((socket) => this.accept(socket, token));
@@ -64,7 +64,7 @@ export class BrowserBridge {
       });
     });
     try {
-      chmodSync(socketPath, 0o600);
+      if (dir !== null) chmodSync(socketPath, 0o600);
     } catch {
       // The 0700 directory is the real boundary; a filesystem that refuses the
       // chmod does not widen access beyond it.
@@ -249,7 +249,7 @@ export class BrowserBridge {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
     const dir = this.dir;
     this.dir = null;
-    if (addr) {
+    if (addr && dir) {
       try {
         rmSync(addr.socketPath, { force: true });
       } catch {
@@ -270,6 +270,28 @@ export class BrowserBridge {
 
 /** Prefix every bridge directory carries, followed by the owning pid. */
 const DIR_PREFIX = 'moxxy-browser-';
+
+export interface BridgeEndpoint {
+  readonly socketPath: string;
+  /** The directory to make for the socket; null for a named pipe, which has none. */
+  readonly dir: string | null;
+}
+
+/**
+ * Where the bridge listens. Windows cannot listen on a file path, so there it
+ * is a named pipe: the token is then the only lock, as it is for the runner.
+ */
+export function bridgeEndpoint(opts: {
+  readonly pid: number;
+  readonly id: string;
+  readonly tmp?: string;
+  readonly platform?: NodeJS.Platform;
+}): BridgeEndpoint {
+  const platform = opts.platform ?? process.platform;
+  const dir = join(opts.tmp ?? tmpdir(), `${DIR_PREFIX}${opts.pid}`);
+  const socketPath = platformSocket(`browser-${opts.pid}-${opts.id}`, join(dir, `${opts.id}.sock`), platform);
+  return { socketPath, dir: platform === 'win32' ? null : dir };
+}
 
 /**
  * Remove bridge directories whose process is gone.

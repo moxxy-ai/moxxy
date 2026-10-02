@@ -10,7 +10,7 @@ describe('cwdForResumeSession', () => {
   it('returns the persisted session cwd before falling back to process cwd', async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'moxxy-resume-cwd-'));
     const oldHome = process.env.HOME;
-    process.env.HOME = root;
+    process.env.HOME = process.env.USERPROFILE = root;
     try {
       const sessionsDir = path.join(root, '.moxxy', 'sessions');
       mkdirSync(sessionsDir, { recursive: true });
@@ -34,7 +34,7 @@ describe('cwdForResumeSession', () => {
       );
     } finally {
       if (oldHome === undefined) delete process.env.HOME;
-      else process.env.HOME = oldHome;
+      else process.env.HOME = process.env.USERPROFILE = oldHome;
     }
   });
 });

@@ -3,7 +3,7 @@ import { connect, type Socket } from 'node:net';
 import { mkdtempSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BrowserBridge, sweepAbandonedBridges } from './bridge.js';
+import { BrowserBridge, bridgeEndpoint, sweepAbandonedBridges } from './bridge.js';
 import { BrowserHost, type HostWebContents } from './host.js';
 
 /**
@@ -242,6 +242,25 @@ describe('BrowserBridge — serving the agent', () => {
   });
 });
 
+describe('bridgeEndpoint', () => {
+  /**
+   * Windows cannot listen on a file path: there the bridge never started and
+   * the browser tools fell back to a Playwright the installer does not carry.
+   */
+  it('is a named pipe on Windows, with no directory to make', () => {
+    const endpoint = bridgeEndpoint({ pid: 4242, id: 'ab12', tmp: 'C:\\Temp', platform: 'win32' });
+
+    expect(endpoint).toEqual({ socketPath: '\\\\.\\pipe\\moxxy-browser-4242-ab12', dir: null });
+  });
+
+  it('is a socket file in an owner-only directory elsewhere', () => {
+    const endpoint = bridgeEndpoint({ pid: 4242, id: 'ab12', tmp: tmpdir(), platform: 'darwin' });
+
+    const dir = join(tmpdir(), 'moxxy-browser-4242');
+    expect(endpoint).toEqual({ socketPath: join(dir, 'ab12.sock'), dir });
+  });
+});
+
 describe('sweepAbandonedBridges', () => {
   /**
    * A clean quit removes its own directory. A crash cannot — and one empty
@@ -250,8 +269,9 @@ describe('sweepAbandonedBridges', () => {
    */
   it('removes a directory whose process is gone and keeps a live one', () => {
     const root = mkdtempSync(join(tmpdir(), 'moxxy-sweep-test-'));
-    // pid 1 is init: always alive, never ours to touch.
-    const alive = join(root, 'moxxy-browser-1');
+    // The process that started this test: alive for as long as the test runs,
+    // and not ours to touch.
+    const alive = join(root, `moxxy-browser-${process.ppid}`);
     // A pid this high is not running; if it somehow were, the probe says so
     // and we leave it, which is the safe direction.
     const dead = join(root, 'moxxy-browser-4194303');

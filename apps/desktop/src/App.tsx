@@ -46,6 +46,7 @@ import {
   shouldShowBlockingConnectionScreen,
   shouldShowProviderRecovery,
   type LastConnectedSession,
+  describeConnectionPhase,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
@@ -400,7 +401,7 @@ export function App(): JSX.Element {
         </main>
       )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
-      {!connected && <ReconnectBanner label={describePhase(shellPhase)} />}
+      {!connected && <ReconnectBanner label={describeConnectionPhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
           background-agent modal is open — this fallback catches every other
@@ -440,33 +441,6 @@ function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | nul
       <AskSheet ask={ask} />
     </div>
   );
-}
-
-function describePhase(
-  phase: import('@moxxy/desktop-ipc-contract').ConnectionPhase | undefined,
-): string {
-  if (!phase) return 'Reconnecting…';
-  switch (phase.phase) {
-    case 'idle':
-      return 'Starting…';
-    case 'resolving-cli':
-      return 'Resolving moxxy CLI…';
-    case 'spawning':
-      return 'Starting agent runtime…';
-    case 'adopting':
-      return 'Attaching to running runner…';
-    case 'attaching':
-      return 'Attaching session…';
-    case 'reconnecting':
-      return phase.reason ? `Reconnecting — ${phase.reason}` : 'Reconnecting…';
-    case 'failed':
-      return phase.error ? `Disconnected — ${phase.error}` : 'Disconnected';
-    case 'protocol-incompatible':
-      // Terminal — say so plainly rather than implying a reconnect is coming.
-      return phase.hint;
-    default:
-      return 'Reconnecting…';
-  }
 }
 
 function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {

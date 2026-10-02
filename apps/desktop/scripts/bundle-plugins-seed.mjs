@@ -19,10 +19,12 @@
  * silently skipped by plugin discovery at runtime.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { nativePnpm } from './pnpm-command.mjs';
 
 import {
   execExecutableTargetSync,
@@ -67,12 +69,16 @@ const SEED_PLUGINS = [
   'plugin-provider-admin',
   'plugin-mcp',
   'plugin-memory',
+  // Offline voice (Piper). Its voices ship beside it — see bundle-models-seed.mjs.
+  'plugin-tts-local',
+  // Gemini voice: Settings → Voice offers it, so it must not depend on npm.
+  'plugin-tts-gemini',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
- *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model,
+ *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model, tts-local→model-fetch,
  *  everything→sdk). None of these are on npm, so a missing one fails with 404. */
-const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex', 'model-fetch'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which
@@ -82,9 +88,12 @@ const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');
 const tarDir = mkdtempSync(path.join(tmpdir(), 'moxxy-seed-tars-'));
 
 const run = (cmd, args, opts = {}) => {
-  const target = resolveExecutableTarget(cmd, {
-    nodeEntryHint: packageManagerEntryHint(cmd),
-  });
+  // The pnpm running this build wins over whatever `pnpm` is on PATH: it is the
+  // version the workspace pins, and a native one needs no JS entry to be found.
+  const runningPnpm = cmd === 'pnpm' ? nativePnpm(process.env.npm_execpath) : undefined;
+  const target = runningPnpm
+    ? { kind: 'direct', command: runningPnpm }
+    : resolveExecutableTarget(cmd, { nodeEntryHint: packageManagerEntryHint(cmd) });
   if (!target) throw new Error(`Build command not found on PATH: ${cmd}`);
   execExecutableTargetSync(target, args, {
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -112,6 +121,7 @@ run('npm', [
   ...tarballs,
 ]);
 
+if (process.platform !== 'win32') restoreExecutables();
 if (process.platform === 'darwin') installOtherDarwinArchPackages();
 
 // npm records direct local tarballs exactly as `file:/tmp/moxxy-seed-tars-*`.
@@ -187,4 +197,24 @@ function packageManagerEntryHint(command) {
   if (command === 'pnpm' && (basename === 'pnpm.cjs' || basename === 'pnpm.js')) return entry;
   if (command === 'npm' && (basename === 'npm-cli.js' || basename === 'npm.js')) return entry;
   return undefined;
+}
+
+/**
+ * `pnpm pack` records every file outside `bin` as not executable, so a packed
+ * native program (the Computer Use helper) arrives unable to start. Give each
+ * seeded file back the permission its source in the workspace has.
+ */
+function restoreExecutables() {
+  for (const p of [...SEED_PLUGINS, ...CLOSURE]) {
+    const source = path.join(repo, 'packages', p);
+    const { name } = JSON.parse(readFileSync(path.join(source, 'package.json'), 'utf8'));
+    const seeded = path.join(seedDir, 'node_modules', name);
+    for (const entry of readdirSync(seeded, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const file = path.join(entry.parentPath, entry.name);
+      if (file.includes(`${path.sep}node_modules${path.sep}`, seeded.length)) continue;
+      const original = path.join(source, path.relative(seeded, file));
+      if (existsSync(original) && (statSync(original).mode & 0o111) !== 0) chmodSync(file, 0o755);
+    }
+  }
 }

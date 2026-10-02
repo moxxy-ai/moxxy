@@ -14,6 +14,7 @@
  * path, same memory access, no wasm bytecode needed.
  */
 import { describe, expect, it, beforeEach } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -268,7 +269,7 @@ describe('wasm broker: broker_fs_write_file', () => {
     expect(message).toMatch(/\[broker:fs\.writeFile\]/);
     expect(message.length).toBeGreaterThan(0);
     // Carries the underlying errno reason rather than swallowing it.
-    expect(message).toMatch(/EISDIR|illegal operation|directory/i);
+    expect(message).toMatch(/EISDIR|EPERM|illegal operation|operation not permitted|directory/i);
   });
 });
 
@@ -361,7 +362,7 @@ describe('wasm broker: broker_exec', () => {
     expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/subprocess: true/);
   });
 
-  it('runs when subprocess cap is granted', () => {
+  it.skipIf(!posixShell)('runs when subprocess cap is granted', () => {
     const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
     const cmdPtr = 128;
     const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');

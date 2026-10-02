@@ -20,6 +20,7 @@ vi.mock('@moxxy/client-core', async (importOriginal) => {
         activeProvider: null,
       },
       node: { installed: true, version: 'v20.0.0' },
+      installNode: { running: false, progress: [], error: null, run: async () => true },
     }),
   };
 });

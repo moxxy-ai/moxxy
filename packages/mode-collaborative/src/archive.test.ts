@@ -43,6 +43,10 @@ function rec(over: Partial<CollabRunRecord>): CollabRunRecord {
   };
 }
 
+// Each write re-reads every record to enforce the cap; on Windows, with file
+// scanning in the way, the 200+ writes these tests make take several seconds.
+const SLOW_FS_MS = 60_000;
+
 describe('run archive', () => {
   it('writes a record under ~/.moxxy/collab/runs and reads it back', () => {
     writeRunRecord(rec({ runId: 'abc' }));
@@ -86,7 +90,7 @@ describe('run archive', () => {
     expect(readRunRecord('run-0')).toBeNull();
     expect(readRunRecord('run-24')).toBeNull(); // the 25 oldest are gone
     expect(readRunRecord('run-25')).not.toBeNull();
-  });
+  }, SLOW_FS_MS);
 
   it('sweeps a leftover .tmp from an interrupted atomic write', () => {
     writeRunRecord(rec({ runId: 'good' }));
@@ -115,7 +119,7 @@ describe('run archive', () => {
     expect(files.length).toBe(MAX_RUN_RECORDS);
     // The corrupt file (oldest mtime) was eligible for and got evicted.
     expect(files).not.toContain('corrupt.json');
-  });
+  }, SLOW_FS_MS);
 
   it('corrupt/foreign files NEVER evict a valid record (key spaces stay separated)', () => {
     // Worst case: a flood of fresh corrupt/foreign .json files (mtime ~= now, which
@@ -146,5 +150,5 @@ describe('run archive', () => {
     // corrupt too, so it can be evicted and never pins a slot from a real record.
     const survivingValid = files.filter((f) => f.startsWith('keep-')).length;
     expect(survivingValid).toBe(valid + 1);
-  });
+  }, SLOW_FS_MS);
 });

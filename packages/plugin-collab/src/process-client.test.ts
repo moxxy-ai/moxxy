@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import { createCollaborationHub, type CollaborationHub } from './hub.js';
 import { COLLAB_ENV, getProcessHubClient, __resetProcessHubClient } from './process-client.js';
 import type { RosterEntry } from './hub-types.js';
@@ -46,7 +47,7 @@ describe('getProcessHubClient', () => {
   it('does not permanently poison the singleton on a transient connect failure', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const socketPath = join(dir, 's');
+    const socketPath = platformSocket(basename(dir), join(dir, 's'));
     process.env[COLLAB_ENV.Hub] = socketPath;
     process.env[COLLAB_ENV.AgentId] = 'backend';
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -67,7 +68,7 @@ describe('getProcessHubClient', () => {
   it('reconnects after the link drops instead of staying closed forever', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const socketPath = join(dir, 's');
+    const socketPath = platformSocket(basename(dir), join(dir, 's'));
     process.env[COLLAB_ENV.Hub] = socketPath;
     process.env[COLLAB_ENV.AgentId] = 'backend';
     await startHub(socketPath);

@@ -17,7 +17,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import { fileURLToPath } from 'node:url';
 import { createCollaborationHub, type CollaborationHub } from '@moxxy/plugin-collab';
 
@@ -29,7 +30,10 @@ const cleanups: Array<() => void> = [];
 let child: ChildProcess | null = null;
 afterEach(async () => {
   if (child && child.exitCode === null) {
+    // Windows keeps the peer's cwd locked until the process is really gone.
+    const gone = new Promise((done) => child?.once('exit', done));
     child.kill('SIGKILL');
+    await gone;
   }
   child = null;
   for (const fn of cleanups.splice(0)) fn();
@@ -56,11 +60,12 @@ describe('real moxxy agent peer process', () => {
       const home = mkdtempSync(join(tmpdir(), 'mc-peerproc-home-'));
       const cwd = mkdtempSync(join(tmpdir(), 'mc-peerproc-wt-'));
       cleanups.push(() => {
-        for (const d of [runDir, home, cwd]) rmSync(d, { recursive: true, force: true });
+        // The peer may still be letting go of its cwd on Windows.
+        for (const d of [runDir, home, cwd]) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       });
 
       const hub = await createCollaborationHub({
-        socketPath: join(runDir, 'hub.sock'),
+        socketPath: platformSocket(basename(runDir), join(runDir, 'hub.sock')),
         task: 'integration probe',
         roster: [{ id: 'probe', name: 'Probe', role: 'implementer', subtask: 'noop' }],
       });

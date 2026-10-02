@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import crypto from 'node:crypto';
 import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -107,7 +108,7 @@ describe('loadOrCreateSelfSignedCert', () => {
     expect(await readFile(path.join(dir, 'loopback-cert.pem'), 'utf8')).toBe(first.cert);
   });
 
-  it('writes the private key 0600', async () => {
+  it.skipIf(!posixFileModes)('writes the private key 0600', async () => {
     await loadOrCreateSelfSignedCert(dir);
     const mode = (await stat(path.join(dir, 'loopback-key.pem'))).mode & 0o777;
     expect(mode).toBe(0o600);

@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveExecutableTarget, spawnExecutableTarget } from '@moxxy/sdk/server';
 
 const DEFAULT_EXPO_HOST = 'lan';
 const DEFAULT_EXPO_PORT = 8081;
@@ -81,7 +82,7 @@ export async function startMobileExpoApp(
     return { stop: async () => undefined };
   }
 
-  const spawnProcess = deps.spawnProcess ?? spawn;
+  const spawnProcess = deps.spawnProcess ?? spawnNpm;
   const child = spawnProcess('npm', buildExpoStartArgs(options), {
     cwd: appDir,
     env: {
@@ -99,10 +100,27 @@ export async function startMobileExpoApp(
 
   return {
     stop: async () => {
-      if (child.exitCode === null && !child.killed) child.kill('SIGTERM');
+      if (child.exitCode === null && !child.killed) stopTree(child);
       await exited;
     },
   };
+}
+
+// npm is a .cmd shim on Windows, which a bare spawn('npm') cannot start.
+const spawnNpm: SpawnProcess = (command, args, options) => {
+  const target = resolveExecutableTarget(command);
+  if (!target) throw new Error(`${command} was not found on PATH; cannot start the Moxxy Mobile Expo app`);
+  return spawnExecutableTarget(target, args, options);
+};
+
+/** npm runs Expo as a child of its own. Windows has no signal that reaches it, so the tree is ended by pid. */
+function stopTree(child: ChildProcess): void {
+  if (process.platform !== 'win32' || child.pid === undefined) {
+    child.kill('SIGTERM');
+    return;
+  }
+  const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+  execFile(taskkill, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined);
 }
 
 export function resolveMobileExpoAppDir(cwd = process.cwd()): string | null {

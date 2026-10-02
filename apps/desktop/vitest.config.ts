@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { isolateSetupFile } from '@moxxy/vitest-preset';
 
 /**
  * Two test environments coexist:
@@ -27,7 +28,7 @@ export default defineConfig({
           name: 'renderer',
           globals: false,
           environment: 'jsdom',
-          setupFiles: ['./src/test-setup.ts'],
+          setupFiles: [isolateSetupFile, './src/test-setup.ts'],
           include: ['src/**/*.test.{ts,tsx}'],
           exclude,
         },
@@ -38,6 +39,7 @@ export default defineConfig({
           name: 'main',
           globals: false,
           environment: 'node',
+          setupFiles: [isolateSetupFile],
           include: ['electron/**/*.test.ts'],
           exclude,
         },

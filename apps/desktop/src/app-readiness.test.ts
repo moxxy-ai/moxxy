@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 import {
+  describeConnectionPhase,
   resolveActiveSessionShell,
   shouldShowProviderRecovery,
   shouldShowBlockingConnectionScreen,
@@ -163,5 +164,36 @@ describe('resolveActiveSessionShell', () => {
         true,
       ),
     ).toBe(false);
+  });
+});
+
+describe('describeConnectionPhase', () => {
+  it('says the runtime is starting — not reconnecting — before the first runner snapshot', () => {
+    const state = resolveActiveSessionShell({
+      activeWorkspaceId: 'session-a',
+      snapshot: null,
+      lastConnected: null,
+    });
+
+    const label = describeConnectionPhase(state.phase);
+    expect(label).not.toMatch(/reconnect/i);
+    expect(label).toMatch(/^Starting the agent runtime/);
+    expect(label).toMatch(/install or update/);
+  });
+
+  it('says a newly selected session is loading, not reconnecting', () => {
+    const state = resolveActiveSessionShell({
+      activeWorkspaceId: 'session-b',
+      snapshot: null,
+      lastConnected: { workspaceId: 'session-a', phase: connectedPhase('session-a') },
+    });
+
+    expect(describeConnectionPhase(state.phase)).toBe('Loading selected session…');
+  });
+
+  it('keeps calling a lost runner a reconnect', () => {
+    expect(
+      describeConnectionPhase({ phase: 'reconnecting', reason: 'runner disconnected', attempt: 2 }),
+    ).toBe('Reconnecting — runner disconnected');
   });
 });

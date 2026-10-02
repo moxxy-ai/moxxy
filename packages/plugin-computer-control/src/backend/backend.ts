@@ -6,7 +6,7 @@ import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
-import { JEV_HOST, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
+import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
 import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
 import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
@@ -126,7 +126,9 @@ export class ComputerBackend {
   private readonly reached = new Map<string, Map<string, AppGrant | null>>();
 
   private async jevKey(ctx: ToolContext): Promise<string | undefined> {
-    const key = (await ctx.getSecret?.(JEV_SECRET)?.catch(() => null)) || process.env[JEV_SECRET] || undefined;
+    const secret = async (name: string) => (await ctx.getSecret?.(name)?.catch(() => null)) || undefined;
+    // The switch is a vault entry, so every surface of the session reads the same one.
+    const key = (await secret(JEV_OFF)) ? undefined : (await secret(JEV_SECRET)) || process.env[JEV_SECRET] || undefined;
     this.keyed.set(ctx.sessionId, key !== undefined);
     return key;
   }
@@ -216,7 +218,7 @@ export class ComputerBackend {
       const apiKey = await this.jevKey(ctx);
       const { turn, result: initial } = await this.observe(ctx, grant);
       if (!apiKey) {
-        return this.present(turn, grant, initial, [`computer_run is off: there is no TypeSafe key (secret ${JEV_SECRET}). Nothing was done. Carry out the steps with the single tools on the state below.`]);
+        return this.present(turn, grant, initial, [`computer_run is off: there is no TypeSafe key (secret ${JEV_SECRET}), or Jev is switched off (secret ${JEV_OFF}). Nothing was done. Carry out the steps with the single tools on the state below.`]);
       }
       const learned = await this.memory.read(grant.id);
       const report = await runSteps(input.goal, input.steps, initial, {

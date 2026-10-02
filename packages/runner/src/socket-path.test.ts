@@ -26,6 +26,11 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => s.close()));
 });
 
+function tmpSocket(prefix: string): string {
+  const name = `${prefix}-${Math.random().toString(36).slice(2)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
+}
+
 describe('runnerSocketPath', () => {
   it('honors the MOXXY_RUNNER_SOCKET override', () => {
     process.env.MOXXY_RUNNER_SOCKET = '/tmp/custom-runner.sock';
@@ -89,15 +94,12 @@ describe('isNamedPipe', () => {
 
 describe('isRunnerUp', () => {
   it('is false when nothing is listening', async () => {
-    const missing = path.join(os.tmpdir(), `moxxy-absent-${Math.random().toString(36).slice(2)}.sock`);
+    const missing = tmpSocket('moxxy-absent');
     expect(await isRunnerUp(missing)).toBe(false);
   });
 
   it('is true once a server is listening, false after it closes', async () => {
-    const socketPath = path.join(
-      os.tmpdir(),
-      `moxxy-up-${Math.random().toString(36).slice(2)}.sock`,
-    );
+    const socketPath = tmpSocket('moxxy-up');
     const server = await createUnixSocketServer(socketPath);
     servers.push(server);
     expect(await isRunnerUp(socketPath)).toBe(true);

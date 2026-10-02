@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
+import { platformSocket } from './socket-path.js';
 import {
   Session,
   SessionPersistence,
@@ -80,7 +81,8 @@ function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Se
 }
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-runner-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-runner-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 /**
@@ -1182,7 +1184,7 @@ describe('provider management (protocol v7)', () => {
       await waitForAsync(async () => {
         const set = new Set(await loadDisabledProviders());
         return set.has('fake2') && set.has('fake3');
-      });
+      }, 15_000);
       expect([...(await loadDisabledProviders())].sort()).toEqual(['fake2', 'fake3']);
 
       // And the live registry reflects both — behaviour of each toggle is

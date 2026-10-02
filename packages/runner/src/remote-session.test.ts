@@ -12,6 +12,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { platformSocket } from './socket-path.js';
 import type { SessionInfo, TurnId } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport } from './transport.js';
@@ -272,7 +273,8 @@ describe('spawnText (bounded recovery sub-command)', () => {
 
 describe('connectWithRetry (initial-connect linear backoff)', () => {
   function tmpSocket(): string {
-    return path.join(os.tmpdir(), `moxxy-retry-${Math.random().toString(36).slice(2, 10)}.sock`);
+    const name = `moxxy-retry-${Math.random().toString(36).slice(2, 10)}`;
+    return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
   }
 
   it('retries until the socket starts accepting (rides over a late-binding runner)', async () => {

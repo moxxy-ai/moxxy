@@ -153,7 +153,8 @@ async function* walk(
         continue;
       }
       if (!isWithin(realRoot, realFile)) continue;
-      const relative = path.relative(root, full);
+      // Patterns are written with `/`; on Windows the walked path is not.
+      const relative = path.relative(root, full).split(path.sep).join('/');
       if (regex.test(relative)) yield full;
     }
   }

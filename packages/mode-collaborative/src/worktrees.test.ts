@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -237,7 +238,7 @@ describe('worktree git engine', () => {
     }
   });
 
-  it('peer-read does NOT follow a symlink that escapes the worktree', async () => {
+  it.skipIf(!canSymlink)('peer-read does NOT follow a symlink that escapes the worktree', async () => {
     const repo = await initRepo();
     const base = await headSha(repo);
     const wt = join(repo, '.wt-symlink');
@@ -278,7 +279,7 @@ describe('worktree git engine', () => {
     expect(await reader.diff('any')).toBe('');
   });
 
-  it('cwdPeerReader does NOT follow a symlink that escapes the shared cwd', async () => {
+  it.skipIf(!canSymlink)('cwdPeerReader does NOT follow a symlink that escapes the shared cwd', async () => {
     // The shared workspace is attacker-influenced content: a planted symlink whose
     // path-string passes the string guard but resolves outside must be refused.
     const cwd = mkdtempSync(join(tmpdir(), 'mc-cwd-sym-'));

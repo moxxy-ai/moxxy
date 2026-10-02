@@ -67,12 +67,16 @@ const TABS: ReadonlyArray<TabDef> = [
  * its own copy.
  */
 const TOOL_TAB: Readonly<Record<string, WorkbenchTab>> = {
-  browser_session: 'browser',
   terminal: 'terminal',
 };
 
-/** The workbench tab a given agent tool should reveal, or undefined if none. */
+/**
+ * The workbench tab a given agent tool should reveal, or undefined if none.
+ * Every `browser_*` tool reveals the browser: a tab the agent asks for is made
+ * by the pane, so with the pane closed the request waits and times out.
+ */
 export function workbenchTabForTool(toolName: string): WorkbenchTab | undefined {
+  if (toolName.startsWith('browser_')) return 'browser';
   return TOOL_TAB[toolName];
 }
 
