@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { ACCEPTED_ADVISORIES, evaluateAudit } from './security-audit-policy.mjs';
@@ -62,5 +63,13 @@ test('every shipped acceptance states its module, paths and reason', () => {
     assert.ok(entry.module.length > 0);
     assert.ok(entry.paths.length > 0);
     assert.ok(entry.reason.length > 0);
+  }
+});
+
+test('SECURITY.md names every accepted advisory, so the open risk is visible', () => {
+  const securityDoc = readFileSync(new URL('../SECURITY.md', import.meta.url), 'utf8');
+  for (const entry of ACCEPTED_ADVISORIES) {
+    assert.ok(securityDoc.includes(entry.id), `SECURITY.md must list ${entry.id}`);
+    assert.ok(securityDoc.includes(entry.module), `SECURITY.md must name ${entry.module}`);
   }
 });

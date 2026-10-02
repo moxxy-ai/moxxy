@@ -39,6 +39,20 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 - **Third-party plugins run in-process by default.** `moxxy plugins install` executes npm install; installed code loads into the runner. Install-time hooks are blocked (see above), but the plugin's own module code runs in-process once loaded. Install plugins you trust, review their declared capabilities (`moxxy security audit`), and prefer isolation for anything unfamiliar.
 - **Autonomous channels are standing exposure.** A channel that runs turns without a human in the loop (Slack allow-list mode, webhooks, cron) should run on a dedicated runner with a minimal tool allow-list — supported out of the box (`dedicatedRunner`).
 
+## Known dependency advisories awaiting an upstream fix
+
+CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails if an entry there is missing from this table.
+
+| Advisory | Package | Status | Why it is tolerated for now |
+|---|---|---|---|
+| [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) (high) | `node-forge` ≤ 1.4.0 | **Open — waiting for a fixed `node-forge` release** (accepted 2026-10-02) | The flaw is in RSA signature *verification*. moxxy does not use `node-forge`; it arrives only through `@expo/cli` (the mobile app's development tool), which uses it to read local Apple signing certificates during `expo run:ios` and verifies no signatures with it. It is not part of the CLI, the desktop installer, or the shipped mobile app. |
+
+An accepted entry is not permanent. The audit fails again, and the entry must be removed, as soon as any of these happens:
+
+- upstream publishes a fixed version (upgrade, then delete the entry and its row here);
+- the package is reached through any dependency path other than the reviewed one;
+- the advisory is no longer reported.
+
 ## Hardening checklist
 
 1. `security.enabled: true` with the `subprocess` (or `worker`) isolator.
