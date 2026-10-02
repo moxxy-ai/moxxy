@@ -67,12 +67,16 @@ const SEED_PLUGINS = [
   'plugin-provider-admin',
   'plugin-mcp',
   'plugin-memory',
+  // Offline voice (Piper). Its voices ship beside it — see bundle-models-seed.mjs.
+  'plugin-tts-local',
+  // Gemini voice: Settings → Voice offers it, so it must not depend on npm.
+  'plugin-tts-gemini',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
- *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model,
+ *  from local tarballs (usage-stats→core, oauth→vault, channel-kit→chat-model, tts-local→model-fetch,
  *  everything→sdk). None of these are on npm, so a missing one fails with 404. */
-const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'chat-model', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex', 'model-fetch'];
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
 
 // fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which

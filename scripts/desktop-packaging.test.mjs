@@ -9,10 +9,11 @@ import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-r
 import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/dist/backend/rpc.js';
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
+import { VOICE_CATALOG } from '../packages/plugin-tts-local/dist/voices.js';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('desktop extraResources copies both dependency trees from their parent', async () => {
+test('desktop extraResources copies the dependency trees and the voices from their parent', async () => {
   const manifest = JSON.parse(
     await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'),
   );
@@ -20,7 +21,7 @@ test('desktop extraResources copies both dependency trees from their parent', as
     {
       from: 'resources',
       to: '.',
-      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*'],
+      filter: ['moxxy-cli/**/*', 'plugins-seed/**/*', 'models-seed/**/*'],
     },
   ]);
 });
@@ -29,6 +30,13 @@ test('universal macOS merge accepts the Computer Use helper, which is already un
   const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
   const names = manifest.build.mac.x64ArchFiles.replace(/^\{|\}$/g, '').split(',');
   assert.ok(names.includes('moxxy-computer'), manifest.build.mac.x64ArchFiles);
+});
+
+test('universal macOS merge accepts the prebuilt binaries that come with the offline voice', async () => {
+  // model-fetch → tar-stream → bare-fs/bare-path/bare-url ship one `.bare` per platform.
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  const names = manifest.build.mac.x64ArchFiles.replace(/^\{|\}$/g, '').split(',');
+  assert.ok(names.includes('*.bare'), manifest.build.mac.x64ArchFiles);
 });
 
 test('the app bundle leaves out the native sources and build output of the Computer Use helper', async () => {
@@ -70,7 +78,8 @@ test('desktop resource verifier starts the embedded CLI and finds the Codex prov
     const report = await verifyDesktopResources(root);
     assert.equal(report.cliVersion, '1.2.3');
     assert.equal(report.providerVersion, '1.2.3');
-    assert.equal(report.seedPackageCount, 2);
+    assert.equal(report.seedPackageCount, 4);
+    assert.equal(report.voiceCount, VOICE_CATALOG.length);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -84,6 +93,66 @@ test('desktop resource verifier rejects a plugin seed without the Claude sign-in
     await assert.rejects(
       verifyDesktopResources(root, { runCli: false }),
       /plugins-seed manifest does not include @moxxy\/plugin-provider-claude-code/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the offline voice', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-piper-resources-'));
+  try {
+    await writeValidResources(root, { offlineVoice: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-tts-local/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without the Gemini voice the settings offer', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-gemini-resources-'));
+  try {
+    await writeValidResources(root, { cloudVoice: false });
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed manifest does not include @moxxy\/plugin-tts-gemini/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects resources that leave a voice to be downloaded', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-no-voice-resources-'));
+  try {
+    await writeValidResources(root);
+    const [voice] = VOICE_CATALOG;
+    await rm(path.join(root, 'models-seed', 'tts', voice.id, voice.archiveRootDir, voice.modelFile));
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      new RegExp(`Bundled voice ${voice.id} is missing`),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a bundled voice that is not the pinned one', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-wrong-voice-resources-'));
+  try {
+    await writeValidResources(root);
+    const [voice] = VOICE_CATALOG;
+    await writeFile(path.join(root, 'models-seed', 'tts', voice.id, '.model.ok'), 'f'.repeat(64));
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      new RegExp(`Bundled voice ${voice.id} is not the pinned archive`),
     );
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -199,12 +268,19 @@ async function writePackage(packageDir, name, extra = {}) {
   await writeFile(path.join(packageDir, 'dist', 'index.js'), 'export {};\n');
 }
 
+const OFFLINE_VOICE = '@moxxy/plugin-tts-local';
+const CLOUD_VOICE = '@moxxy/plugin-tts-gemini';
 const SIGN_IN_PROVIDERS = ['@moxxy/plugin-provider-openai-codex', '@moxxy/plugin-provider-claude-code'];
 
 async function writeValidResources(
   root,
-  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS } = {},
+  { includeSeedLock = true, seedProviders = SIGN_IN_PROVIDERS, offlineVoice = true, cloudVoice = true } = {},
 ) {
+  const seedPackages = [
+    ...seedProviders,
+    ...(offlineVoice ? [OFFLINE_VOICE] : []),
+    ...(cloudVoice ? [CLOUD_VOICE] : []),
+  ];
   const cliDir = path.join(root, 'moxxy-cli');
   await mkdir(path.join(cliDir, 'dist'), { recursive: true });
   await writeJson(path.join(cliDir, 'package.json'), {
@@ -219,7 +295,7 @@ async function writeValidResources(
 
   const seedDir = path.join(root, 'plugins-seed');
   await mkdir(seedDir, { recursive: true });
-  const dependencies = Object.fromEntries(seedProviders.map((name) => [name, '1.2.3']));
+  const dependencies = Object.fromEntries(seedPackages.map((name) => [name, '1.2.3']));
   await writeJson(path.join(seedDir, 'package.json'), {
     name: 'moxxy-plugins-seed',
     version: '1.0.0',
@@ -232,9 +308,15 @@ async function writeValidResources(
       packages: { '': { dependencies } },
     });
   }
-  for (const name of seedProviders) {
+  for (const name of seedPackages) {
     await writePackage(path.join(seedDir, 'node_modules', name), name, {
       moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
     });
+  }
+  for (const voice of VOICE_CATALOG) {
+    const voiceDir = path.join(root, 'models-seed', 'tts', voice.id);
+    await mkdir(path.join(voiceDir, voice.archiveRootDir), { recursive: true });
+    await writeFile(path.join(voiceDir, voice.archiveRootDir, voice.modelFile), 'model');
+    await writeFile(path.join(voiceDir, '.model.ok'), `${voice.sha256}\n`);
   }
 }

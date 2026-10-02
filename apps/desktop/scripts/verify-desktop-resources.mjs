@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/dist/helper/artifact.js';
 import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
+import { VOICE_CATALOG } from '../../../packages/plugin-tts-local/dist/voices.js';
 
 /** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
 const COMPUTER_HELPERS = {
@@ -17,6 +18,10 @@ const REQUIRED_CLI_DEPENDENCIES = ['@moxxy/sdk', 'zod', 'undici'];
 const CODEX_PROVIDER = '@moxxy/plugin-provider-openai-codex';
 /** Sign-in providers the desktop offers out of the box — each must be seeded. */
 const SIGN_IN_PROVIDERS = [CODEX_PROVIDER, '@moxxy/plugin-provider-claude-code'];
+/** Both voices Settings offers work without npm: offline Piper (with every
+ *  voice it offers, checked below) and Gemini. */
+const VOICE_PLUGINS = ['@moxxy/plugin-tts-local', '@moxxy/plugin-tts-gemini'];
+const REQUIRED_SEED_PACKAGES = [...SIGN_IN_PROVIDERS, ...VOICE_PLUGINS];
 
 export async function verifyDesktopResources(resourcesPath, options = {}) {
   const root = path.resolve(resourcesPath);
@@ -39,9 +44,9 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
 
   const seedManifest = await readManifest(seedManifestPath);
   const seedLock = await readSeedPackageLock(seedLockPath);
-  for (const provider of SIGN_IN_PROVIDERS) {
-    if (typeof seedManifest.dependencies?.[provider] !== 'string') {
-      throw new Error(`plugins-seed manifest does not include ${provider}`);
+  for (const required of REQUIRED_SEED_PACKAGES) {
+    if (typeof seedManifest.dependencies?.[required] !== 'string') {
+      throw new Error(`plugins-seed manifest does not include ${required}`);
     }
   }
   const seedDependencies = Object.keys(seedManifest.dependencies).filter((name) =>
@@ -82,6 +87,8 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     throw new Error(`${CODEX_PROVIDER} is installed but is not a discoverable plugin`);
   }
 
+  await verifyBundledVoices(path.join(root, 'models-seed', 'tts'));
+
   if (options.runCli !== false) {
     verifyCliStarts(options.runtimePath ?? process.execPath, cliBin);
   }
@@ -91,7 +98,30 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     cliVersion: cliManifest.version,
     providerVersion: providerManifest.version,
     seedPackageCount: seedDependencies.length,
+    voiceCount: VOICE_CATALOG.length,
   };
+}
+
+/** Every voice the plugin offers is there, and is the archive the plugin pins —
+ *  otherwise the plugin would discard it and download on first use. */
+async function verifyBundledVoices(voicesDir) {
+  for (const voice of VOICE_CATALOG) {
+    const voiceDir = path.join(voicesDir, voice.id);
+    try {
+      await access(path.join(voiceDir, voice.archiveRootDir, voice.modelFile));
+    } catch (error) {
+      throw new Error(`Bundled voice ${voice.id} is missing`, { cause: error });
+    }
+    let marker = '';
+    try {
+      marker = (await readFile(path.join(voiceDir, '.model.ok'), 'utf8')).trim().toLowerCase();
+    } catch {
+      /* reported below */
+    }
+    if (marker !== voice.sha256.toLowerCase()) {
+      throw new Error(`Bundled voice ${voice.id} is not the pinned archive`);
+    }
+  }
 }
 
 function verifyCliStarts(runtimePath, cliBin) {
@@ -173,7 +203,7 @@ if (isMain()) {
         runtimePath: process.argv[3],
       });
       console.log(
-        `Desktop resources verified: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${CODEX_PROVIDER} ${report.providerVersion}`,
+        `Desktop resources verified: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, ${CODEX_PROVIDER} ${report.providerVersion}`,
       );
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

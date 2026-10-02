@@ -25,6 +25,7 @@ import { Shell } from './chrome';
 import { ONBOARDING_STEPS, type OnboardingCtx } from './flow';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { NodeStep } from './steps/NodeStep';
+import { useRuntimeAutoInstall } from './useRuntimeAutoInstall';
 import { CliStep } from './steps/CliStep';
 import { ProviderStep } from './steps/ProviderStep';
 import { WorkspaceStep } from './steps/WorkspaceStep';
@@ -43,6 +44,7 @@ interface Props {
 export function Onboarding({ phase, onComplete }: Props): JSX.Element {
   const { prefs } = usePrefs();
   const ob = useOnboarding(phase);
+  useRuntimeAutoInstall(ob);
 
   const ctx: OnboardingCtx = {
     full: !(prefs?.onboardingComplete ?? false),

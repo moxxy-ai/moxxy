@@ -115,7 +115,8 @@
         "to": ".",
         "filter": [
           "moxxy-cli/**/*",
-          "plugins-seed/**/*"
+          "plugins-seed/**/*",
+          "models-seed/**/*"
         ]
       }
     ],
@@ -137,7 +138,7 @@
           ]
         }
       ],
-      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3,moxxy-computer}",
+      "x64ArchFiles": "{*.node,*.dylib,*.bare,spawn-helper,python3,moxxy-computer}",
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

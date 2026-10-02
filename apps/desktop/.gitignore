@@ -6,3 +6,5 @@ release
 .vite
 resources/moxxy-cli/
 resources/plugins-seed/
+resources/models-seed/
+resources/.models-download/

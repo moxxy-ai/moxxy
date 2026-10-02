@@ -50,6 +50,8 @@ import {
   installAccountPortalRecovery,
   preferredCliEntry,
   seedPluginsFromResources,
+  seedModelsFromResources,
+  adoptSeededLocalPiper,
   offerBundledComputerUpdate,
   offerBundledProviderUpdate,
   DeferredPackageUpdates,
@@ -220,6 +222,22 @@ const bundledUpdates = new DeferredPackageUpdates({
   log: (message) => console.log(`[moxxy] ${message}`),
 });
 
+/** Offline voice works on the first launch: the installer's Piper voices land
+ *  in the models dir and a freshly seeded Piper becomes the voice. A failure
+ *  here only means the voice downloads on first use, as it did before. */
+async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<string>): Promise<void> {
+  try {
+    await seedModelsFromResources({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+    if (await adoptSeededLocalPiper(seeded)) console.log('[moxxy] offline voice selected');
+  } catch (err) {
+    console.warn('[moxxy] offline voice preparation failed:', err);
+  }
+}
+
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
@@ -236,6 +254,7 @@ async function prepareRunnerEnvironment(): Promise<void> {
         moxxyHome,
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
+      await prepareOfflineVoice(moxxyHome, seed.copied);
       await bundledUpdates.prepare<ProviderUpdateOffer>(
         (['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const).map((plugin) => ({
           plugin,

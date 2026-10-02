@@ -36,7 +36,7 @@ export const ONBOARDING_STEPS: ReadonlyArray<FlowStep<OnboardingCtx>> = [
   // run no longer blocks on auth.
   {
     id: 'node',
-    label: 'Install Node',
+    label: 'Getting ready',
     applies: (c) => c.nodeProbed && !c.nodeInstalled,
     satisfied: (c) => c.nodeInstalled,
   },

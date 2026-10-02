@@ -20,6 +20,8 @@ export {
   type SeedManifestRepairResult,
   type SeedPluginsResult,
 } from './seed-plugins.js';
+export { seedModelsFromResources, type SeedModelsResult } from './seed-models.js';
+export { adoptSeededLocalPiper } from './local-piper.js';
 export { activateManagedNode } from './node-manager.js';
 export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
 export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';

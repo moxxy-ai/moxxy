@@ -34,10 +34,11 @@ rmSync(path.join(cliDir, 'node_modules', '.pnpm', 'node_modules', '@moxxy', 'cli
 });
 
 runNode([path.join(desktopDir, 'scripts', 'bundle-plugins-seed.mjs')]);
+runNode([path.join(desktopDir, 'scripts', 'bundle-models-seed.mjs')]);
 
 const report = await verifyDesktopResources(resourcesDir);
 console.log(
-  `Desktop resources prepared: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, OpenAI Codex provider ${report.providerVersion}`,
+  `Desktop resources prepared: CLI ${report.cliVersion}, ${report.seedPackageCount} seed packages, ${report.voiceCount} voices, OpenAI Codex provider ${report.providerVersion}`,
 );
 
 function runNode(args) {
