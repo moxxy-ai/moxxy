@@ -2935,34 +2935,40 @@ Bez zmian w kodzie. CLI, `gpt-6-luna`, `xhigh`, `context.lazyTools: false`
   sprawdzone przebudową helpera w obu wersjach); przyczyna nieustalona.
 - `learned:train` na Safari nieuruchomione (przypadki zamykają kartę).
 
-## Windows: pierwszy obraz podglądu wideo przy nieruchomym oknie — 2026-10-02
+## Windows: pierwszy obraz podglądu przy nieruchomym oknie — 2026-10-02
 
 **Co**
-- `native/src/video-format.hpp`: `VideoFeed` — ile obrazów enkoder zatrzymał
-  bez oddania kawałka; `again()` mówi, czy obraz idzie ponownie jako kluczowy,
-  `silent()` po 5 obrazach bez odpowiedzi.
-- `native/src/preview.cpp`: gdy enkoder nic nie oddał, a okno stoi, ten sam
-  obraz jest kodowany ponownie przy następnym takcie; enkoder, który milczy
-  5 razy z rzędu, jest porzucany i widz dostaje pojedyncze obrazy.
+- `native/src/preview.cpp`: nowy strumień podglądu, który przy pierwszym
+  odczycie nie ma klatki, bierze pierwszy obraz tak jak zrzut okna
+  (`capture_window_pixels`). Dalej idą klatki strumienia.
+- `native/src/video-format.hpp`: `VideoFeed` — gdy enkoder nie oddał kawałka,
+  a okno stoi, ten sam obraz jest kodowany ponownie; po 5 obrazach bez
+  odpowiedzi enkoder jest porzucany i widz dostaje pojedyncze obrazy.
+- `native/tests/Run-ComputerUseTests.ps1`: test wideo wypisuje zdarzenia bez
+  obrazu, gdy nic nie przyszło.
 
 **Jak i dlaczego**
 - CI `computer-use-windows.yml` na `352ce3af` (commit bez zmian w kodzie
   Windows): test „the live preview sends H.264 video…" dał 0 kawałków i 0
-  obrazów. Ten sam commit w drugim przebiegu: 20 kawałków; wcześniejsze
-  commity: 1 albo 21. Test był więc niestabilny od początku.
-- Pętla podglądu karmiła enkoder tylko nowym obrazem okna albo na prośbę o
-  klatkę kluczową. Gdy enkoder zatrzymał pierwszy obraz, a okno się nie
-  zmieniało, nic więcej do niego nie trafiało i widz nie dostawał niczego.
-- To, że enkoder zatrzymał obraz, wnioskuję z kodu i z rozrzutu wyników;
-  na Windows tego nie obserwowałem (brak maszyny).
+  obrazów. Wcześniejsze commity dawały 1 albo 20–21 kawałków.
+- Pierwsza hipoteza (enkoder zatrzymał pierwszy obraz) była błędna: po
+  dodaniu `VideoFeed` wynik się nie zmienił. Wypisane zdarzenia pokazały
+  tylko dwa „nadal patrzę" (`seq` 3 i 4), bez błędu — strumień Windows
+  Graphics Capture nie dał podglądowi żadnej klatki.
+- Strumień wysyła klatkę, gdy okno się zmienia. Test wideo klika „Save",
+  które po teście obrazów ma już fokus, więc okno się nie zmienia i wynik
+  zależał od tego, czy strumień przyśle klatkę startową. Dlaczego na runnerze
+  przestała przychodzić, nie ustaliłem (brak maszyny z Windows).
+- `VideoFeed` zostaje jako zabezpieczenie luki widocznej w kodzie; nie mam
+  dowodu, że enkoder na Windows kiedykolwiek zatrzymał obraz.
 
 **Testy**
+- Red: trzy przebiegi CI z rzędu z błędem „Neither video nor pictures
+  arrived" (37017188148, 37019473488, 37019962846).
 - `tests/video-format.cpp`: oczekiwania na `VideoFeed` — najpierw błąd
   kompilacji (`unknown type name 'VideoFeed'`), potem `video-format passed`
   (lokalnie `clang++ -std=c++20`).
 
 **Walidacja**
-- `preview.cpp` kompiluje się tylko na Windows: sprawdza go CI.
-
-**Otwarte**
-- Jeden zielony przebieg CI nie dowodzi, że test przestał być niestabilny.
+- `preview.cpp` kompiluje się tylko na Windows: sprawdza go CI (wynik niżej,
+  po przebiegu).

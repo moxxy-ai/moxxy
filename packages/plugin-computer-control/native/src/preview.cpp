@@ -53,6 +53,9 @@ void run() {
   // This system cannot encode video, so the viewer gets pictures.
   bool pictures_only = false;
   VideoFeed feed;
+  // The stream has given no picture yet. It sends one only when the window changes, so a viewer of a window
+  // that stands still would see nothing: the first picture is taken the way a screenshot is.
+  bool first = false;
   for (;;) {
     const int fps = rate.load();
     if (WaitForSingleObject(stop_event, fps > 0 ? 1000 / fps : 200) != WAIT_TIMEOUT) return;
@@ -62,11 +65,16 @@ void run() {
     if (window == failed) continue;
     try {
       if (!IsWindow(window)) throw Error("capture-unavailable", "The window is closed");
-      if (!stream || stream->window() != window) { stream = std::make_unique<WindowStream>(window); encoder.reset(); last_sent = 0; }
+      if (!stream || stream->window() != window) { stream = std::make_unique<WindowStream>(window); encoder.reset(); last_sent = 0; first = true; }
       const bool as_video = video.load() && !pictures_only;
       if (!as_video) encoder.reset();
       Pixels pixels;
-      if (!stream->latest(pixels)) {
+      bool taken = stream->latest(pixels);
+      if (!taken && first) {
+        try { pixels = capture_window_pixels(window); taken = true; } catch (...) { /* The stream may still send one. */ }
+      }
+      first = false;
+      if (!taken) {
         if (as_video && encoder && shown.width > 0 && feed.again(wants_key.load())) pixels = shown;
         else {
           // An unchanged window still says it is being watched, once a second.
