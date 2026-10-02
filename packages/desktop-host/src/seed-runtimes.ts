@@ -54,7 +54,7 @@ export async function seedRuntimesFromResources(opts: SeedRuntimesOptions): Prom
       continue;
     }
     try {
-      await unpackRuntime(path.join(seedDir, runtime.archive), target, runtime.id, platform);
+      await unpackRuntime(path.join(seedDir, runtime.archive), target, runtime.id);
     } catch (error) {
       throw new Error(`Could not unpack the bundled ${runtime.name} runtime`, { cause: error });
     }
@@ -67,13 +67,14 @@ export async function seedRuntimesFromResources(opts: SeedRuntimesOptions): Prom
 }
 
 /** Unpack beside the target, then swap: a crash never leaves half a runtime. */
-async function unpackRuntime(archive: string, target: string, id: string, platform: NodeJS.Platform): Promise<void> {
+async function unpackRuntime(archive: string, target: string, id: string): Promise<void> {
   await fs.mkdir(path.dirname(target), { recursive: true });
   const staging = `${target}.seeding-${randomBytes(4).toString('hex')}`;
   try {
     await fs.mkdir(staging);
     // The official archives hold one top-level folder; its content is the runtime.
-    await run(tarCommand(platform), ['-xf', archive, '-C', staging, '--strip-components', '1']);
+    // tar runs on this computer, whichever platform the seed is for.
+    await run(tarCommand(), ['-xf', archive, '-C', staging, '--strip-components', '1']);
     await fs.writeFile(path.join(staging, RUNTIME_MARKER), `${id}\n`);
     await fs.rm(target, { recursive: true, force: true });
     await fs.rename(staging, target);

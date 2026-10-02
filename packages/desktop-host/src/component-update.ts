@@ -179,7 +179,7 @@ async function replaceVerified(live: string, fromLive: boolean, install: (stagin
   const staging = await fs.mkdtemp(`${live}.update-`);
   try {
     if (fromLive && (await exists(live))) {
-      await fs.cp(live, staging, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
+      await copyTree(live, staging);
     }
     await install(staging);
     const previous = `${live}.previous`;
@@ -188,6 +188,35 @@ async function replaceVerified(live: string, fromLive: boolean, install: (stagin
     await fs.rename(staging, live);
   } finally {
     await fs.rm(staging, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Copies a tree and keeps its links as links. `fs.cp` recreates a directory
+ * link as a symlink, which an ordinary Windows account may not create; a
+ * junction (what `npm link` itself leaves there) needs no privilege.
+ */
+async function copyTree(from: string, to: string): Promise<void> {
+  const links: string[] = [];
+  await fs.cp(from, to, {
+    recursive: true,
+    mode: constants.COPYFILE_FICLONE,
+    filter: async (source) => {
+      if (!(await fs.lstat(source)).isSymbolicLink()) return true;
+      links.push(source);
+      return false;
+    },
+  });
+  for (const source of links) {
+    const target = await fs.readlink(source);
+    const copy = path.join(to, path.relative(from, source));
+    if (process.platform !== 'win32') {
+      await fs.symlink(target, copy);
+      continue;
+    }
+    const resolved = path.resolve(path.dirname(source), target);
+    const isDir = (await fs.stat(resolved).catch(() => null))?.isDirectory() ?? false;
+    await fs.symlink(isDir ? resolved : target, copy, isDir ? 'junction' : 'file');
   }
 }
 

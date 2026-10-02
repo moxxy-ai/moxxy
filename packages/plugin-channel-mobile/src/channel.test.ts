@@ -86,7 +86,7 @@ describe('MobileChannel.start teardown on startup failure', () => {
   it('disposes the host (unsubscribes log + clears the approval resolver) when startWsBridge rejects', async () => {
     startWsBridge.mockRejectedValue(new Error('EADDRINUSE'));
     const { session, raw, unsubscribe, activeSubs, getApprovalResolver } = fakeSession();
-    const channel = new MobileChannel({ token: 'tok', tunnel: 'localhost' });
+    const channel = new MobileChannel({ 'no-expo': true, token: 'tok', tunnel: 'localhost' });
 
     await expect(channel.start({ session })).rejects.toThrow('EADDRINUSE');
 
@@ -101,7 +101,7 @@ describe('MobileChannel.start teardown on startup failure', () => {
   it('leaves the channel owning nothing after a failed start (host/server nulled)', async () => {
     startWsBridge.mockRejectedValue(new Error('EADDRINUSE'));
     const { session } = fakeSession();
-    const channel = new MobileChannel({ token: 'tok', tunnel: 'localhost' });
+    const channel = new MobileChannel({ 'no-expo': true, token: 'tok', tunnel: 'localhost' });
 
     await expect(channel.start({ session })).rejects.toThrow();
 
@@ -170,7 +170,7 @@ describe('MobileChannel disconnect sweep', () => {
     const server = fakeServer(() => connected);
     startWsBridge.mockResolvedValue(server as any);
     const { session } = fakeSession();
-    const channel = new MobileChannel({ token: 'tok', tunnel: 'localhost' });
+    const channel = new MobileChannel({ 'no-expo': true, token: 'tok', tunnel: 'localhost' });
     const handle = await channel.start({ session });
 
     // A client connects, then drops; the sweep must drive host.onAllClientsDisconnected.
@@ -202,7 +202,7 @@ describe('MobileChannel disconnect sweep', () => {
       const server = fakeServer(() => 0);
       startWsBridge.mockResolvedValue(server as any);
       const { session } = fakeSession();
-      const handle = await new MobileChannel({ token: 'tok', tunnel: 'localhost' }).start({ session });
+      const handle = await new MobileChannel({ 'no-expo': true, token: 'tok', tunnel: 'localhost' }).start({ session });
 
       // The channel registered its rising-edge handler.
       expect(server.onConnection).toHaveBeenCalled();
@@ -227,17 +227,17 @@ describe('MobileChannel disconnect sweep', () => {
     startWsBridge.mockResolvedValue(server as any);
     const { session } = fakeSession();
 
-    await (await new MobileChannel({ token: 'tok' }).start({ session })).stop();
+    await (await new MobileChannel({ 'no-expo': true, token: 'tok' }).start({ session })).stop();
     expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: true });
 
     startWsBridge.mockResolvedValue(fakeServer(() => 0) as any);
-    await (await new MobileChannel({ token: 'tok', allowQueryToken: false }).start({ session })).stop();
+    await (await new MobileChannel({ 'no-expo': true, token: 'tok', allowQueryToken: false }).start({ session })).stop();
     expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: false });
 
     process.env.MOXXY_MOBILE_QUERY_TOKEN = '0';
     try {
       startWsBridge.mockResolvedValue(fakeServer(() => 0) as any);
-      await (await new MobileChannel({ token: 'tok', allowQueryToken: true }).start({ session })).stop();
+      await (await new MobileChannel({ 'no-expo': true, token: 'tok', allowQueryToken: true }).start({ session })).stop();
       expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: false });
     } finally {
       delete process.env.MOXXY_MOBILE_QUERY_TOKEN;
@@ -248,7 +248,7 @@ describe('MobileChannel disconnect sweep', () => {
 describe('MobileChannel.rotateToken with a pinned token', () => {
   it('refuses to rotate (no-op + warn) when the token is supplied via config', () => {
     const warn = vi.fn();
-    const channel = new MobileChannel({ token: 'pinned-tok', logger: { warn } });
+    const channel = new MobileChannel({ 'no-expo': true, token: 'pinned-tok', logger: { warn } });
     const before = channel.rotateToken();
     expect(before).toBe('pinned-tok');
     expect(warn).toHaveBeenCalled();

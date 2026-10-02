@@ -167,13 +167,14 @@ describe('activateRuntimes', () => {
     }
     const env: NodeJS.ProcessEnv = { PATH: ['/usr/bin', '/bin'].join(path.delimiter) };
 
-    activateRuntimes(home, 'darwin', env);
-    activateRuntimes(home, 'darwin', env);
+    activateRuntimes(home, process.platform, env);
+    activateRuntimes(home, process.platform, env);
 
-    expect(env.PATH?.split(path.delimiter)).toEqual([
-      path.join(home, 'runtimes', 'python', 'bin'), '/usr/bin', '/bin', path.join(home, 'runtimes', 'node', 'bin'),
-    ]);
-    expect(env.MOXXY_PATH_FIRST).toBe(path.join(home, 'runtimes', 'python', 'bin'));
+    const { first, last } = runtimePathDirs(home);
+    expect(first.length).toBeGreaterThan(0);
+    expect(last.length).toBeGreaterThan(0);
+    expect(env.PATH?.split(path.delimiter)).toEqual([...first, '/usr/bin', '/bin', ...last]);
+    expect(env.MOXXY_PATH_FIRST).toBe(first.join(path.delimiter));
   });
 });
 
@@ -187,7 +188,7 @@ describe('prepareBundledRuntimes', () => {
     expect(env.PATH).toBe('/usr/bin');
     await bundledRuntimesReady();
 
-    expect(env.PATH?.split(':')).toEqual(['/usr/bin', path.join(home, 'runtimes', 'node', 'bin')]);
+    expect(env.PATH).toBe(['/usr/bin', path.join(home, 'runtimes', 'node', 'bin')].join(':'));
   });
 
   it('reports a runtime that cannot be unpacked and lets the app start without it', async () => {
