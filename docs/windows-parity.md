@@ -54,6 +54,7 @@ Each row is a real fault, with the commit that fixed it.
 | Updating extensions failed for anyone with a linked plugin | `fs.cp` recreates a directory link as a symlink, which an ordinary account may not create; a junction needs no privilege | `copyTree` in `packages/desktop-host/src/component-update.ts` |
 | Running the tests wrote fixtures into the developer's real `~/.moxxy` and rewrote the vault key | tests moved `HOME`; Windows resolves the home from `USERPROFILE` | `tooling/vitest-preset/isolate.js` |
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |
+| Disabling a provider (or any other setting) was sometimes not saved | the atomic write renames over `config.yaml`; Windows refuses that with `EPERM` while any reader has the file open, and the caller swallowed the error | `writeFileAtomic` in `packages/sdk/src/fs-utils.ts` retries the rename briefly |
 
 Still open, and worth knowing before building on top of them:
 

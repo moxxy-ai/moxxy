@@ -1,7 +1,8 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import {
@@ -51,6 +52,19 @@ describe('writeFileAtomic', () => {
     await writeFileAtomic(target, bytes);
     const read = await readFile(target);
     expect(Array.from(read)).toEqual([0, 1, 2, 255]);
+  });
+
+  // Windows refuses to rename over a file another handle has open (EPERM), so a
+  // reader that happens to be mid-read — another moxxy process loading
+  // config.yaml — used to make the write fail outright.
+  it('lands while another reader briefly holds the file open', async () => {
+    const target = join(dir, 'config.yaml');
+    await writeFile(target, 'old');
+    const reader = await open(target, 'r');
+    const released = new Promise((resolve) => setTimeout(resolve, 100)).then(() => reader.close());
+    await writeFileAtomic(target, 'new');
+    await released;
+    expect(await readFile(target, 'utf8')).toBe('new');
   });
 });
 
@@ -145,6 +159,25 @@ describe('writeFileAtomicSync', () => {
     const target = join(dir, 'bytes.bin');
     writeFileAtomicSync(target, new Uint8Array([0, 1, 2, 255]));
     expect(Array.from(await readFile(target))).toEqual([0, 1, 2, 255]);
+  });
+
+  it('lands while another thread briefly holds the file open', async () => {
+    const target = join(dir, 'config.yaml');
+    await writeFile(target, 'old');
+    // A worker holds the handle: this thread blocks inside the sync write, so it
+    // could not release a handle of its own.
+    const holder = new Worker(
+      `const { openSync, closeSync } = require('node:fs');
+       const { parentPort, workerData } = require('node:worker_threads');
+       const fd = openSync(workerData, 'r');
+       parentPort.postMessage('open');
+       setTimeout(() => closeSync(fd), 100);`,
+      { eval: true, workerData: target },
+    );
+    await new Promise((resolve) => holder.once('message', resolve));
+    writeFileAtomicSync(target, 'new');
+    await new Promise((resolve) => holder.once('exit', resolve));
+    expect(await readFile(target, 'utf8')).toBe('new');
   });
 
   it('cleans up the temp file and throws when rename fails', async () => {
