@@ -156,6 +156,18 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await transport.close(); }
   });
 
+  // The system lists an app for a moment after its process is gone; that one must not stand for the app.
+  it('starts the app again when it is asked for just after it quit', { timeout: 60_000 }, async () => {
+    for (let round = 0; round < 5; round += 1) {
+      await quitFixture();
+      const transport = start();
+      try {
+        const state = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+        expect(state.tree.elements.find((element) => element.key.endsWith('text:loaded'))?.title, `round ${round}: ${JSON.stringify(state).slice(0, 300)}`).toBe('Loaded');
+      } finally { await transport.close(); }
+    }
+  });
+
   it('keeps every element index across observations', async () => {
     const transport = start();
     try {
