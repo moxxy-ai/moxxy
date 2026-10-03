@@ -93,6 +93,11 @@ export interface ToolInfo {
 export interface SkillInfo {
   readonly id: string;
   readonly name: string;
+  readonly description?: string;
+  /** Other names an @ mention can use; the first is what the @ menu inserts. */
+  readonly aliases?: ReadonlyArray<string>;
+  /** How the @ menu shows the skill ("Computer Use"); a skill with one is offered first. */
+  readonly label?: string;
 }
 
 /** Serializable slash-command metadata for the picker / `/help`. */

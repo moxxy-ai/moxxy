@@ -29,6 +29,12 @@ Rules:
 - `triggers` are the match phrases; keep them concrete. No matching skill →
   the loop synthesizes one (`synthesize_skill`), so missing triggers degrade
   gracefully but burn a synthesis.
+- `@<name>` in a chat prompt calls the skill for that request (core's
+  `runTurn` attaches its body to the prompt). `aliases:` adds other names
+  (`computer_use` answers `@computer_use`; the first alias is what the
+  desktop's @ menu inserts), `label:` is how that menu shows the skill (a
+  labelled skill is offered first), and `disallowed-tools:` (exact names or
+  `prefix_*`) withholds tools from that request only.
 - If the skill needs a secret, instruct the vault flow (`${vault:NAME}`
   refs, never plaintext) — see `vault-setup.md` as the canonical example.
 - Plugin-owned skills: ship them in the plugin via

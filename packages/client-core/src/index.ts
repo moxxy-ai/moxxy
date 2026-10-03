@@ -44,6 +44,7 @@ export * from './useChannelChat.js';
 export * from './usePausedWorkflows.js';
 export * from './useWorkflowBuilder.js';
 export * from './useActionCatalog.js';
+export * from './useMentionPicker.js';
 export * from './useOnboarding.js';
 export * from './useContextUsage.js';
 export * from './useAppUpdate.js';

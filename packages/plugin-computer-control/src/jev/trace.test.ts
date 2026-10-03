@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JevError, type AskJev } from './client.js';
-import { tracedJev } from './trace.js';
+import { traceRun, tracedJev } from './trace.js';
 
 const never = new AbortController().signal;
 const state = { goal: 'sort by price', step: { do: 'click', target: 'Sort menu' }, app: 'Safari', elements: '[1] AXButton "Menu"\n  [2] AXPopUpButton "Sort"\n[3] AXLink "Help"' };
@@ -41,5 +41,19 @@ describe('tracedJev', () => {
     const failing: AskJev = async () => { throw new JevError(0, 'Jev did not answer: timeout'); };
     await expect(tracedJev(failing, file)(state, questions, never)).rejects.toThrow('timeout');
     expect((await linesOf(file))[0]).toMatchObject({ error: 'Jev did not answer: timeout' });
+  });
+});
+
+describe('traceRun', () => {
+  it('writes a line per run with where its time went, next to the requests to Jev', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'jev-trace-')), 'trace.ndjson');
+    await traceRun(file, { app: 'Safari', goal: 'Search', steps: 2, ms: 900, asks: 3, time: { jev: 400, act: 300, look: 100 }, outcomes: ['verified', 'done'] });
+    const [line] = await linesOf(file);
+    expect(line).toMatchObject({ run: { app: 'Safari', goal: 'Search', steps: 2, ms: 900, asks: 3, time: { jev: 400, act: 300, look: 100 }, outcomes: ['verified', 'done'] } });
+    expect(line?.at).toEqual(expect.any(String));
+  });
+
+  it('writes nothing without a trace file', async () => {
+    await expect(traceRun(undefined, { app: 'Safari', goal: 'Search', steps: 1, ms: 1, asks: 0, time: { jev: 0, act: 0, look: 0 }, outcomes: [] })).resolves.toBeUndefined();
   });
 });

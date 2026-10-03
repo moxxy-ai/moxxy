@@ -436,6 +436,17 @@ export {
 } from './token-accounting.js';
 
 export type { Skill, SkillDef, SkillFrontmatter, SkillScope, SkillSchedule } from './skill.js';
+export {
+  insertMention,
+  mentionedSkills,
+  mentionOptions,
+  mentionQueryAt,
+  skillAttachment,
+  toolPatternMatches,
+  withoutTools,
+  type MentionOption,
+  type MentionQuery,
+} from './skill-mentions.js';
 
 export type {
   Workflow,

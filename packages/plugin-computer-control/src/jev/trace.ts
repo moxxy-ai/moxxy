@@ -56,3 +56,19 @@ export function tracedJev(ask: AskJev, file: string): AskJev {
     }
   };
 }
+
+export interface RunTrace {
+  readonly app: string;
+  readonly goal: string;
+  readonly steps: number;
+  readonly ms: number;
+  readonly asks: number;
+  readonly time: { readonly jev: number; readonly act: number; readonly look: number };
+  readonly outcomes: readonly string[];
+}
+
+/** One line per computer_run in the same file as its requests to Jev: what it did and where its time went. */
+export async function traceRun(file: string | undefined, run: RunTrace): Promise<void> {
+  if (!file) return;
+  await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), run })}\n`).catch(() => {});
+}

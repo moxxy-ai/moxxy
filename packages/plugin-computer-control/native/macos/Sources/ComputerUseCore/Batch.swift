@@ -46,7 +46,7 @@ extension Methods {
             if result.outcome == .delivered { state.lastAction = Date() }
             return result
         }
-        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor)
+        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(params["screenshot"]?.boolValue ?? true)]), targets: targets, cursor: cursor)
         return .object(["results": .array(results.map(\.json)), "state": fresh])
     }
 }

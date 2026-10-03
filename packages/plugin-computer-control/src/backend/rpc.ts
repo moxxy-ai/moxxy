@@ -41,6 +41,11 @@ export const imageSchema = z.object({
 export type HelperImage = z.infer<typeof imageSchema>;
 
 /** One observation of an app: its tree, plus the window image or why there is none. */
+/** A line of text recognized in the app's latest screenshot, in its pixels. */
+export const shownTextSchema = z.object({ text: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number() });
+export type ShownText = z.infer<typeof shownTextSchema>;
+export const readTextResultSchema = z.object({ lines: z.array(shownTextSchema) });
+
 export const appStateSchema = z.object({
   tree: appTreeSchema,
   screenshot: imageSchema.optional(),

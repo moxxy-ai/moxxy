@@ -43,6 +43,12 @@ describe('diffTrees', () => {
     expect(diffTrees(base, base)).toEqual({ kind: 'unchanged', text: expect.stringMatching(/No changes/) });
   });
 
+  it('shows another window in full, also one with the same title', () => {
+    expect(diffTrees({ ...base, windowId: '1' }, { ...base, windowId: '2' }).kind).toBe('full');
+    expect(diffTrees({ ...base, windowId: '1' }, { ...base, windowId: '1' }).kind).toBe('unchanged');
+    expect(diffTrees({ ...base, windowId: '1' }, { ...base, window: 'Another tab', windowId: '1' }).kind).toBe('full');
+  });
+
   it('lists added, removed and changed elements only', () => {
     const next = tree([window, { ...text, value: 'hello world' }, format, { key: 'w/sheet', index: 4, depth: 1, role: 'sheet', title: 'Save' }]);
     const diff = diffTrees(base, next);

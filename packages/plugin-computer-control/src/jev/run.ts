@@ -1,10 +1,10 @@
-import type { AppState } from '../backend/rpc.js';
+import type { AppState, ShownText } from '../backend/rpc.js';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
-import { fingerprint } from '../contract/progress.js';
+import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
-import { diffTrees, formatElements, type AppElement, type AppTree } from '../contract/tree.js';
+import { diffTrees, formatElements, sameWindow, type AppElement, type AppTree } from '../contract/tree.js';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
-import { readTarget, targetQuestions, windowState, type Grounding } from './ground.js';
+import { STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState, type Grounding } from './ground.js';
 import { judge, rungs } from './ladder.js';
 import { labelOf } from './memory.js';
 
@@ -36,12 +36,19 @@ const EXPECTED_QUESTION: JevQuestion = {
 /** `element` is absent for a key, which is remembered only by what it made appear. */
 export interface Recalled { readonly element?: AppElement; readonly way: number; readonly effect?: readonly string[] }
 
+export interface ActWait {
+  /** What the window showed when this step last worked: the action may return as soon as it shows again. */
+  readonly until?: readonly string[];
+  /** The state after the action comes with a screenshot. */
+  readonly picture: boolean;
+}
+
 export interface RunDeps {
   readonly ask: AskJev;
-  /** A fresh look at the window, once it has settled. */
-  readonly observe: () => Promise<AppState>;
-  /** `until` is what the window showed when this step last worked: the action may return as soon as it shows again. */
-  readonly act: (action: ComputerAction, until?: readonly string[]) => Promise<{ result: ActionResult; state?: AppState }>;
+  /** A fresh look at the window, once it has settled; with a picture only when `picture` says so. */
+  readonly observe: (picture?: boolean) => Promise<AppState>;
+  /** One action, then the window's state once it settled, or as soon as what `wait` names shows. */
+  readonly act: (action: ComputerAction, wait: ActWait) => Promise<{ result: ActionResult; state?: AppState }>;
   /** The chord that selects everything in a text field on this platform. */
   readonly selectAll: string;
   readonly signal: AbortSignal;
@@ -49,6 +56,13 @@ export interface RunDeps {
   readonly known?: (step: RunStep, tree: AppTree) => Recalled | undefined;
   /** The lesson a step worded differently is probably about; used only once Jev agrees it is the same element. */
   readonly guess?: (step: RunStep, tree: AppTree) => Recalled | undefined;
+  /**
+   * Several actions in one request, settling briefly between them and fully once at the end; it stops at the first
+   * one not delivered. Absent where the helper has none: each action then goes on its own.
+   */
+  readonly batch?: (actions: readonly ComputerAction[], picture: boolean) => Promise<{ results: readonly ActionResult[]; state?: AppState }>;
+  /** The lines of text recognized in the window's latest screenshot: a click's last resort when no element is named so. */
+  readonly readText?: () => Promise<readonly ShownText[]>;
 }
 
 export interface StepOutcome {
@@ -75,6 +89,8 @@ export interface RunReport {
   readonly state: AppState;
   readonly asks: number;
   readonly ms: number;
+  /** Milliseconds of `ms` spent waiting for Jev, for actions (with their settling) and for looks at the window. */
+  readonly time: { readonly jev: number; readonly act: number; readonly look: number };
 }
 
 const lineOf = (tree: AppTree, element: AppElement) => (formatElements(tree)[tree.elements.indexOf(element)] ?? `[${element.index}] ${element.role}`).trim();
@@ -109,7 +125,30 @@ function chosen(tree: AppTree, element: AppElement): boolean {
   return false;
 }
 
+/** A step with nothing to find and nothing to check: a key, or typing into the focus, without `expect`. */
+/**
+ * Steps judged by pixels as well as elements, so the states before and after them come with a picture: a click,
+ * which may change only pixels, and a key that expects something, such as selecting text.
+ */
+export const pictured = (step: RunStep | undefined) => step !== undefined && (step.do === 'click' || (step.do === 'key' && step.expect !== undefined));
+
+/** Of Jev's input, what the changes of a step may take; the rest is the window. */
+const CHANGES_CHARS = 8_000;
+
+/** What a step changed, for Jev: a window that changed as a whole is the `elements` themselves, not listed again. */
+function changesSince(previous: AppTree, next: AppTree): string {
+  const view = diffTrees(previous, next);
+  if (view.kind === 'full') return 'Another window or page is in front: `elements` is all of it.';
+  if (view.text.length <= CHANGES_CHARS) return view.text;
+  const cut = view.text.lastIndexOf('\n', CHANGES_CHARS);
+  return `${view.text.slice(0, cut)}\n… more changes; \`elements\` is the window as it is now.`;
+}
+
+const blind = (step: RunStep) => step.expect === undefined && (step.do === 'key' || (step.do === 'type' && step.target === undefined));
+
 /** Whether a type step's text shows in its element now. */
+const HELD = 'the field already holds this text';
+
 const holdsText = (tree: AppTree, element: AppElement, text: string) =>
   tree.elements.find((candidate) => candidate.key === element.key)?.value?.includes(text) === true;
 
@@ -133,24 +172,39 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
   let asks = 0;
   /** Answers about `state` for the step that comes next, asked together with the check of the step before. */
   let ahead: JevAnswers | undefined;
+  const time = { jev: 0, act: 0, look: 0 };
+  const timed = async <T>(part: keyof typeof time, work: () => Promise<T>): Promise<T> => {
+    const at = performance.now();
+    try { return await work(); } finally { time[part] += performance.now() - at; }
+  };
+  const observe = (picture: boolean) => timed('look', () => deps.observe(picture));
+  /** Where the screenshot reads as the target; nothing when it cannot be read. */
+  const shown = async (step: RunStep): Promise<ShownText | undefined> => {
+    const { readText } = deps;
+    if (!readText || step.do !== 'click') return undefined;
+    try { return byText(await timed('look', readText), step); } catch { return undefined; }
+  };
 
   const ask = async (context: Record<string, unknown>, questions: Record<string, JevQuestion>): Promise<JevAnswers> => {
     if (Object.keys(questions).length === 0) return {};
     asks += 1;
-    return deps.ask({ goal, ...windowState(state.tree), ...context }, questions, deps.signal);
+    // The window gets what the changes leave of Jev's input.
+    const budget = STATE_CHARS - (typeof context.changes === 'string' ? context.changes.length : 0);
+    return timed('jev', () => deps.ask({ goal, ...windowState(state.tree, budget), ...context }, questions, deps.signal));
   };
 
-  const perform = async (actions: readonly ComputerAction[], until?: readonly string[]): Promise<ActionResult> => {
+  /** `last` is what the last action of the way waits for. */
+  const perform = async (actions: readonly ComputerAction[], last: Omit<ActWait, 'picture'>, picture: boolean): Promise<ActionResult> => {
     let result: ActionResult = { outcome: 'delivered' };
     for (const [index, action] of actions.entries()) {
       try {
-        const acted = await deps.act(action, index === actions.length - 1 ? until : undefined);
+        const acted = await timed('act', () => deps.act(action, { ...(index === actions.length - 1 ? last : {}), picture }));
         result = acted.result;
-        state = acted.state ?? await deps.observe();
+        state = acted.state ?? await observe(picture);
       } catch (error) {
         if (!(error instanceof ComputerUseError)) throw error;
         result = { outcome: 'blocked', code: error.code };
-        state = await deps.observe();
+        state = await observe(picture);
       }
       if (result.outcome !== 'delivered') break;
     }
@@ -177,71 +231,98 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
     }
   }
 
+  /** What answers where the next step's element is before it is asked: memory, or the one element of its name. */
+  const foreseen = (step: RunStep): Recalled | undefined => {
+    const recalled = remembered(step);
+    if (recalled?.element) return recalled;
+    const labelled = byName(state.tree, step);
+    return labelled ? { element: labelled, way: 0 } : recalled;
+  };
+
   const carryOut = async (step: RunStep, next: RunStep | undefined): Promise<StepOutcome> => {
+    // Pictures show what a step did to pixels alone, and give elements their places for a click by x and y; the
+    // state before such a step needs one as much as the state after it. The model reads the last one.
+    const looking = step.do === 'click';
+    const picture = pictured(step) || next === undefined || pictured(next);
     const used = new Map<string, number>();
     let attempts = 0;
     let looked = false;
     let why = 'no element matches';
     /** Memory is trusted for one try; after that Jev is asked. */
     let stale = false;
+    /** So is the one element named as the target. */
+    let unnamed = false;
+    /** The screenshot's text is read once per step, when no element is the target. */
+    let read = false;
     for (;;) {
       deps.signal.throwIfAborted();
       const recalled = stale ? undefined : remembered(step);
       const sign = signOf(recalled);
       if (sign && recalled?.element && shows(state.tree, sign) && chosen(state.tree, recalled.element)) return { status: attempts === 0 ? 'skipped' : 'verified', attempts, recalled: true };
-      const questions = before(step, state.tree, recalled);
+      const labelled = recalled?.element || unnamed ? undefined : byName(state.tree, step);
+      const questions = before(step, state.tree, recalled ?? (labelled && { element: labelled, way: 0 }));
       const answers = ahead ?? await ask({ step }, questions);
       ahead = undefined;
       if ((noul(answers, 'already') ?? 0) >= ALREADY) return { status: attempts === 0 ? 'skipped' : 'verified', attempts };
 
       let grounding: Grounding | undefined;
-      let element: AppElement | undefined = recalled?.element;
-      if (step.target !== undefined && !recalled?.element) {
+      let element: AppElement | undefined = recalled?.element ?? labelled;
+      let spot: ShownText | undefined;
+      if (step.target !== undefined && !element) {
         if (!Object.keys(questions).some((id) => id.startsWith('target'))) return { status: 'failed', attempts, why: 'the window has too many elements to search' };
         grounding = readTarget(state.tree, answers);
         const candidates = grounding.kind === 'element' ? [grounding.element, ...grounding.others] : [];
         element = candidates.find((candidate) => (used.get(candidate.key) ?? 0) < rungs(step, candidate, deps.selectAll).length);
         if (!element) {
           // The window may still be loading: one more look before giving up.
-          if (grounding.kind === 'none' && attempts === 0 && !looked) { looked = true; state = await deps.observe(); continue; }
-          const closest = grounding.kind === 'none' ? grounding.closest.map((candidate) => lineOf(state.tree, candidate)) : [];
-          return { status: 'failed', attempts, why, ...(closest.length ? { closest } : {}) };
+          if (grounding.kind === 'none' && attempts === 0 && !looked) { looked = true; state = await observe(looking); continue; }
+          spot = read ? undefined : await shown(step);
+          read = true;
+          if (!spot) {
+            const closest = grounding.kind === 'none' ? grounding.closest.map((candidate) => lineOf(state.tree, candidate)) : [];
+            return { status: 'failed', attempts, why, ...(closest.length ? { closest } : {}) };
+          }
         }
       }
-      const key = element?.key ?? '';
-      const ways = rungs(step, element, deps.selectAll);
+      // Typing appends: into a field that holds exactly its text already, it would only double it.
+      if (attempts === 0 && step.do === 'type' && element && step.text && element.value?.trim() === step.text.trim()) {
+        return { status: 'skipped', attempts, why: HELD, element: lineOf(state.tree, element) };
+      }
+      const point = spot && { x: Math.round(spot.x + spot.width / 2), y: Math.round(spot.y + spot.height / 2) };
+      const key = element?.key ?? (spot ? `text:${spot.text}` : '');
+      const ways = point ? [[{ action: 'click', ...point, mouse_button: 'left', click_count: 1 } as const]] : rungs(step, element, deps.selectAll);
       const way = used.get(key) ?? (recalled && recalled.way < ways.length ? recalled.way : 0);
       const rung = ways[way];
       if (!rung || attempts >= MAX_ATTEMPTS) return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
       used.set(key, way + 1);
       attempts += 1;
-      const line = element ? lineOf(state.tree, element) : undefined;
+      const line = element ? lineOf(state.tree, element) : spot && point ? `text "${spot.text}" in the screenshot at ${point.x},${point.y}` : undefined;
 
       const previous = state;
       // What already showed before the step proves nothing about it.
       const proves = sign !== undefined && !shows(previous.tree, sign) ? sign : undefined;
-      const result = await perform(rung, proves);
-      const changed = fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot);
+      const result = await perform(rung, proves ? { until: proves } : {}, picture);
+      const changed = looksDifferent(previous, state);
       // One request: did this step do what it should, and where is the next step's element.
       let seen = proves !== undefined && shows(state.tree, proves);
-      const upcoming = next ? before(next, state.tree, remembered(next)) : {};
-      const performed = () => ({ performed: step, changes: diffTrees(previous.tree, state.tree).text });
+      const upcoming = next ? before(next, state.tree, foreseen(next)) : {};
+      const performed = () => ({ performed: step, changes: changesSince(previous.tree, state.tree) });
       let after = result.outcome === 'delivered'
         ? await ask({ ...performed(), ...(next ? { step: next } : {}) },
           { ...(step.expect === undefined || seen ? {} : { expected: EXPECTED_QUESTION }), ...upcoming })
         : {};
       // Jev is shown elements only: a real click that moved pixels and no element is not its to judge.
       const atPoint = rung.some((action) => action.action === 'click' && 'x' in action);
-      const unseen = () => atPoint && fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot) && sameElements(previous.tree, state.tree);
+      const unseen = () => atPoint && looksDifferent(previous, state) && sameElements(previous.tree, state.tree);
       const typed = () => step.do === 'type' && element !== undefined && step.text !== undefined && holdsText(state.tree, element, step.text);
-      const facts = () => ({ unseen: unseen(), typed: typed(), moved: previous.tree.window !== state.tree.window });
+      const facts = () => ({ unseen: unseen(), typed: typed(), moved: !sameWindow(previous.tree, state.tree) });
       let verdict = judge({ step, result, changed, ...facts(), ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
       let relooked = false;
       if (verdict.verdict === 'retry' && result.outcome === 'delivered' && step.expect !== undefined) {
         // The result can show a moment after the window first looked settled: look once more before another way.
         const first = state;
-        state = await deps.observe();
-        if (fingerprint(first.tree, first.screenshot) !== fingerprint(state.tree, state.screenshot)) {
+        state = await observe(picture);
+        if (looksDifferent(first, state)) {
           relooked = true;
           seen = proves !== undefined && shows(state.tree, proves);
           after = seen ? {} : await ask(performed(), { expected: EXPECTED_QUESTION });
@@ -265,27 +346,55 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       }
       why = verdict.why;
       if (recalled) stale = true;
+      if (labelled) unnamed = true;
       if (verdict.verdict === 'stop') return { status: 'failed', attempts, why, ...(stale ? { stale } : {}) };
     }
   };
 
-  for (const [index, step] of steps.entries()) {
-    let outcome: StepOutcome;
+  /** Steps with nothing to find and nothing to check, sent as one batch: each is done once its action is delivered. */
+  const carryOutTogether = async (segment: readonly RunStep[], next: RunStep | undefined, batch: NonNullable<RunDeps['batch']>): Promise<StepOutcome[]> => {
+    const actions = segment.map((step) => rungs(step, undefined, deps.selectAll)[0]?.[0]);
+    const picture = next === undefined || pictured(next);
+    let results: readonly ActionResult[];
     try {
-      outcome = await carryOut(step, steps[index + 1]);
+      const done = await timed('act', () => batch(actions.filter((action) => action !== undefined), picture));
+      results = done.results;
+      state = done.state ?? await observe(picture);
+    } catch (error) {
+      if (!(error instanceof ComputerUseError)) throw error;
+      results = [{ outcome: 'blocked', code: error.code }];
+      state = await observe(picture);
+    }
+    ahead = undefined;
+    return results.map((result, index): StepOutcome => {
+      const verdict = judge({ step: segment[index] as RunStep, result, changed: true });
+      return verdict.verdict === 'done' ? { status: 'done', attempts: 1 } : { status: 'failed', attempts: 1, why: verdict.why };
+    });
+  };
+
+  for (let index = 0; index < steps.length;) {
+    let end = index;
+    while (deps.batch && end < steps.length && blind(steps[end] as RunStep)) end += 1;
+    let done: StepOutcome[];
+    try {
+      done = deps.batch && end - index >= 2
+        ? await carryOutTogether(steps.slice(index, end), steps[end], deps.batch)
+        : [await carryOut(steps[index] as RunStep, steps[index + 1])];
     } catch (error) {
       if (!(error instanceof JevError)) throw error;
-      outcome = { status: 'failed', attempts: 0, why: error.message };
+      done = [{ status: 'failed', attempts: 0, why: error.message }];
     }
-    outcomes.push(outcome);
-    if (outcome.status === 'failed') break;
+    outcomes.push(...done);
+    if (done.some((outcome) => outcome.status === 'failed')) break;
+    index += done.length;
   }
   // A step that checked nothing itself worked when a later step of the same run was seen to work.
   const vouched = outcomes.findLastIndex((outcome) => outcome.status === 'verified');
   for (const [index, { tried, ...outcome }] of outcomes.entries()) {
     outcomes[index] = tried && index < vouched ? { ...outcome, used: tried } : outcome;
   }
-  return { outcomes, state, asks, ms: Math.round(performance.now() - started) };
+  const rounded = { jev: Math.round(time.jev), act: Math.round(time.act), look: Math.round(time.look) };
+  return { outcomes, state, asks, ms: Math.round(performance.now() - started), time: rounded };
 }
 
 function describeStep(step: RunStep): string {
@@ -304,7 +413,7 @@ export function describeRun(report: RunReport, steps: readonly RunStep[]): strin
     const label = outcome.status === 'failed' ? 'FAILED' : outcome.status;
     const detail = [
       outcome.element ? ` → ${outcome.element}` : '',
-      outcome.status === 'skipped' ? ' (what it expects already shows)' : '',
+      outcome.status === 'skipped' ? ` (${outcome.why ?? 'what it expects already shows'})` : '',
       outcome.recalled ? ' (remembered)' : '',
       outcome.status === 'failed' ? `: ${outcome.why ?? 'failed'}${outcome.attempts > 1 ? ` after ${outcome.attempts} ways` : ''}` : outcome.attempts > 1 ? ` (way ${outcome.attempts})` : '',
       outcome.closest?.length ? `. Closest: ${outcome.closest.join('; ')}` : '',

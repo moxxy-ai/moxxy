@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { canSymlink } from '@moxxy/vitest-preset/platform';
 import {
   asSessionId,
+  asSkillId,
   asToolCallId,
   defineMode,
   definePlugin,
@@ -357,5 +358,22 @@ describe('Session', () => {
     expect(abortAll).toHaveBeenCalledWith('bye');
     // `this` is bound through the proxy so a method reading sibling state works.
     expect(wrapped.reasonViaThis()).toBe('shutting down');
+  });
+});
+
+describe('Session info for the chat @ menu', () => {
+  it('tells clients how each skill is shown and mentioned', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    s.skills.register({
+      id: asSkillId('plugin/computer-control'),
+      path: '/skills/computer-control.md',
+      scope: 'plugin',
+      frontmatter: { name: 'computer-control', description: 'Operate desktop apps', label: 'Computer Use', aliases: ['computer_use'] },
+      body: '',
+    });
+
+    expect(s.getInfo().skills).toEqual([
+      { id: 'plugin/computer-control', name: 'computer-control', description: 'Operate desktop apps', label: 'Computer Use', aliases: ['computer_use'] },
+    ]);
   });
 });

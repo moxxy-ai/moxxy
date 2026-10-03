@@ -41,14 +41,12 @@ public final class AgentCursor: @unchecked Sendable {
             overlay.outline(outline)
             return overlay.move(to: to)
         }
-        if glide > 0 { Thread.sleep(forTimeInterval: glide) }
+        let pace = CursorMotion.pace(glide: glide)
+        if pace.actAfter > 0 { Thread.sleep(forTimeInterval: pace.actAfter) }
         emit(CursorEvent.frame(phase: .executing, at: to))
         let result = body()
         let delivered = result.outcome == .delivered
-        onMain { overlay in
-            if delivered { overlay.press() }
-            overlay.outline(nil)
-        }
+        onMain { overlay in overlay.finish(delivered: delivered, after: pace.ringAfter) }
         emit(CursorEvent.frame(phase: delivered ? .delivered : .failed, at: to))
         return result
     }
@@ -84,6 +82,18 @@ public final class AgentCursor: @unchecked Sendable {
 }
 
 enum WindowDirectory {
+    private typealias GetWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    /// The accessibility API's own private call (used by window managers such as yabai): it knows the number
+    /// also for a window that is not on screen yet. Looked up once; absent, the screen's list is used.
+    private static let getWindow: GetWindow? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow").map { unsafeBitCast($0, to: GetWindow.self) }
+
+    /// The window-server number of an accessibility window.
+    static func number(of window: AXUIElement) -> CGWindowID? {
+        guard let getWindow else { return nil }
+        var id: CGWindowID = 0
+        return getWindow(window, &id) == .success && id != 0 ? id : nil
+    }
+
     /// The window-server number behind an accessibility window, when it is on the current screen.
     /// Where pointer events for the window go, when it is on the current screen.
     static func address(of target: WindowCandidate) -> WindowAddress? {

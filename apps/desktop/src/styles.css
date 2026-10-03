@@ -2186,11 +2186,19 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * flex-END rather than flex-start so Send stays beside the last line you typed
  * as the input grows, instead of being pinned to the top of a tall box. */
 .cmdbar__in {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: var(--space-8);
   padding: var(--space-16);
 }
+
+/* The @ menu: as wide as the field it completes, rising out of it. */
+.mention-menu { left: var(--space-16); right: var(--space-16); bottom: calc(100% - var(--space-8)); }
+.mention-menu__row { cursor: pointer; }
+.mention-menu__row[data-active='true'] { color: var(--color-text); background: var(--color-input-soft); }
+.mention-menu__label { flex-shrink: 0; font-weight: 600; color: var(--color-text); }
+.mention-menu__hint { color: var(--color-text-dim); }
 
 /* The CHROME face, not prose — and this is a correction. The argument for prose
  * was that you are writing something a person reads, but the trace renders your

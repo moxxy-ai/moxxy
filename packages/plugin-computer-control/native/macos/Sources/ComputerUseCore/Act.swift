@@ -29,7 +29,9 @@ extension Methods {
         if case let .array(labels)? = params["until"] { until = labels.compactMap(\.stringValue) }
         let ready = result.outcome == .delivered && !until.isEmpty ? state.pid.flatMap { awaited(until, pid: $0) } : nil
         Timing.mark(ready == nil ? "act: no effect awaited" : "act: effect shows")
-        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor, ready: ready)
+        // A host that judges the action by its elements asks for no picture: the capture is the slowest part of a look.
+        let picture = params["screenshot"]?.boolValue ?? true
+        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(picture)]), targets: targets, cursor: cursor, ready: ready)
         return .object(["result": result.json, "state": fresh])
     }
 
@@ -66,15 +68,16 @@ struct Executor {
             guard let frame = state.frame, let screen = onImage(point, frame) else { return nil }
             return FrameHit.index(at: screen, in: state.frames)
         }
+        // A press that left the window as it was is not sent the same way again.
+        let pressedInVain = state.pressed.map { $0.key == key && !differs(since: $0) } == true
+        state.pressed = nil
         let before = isClick(request) ? seenBefore() : nil
         // What the window said at the observation is true only until something is done to it.
+        let said = before?.said ?? state.said
         state.said = nil
-        let result = run(request, retried: state.lastSoft == key, seen: before)
-        switch result.method {
-        case .background: state.lastSoft = key
-        case .ax: state.lastSoft = before.map { !changed(since: $0) } == true ? key : nil
-        default: state.lastSoft = nil
-        }
+        let result = run(request, retried: state.lastSoft == key || pressedInVain, seen: before)
+        state.lastSoft = result.method == .background ? key : nil
+        if result.method == .ax, let window = state.window, let said { state.pressed = (key, window, before?.pixels, said) }
         return result
     }
 
@@ -93,17 +96,28 @@ struct Executor {
     /// How long the picture and words of an observation stand for the window as it is.
     private static let freshFor: TimeInterval = 2
 
-    /// The window before a click: what the observation just before it showed, else a new look.
+    /// The window before a click as the observation just before it showed it; a new look is taken only where
+    /// one is needed (see `physically`), not for every click.
     private func seenBefore() -> Look? {
-        if let window = state.window, let pixels = state.pixels, let said = state.said,
-           let at = state.observedAt, Date().timeIntervalSince(at) < Self.freshFor { return (window, pixels, said) }
-        return look()
+        guard let window = state.window, let pixels = state.pixels, let said = state.said,
+              let at = state.observedAt, Date().timeIntervalSince(at) < Self.freshFor else { return nil }
+        return (window, pixels, said)
     }
 
     private func changed(since before: Look) -> Bool {
-        let changed = redrawn(before.window, since: before.pixels) || content() != before.said
+        let changed = differs(since: before)
         if changed { state.reacted = true }
         return changed
+    }
+
+    /// Whether the window's words or picture changed since `before`; the words first, which need no waiting.
+    private func differs(since before: Look) -> Bool {
+        content() != before.said || redrawn(before.window, since: before.pixels)
+    }
+
+    /// The same for an earlier press, whose picture is there only when its observation had one.
+    private func differs(since pressed: (key: String, window: WindowCandidate, pixels: PixelBuffer?, said: [String])) -> Bool {
+        content() != pressed.said || pressed.pixels.map { redrawn(pressed.window, since: $0) } == true
     }
 
     private func run(_ request: ActionRequest, retried: Bool, seen: Look?) -> ActionResult {
@@ -558,7 +572,12 @@ struct Executor {
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
         if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.frontable) { return result }
-        let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: AXReader.takesText(element)))
+        let intoText = AXReader.takesText(element)
+        let inPage = AXReader.inPage(element)
+        guard Typing.sendsKeys(intoText: intoText, inPage: inPage) else {
+            return .unsupported("unsupported_action", hint: "Keyboard focus on this page is not in a text field, so typed letters would act as the page's shortcuts. Nothing was typed; click the text field first, or use set_value on it.")
+        }
+        let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: intoText, inPage: inPage))
         pointForKeys(pid)
         var sent = 0
         for chunk in chunks {

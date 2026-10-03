@@ -1,0 +1,5 @@
+---
+'@moxxy/cli': patch
+---
+
+Computer Use runs wait less. The agent cursor no longer holds an accessibility action until its glide ends, and a press takes no picture before it. Pictures are taken only around steps that pixels judge (clicks, and keys that expect something such as select all) and at the end of a run, and consecutive steps that check nothing (keys, typing into the focus) go to the macOS helper as one batch. A target that is the whole name of exactly one element, or quotes it, is acted on without asking Jev where it is; anything less certain still goes to Jev. Each run reports how its time split between Jev, actions and looks, and `pnpm --filter @moxxy/plugin-computer-control trial:summarize <dir>` sums up a live trial. A request to Jev about a long page that changed no longer exceeds Jev's input limit (HTTP 400): the step's changes are capped and the window is sent once. Typing into a field that already holds exactly that text is skipped instead of doubling it ("https://www.olx.plhttps://www.olx.pl"). `moxxy -p --allow-all` now turns on the conversation's auto-approve, as `/auto-approve` does.

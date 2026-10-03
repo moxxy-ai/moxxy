@@ -188,6 +188,14 @@ describe('computer_run', () => {
     expect(run([{ do: 'scroll', target: 'the list', text: 'x', direction: 'up' }]).steps).toEqual([{ do: 'scroll', target: 'the list', direction: 'up' }]);
   });
 
+  it('types into the focus when the target of typing names nothing but the focus', () => {
+    for (const target of ['keyboard focus', 'the focused field', 'Focus', 'cursor']) {
+      expect(run([{ do: 'type', target, text: 'rower' }]).steps).toEqual([{ do: 'type', text: 'rower' }]);
+    }
+    expect(run([{ do: 'type', target: 'the focused OLX search field', text: 'rower' }]).steps)
+      .toEqual([{ do: 'type', target: 'the focused OLX search field', text: 'rower' }]);
+  });
+
   it('keeps an empty text for set_value, which clears the field', () => {
     expect(run([{ do: 'set_value', target: 'the name field', text: '' }]).steps).toEqual([{ do: 'set_value', target: 'the name field', text: '' }]);
   });

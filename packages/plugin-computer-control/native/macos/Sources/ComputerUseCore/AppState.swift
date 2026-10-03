@@ -24,6 +24,9 @@ final class TargetState {
     var lastAction: Date?
     /// The last gesture that went to the app softly (background input, or an accessibility press that changed nothing); asked again, it goes through the screen.
     var lastSoft: String?
+    /// The last accessibility press and how the window looked before it; whether it changed anything is asked
+    /// only when the same gesture comes again, so a press returns without waiting for a redraw.
+    var pressed: (key: String, window: WindowCandidate, pixels: PixelBuffer?, said: [String])?
     /// When the last action's input went out, where the executor knows it.
     var sent: Date?
     /// What the elements said at the last observation, until an action is done; see `Executor.look`.
@@ -237,6 +240,8 @@ extension Methods {
             "elements": .array(zip(indices, built.elements).map { json($1, index: $0, frame: state.frame) }),
         ]
         if let title = root.title { tree["window"] = .string(title.fitting(1024)) }
+        // A new empty window reads like the empty one that was in front before it; only its number tells them apart.
+        if let id = WindowDirectory.number(of: window) ?? state.window.flatMap(WindowDirectory.onScreenWindowID) { tree["windowId"] = .string(String(id)) }
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
         if wantsPage, pagePending { result["contentPending"] = .bool(true) }

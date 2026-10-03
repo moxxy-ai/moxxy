@@ -148,6 +148,21 @@ describe('what is shipped of an effect', () => {
   });
 });
 
+describe('a target that points at the focus', () => {
+  const addressBar = { do: 'type' as const, key: 'w/address', label: 'text field\u001fAddress', way: 0 };
+
+  it('is not learned: where the focus is changes from one run to the next', async () => {
+    const memory = new RunMemory(directory);
+    await memory.learn('app', { targets: ['keyboard focus', 'the focused search field', 'cursor', 'the Address field'].map((target) => ({ ...addressBar, target })) });
+    expect((await memory.read('app')).targets.map((target) => target.target)).toEqual(['address field']);
+  });
+
+  it('is not recalled from a lesson learned before', () => {
+    const learned = { targets: [{ ...addressBar, target: 'keyboard focus', uses: 2, at: 1 }], routes: [] };
+    expect(recall(learned, { do: 'type', target: 'keyboard focus', text: 'rower' }, tree(element(1, 'w/address', 'Address', 'text field')))).toBeUndefined();
+  });
+});
+
 describe('recall', () => {
   it('takes a target for the same whatever its articles and punctuation', () => {
     expect(sameWords('  The "Export"  button. ')).toBe(sameWords('export button'));

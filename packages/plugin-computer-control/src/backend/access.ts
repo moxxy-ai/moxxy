@@ -74,6 +74,14 @@ export function approvedThroughRun(log: EventLogReader): string[] {
   return [...names];
 }
 
+/**
+ * While the conversation auto-approves, a request for full control would be approved without asking, so every app
+ * has it already. A trading app keeps its level: moving money takes a request of its own.
+ */
+export function underAutoApprove(access: AccessState): AccessState {
+  return { ...access, apps: access.apps.map((grant) => (categorize(grant) === 'trading' ? grant : { ...grant, tier: 'full' })) };
+}
+
 /** The grant for `app` (identifier or display name) if it allows `needed`. */
 export function checkAccess(access: AccessState, app: string, needed: AccessTier): AppGrant {
   const wanted = app.toLowerCase();

@@ -1,4 +1,4 @@
-import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
+import { autoApproveFromEvents, defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import { z } from 'zod';
 import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
@@ -7,20 +7,20 @@ import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
-import { tracedFromEnv } from '../jev/trace.js';
+import { traceRun, tracedFromEnv } from '../jev/trace.js';
 import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
-import { describeRun, runSteps, type RunReport } from '../jev/run.js';
+import { describeRun, pictured, runSteps, type ActWait, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
 import {
-  accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
+  accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier, underAutoApprove,
   type AccessGrant, type AccessTier, type AppGrant,
   type AccessState,
 } from './access.js';
 import { hintFor, loadAppHints, type AppHint } from './app-hints.js';
 import {
-  actResultSchema, appStateSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema,
+  actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, readTextResultSchema, resolveAppsResultSchema, statusResultSchema,
   type AppState, type HelperImage,
 } from './rpc.js';
 import { PreviewController, type PreviewCodec, type PreviewSource } from '../preview/controller.js';
@@ -217,7 +217,8 @@ export class ComputerBackend {
     computer_run: async (input, ctx) => {
       const grant = this.granted(ctx, await this.access(ctx), input.app, 'read');
       const apiKey = await this.jevKey(ctx);
-      const { turn, result: initial } = await this.observe(ctx, grant);
+      // The run looks without pictures except around clicks; the model gets one with the state at the end.
+      const { turn, result: initial } = await this.observe(ctx, grant, undefined, !apiKey || pictured(input.steps[0]));
       if (!apiKey) {
         return this.present(turn, grant, initial, [`computer_run is off: there is no TypeSafe key (secret ${JEV_SECRET}), or Jev is switched off (secret ${JEV_OFF}). Nothing was done. Carry out the steps with the single tools on the state below.`]);
       }
@@ -225,12 +226,24 @@ export class ComputerBackend {
       const report = await runSteps(input.goal, input.steps, initial, {
         ask: this.jev(apiKey), signal: ctx.signal, known: (step, tree) => recall(learned, step, tree), guess: (step, tree) => guess(learned, step, tree),
         selectAll: this.profile.platform === 'darwin' ? 'super+a' : 'ctrl+a',
-        observe: async () => (await this.observe(ctx, grant)).result,
-        act: async (step, until) => (await this.perform(input.app, step, ctx, undefined, until)).result,
+        observe: async (picture) => (await this.observe(ctx, grant, undefined, picture === true)).result,
+        act: async (step, wait) => (await this.perform(input.app, step, ctx, undefined, wait)).result,
+        ...(this.profile.platform === 'darwin' ? {
+          batch: (actions: readonly ComputerAction[], picture: boolean) => this.performAll(input.app, actions, ctx, picture),
+          readText: async () => {
+            const allowed = (await this.access(ctx)).apps.map((app) => app.id);
+            return (await this.call(ctx, 'read_text', { app: grant.id, allowed }, readTextResultSchema, grant.name)).result.lines;
+          },
+        } : {}),
       });
       turn.progress.forget(grant.id);
+      await traceRun(process.env.MOXXY_JEV_TRACE, {
+        app: grant.name, goal: input.goal, steps: input.steps.length, ms: report.ms, asks: report.asks, time: report.time,
+        outcomes: report.outcomes.map((outcome) => outcome.status),
+      });
       await this.learn(turn, grant.id, input.goal, input.steps, report);
-      return this.present(turn, grant, report.state, [describeRun(report, input.steps)]);
+      const final = report.state.screenshot || report.state.screenshotUnavailable ? report.state : (await this.observe(ctx, grant)).result;
+      return this.present(turn, grant, final, [describeRun(report, input.steps)]);
     },
     computer_click: (input, ctx) => this.act(input, 'click', ctx),
     computer_type_text: (input, ctx) => this.act(input, 'type_text', ctx),
@@ -248,13 +261,13 @@ export class ComputerBackend {
     },
   };
 
-  private observe(ctx: ToolContext, grant: AppGrant, windowId?: string) {
+  private observe(ctx: ToolContext, grant: AppGrant, windowId?: string, picture = true) {
     const web = categorize(grant) === 'browser' ? { web: true } : {};
-    return this.call(ctx, 'get_app_state', { app: grant.id, ...(windowId ? { window_id: windowId } : {}), screenshot: true, ...web }, appStateSchema, grant.name);
+    return this.call(ctx, 'get_app_state', { app: grant.id, ...(windowId ? { window_id: windowId } : {}), screenshot: picture, ...web }, appStateSchema, grant.name);
   }
 
   /** One action on an app, behind the grant's level and the key rules. */
-  /** What the conversation may use: the grants of the access dialog, then the apps approved through a run at their default level. */
+  /** What the conversation may use: the grants of the access dialog, then the apps approved through a run at their default level, all raised while it auto-approves. */
   private async access(ctx: ToolContext): Promise<AccessState> {
     const access = accessFromLog(ctx.log);
     const reached = this.reached.get(ctx.sessionId) ?? new Map<string, AppGrant | null>();
@@ -277,7 +290,8 @@ export class ComputerBackend {
       asked.set(name, grant.id);
       if (!apps.has(grant.id)) apps.set(grant.id, grant);
     }
-    return { apps: [...apps.values()], flags: access.flags };
+    const current = { apps: [...apps.values()], flags: access.flags };
+    return autoApproveFromEvents(ctx.log.ofType('plugin_event')) ? underAutoApprove(current) : current;
   }
 
   /** The grant for `app`, which may be the name it was asked for under instead of the one it has on this system. */
@@ -286,15 +300,29 @@ export class ComputerBackend {
     return checkAccess(access, known ? app : this.asked.get(ctx.sessionId)?.get(app.toLowerCase()) ?? app, needed);
   }
 
-  private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined, until?: readonly string[]) {
+  private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined, wait: ActWait = { picture: true }) {
     const access = await this.access(ctx);
     const grant = this.granted(ctx, access, app, requiredTier(step));
     checkKeys(step, access.flags, this.profile.platform);
-    // Only the macOS helper knows how to wait for an effect.
-    const awaited = until?.length && this.profile.platform === 'darwin' ? { until } : {};
-    const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id), ...awaited };
+    // Only the macOS helper knows how to wait for an effect or a typed text, and how to leave the picture out of the state after an action.
+    const darwin = this.profile.platform === 'darwin';
+    const awaited = darwin ? { ...(wait.until?.length ? { until: wait.until } : {}) } : {};
+    const pictured = !wait.picture && darwin ? { screenshot: false } : {};
+    const params = { app: grant.id, action: forHelper(step), allowed: access.apps.map((granted) => granted.id), ...awaited, ...pictured };
     beforeSending(await this.turn(ctx), grant);
     return { grant, ...(await this.call(ctx, 'act', params, actResultSchema, grant.name)) };
+  }
+
+  /** Several actions on one app in one helper request, each behind the grant's level and the key rules. */
+  private async performAll(app: string, steps: readonly ComputerAction[], ctx: ToolContext, picture: boolean) {
+    const access = await this.access(ctx);
+    for (const step of steps) {
+      this.granted(ctx, access, app, requiredTier(step));
+      checkKeys(step, access.flags, this.profile.platform);
+    }
+    const grant = this.granted(ctx, access, app, 'read');
+    const params = { app: grant.id, actions: steps.map(forHelper), allowed: access.apps.map((granted) => granted.id), screenshot: picture };
+    return (await this.call(ctx, 'batch', params, batchResultSchema, grant.name)).result;
   }
 
   private async act(input: { app: string } & Record<string, unknown>, action: ComputerAction['action'], ctx: ToolContext): Promise<unknown> {

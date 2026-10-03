@@ -2,6 +2,9 @@
 name: browser
 description: Drive the in-window browser the user is watching — read a page as an accessibility tree, click and type by uid, manage tabs, and hand over when a page needs a person.
 triggers: ["open the browser", "in the browser", "go to this site", "navigate to", "show me the page", "screenshot the page", "click the button on", "fill the form on", "browse to", "search for", "on the website", "log in to", "sign in to", "book a", "order a", "design a"]
+label: Moxxy Browser
+aliases: [moxxy_browser, przegladarka]
+disallowed-tools: ["computer_*"]
 allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_session, web_fetch]
 ---
 
@@ -12,9 +15,12 @@ page you drive — not a picture of one — so the user watches you work and can
 over on the spot. It carries their signed-in profile, which is why you must never
 treat it as a throwaway browser.
 
-**Use these tools, not the computer.** Do not reach for macOS control, a
-screenshot of the screen, or any other browser to visit a web page. This browser
-is the one the user is looking at; anything else acts somewhere they cannot see.
+**For a web page, use these tools, not the computer** — unless the user names
+another browser or app (Arc, Safari, Chrome…) or writes `@computer_use`. Then
+the work belongs in that app on their screen, through the computer tools, and
+this pane stays out of it. `@moxxy_browser` is the opposite call: this pane,
+and the computer tools are off for that request. Otherwise do not reach for macOS control, a screenshot
+of the screen, or another browser: this one is where the user watches you work.
 
 ## How to read a page
 

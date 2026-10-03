@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
+import type { SkillInfo } from '@moxxy/sdk';
 
 /**
  * Shared session-shape types for the agent picker. A trimmed view of
@@ -42,6 +43,8 @@ export interface SessionInfo {
   readonly reasoningEffort?: ReasoningEffort | null;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
+  /** What the composer's @ menu offers. */
+  readonly skills?: ReadonlyArray<SkillInfo>;
 }
 
 /**

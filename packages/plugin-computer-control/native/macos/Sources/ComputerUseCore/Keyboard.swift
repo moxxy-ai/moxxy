@@ -170,8 +170,13 @@ public enum Typing {
     public static let maxUnitsPerEvent = 20
 
     /// A text field takes a whole chunk from one event. Anything else (a canvas app such as Blender, a game)
-    /// reads one character from each key event, so it gets them key by key.
-    public static func unitsPerEvent(intoText: Bool) -> Int { intoText ? maxUnitsPerEvent : 1 }
+    /// reads one character from each key event, so it gets them key by key. So does a web page: its own
+    /// editor (Canva's) handles a many-character event as one key and puts its last character astray.
+    public static func unitsPerEvent(intoText: Bool, inPage: Bool = false) -> Int { intoText && !inPage ? maxUnitsPerEvent : 1 }
+
+    /// Whether typed text may go out as key events. On a web page, keys that reach anything but a text field
+    /// are the page's shortcuts (Canva turns "s" into a sticky note, Gmail "e" archives a mail).
+    public static func sendsKeys(intoText: Bool, inPage: Bool) -> Bool { intoText || !inPage }
 
     /// Whether typing may go on. `appFocusIsTheElement` is nil when the app names no focused element, as a
     /// browser in the background does for a field of its page; the field's own word counts then.

@@ -361,7 +361,8 @@ export function buildSynthesizeSkillPlugin(
             projectDir: opts.projectDir ?? defaultProjectSkillsDir(session.cwd),
             userDir: opts.userDir ?? defaultUserSkillsDir(),
             ...(opts.builtinDir ? { builtinDir: opts.builtinDir } : {}),
-            ...(opts.pluginDirs ? { pluginDirs: opts.pluginDirs } : {}),
+            // Read at call time: plugins load after this tool is built.
+            pluginDirs: [...session.pluginHost.skillDirs(), ...(opts.pluginDirs ?? [])],
           });
           session.skills.replaceAll(discovered);
           return `loaded ${discovered.length} skill${discovered.length === 1 ? '' : 's'}`;

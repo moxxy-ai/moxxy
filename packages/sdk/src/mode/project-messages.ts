@@ -1,6 +1,7 @@
 import type { ContentBlock, ProviderMessage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { Skill } from '../skill.js';
+import { toolPatternMatches } from '../skill-mentions.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
 import {
   activeCompactionRanges,
@@ -77,9 +78,7 @@ export const ELISION_SYSTEM_NOTE =
  * practice, so one tool that exists is enough; a trailing `*` matches a prefix.
  */
 export function skillsWithinReach(skills: ReadonlyArray<Skill>, toolNames: ReadonlyArray<string>): ReadonlyArray<Skill> {
-  const known = new Set(toolNames);
-  const exists = (pattern: string) =>
-    pattern.endsWith('*') ? toolNames.some((name) => name.startsWith(pattern.slice(0, -1))) : known.has(pattern);
+  const exists = (pattern: string) => toolNames.some((name) => toolPatternMatches(pattern, name));
   return skills.filter((skill) => {
     const wanted = skill.frontmatter['allowed-tools'] ?? [];
     return wanted.length === 0 || wanted.some(exists);

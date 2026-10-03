@@ -153,3 +153,14 @@ describe('shipped builtin skills', () => {
     expect(bad, bad.join('\n')).toEqual([]);
   });
 });
+
+describe('the browser skill in the chat @ menu', () => {
+  it('shows as the Moxxy Browser, answers @moxxy_browser and keeps Computer Use out of that request', async () => {
+    const raw = await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8');
+    const frontmatter = skillFrontmatterSchema.parse(parseFrontmatterFile(raw).frontmatter);
+
+    expect(frontmatter.label).toBe('Moxxy Browser');
+    expect(frontmatter.aliases?.[0]).toBe('moxxy_browser');
+    expect(frontmatter['disallowed-tools']).toEqual(['computer_*']);
+  });
+});

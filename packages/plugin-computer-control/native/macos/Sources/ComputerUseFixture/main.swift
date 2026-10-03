@@ -189,6 +189,34 @@ final class Timeline: NSView {
     }
 }
 
+/// Shows one name and tells accessibility another, as web toolkits do (Canva's "Dodaj tytuł" is "Title, Heading").
+/// Only a real click reaches it.
+@MainActor
+final class Painted: NSView {
+    var clicked: () -> Void = {}
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Title, Heading")
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 110, height: 28) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.setFill()
+        bounds.fill()
+        NSAttributedString(string: "Add title", attributes: [.font: NSFont.boldSystemFont(ofSize: 15), .foregroundColor: NSColor.black])
+            .draw(at: NSPoint(x: 8, y: 5))
+    }
+
+    override func mouseDown(with event: NSEvent) { clicked() }
+}
+
 /// Tall striped content, top first, for the scroll area.
 final class Page: NSView {
     override var isFlipped: Bool { true }
@@ -249,14 +277,29 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     let pad = control(Pad(), "pad")
     let lower = NSStackView(views: [pad, scroller, offset])
     lower.orientation = .horizontal
-    let labels = NSStackView(views: [control(controller.status, "status"), control(keys.label, "keys")])
+    // A field that offers a suggestion a moment after its text changes, as a page does once its server answers.
+    let city = control(NSTextField(string: ""), "city")
+    city.widthAnchor.constraint(equalToConstant: 70).isActive = true
+    let suggestion = control(NSTextField(labelWithString: "No suggestion"), "suggestion")
+    var typed = ""
+    Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+        MainActor.assumeIsolated {
+            guard city.stringValue != typed else { return }
+            typed = city.stringValue
+            let text = typed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { suggestion.stringValue = "Suggestion \(text)" }
+        }
+    }
+    let labels = NSStackView(views: [control(controller.status, "status"), control(keys.label, "keys"), city, suggestion])
     labels.orientation = .horizontal
     let dud = control(NSButton(title: "Dud", target: controller, action: #selector(Controller.dud)), "dud")
     let shift = control(NSButton(title: "Shift", target: controller, action: #selector(Controller.shift)), "shift")
     let stubborn = control(StubbornButton(title: "Stubborn", target: controller, action: #selector(Controller.stubborn)), "stubborn")
     let deaf = control(DeafField(string: ""), "deaf")
     deaf.widthAnchor.constraint(equalToConstant: 70).isActive = true
-    let extras = NSStackView(views: [dud, shift, stubborn, deaf])
+    let painted = control(Painted(), "painted")
+    painted.clicked = { [status = controller.status] in status.stringValue = "Painted clicked" }
+    let extras = NSStackView(views: [dud, shift, stubborn, deaf, painted])
     extras.orientation = .horizontal
     // Hidden until "Shift" is pressed; then it takes room at the top and moves every control down.
     let spacer = NSView()
@@ -276,7 +319,7 @@ func makeWindow(_ controller: Controller, keys: KeyLog) -> NSWindow {
     outer.alignment = .leading
     outer.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
 
-    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 520, height: 320), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 640, height: 320), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
     window.title = "Moxxy Fixture"
     window.contentView = outer
     return window

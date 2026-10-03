@@ -1,4 +1,5 @@
 import type { EmittedEvent, LLMProvider, ModeContext, MoxxyEvent, RunTurnOptions } from '@moxxy/sdk';
+import { mentionedSkills, skillAttachment, withoutTools } from '@moxxy/sdk';
 import type { SessionRuntime } from './session-runtime.js';
 import { createSubagentSpawner } from './subagents.js';
 
@@ -45,6 +46,12 @@ export async function* runTurn(
   const turnController = new AbortController();
   let strategyPromise: Promise<void> | null = null;
 
+  // A skill the user calls with an @ mention rides on the prompt itself, so every
+  // surface and every replay sees it; a prompt a trigger wrote calls nothing.
+  const called = opts.origin ? [] : mentionedSkills(prompt, session.skills.list());
+  const attachments = [...(opts.attachments ?? []), ...called.map(skillAttachment)];
+  const withheld = called.flatMap((skill) => skill.frontmatter['disallowed-tools'] ?? []);
+
   try {
     await session.log.append({
       type: 'user_prompt',
@@ -52,9 +59,7 @@ export async function* runTurn(
       turnId,
       source: 'user',
       text: prompt,
-      ...(opts.attachments && opts.attachments.length > 0
-        ? { attachments: opts.attachments }
-        : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
       ...(opts.origin ? { origin: opts.origin } : {}),
     });
 
@@ -121,7 +126,7 @@ export async function* runTurn(
       ...(opts.contextWindow !== undefined ? { contextWindowOverride: opts.contextWindow } : {}),
       systemPrompt: opts.systemPrompt,
       provider,
-      tools: session.tools,
+      tools: withheld.length > 0 ? withoutTools(session.tools, withheld) : session.tools,
       skills: session.skills,
       log: session.log,
       compactor: session.compactors.getActive(),

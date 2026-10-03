@@ -127,17 +127,29 @@ const uses: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
   click: ['target'], type: ['target', 'text'], set_value: ['target', 'text'], key: ['key'], scroll: ['target', 'direction'],
 };
 
+const FOCUS = new Set(['focus', 'focused', 'focussed', 'cursor', 'caret', 'fokus', 'fokusie', 'fokusem', 'kursor', 'kursorem', 'kursora']);
+/** Words that only say which element that is: the one with the focus. */
+const OF_THE_FOCUS = new Set([...FOCUS, 'the', 'a', 'keyboard', 'current', 'currently', 'active', 'element', 'field', 'input', 'with', 'has', 'in']);
+export const wordsIn = (target: string) => target.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+/** A target that says where the focus is, which changes from one run to the next, rather than which element it is. */
+export const pointsAtFocus = (target: string) => wordsIn(target).some((word) => FOCUS.has(word));
+
 /**
  * A strict provider fills every field of every step: null and "" are filler, and so is any field the step's kind
- * does not use. An empty text for set_value is kept; it clears the field.
+ * does not use, and a target of typing that names nothing but the focus, where typing without a target goes.
+ * An empty text for set_value is kept; it clears the field.
  */
 function dropStepFiller(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const step = input as Record<string, unknown>;
   const used = uses[step.do as RunStep['do']] as ReadonlyArray<string> | undefined;
+  const focusOnly = step.do === 'type' && typeof step.target === 'string' && pointsAtFocus(step.target)
+    && wordsIn(step.target).every((word) => OF_THE_FOCUS.has(word));
   return Object.fromEntries(Object.entries(step).filter(([name, value]) =>
     value !== null && (value !== '' || (name === 'text' && step.do === 'set_value'))
-    && (used === undefined || name === 'do' || name === 'expect' || used.includes(name))));
+    && (used === undefined || name === 'do' || name === 'expect' || used.includes(name))
+    && !(name === 'target' && focusOnly)));
 }
 
 const runStep = z.preprocess(dropStepFiller, runStepShape.superRefine((step, ctx) => {

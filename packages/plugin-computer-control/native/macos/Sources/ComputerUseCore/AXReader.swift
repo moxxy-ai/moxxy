@@ -199,6 +199,11 @@ public final class AXReader {
         return nil
     }
 
+    /// Whether the element is part of a web page: a page nests far deeper than the native lineage limit.
+    static func inPage(_ element: AXUIElement) -> Bool {
+        lineage(element, limit: 80).contains { attribute($0, kAXRoleAttribute) == "AXWebArea" }
+    }
+
     static func lineage(_ element: AXUIElement, limit: Int = 12) -> [AXUIElement] {
         var chain = [element]
         while chain.count < limit, let parent: AXUIElement = attribute(chain[chain.count - 1], kAXParentAttribute) {

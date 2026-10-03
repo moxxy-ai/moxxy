@@ -18,7 +18,7 @@ const HELP = formatHelp({
         ['--model <id>', 'use a different model for this invocation'],
         ['--output-format <fmt>', 'text, json, or stream-json'],
         ['--allow-tools <list>', 'allow only the comma-separated tools named here'],
-        ['--allow-all', 'allow every currently registered tool for this invocation'],
+        ['--allow-all', 'allow every tool for this invocation: the conversation\'s auto-approve'],
       ],
     },
   ],
@@ -67,6 +67,8 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
   if (allowAll) {
     const everyTool = session.tools.list().map((t) => t.name);
     session.setPermissionResolver(createAllowListResolver(everyTool));
+    // Recorded in the log like the desktop's switch, so tools that read it (Computer Use's access levels) see it too.
+    await session.setAutoApprove(true);
   }
 
   // Ctrl+C / kill must still close the session: that is what stops the

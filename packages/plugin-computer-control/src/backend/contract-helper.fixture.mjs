@@ -96,7 +96,7 @@ const methods = {
   },
   act: (params) => {
     requireAllowed(params);
-    return { result: perform(params.app, params.action), state: state(params.app) };
+    return { result: perform(params.app, params.action), state: state(params.app, params.screenshot !== false) };
   },
   batch: (params) => {
     requireAllowed(params);
@@ -106,10 +106,15 @@ const methods = {
       results.push(result);
       if (result.outcome !== 'delivered') break;
     }
-    return { results, state: state(params.app) };
+    return { results, state: state(params.app, params.screenshot !== false) };
   },
   screenshot: () => ({ mediaType: 'image/png', base64: PNG, width: 1440, height: 900 }),
   zoom: () => ({ mediaType: 'image/png', base64: PNG, width: 400, height: 200 }),
+  // A control the screenshot shows under a name accessibility does not give it.
+  read_text: (params) => {
+    requireAllowed(params);
+    return { lines: [{ text: 'Publish', x: 300, y: 40, width: 60, height: 20 }] };
+  },
 };
 
 const lines = createInterface({ input: process.stdin });
