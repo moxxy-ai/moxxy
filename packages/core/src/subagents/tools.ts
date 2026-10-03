@@ -1,8 +1,8 @@
 import type { ToolDef, ToolRegistry } from '@moxxy/sdk';
-import type { ToolRegistry as CoreToolRegistry } from '../registries/tools.js';
 
+/** `parent` is the session's registry or one a turn already narrowed (an @ mention withholds tools). */
 export function buildFilteredToolRegistry(
-  parent: CoreToolRegistry,
+  parent: ToolRegistry,
   allowed: Set<string>,
 ): ToolRegistry {
   return {

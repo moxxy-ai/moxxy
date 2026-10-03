@@ -74,6 +74,52 @@ describe('useModelTuning', () => {
     expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { workspaceId: 'ws', effort: 'high' });
   });
 
+  it('sends switches made in quick succession one after another, the last one winning', async () => {
+    const order: string[] = [];
+    let release: () => void = () => {};
+    const invoke = vi.fn(async (cmd: string, args: { effort?: string; enabled?: boolean }) => {
+      order.push(`start ${cmd} ${args.effort ?? args.enabled}`);
+      if (args.effort === 'low') await new Promise<void>((resolve) => (release = resolve));
+      order.push(`end ${cmd} ${args.effort ?? args.enabled}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+    const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));
+
+    let both: Promise<unknown> = Promise.resolve();
+    act(() => {
+      both = Promise.all([result.current.setEffort('low'), result.current.setEffort('high')]);
+    });
+    await waitFor(() => expect(order).toEqual(['start settings.setReasoning low']));
+    release();
+    await act(() => both);
+
+    expect(order).toEqual([
+      'start settings.setReasoning low', 'end settings.setReasoning low',
+      'start settings.setReasoning high', 'end settings.setReasoning high',
+    ]);
+    expect(result.current).toMatchObject({ effort: 'high', busy: false });
+  });
+
+  it('remembers both switches made from one render for the next runner', async () => {
+    installApi();
+    const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));
+    await act(() => Promise.all([result.current.setEffort('high'), result.current.setFast(true)]));
+    expect(JSON.parse(localStorage.getItem('moxxy.model.tuning') ?? 'null')).toEqual({ effort: 'high', fast: true });
+  });
+
+  it("shows reasoning that is on at the provider's default as Default, not Off", () => {
+    installApi();
+    const { result } = renderHook(() => useModelTuning('ws', infoWith({ reasoningEffort: 'default' }), 'gpt-6-luna'));
+    expect(result.current.effort).toBe('default');
+    expect(result.current.effortLevels).toEqual(['off', 'default', 'low', 'medium', 'high', 'xhigh']);
+  });
+
+  it('offers no Default level once the effort is a set one', () => {
+    installApi();
+    const { result } = renderHook(() => useModelTuning('ws', infoWith({ reasoningEffort: 'low' }), 'gpt-6-luna'));
+    expect(result.current.effortLevels).toEqual(['off', 'low', 'medium', 'high', 'xhigh']);
+  });
+
   it('says why a switch did not happen and keeps the old value', async () => {
     installApi('settings.setFast');
     const { result } = renderHook(() => useModelTuning('ws', infoWith(), 'gpt-6-luna'));

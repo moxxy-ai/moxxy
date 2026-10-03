@@ -4,7 +4,7 @@ import { ModelTuning } from './ModelTuning';
 import type { ModelTuning as Tuning } from './useModelTuning';
 
 const tuning = (over: Partial<Tuning> = {}): Tuning => ({
-  effort: 'medium', fast: false, canSetEffort: true, canSetFast: true, busy: false, error: null,
+  effort: 'medium', effortLevels: ['off', 'low', 'medium', 'high', 'xhigh'], fast: false, canSetEffort: true, canSetFast: true, busy: false, error: null,
   setEffort: vi.fn(async () => {}), setFast: vi.fn(async () => {}), ...over,
 });
 
@@ -35,6 +35,13 @@ describe('ModelTuning', () => {
   it('renders nothing for a model with neither', () => {
     const { container } = render(<ModelTuning tuning={tuning({ canSetFast: false, canSetEffort: false })} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('lists the levels the hook offers, Default among them when that is the effort', () => {
+    render(<ModelTuning tuning={tuning({ effort: 'default', effortLevels: ['off', 'default', 'low'] })} />);
+    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual(['Off', 'Default', 'Low']);
+    expect(select.value).toBe('default');
   });
 
   it('shows why a switch failed', () => {

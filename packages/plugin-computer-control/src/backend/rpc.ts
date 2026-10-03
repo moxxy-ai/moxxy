@@ -40,12 +40,12 @@ export const imageSchema = z.object({
 }).strict();
 export type HelperImage = z.infer<typeof imageSchema>;
 
-/** One observation of an app: its tree, plus the window image or why there is none. */
-/** A line of text recognized in the app's latest screenshot, in its pixels. */
+/** A line of text recognized in the app's window, placed in the pixels of its latest screenshot. */
 export const shownTextSchema = z.object({ text: z.string(), x: z.number(), y: z.number(), width: z.number(), height: z.number() });
 export type ShownText = z.infer<typeof shownTextSchema>;
 export const readTextResultSchema = z.object({ lines: z.array(shownTextSchema) });
 
+/** One observation of an app: its tree, plus the window image or why there is none. */
 export const appStateSchema = z.object({
   tree: appTreeSchema,
   screenshot: imageSchema.optional(),

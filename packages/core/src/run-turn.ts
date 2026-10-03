@@ -51,6 +51,8 @@ export async function* runTurn(
   const called = opts.origin ? [] : mentionedSkills(prompt, session.skills.list());
   const attachments = [...(opts.attachments ?? []), ...called.map(skillAttachment)];
   const withheld = called.flatMap((skill) => skill.frontmatter['disallowed-tools'] ?? []);
+  // Sub-agents the turn starts get the same tools: a withheld one is off for the whole request.
+  const tools = withheld.length > 0 ? withoutTools(session.tools, withheld) : session.tools;
 
   try {
     await session.log.append({
@@ -126,7 +128,7 @@ export async function* runTurn(
       ...(opts.contextWindow !== undefined ? { contextWindowOverride: opts.contextWindow } : {}),
       systemPrompt: opts.systemPrompt,
       provider,
-      tools: withheld.length > 0 ? withoutTools(session.tools, withheld) : session.tools,
+      tools,
       skills: session.skills,
       log: session.log,
       compactor: session.compactors.getActive(),
@@ -149,6 +151,7 @@ export async function* runTurn(
         parentTurnId: turnId,
         parentSignal: effectiveSignal,
         parentModel: model,
+        parentTools: tools,
       }),
       requestModeSwitch: (modeName: string) => {
         requestedModeSwitch = modeName;

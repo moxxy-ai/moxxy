@@ -1,7 +1,7 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import {
-  REQUEST_ACCESS_TOOL, accessFromLog, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, requiredTier, underAutoApprove, type AccessGrant, type AccessTier,
+  REQUEST_ACCESS_TOOL, accessFromLog, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, requiredTier, type AccessGrant, type AccessTier,
 } from './access.js';
 import type { ComputerAction } from '../contract/tools.js';
 import { memoryLog } from './helper.fixture.js';
@@ -154,21 +154,5 @@ describe('approvedThroughRun', () => {
   it('leaves out a run let through by a standing rule, and one that was refused', () => {
     const log = memoryLog([...runCall('a', 'Notes', {}), ...runCall('b', 'Mail', null)]);
     expect(approvedThroughRun(log)).toEqual([]);
-  });
-});
-
-describe('underAutoApprove', () => {
-  const flags = { clipboardRead: false, clipboardWrite: false, systemKeyCombos: false };
-  const terminal = { id: 'com.apple.Terminal', name: 'Terminal', tier: 'click' } as const;
-  const trading = { id: 'com.tradingview.tradingviewapp.desktop', name: 'TradingView', tier: 'read' } as const;
-
-  it('gives every app full control, since a request for it would be approved without asking', () => {
-    const raised = underAutoApprove({ apps: [safari, terminal, textEdit], flags });
-    expect(raised.apps.map((app) => app.tier)).toEqual(['full', 'full', 'full']);
-  });
-
-  it('keeps a trading app at the level it was granted, and leaves the flags alone', () => {
-    const raised = underAutoApprove({ apps: [trading], flags });
-    expect(raised).toEqual({ apps: [trading], flags });
   });
 });

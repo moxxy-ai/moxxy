@@ -328,7 +328,8 @@ state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
 helper write where each request's time went. `MOXXY_JEV_TRACE=<file>` writes
 each request to Jev as one JSON line: the step, how many elements and characters
 of the window it was shown, the most likely answers with their element lines,
-and how long it took.
+and how long it took. Text a step types is written as its length only
+(`"[7 characters]"`), and the file is created readable by its owner only (0600).
 
 In a source list whose cell offers "open" itself (Finder's sidebar), a click
 on the row performs that action: selecting the row there only highlights it.
@@ -353,11 +354,10 @@ asks for its own app: a task starts with `computer_run`, without
 `computer_request_access`, `computer_list_apps` or `computer_get_app_state`. The exception is a run
 that presses keys or types into a browser or terminal: approving the run grants
 those only their default level (read-only, click-only), so the model sends
-`computer_request_access` with `full_access` first, in the same response. While the
-conversation auto-approves, that request would be approved without asking, so
-every granted app is at full control already and no run stops at its level
-(a trading app keeps its level; it still needs a request of its own). Switching
-auto-approve off brings back the levels the grants gave. An app may be named in later
+`computer_request_access` with `full_access` first, in the same response. Auto-approve
+does not raise a level by itself: it skips the question for that request, not the
+permission policy the request goes through, so a deny rule on
+`computer_request_access` still holds. An app may be named in later
 calls the way it was asked for ("System Settings"), not only the way the
 system names it ("Ustawienia systemowe").
 
@@ -463,9 +463,9 @@ node packages/cli/dist/bin.js --model gpt-6-luna -p "Use Computer Use on Calcula
   --allow-tools computer_status,computer_list_apps,computer_request_access,computer_get_app_state,computer_click,computer_press_key
 ```
 
-`--allow-all` turns on the conversation's auto-approve, as `/auto-approve`
-does in a chat: every granted app gets full control and nothing asks. A trial
-with its costs:
+`--allow-all` allows every tool for that one invocation, `computer_request_access`
+included, so the model's request for full control passes without a question; it
+does not switch on the conversation's auto-approve. A trial with its costs:
 
 ```sh
 MOXXY_JEV_TRACE=trial/jev.ndjson MOXXY_COMPUTER_TIMING=trial/helper-timing.ndjson \

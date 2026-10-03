@@ -377,3 +377,22 @@ describe('Session info for the chat @ menu', () => {
     ]);
   });
 });
+
+describe('Session info for the model panel', () => {
+  it('reports how deeply the model thinks, telling "on at the provider\'s default" from off', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    expect(s.getInfo().reasoningEffort).toBeNull();
+
+    s.reasoning = true;
+    expect(s.getInfo().reasoningEffort).toBe('default');
+
+    s.reasoning = {};
+    expect(s.getInfo().reasoningEffort).toBe('default');
+
+    s.reasoning = { effort: 'high' };
+    expect(s.getInfo().reasoningEffort).toBe('high');
+
+    s.reasoning = false;
+    expect(s.getInfo().reasoningEffort).toBeNull();
+  });
+});

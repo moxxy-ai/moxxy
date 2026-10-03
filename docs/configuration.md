@@ -34,7 +34,7 @@ export default defineConfig({
 
 ```yaml
 context:
-  reasoning: { effort: high }   # low | medium | high | xhigh; leave out for off
+  reasoning: { effort: high }   # low | medium | high | xhigh; `true` for the provider's default; leave out for off
   fast: true                    # the provider's faster, pricier tier
 ```
 

@@ -5,7 +5,7 @@
  * mention does is decided by the runner when the prompt arrives, not here.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { SkillInfo } from '@moxxy/sdk';
 // The subpath, not the barrel: the barrel reaches node-only modules a renderer cannot bundle.
 import { insertMention, mentionOptions, mentionQueryAt, type MentionOption } from '@moxxy/sdk/skill-mentions';
@@ -36,6 +36,10 @@ export function useMentionPicker(
   );
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [highlight, setHighlight] = useState({ query: '', index: 0 });
+  // Escape closes the menu for one @ word: once the caret has left it, an @ typed anew opens it again.
+  useEffect(() => {
+    if (query === null) setDismissedAt(null);
+  }, [query]);
 
   const open = query !== null && options.length > 0 && dismissedAt !== query.start;
   // Typing more narrows the list, so the highlight goes back to its top.

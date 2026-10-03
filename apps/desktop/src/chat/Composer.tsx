@@ -14,7 +14,6 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
-import { useMentionPicker } from '@moxxy/client-core';
 import { commandPalettePulse, focusComposerPulse } from '@/lib/chatPulses';
 import type { AgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
@@ -25,6 +24,7 @@ import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { MentionMenu } from './composer/MentionMenu';
+import { useComposerMentions } from './composer/useComposerMentions';
 import { sendBtn } from './composer/composer-styles';
 import {
   useComposerAttachments,
@@ -97,8 +97,6 @@ export function Composer({
   onPreviewImage,
 }: ComposerProps): JSX.Element {
   const [draft, setDraft] = useState('');
-  // Where the caret is, for the @ menu: it opens on the @ word being typed.
-  const [caret, setCaret] = useState(0);
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
   const voice = useVoiceRecorder({
@@ -151,19 +149,7 @@ export function Composer({
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
   const setDraftEmpty = useCallback(() => setDraft(''), []);
-  const mentions = useMentionPicker(agent.info?.skills, draft, caret);
-  const putMention = (index?: number): void => {
-    const picked = mentions.pick(index);
-    if (!picked) return;
-    setDraft(picked.text);
-    setCaret(picked.caret);
-    requestAnimationFrame(() => {
-      const ta = taRef.current;
-      if (!ta) return;
-      ta.focus();
-      ta.selectionStart = ta.selectionEnd = picked.caret;
-    });
-  };
+  const mentions = useComposerMentions(agent.info?.skills, draft, setDraft, taRef);
   const closeGoal = useCallback(() => setGoalArmed(false), []);
 
   const inFlight = activeTurnId !== null || sending;
@@ -264,23 +250,7 @@ export function Composer({
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // The open @ menu has the arrows, Enter/Tab and Escape before anything else.
-    if (mentions.open && !e.nativeEvent.isComposing) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        mentions.move(e.key === 'ArrowDown' ? 1 : -1);
-        return;
-      }
-      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-        e.preventDefault();
-        putMention();
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        mentions.dismiss();
-        return;
-      }
-    }
+    if (mentions.handleKey(e)) return;
     // Enter alone submits; Shift+Enter inserts a newline (the browser
     // default). ⌘↵ / Ctrl+↵ also submit so terminal-muscle-memory
     // users aren't surprised.
@@ -473,7 +443,7 @@ export function Composer({
       )}
       <div className="cmdbar__in">
         {mentions.open && (
-          <MentionMenu options={mentions.options} active={mentions.active} onPick={putMention} />
+          <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
         )}
         <OverflowMenu
           highlighted={autoApprove || modeBadge != null}
@@ -486,9 +456,9 @@ export function Composer({
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
-            setCaret(e.target.selectionStart);
+            mentions.trackCaret(e.target);
           }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onSelect={(e) => mentions.trackCaret(e.currentTarget)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={

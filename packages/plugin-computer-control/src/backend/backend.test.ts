@@ -512,21 +512,21 @@ describe('a run of steps', () => {
       };
       const input = { app: 'Safari', goal: 'Search', steps: [{ do: 'key', key: 'Return' }] };
 
-      it('lets a run press keys in a browser it reached, without a separate request for full control', async () => {
+      // Auto-approve skips the prompt, never the policy: full control still comes from a request the policy sees.
+      it('keeps a browser it reached through a run at its default level', async () => {
         const { tools } = backend([], {}, jev([]));
         autoApprove(true);
         approveRun(input, { decidedNow: true });
-        expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).not.toMatch(/tier_insufficient/);
-        expect(methods()).toContain('act');
-      });
-
-      it('falls back to the level of the grant once auto-approve is switched off', async () => {
-        const { tools } = backend([], {}, jev([]));
-        await requestAccess(tools, { apps: ['Safari'], reason: 'Read' });
-        autoApprove(true);
-        autoApprove(false);
         expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).toMatch(/tier_insufficient/);
         expect(methods()).not.toContain('act');
+      });
+
+      it('lets a run press keys once full control was requested', async () => {
+        const { tools } = backend([], {}, jev([]));
+        autoApprove(true);
+        await requestAccess(tools, { apps: ['Safari'], reason: 'Search', full_access: ['Safari'] });
+        expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).not.toMatch(/tier_insufficient/);
+        expect(methods()).toContain('act');
       });
     });
 

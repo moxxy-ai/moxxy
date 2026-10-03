@@ -39,8 +39,8 @@ export interface SessionInfo {
   readonly activeProvider: string | null;
   readonly activeMode: string | null;
   readonly activeModeBadge: ModeBadge | null;
-  /** How deeply the model thinks in this conversation (null: not set). Absent from older runners. */
-  readonly reasoningEffort?: ReasoningEffort | null;
+  /** How deeply the model thinks in this conversation (`default`: on at the provider's default; null: off). Absent from older runners. */
+  readonly reasoningEffort?: ReasoningEffort | 'default' | null;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
   /** What the composer's @ menu offers. */

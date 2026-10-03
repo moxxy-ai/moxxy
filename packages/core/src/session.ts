@@ -678,7 +678,7 @@ export class Session implements ClientSession, SessionRuntime {
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
-      reasoningEffort: typeof this.reasoning === 'object' ? this.reasoning.effort ?? null : null,
+      reasoningEffort: reasoningEffortOf(this.reasoning),
       fast: this.fast,
     };
   }
@@ -793,4 +793,10 @@ async function pathsStayInWorkspace(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The effort `SessionInfo` reports: reasoning on without a set effort runs at the provider's default. */
+function reasoningEffortOf(reasoning: Session['reasoning']): ReasoningEffort | 'default' | null {
+  if (!reasoning) return null;
+  return reasoning === true ? 'default' : reasoning.effort ?? 'default';
 }

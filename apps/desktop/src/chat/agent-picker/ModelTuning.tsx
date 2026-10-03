@@ -4,12 +4,12 @@
  */
 
 import { Select } from '@moxxy/desktop-ui';
-import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
 import { Switch } from '../../settings/settings-primitives';
-import { EFFORT_LEVELS, type ModelTuning as Tuning } from './useModelTuning';
+import type { EffortLevel, ModelTuning as Tuning } from './useModelTuning';
 
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
+const EFFORT_LABELS: Record<EffortLevel, string> = {
   off: 'Off',
+  default: 'Default',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -29,10 +29,10 @@ export function ModelTuning({ tuning }: { readonly tuning: Tuning }): JSX.Elemen
               tone="soft"
               value={tuning.effort}
               disabled={tuning.busy}
-              onChange={(e) => void tuning.setEffort(e.target.value as ReasoningEffort)}
+              onChange={(e) => void tuning.setEffort(e.target.value as EffortLevel)}
               data-testid="model-effort-select"
             >
-              {EFFORT_LEVELS.map((level) => (
+              {tuning.effortLevels.map((level) => (
                 <option key={level} value={level}>
                   {EFFORT_LABELS[level]}
                 </option>

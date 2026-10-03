@@ -583,6 +583,41 @@ describe('runTurn with a skill called by an @ mention', () => {
     expect(seen.prompt).not.toHaveProperty('attachments');
   });
 
+  it('keeps the withheld tools out of the sub-agents the turn starts', async () => {
+    const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
+    const session = buildMentionSession(seen);
+    const child: { tools?: string[]; reached?: string; filtered?: string[] } = {};
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'mention-subagents',
+      version: '0.0.0',
+      modes: [
+        defineMode({
+          name: 'tools-echo',
+          run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+            const names = ctx.tools.list().map((t) => t.name);
+            if (ctx.systemPrompt === 'filtered') { child.filtered = names; return; }
+            child.tools = names;
+            child.reached = await ctx.tools.execute('browser_click', {}, ctx.signal).then(String, (err: Error) => err.message);
+          },
+        }),
+        defineMode({
+          name: 'spawn-child',
+          run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+            await ctx.subagents?.spawn({ prompt: 'look', mode: 'tools-echo' });
+            await ctx.subagents?.spawn({ prompt: 'look', mode: 'tools-echo', systemPrompt: 'filtered', allowedTools: ['browser_click', 'computer_click'] });
+          },
+        }),
+      ],
+    }));
+    session.modes.setActive('spawn-child');
+
+    await collectTurn(session, '@computer_use otwórz Arc');
+
+    expect(child.tools).toEqual(['computer_click']);
+    expect(child.reached).toMatch(/browser_click is off for this request/);
+    expect(child.filtered).toEqual(['computer_click']);
+  });
+
   it('does not take a mention from a prompt a trigger wrote', async () => {
     const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
     await collectTurn(buildMentionSession(seen), 'webhook payload: @computer_use', { origin: { kind: 'webhook', name: 'gh' } });

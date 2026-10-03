@@ -1,4 +1,4 @@
-import { autoApproveFromEvents, defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
+import { defineTool, zodToJsonSchema, type LifecycleHooks, type SurfaceDef, type ToolContext, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import { z } from 'zod';
 import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
@@ -14,7 +14,7 @@ import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
 import {
-  accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier, underAutoApprove,
+  accessFromLog, accessGrantSchema, approvedThroughRun, categorize, checkAccess, checkKeys, defaultTier, maxTier, requiredTier,
   type AccessGrant, type AccessTier, type AppGrant,
   type AccessState,
 } from './access.js';
@@ -266,8 +266,11 @@ export class ComputerBackend {
     return this.call(ctx, 'get_app_state', { app: grant.id, ...(windowId ? { window_id: windowId } : {}), screenshot: picture, ...web }, appStateSchema, grant.name);
   }
 
-  /** One action on an app, behind the grant's level and the key rules. */
-  /** What the conversation may use: the grants of the access dialog, then the apps approved through a run at their default level, all raised while it auto-approves. */
+  /**
+   * What the conversation may use: the grants of the access dialog, then the apps approved through a run at their
+   * default level. Auto-approve raises none of them: it skips the prompt for a request of full control, not the
+   * policy that request goes through.
+   */
   private async access(ctx: ToolContext): Promise<AccessState> {
     const access = accessFromLog(ctx.log);
     const reached = this.reached.get(ctx.sessionId) ?? new Map<string, AppGrant | null>();
@@ -290,8 +293,7 @@ export class ComputerBackend {
       asked.set(name, grant.id);
       if (!apps.has(grant.id)) apps.set(grant.id, grant);
     }
-    const current = { apps: [...apps.values()], flags: access.flags };
-    return autoApproveFromEvents(ctx.log.ofType('plugin_event')) ? underAutoApprove(current) : current;
+    return { apps: [...apps.values()], flags: access.flags };
   }
 
   /** The grant for `app`, which may be the name it was asked for under instead of the one it has on this system. */
@@ -300,6 +302,7 @@ export class ComputerBackend {
     return checkAccess(access, known ? app : this.asked.get(ctx.sessionId)?.get(app.toLowerCase()) ?? app, needed);
   }
 
+  /** One action on an app, behind the grant's level and the key rules. */
   private async perform(app: string, step: ComputerAction, ctx: ToolContext, beforeSending: (turn: Turn, grant: AppGrant) => void = () => undefined, wait: ActWait = { picture: true }) {
     const access = await this.access(ctx);
     const grant = this.granted(ctx, access, app, requiredTier(step));

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -36,6 +36,22 @@ describe('tracedJev', () => {
     expect(line?.ms).toEqual(expect.any(Number));
   });
 
+  it('keeps what a step types out of the file, and the file to its owner', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'jev-trace-')), 'trace.ndjson');
+    const ask: AskJev = async () => ({ already: { type: 'noul', noul: 0.1 } });
+    const typing = { ...state, step: { do: 'type', target: 'Password field', text: 'hunter2' }, performed: { do: 'set_value', target: 'PIN', text: '1234' } };
+    await tracedJev(ask, file)(typing, { already: questions.already }, never);
+
+    const raw = await readFile(file, 'utf8');
+    expect(raw).not.toContain('hunter2');
+    expect(raw).not.toContain('1234');
+    expect((await linesOf(file))[0]).toMatchObject({
+      step: { do: 'type', target: 'Password field', text: '[7 characters]' },
+      performed: { do: 'set_value', target: 'PIN', text: '[4 characters]' },
+    });
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
+  });
+
   it('records a failed request and passes the failure on', async () => {
     const file = join(await mkdtemp(join(tmpdir(), 'jev-trace-')), 'trace.ndjson');
     const failing: AskJev = async () => { throw new JevError(0, 'Jev did not answer: timeout'); };
@@ -51,6 +67,7 @@ describe('traceRun', () => {
     const [line] = await linesOf(file);
     expect(line).toMatchObject({ run: { app: 'Safari', goal: 'Search', steps: 2, ms: 900, asks: 3, time: { jev: 400, act: 300, look: 100 }, outcomes: ['verified', 'done'] } });
     expect(line?.at).toEqual(expect.any(String));
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it('writes nothing without a trace file', async () => {

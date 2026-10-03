@@ -58,6 +58,8 @@ export interface SubagentRuntime {
   readonly parentTurnId: TurnId;
   readonly parentSignal: AbortSignal;
   readonly parentModel: string;
+  /** The tools the parent turn may use, when it may not use all of the session's (an @ mention withheld some). */
+  readonly parentTools?: ToolRegistry;
 }
 
 type ResolvedStrategy =
@@ -71,6 +73,7 @@ export async function runChildTurn(args: {
 }): Promise<SubagentResult> {
   const { rt, spec, retainSession } = args;
   const { parentSession, parentTurnId } = rt;
+  const parentTools = rt.parentTools ?? parentSession.tools;
   const childSessionId = newSessionId();
   const childTurnId = newTurnId();
   const label = spec.label ?? `subagent-${String(childSessionId).slice(-6)}`;
@@ -92,8 +95,8 @@ export async function runChildTurn(args: {
   // explicit [] into full tool inheritance — the opposite of the caller's intent.
   const toolRegistry: ToolRegistry =
     spec.allowedTools === undefined
-      ? parentSession.tools
-      : buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools));
+      ? parentTools
+      : buildFilteredToolRegistry(parentTools, new Set(spec.allowedTools));
 
   const childModel = await resolveChildModel(rt, spec, label, childSessionId);
 

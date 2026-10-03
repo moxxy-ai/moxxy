@@ -170,6 +170,19 @@ describe('runSteps', () => {
       });
       expect(report.outcomes).toMatchObject([{ status: 'done' }, { status: 'failed', why: 'blocked (target_blocked)' }]);
     });
+
+    it('stop at a step the helper did not report on instead of sending it again', async () => {
+      const window = typing();
+      let batches = 0;
+      const steps: RunStep[] = [{ do: 'key', key: 'super+l' }, { do: 'type', text: 'a' }];
+      const report = await runSteps('Type', steps, window.state(), {
+        ...deps(window, jev(() => undefined).ask),
+        batch: async () => { batches += 1; return { results: [{ outcome: 'delivered' }], state: window.state() }; },
+      });
+      expect(batches).toBe(1);
+      expect(window.acted).toEqual([]);
+      expect(report.outcomes).toMatchObject([{ status: 'done' }, { status: 'failed', why: 'the helper did not say whether this step was done' }]);
+    });
   });
 
   it('acts on the one element named exactly as the target without asking Jev where it is', async () => {

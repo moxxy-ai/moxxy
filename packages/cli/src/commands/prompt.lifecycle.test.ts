@@ -152,13 +152,12 @@ describe('runPromptCommand lifecycle', () => {
     expect(process.listenerCount('SIGTERM')).toBe(signalListeners);
   });
 
-  // Tools read auto-approve from the log (Computer Use gives full control under it), as the desktop's switch does.
-  it('records --allow-all as the conversation\'s auto-approve, and leaves it off without the flag', async () => {
-    await runPromptCommand(argv());
-    expect(harness.session.autoApprove).toBe(false);
+  // --allow-all lets this invocation's tools run; it is not the conversation's auto-approve, which the log keeps.
+  it('keeps --allow-all to this invocation: the conversation\'s auto-approve stays off', async () => {
     const flags = { p: 'hello', 'output-format': 'stream-json', 'allow-all': true };
     await runPromptCommand({ positional: [], flags } as unknown as ParsedArgv);
-    expect(harness.session.autoApprove).toBe(true);
+    expect(harness.session.autoApprove).toBe(false);
+    expect(harness.session.log.ofType('plugin_event')).toEqual([]);
   });
 
   it('leaves no signal handler behind after a normal run', async () => {

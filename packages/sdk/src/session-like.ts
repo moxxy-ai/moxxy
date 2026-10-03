@@ -160,8 +160,11 @@ export interface SessionInfo {
   /** Tool calls run without asking in this conversation (see `auto-approve.ts`).
    *  Absent from runners that predate the shared switch. */
   readonly autoApprove?: boolean;
-  /** How deeply the model thinks in this conversation; null when not set. Absent from older runners. */
-  readonly reasoningEffort?: ReasoningEffort | null;
+  /**
+   * How deeply the model thinks in this conversation: a set effort, `default` when reasoning is on at the
+   * provider's own default effort, null when it is off. Absent from older runners.
+   */
+  readonly reasoningEffort?: ReasoningEffort | 'default' | null;
   /** Whether turns ask for the provider's faster tier. Absent from older runners. */
   readonly fast?: boolean;
   /** Turns running now, whichever client (or in-process channel) started them.

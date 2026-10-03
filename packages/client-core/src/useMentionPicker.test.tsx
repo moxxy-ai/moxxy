@@ -49,6 +49,15 @@ describe('useMentionPicker', () => {
     expect(result.current.open).toBe(true);
   });
 
+  it('opens again for an @ typed anew where a dismissed one was', () => {
+    const { result, rerender } = render('@com');
+
+    act(() => result.current.dismiss());
+    rerender({ text: '', at: 0 });
+    rerender({ text: '@', at: 1 });
+    expect(result.current.open).toBe(true);
+  });
+
   it('starts at the top of a list narrowed by more typing', () => {
     const { result, rerender } = render('@');
 

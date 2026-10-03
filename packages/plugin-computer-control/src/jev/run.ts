@@ -1,4 +1,5 @@
 import type { AppState, ShownText } from '../backend/rpc.js';
+import { invariant } from '@moxxy/sdk';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
@@ -125,7 +126,6 @@ function chosen(tree: AppTree, element: AppElement): boolean {
   return false;
 }
 
-/** A step with nothing to find and nothing to check: a key, or typing into the focus, without `expect`. */
 /**
  * Steps judged by pixels as well as elements, so the states before and after them come with a picture: a click,
  * which may change only pixels, and a key that expects something, such as selecting text.
@@ -144,11 +144,16 @@ function changesSince(previous: AppTree, next: AppTree): string {
   return `${view.text.slice(0, cut)}\n… more changes; \`elements\` is the window as it is now.`;
 }
 
+/** A step with nothing to find and nothing to check: a key, or typing into the focus, without `expect`. */
 const blind = (step: RunStep) => step.expect === undefined && (step.do === 'key' || (step.do === 'type' && step.target === undefined));
 
-/** Whether a type step's text shows in its element now. */
+/** Why a type step was skipped: typing appends, so it would double the text. */
 const HELD = 'the field already holds this text';
 
+/** Why a batched step failed that the helper's answer left out. */
+const UNREPORTED = 'the helper did not say whether this step was done';
+
+/** Whether a type step's text shows in its element now. */
 const holdsText = (tree: AppTree, element: AppElement, text: string) =>
   tree.elements.find((candidate) => candidate.key === element.key)?.value?.includes(text) === true;
 
@@ -350,11 +355,15 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
 
   /** Steps with nothing to find and nothing to check, sent as one batch: each is done once its action is delivered. */
   const carryOutTogether = async (segment: readonly RunStep[], next: RunStep | undefined, batch: NonNullable<RunDeps['batch']>): Promise<StepOutcome[]> => {
-    const actions = segment.map((step) => rungs(step, undefined, deps.selectAll)[0]?.[0]);
+    const actions = segment.map((step) => {
+      const [way] = rungs(step, undefined, deps.selectAll);
+      invariant(way?.length === 1 && way[0] !== undefined, `a ${step.do} step with nothing to find is one action`);
+      return way[0];
+    });
     const picture = next === undefined || pictured(next);
     let results: readonly ActionResult[];
     try {
-      const done = await timed('act', () => batch(actions.filter((action) => action !== undefined), picture));
+      const done = await timed('act', () => batch(actions, picture));
       results = done.results;
       state = done.state ?? await observe(picture);
     } catch (error) {
@@ -363,10 +372,19 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       state = await observe(picture);
     }
     ahead = undefined;
-    return results.map((result, index): StepOutcome => {
-      const verdict = judge({ step: segment[index] as RunStep, result, changed: true });
-      return verdict.verdict === 'done' ? { status: 'done', attempts: 1 } : { status: 'failed', attempts: 1, why: verdict.why };
-    });
+    // Up to the first step that was not done; one the helper said nothing about is not sent again, it may have been.
+    const outcomes: StepOutcome[] = [];
+    for (const [index, step] of segment.entries()) {
+      const result = results[index];
+      if (!result) {
+        outcomes.push({ status: 'failed', attempts: 1, why: UNREPORTED });
+        break;
+      }
+      const verdict = judge({ step, result, changed: true });
+      outcomes.push(verdict.verdict === 'done' ? { status: 'done', attempts: 1 } : { status: 'failed', attempts: 1, why: verdict.why });
+      if (verdict.verdict !== 'done') break;
+    }
+    return outcomes;
   };
 
   for (let index = 0; index < steps.length;) {

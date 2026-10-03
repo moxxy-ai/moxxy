@@ -23,6 +23,17 @@ function summarizeAnswers(answers: JevAnswers, elements: string): Traced {
   }));
 }
 
+/** What a step types may be a password: the trace keeps its length only. */
+function withoutTypedText(context: Traced): Traced {
+  return Object.fromEntries(Object.entries(context).map(([field, value]) => {
+    const text = typeof value === 'object' && value !== null ? (value as Traced).text : undefined;
+    return [field, typeof text === 'string' ? { ...(value as Traced), text: `[${text.length} characters]` } : value];
+  }));
+}
+
+/** Appended, and created readable by its owner only. */
+const append = (file: string, entry: Traced) => appendFile(file, `${JSON.stringify(entry)}\n`, { mode: 0o600 }).catch(() => {});
+
 /** `MOXXY_JEV_TRACE=<file>` turns the trace on. */
 export const tracedFromEnv = (ask: AskJev): AskJev => {
   const file = process.env.MOXXY_JEV_TRACE;
@@ -31,7 +42,8 @@ export const tracedFromEnv = (ask: AskJev): AskJev => {
 
 /**
  * Writes each request to Jev as one JSON line of `file`: the step it was about, how much of the window it was
- * shown, what it answered and how long it took. For measuring where runs go wrong; the window itself is not kept.
+ * shown, what it answered and how long it took. For measuring where runs go wrong; the window itself and the text
+ * a step types are not kept.
  */
 export function tracedJev(ask: AskJev, file: string): AskJev {
   return async (state, questions, signal) => {
@@ -39,13 +51,13 @@ export function tracedJev(ask: AskJev, file: string): AskJev {
     const elements = typeof context.elements === 'string' ? context.elements : '';
     const { elements: _, ...rest } = context;
     const base = {
-      at: new Date().toISOString(), ...rest,
+      at: new Date().toISOString(), ...withoutTypedText(rest),
       elements: elements === '' ? 0 : elements.split('\n').length,
       stateChars: JSON.stringify(state).length,
       questions: summarizeQuestions(questions),
     };
     const started = performance.now();
-    const write = (entry: Traced) => appendFile(file, `${JSON.stringify({ ...base, ms: Math.round(performance.now() - started), ...entry })}\n`).catch(() => {});
+    const write = (entry: Traced) => append(file, { ...base, ms: Math.round(performance.now() - started), ...entry });
     try {
       const answers = await ask(state, questions, signal);
       await write({ answers: summarizeAnswers(answers, elements) });
@@ -70,5 +82,5 @@ export interface RunTrace {
 /** One line per computer_run in the same file as its requests to Jev: what it did and where its time went. */
 export async function traceRun(file: string | undefined, run: RunTrace): Promise<void> {
   if (!file) return;
-  await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), run })}\n`).catch(() => {});
+  await append(file, { at: new Date().toISOString(), run });
 }
