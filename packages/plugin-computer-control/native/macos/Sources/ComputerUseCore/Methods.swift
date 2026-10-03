@@ -45,6 +45,7 @@ public enum Methods {
             "batch": { params in try batch(params, targets: targets, cursor: cursor, input: input) },
             "screenshot": { params in try screenshot(params, targets: targets, host: input.host) },
             "zoom": { params in try zoom(params, targets: targets, host: input.host) },
+            "read_text": { params in try readText(params, targets: targets) },
             "preview.start": { params in
                 guard let preview else { throw HelperError(code: "unsupported_action", message: "This helper has no preview") }
                 guard permissions.granted(.screenRecording) else {

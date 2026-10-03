@@ -55,6 +55,25 @@ public final class CursorOverlay {
         return duration
     }
 
+    /// Counts outlines, so a finish scheduled for one action does not clear the outline of the next.
+    private var outlined = 0
+
+    /// Once the glide has arrived: the ring for a delivered action, and the outline cleared.
+    public func finish(delivered: Bool, after delay: Double) {
+        let generation = outlined
+        guard delay > 0 else {
+            if delivered { press() }
+            outline(nil)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated {
+                if delivered { self.press() }
+                if self.outlined == generation { self.outline(nil) }
+            }
+        }
+    }
+
     /// A ring at the pointer's tip: the moment an action is delivered.
     public func press() {
         withoutAnimation {
@@ -79,6 +98,7 @@ public final class CursorOverlay {
 
     /// Frames the element about to be acted on (a screen rect); `nil` clears it.
     public func outline(_ rect: CGRect?) {
+        if rect != nil { outlined += 1 }
         withoutAnimation {
             outlineLayer.path = rect.map {
                 CGPath(roundedRect: OverlayGeometry.viewRect($0, window: window, margin: Self.margin).insetBy(dx: -3, dy: -3),

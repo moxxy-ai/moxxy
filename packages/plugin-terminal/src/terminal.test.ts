@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { runCommand } from './terminal.js';
 import type { TerminalProcess } from './pty.js';
@@ -282,6 +283,45 @@ describe('runCommand sentinel detection (tail-scan, single RegExp compile)', () 
 
     const res = await p;
     expect(res.output).toBe('one\ntwo');
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('runCommand with a long or multi-line command', () => {
+  it('types one short line that runs the command from a file, and removes the file when done', async () => {
+    const term = fakeTerminal();
+    const marker = '__MOXXY_DONE_file_0__';
+    const command = "python3 - <<'PY'\nprint('hi')\nPY";
+    const p = runCommand(term, command, marker, 5_000);
+
+    const typed = term.writes[0] ?? '';
+    const file = /^\. '([^']+)'\n$/.exec(typed)?.[1];
+    expect(file).toBeDefined();
+    expect(readFileSync(file ?? '', 'utf8')).toBe(`${command}\n`);
+
+    term.feed(typed);
+    term.feed('hi\n');
+    term.feed(`${marker} 0\n`);
+    const res = await p;
+    expect(res.output).toBe('hi');
+    expect(existsSync(file ?? '')).toBe(false);
+  });
+
+  it('runs a single line longer than the terminal input buffer from a file too', async () => {
+    const term = fakeTerminal();
+    const p = runCommand(term, `echo ${'x'.repeat(2_000)}`, '__MOXXY_DONE_file_1__', 5_000);
+
+    expect(term.writes[0]?.length).toBeLessThan(300);
+    term.feed('__MOXXY_DONE_file_1__ 0\n');
+    await p;
+  });
+
+  it('types a short one-line command as it is', async () => {
+    const term = fakeTerminal();
+    const p = runCommand(term, 'ls -la', '__MOXXY_DONE_file_2__', 5_000);
+
+    expect(term.writes[0]).toBe('ls -la\n');
+    term.feed('__MOXXY_DONE_file_2__ 0\n');
+    await p;
   });
 });
 

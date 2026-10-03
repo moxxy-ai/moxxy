@@ -177,6 +177,13 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('takes only a yes or no for settings.setFast', () => {
+    expect(() => validateIpcInput('settings.setFast', { enabled: true })).not.toThrow();
+    expect(() => validateIpcInput('settings.setFast', { workspaceId: 'ws', enabled: false })).not.toThrow();
+    expect(() => validateIpcInput('settings.setFast', { enabled: 'yes' })).toThrow();
+    expect(() => validateIpcInput('settings.setFast', {})).toThrow();
+  });
+
   it('bounds session.runTurn prompt + attachments', () => {
     expect(() => validateIpcInput('session.runTurn', { prompt: 'hi' })).not.toThrow();
     expect(() =>

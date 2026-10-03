@@ -100,6 +100,9 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     // runner throws a clear "update the CLI" error rather than method-not-found.
     await mustRemote(pool, workspaceId).providerAdmin.setReasoning(effort);
   });
+  handle('settings.setFast', async ({ workspaceId, enabled }) => {
+    await mustRemote(pool, workspaceId).providerAdmin.setFast(enabled);
+  });
   handle('settings.mcpServers', async (args) => {
     const session = mustSession(pool, args?.workspaceId);
     if (!session.mcpAdmin) return [];

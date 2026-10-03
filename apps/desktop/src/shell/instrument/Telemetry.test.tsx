@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { __setApiOverride } from '@moxxy/client-core';
+import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { ContextMeter, contextLevel } from './ContextMeter';
-import { compact } from './Telemetry';
+import { compact, Telemetry } from './Telemetry';
 
 /**
  * The context gauge is the readout a supervisor actually watches during a long
@@ -63,5 +65,26 @@ describe('compact', () => {
     // Past 100k the decimal is noise in a 12px cell.
     expect(compact(128_412)).toBe('128k');
     expect(compact(1_234_567)).toBe('1.2M');
+  });
+});
+
+describe('Telemetry model panel', () => {
+  it('sets the effort and fast mode next to the model and marks a fast conversation', async () => {
+    const invoke = vi.fn(async () => {});
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+    const info = {
+      sessionId: 's1',
+      providers: [{ name: 'openai-codex', models: [{ id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }] }],
+      modes: [], activeProvider: 'openai-codex', activeMode: null, activeModeBadge: null,
+      reasoningEffort: 'high' as const, fast: true,
+    };
+    render(<Telemetry workspaceId="ws" info={info} selectedModel="gpt-6-luna" disabled={false} onPick={() => {}} />);
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('gpt-6-luna · fast');
+
+    fireEvent.click(screen.getByTestId('instrument-telemetry'));
+    expect(screen.getByLabelText('Reasoning effort')).toHaveValue('high');
+    fireEvent.click(screen.getByRole('switch', { name: 'Fast mode' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setFast', { workspaceId: 'ws', enabled: false }));
+    __setApiOverride(null);
   });
 });

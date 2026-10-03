@@ -10,6 +10,8 @@ export interface ProviderAdminClientView extends ProviderAdminView {
   /** Set the session's reasoning/thinking effort (`off` clears it). Honored
    *  only by models that advertise `supportsReasoning` (gated server-side). */
   setReasoning(effort: ReasoningEffortLevel): Promise<void>;
+  /** Switch the provider's faster tier for the session (OpenAI fast mode). */
+  setFast(enabled: boolean): Promise<void>;
 }
 
 // Provider management (protocol v7): backs the desktop's interactive
@@ -35,6 +37,10 @@ export function makeProviderAdminView(ctx: ViewContext): ProviderAdminClientView
     setReasoning: async (effort) => {
       requireServerProtocol(9, 'Setting reasoning effort');
       await peer.request(RunnerMethod.SessionSetReasoning, { effort });
+    },
+    setFast: async (enabled) => {
+      requireServerProtocol(24, 'Switching fast mode');
+      await peer.request(RunnerMethod.SessionSetFast, { enabled });
     },
   };
 }

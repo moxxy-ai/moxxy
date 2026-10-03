@@ -108,6 +108,8 @@ export interface ModeContext {
    * active model's `supportsReasoning`. Absent/false → reasoning off.
    */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  /** Ask for the provider's faster tier; forwarded only to a model with `supportsFast`. */
+  readonly fast?: boolean;
   readonly permissions: PermissionResolver;
   /**
    * Optional generic "ask the user a question" gate. Any loop strategy can

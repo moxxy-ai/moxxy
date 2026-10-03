@@ -66,6 +66,9 @@ export const skillFrontmatterSchema = z.object({
   description: z.string().min(1).max(240),
   triggers: z.array(z.string().min(1)).optional(),
   'allowed-tools': z.array(z.string().min(1)).optional(),
+  aliases: z.array(z.string().regex(/^[a-z0-9][a-z0-9_-]*$/, 'alias must be slug-like')).optional(),
+  'disallowed-tools': z.array(z.string().min(1)).optional(),
+  label: z.string().min(1).max(40).optional(),
   version: z.string().optional(),
   tags: z.array(z.string().min(1)).optional(),
   /** Opt the skill into automatic recurring/one-shot execution. */

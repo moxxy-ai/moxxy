@@ -152,6 +152,14 @@ describe('runPromptCommand lifecycle', () => {
     expect(process.listenerCount('SIGTERM')).toBe(signalListeners);
   });
 
+  // --allow-all lets this invocation's tools run; it is not the conversation's auto-approve, which the log keeps.
+  it('keeps --allow-all to this invocation: the conversation\'s auto-approve stays off', async () => {
+    const flags = { p: 'hello', 'output-format': 'stream-json', 'allow-all': true };
+    await runPromptCommand({ positional: [], flags } as unknown as ParsedArgv);
+    expect(harness.session.autoApprove).toBe(false);
+    expect(harness.session.log.ofType('plugin_event')).toEqual([]);
+  });
+
   it('leaves no signal handler behind after a normal run', async () => {
     const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
 

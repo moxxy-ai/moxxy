@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createMutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { z } from 'zod';
-import { runStepShape, type RunStep } from '../contract/tools.js';
+import { pointsAtFocus, runStepShape, type RunStep } from '../contract/tools.js';
 import type { AppElement, AppTree } from '../contract/tree.js';
 
 /** Lessons kept per app; the oldest go first. */
@@ -139,9 +139,11 @@ export class RunMemory {
     });
   }
 
+  /** A target that points at the focus is not kept: the focus is elsewhere next time. */
   learn(app: string, lesson: Lesson): Promise<void> {
     const at = this.now();
-    const targets = (lesson.targets ?? []).map((target) => ({ ...target, target: sameWords(target.target), uses: 1, at }));
+    const targets = (lesson.targets ?? []).filter((target) => !pointsAtFocus(target.target))
+      .map((target) => ({ ...target, target: sameWords(target.target), uses: 1, at }));
     const routes = lesson.route ? [{ goal: lesson.route.goal, steps: [...lesson.route.steps], uses: 1, at }] : [];
     return this.change(app, (file) => merged(file, targets, routes));
   }
@@ -220,7 +222,8 @@ export function guess(memory: AppMemory, step: RunStep, tree: AppTree): { elemen
 /** The live element a step's target was last time, when the window still has it reading the same. */
 export function recall(memory: AppMemory, step: RunStep, tree: AppTree): { element?: AppElement; way: number; effect?: readonly string[] } | undefined {
   const named = targetOf(step);
-  if (named === undefined) return undefined;
+  // Lessons learned before these were left out still name the element the focus was in then.
+  if (named === undefined || (step.target !== undefined && pointsAtFocus(step.target))) return undefined;
   const target = sameWords(named);
   if (step.target === undefined) {
     // A key has no element: all there is to remember is what it made appear.

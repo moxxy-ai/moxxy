@@ -62,6 +62,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // settings writes; a paired phone holds a conversation, it doesn't retune
       // the runner's generation config.
       'settings.setReasoning',
+      'settings.setFast',
       // Pause, resume and take over belong to the person at the computer; a
       // phone stops a turn with `session.abortTurn`.
       'computer.control',

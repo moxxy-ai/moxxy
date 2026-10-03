@@ -199,6 +199,19 @@ public final class AXReader {
         return nil
     }
 
+    /// Whether the element is part of a web page: a page nests far deeper than the native lineage limit.
+    static func inPage(_ element: AXUIElement) -> Bool {
+        lineage(element, limit: 80).contains { attribute($0, kAXRoleAttribute) == "AXWebArea" }
+    }
+
+    /// Whether the element is part of a web page and inside the part of the page the window shows: a place a
+    /// click can land on. One scrolled out of view lies outside its page's frame.
+    static func shownOnPage(_ element: AXUIElement) -> Bool {
+        guard let page = lineage(element, limit: 80).first(where: { attribute($0, kAXRoleAttribute) == "AXWebArea" }),
+              let shown = frame(page), let place = frame(element) else { return false }
+        return shown.contains(CGPoint(x: place.midX, y: place.midY))
+    }
+
     static func lineage(_ element: AXUIElement, limit: Int = 12) -> [AXUIElement] {
         var chain = [element]
         while chain.count < limit, let parent: AXUIElement = attribute(chain[chain.count - 1], kAXParentAttribute) {

@@ -171,7 +171,8 @@ import type {
 /** v21: `session.setAutoApprove` switches the conversation's auto-approve; `SessionInfo.autoApprove` reports it (additive). */
 /** v22: `SessionInfo.runningTurns` lists every running turn, including one a channel bot runs inside the runner, and `abort` reaches such a turn (additive). */
 /** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
-export const RUNNER_PROTOCOL_VERSION = 23;
+/** v24: `session.setFast` switches the provider's faster tier; `SessionInfo` reports `fast` and `reasoningEffort` (additive). */
+export const RUNNER_PROTOCOL_VERSION = 24;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -229,6 +230,8 @@ export const RunnerMethod = {
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
   SessionSetReasoning: 'session.setReasoning',
+  /** client->server: switch the provider's faster tier for the session (v24). */
+  SessionSetFast: 'session.setFast',
   /** client->server: switch the active provider (server resolves credentials). */
   ProviderSetActive: 'provider.setActive',
   /** client->server: enable/disable a provider (v7; persists to the config manifest). */
@@ -412,6 +415,11 @@ export interface ModeSetActiveParams {
 export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 export interface SessionSetReasoningParams {
   readonly effort: ReasoningEffortLevel;
+}
+
+/** Params for `session.setFast` (v24). */
+export interface SessionSetFastParams {
+  readonly enabled: boolean;
 }
 
 /**
@@ -662,6 +670,8 @@ export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 export const sessionSetReasoningParamsSchema = z.object({
   effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
 });
+
+export const sessionSetFastParamsSchema = z.object({ enabled: z.boolean() });
 
 /**
  * Params for `session.loadHistory` (v10). `before` is a non-negative seq cursor

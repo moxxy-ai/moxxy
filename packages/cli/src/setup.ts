@@ -327,7 +327,8 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   const discovered = await discoverSkills({
     projectDir: config.skills?.projectDir ?? defaultProjectSkillsDir(opts.cwd),
     userDir: config.skills?.userDir ?? defaultUserSkillsDir(),
-    pluginDirs: config.skills?.extraDirs,
+    // Plugins ship skills too (Computer Use, the browser, OAuth, sub-agents).
+    pluginDirs: [...session.pluginHost.skillDirs(), ...(config.skills?.extraDirs ?? [])],
     builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
     logger,
   });

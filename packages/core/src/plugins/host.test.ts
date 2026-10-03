@@ -508,3 +508,42 @@ describe('PluginHost', () => {
     expect(transcribers.has('fake-stt')).toBe(false);
   });
 });
+
+describe('PluginHost skill directories', () => {
+  it('names the skills folder each loaded plugin ships, from its package.json or its skillsDir', () => {
+    const { host } = makeHost();
+    host.registerDiscovered(definePlugin({ name: 'computer' }), {
+      entry: './dist/index.js',
+      skills: './skills',
+      packageName: '@moxxy/plugin-computer-control',
+      packageVersion: '1.0.0',
+      packagePath: path.join(os.tmpdir(), 'computer'),
+    });
+    host.registerDiscovered(definePlugin({ name: 'plain' }), {
+      entry: './dist/index.js',
+      packageName: '@scope/plain',
+      packageVersion: '1.0.0',
+      packagePath: path.join(os.tmpdir(), 'plain'),
+    });
+    host.registerStatic(definePlugin({ name: 'bundled', skillsDir: path.join(os.tmpdir(), 'bundled-skills') }));
+
+    expect(host.skillDirs()).toEqual([
+      path.join(os.tmpdir(), 'computer', 'skills'),
+      path.join(os.tmpdir(), 'bundled-skills'),
+    ]);
+  });
+
+  it('forgets the folder of a plugin that was unloaded', async () => {
+    const { host } = makeHost();
+    host.registerDiscovered(definePlugin({ name: 'computer' }), {
+      entry: './dist/index.js',
+      skills: './skills',
+      packageName: '@moxxy/plugin-computer-control',
+      packageVersion: '1.0.0',
+      packagePath: path.join(os.tmpdir(), 'computer'),
+    });
+    await host.unload('@moxxy/plugin-computer-control');
+
+    expect(host.skillDirs()).toEqual([]);
+  });
+});

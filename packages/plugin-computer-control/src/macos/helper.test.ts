@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { imageBudget } from '../contract/image.js';
 import { verifyHelperArtifact } from '../helper/artifact.js';
 import { HelperTransport, type HelperEvent } from '../helper/transport.js';
-import { CONTRACT_PROTOCOL_VERSION, actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
+import { CONTRACT_PROTOCOL_VERSION, actResultSchema, appStateSchema, batchResultSchema, contractEventsFor, imageSchema, listAppsResultSchema, readTextResultSchema, resolveAppsResultSchema, statusResultSchema } from '../backend/rpc.js';
 import { macosHelperPath, macosProfile } from './profile.js';
 import { ComputerBackend } from '../backend/backend.js';
 import { REQUEST_ACCESS_TOOL } from '../backend/access.js';
@@ -139,8 +139,8 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const secret = [...byKey.values()].find((element) => element.secure);
       expect(secret?.value).toBeUndefined();
       expect(JSON.stringify(state)).not.toContain('hunter2');
-      // Plain stack views are flattened; only the labelled canvas stays a group.
-      expect(state.tree.elements.filter((element) => element.role === 'group').map((element) => element.key.split('/').at(-1))).toEqual(['group:pad', 'group:timeline']);
+      // Plain stack views are flattened; only the labelled canvases stay groups.
+      expect(state.tree.elements.filter((element) => element.role === 'group').map((element) => element.key.split('/').at(-1))).toEqual(['group:painted', 'group:pad', 'group:timeline']);
     } finally { await transport.close(); }
   });
 
@@ -156,6 +156,18 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
     } finally { await transport.close(); }
   });
 
+  // The system lists an app for a moment after its process is gone; that one must not stand for the app.
+  it('starts the app again when it is asked for just after it quit', { timeout: 60_000 }, async () => {
+    for (let round = 0; round < 5; round += 1) {
+      await quitFixture();
+      const transport = start();
+      try {
+        const state = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+        expect(state.tree.elements.find((element) => element.key.endsWith('text:loaded'))?.title, `round ${round}: ${JSON.stringify(state).slice(0, 300)}`).toBe('Loaded');
+      } finally { await transport.close(); }
+    }
+  });
+
   it('keeps every element index across observations', async () => {
     const transport = start();
     try {
@@ -163,6 +175,16 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
       const second = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
       const indices = (state: typeof first) => Object.fromEntries(state.tree.elements.map((element) => [element.key, element.index]));
       expect(indices(second)).toEqual(indices(first));
+    } finally { await transport.close(); }
+  });
+
+  it('names its window by the system\'s number, the same in every observation', async () => {
+    const transport = start();
+    try {
+      const first = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      const second = appStateSchema.parse(await transport.request('get_app_state', { app: FIXTURE, screenshot: false }, signal()));
+      expect(first.tree.windowId).toMatch(/^\d+$/);
+      expect(second.tree.windowId).toBe(first.tree.windowId);
     } finally { await transport.close(); }
   });
 
@@ -286,6 +308,44 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
         expect(element(state ?? before, 'text:status').title).toBe(`Pressed ${pressed + 1}`);
         const phases = events.map((event) => (event as { cursor: { phase: string } | null }).cursor?.phase);
         expect(phases.slice(0, 3)).toEqual(['moving', 'executing', 'delivered']);
+      } finally { await transport.close(); }
+    });
+
+    // The cursor glides on its own and a press that shows nothing at once is checked only when asked for again.
+    it('sends an accessibility press at once, waiting neither for the cursor nor for a redraw', async () => {
+      const timing = join(mkdtempSync(join(tmpdir(), 'moxxy-timing-')), 'timing.txt');
+      process.env.MOXXY_COMPUTER_TIMING = timing;
+      const transport = start();
+      delete process.env.MOXXY_COMPUTER_TIMING;
+      try {
+        const before = await observe(transport);
+        const { result } = await act(transport, { action: 'click', element_index: element(before, 'button:dud').index, mouse_button: 'left', click_count: 1 });
+        expect(result).toEqual({ outcome: 'delivered', method: 'ax' });
+        const pressed = /(\d+) ms {2}act: performed ax/.exec(readFileSync(timing, 'utf8'));
+        expect(Number(pressed?.[1])).toBeLessThan(150);
+      } finally { await transport.close(); }
+    });
+
+    it('leaves the picture out of the state after an action when asked', async () => {
+      const transport = start();
+      try {
+        const before = await observe(transport);
+        const press = { action: 'click', element_index: element(before, 'button:press').index, mouse_button: 'left', click_count: 1 };
+        const plain = actResultSchema.parse(await transport.request('act', { app: FIXTURE, action: press, allowed: [FIXTURE], screenshot: false }, signal()));
+        expect(plain.result.outcome).toBe('delivered');
+        expect(plain.state?.screenshot).toBeUndefined();
+        expect((await act(transport, press)).state?.screenshot).toBeDefined();
+      } finally { await transport.close(); }
+    });
+
+    it('returns from typing with what the app showed in answer to the text', async () => {
+      const transport = start();
+      try {
+        const city = element(await observe(transport), 'text field:city');
+        const { state } = actResultSchema.parse(await transport.request('act', {
+          app: FIXTURE, action: { action: 'type_text', element_index: city.index, text: 'Kra' }, allowed: [FIXTURE], screenshot: false,
+        }, signal()));
+        expect(element(state ?? { tree: { elements: [] } }, ':suggestion').title).toBe('Suggestion Kra');
       } finally { await transport.close(); }
     });
 
@@ -786,6 +846,22 @@ describe.skipIf(!fixtureBuilt)('macOS app state', () => {
           expect(half.width).toBe(Math.round(shot.width / 2));
           const zoomed = imageSchema.parse(await transport.request('zoom', { region: [0, 0, 100, 50], allowed: [FIXTURE] }, signal()));
           expect(zoomed.width / zoomed.height).toBeCloseTo(2, 1);
+        } finally { await transport.close(); }
+      });
+
+      it('reads the text the screenshot shows where accessibility names the control otherwise, at the place a click hits', async () => {
+        const transport = start();
+        try {
+          const state = await look(transport);
+          // The fixture paints "Add title" on a control accessibility calls "Title, Heading", as Canva's panel does.
+          expect(state.tree.elements.some((listed) => /add title/i.test(`${listed.title ?? ''} ${listed.description ?? ''}`))).toBe(false);
+          const { lines } = readTextResultSchema.parse(await transport.request('read_text', { app: FIXTURE, allowed: [FIXTURE] }, signal()));
+          const painted = lines.find((line) => /^add title$/i.test(line.text.trim()));
+          if (!painted) throw new Error(`no "Add title" among ${JSON.stringify(lines.map((line) => line.text))}`);
+          const point = { x: Math.round(painted.x + painted.width / 2), y: Math.round(painted.y + painted.height / 2) };
+          const { state: after } = await act(transport, { action: 'click', ...point, mouse_button: 'left', click_count: 1 });
+          expect(element(after ?? state, 'text:status').title).toBe('Painted clicked');
+          await expect(transport.request('read_text', { app: FIXTURE, allowed: [] }, signal())).rejects.toMatchObject({ code: 'app_not_allowed' });
         } finally { await transport.close(); }
       });
 

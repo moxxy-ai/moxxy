@@ -4,6 +4,7 @@ import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
 import type { AppElement } from '../contract/tree.js';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
+import { STATE_CHARS } from './ground.js';
 import { describeRun, runSteps, type RunDeps } from './run.js';
 
 const button = (index: number, title: string, extra: Partial<AppElement> = {}): AppElement =>
@@ -52,9 +53,9 @@ describe('runSteps', () => {
     });
     const { ask, requests } = jev((state, id) => {
       if (id !== 'target') return undefined;
-      return state.step?.target === 'the Export button' ? pick(1) : state.elements.includes('"Save"') ? pick(3) : pick('none');
+      return state.step?.target === 'the button that exports the clip' ? pick(1) : state.elements.includes('"Save"') ? pick(3) : pick('none');
     });
-    const report = await runSteps('Export the clip', [{ do: 'click', target: 'the Export button' }, { do: 'click', target: 'the Save button' }], window.state(), deps(window, ask));
+    const report = await runSteps('Export the clip', [{ do: 'click', target: 'the button that exports the clip' }, { do: 'click', target: 'the button that saves it' }], window.state(), deps(window, ask));
     expect(window.acted).toEqual([
       { action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 },
       { action: 'click', element_index: 3, mouse_button: 'left', click_count: 1 },
@@ -63,9 +64,148 @@ describe('runSteps', () => {
     expect(report.outcomes[0]?.element).toBe('[1] button "Export"');
     // The second step's element is asked for in the request that follows the first action.
     expect(requests.map((request) => request.ids)).toEqual([['target'], ['target']]);
-    expect(requests[0]?.state).toMatchObject({ goal: 'Export the clip', app: 'Editor', step: { do: 'click', target: 'the Export button' } });
+    expect(requests[0]?.state).toMatchObject({ goal: 'Export the clip', app: 'Editor', step: { do: 'click', target: 'the button that exports the clip' } });
     expect(report.asks).toBe(2);
     expect(report.state.tree.elements).toHaveLength(5);
+  });
+
+  it('says where its time went: Jev, the actions and the looks at the window', async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const window = app([button(1, 'Export')]);
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const report = await runSteps('Export', [{ do: 'click', target: 'the Export button' }], window.state(), {
+      ...deps(window, ask),
+      ask: async (...args) => { await pause(30); return ask(...args); },
+      act: async (action) => { await pause(20); return window.act(action); },
+    });
+    expect(report.time.jev).toBeGreaterThanOrEqual(25);
+    expect(report.time.act).toBeGreaterThanOrEqual(15);
+    expect(report.time.look).toBeGreaterThanOrEqual(0);
+    expect(report.time.jev + report.time.act + report.time.look).toBeLessThanOrEqual(report.ms + 1);
+  });
+
+  // Jev reads elements; a picture is what shows a click that changed only pixels, and what the model reads at the end.
+  it('asks for a picture of the window only around clicks and at the end', async () => {
+    const window = app([button(1, 'Note', { role: 'text area', value: '' }), button(2, 'Send')], (action, elements) => {
+      if (action.action === 'type_text') (elements[0] as AppElement).value += action.text;
+      if (action.action === 'click') elements.push(button(3, 'Sent'));
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(2) : undefined));
+    const pictures: Array<[string, boolean | undefined]> = [];
+    const looks: Array<boolean | undefined> = [];
+    const steps: RunStep[] = [{ do: 'type', text: 'hi' }, { do: 'key', key: 'Tab' }, { do: 'click', target: 'Send' }, { do: 'key', key: 'Return' }];
+    await runSteps('Send', steps, window.state(), {
+      ...deps(window, ask),
+      observe: async (picture) => { looks.push(picture); return window.observe(); },
+      act: async (action, { picture }) => { pictures.push([action.action, picture]); return window.act(action); },
+    });
+    expect(pictures).toEqual([['type_text', false], ['press_key', true], ['click', true], ['press_key', true]]);
+    expect(looks).toEqual([]);
+  });
+
+  it('judges a key that expects something by its picture too: selecting text changes pixels and no element', async () => {
+    let selected = false;
+    const field = button(1, 'Address', { role: 'text field', value: 'olx.pl', states: ['focused'] });
+    const look = (picture: boolean): AppState => ({
+      tree: { app: 'Safari', window: 'OLX', elements: [{ key: 'w', index: 0, depth: 0, role: 'window' }, field] },
+      ...(picture ? { screenshot: { mediaType: 'image/jpeg', base64: selected ? 'c2VsZWN0ZWQ=' : 'cGxhaW4=', width: 10, height: 10 } } : {}),
+    });
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.4) : undefined));
+    const steps: RunStep[] = [{ do: 'key', key: 'super+l' }, { do: 'key', key: 'super+a', expect: 'the address is selected' }, { do: 'key', key: 'Tab' }, { do: 'key', key: 'Tab' }];
+    const report = await runSteps('Select the address', steps, look(true), {
+      ask, signal: new AbortController().signal, observe: async (picture = true) => look(picture),
+      act: async (action, { picture }) => {
+        if (action.action === 'press_key' && action.key === 'super+a') selected = true;
+        return { result: { outcome: 'delivered' }, state: look(picture) };
+      },
+    });
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['done', 'done', 'done', 'done']);
+  });
+
+  it('keeps what it shows Jev within its input limit when a long page changes as a whole', async () => {
+    // The first click changes every listing of the page; the second opens another page.
+    let clicks = 0;
+    const listing = (index: number) => button(index, `listing ${index} seen ${clicks} ${'x'.repeat(60)}`, { role: 'link' });
+    const look = (): AppState => ({ tree: { app: 'Safari', window: clicks < 2 ? 'Listings' : 'Listing', elements: [{ key: 'w', index: 0, depth: 0, role: 'window' }, ...Array.from({ length: 900 }, (_, at) => listing(at + 1))] } });
+    const sizes: number[] = [];
+    const ask: AskJev = async (state, questions) => {
+      const { elements, changes } = state as { elements: string; changes?: string };
+      sizes.push(elements.length + (changes?.length ?? 0));
+      return Object.fromEntries(Object.keys(questions).map((id) => [id, id.startsWith('target') ? pick(1) : yes(id === 'expected' ? 0.9 : 0)]));
+    };
+    const steps: RunStep[] = [{ do: 'click', target: 'the first listing', expect: 'the listing opens' }, { do: 'click', target: 'the first listing', expect: 'the listing opens' }];
+    await runSteps('Open', steps, look(), {
+      ask, signal: new AbortController().signal, observe: async () => look(),
+      act: async () => { clicks += 1; return { result: { outcome: 'delivered' }, state: look() }; },
+    });
+    expect(clicks).toBe(2);
+    for (const size of sizes) expect(size).toBeLessThanOrEqual(STATE_CHARS);
+  });
+
+  describe('steps that check nothing and need no element', () => {
+    const typing = () => app([button(1, 'Address', { role: 'text field', value: '', states: ['focused'] })], (action, elements) => {
+      if (action.action === 'type_text') (elements[0] as AppElement).value += action.text;
+    });
+
+    it('go to the helper together, with one state at the end', async () => {
+      const window = typing();
+      const batches: ComputerAction[][] = [];
+      const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+      const steps: RunStep[] = [{ do: 'key', key: 'super+l' }, { do: 'type', text: 'olx.pl' }, { do: 'key', key: 'Return', expect: 'OLX opens' }];
+      const report = await runSteps('Open OLX', steps, window.state(), {
+        ...deps(window, ask),
+        batch: async (actions) => { batches.push([...actions]); for (const action of actions) await window.act(action); return { results: actions.map(() => ({ outcome: 'delivered' as const })), state: window.state() }; },
+      });
+      expect(batches).toEqual([[{ action: 'press_key', key: 'super+l', repeat: 1 }, { action: 'type_text', text: 'olx.pl' }]]);
+      expect(window.acted.at(-1)).toEqual({ action: 'press_key', key: 'Return', repeat: 1 });
+      expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['done', 'done', 'verified']);
+    });
+
+    it('stop at the first one the helper did not deliver', async () => {
+      const window = typing();
+      const steps: RunStep[] = [{ do: 'key', key: 'super+l' }, { do: 'type', text: 'a' }, { do: 'type', text: 'b' }];
+      const report = await runSteps('Type', steps, window.state(), {
+        ...deps(window, jev(() => undefined).ask),
+        batch: async () => ({ results: [{ outcome: 'delivered' }, { outcome: 'blocked', code: 'target_blocked' }], state: window.state() }),
+      });
+      expect(report.outcomes).toMatchObject([{ status: 'done' }, { status: 'failed', why: 'blocked (target_blocked)' }]);
+    });
+
+    it('stop at a step the helper did not report on instead of sending it again', async () => {
+      const window = typing();
+      let batches = 0;
+      const steps: RunStep[] = [{ do: 'key', key: 'super+l' }, { do: 'type', text: 'a' }];
+      const report = await runSteps('Type', steps, window.state(), {
+        ...deps(window, jev(() => undefined).ask),
+        batch: async () => { batches += 1; return { results: [{ outcome: 'delivered' }], state: window.state() }; },
+      });
+      expect(batches).toBe(1);
+      expect(window.acted).toEqual([]);
+      expect(report.outcomes).toMatchObject([{ status: 'done' }, { status: 'failed', why: 'the helper did not say whether this step was done' }]);
+    });
+  });
+
+  it('acts on the one element named exactly as the target without asking Jev where it is', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Cancel')], (action, elements) => {
+      if (action.action === 'click' && action.element_index === 1) elements.push(button(3, 'Saved'));
+    });
+    const { ask, requests } = jev((_state, id) => (id === 'expected' ? yes(0.9) : undefined));
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export button', expect: 'saved' }], window.state(), deps(window, ask));
+    expect(window.acted).toEqual([{ action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 }]);
+    expect(requests.flatMap((request) => request.ids)).not.toContain('target');
+    expect(report.outcomes).toMatchObject([{ status: 'verified', element: '[1] button "Export"' }]);
+  });
+
+  it('asks Jev where the element is when the one named as the target does not do the step', async () => {
+    const window = app([button(1, 'Export'), button(2, 'Export as file')], (action, elements) => {
+      if (action.action === 'click' && action.element_index === 2) elements.push(button(3, 'Saved'));
+    });
+    const { ask, requests } = jev((state, id) => (id === 'target' ? pick(2) : id === 'expected' ? yes(state.elements.includes('"Saved"') ? 0.9 : 0) : undefined));
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export', expect: 'saved' }], window.state(), deps(window, ask));
+    expect(window.acted.map((action) => 'element_index' in action && action.element_index)).toEqual([1, 2]);
+    expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected'], ['target', 'already'], ['expected']]);
+    expect(report.outcomes).toMatchObject([{ status: 'verified', element: '[2] button "Export as file"' }]);
+    expect(report.outcomes[0]).not.toHaveProperty('stale');
   });
 
   it('asks Jev nothing for keys and typing into the focus', async () => {
@@ -116,10 +256,10 @@ describe('runSteps', () => {
   it('checks what a step expects and marks it verified', async () => {
     const window = app([button(1, 'Export')], (_action, elements) => { elements.push(button(2, 'Dialog')); });
     const { ask, requests } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
-    const report = await runSteps('Open export', [{ do: 'click', target: 'Export', expect: 'a dialog is open' }], window.state(), deps(window, ask));
+    const report = await runSteps('Open export', [{ do: 'click', target: 'the button that exports', expect: 'a dialog is open' }], window.state(), deps(window, ask));
     expect(report.outcomes).toMatchObject([{ status: 'verified', attempts: 1 }]);
     expect(requests.map((request) => request.ids)).toEqual([['target', 'already'], ['expected']]);
-    expect(requests[1]?.state).toMatchObject({ performed: { do: 'click', target: 'Export' } });
+    expect(requests[1]?.state).toMatchObject({ performed: { do: 'click', target: 'the button that exports' } });
     expect(String(requests[1]?.state.changes)).toContain('+ [2] button "Dialog"');
   });
 
@@ -128,7 +268,7 @@ describe('runSteps', () => {
       if (action.action === 'click' && action.x !== undefined) elements.push(button(2, 'Dialog'));
     });
     const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
-    const report = await runSteps('Open export', [{ do: 'click', target: 'Export' }], window.state(), deps(window, ask));
+    const report = await runSteps('Open export', [{ do: 'click', target: 'the button that exports' }], window.state(), deps(window, ask));
     expect(window.acted).toEqual([
       { action: 'click', element_index: 1, mouse_button: 'left', click_count: 1 },
       { action: 'click', x: 140, y: 20, mouse_button: 'left', click_count: 1 },
@@ -168,6 +308,31 @@ describe('runSteps', () => {
     expect(report.outcomes).toMatchObject([{ status: 'failed', attempts: 0, why: 'no element matches', closest: ['[1] button "Import"'] }]);
   });
 
+  it('clicks the text the screenshot shows when no element carries that name', async () => {
+    const window = app([button(1, 'Title, Heading')], (action, elements) => {
+      if (action.action === 'click' && 'x' in action) elements.push(button(2, 'Heading added'));
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick('none') : undefined));
+    let reads = 0;
+    const report = await runSteps('Add a title', [{ do: 'click', target: 'przycisk „Dodaj tytuł”' }], window.state(), {
+      ...deps(window, ask),
+      readText: async () => { reads += 1; return [{ text: 'Dodaj tytul', x: 100, y: 20, width: 80, height: 20 }]; },
+    });
+    expect(window.acted).toEqual([{ action: 'click', x: 140, y: 30, mouse_button: 'left', click_count: 1 }]);
+    expect(reads).toBe(1);
+    expect(report.outcomes).toMatchObject([{ status: 'done', element: 'text "Dodaj tytul" in the screenshot at 140,30' }]);
+  });
+
+  it('still fails when the screenshot does not read as the target either', async () => {
+    const window = app([button(1, 'Import')]);
+    const { ask } = jev((_state, id) => (id === 'target' ? pick('none') : undefined));
+    const report = await runSteps('Export', [{ do: 'click', target: 'Export' }], window.state(), {
+      ...deps(window, ask), readText: async () => [{ text: 'Import', x: 0, y: 0, width: 50, height: 20 }],
+    });
+    expect(window.acted).toEqual([]);
+    expect(report.outcomes).toMatchObject([{ status: 'failed', why: 'no element matches' }]);
+  });
+
   it('stops at once when the user takes over', async () => {
     const window = app([button(1, 'Export')], () => ({ outcome: 'blocked', code: 'user_intervened' }));
     const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
@@ -189,10 +354,94 @@ describe('runSteps', () => {
     expect(report.outcomes[0]).toMatchObject({ status: 'failed', why: 'blocked (stale_state)' });
   });
 
+  // Jev reads one window: a window or tab that is new looks like any other, so it is never sure the key worked.
+  it('goes on after a key that brought another window to the front, without pressing it again', async () => {
+    let front = 'Listings';
+    const state = (): AppState => ({ tree: { app: 'Safari', window: front, elements: [{ key: `w/${front}`, index: 0, depth: 0, role: 'window', title: front }] } });
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.2) : undefined));
+    const acted: ComputerAction[] = [];
+    const steps: RunStep[] = [{ do: 'key', key: 'super+n', expect: 'a new window is open' }, { do: 'key', key: 'super+l' }];
+    const report = await runSteps('Open a new window', steps, state(), {
+      ask, selectAll: 'super+a', signal: new AbortController().signal, observe: async () => state(),
+      act: async (action) => { acted.push(action); if (action.action === 'press_key') front = 'Start Page'; return { result: { outcome: 'delivered' }, state: state() }; },
+    });
+    expect(acted.map((action) => action.action)).toEqual(['press_key', 'press_key']);
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }, { status: 'done' }]);
+  });
+
+  // An empty new window reads like the empty one in front before it ("Start Page"): only its id tells them apart.
+  it('goes on after a key that brought another window with the same title to the front', async () => {
+    let id = '101';
+    const state = (): AppState => ({ tree: { app: 'Safari', window: 'Start Page', windowId: id, elements: [{ key: 'w/start', index: 0, depth: 0, role: 'window', title: 'Start Page' }] } });
+    const { ask } = jev((_state, question) => (question === 'expected' ? yes(0.2) : undefined));
+    const acted: ComputerAction[] = [];
+    const report = await runSteps('Open a new window', [{ do: 'key', key: 'super+n', expect: 'a new window is open' }], state(), {
+      ask, selectAll: 'super+a', signal: new AbortController().signal, observe: async () => state(),
+      act: async (action) => { acted.push(action); id = '102'; return { result: { outcome: 'delivered' }, state: state() }; },
+    });
+    expect(acted).toHaveLength(1);
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }]);
+  });
+
+  // A new tab stays in its window: the number is the same, the title is the new tab's.
+  it('goes on after a key that brought another tab of the same window to the front', async () => {
+    let front = 'Kraków – Wikipedia';
+    const state = (): AppState => ({ tree: { app: 'Safari', window: front, windowId: '101', elements: [{ key: 'w/tab', index: 0, depth: 0, role: 'window', title: front }] } });
+    const { ask } = jev((_state, question) => (question === 'expected' ? yes(0.2) : undefined));
+    const report = await runSteps('Open a new tab', [{ do: 'key', key: 'super+t', expect: 'a new tab is open' }], state(), {
+      ask, selectAll: 'super+a', signal: new AbortController().signal, observe: async () => state(),
+      act: async () => { front = 'Start Page'; return { result: { outcome: 'delivered' }, state: state() }; },
+    });
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }]);
+  });
+
+  it('stops at a key whose result does not show while the same window stays in front', async () => {
+    const window = app([button(1, 'Export')]);
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.1) : undefined));
+    const report = await runSteps('Export', [{ do: 'key', key: 'super+e', expect: 'an export dialog is open' }], window.state(), deps(window, ask));
+    expect(window.acted).toHaveLength(1);
+    expect(report.outcomes).toMatchObject([{ status: 'failed', attempts: 1 }]);
+  });
+
+  // Typing again appends: "https://olx.plhttps://olx.pl".
+  it('does not type again once the text is in the field, whatever else the step expects', async () => {
+    const window = app([button(1, 'Address', { role: 'text field', value: '' })], (action, elements) => {
+      if (action.action === 'type_text') (elements[0] as AppElement).value += action.text;
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.1) : undefined));
+    const report = await runSteps('Open OLX', [{ do: 'type', target: 'the address field', text: 'https://olx.pl', expect: 'OLX opens' }], window.state(), deps(window, ask));
+    expect(window.acted).toEqual([{ action: 'type_text', element_index: 1, text: 'https://olx.pl' }]);
+    expect(report.state.tree.elements[1]?.value).toBe('https://olx.pl');
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }]);
+  });
+
+  it('does not type into a field that already holds exactly the text: it would append it a second time', async () => {
+    const window = app([button(1, 'Address', { role: 'text field', value: 'https://www.olx.pl', states: ['focused'] })], (action, elements) => {
+      if (action.action === 'type_text') (elements[0] as AppElement).value += action.text;
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.1) : undefined));
+    const steps: RunStep[] = [{ do: 'type', target: 'the address field', text: 'https://www.olx.pl', expect: 'OLX opens' }, { do: 'key', key: 'Return' }];
+    const report = await runSteps('Open OLX', steps, window.state(), deps(window, ask));
+    expect(window.acted).toEqual([{ action: 'press_key', key: 'Return', repeat: 1 }]);
+    expect(report.outcomes).toMatchObject([{ status: 'skipped', attempts: 0 }, { status: 'done' }]);
+    expect(describeRun(report, steps)).toContain('the field already holds this text');
+  });
+
+  it('types the other way when the first left the field without the text', async () => {
+    const window = app([button(1, 'Address', { role: 'text field', value: '' })], (action, elements) => {
+      if (action.action === 'type_text' && action.element_index === undefined) (elements[0] as AppElement).value += action.text;
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const report = await runSteps('Open OLX', [{ do: 'type', target: 'the address field', text: 'https://olx.pl' }], window.state(), deps(window, ask));
+    expect(window.acted.map((action) => action.action)).toEqual(['type_text', 'click', 'type_text']);
+    expect(report.state.tree.elements[1]?.value).toBe('https://olx.pl');
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 2 }]);
+  });
+
   it('hands back to the main model when Jev cannot be asked', async () => {
     const window = app([button(1, 'Export')]);
     const ask: AskJev = async () => { throw new JevError(401, 'Jev returned HTTP 401'); };
-    const report = await runSteps('Export', [{ do: 'click', target: 'Export' }], window.state(), deps(window, ask));
+    const report = await runSteps('Export', [{ do: 'click', target: 'the button that exports' }], window.state(), deps(window, ask));
     expect(window.acted).toEqual([]);
     expect(report.outcomes).toMatchObject([{ status: 'failed', why: 'Jev returned HTTP 401' }]);
   });
@@ -204,7 +453,7 @@ describe('a result that shows late', () => {
     const window = app(elements);
     const late = async () => { if (window.acted.length > 0 && elements.length === 1) elements.push(button(2, 'Privacy pane')); return window.observe(); };
     const { ask, requests } = jev((state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(state.elements.includes('Privacy pane') ? 0.9 : 0.1) : undefined));
-    const report = await runSteps('Open Privacy', [{ do: 'click', target: 'Privacy', expect: 'the Privacy pane shows' }], window.state(), { ...deps(window, ask), observe: late });
+    const report = await runSteps('Open Privacy', [{ do: 'click', target: 'the Privacy item of the sidebar', expect: 'the Privacy pane shows' }], window.state(), { ...deps(window, ask), observe: late });
     expect(window.acted).toHaveLength(1);
     expect(report.outcomes[0]).toMatchObject({ status: 'verified', attempts: 1 });
     expect(requests.map((request) => request.ids)).toEqual([['target', 'already'], ['expected'], ['expected']]);
@@ -253,7 +502,7 @@ describe('what was learned before', () => {
     });
     const { ask, requests } = jev((state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(state.elements.includes('"Sheet"') ? 0.9 : 0) : undefined));
     const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[2] as AppElement, way: 0 });
-    const report = await runSteps('Export', [{ do: 'click', target: 'Export', expect: 'the sheet shows' }], window.state(), { ...deps(window, ask), known });
+    const report = await runSteps('Export', [{ do: 'click', target: 'the button that exports', expect: 'the sheet shows' }], window.state(), { ...deps(window, ask), known });
     expect(window.acted.map((action) => (action as { element_index?: number }).element_index)).toEqual([2, 1]);
     expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected'], ['target', 'already'], ['expected']]);
     expect(report.outcomes[0]).toMatchObject({ status: 'verified', stale: true, used: { key: 'w/1' } });
@@ -287,7 +536,7 @@ describe('what a step showed last time', () => {
     const { ask } = jev(() => undefined);
     const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [sheet] });
     const waited: Array<readonly string[] | undefined> = [];
-    const act: RunDeps['act'] = (action, until) => { waited.push(until); return window.act(action); };
+    const act: RunDeps['act'] = (action, { until }) => { waited.push(until); return window.act(action); };
     await runSteps('Export', [step], window.state(), { ...deps(window, ask), known, act });
     expect(waited).toEqual([[sheet]]);
   });
@@ -349,7 +598,7 @@ describe('what a step shows differently every time', () => {
     const { ask, requests } = judged();
     const known: RunDeps['known'] = (_step, tree) => ({ element: tree.elements[1] as AppElement, way: 0, effect: [] });
     const waited: Array<readonly string[] | undefined> = [];
-    const act: RunDeps['act'] = (action, until) => { waited.push(until); return window.act(action); };
+    const act: RunDeps['act'] = (action, { until }) => { waited.push(until); return window.act(action); };
     const report = await runSteps('Export', [step], window.state(), { ...deps(window, ask), known, act });
     expect(waited).toEqual([undefined]);
     expect(requests.map((request) => request.ids)).toEqual([['already'], ['expected']]);

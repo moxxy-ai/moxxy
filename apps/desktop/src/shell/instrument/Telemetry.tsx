@@ -3,6 +3,8 @@ import { Modal } from '@moxxy/desktop-ui';
 import { useContextUsage } from '@moxxy/client-core';
 import type { SessionInfo } from '../../chat/agent-picker/types';
 import { ProviderModelGrid } from '../../chat/agent-picker/ProviderModelGrid';
+import { ModelTuning } from '../../chat/agent-picker/ModelTuning';
+import { useModelTuning } from '../../chat/agent-picker/useModelTuning';
 import { UsagePanel } from '../../chat/composer/UsagePanel';
 import { ContextMeter, contextLevel } from './ContextMeter';
 
@@ -51,6 +53,7 @@ export function Telemetry({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const usage = useContextUsage(workspaceId);
+  const tuning = useModelTuning(workspaceId, info, selectedModel);
   // Model name only: the override when set, else the active provider (whose
   // runner-default model is not named until the first response).
   const model = selectedModel ?? info.activeProvider ?? 'model';
@@ -108,6 +111,7 @@ export function Telemetry({
         <span className="tele__cell" data-cell="agent">
           <span className="tele__v tele__v--text">
             {model}
+            {tuning.fast && <small> · fast</small>}
             {mode && <small> · {mode}</small>}
           </span>
         </span>
@@ -136,6 +140,7 @@ export function Telemetry({
                   setOpen(false);
                 }}
               />
+              <ModelTuning tuning={tuning} />
             </section>
             <UsagePanel usage={usage} workspaceId={workspaceId} />
           </div>

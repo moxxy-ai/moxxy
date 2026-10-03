@@ -60,10 +60,22 @@ helper, so the model sees one set of tools on both systems (see
 - A control that accepts an accessibility press and does nothing (Qt buttons)
   gets a real click when the same action is asked for again. If that changes
   nothing either, the result is `ineffective` and a third try is not sent.
+- A left click on a control a web page shows is pointer input from the start,
+  sent to the browser's window in the background: pages listen for the
+  pointer, and Canva took the accessibility press on its side tabs, links and
+  buttons without doing anything (each tab then needed a second click, about
+  2.5 s; now one, about 0.75 s). A page control scrolled out of view, which
+  no click can land on, keeps the press.
 - A focused field that sits outside the window (Finder's rename field) is part
   of the state. Typing into an element that takes no text is refused.
 - Text typed through accessibility is checked: when the field and its caret stay
   as they were (Chromium apps), the text is sent as keys instead.
+- On a web page, text sent as keys goes one character per key event: a page's
+  own editor (Canva's) takes a many-character event as one key and puts its
+  last character astray. When the page's keyboard focus is not a text field,
+  nothing is typed and the result says to click the field first: those keys
+  would be the page's shortcuts ("s" adds a sticky note in Canva, "e" archives
+  a mail in Gmail).
 - The helper switches on an app's full accessibility tree
   (`AXEnhancedUserInterface`, `AXManualAccessibility`) the first time it looks
   at the app, and switches off what it changed when it leaves.
@@ -119,6 +131,26 @@ Linux; only the helper underneath differs.
   then a click at the element's centre; `type_text` on the element, then click
   and type; `set_value`, then click, select all, type), up to four ways per
   step.
+- **A target that is a name.** When the target, kinds of element aside
+  ("button", "przycisk", "link", "the"), is the whole name of exactly one
+  element (its title or description; for typing, of an element that holds a
+  value), code takes that element and Jev is not asked where it is. So does a
+  target with one quote in double quotes of any language (`sugestia „Kraków
+  Kraków, Małopolskie” na samej górze listy`) whose text is the whole name of
+  exactly one element: on a page of more than 250 elements Jev answers in
+  parts and each part can say "none". Elements
+  of that name inside each other count as one, the outermost (a link and its
+  text). A shared name, or a target that says more than a name, goes to Jev;
+  so does the next try when the named element does not do the step. Such a
+  pick is not memory: its failure does not make a lesson stale.
+- **A name only the screen shows.** A web toolkit can name a control one way
+  for accessibility and draw another ("Title, Heading" over the words "Dodaj
+  tytuł" in Canva). When neither the names nor Jev find a click step's
+  control, the helper reads the window's text (`read_text`: Vision text
+  recognition in English and Polish, in the pixels of the latest screenshot),
+  and a line whose words are the target's — diacritics aside, kinds of element
+  aside, or the one quoted text — is clicked at its centre. The window is read
+  once per run, and only when exactly one line matches.
 - **One request per step.** The check of a step and the search for the next
   step's element go in one request (about 0.3 s for 150–250 elements).
 - **Where it stops.** At the first step it cannot do: no element matches, the
@@ -132,6 +164,27 @@ Linux; only the helper underneath differs.
   the click did, and a second click would close what the first one opened. The
   step stops there instead of trying another way, and the report tells the
   main model to read the screenshot and go on with the single tools by x and y.
+- **What is never done twice.** A key goes to the focus: a `target` written
+  into a key step (strict providers fill every field) is dropped, so the key
+  has one way and is pressed once. Pressing `super+n` again would open one
+  more window, not check the first. Typing is not repeated once its text shows
+  in the field's value; another `type_text` would append it a second time
+  ("https://olx.plhttps://olx.pl"). Such a step counts as done, verified only
+  when Jev also sees its `expect`. Typing into a field that already holds
+  exactly the step's text is skipped for the same reason ("the field already
+  holds this text"): a key before it may have been skipped as already done
+  (`super+l` whose focus showed), and then nothing selected the old text.
+- **Another window in front.** Jev reads one window, so a window or tab that a
+  key opened looks like any other: told the title before and after, it still
+  gave "a new window is open" 0.15–0.36 in Safari. A key after which another
+  window is in front therefore counts as done (verified only when Jev also sees
+  its `expect`), and the run goes on; the next steps are checked on the window
+  that is now in front. Another window or tab is in front when the title
+  changed or the window's number did: the macOS helper reports the
+  window-server number as `windowId`, since a new empty window reads like the
+  empty one in front before it ("Strona początkowa"), and a new tab keeps its
+  window's number. A helper without `windowId` (Windows, Linux) is judged by
+  the title alone.
 - **Key.** The secret `TYPESAFE_API_KEY` from the vault (`/vault set
   TYPESAFE_API_KEY`), or the environment variable of the same name. The tool
   may reach only `api.typesafe.ai`. The desktop sets it in Settings → Jev.
@@ -181,6 +234,12 @@ Linux; only the helper underneath differs.
   remembered element does not do it, Jev is asked for the element and the
   memory is corrected. At most 200 targets and 20 routes per app. Jev itself
   is not trained; nothing of this is sent anywhere.
+- **Jev's input limit.** The window's elements and a step's changes share
+  Jev's input (30 000 characters): the changes take at most 8 000, cut at a
+  line, and the elements are fitted into the rest. When another page or
+  window is in front, the changes say so and the window is sent once, as the
+  elements (a page that reloaded on OLX once made the request too long for
+  Jev, HTTP 400).
 - **What leaves the computer.** Per request: the goal, the step, the app and
   window names, and the text lines of the window's elements (roles, titles,
   values; never the value of a secure field). No screenshot is sent.
@@ -226,11 +285,51 @@ first look (only browsers and Electron apps are); after an action whose effect
 was already seen, the wait is one quiet spell; when a step's result does not
 show, `computer_run` looks once more before it tries another way.
 
+### What a run waits for
+
+- **The cursor does not hold the action.** The agent cursor glides to the
+  element while the accessibility action already goes out; its ring shows
+  when the glide arrives. Whether a press did anything is read from the
+  elements first and from pixels only when they show nothing, so a press takes
+  no picture before it.
+- **Pictures only where pixels judge.** A click may change only pixels, and
+  so may a key that expects something (select all highlights text and changes
+  no element). Such a step asks for a picture of the state before and after
+  it; every other step comes back with elements only (`screenshot: false`)
+  unless it is the run's last. The state the run reports always
+  carries a picture. The first look of a run is pictured only when its first
+  step is such a step (or there is no Jev key).
+- **Typing waits for the page's answer.** After typing the helper settles
+  as after any action, not only until the text is in the field: a page that
+  answers typing (OLX's place and search suggestions) shows its answer a
+  moment later, and a step that clicks a suggestion needs it in the state.
+- **A followed link waits for its page.** A left click on a link to another
+  document (its address differs from the page's, not only by `#…`), or Return
+  on a focused one, waits until the window's title or the page's address
+  changes, woken by the browser's notifications, and at most 3 s; the state
+  is then the new page. A page that changes starts within half a second of a
+  real click (Canva's editor, recorded by hand), so the cap only holds an
+  action whose link does not change the page. Then the action comes back
+  `delivered` with code `page_loading`, and a run stops at that step instead
+  of trying another way. A link whose click only lit it up is never learned
+  as a step's element.
+- **Steps that check nothing go together.** Consecutive steps with no
+  `expect` and no element to find (keys, typing into the focus) go to the
+  helper as one `batch` request with one state at the end (macOS; elsewhere
+  one by one).
+- **Where the time went.** Each `computer_run` reports its time split into Jev
+  requests, actions and looks; with `MOXXY_JEV_TRACE` set the split is written
+  as one more line of the trace.
+
 Measured on System Settings (25 single-step runs, each with a fresh look, the
 click and the check): first time with Jev 1.4–1.9 s (two slow panes 2.6–3.0 s);
 again from memory 0.8–1.2 s with no request to Jev. An action with its fresh
 state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
-helper write where each request's time went.
+helper write where each request's time went. `MOXXY_JEV_TRACE=<file>` writes
+each request to Jev as one JSON line: the step, how many elements and characters
+of the window it was shown, the most likely answers with their element lines,
+and how long it took. Text a step types is written as its length only
+(`"[7 characters]"`), and the file is created readable by its owner only (0600).
 
 In a source list whose cell offers "open" itself (Finder's sidebar), a click
 on the row performs that action: selecting the row there only highlights it.
@@ -252,7 +351,13 @@ memory and is then remembered under the new wording too.
 
 The rules tell the model that `computer_run` looks at the window itself and
 asks for its own app: a task starts with `computer_run`, without
-`computer_request_access`, `computer_list_apps` or `computer_get_app_state`. An app may be named in later
+`computer_request_access`, `computer_list_apps` or `computer_get_app_state`. The exception is a run
+that presses keys or types into a browser or terminal: approving the run grants
+those only their default level (read-only, click-only), so the model sends
+`computer_request_access` with `full_access` first, in the same response. Auto-approve
+does not raise a level by itself: it skips the question for that request, not the
+permission policy the request goes through, so a deny rule on
+`computer_request_access` still holds. An app may be named in later
 calls the way it was asked for ("System Settings"), not only the way the
 system names it ("Ustawienia systemowe").
 
@@ -280,6 +385,13 @@ the state the action returns.
 A step that checks nothing itself (typing into a field) is remembered when a
 later step of the same run was seen to work. An element with no title is
 known by its description (toolbar buttons).
+
+A target that says where the focus is ("keyboard focus", "the focused search
+field", "cursor") is never remembered, and a lesson learned under such words
+before is not used: the focus is somewhere else in the next run. One such
+lesson, learned in the address bar, once typed an OLX search into the address
+bar. Typing whose target names nothing but the focus goes to the focus, the
+way typing without a target does.
 
 Shipped lessons now cover System Settings, Finder (ten sidebar places) and
 Safari (toolbar buttons, the address field), all for macOS in Polish.
@@ -335,14 +447,34 @@ without input. `--filter=<pattern>` runs matching tests only.
 | Deaf field | accepts text set through accessibility and drops it; only keys type |
 | Pad | points, buttons, scrolling, drags on a view without elements |
 | Timeline | clips A and B on a canvas without elements: drag moves, right-edge drag trims |
+| Painted control | drawn as "Add title", named "Title, Heading" for accessibility: a click by the screen's text |
 | Menu: Press Again, New Window, Close Window | Command shortcuts, and an app with no window |
 
 ## Trying it in Moxxy
+
+In a chat, `@computer_use` in the prompt calls the computer-control skill for
+that request: the work happens in the app the user names (Arc, Pages, Canva in
+a desktop browser) and the in-window Browser's `browser_*` tools are off until
+the request ends.
+
 
 ```sh
 node packages/cli/dist/bin.js --model gpt-6-luna -p "Use Computer Use on Calculator: compute 17 times 23." \
   --allow-tools computer_status,computer_list_apps,computer_request_access,computer_get_app_state,computer_click,computer_press_key
 ```
+
+`--allow-all` allows every tool for that one invocation, `computer_request_access`
+included, so the model's request for full control passes without a question; it
+does not switch on the conversation's auto-approve. A trial with its costs:
+
+```sh
+MOXXY_JEV_TRACE=trial/jev.ndjson MOXXY_COMPUTER_TIMING=trial/helper-timing.ndjson \
+  node packages/cli/dist/bin.js -p "<task>" --allow-all --output-format json > trial/events.json
+pnpm --filter @moxxy/plugin-computer-control trial:summarize trial
+```
+
+The summary gives the turn's time, the model's and the tools' share, each
+run's split, Jev's requests, the helper's slowest phases and the answer.
 
 The CLI prefers a copy of the plugin under `~/.moxxy/plugins` over the one in
 the workspace, so an older installed copy hides local changes.

@@ -190,6 +190,11 @@ final class Settler: @unchecked Sendable {
         lock.withLock { changes.removeAll { $0 < time } }
     }
 
+    /// Waits for the app's next notification, or `seconds` when it sends none.
+    func pause(upTo seconds: Double) {
+        _ = wake.wait(timeout: .now() + max(0.01, seconds))
+    }
+
     static func uptime(of date: Date) -> Double { ProcessInfo.processInfo.systemUptime - Date().timeIntervalSince(date) }
 
     private func now() -> Double { ProcessInfo.processInfo.systemUptime }

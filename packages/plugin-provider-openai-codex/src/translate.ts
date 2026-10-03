@@ -40,6 +40,8 @@ export interface ResponsesBody {
   tools?: ResponsesTool[];
   parallel_tool_calls?: boolean;
   reasoning?: { effort?: 'low' | 'medium' | 'high' | 'xhigh'; summary?: 'auto' | 'detailed' };
+  /** `priority` is OpenAI's fast mode. */
+  service_tier?: 'priority';
   store?: boolean;
   stream: true;
   prompt_cache_key?: string;
@@ -236,6 +238,7 @@ export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {
   }
   if (tools.length > 0) body.tools = tools;
   if (opts.sessionHint) body.prompt_cache_key = opts.sessionHint;
+  if (req.fast) body.service_tier = 'priority';
   if (req.maxTokens !== undefined) noteMaxTokensUnsupported();
   if (req.temperature !== undefined) noteTemperatureUnsupported();
   return body;

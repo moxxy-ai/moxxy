@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
-import { OpenAIProvider } from './provider.js';
+import { OpenAIProvider, openAIModels } from './provider.js';
 
 function fakeOpenAI(chunks: ReadonlyArray<unknown>): { chat: { completions: { create: () => Promise<AsyncIterable<unknown>> } } } {
   return {
@@ -490,6 +490,15 @@ describe('GPT-6 request shape (Chat Completions)', () => {
       const body = await sent(model, { tools: [tool], reasoning: { effort: 'high' } });
       expect(body.reasoning_effort).toBe('none');
     }
+  });
+
+  it('asks for the fast tier only when fast mode is on', async () => {
+    expect((await sent('gpt-6-luna', { fast: true })).service_tier).toBe('priority');
+    expect('service_tier' in (await sent('gpt-6-luna'))).toBe(false);
+  });
+
+  it('offers fast mode on GPT-6 and GPT-5.6', () => {
+    for (const model of openAIModels) expect(model.supportsFast, model.id).toBe(true);
   });
 
   it('keeps the requested effort for Sol and Luna when no tools are sent', async () => {

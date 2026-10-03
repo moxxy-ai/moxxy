@@ -49,6 +49,7 @@
     "build": "tsc -p tsconfig.json",
     "learned:promote": "node scripts/promote-learned.mjs",
     "learned:train": "node scripts/train-learned.mjs",
+    "trial:summarize": "node scripts/summarize-trial.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"

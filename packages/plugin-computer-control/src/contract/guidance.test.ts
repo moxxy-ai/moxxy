@@ -54,6 +54,8 @@ it('sends known steps through computer_run and keeps trying other routes', () =>
   expect(system).toMatch(/computer_request_access only for[^.]*app_not_allowed/);
   expect(system).not.toMatch(/Ask once with computer_request_access for every app/);
   expect(system).toMatch(/loaded already[^.]*without load_tool/);
+  // A browser run that presses keys or types is refused at the default level: asked for first, both go in one response.
+  expect(system).toMatch(/keys or text into a browser or terminal[^.]*full_access[^.]*before computer_run[^.]*one response/);
 });
 
 it('leaves computer_run out, tool and words, where it cannot run', () => {

@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type {
   ClientChromeItem,
   MoxxyRequirement,
@@ -87,6 +88,18 @@ export class PluginHost implements PluginHostHandle {
       installed: r.manifest != null,
       kinds: contributionKinds(r),
     }));
+  }
+
+  /**
+   * The skills folder of every loaded plugin: `package.json#moxxy.plugin.skills`
+   * (against the package's own folder) or the plugin's `skillsDir`. The skill
+   * loader reads them between the builtin skills and the user's own.
+   */
+  skillDirs(): string[] {
+    return [...this.loaded.values()].flatMap((r) => {
+      if (r.manifest?.skills) return [path.resolve(r.manifest.packagePath, r.manifest.skills)];
+      return r.plugin.skillsDir ? [r.plugin.skillsDir] : [];
+    });
   }
 
   listSkipped(): ReadonlyArray<PluginSkipRecord> {

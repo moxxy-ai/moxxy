@@ -41,6 +41,8 @@ export {
   redactProxyUrl,
   hasProxy,
 } from './egress.js';
+// The UTF-8 character type a GUI-launched process lacks (read from process.env).
+export { utf8Locale } from './locale.js';
 // Cross-process "fire exactly once" lock (node:fs). Value lives here; its
 // options type is re-exported from the main barrel like other erased types.
 export { CrossProcessFireLock } from './cross-process-lock.js';

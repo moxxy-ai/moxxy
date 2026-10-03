@@ -24,6 +24,9 @@ final class TargetState {
     var lastAction: Date?
     /// The last gesture that went to the app softly (background input, or an accessibility press that changed nothing); asked again, it goes through the screen.
     var lastSoft: String?
+    /// The last accessibility press and how the window looked before it; whether it changed anything is asked
+    /// only when the same gesture comes again, so a press returns without waiting for a redraw.
+    var pressed: (key: String, window: WindowCandidate, pixels: PixelBuffer?, said: [String])?
     /// When the last action's input went out, where the executor knows it.
     var sent: Date?
     /// What the elements said at the last observation, until an action is done; see `Executor.look`.
@@ -42,6 +45,8 @@ final class TargetState {
     var heard: Settler?
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
     var lastClick: CGPoint?
+    /// The page a click on a link (or Return on one) is leaving, until the action's wait is over; see `Navigation`.
+    var leaving: Navigation.Page?
     /// Accessibility actions its elements keep declining.
     let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
@@ -81,6 +86,8 @@ enum AppLauncher {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.addsToRecentItems = false
+        // Still listed although its process is gone: opening the app would hand back that instance instead of starting it.
+        configuration.createsNewApplicationInstance = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).contains { !$0.isTerminated }
         let opened = DispatchSemaphore(value: 0)
         NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in opened.signal() }
         _ = opened.wait(timeout: .now() + launchTimeout)
@@ -92,9 +99,12 @@ enum AppLauncher {
         throw HelperError(code: "timeout", message: "\(bundleId) did not finish launching")
     }
 
+    /// The system lists an app for a moment after its process is gone, longer on a busy Mac; that one is not running.
     static func runningApp(_ bundleId: String) -> NSRunningApplication? {
-        NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first { !$0.isTerminated }
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first { !$0.isTerminated && alive($0.processIdentifier) }
     }
+
+    static func alive(_ pid: pid_t) -> Bool { kill(pid, 0) == 0 || errno != ESRCH }
 
     enum WindowWait { case window(AXUIElement), none, exited }
 
@@ -104,7 +114,7 @@ enum AppLauncher {
         let deadline = Date().addingTimeInterval(windowTimeout)
         repeat {
             if let window = AXReader.targetWindow(of: element) { return .window(window) }
-            if kill(app.processIdentifier, 0) != 0 && errno == ESRCH { return .exited }
+            if !alive(app.processIdentifier) { return .exited }
             Thread.sleep(forTimeInterval: 0.05)
         } while Date() < deadline
         return .none
@@ -237,6 +247,8 @@ extension Methods {
             "elements": .array(zip(indices, built.elements).map { json($1, index: $0, frame: state.frame) }),
         ]
         if let title = root.title { tree["window"] = .string(title.fitting(1024)) }
+        // A new empty window reads like the empty one that was in front before it; only its number tells them apart.
+        if let id = WindowDirectory.number(of: window) ?? state.window.flatMap(WindowDirectory.onScreenWindowID) { tree["windowId"] = .string(String(id)) }
         if built.truncated { tree["truncated"] = .bool(true) }
         result["tree"] = .object(tree)
         if wantsPage, pagePending { result["contentPending"] = .bool(true) }

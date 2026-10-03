@@ -101,3 +101,12 @@ import Testing
         #expect(asked.value == 4)
     }
 }
+
+@Suite struct ScreenTextTests {
+    @Test func placesRecognizedTextOnTheScreenFromTheTopLeft() {
+        // Vision measures from the bottom left in fractions of the image; the window lies at 200,120 on screen.
+        let window = CGRect(x: 200, y: 120, width: 400, height: 200)
+        let box = CGRect(x: 0.25, y: 0.1, width: 0.5, height: 0.2)
+        #expect(ScreenText.screenRect(of: box, in: window) == CGRect(x: 300, y: 260, width: 200, height: 40))
+    }
+}

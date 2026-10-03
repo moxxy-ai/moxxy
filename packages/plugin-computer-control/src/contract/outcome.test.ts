@@ -41,6 +41,13 @@ describe('describeResult', () => {
     expect(describeResult({ outcome: 'delivered' })).toMatch(/delivered.*verify/i);
   });
 
+  it('says when a followed link has not brought its page yet, so the model looks before clicking again', () => {
+    const text = describeResult({ outcome: 'delivered', code: 'page_loading', method: 'ax' });
+    expect(text).toMatch(/delivered/i);
+    expect(text).toContain(hintFor('page_loading'));
+    expect(hintFor('page_loading')).toMatch(/still loading[\s\S]*computer_get_app_state[\s\S]*twice/);
+  });
+
   it('names the code and its hint when the action did not go through', () => {
     const text = describeResult({ outcome: 'blocked', code: 'tier_insufficient' });
     expect(text).toContain('blocked');

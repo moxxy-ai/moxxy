@@ -17,7 +17,8 @@ extension Methods {
         let heard = state.pid.map(Settler.listen)
         defer { heard?.stop() }
         Timing.mark("act: begin")
-        let result = input.gate?.waitWhilePaused() == true
+        state.leaving = nil
+        var result = input.gate?.waitWhilePaused() == true
             ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
             : Executor(state: state, cursor: cursor, input: input).perform(request)
         Timing.mark("act: performed \(result.method.map { "\($0)" } ?? result.code ?? "-")")
@@ -25,12 +26,33 @@ extension Methods {
         heard?.forget(before: Settler.uptime(of: state.sent ?? began))
         state.heard = heard
         defer { state.heard = nil }
+        if result.outcome == .delivered, let leaving = state.leaving, let pid = state.pid {
+            if followed(from: leaving, pid: pid, heard: heard) {
+                // The new page is the action's effect: settle on it as right after the action.
+                state.lastAction = Date()
+                state.reacted = true
+            } else {
+                result = .stillLoading(result)
+            }
+            Timing.mark("act: link followed")
+        }
+        state.leaving = nil
         var until: [String] = []
         if case let .array(labels)? = params["until"] { until = labels.compactMap(\.stringValue) }
         let ready = result.outcome == .delivered && !until.isEmpty ? state.pid.flatMap { awaited(until, pid: $0) } : nil
         Timing.mark(ready == nil ? "act: no effect awaited" : "act: effect shows")
-        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(true)]), targets: targets, cursor: cursor, ready: ready)
+        // A host that judges the action by its elements asks for no picture: the capture is the slowest part of a look.
+        let picture = params["screenshot"]?.boolValue ?? true
+        let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(picture)]), targets: targets, cursor: cursor, ready: ready)
         return .object(["result": result.json, "state": fresh])
+    }
+
+    /// Whether the app left `page` for another one before `Navigation.deadline`, woken by its notifications.
+    private static func followed(from page: Navigation.Page, pid: pid_t, heard: Settler?) -> Bool {
+        let clock = { ProcessInfo.processInfo.systemUptime }
+        return Navigation.awaited(from: page, now: clock, read: { Navigation.current(pid: pid) }, pause: { seconds in
+            if let heard { heard.pause(upTo: seconds) } else { Thread.sleep(forTimeInterval: seconds) }
+        })
     }
 
     /// The target app, which must be in the request's `allowed` list: the host checks grants first and the
@@ -66,21 +88,40 @@ struct Executor {
             guard let frame = state.frame, let screen = onImage(point, frame) else { return nil }
             return FrameHit.index(at: screen, in: state.frames)
         }
+        // A press that left the window as it was is not sent the same way again.
+        let pressedInVain = state.pressed.map { $0.key == key && !differs(since: $0) } == true
+        state.pressed = nil
         let before = isClick(request) ? seenBefore() : nil
+        state.leaving = leavingPage(request)
         // What the window said at the observation is true only until something is done to it.
+        let said = before?.said ?? state.said
         state.said = nil
-        let result = run(request, retried: state.lastSoft == key, seen: before)
-        switch result.method {
-        case .background: state.lastSoft = key
-        case .ax: state.lastSoft = before.map { !changed(since: $0) } == true ? key : nil
-        default: state.lastSoft = nil
-        }
+        let result = run(request, retried: state.lastSoft == key || pressedInVain, seen: before)
+        state.lastSoft = result.method == .background ? key : nil
+        if result.method == .ax, let window = state.window, let said { state.pressed = (key, window, before?.pixels, said) }
         return result
     }
 
     private func isClick(_ request: ActionRequest) -> Bool {
         if case .click = request { return true }
         return false
+    }
+
+    /// The page a left click on a link, or Return on a focused one, is about to leave.
+    private func leavingPage(_ request: ActionRequest) -> Navigation.Page? {
+        guard let root = state.root else { return nil }
+        let element: AXUIElement?
+        switch request {
+        case let .click(.element(index), .left, _, _):
+            element = state.elements[index]
+        case let .click(.point(point), .left, _, _):
+            element = state.frame.flatMap { onImage(point, $0) }.flatMap { AXReader.element(at: $0, pid: state.window?.pid) }
+        case let .pressKey(chord, _) where chord.confirms:
+            element = state.pid.flatMap { AXReader.attribute(AXReader.application($0), kAXFocusedUIElementAttribute) }
+        default:
+            element = nil
+        }
+        return element.flatMap { Navigation.leaving(from: $0, window: root) }
     }
 
     private typealias Look = (window: WindowCandidate, pixels: PixelBuffer, said: [String])
@@ -93,17 +134,28 @@ struct Executor {
     /// How long the picture and words of an observation stand for the window as it is.
     private static let freshFor: TimeInterval = 2
 
-    /// The window before a click: what the observation just before it showed, else a new look.
+    /// The window before a click as the observation just before it showed it; a new look is taken only where
+    /// one is needed (see `physically`), not for every click.
     private func seenBefore() -> Look? {
-        if let window = state.window, let pixels = state.pixels, let said = state.said,
-           let at = state.observedAt, Date().timeIntervalSince(at) < Self.freshFor { return (window, pixels, said) }
-        return look()
+        guard let window = state.window, let pixels = state.pixels, let said = state.said,
+              let at = state.observedAt, Date().timeIntervalSince(at) < Self.freshFor else { return nil }
+        return (window, pixels, said)
     }
 
     private func changed(since before: Look) -> Bool {
-        let changed = redrawn(before.window, since: before.pixels) || content() != before.said
+        let changed = differs(since: before)
         if changed { state.reacted = true }
         return changed
+    }
+
+    /// Whether the window's words or picture changed since `before`; the words first, which need no waiting.
+    private func differs(since before: Look) -> Bool {
+        content() != before.said || redrawn(before.window, since: before.pixels)
+    }
+
+    /// The same for an earlier press, whose picture is there only when its observation had one.
+    private func differs(since pressed: (key: String, window: WindowCandidate, pixels: PixelBuffer?, said: [String])) -> Bool {
+        content() != pressed.said || pressed.pixels.map { redrawn(pressed.window, since: $0) } == true
     }
 
     private func run(_ request: ActionRequest, retried: Bool, seen: Look?) -> ActionResult {
@@ -114,7 +166,8 @@ struct Executor {
         case let .click(.element(index), button, count, modifiers):
             return live(index) { element in
                 if let refused = guardSave(confirmedBy: element) { return refused }
-                if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
+                if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element),
+                                                                         onShownPage: AXReader.shownOnPage(element)),
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
                 }
@@ -135,7 +188,7 @@ struct Executor {
                 // A control under the point is pressed through accessibility, in the background.
                 for element in retried ? [] : hits {
                     if case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
-                                                                       button: button, count: count, modifiers: !modifiers.isEmpty),
+                                                                       button: button, count: count, modifiers: !modifiers.isEmpty, onShownPage: AXReader.inPage(element)),
                        let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
                         return pressed
                     }
@@ -558,7 +611,12 @@ struct Executor {
         if let inserted = insertAtCaret(text, element) { return inserted }
         guard let pid = state.window?.pid else { return noWindow }
         if focusIsElsewhere(pid), case let .refused(result) = Foreground.bring(pid: pid, window: state.frontable) { return result }
-        let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: AXReader.takesText(element)))
+        let intoText = AXReader.takesText(element)
+        let inPage = AXReader.inPage(element)
+        guard Typing.sendsKeys(intoText: intoText, inPage: inPage) else {
+            return .unsupported("unsupported_action", hint: "Keyboard focus on this page is not in a text field, so typed letters would act as the page's shortcuts. Nothing was typed; click the text field first, or use set_value on it.")
+        }
+        let chunks = Typing.chunks(text, limit: Typing.unitsPerEvent(intoText: intoText, inPage: inPage))
         pointForKeys(pid)
         var sent = 0
         for chunk in chunks {

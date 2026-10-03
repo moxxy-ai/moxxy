@@ -21,6 +21,8 @@ const elementSchema = z.object({
 export const appTreeSchema = z.object({
   app: z.string().min(1).max(512),
   window: z.string().max(1024).optional(),
+  /** The system's number for the window, where the helper knows it: two windows may read the same title. */
+  windowId: z.string().min(1).max(64).optional(),
   elements: z.array(elementSchema).max(5000),
   truncated: z.boolean().optional(),
 }).strict().superRefine((tree, ctx) => {
@@ -67,12 +69,23 @@ export function formatTree(tree: AppTree): string {
   return [header(tree), ...formatElements(tree), ...(tree.truncated ? [TRUNCATED] : [])].join('\n');
 }
 
+/**
+ * Whether two observations show the same thing in front: the same title, and the same window where both have its
+ * number. A new tab keeps its window's number; a new empty window may keep the title of the one before it.
+ */
+export const sameWindow = (a: Pick<AppTree, 'window' | 'windowId'>, b: Pick<AppTree, 'window' | 'windowId'>) =>
+  a.window === b.window && (a.windowId === undefined || b.windowId === undefined || a.windowId === b.windowId);
+
+/** Whether two looks list the same elements; an index is only a position in one look. */
+export const sameElements = (a: AppTree, b: AppTree) =>
+  JSON.stringify(a.elements.map(({ index: _, ...rest }) => rest)) === JSON.stringify(b.elements.map(({ index: _, ...rest }) => rest));
+
 export interface TreeView { readonly kind: 'full' | 'diff' | 'unchanged'; readonly text: string }
 
 /** Render `next` relative to the state the model saw last; any change of index is listed so no old index is reused. */
 export function diffTrees(previous: AppTree | undefined, next: AppTree): TreeView {
   const full: TreeView = { kind: 'full', text: formatTree(next) };
-  if (!previous || previous.app !== next.app || previous.window !== next.window) return full;
+  if (!previous || previous.app !== next.app || !sameWindow(previous, next)) return full;
   const before = new Map(previous.elements.map((element) => [element.key, element]));
   const present = new Set(next.elements.map((element) => element.key));
   const changes: string[] = [];

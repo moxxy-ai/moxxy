@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AppContext, ComputerControlService, MoxxyEvent, ToolDef, ToolImageResult } from '@moxxy/sdk';
+import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, type AppContext, type ComputerControlService, type MoxxyEvent, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REQUEST_ACCESS_TOOL } from './access.js';
 import type { AppHint } from './app-hints.js';
@@ -288,6 +288,17 @@ describe('a run of steps', () => {
     ]);
   });
 
+  it('clicks what the screenshot reads as the target when no element is named so', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Publish', steps: [{ do: 'click', target: 'Publish' }] }, 'turn', { TYPESAFE_API_KEY: 'vault-key' });
+    const sent = helperRequests(requestsFile);
+    expect(sent.find((request) => request.method === 'read_text')?.params).toEqual({ app: 'com.apple.TextEdit', allowed: ['com.apple.TextEdit'] });
+    expect(sent.filter((request) => request.method === 'act').map((request) => request.params.action)).toEqual([
+      expect.objectContaining({ action: 'click', x: 330, y: 50 }),
+    ]);
+  });
+
   it('without a TypeSafe key answers with the state and no error, and touches nothing', async () => {
     vi.stubEnv('TYPESAFE_API_KEY', '');
     try {
@@ -411,6 +422,39 @@ describe('a run of steps', () => {
       expect(output).toMatch(/1\. verified/);
       expect(asked.flat()).not.toContain('target');
     });
+
+    // In Canva a click on a link only lit it up, and that link was then remembered as "the create button".
+    it('does not learn an element whose click changed only the picture, such as a hover highlight', async () => {
+      const asked: string[][] = [];
+      const { tools } = backend([], {}, recording(asked));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      await run(tools, 'computer_type_text', { app: 'TextEdit', element_index: 1, text: '<hover>' }, 'turn', secrets);
+      const create = [{ do: 'click', target: 'the create button', expect: 'a new design opens' }];
+      expect(forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Create', steps: create }, 'turn', secrets))).toMatch(/1\. FAILED/);
+      expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }, 'turn', secrets))).toMatch(/No changes since the previous state/);
+      asked.length = 0;
+      await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Create', steps: create }, 'later', secrets);
+      expect(asked.flat()).toContain('target');
+    });
+  });
+
+  it('looks at the window without a picture for the run, and hands the model one at the end', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Note', steps: [{ do: 'type', target: 'the missing box', text: 'x' }] }, 'turn', { TYPESAFE_API_KEY: 'k' }) as ToolImageResult;
+    expect(output.forModel).toMatch(/1\. FAILED/);
+    expect(output.base64).toEqual(expect.any(String));
+    const looks = helperRequests(requestsFile).filter((request) => request.method === 'get_app_state').map((request) => (request.params as { screenshot: boolean }).screenshot);
+    expect(looks).toEqual([false, false, true]);
+  });
+
+  it('sends steps that check nothing and need no element as one batch on macOS', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const output = forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Note', steps: [{ do: 'type', text: ' a' }, { do: 'key', key: 'Return' }] }, 'turn', { TYPESAFE_API_KEY: 'k' }));
+    expect(output).toMatch(/2 of 2 steps done/);
+    expect(methods()).toContain('batch');
+    expect(methods()).not.toContain('act');
   });
 
   it('stops at a step the grant does not allow and leaves the rest', async () => {
@@ -460,6 +504,30 @@ describe('a run of steps', () => {
       const input = { app: 'Safari', goal: 'Save', steps: [{ do: 'click', target: 'Save' }] };
       approveRun(input, { decidedNow: true });
       expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).not.toMatch(/tier_insufficient/);
+    });
+
+    describe('while the conversation auto-approves', () => {
+      const autoApprove = (enabled: boolean) => {
+        events.push({ ...base('turn'), type: 'plugin_event', pluginId: AUTO_APPROVE_PLUGIN_ID, subtype: AUTO_APPROVE_SUBTYPE, payload: { enabled } } as MoxxyEvent);
+      };
+      const input = { app: 'Safari', goal: 'Search', steps: [{ do: 'key', key: 'Return' }] };
+
+      // Auto-approve skips the prompt, never the policy: full control still comes from a request the policy sees.
+      it('keeps a browser it reached through a run at its default level', async () => {
+        const { tools } = backend([], {}, jev([]));
+        autoApprove(true);
+        approveRun(input, { decidedNow: true });
+        expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).toMatch(/tier_insufficient/);
+        expect(methods()).not.toContain('act');
+      });
+
+      it('lets a run press keys once full control was requested', async () => {
+        const { tools } = backend([], {}, jev([]));
+        autoApprove(true);
+        await requestAccess(tools, { apps: ['Safari'], reason: 'Search', full_access: ['Safari'] });
+        expect(forModel(await run(tools, 'computer_run', input, 'turn', secrets))).not.toMatch(/tier_insufficient/);
+        expect(methods()).toContain('act');
+      });
     });
 
     it('says which app it could not find', async () => {

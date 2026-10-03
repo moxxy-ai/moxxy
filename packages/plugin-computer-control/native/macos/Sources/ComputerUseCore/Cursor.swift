@@ -40,6 +40,16 @@ public enum CursorMotion {
     static let arcRatio: CGFloat = 0.15
     public static let maximumArc: CGFloat = 60
 
+    /// When an action goes out and when its ring shows, `glide` seconds of travel after it starts.
+    public struct Pace: Sendable, Equatable {
+        public let actAfter: Double
+        public let ringAfter: Double
+    }
+
+    /// The glide is only a picture: the action goes out at once, and the ring that marks it waits for the
+    /// cursor to arrive, so the user still sees where it was done.
+    public static func pace(glide: Double) -> Pace { Pace(actAfter: 0, ringAfter: glide) }
+
     public static func duration(distance: CGFloat, reduceMotion: Bool) -> Double {
         if reduceMotion { return 0 }
         return min(max(minimumDuration, minimumDuration + Double(distance) * secondsPerPoint), maximumDuration)

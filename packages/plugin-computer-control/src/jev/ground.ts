@@ -1,3 +1,5 @@
+import type { ShownText } from '../backend/rpc.js';
+import { wordsIn, type RunStep } from '../contract/tools.js';
 import { formatElements, type AppElement, type AppTree } from '../contract/tree.js';
 import type { JevAnswers, JevQuestion } from './client.js';
 
@@ -62,6 +64,50 @@ function families(tree: AppTree): Map<number, Set<number>> {
     open.push(element);
   }
   return family;
+}
+
+/** Words a target uses to say what kind of element it names, not which one. */
+const KIND = new Set(['the', 'a', 'an', 'button', 'przycisk', 'przycisku', 'link', 'tab', 'karta', 'kartę', 'field', 'pole', 'menu', 'item', 'checkbox', 'option', 'opcja', 'opcję']);
+/** Text a target puts in double quotes of any language; a target with one such quote names the element by it. */
+const QUOTED = /[„“”"«»]([^„“”"«»]+)[„“”"«»]/gu;
+const same = (a: readonly string[], b: readonly string[]) => a.length > 0 && a.length === b.length && a.every((word, at) => word === b[at]);
+
+/**
+ * The one element whose name is the whole target, or what the target quotes, found without asking Jev; nothing
+ * when the name is shared or the target says more than a name. Elements of one name inside each other are one:
+ * the outermost is meant.
+ */
+export function byName(tree: AppTree, step: RunStep): AppElement | undefined {
+  if (step.target === undefined) return undefined;
+  const names = namesIn(step.target);
+  const takesText = step.do === 'type' || step.do === 'set_value';
+  const matches = tree.elements.filter((element) => element.depth > 0 && (!takesText || element.value !== undefined)
+    && [element.title, element.description].some((name) => name !== undefined && names.some((words) => same(wordsIn(name), words))));
+  const [outermost] = [...matches].sort((a, b) => a.depth - b.depth);
+  if (!outermost) return undefined;
+  const family = families(tree).get(outermost.index) ?? new Set<number>();
+  return matches.every((match) => match === outermost || family.has(match.index)) ? outermost : undefined;
+}
+
+/** The ways a target can name its element: whole, without the words for its kind, or by its one quote. */
+function namesIn(target: string): string[][] {
+  const words = wordsIn(target);
+  const quotes = [...target.matchAll(QUOTED)].map(([, quoted]) => wordsIn(quoted ?? ''));
+  return [words, words.filter((word) => !KIND.has(word)), ...(quotes.length === 1 ? quotes : [])];
+}
+
+/** Text recognition often misses the marks on letters ("tytuł" reads "tytul"), so they do not count. */
+const plain = (words: readonly string[]) => words.map((word) => word.normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/gu, 'l'));
+
+/**
+ * The one line of text in the screenshot that reads as a click target, for a control whose accessibility name
+ * differs from what it shows (Canva's "Dodaj tytuł" is "Title, Heading" to accessibility).
+ */
+export function byText(lines: readonly ShownText[], step: RunStep): ShownText | undefined {
+  if (step.do !== 'click' || step.target === undefined) return undefined;
+  const names = namesIn(step.target).map(plain);
+  const matches = lines.filter((line) => names.some((words) => same(plain(wordsIn(line.text)), words)));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function readTarget(tree: AppTree, answers: JevAnswers): Grounding {

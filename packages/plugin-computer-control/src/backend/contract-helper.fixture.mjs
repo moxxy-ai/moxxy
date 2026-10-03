@@ -33,9 +33,12 @@ function tree(id) {
   };
 }
 
+/** Clicks on Save in a document holding `<hover>`: each lights the button up anew, which only the picture shows. */
+let highlights = 0;
+
 const state = (id, screenshot = true) => ({
   tree: tree(id),
-  ...(screenshot ? { screenshot: { mediaType: 'image/png', base64: PNG, width: 800, height: 600 } } : {}),
+  ...(screenshot ? { screenshot: { mediaType: 'image/png', base64: `${PNG}${'A'.repeat(highlights)}`, width: 800, height: 600 } } : {}),
   // The system's open or save panel is what the app shows.
   ...(documents.get(id).includes('<file-panel>') ? { filePanel: true } : {}),
 });
@@ -51,6 +54,7 @@ function perform(app, step) {
   // A control the helper itself gives up on once it is asked for it a second time.
   if (step.action === 'click' && step.element_index === 4) return (stubborn += 1) > 1 ? { outcome: 'ineffective', hint: 'A real click changed nothing either.' } : { outcome: 'delivered', method: 'ax' };
   if (step.action === 'type_text') documents.set(app, documents.get(app) + step.text);
+  if (step.action === 'click' && step.element_index === 2 && documents.get(app).includes('<hover>')) highlights += 1;
   return { outcome: 'delivered', method: 'ax' };
 }
 
@@ -96,7 +100,7 @@ const methods = {
   },
   act: (params) => {
     requireAllowed(params);
-    return { result: perform(params.app, params.action), state: state(params.app) };
+    return { result: perform(params.app, params.action), state: state(params.app, params.screenshot !== false) };
   },
   batch: (params) => {
     requireAllowed(params);
@@ -106,10 +110,15 @@ const methods = {
       results.push(result);
       if (result.outcome !== 'delivered') break;
     }
-    return { results, state: state(params.app) };
+    return { results, state: state(params.app, params.screenshot !== false) };
   },
   screenshot: () => ({ mediaType: 'image/png', base64: PNG, width: 1440, height: 900 }),
   zoom: () => ({ mediaType: 'image/png', base64: PNG, width: 400, height: 200 }),
+  // A control the screenshot shows under a name accessibility does not give it.
+  read_text: (params) => {
+    requireAllowed(params);
+    return { lines: [{ text: 'Publish', x: 300, y: 40, width: 60, height: 20 }] };
+  },
 };
 
 const lines = createInterface({ input: process.stdin });

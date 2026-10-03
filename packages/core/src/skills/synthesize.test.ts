@@ -238,3 +238,33 @@ describe('buildSynthesizeSkillPlugin', () => {
     expect(invoked[0].turnId).toBe(turnId);
   });
 });
+
+describe('reload_skills and the skills plugins ship', () => {
+  it('keeps the skills of a loaded plugin when the skills are read again', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-plugin-skills-'));
+    try {
+      await fs.mkdir(path.join(root, 'pkg', 'skills'), { recursive: true });
+      await fs.writeFile(
+        path.join(root, 'pkg', 'skills', 'computer-control.md'),
+        '---\nname: computer-control\ndescription: Operate desktop apps\nlabel: Computer Use\n---\nbody\n',
+      );
+      const session = newSessionWithProvider(new InlineProvider([]));
+      session.pluginHost.registerDiscovered(definePlugin({ name: 'computer' }), {
+        entry: './dist/index.js',
+        skills: './skills',
+        packageName: '@moxxy/plugin-computer-control',
+        packageVersion: '1.0.0',
+        packagePath: path.join(root, 'pkg'),
+      });
+      session.pluginHost.registerStatic(
+        buildSynthesizeSkillPlugin(session, { userDir: path.join(root, 'user'), projectDir: path.join(root, 'project') }),
+      );
+
+      await session.tools.execute('reload_skills', {}, session.signal, { turnId: 't', sessionId: String(session.id), callId: 'c1' });
+
+      expect(session.skills.byName('computer-control')).toMatchObject({ scope: 'plugin', frontmatter: { label: 'Computer Use' } });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});

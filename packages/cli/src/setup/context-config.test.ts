@@ -6,6 +6,7 @@ const target = (): ContextTarget => ({
   lazyTools: undefined,
   loopGuard: undefined,
   reasoning: undefined,
+  fast: false,
 });
 
 describe('applyContextConfig', () => {
@@ -15,6 +16,14 @@ describe('applyContextConfig', () => {
     applyContextConfig(session, { reasoning: { effort: 'xhigh' } });
 
     expect(session.reasoning).toEqual({ effort: 'xhigh' });
+  });
+
+  it('turns on fast mode from the config', () => {
+    const session = target();
+
+    applyContextConfig(session, { fast: true });
+
+    expect(session.fast).toBe(true);
   });
 
   it('carries lazy tools and the loop guard', () => {

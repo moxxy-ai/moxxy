@@ -217,6 +217,15 @@ describe('buildSessionConfigApplier', () => {
     expect(r.applied).not.toContain('reasoning');
   });
 
+  it('switches fast mode on and off when the config changes', async () => {
+    const session = makeSession();
+    const apply = buildSessionConfigApplier(session, {});
+    expect((await apply({ context: { fast: true } })).applied).toContain('fast');
+    expect(session.fast).toBe(true);
+    await apply({});
+    expect(session.fast).toBe(false);
+  });
+
   it('a genuine change to a context object IS applied', async () => {
     const apply = buildSessionConfigApplier(makeSession(), {
       context: { elision: { enabled: true, keepRecentTurns: 4 } },

@@ -86,6 +86,19 @@ import Testing
         #expect(Typing.chunks("torus", limit: Typing.unitsPerEvent(intoText: false)) == ["t", "o", "r", "u", "s"])
         #expect(Typing.chunks("torus", limit: Typing.unitsPerEvent(intoText: true)) == ["torus"])
     }
+
+    @Test func typesKeyByKeyIntoAWebPage() {
+        // Canva's editor put the last character of every 20-character event at the end of the text.
+        #expect(Typing.chunks("pytania", limit: Typing.unitsPerEvent(intoText: true, inPage: true)) == ["p", "y", "t", "a", "n", "i", "a"])
+    }
+
+    @Test func typesIntoAWebPageOnlyWhereATextFieldHasTheFocus() {
+        // On a page, letters sent to anything else are its shortcuts: Canva turns "s" into a sticky note.
+        #expect(!Typing.sendsKeys(intoText: false, inPage: true))
+        #expect(Typing.sendsKeys(intoText: true, inPage: true))
+        // A native canvas or calculator reads the keys themselves.
+        #expect(Typing.sendsKeys(intoText: false, inPage: false))
+    }
 }
 
 @Suite struct KeyAimTests {

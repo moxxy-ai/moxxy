@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppTree } from '../contract/tree.js';
 import type { ChoiceAnswer } from './client.js';
-import { OPTIONS_PER_QUESTION, STATE_CHARS, readTarget, targetQuestions, windowState } from './ground.js';
+import { OPTIONS_PER_QUESTION, STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState } from './ground.js';
 
 const tree: AppTree = {
   app: 'Settings', window: 'General',
@@ -98,5 +98,74 @@ describe('readTarget', () => {
 
   it('finds nothing without an answer', () => {
     expect(readTarget(tree, {})).toEqual({ kind: 'none', closest: [] });
+  });
+});
+
+describe('byName', () => {
+  const page: AppTree = {
+    app: 'Safari', window: 'OLX',
+    elements: [
+      { key: 'w', index: 0, depth: 0, role: 'window', title: 'OLX' },
+      { key: 'w/search', index: 1, depth: 1, role: 'combo box', title: 'Znajdź coś dla siebie', value: '' },
+      { key: 'w/go', index: 2, depth: 1, role: 'button', title: 'Szukaj' },
+      { key: 'w/a', index: 3, depth: 1, role: 'link', title: 'Rower' },
+      { key: 'w/b', index: 4, depth: 1, role: 'link', title: 'Rower' },
+      { key: 'w/address', index: 5, depth: 1, role: 'text field', description: 'inteligentne pole wyszukiwania', value: 'olx.pl' },
+    ],
+  };
+
+  it('is the one element whose name is the whole target, kinds of element aside', () => {
+    expect(byName(page, { do: 'click', target: 'Szukaj button' })?.index).toBe(2);
+    expect(byName(page, { do: 'click', target: 'the "Szukaj" przycisk' })?.index).toBe(2);
+    expect(byName(page, { do: 'type', target: 'Znajdź coś dla siebie', text: 'rower' })?.index).toBe(1);
+    expect(byName(page, { do: 'set_value', target: 'inteligentne pole wyszukiwania', text: 'olx.pl' })?.index).toBe(5);
+  });
+
+  it('is nothing when the name is shared, only part of the target, or the element takes no text', () => {
+    expect(byName(page, { do: 'click', target: 'Rower link' })).toBeUndefined();
+    expect(byName(page, { do: 'click', target: 'Szukaj button next to the search field' })).toBeUndefined();
+    expect(byName(page, { do: 'type', target: 'Szukaj', text: 'x' })).toBeUndefined();
+    expect(byName(page, { do: 'key', key: 'Return' })).toBeUndefined();
+  });
+
+  it('is the one element named by what the target quotes, whatever else it says', () => {
+    const suggested: AppTree = { ...page, elements: [...page.elements,
+      { key: 'w/s', index: 6, depth: 1, role: 'text', title: 'Kraków Kraków, Małopolskie' },
+      { key: 'w/t', index: 7, depth: 1, role: 'text', title: 'Kraków' },
+    ] };
+    expect(byName(suggested, { do: 'click', target: 'sugestia „Kraków Kraków, Małopolskie” na samej górze listy' })?.index).toBe(6);
+    expect(byName(suggested, { do: 'type', target: 'pole wyszukiwania "Znajdź coś dla siebie"', text: 'rower' })?.index).toBe(1);
+    expect(byName(suggested, { do: 'click', target: 'link „Rower” w wynikach' })).toBeUndefined();
+    expect(byName(suggested, { do: 'click', target: 'sugestia „Gdańsk” na liście' })).toBeUndefined();
+  });
+
+  it('is the outermost of the elements that carry one name inside each other', () => {
+    const linked: AppTree = { ...page, elements: [...page.elements,
+      { key: 'w/ad', index: 6, depth: 1, role: 'link', title: 'iPhone 13 128GB' },
+      { key: 'w/ad/text', index: 7, depth: 2, role: 'text', title: 'iPhone 13 128GB' },
+    ] };
+    expect(byName(linked, { do: 'click', target: 'iPhone 13 128GB' })?.index).toBe(6);
+  });
+});
+
+describe('byText', () => {
+  // What the screenshot reads where accessibility names a control otherwise (Canva's "Dodaj tytuł" is "Title, Heading").
+  const lines = [
+    { text: 'Dodaj tytul', x: 60, y: 280, width: 120, height: 24 },
+    { text: 'Dodaj podtytuł', x: 60, y: 320, width: 140, height: 20 },
+    { text: 'Rower', x: 10, y: 10, width: 40, height: 12 },
+    { text: 'Rower', x: 10, y: 40, width: 40, height: 12 },
+  ];
+
+  it('is the one line of the screenshot that reads as the target, with or without the marks on its letters', () => {
+    expect(byText(lines, { do: 'click', target: 'przycisk „Dodaj tytuł” w panelu Tekst' })).toBe(lines[0]);
+    expect(byText(lines, { do: 'click', target: 'Dodaj tytuł button' })).toBe(lines[0]);
+    expect(byText(lines, { do: 'click', target: 'Dodaj podtytul' })).toBe(lines[1]);
+  });
+
+  it('is nothing for a text shown twice, a part of a line, or a step that is not a click', () => {
+    expect(byText(lines, { do: 'click', target: 'Rower' })).toBeUndefined();
+    expect(byText(lines, { do: 'click', target: 'Dodaj' })).toBeUndefined();
+    expect(byText(lines, { do: 'set_value', target: 'Dodaj tytuł', text: 'x' })).toBeUndefined();
   });
 });

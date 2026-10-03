@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineSurface, defineTool, z, type SurfaceInstance } from '@moxxy/sdk';
 import { createTerminalProcess, type TerminalProcess } from './pty.js';
 
@@ -320,6 +323,7 @@ function runCommandSerialized(
   return new Promise((resolve) => {
     let acc = '';
     let settled = false;
+    let typed: TypedCommand | undefined;
     const finish = (exitCode: number | null, timedOut: boolean): void => {
       if (settled) return;
       settled = true;
@@ -327,7 +331,21 @@ function runCommandSerialized(
       unsubExit();
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener('abort', onAbort);
-      resolve({ output: cleanOutput(acc, command, marker), exitCode, timedOut });
+      typed?.remove();
+      const output = cleanOutput(acc, `${command}\n${typed?.line ?? ''}`, marker);
+      const waiting = timedOut ? unfinishedPrompt(acc) : undefined;
+      if (waiting === undefined) {
+        resolve({ output, exitCode, timedOut });
+        return;
+      }
+      // The shell sits at a continuation prompt (`heredoc>`): every later command
+      // would be swallowed as more of this one. Ctrl-C drops only that input.
+      proc.write('\u0003');
+      resolve({
+        output: `${output}\n[the shell was waiting for the rest of an unfinished command (${waiting}); cancelled it with Ctrl-C]`,
+        exitCode,
+        timedOut,
+      });
     };
     // Already aborted before we even start? Finish immediately — don't write to
     // the shell, don't arm a timeout. The command never runs; null exit.
@@ -429,7 +447,8 @@ function runCommandSerialized(
         return;
       }
       timer = setTimeout(() => finish(null, true), timeoutMs);
-      proc.write(`${command}\n`);
+      typed = typeable(command, marker);
+      proc.write(`${typed.line}\n`);
       proc.write(`\n${sentinelPrintf(marker)}\n`);
     };
     // Idle shell → write now (keeps the single-command path fully synchronous).
@@ -438,6 +457,41 @@ function runCommandSerialized(
     if (startWrites) void startWrites.then(writeAndArm);
     else writeAndArm();
   });
+}
+
+/**
+ * A terminal takes typed input through a buffer of about a kilobyte, and the
+ * shell redraws the line as each character arrives. A long or multi-line
+ * command typed in can lose characters, and a lost heredoc end line leaves the
+ * shell waiting forever. Such a command goes to a file the shell sources, so
+ * only one short line is typed and what it changes (cd, exports) stays, as if
+ * typed. Windows shells keep the typed form: `.` sourcing is POSIX.
+ */
+const TYPED_LIMIT = 512;
+
+interface TypedCommand {
+  readonly line: string;
+  remove(): void;
+}
+
+function typeable(command: string, marker: string): TypedCommand {
+  if (process.platform === 'win32' || (!command.includes('\n') && command.length <= TYPED_LIMIT)) {
+    return { line: command, remove: () => {} };
+  }
+  const file = join(tmpdir(), `moxxy-command-${marker}.sh`);
+  writeFileSync(file, `${command}\n`, { mode: 0o600 });
+  return {
+    line: `. '${file.replace(/'/g, `'\\''`)}'`,
+    remove: () => rmSync(file, { force: true }),
+  };
+}
+
+/** zsh's continuation prompt (`heredoc> `, `dquote> `, `for if> `) as the last line shown. */
+const CONTINUATION_PROMPT = /^((?:[a-z]+ )*[a-z]+)>$/u;
+
+function unfinishedPrompt(raw: string): string | undefined {
+  const last = plainText(raw).split('\n').filter((line) => line.trim() !== '').at(-1) ?? '';
+  return CONTINUATION_PROMPT.exec(last.trimEnd())?.[1];
 }
 
 /** The shell command that prints `<marker> <exit code>` on a line of its own. */

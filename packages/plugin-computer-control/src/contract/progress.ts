@@ -7,6 +7,18 @@ export function fingerprint(tree: AppTree, image?: { base64: string }): string {
   return createHash('sha256').update(JSON.stringify(tree)).update('\0').update(image ? image.base64 : '-').digest('hex');
 }
 
+type Look = { readonly tree: AppTree; readonly screenshot?: { readonly base64: string } };
+
+/**
+ * Whether the window changed between two looks: by elements and picture when both have a picture, else by the
+ * elements alone, without their places (which come with a picture).
+ */
+export function looksDifferent(a: Look, b: Look): boolean {
+  if (a.screenshot && b.screenshot) return fingerprint(a.tree, a.screenshot) !== fingerprint(b.tree, b.screenshot);
+  const placeless = (tree: AppTree): AppTree => ({ ...tree, elements: tree.elements.map(({ frame: _, ...element }) => element) });
+  return fingerprint(placeless(a.tree)) !== fingerprint(placeless(b.tree));
+}
+
 /** Each app's last action, and how many times in a row it left the app looking the same. */
 export class ProgressTracker {
   private readonly last = new Map<string, { signature: string; unchanged: number }>();

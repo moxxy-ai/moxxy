@@ -33,3 +33,7 @@ it("budgets every model to the Codex backend's 272k window less its 5% margin", 
     });
   }
 });
+
+it('offers fast mode on every model the plan serves', () => {
+  for (const model of codexModels) expect(model.supportsFast, model.id).toBe(true);
+});

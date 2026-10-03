@@ -105,6 +105,11 @@ export function buildSessionConfigApplier(
       applied.push('reasoning');
     }
 
+    if (next.context?.fast !== last.context?.fast) {
+      session.fast = next.context?.fast ?? false;
+      applied.push('fast');
+    }
+
     if (!deepEqual(next.context?.loopGuard, last.context?.loopGuard)) {
       session.loopGuard = next.context?.loopGuard;
       applied.push('loopGuard');
