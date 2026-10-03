@@ -1,3 +1,4 @@
+import { resolve as resolvePath } from 'node:path';
 import { MoxxyError, defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
 import { bridgeAddressFromEnv } from './bridge-client.js';
@@ -66,6 +67,18 @@ function caller(deps: BrowserSessionDeps | undefined, desktop: boolean): Call {
     );
 }
 
+/**
+ * Name the sites already allowed on every read of the page. Without it the
+ * model, having lost track, asks again — and each ask is a prompt to the user.
+ */
+function withAllowedSites(read: unknown, sites: readonly string[]): unknown {
+  if (typeof read !== 'object' || read === null || typeof (read as { text?: unknown }).text !== 'string') return read;
+  const line = sites.length
+    ? `- Sites you may act on: ${sites.join(', ')} (already allowed — do not ask again)`
+    : `- Sites you may act on: none yet — call ${ALLOW_SITE_TOOL} before the first action on a site`;
+  return { ...read, text: `${(read as { text: string }).text}\n${line}` };
+}
+
 /** Capabilities shared by the acting tools; reading declares less. */
 const ACT_ISOLATION = {
   capabilities: {
@@ -118,7 +131,10 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'allow' },
     compact: { verb: 'Reading', noun: { one: 'page', other: 'pages' }, previewKey: 'tab_id' },
     isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 60_000 } },
-    handler: ({ tab_id, full }, ctx) => call('snapshot', { tab_id, full }, ctx),
+    handler: async ({ tab_id, full }, ctx) => {
+      const read = await call('snapshot', { tab_id, full }, ctx);
+      return desktop ? withAllowedSites(read, sitesFromLog(ctx.log)) : read;
+    },
   });
 
   const click = defineTool({
@@ -229,7 +245,11 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       'Take a picture of the page — the last resort, after browser_snapshot. Use it when the accessibility ' +
       'tree is empty where something is clearly visible (a <canvas> app, a chart, a rendered document). ' +
       'Pass a uid to crop to that element, which is far cheaper than a whole viewport and is usually the ' +
-      'part that was actually in question.',
+      'part that was actually in question.' +
+      (desktop
+        ? ' Every picture comes back named — a view id and its size — and browser_point acts on what it shows, ' +
+          'in its pixels; a crop to a canvas is the cheap way to work on one.'
+        : ''),
     inputSchema: z.object({
       uid: blankAsAbsent(z.string().min(1)).describe('Crop to this element from the last snapshot.'),
       tab_id: tabId,
@@ -514,5 +534,62 @@ function buildDesktopTools(call: Call): ToolDef[] {
     },
   });
 
-  return [select, scroll, hover, wait, dialog, allowSite];
+  const point = defineTool({
+    name: 'browser_point',
+    icon: 'globe',
+    description:
+      'Act at a place in your latest picture of the page (browser_capture, whole or cropped) — for what the ' +
+      'accessibility tree cannot name: a canvas, a drawing app, a map. x and y are pixels of that picture, ' +
+      'origin top left; view is its id. click / double_click / right_click / move press or hover there; drag ' +
+      'holds the button from (x, y) through every point of path and lets go at the last; scroll turns the ' +
+      'wheel there (direction, screens); type types text wherever the keyboard focus is and key presses one key ' +
+      '(e.g. "r" to pick a drawing tool, "Escape") — neither takes x, y. Refused, with nothing done, if the page navigated, ' +
+      'scrolled, or looks different at that place since the picture. Each call answers with a fresh picture, ' +
+      'which is the one to point at next. Prefer uids whenever the snapshot has the element.',
+    inputSchema: z.object({
+      action: z.enum(['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'key']),
+      x: z.number().optional().describe('Pixels from the left of the picture. Not for type or key.'),
+      y: z.number().optional().describe('Pixels from the top of the picture. Not for type or key.'),
+      path: z
+        .array(z.array(z.number()).length(2))
+        .max(50)
+        .optional()
+        .describe('For drag: [x, y] points to pass through after (x, y); the last is where it lets go.'),
+      direction: z.enum(['up', 'down', 'left', 'right']).optional().describe('For scroll. Default down.'),
+      screens: z.number().min(0.25).max(10).optional().describe('For scroll: how far, in screens. Default 1.'),
+      text: z.string().min(1).optional().describe('For type: the text to type.'),
+      key: z.string().min(1).optional().describe('For key: the key, e.g. "r", "Escape", "Meta+z".'),
+      view: z.string().min(1).describe('The id of the picture the coordinates come from, e.g. "v3".'),
+      element: z.string().min(1).describe('What is at that place and what this does, in a few words — shown to the user.'),
+      tab_id: tabId,
+    }),
+    permission: { action: 'allow' },
+    compact: { verb: 'Pointing at', noun: { one: 'place', other: 'places' }, previewKey: 'element' },
+    isolation: ACT_ISOLATION,
+    handler: ({ action, x, y, path, direction, screens, text, key, view, tab_id }, ctx) =>
+      call('point', { action, x, y, path, direction, screens, text, key, view, tab_id }, ctx),
+  });
+
+  const upload = defineTool({
+    name: 'browser_upload',
+    icon: 'file',
+    description:
+      'Give a page\'s file field files from this computer — what choosing them in the file dialog does. uid is ' +
+      'the file input, or the button or label that opens it. Paths are on this computer; a relative path is ' +
+      'taken from the working directory. The user is asked every time, since the files leave the computer. ' +
+      'Never click the button to open the system file dialog: you cannot answer it.',
+    inputSchema: z.object({
+      uid: z.string().min(1),
+      paths: z.array(z.string().min(1)).min(1).max(20),
+      element: z.string().min(1).describe('What the field is for — shown to the user when approving.'),
+      tab_id: tabId,
+    }),
+    permission: { action: 'prompt' },
+    compact: { verb: 'Uploading to', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
+    isolation: ACT_ISOLATION,
+    handler: ({ uid, paths, tab_id }, ctx) =>
+      call('upload', { uid, paths: paths.map((path) => resolvePath(ctx.cwd, path)), tab_id }, ctx),
+  });
+
+  return [select, scroll, hover, wait, dialog, allowSite, point, upload];
 }

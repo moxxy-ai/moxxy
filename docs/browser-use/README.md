@@ -51,9 +51,34 @@ Only on the desktop:
 | `browser_scroll` | Scrolls the page, or the part a uid sits in, by screens; says whether it moved | no |
 | `browser_hover` | Moves the pointer over an element, for hover menus | no |
 | `browser_wait` | Waits for a text to appear or go away; `met: false` means not yet | no |
+| `browser_point` | Clicks, double/right-clicks, moves, drags, scrolls, presses a key or types at a place in the latest viewport picture | no (site consent) |
+| `browser_upload` | Gives a file field local files, as the file dialog would | yes, every time |
 
 On the desktop, `browser_type` replaces what a field holds (it no longer
 appends) and takes `submit: true` to press Enter afterwards.
+
+## Working by picture
+
+A canvas app (Excalidraw, a map, a chart) shows things the accessibility tree
+cannot name. There the agent takes `browser_capture` without a uid: on the
+desktop that is a **view** — `v1`, `v2`, … — a picture of the viewport in CSS
+pixels (not the screen's: a Retina screen would make it four times the cost),
+answered with its size. `browser_point` then acts at x, y of that picture:
+click, double_click, right_click, move, drag along a `path`, scroll, key, type.
+
+A point is refused, with nothing done, when the picture no longer describes
+the page: it is not the latest view of the tab, the page navigated or scrolled
+since, or the pixels around the target look different now (a few stray pixels
+are not a change). Every point answers with a fresh view, which is the one to
+use next, so working on a canvas costs no extra captures. `key` exists on
+`browser_point` for the same reason: picking a drawing tool usually changes the
+canvas, and the picture that comes back already shows it.
+
+`browser_upload` hands a file field files from this computer through
+`DOM.setFileInputFiles`. The uid may be the input itself, a label for it, a
+button with one inside, or any element on a page that has exactly one file
+input — which covers the usual hidden input behind an "Add attachment" button.
+It always asks first, since the files leave the computer.
 
 ## Allowing a site
 
@@ -71,6 +96,8 @@ the one prompt: the user sees the site and the agent's reason.
 - **What is judged:** a navigation (`goto`, a new tab with a URL) by where it
   goes; every other action by the page it acts on. Reading, capturing,
   scrolling, hovering and waiting go anywhere.
+- **What the agent is told:** every desktop snapshot ends with the sites it
+  may act on, so it does not ask twice for the same one.
 - **Still asked every time:** `browser_dialog` (a confirm usually guards
   something final) and `browser_session`, whose calls carry no sites.
 - **Where it lives:** the approved `browser_allow_site` result in the session

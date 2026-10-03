@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
+import { basename, isAbsolute } from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 import {
   buildAxTree,
   detectWall,
@@ -29,6 +32,7 @@ import {
   type Point,
 } from './input.js';
 import { PageWatch, waitQuiet, type Dialog } from './page-watch.js';
+import { changedAround, decodePng, pngSize, type Pixels } from './view.js';
 import { AgentPointer, type CursorSink } from './agent-pointer.js';
 import { BrowserControl, type ControlState } from './control.js';
 
@@ -118,7 +122,57 @@ interface Tab {
   frameOwners?: Map<string, number>;
   /** Tabs this page opened (target=_blank, window.open), counted so an action can tell it caused one. */
   opened?: { count: number; last: Promise<{ tabId: string; url: string } | null> };
+  /** The latest picture of the viewport, the one `point` coordinates refer to. */
+  view?: View;
 }
+
+/** A rectangle in CSS pixels of the viewport. */
+export interface Region {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+interface Shot {
+  readonly png: Buffer;
+  /** What the picture shows, in CSS pixels of the viewport. */
+  readonly region: Region;
+  readonly viewport: { readonly width: number; readonly height: number };
+  readonly cropped: boolean;
+}
+
+/** A picture of (part of) a tab's viewport and what the page was when it was taken. */
+interface View extends Shot {
+  readonly id: string;
+  readonly width: number;
+  readonly height: number;
+  readonly url: string;
+  readonly scroll: string | null;
+}
+
+export type PointAction = 'click' | 'double_click' | 'right_click' | 'move' | 'drag' | 'scroll' | 'type' | 'key';
+
+export interface PointParams {
+  readonly action: PointAction;
+  /** Pixels of the picture named by `view`; not used by `type`. */
+  readonly x?: number;
+  readonly y?: number;
+  /** For `drag`: the points to pass through after (x, y), the last being where it lets go. */
+  readonly path?: ReadonlyArray<readonly [number, number]>;
+  readonly direction?: 'up' | 'down' | 'left' | 'right';
+  readonly screens?: number;
+  readonly text?: string;
+  /** For `key`: the key, named as `browser_key` names it. */
+  readonly key?: string;
+  readonly view: string;
+  readonly tabId?: string;
+}
+
+/** Pixels around the target, in the picture, that must look as they did. */
+const TARGET_RADIUS = 16;
+/** Spacing of the moves a drag is made of, in CSS pixels. */
+const DRAG_STEP = 8;
 
 /**
  * Page events that change what a tab strip should say about a tab.
@@ -150,6 +204,20 @@ export interface HostReply {
 const ok = (result?: unknown): HostReply => ({ ok: true, ...(result !== undefined ? { result } : {}) });
 const fail = (message: string): HostReply => ({ ok: false, error: { message } });
 
+/** A viewport picture as the model receives it: the image, and how to point at it. */
+function pictureOf(view: View, tabId: string, said: string) {
+  return {
+    view: view.id,
+    width: view.width,
+    height: view.height,
+    mediaType: 'image/png',
+    base64: view.png.toString('base64'),
+    forModel:
+      `${said} This is ${view.id}, a ${view.width}×${view.height} picture of ${view.cropped ? 'part of ' : ''}tab ${tabId}'s viewport. ` +
+      `To act on what it shows, call browser_point with view "${view.id}" and x, y in its pixels (origin top left).`,
+  };
+}
+
 /** Pick an option of `this` (a `<select>`) by value or label; see `selectOption`. */
 const SELECT_OPTION = `function (wanted) {
   if (!(this instanceof HTMLSelectElement)) return { error: 'it is not a list of options (<select>); click it instead' };
@@ -167,6 +235,17 @@ const SELECT_OPTION = `function (wanted) {
   this.dispatchEvent(new Event('input', { bubbles: true }));
   this.dispatchEvent(new Event('change', { bubbles: true }));
   return { selected: label(option) };
+}`;
+
+/** The file input `this` leads to: itself, the field its label names, one inside it, or the page's only one. */
+const FILE_INPUT = `function () {
+  const isFile = (el) => el instanceof HTMLInputElement && el.type === 'file';
+  if (isFile(this)) return this;
+  if (this.control && isFile(this.control)) return this.control;
+  const inside = this.querySelector && this.querySelector('input[type=file]');
+  if (inside) return inside;
+  const all = [...document.querySelectorAll('input[type=file]')];
+  return all.length === 1 ? all[0] : null;
 }`;
 
 /** A function of a deadline (ms) that resolves once the text shows (or, with `gone`, stops showing). */
@@ -235,6 +314,7 @@ export class BrowserHost {
   private askFocus: ((req: { requestId: string; tabId: string }) => void) | null = null;
   private readonly pendingFocus = new Map<string, () => void>();
   private focusSeq = 0;
+  private viewSeq = 0;
   /** Fires whenever the tab set or the active tab changes. */
   private readonly listeners = new Set<() => void>();
   /**
@@ -1086,6 +1166,46 @@ export class BrowserHost {
   }
 
   /**
+   * Give a page's file input local files — what choosing them in the system's
+   * file dialog would do, without the dialog nobody here could answer.
+   * `uid` is the input, or the button or label that stands for a hidden one.
+   */
+  async upload(params: { uid: string; paths: readonly string[]; tabId?: string }): Promise<HostReply> {
+    try {
+      for (const path of params.paths) {
+        if (!isAbsolute(path)) return fail(`${path} is not an absolute path`);
+        const stat = statSync(path, { throwIfNoEntry: false });
+        if (!stat?.isFile()) return fail(`${path} is not a file on this computer`);
+      }
+      if (params.paths.length === 0) return fail('name at least one file');
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const found = this.elementFor(tab, wc, params.uid);
+      if ('error' in found) return fail(found.error);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      const at = await this.place(cdp, found);
+      if (at) await this.pointer.moveTo(tab.id, at.page);
+      const handle = (await found.dom.send('DOM.resolveNode', { backendNodeId: found.backendNodeId })) as {
+        object?: { objectId?: string };
+      };
+      const objectId = handle?.object?.objectId;
+      if (!objectId) return fail(`${found.named} is gone from the page`);
+      const input = (await found.dom.send('Runtime.callFunctionOn', { objectId, functionDeclaration: FILE_INPUT })) as {
+        result?: { subtype?: string; objectId?: string };
+      };
+      const target = input?.result?.subtype === 'node' ? input.result.objectId : undefined;
+      if (!target) return fail(`there is no file input behind ${found.named} — find the upload field or its button`);
+      const outcome = await this.watched(tab, cdp, async () => {
+        await found.dom.send('DOM.setFileInputFiles', { files: [...params.paths], objectId: target });
+      });
+      return ok({ tabId: tab.id, uploaded: params.paths.map((path) => basename(path)), ...outcome, url: wc.getURL() });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * Scroll the page, or the scrollable part a uid sits in, by screens.
    *
    * A wheel at a point is what scrolls the thing under it — the page, or a
@@ -1370,30 +1490,226 @@ export class BrowserHost {
   async capture(
     opts: {
       tabId?: string;
-      clip?: { x: number; y: number; width: number; height: number };
+      /** In CSS pixels of the viewport, as an element's box or a selection in the pane gives it. */
+      clip?: Region;
       format?: 'png' | 'jpeg';
       fullPage?: boolean;
+      /** Make it the agent's picture to point at (`view`); the person's own pictures are not. */
+      view?: boolean;
     } = {},
   ): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(opts.tabId);
       const cdp = this.cdp(wc);
       const format = opts.format ?? 'png';
-      const params: Record<string, unknown> = { format, captureBeyondViewport: opts.fullPage === true };
-      if (format === 'jpeg') params.quality = 80;
-      if (opts.clip) {
-        if (opts.clip.width <= 0 || opts.clip.height <= 0) return fail('clip width and height must be positive');
-        params.clip = { ...opts.clip, scale: 1 };
+      if (opts.clip && (opts.clip.width <= 0 || opts.clip.height <= 0)) return fail('clip width and height must be positive');
+      if (opts.fullPage === true) {
+        const params: Record<string, unknown> = { format, captureBeyondViewport: true };
+        if (format === 'jpeg') params.quality = 80;
+        const shot = (await cdp.send('Page.captureScreenshot', params)) as { data?: string };
+        if (typeof shot?.data !== 'string') return fail('the page did not return an image');
+        return ok({ tabId: tab.id, mediaType: format === 'jpeg' ? 'image/jpeg' : 'image/png', base64: shot.data });
       }
-      const shot = (await cdp.send('Page.captureScreenshot', params)) as { data?: string };
-      if (typeof shot?.data !== 'string') return fail('the page did not return an image');
-      return ok({
-        tabId: tab.id,
-        mediaType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
-        base64: shot.data,
-      });
+      const shot = await this.shoot(cdp, opts.clip, format);
+      const view = opts.view && format === 'png' ? await this.remember(tab, wc, cdp, shot) : null;
+      if (view) {
+        const what = opts.clip ? 'Picture of part of' : 'Picture of';
+        return ok({ tabId: tab.id, ...pictureOf(view, tab.id, `${what} tab ${tab.id} (${view.url}).`) });
+      }
+      return ok({ tabId: tab.id, mediaType: format === 'jpeg' ? 'image/jpeg' : 'image/png', base64: shot.png.toString('base64') });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** Take a picture of the region `view` shows and make it the one the agent points at. */
+  private async look(tab: Tab, wc: HostWebContents, cdp: Cdp, region?: Region): Promise<View> {
+    const view = await this.remember(tab, wc, cdp, await this.shoot(cdp, region));
+    if (!view) throw new Error('the page did not return a readable picture');
+    return view;
+  }
+
+  /** Make the shot the picture the agent points at; null when it is not one this host can read. */
+  private async remember(tab: Tab, wc: HostWebContents, cdp: Cdp, shot: Shot): Promise<View | null> {
+    const size = pngSize(shot.png);
+    if (!size) return null;
+    const view: View = {
+      id: `v${++this.viewSeq}`,
+      png: shot.png,
+      ...size,
+      region: shot.region,
+      viewport: shot.viewport,
+      cropped: shot.cropped,
+      url: wc.getURL(),
+      scroll: await scrollState(cdp),
+    };
+    tab.view = view;
+    return view;
+  }
+
+  /**
+   * A picture of the viewport, or of a region of it, in CSS pixels. On a
+   * high-density screen the plain screenshot is twice as large each way — four
+   * times the cost to the model for nothing it can point at more precisely.
+   * A screenshot's clip is in page coordinates while a region is in the
+   * viewport's, so the clip is moved by how far the page is scrolled.
+   */
+  private async shoot(cdp: Cdp, region?: Region, format: 'png' | 'jpeg' = 'png'): Promise<Shot> {
+    const metrics = (await cdp.send('Page.getLayoutMetrics')) as {
+      cssVisualViewport?: { clientWidth?: number; clientHeight?: number; pageX?: number; pageY?: number };
+      visualViewport?: { clientWidth?: number };
+    };
+    const css = metrics?.cssVisualViewport;
+    const viewport = css?.clientWidth && css.clientHeight ? { width: css.clientWidth, height: css.clientHeight } : null;
+    const area = region ?? (viewport ? { x: 0, y: 0, ...viewport } : null);
+    const params: Record<string, unknown> = { format, ...(format === 'jpeg' ? { quality: 80 } : {}) };
+    if (area) {
+      const device = metrics?.visualViewport?.clientWidth;
+      params.clip = {
+        x: (css?.pageX ?? 0) + area.x,
+        y: (css?.pageY ?? 0) + area.y,
+        width: area.width,
+        height: area.height,
+        scale: device && viewport ? viewport.width / device : 1,
+      };
+    }
+    const shot = (await cdp.send('Page.captureScreenshot', params)) as { data?: string };
+    if (typeof shot?.data !== 'string') throw new Error('the page did not return an image');
+    const png = Buffer.from(shot.data, 'base64');
+    const size = pngSize(png) ?? { width: 0, height: 0 };
+    return {
+      png,
+      region: area ?? { x: 0, y: 0, ...size },
+      viewport: viewport ?? size,
+      cropped: region !== undefined,
+    };
+  }
+
+  /**
+   * Act at a place in the agent's latest picture of the page — for what the
+   * accessibility tree cannot name: a canvas, a map, a drawing.
+   *
+   * Refused when the picture no longer describes the page: an older picture,
+   * a page that navigated or scrolled since, or a target whose pixels look
+   * different now. A press there would land on something the agent never saw.
+   * Every action answers with a fresh picture, which becomes the one to point at.
+   */
+  async point(params: PointParams): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      const view = tab.view;
+      if (!view) return fail(`there is no picture of tab ${tab.id} to point at — take one with browser_capture first`);
+      if (params.view !== view.id) {
+        return fail(`${params.view} is not the latest picture of tab ${tab.id} — that is ${view.id}; point at its pixels`);
+      }
+      if (wc.getURL() !== view.url) {
+        return fail(`the page navigated since ${view.id} (now ${wc.getURL()}) — take a fresh browser_capture`);
+      }
+      const scroll = await scrollState(cdp);
+      if (view.scroll !== null && scroll !== null && scroll !== view.scroll) {
+        return fail(`the page scrolled since ${view.id} — take a fresh browser_capture`);
+      }
+
+      const places: Array<readonly [number, number]> = [];
+      const keyboard = params.action === 'type' || params.action === 'key';
+      if (!keyboard) {
+        if (typeof params.x !== 'number' || typeof params.y !== 'number') return fail(`${params.action} needs x and y`);
+        places.push([params.x, params.y], ...(params.action === 'drag' ? (params.path ?? []) : []));
+        if (params.action === 'drag' && places.length < 2) return fail('drag needs a path to move along');
+        const outside = places.find(([x, y]) => x < 0 || y < 0 || x >= view.width || y >= view.height);
+        if (outside) return fail(`(${outside[0]}, ${outside[1]}) is outside the picture, which is ${view.width}×${view.height}`);
+        const target = { x: params.x, y: params.y };
+        const before = decodePng(view.png);
+        const now = before ? decodePng((await this.shoot(cdp, view.cropped ? view.region : undefined)).png) : null;
+        if (before && now && changedAround(before, now, target, TARGET_RADIUS)) {
+          return fail(
+            `the pixels at (${target.x}, ${target.y}) changed since ${view.id} — take a fresh browser_capture before pointing there`,
+          );
+        }
+      } else if (params.action === 'type' ? !params.text : !params.key) {
+        return fail(params.action === 'type' ? 'type needs the text to type' : 'key needs the key to press');
+      }
+
+      const toPage = ([x, y]: readonly [number, number]): Point => ({
+        x: view.region.x + (x * view.region.width) / view.width,
+        y: view.region.y + (y * view.region.height) / view.height,
+      });
+      const points = places.map(toPage);
+      await this.focusView(tab, 1500);
+      const first = points[0];
+      if (first) await this.pointer.moveTo(tab.id, first);
+      const press = !keyboard && params.action !== 'move' && params.action !== 'scroll';
+      const outcome = await this.marked(tab, press, () =>
+        this.watched(tab, cdp, () => this.gesture(tab, cdp, params, points, view)),
+      );
+      const next = await this.look(tab, wc, cdp, view.cropped ? view.region : undefined);
+      const said = [`Did ${params.action.replace('_', ' ')} on tab ${tab.id}.`];
+      if (outcome.navigated) said.push(`The page navigated to ${next.url}.`);
+      if (outcome.dialog) said.push(`A ${outcome.dialog.type} dialog: "${outcome.dialog.message}".`);
+      if (outcome.opened) said.push(`It opened tab ${outcome.opened.tabId} (${outcome.opened.url}).`);
+      return ok({ tabId: tab.id, ...outcome, url: next.url, ...pictureOf(next, tab.id, said.join(' ')) });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** The input events of one pointing action, at points already in CSS pixels. */
+  private async gesture(tab: Tab, cdp: Cdp, params: PointParams, points: Point[], view: View): Promise<void> {
+    const mouse = (event: Record<string, unknown>) => cdp.send('Input.dispatchMouseEvent', event);
+    const [at] = points;
+    if (params.action === 'type') {
+      await typeCharacters(cdp, params.text ?? '');
+      return;
+    }
+    if (params.action === 'key') {
+      const problem = await pressKey(cdp, params.key ?? '');
+      if (problem) throw new Error(problem);
+      return;
+    }
+    assertDefined(at, 'the place to point at');
+    switch (params.action) {
+      case 'click':
+        return pressAt(cdp, at);
+      case 'double_click':
+        await pressAt(cdp, at, 1);
+        return pressAt(cdp, at, 2);
+      case 'right_click':
+        await mouse({ type: 'mouseMoved', x: at.x, y: at.y, button: 'none' });
+        await mouse({ type: 'mousePressed', x: at.x, y: at.y, button: 'right', buttons: 2, clickCount: 1 });
+        await mouse({ type: 'mouseReleased', x: at.x, y: at.y, button: 'right', buttons: 0, clickCount: 1 });
+        return;
+      case 'move':
+        await mouse({ type: 'mouseMoved', x: at.x, y: at.y, button: 'none' });
+        return;
+      case 'scroll': {
+        const screens = Math.min(Math.max(params.screens ?? 1, 0.25), 10);
+        const sideways = params.direction === 'left' || params.direction === 'right';
+        const sign = params.direction === 'up' || params.direction === 'left' ? -1 : 1;
+        const delta = sign * Math.round((sideways ? view.viewport.width : view.viewport.height) * 0.8 * screens);
+        await mouse({ type: 'mouseMoved', x: at.x, y: at.y, button: 'none' });
+        await mouse({ type: 'mouseWheel', x: at.x, y: at.y, deltaX: sideways ? delta : 0, deltaY: sideways ? 0 : delta });
+        return;
+      }
+      case 'drag': {
+        await mouse({ type: 'mouseMoved', x: at.x, y: at.y, button: 'none' });
+        await mouse({ type: 'mousePressed', x: at.x, y: at.y, button: 'left', buttons: 1, clickCount: 1 });
+        let from = at;
+        for (const to of points.slice(1)) {
+          const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / DRAG_STEP));
+          for (let i = 1; i <= steps; i++) {
+            const x = from.x + ((to.x - from.x) * i) / steps;
+            const y = from.y + ((to.y - from.y) * i) / steps;
+            await mouse({ type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+          }
+          await this.pointer.moveTo(tab.id, to);
+          from = to;
+        }
+        await mouse({ type: 'mouseReleased', x: from.x, y: from.y, button: 'left', buttons: 0, clickCount: 1 });
+        return;
+      }
     }
   }
 

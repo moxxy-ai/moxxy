@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pl">
+<meta charset="utf-8">
+<title>Wysyłanie pliku</title>
+<h1>Wysyłanie pliku</h1>
+<input id="file" type="file" hidden multiple>
+<button type="button" onclick="document.getElementById('file').click()">Dodaj załącznik</button>
+<p>Wynik: <output id="result">brak</output></p>
+<script>
+  document.getElementById('file').addEventListener('change', async (event) => {
+    const files = [...event.target.files];
+    const sizes = await Promise.all(files.map(async (f) => `${f.name} (${(await f.text()).length} B)`));
+    document.getElementById('result').textContent = sizes.join(', ');
+  });
+</script>
+</html>

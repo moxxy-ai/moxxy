@@ -477,3 +477,35 @@ describe('BrowserBridge — only on sites the conversation allowed', () => {
     expect(await c.send('goto', { url: 'https://example.com' })).toMatchObject({ ok: true });
   });
 });
+
+describe('BrowserBridge — pointing at a picture and giving files', () => {
+  it('passes point and upload through to the host', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    const pointed = await c.send('point', { action: 'click', x: 1, y: 1, view: 'v1', sites: ['sklep.pl'] });
+    const uploaded = await c.send('upload', { uid: '2', paths: ['/nie/ma/takiego.png'], sites: ['sklep.pl'] });
+
+    // Both reach the host, which answers in its own words.
+    expect((pointed.error as { message: string }).message).toMatch(/browser_capture/);
+    expect((uploaded.error as { message: string }).message).toMatch(/not a file/);
+  });
+
+  it('refuses both on a site nobody allowed, and while the person has the browser', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    for (const [method, params] of [
+      ['point', { action: 'click', x: 1, y: 1, view: 'v1' }],
+      ['upload', { uid: '2', paths: ['/x.png'] }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const reply = await c.send(method, { ...params, sites: [] });
+      expect((reply.error as { message: string }).message, method).toContain('browser_allow_site');
+    }
+    host.takeOver();
+    for (const method of ['point', 'upload']) {
+      const reply = await c.send(method, { sites: ['sklep.pl'] });
+      expect((reply.error as { message: string }).message, method).toMatch(/user has taken over/);
+    }
+  });
+});

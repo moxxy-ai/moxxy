@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BrowserHost, type HostWebContents } from './host.js';
 
 /**
@@ -21,6 +24,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
   const boxes: Record<number, number[] | null> = {};
   /** Whether the page reports the element inside its viewport. */
   let onScreen = true;
+  /** Whether the page has a file input the element leads to. */
+  let fileInput = true;
   let current = url;
   let attached = false;
   let reloads = 0;
@@ -100,6 +105,11 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
         if (method === 'Runtime.callFunctionOn') {
           const fn = String((params as { functionDeclaration?: string })?.functionDeclaration ?? '');
           if (fn.includes('getBoundingClientRect')) return { result: { value: onScreen } };
+          if (fn.includes('input[type=file]')) {
+            return fileInput
+              ? { result: { type: 'object', subtype: 'node', objectId: 'file-input' } }
+              : { result: { type: 'object', subtype: 'null', value: null } };
+          }
           return {};
         }
         if (method === 'Runtime.evaluate') {
@@ -136,6 +146,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     setPage: (nodes: unknown[]) => (axNodes = nodes),
     setBox: (backendNodeId: number, quad: number[] | null) => (boxes[backendNodeId] = quad),
     setOnScreen: (v: boolean) => (onScreen = v),
+    setFileInput: (v: boolean) => (fileInput = v),
     emit: (event: string, ...args: unknown[]) => {
       for (const fn of [...(listeners.get(event) ?? [])]) fn(...args);
     },
@@ -1652,5 +1663,62 @@ describe('BrowserHost — the person taking the browser back', () => {
     await host.awaitHuman({ reason: 'Zaloguj się' });
 
     expect(host.control.driver).toBe('agent');
+  });
+});
+
+describe('BrowserHost — giving a page a file', () => {
+  const uidOf = (text: string, label: string) => {
+    const uid = new RegExp(`\\[(\\d+)\\][^\\n]*${label}`).exec(text)?.[1];
+    assertDefined(uid, `a uid for ${label}`);
+    return uid;
+  };
+  const tmp = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'moxxy-upload-'));
+    const file = join(dir, 'zdjecie.png');
+    writeFileSync(file, 'x');
+    return { dir, file };
+  };
+
+  it('hands the files to the file input the element leads to', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    const snap = await host.snapshot();
+    const { file } = tmp();
+
+    const reply = await host.upload({ uid: uidOf(String((snap.result as { text: string }).text), 'Do kasy'), paths: [file] });
+
+    expect(reply).toMatchObject({ ok: true, result: { uploaded: ['zdjecie.png'] } });
+    expect(a.sent.find((s) => s.method === 'DOM.setFileInputFiles')?.params).toEqual({ files: [file], objectId: 'file-input' });
+  });
+
+  it('says so when there is no file input to give them to', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    const snap = await host.snapshot();
+    a.setFileInput(false);
+    const { file } = tmp();
+
+    const reply = await host.upload({ uid: uidOf(String((snap.result as { text: string }).text), 'Do kasy'), paths: [file] });
+
+    expect(reply.ok).toBe(false);
+    expect(reply.error?.message).toMatch(/no file input/);
+    expect(a.sent.some((s) => s.method === 'DOM.setFileInputFiles')).toBe(false);
+  });
+
+  it('refuses a path that is not a file on this computer', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    const snap = await host.snapshot();
+    const { dir } = tmp();
+    const uid = uidOf(String((snap.result as { text: string }).text), 'Do kasy');
+
+    for (const path of [join(dir, 'brak.png'), dir, 'wzgledna.png']) {
+      const reply = await host.upload({ uid, paths: [path] });
+      expect(reply.ok, path).toBe(false);
+    }
+    expect(a.sent.some((s) => s.method === 'DOM.setFileInputFiles')).toBe(false);
   });
 });

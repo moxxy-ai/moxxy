@@ -58,8 +58,10 @@ describe('browser plugin — picking a backend', () => {
       'browser_allow_site',
       'browser_dialog',
       'browser_hover',
+      'browser_point',
       'browser_scroll',
       'browser_select',
+      'browser_upload',
       'browser_wait',
     ]);
   });

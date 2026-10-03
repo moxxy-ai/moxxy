@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 import { siteAllows, siteRefusal } from '@moxxy/plugin-browser';
-import type { BrowserHost } from './host';
+import type { BrowserHost, PointAction, PointParams } from './host';
 
 /**
  * The channel the agent's tools reach the desktop browser through.
@@ -31,8 +31,15 @@ const MAX_LINE = 1_000_000;
 
 /** Methods that change the page or what the pane shows; refused while the person has the browser. */
 const ACTING = new Set([
-  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval',
+  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval', 'point', 'upload',
 ]);
+
+const POINT_ACTIONS = new Set<PointAction>(['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'key']);
+const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
+
+function isPair(value: unknown): value is [number, number] {
+  return Array.isArray(value) && value.length === 2 && value.every((n) => typeof n === 'number' && Number.isFinite(n));
+}
 
 export interface BridgeAddress {
   readonly socketPath: string;
@@ -194,6 +201,31 @@ export class BrowserBridge {
           ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
           ...(tabId ? { tabId } : {}),
         });
+      case 'point': {
+        const action = String(params.action ?? '') as PointAction;
+        if (!POINT_ACTIONS.has(action)) return { ok: false, error: { message: `unknown point action: ${action}` } };
+        const point: PointParams = {
+          action,
+          view: String(params.view ?? ''),
+          ...(typeof params.x === 'number' ? { x: params.x } : {}),
+          ...(typeof params.y === 'number' ? { y: params.y } : {}),
+          ...(Array.isArray(params.path) ? { path: params.path.filter(isPair) } : {}),
+          ...(typeof params.direction === 'string' && DIRECTIONS.has(params.direction)
+            ? { direction: params.direction as NonNullable<PointParams['direction']> }
+            : {}),
+          ...(typeof params.screens === 'number' ? { screens: params.screens } : {}),
+          ...(typeof params.text === 'string' ? { text: params.text } : {}),
+          ...(typeof params.key === 'string' ? { key: params.key } : {}),
+          ...(tabId ? { tabId } : {}),
+        };
+        return this.host.point(point);
+      }
+      case 'upload':
+        return this.host.upload({
+          uid: String(params.uid ?? ''),
+          paths: Array.isArray(params.paths) ? params.paths.filter((p): p is string => typeof p === 'string') : [],
+          ...(tabId ? { tabId } : {}),
+        });
       case 'goto': {
         const url = params.url;
         if (typeof url !== 'string') return { ok: false, error: { message: 'url is required' } };
@@ -224,6 +256,7 @@ export class BrowserBridge {
       }
       case 'capture':
         return this.host.capture({
+          view: true,
           ...(tabId ? { tabId } : {}),
           ...(params.clip ? { clip: params.clip as { x: number; y: number; width: number; height: number } } : {}),
           ...(params.format === 'jpeg' ? { format: 'jpeg' as const } : {}),
@@ -307,6 +340,8 @@ export class BrowserBridge {
         return params.action === 'hover' ? null : here(tabId);
       case 'select':
       case 'key':
+      case 'point':
+      case 'upload':
       case 'back':
       case 'forward':
       case 'reload':

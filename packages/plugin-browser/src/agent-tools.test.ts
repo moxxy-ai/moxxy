@@ -593,6 +593,21 @@ describe('consent per site, on the desktop', () => {
     ).rejects.toThrow(/not a web site/);
   });
 
+  it('says in every desktop snapshot which sites are already allowed, so the agent never asks twice', async () => {
+    const fake = fakeSidecar();
+    fake.setReply(() => ({ text: '### Page\n- URL: https://www.canva.com/', tabId: 't1' }));
+    const snapshot = byName(desktop(fake), 'browser_snapshot');
+    const headless = byName(sidecar(fake), 'browser_snapshot');
+
+    const allowed = (await snapshot.handler({}, ctx(memoryLog(approvedSite('canva.com'))))) as { text: string };
+    const none = (await snapshot.handler({}, ctx())) as { text: string };
+    const plain = (await headless.handler({}, ctx(memoryLog(approvedSite('canva.com'))))) as { text: string };
+
+    expect(allowed.text).toContain('Sites you may act on: canva.com');
+    expect(none.text).toMatch(/Sites you may act on: none yet/);
+    expect(plain.text).not.toContain('Sites you may act on');
+  });
+
   it('acts without a prompt per call on the desktop, and keeps every prompt on the sidecar', () => {
     const tools = desktop();
     const headless = sidecar();
@@ -614,5 +629,50 @@ describe('consent per site, on the desktop', () => {
     expect(fake.received.at(-1)?.params).toMatchObject({ sites: ['canva.com'] });
     await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
     expect(fake.received.at(-1)?.params).not.toHaveProperty('sites');
+  });
+});
+
+describe('working by picture, and giving files, on the desktop', () => {
+  const desktop = (fake = fakeSidecar()) =>
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+  const sidecar = () => buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
+
+  it('points at a picture under the site’s consent, on the desktop only', async () => {
+    const fake = fakeSidecar();
+    const point = byName(desktop(fake), 'browser_point');
+
+    await point.handler(
+      point.inputSchema.parse({ action: 'drag', x: 10, y: 20, path: [[30, 40]], view: 'v3', element: 'prostokąt na płótnie' }),
+      ctx(),
+    );
+
+    expect(point.permission?.action).toBe('allow');
+    expect(fake.received.at(-1)).toEqual({
+      method: 'point',
+      params: { action: 'drag', x: 10, y: 20, path: [[30, 40]], view: 'v3', turn_id: 't', sites: [] },
+    });
+    expect(sidecar().map((t) => t.name)).not.toContain('browser_point');
+  });
+
+  it('asks before every upload — the files are the user’s — and sends absolute paths', async () => {
+    const fake = fakeSidecar();
+    const upload = byName(desktop(fake), 'browser_upload');
+
+    await upload.handler(
+      upload.inputSchema.parse({ uid: '9', paths: ['raport.pdf', '/abs/zdjecie.png'], element: 'Dodaj załącznik' }),
+      ctx(),
+    );
+
+    expect(upload.permission?.action).toBe('prompt');
+    expect(fake.received.at(-1)).toEqual({
+      method: 'upload',
+      params: { uid: '9', paths: ['/tmp/raport.pdf', '/abs/zdjecie.png'], turn_id: 't', sites: [] },
+    });
+    expect(sidecar().map((t) => t.name)).not.toContain('browser_upload');
+  });
+
+  it('tells the model on the desktop that a picture is something to point at', () => {
+    expect(byName(desktop(), 'browser_capture').description).toContain('browser_point');
+    expect(byName(sidecar(), 'browser_capture').description).not.toContain('browser_point');
   });
 });
