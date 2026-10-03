@@ -1,0 +1,1 @@
+@moxxy_browser W otwartej karcie przeglądarki Moxxy (books.toscrape.com) otwórz kategorię „Travel” i podaj tytuł oraz cenę najtańszej książki w tej kategorii.

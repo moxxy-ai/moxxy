@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Moxxy browser trial</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 12px -apple-system, sans-serif; background: #111; color: #ddd; }
+      #tabs { height: 28px; display: flex; gap: 4px; padding: 4px; box-sizing: border-box; }
+      #tabs button { background: #222; color: #ccc; border: 0; border-radius: 4px; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      #tabs button[data-active='true'] { background: #444; color: #fff; }
+      #views { position: absolute; top: 28px; left: 0; right: 0; bottom: 0; }
+      webview { position: absolute; inset: 0; visibility: hidden; }
+      webview[data-active='true'] { visibility: visible; }
+    </style>
+  </head>
+  <body>
+    <div id="tabs"></div>
+    <div id="views"></div>
+    <script>
+      // Mirrors the desktop pane's contract with main: one <webview> per tab, adopted by id, kept mounted.
+      const views = new Map();
+      // Like the desktop pane: the first view is in front until main says otherwise. A hidden view takes no
+      // input at all, so a view adopted after the tab list arrived must still learn whether it is the active one.
+      let activeTabId = null;
+      const strip = document.getElementById('tabs');
+      const container = document.getElementById('views');
+
+      function open(url, requestId) {
+        const view = document.createElement('webview');
+        view.setAttribute('partition', 'persist:moxxy-browser');
+        view.setAttribute('allowpopups', '');
+        view.setAttribute('src', url);
+        if (views.size === 0 && !container.querySelector('webview')) view.dataset.active = 'true';
+        container.append(view);
+        view.addEventListener('dom-ready', async () => {
+          if (view.dataset.tabId) return;
+          const tabId = await window.trial.register(view.getWebContentsId(), requestId);
+          view.dataset.tabId = tabId;
+          views.set(tabId, view);
+          if (activeTabId) view.dataset.active = String(tabId === activeTabId);
+        }, { once: true });
+      }
+
+      window.trial.on('trial.openTab', ({ requestId, url }) => open(url, requestId));
+      // As the desktop pane does: bring the tab forward, give the view a frame to show, focus it, then say so.
+      window.trial.on('trial.focusTab', async ({ requestId, tabId }) => {
+        if (views.has(tabId)) await window.trial.select(tabId).catch(() => {});
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          views.get(tabId)?.focus();
+          window.trial.focused(requestId);
+        }));
+      });
+      window.trial.on('trial.tabs', ({ tabs, activeTabId: active }) => {
+        activeTabId = active;
+        for (const [id, view] of views) view.dataset.active = String(id === activeTabId);
+        strip.replaceChildren(...tabs.map((tab) => {
+          const button = document.createElement('button');
+          button.textContent = `${tab.tabId} ${tab.title || tab.url}`;
+          button.dataset.active = String(tab.tabId === activeTabId);
+          button.onclick = () => window.trial.select(tab.tabId);
+          return button;
+        }));
+      });
+
+      open(new URLSearchParams(location.search).get('start') || 'about:blank');
+    </script>
+  </body>
+</html>
