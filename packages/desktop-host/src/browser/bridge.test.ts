@@ -404,3 +404,76 @@ describe('BrowserBridge — when the person has the browser', () => {
     expect(host.control).toEqual({ driver: 'agent', turnId: 'T2' });
   });
 });
+
+describe('BrowserBridge — only on sites the conversation allowed', () => {
+  /** Every page in these tests is https://sklep.pl. */
+  const refused = (reply: Record<string, unknown>) => {
+    expect(reply.ok).toBe(false);
+    return String((reply.error as { message: string }).message);
+  };
+
+  it('refuses to act on a site nobody allowed, and says how to ask', async () => {
+    const { addr, c } = await boot(2);
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { sites: [] });
+
+    const replies = [
+      await c.send('act', { action: 'click', uid: '2', sites: [] }),
+      await c.send('act', { action: 'type', uid: '2', text: 'x', sites: ['example.com'] }),
+      await c.send('key', { key: 'Enter', sites: [] }),
+      await c.send('select', { uid: '2', option: 'A', sites: [] }),
+      await c.send('back', { sites: [] }),
+      await c.send('tabs', { action: 'close', tab_id: 't2', sites: [] }),
+    ];
+
+    for (const reply of replies) {
+      const message = refused(reply);
+      expect(message).toContain('sklep.pl');
+      expect(message).toContain('browser_allow_site');
+    }
+  });
+
+  it('acts on a site the conversation allowed', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { sites: ['sklep.pl'] });
+
+    expect(await c.send('act', { action: 'click', uid: '2', sites: ['sklep.pl'] })).toMatchObject({ ok: true });
+  });
+
+  it('judges a navigation by where it goes, not where it starts', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    expect(refused(await c.send('goto', { url: 'https://example.com/a', sites: ['sklep.pl'] }))).toContain('example.com');
+    expect(refused(await c.send('tabs', { action: 'new', url: 'https://example.com', sites: [] }))).toContain('example.com');
+    expect(await c.send('goto', { url: 'https://www.example.com/a', sites: ['example.com'] })).toMatchObject({ ok: true });
+    // A blank tab goes nowhere; here it fails only because no pane can open one.
+    const blank = await c.send('tabs', { action: 'new', sites: [] });
+    expect(String((blank.error as { message?: string } | undefined)?.message)).not.toContain('browser_allow_site');
+  });
+
+  it('lets the agent read, scroll, point and wait anywhere', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    for (const [method, params] of [
+      ['snapshot', {}],
+      ['scroll', { direction: 'down' }],
+      ['act', { action: 'hover', uid: '2' }],
+      ['capture', {}],
+      ['tabs', { action: 'list' }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const reply = await c.send(method, { ...params, sites: [] });
+      expect(reply.error, method).toBeUndefined();
+    }
+  });
+
+  it('leaves a call that carries no sites to the prompt it already went through', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    // browser_session asks the user before every call; it sends no sites.
+    expect(await c.send('goto', { url: 'https://example.com' })).toMatchObject({ ok: true });
+  });
+});

@@ -45,7 +45,8 @@ Only on the desktop:
 
 | Tool | What it does | Asks first |
 |---|---|---|
-| `browser_select` | Picks an option in a native `<select>` by its label or value | yes |
+| `browser_allow_site` | Asks the user to allow a site for the rest of the conversation | yes |
+| `browser_select` | Picks an option in a native `<select>` by its label or value | no (site consent) |
 | `browser_dialog` | Accepts or dismisses a `confirm` / `prompt` (an `alert` is accepted by the click itself and quoted) | yes |
 | `browser_scroll` | Scrolls the page, or the part a uid sits in, by screens; says whether it moved | no |
 | `browser_hover` | Moves the pointer over an element, for hover menus | no |
@@ -53,6 +54,30 @@ Only on the desktop:
 
 On the desktop, `browser_type` replaces what a field holds (it no longer
 appends) and takes `submit: true` to press Enter afterwards.
+
+## Allowing a site
+
+On the desktop the person allows a **site** once, and the agent then acts there
+without a prompt per action. Click, type, keys, batch, navigate, history, tabs
+and select ask nothing on their own; instead the desktop refuses any of them
+that would land on a site the conversation has not allowed, and the refusal
+names the site and tells the agent to call `browser_allow_site`. That call is
+the one prompt: the user sees the site and the agent's reason.
+
+- **What a site is:** the host, lower-cased, without `www.`. Allowing
+  `canva.com` covers `www.canva.com` and `static.canva.com`, not
+  `canva.com.evil.net`; an IP address covers only itself; a lone label such as
+  `com` cannot be allowed.
+- **What is judged:** a navigation (`goto`, a new tab with a URL) by where it
+  goes; every other action by the page it acts on. Reading, capturing,
+  scrolling, hovering and waiting go anywhere.
+- **Still asked every time:** `browser_dialog` (a confirm usually guards
+  something final) and `browser_session`, whose calls carry no sites.
+- **Where it lives:** the approved `browser_allow_site` result in the session
+  log, so every client of the conversation sees the same sites; each desktop
+  call carries them (`sites`), folded from the log by `sitesFromLog`. A policy
+  rule in `~/.moxxy/permissions.json` still wins, and the terminal UI keeps its
+  prompt per action.
 
 ## Taking the browser back
 

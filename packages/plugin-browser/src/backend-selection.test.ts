@@ -55,6 +55,7 @@ describe('browser plugin — picking a backend', () => {
 
     expect(withBridge.filter((name) => withoutBridge.includes(name))).toEqual(withoutBridge);
     expect(withBridge.filter((name) => !withoutBridge.includes(name)).sort()).toEqual([
+      'browser_allow_site',
       'browser_dialog',
       'browser_hover',
       'browser_scroll',

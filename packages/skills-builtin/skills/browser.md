@@ -5,7 +5,7 @@ triggers: ["open the browser", "in the browser", "go to this site", "navigate to
 label: Moxxy Browser
 aliases: [moxxy_browser, przegladarka]
 disallowed-tools: ["computer_*"]
-allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_select, browser_scroll, browser_hover, browser_wait, browser_dialog, browser_session, web_fetch]
+allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_select, browser_scroll, browser_hover, browser_wait, browser_dialog, browser_allow_site, browser_session, web_fetch]
 ---
 
 # The in-window browser
@@ -53,6 +53,15 @@ a uid, not a CSS selector and not a coordinate.
 
 Every one of these takes a `tab_id`. Pass the one the snapshot gave you; omit it
 only when you mean "whatever tab is in front".
+
+## Allowing a site
+
+The user allows a site once, and you act there without asking again. Before the
+first action on a site — opening one of its pages, a click, typing — call
+`browser_allow_site` with the site and a one-line reason, in the same response
+as that action. An action on a site nobody allowed comes back refused with the
+site to ask for: ask, then repeat the step. Reading a page never needs it. If
+the user declines, do not act on that site; say what you would have done.
 
 ## Doing several things at once
 

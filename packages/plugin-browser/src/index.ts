@@ -28,6 +28,15 @@ export {
 export { buildBrowserSurface } from './browser-surface.js';
 export { buildAgentTools } from './agent-tools.js';
 export {
+  ALLOW_SITE_TOOL,
+  siteAllows,
+  siteGrantSchema,
+  siteOf,
+  siteRefusal,
+  sitesFromLog,
+  type SiteGrant,
+} from './site-access.js';
+export {
   BridgeClient,
   bridgeAddressFromEnv,
   BRIDGE_SOCKET_ENV,

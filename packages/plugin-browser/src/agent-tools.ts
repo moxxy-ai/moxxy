@@ -2,6 +2,7 @@ import { MoxxyError, defineTool, z, type ToolContext, type ToolDef } from '@moxx
 import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
 import { bridgeAddressFromEnv } from './bridge-client.js';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
+import { ALLOW_SITE_TOOL, siteOf, sitesFromLog, type SiteGrant } from './site-access.js';
 
 /**
  * The agent's view of the browser: read the page as structured text, act on
@@ -51,11 +52,18 @@ type Call = (method: string, params: Record<string, unknown>, ctx: ToolContext) 
 /**
  * How the tools reach the browser. On the desktop each call names its turn: the
  * user can take the browser over, which stops the turn that was driving it, and
- * their next message — a new turn — is what hands it back.
+ * their next message — a new turn — is what hands it back. It also carries the
+ * sites the conversation allowed, which the desktop checks against the page the
+ * action would land on.
  */
 function caller(deps: BrowserSessionDeps | undefined, desktop: boolean): Call {
   return (method, params, ctx) =>
-    browserSidecarCall(method, desktop ? { ...params, turn_id: ctx.turnId } : params, deps, ctx.signal);
+    browserSidecarCall(
+      method,
+      desktop ? { ...params, turn_id: ctx.turnId, sites: sitesFromLog(ctx.log) } : params,
+      deps,
+      ctx.signal,
+    );
 }
 
 /** Capabilities shared by the acting tools; reading declares less. */
@@ -80,6 +88,10 @@ export interface AgentToolsOptions {
 export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptions = {}): ReadonlyArray<ToolDef> {
   const desktop = opts.desktop ?? (bridgeAddressFromEnv() !== null && !deps?.spawnFn);
   const call = caller(deps, desktop);
+  // On the desktop the person allows a site once (browser_allow_site) and the
+  // desktop refuses actions anywhere else, so asking per call would only
+  // interrupt; the headless sidecar has no such gate and keeps every prompt.
+  const acting = { action: desktop ? 'allow' : 'prompt' } as const;
 
   const snapshot = defineTool({
     name: 'browser_snapshot',
@@ -122,7 +134,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       : 'Click an element by the [uid] shown in the latest browser_snapshot. Fails if the page navigated since ' +
         'that snapshot — take a fresh one rather than retrying the old uid.',
     inputSchema: z.object({ uid: z.string().min(1), element, tab_id: tabId }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Clicking', noun: { one: 'element', other: 'elements' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
     handler: ({ uid, tab_id }, ctx) => call('act', { action: 'click', uid, tab_id }, ctx),
@@ -142,7 +154,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
           ...typeFields,
           submit: z.boolean().optional().describe('Press Enter after typing, e.g. to run a search.'),
         }),
-        permission: { action: 'prompt' },
+        permission: acting,
         compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
         isolation: ACT_ISOLATION,
         handler: ({ uid, text, submit, tab_id }, ctx) =>
@@ -155,7 +167,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
           'Focus an element by [uid] and type into it. Use browser_snapshot first to find the field. ' +
           'Never use this for a password or one-time code — ask the user to enter those themselves.',
         inputSchema: z.object(typeFields),
-        permission: { action: 'prompt' },
+        permission: acting,
         compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
         isolation: ACT_ISOLATION,
         handler: ({ uid, text, tab_id }, ctx) => call('act', { action: 'type', uid, text, tab_id }, ctx),
@@ -174,7 +186,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         .refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
       tab_id: tabId,
     }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Opening', noun: { one: 'page', other: 'pages' }, previewKey: 'url' },
     isolation: ACT_ISOLATION,
     async handler({ url, tab_id }, ctx) {
@@ -204,7 +216,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         'For action "new" only: the page to open in the new tab. Leave it out for the other actions.',
       ),
     }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Managing', noun: { one: 'tab', other: 'tabs' }, previewKey: 'action' },
     isolation: ACT_ISOLATION,
     handler: ({ action, tab_id, url }, ctx) => call('tabs', { action, tab_id, url }, ctx),
@@ -262,7 +274,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         .describe('What has focus and what this key is meant to do — shown to the user when approving.'),
       tab_id: tabId,
     }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Pressing', noun: { one: 'key', other: 'keys' }, previewKey: 'key' },
     isolation: ACT_ISOLATION,
     handler: ({ key: k, tab_id }, ctx) => call('key', { key: k, tab_id }, ctx),
@@ -305,7 +317,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       steps: z.array(step).min(1).max(20).describe('In order. The page is read once, after the last one.'),
       tab_id: tabId,
     }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Doing', noun: { one: 'sequence', other: 'sequences' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
     async handler({ steps, tab_id }, ctx) {
@@ -347,7 +359,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       'Go back, go forward, or reload the tab. Uids from the previous snapshot stop being valid, so take a ' +
       'fresh browser_snapshot afterwards.',
     inputSchema: z.object({ action: z.enum(['back', 'forward', 'reload']), tab_id: tabId }),
-    permission: { action: 'prompt' },
+    permission: acting,
     compact: { verb: 'Navigating', noun: { one: 'page', other: 'pages' }, previewKey: 'action' },
     isolation: ACT_ISOLATION,
     handler: ({ action, tab_id }, ctx) => call(action, { tab_id }, ctx),
@@ -397,7 +409,7 @@ function buildDesktopTools(call: Call): ToolDef[] {
       element,
       tab_id: tabId,
     }),
-    permission: { action: 'prompt' },
+    permission: { action: 'allow' },
     compact: { verb: 'Choosing in', noun: { one: 'list', other: 'lists' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
     handler: ({ uid, option, tab_id }, ctx) => call('select', { uid, option, tab_id }, ctx),
@@ -481,5 +493,26 @@ function buildDesktopTools(call: Call): ToolDef[] {
       call('dialog', { accept, ...(text !== undefined ? { text } : {}), tab_id }, ctx),
   });
 
-  return [select, scroll, hover, wait, dialog];
+  const allowSite = defineTool({
+    name: ALLOW_SITE_TOOL,
+    icon: 'lock',
+    description:
+      'Ask the user to let you act on a site — click, type, open its pages — for the rest of this conversation. ' +
+      'Actions on a site nobody allowed are refused, so call this before the first action on a new site, in the ' +
+      'same response as that action. The user is asked once for the whole site (it covers its subdomains); ' +
+      'reading a page never needs it. Say plainly in `reason` what you will do there.',
+    inputSchema: z.object({
+      site: z.string().min(1).describe('The site, e.g. "canva.com", or any URL on it.'),
+      reason: z.string().min(1).describe('What you will do on the site, in one sentence — shown to the user.'),
+    }),
+    permission: { action: 'prompt' },
+    compact: { verb: 'Allowing', noun: { one: 'site', other: 'sites' }, previewKey: 'site' },
+    handler: async ({ site }): Promise<SiteGrant> => {
+      const allowed = siteOf(site);
+      if (!allowed) throw new MoxxyError({ code: 'INTERNAL', message: `"${site}" is not a web site` });
+      return { kind: 'browser_site', site: allowed };
+    },
+  });
+
+  return [select, scroll, hover, wait, dialog, allowSite];
 }

@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
+import { siteAllows, siteRefusal } from '@moxxy/plugin-browser';
 import type { BrowserHost } from './host';
 
 /**
@@ -152,6 +153,8 @@ export class BrowserBridge {
       const refusal = this.host.agentRefusal();
       if (refusal) return { ok: false, error: { message: refusal } };
     }
+    const offSite = this.offSite(method, params, tabId);
+    if (offSite) return { ok: false, error: { message: offSite } };
     const sel = typeof params.selector === 'string' ? params.selector : '';
     const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
     switch (method) {
@@ -274,6 +277,42 @@ export class BrowserBridge {
       }
       default:
         return { ok: false, error: { message: `unknown method: ${method}` } };
+    }
+  }
+
+  /**
+   * Why this call would land on a site the conversation has not allowed, or
+   * null. A navigation is judged by where it goes; any other action by the page
+   * it acts on. Reading, scrolling, pointing and waiting decide nothing and go
+   * anywhere. A call that carries no `sites` comes from `browser_session`, which
+   * the user approves call by call — that approval is its consent.
+   */
+  private offSite(method: string, params: Record<string, unknown>, tabId: string | undefined): string | null {
+    if (!Array.isArray(params.sites)) return null;
+    const sites = params.sites.filter((site): site is string => typeof site === 'string');
+    const destination = (url: unknown): string | null =>
+      typeof url === 'string' && url && !siteAllows(sites, url) ? siteRefusal(url) : null;
+    const here = (tab: string | undefined): string | null => {
+      const page = this.host.list().find((t) => (tab ? t.tabId === tab : t.active));
+      // No such tab: let the action report that in its own words.
+      return page && !siteAllows(sites, page.url) ? siteRefusal(page.url) : null;
+    };
+    switch (method) {
+      case 'goto':
+        return destination(params.url);
+      case 'tabs':
+        if (params.action === 'new') return destination(params.url);
+        return params.action === 'close' ? here(tabId) : null;
+      case 'act':
+        return params.action === 'hover' ? null : here(tabId);
+      case 'select':
+      case 'key':
+      case 'back':
+      case 'forward':
+      case 'reload':
+        return here(tabId);
+      default:
+        return null;
     }
   }
 

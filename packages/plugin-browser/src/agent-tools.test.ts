@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { buildAgentTools } from './agent-tools.js';
 import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
 import { zodToJsonSchema } from '@moxxy/sdk';
-import type { ToolContext, ToolDef } from '@moxxy/sdk';
+import type { EventLogReader, MoxxyEvent, ToolContext, ToolDef } from '@moxxy/sdk';
 
 /**
  * The tools the model calls. Driven against a fake sidecar over the real
@@ -61,14 +61,27 @@ function fakeSidecar(): Fake {
   };
 }
 
-function ctx(): ToolContext {
+function memoryLog(events: MoxxyEvent[]): EventLogReader {
+  return {
+    get length() {
+      return events.length;
+    },
+    at: (index) => events[index],
+    slice: (from, to) => events.slice(from, to),
+    ofType: ((type: MoxxyEvent['type']) => events.filter((event) => event.type === type)) as EventLogReader['ofType'],
+    byTurn: (turnId) => events.filter((event) => event.turnId === turnId),
+    toJSON: () => events,
+  };
+}
+
+function ctx(log: EventLogReader = memoryLog([])): ToolContext {
   return {
     sessionId: 's' as never,
     turnId: 't' as never,
     callId: 'c' as never,
     cwd: '/tmp',
     signal: new AbortController().signal,
-    log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+    log,
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
   };
 }
@@ -487,7 +500,7 @@ describe('the desktop’s extra tools', () => {
 
     expect(fake.received.at(-1)).toEqual({
       method: 'act',
-      params: { action: 'type', uid: '4', text: 'Marmolada', submit: true, turn_id: 't' },
+      params: { action: 'type', uid: '4', text: 'Marmolada', submit: true, turn_id: 't', sites: [] },
     });
   });
 
@@ -505,17 +518,17 @@ describe('the desktop’s extra tools', () => {
     await dialog.handler(dialog.inputSchema.parse({ accept: true, element: 'potwierdzenie usunięcia' }), ctx());
 
     expect(dialog.permission?.action).toBe('prompt');
-    expect(fake.received.at(-1)).toEqual({ method: 'dialog', params: { accept: true, turn_id: 't' } });
+    expect(fake.received.at(-1)).toEqual({ method: 'dialog', params: { accept: true, turn_id: 't', sites: [] } });
   });
 
-  it('picks an option by its label, behind a prompt like any other choice on the page', async () => {
+  it('picks an option by its label, covered by the site’s consent like any other action there', async () => {
     const fake = fakeSidecar();
     const select = byName(desktop(fake), 'browser_select');
 
     await select.handler(select.inputSchema.parse({ uid: '17', option: 'Kraków', element: 'lista Miasto' }), ctx());
 
-    expect(select.permission?.action).toBe('prompt');
-    expect(fake.received.at(-1)).toEqual({ method: 'select', params: { uid: '17', option: 'Kraków', turn_id: 't' } });
+    expect(select.permission?.action).toBe('allow');
+    expect(fake.received.at(-1)).toEqual({ method: 'select', params: { uid: '17', option: 'Kraków', turn_id: 't', sites: [] } });
   });
 
   it('scrolls, hovers and waits without asking: none of them decides anything', async () => {
@@ -531,9 +544,75 @@ describe('the desktop’s extra tools', () => {
 
     for (const tool of [scroll, hover, wait]) expect(tool.permission?.action).toBe('allow');
     expect(fake.received.slice(-3)).toEqual([
-      { method: 'scroll', params: { direction: 'down', turn_id: 't' } },
-      { method: 'act', params: { action: 'hover', uid: '25', turn_id: 't' } },
-      { method: 'wait', params: { text: 'Znaleziono', timeoutMs: 5000, turn_id: 't' } },
+      { method: 'scroll', params: { direction: 'down', turn_id: 't', sites: [] } },
+      { method: 'act', params: { action: 'hover', uid: '25', turn_id: 't', sites: [] } },
+      { method: 'wait', params: { text: 'Znaleziono', timeoutMs: 5000, turn_id: 't', sites: [] } },
     ]);
+  });
+});
+
+describe('consent per site, on the desktop', () => {
+  /**
+   * On the desktop the person watches every action, so asking before each one
+   * buys nothing but interruptions. They allow a site once; the approval is a
+   * tool result in the session log, which every client of the conversation
+   * reads, and the desktop refuses actions on any site not allowed yet.
+   */
+  const desktop = (fake = fakeSidecar()) =>
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+  const sidecar = (fake = fakeSidecar()) => buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+  const ACTING = ['browser_click', 'browser_type', 'browser_navigate', 'browser_tabs', 'browser_key', 'browser_batch', 'browser_history'];
+
+  const approvedSite = (site: string): MoxxyEvent[] => {
+    const base = { sessionId: 's', turnId: 't0', source: 'system', ts: 0 } as const;
+    return [
+      { ...base, id: 'e1', seq: 0, type: 'tool_call_requested', callId: 'g1', name: 'browser_allow_site', input: { site } },
+      { ...base, id: 'e2', seq: 1, type: 'tool_call_approved', callId: 'g1', decidedBy: 'resolver', mode: 'allow' },
+      { ...base, id: 'e3', seq: 2, type: 'tool_result', callId: 'g1', ok: true, output: { kind: 'browser_site', site } },
+    ] as MoxxyEvent[];
+  };
+
+  it('asks for a site once, through a tool of its own, on the desktop only', async () => {
+    const allow = byName(desktop(), 'browser_allow_site');
+
+    const out = await allow.handler(
+      allow.inputSchema.parse({ site: 'https://www.canva.com/design/abc', reason: 'Edit the poster you asked for' }),
+      ctx(),
+    );
+
+    expect(allow.permission?.action).toBe('prompt');
+    expect(out).toEqual({ kind: 'browser_site', site: 'canva.com' });
+    expect(sidecar().map((t) => t.name)).not.toContain('browser_allow_site');
+  });
+
+  it('refuses to allow something that is not a web site', async () => {
+    const allow = byName(desktop(), 'browser_allow_site');
+
+    await expect(
+      allow.handler(allow.inputSchema.parse({ site: 'file:///etc/passwd', reason: 'x' }), ctx()),
+    ).rejects.toThrow(/not a web site/);
+  });
+
+  it('acts without a prompt per call on the desktop, and keeps every prompt on the sidecar', () => {
+    const tools = desktop();
+    const headless = sidecar();
+
+    for (const name of ACTING) {
+      expect(byName(tools, name).permission?.action, name).toBe('allow');
+      expect(byName(headless, name).permission?.action, name).toBe('prompt');
+    }
+    expect(byName(tools, 'browser_dialog').permission?.action).toBe('prompt');
+  });
+
+  it('sends the sites the conversation allowed with every desktop call, and nothing of the kind to the sidecar', async () => {
+    const fake = fakeSidecar();
+    const click = byName(desktop(fake), 'browser_click');
+    const sidecarClick = byName(sidecar(fake), 'browser_click');
+    const log = memoryLog(approvedSite('canva.com'));
+
+    await click.handler(click.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
+    expect(fake.received.at(-1)?.params).toMatchObject({ sites: ['canva.com'] });
+    await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
+    expect(fake.received.at(-1)?.params).not.toHaveProperty('sites');
   });
 });

@@ -4,8 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Tools that read only; every other browser tool asks for approval without --allow-all. */
-const READING = new Set(['browser_snapshot', 'browser_capture', 'browser_await_human', 'web_fetch', 'web_search']);
+/** The desktop's browser tools that ask without --allow-all; the rest act under the site's consent. */
+const ASKING = new Set(['browser_allow_site', 'browser_dialog', 'browser_session']);
 
 const s = (ms) => `${(ms / 1000).toFixed(1)}s`;
 const sum = (values) => values.reduce((total, value) => total + (value ?? 0), 0);
@@ -19,7 +19,7 @@ export function summarize(dir) {
   const counted = {};
   for (const call of calls) counted[call.name] = (counted[call.name] ?? 0) + 1;
   const failed = calls.filter((call) => results.get(call.callId)?.ok === false);
-  const asking = calls.filter((call) => call.name.startsWith('browser_') && !READING.has(call.name));
+  const asking = calls.filter((call) => ASKING.has(call.name));
   const answer = events.filter((event) => event.type === 'assistant_message').at(-1);
   return [
     read('exit.txt').trim(),
