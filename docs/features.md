@@ -52,6 +52,10 @@ Switch modes from the TUI with `/mode` or set the default in configuration.
 
 Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait, and StopJob. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
 
+### Moxxy Browser
+
+In the desktop, the agent works in the Browser pane — a real Chromium view you watch and can take over. A click brings its tab to the front, refuses an element something covers (naming what), and reports what it set off: a navigation, a dialog, a tab the page opened. It reads frames, answers dialogs (`browser_dialog`), picks from native lists (`browser_select`), scrolls, hovers and waits for text; links that open a new window open as tabs in the pane. In the terminal UI the same tools drive a headless browser. See [Moxxy Browser](browser-use/README.md).
+
 ### Waiting on work
 
 The agent waits on events, not on a clock. A long command — a dev server, a watcher, a slow build — runs as a background job: `Bash` with `background: true` returns a job id at once and the command keeps running. `Wait` then blocks until that job finishes, or until it prints output matching `until` (for example `ready on \d+`), and wakes the instant that happens instead of sleeping a fixed number of seconds and checking again. Each `Wait` returns only the output printed since the previous one.

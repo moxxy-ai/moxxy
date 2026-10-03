@@ -1090,6 +1090,9 @@ importers:
       electron:
         specifier: ^43.5.0
         version: 43.7.7
+      playwright:
+        specifier: ^1.60.0
+        version: 1.60.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -14550,7 +14553,7 @@ snapshots:
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/remapping@2.3.5':
@@ -20059,7 +20062,7 @@ snapshots:
   metro-transform-plugins@0.83.3:
     dependencies:
       '@babel/core': 7.29.7
-      '@babel/generator': 7.29.7
+      '@babel/generator': 7.29.8
       '@babel/template': 7.29.7
       '@babel/traverse': 7.29.7
       flow-enums-runtime: 0.0.6
@@ -20082,8 +20085,8 @@ snapshots:
   metro-transform-worker@0.83.3:
     dependencies:
       '@babel/core': 7.29.7
-      '@babel/generator': 7.29.7
-      '@babel/parser': 7.29.8
+      '@babel/generator': 7.29.8
+      '@babel/parser': 7.29.9
       '@babel/types': 7.29.8
       flow-enums-runtime: 0.0.6
       metro: 0.83.3(patch_hash=7f85273fa5a63d19b2428d4dc51508233f40eeb80058fb0f8bee182a25ec6b92)

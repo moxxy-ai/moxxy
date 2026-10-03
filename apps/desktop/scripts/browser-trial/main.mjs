@@ -11,6 +11,7 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { BrowserHost, BROWSER_PARTITION } from '../../../../packages/desktop-host/dist/browser/host.js';
 import { BrowserBridge } from '../../../../packages/desktop-host/dist/browser/bridge.js';
+import { routeGuestPopups } from '../../../../packages/desktop-host/dist/browser/popups.js';
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 const log = (entry) => {
@@ -23,6 +24,7 @@ const host = new BrowserHost((id) => {
 });
 const bridge = new BrowserBridge(host);
 // As the desktop does: a new window from a page becomes a tab.
+app.on('web-contents-created', (_event, contents) => routeGuestPopups(contents, host));
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({

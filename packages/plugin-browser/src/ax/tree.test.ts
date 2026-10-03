@@ -198,3 +198,21 @@ describe('buildAxTree — uids that survive the page changing', () => {
     expect(uidOf(b, 'Kup')).toBe('3');
   });
 });
+
+describe('buildAxTree — nodes read from a frame', () => {
+  /**
+   * A frame from another site is a separate document with its own DOM, read
+   * through its own session. Its nodes carry that session so an action on one
+   * of them goes to the frame, not to the page around it.
+   */
+  it('keeps the frame a node came from', () => {
+    const tree = buildAxTree([
+      { nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Strona' }, childIds: ['f:1'] },
+      { nodeId: 'f:1', role: { value: 'link' }, name: { value: 'Learn more' }, backendDOMNodeId: 5, frame: 'S1' },
+    ]);
+
+    const link = tree?.children[0];
+    expect(link).toMatchObject({ role: 'link', name: 'Learn more', backendNodeId: 5, frame: 'S1' });
+    expect(tree).not.toHaveProperty('frame');
+  });
+});

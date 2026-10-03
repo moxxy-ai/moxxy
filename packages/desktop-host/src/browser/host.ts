@@ -9,10 +9,26 @@ import {
   formatSnapshot,
   redactSecretValues,
   type AxNode,
+  type AxNodeRaw,
   type TabInfo,
   type UidMemory,
   type WallKind,
 } from '@moxxy/plugin-browser';
+import {
+  armPressCheck,
+  coverAt,
+  isDisabled,
+  locate,
+  pressAt,
+  pressKey,
+  quadOrigin,
+  selectContents,
+  typeCharacters,
+  valueOf,
+  type Cdp,
+  type Point,
+} from './input.js';
+import { PageWatch, waitQuiet, type Dialog } from './page-watch.js';
 
 /**
  * The agent's browser, living in the desktop's main process.
@@ -54,7 +70,14 @@ export interface HostWebContents {
     isAttached(): boolean;
     attach(version: string): void;
     detach(): void;
-    sendCommand(method: string, params?: Record<string, unknown>): Promise<unknown>;
+    /** `sessionId` addresses a frame from another site, attached through `Target.setAutoAttach`. */
+    sendCommand(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<unknown>;
+    /** CDP events, as Electron delivers them: `(event, method, params, sessionId)`. */
+    on?(event: 'message', listener: (event: unknown, method: string, params: unknown, sessionId?: string) => void): void;
+    removeListener?(
+      event: 'message',
+      listener: (event: unknown, method: string, params: unknown, sessionId?: string) => void,
+    ): void;
   };
   sendInputEvent(event: Record<string, unknown>): void;
   /** Optional so a minimal stand-in still satisfies the type; Electron has both. */
@@ -84,6 +107,12 @@ interface Tab {
   rendering?: Map<string, string>;
   /** Countdown to releasing this tab's accessibility tree. */
   idle?: ReturnType<typeof setTimeout>;
+  /** Dialogs and navigations, followed while the debugger is attached. */
+  watch?: PageWatch;
+  /** Frame session → the backend node of the `<iframe>` holding it on the page, from the last read. */
+  frameOwners?: Map<string, number>;
+  /** Tabs this page opened (target=_blank, window.open), counted so an action can tell it caused one. */
+  opened?: { count: number; last: Promise<{ tabId: string; url: string } | null> };
 }
 
 /**
@@ -107,68 +136,6 @@ const PAGE_CHANGE_EVENTS = ['page-title-updated', 'did-navigate', 'did-navigate-
  */
 const IDLE_RELEASE_MS = 30_000;
 
-/** CDP's modifier bitmask, named so the mask test below reads as one. */
-const MOD_ALT = 1;
-const MOD_CONTROL = 2;
-const MOD_META = 4;
-const MOD_SHIFT = 8;
-
-const MODIFIERS: Record<string, number> = {
-  alt: MOD_ALT,
-  option: MOD_ALT,
-  control: MOD_CONTROL,
-  ctrl: MOD_CONTROL,
-  meta: MOD_META,
-  cmd: MOD_META,
-  command: MOD_META,
-  shift: MOD_SHIFT,
-};
-
-/**
- * Editing commands a modified letter is expected to perform.
- *
- * Chromium routes these below the key event, so dispatching the modified letter
- * alone selects nothing — which is precisely the failure that sent the agent
- * looking for another browser. Control and Meta map to the same command so a
- * task written on one platform still works on the other.
- */
-const EDITING: Record<string, string> = { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo' };
-
-/** Named keys, with the virtual-key code Chromium wants for each. */
-const NAMED: Record<string, { key: string; code: string; code_: number }> = {
-  enter: { key: 'Enter', code: 'Enter', code_: 13 },
-  tab: { key: 'Tab', code: 'Tab', code_: 9 },
-  escape: { key: 'Escape', code: 'Escape', code_: 27 },
-  esc: { key: 'Escape', code: 'Escape', code_: 27 },
-  backspace: { key: 'Backspace', code: 'Backspace', code_: 8 },
-  delete: { key: 'Delete', code: 'Delete', code_: 46 },
-  space: { key: ' ', code: 'Space', code_: 32 },
-  arrowup: { key: 'ArrowUp', code: 'ArrowUp', code_: 38 },
-  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', code_: 40 },
-  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', code_: 37 },
-  arrowright: { key: 'ArrowRight', code: 'ArrowRight', code_: 39 },
-  home: { key: 'Home', code: 'Home', code_: 36 },
-  end: { key: 'End', code: 'End', code_: 35 },
-  pageup: { key: 'PageUp', code: 'PageUp', code_: 33 },
-  pagedown: { key: 'PageDown', code: 'PageDown', code_: 34 },
-};
-
-/** How Chromium wants one key spelled, or null if we cannot spell it. */
-function spellKey(name: string): { key: string; code: string; code_: number } | null {
-  const named = NAMED[name.toLowerCase()];
-  if (named) return named;
-  if ([...name].length !== 1) return null;
-  const upper = name.toUpperCase();
-  const isLetter = upper >= 'A' && upper <= 'Z';
-  const isDigit = name >= '0' && name <= '9';
-  if (!isLetter && !isDigit) return null;
-  return {
-    key: name,
-    code: isLetter ? `Key${upper}` : `Digit${name}`,
-    code_: upper.charCodeAt(0),
-  };
-}
-
 export interface HostReply {
   ok: boolean;
   result?: unknown;
@@ -177,6 +144,77 @@ export interface HostReply {
 
 const ok = (result?: unknown): HostReply => ({ ok: true, ...(result !== undefined ? { result } : {}) });
 const fail = (message: string): HostReply => ({ ok: false, error: { message } });
+
+/** Pick an option of `this` (a `<select>`) by value or label; see `selectOption`. */
+const SELECT_OPTION = `function (wanted) {
+  if (!(this instanceof HTMLSelectElement)) return { error: 'it is not a list of options (<select>); click it instead' };
+  const label = (o) => (o.label || o.text || '').trim();
+  const norm = (s) => s.trim().toLowerCase();
+  const options = [...this.options];
+  const option = options.find((o) => o.value === wanted) ||
+    options.find((o) => norm(label(o)) === norm(wanted)) ||
+    options.find((o) => norm(label(o)).includes(norm(wanted)));
+  if (!option) return { error: 'no option ' + JSON.stringify(wanted) + ' — the options are: ' + options.map(label).join(', ') };
+  if (option.disabled) return { error: 'option ' + JSON.stringify(label(option)) + ' is disabled' };
+  this.focus();
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  if (setter && setter.set) setter.set.call(this, option.value); else this.value = option.value;
+  this.dispatchEvent(new Event('input', { bubbles: true }));
+  this.dispatchEvent(new Event('change', { bubbles: true }));
+  return { selected: label(option) };
+}`;
+
+/** A function of a deadline (ms) that resolves once the text shows (or, with `gone`, stops showing). */
+function waitTextExpression(text: string, gone: boolean): string {
+  return `(ms) => new Promise((resolve) => {
+    const wanted = ${JSON.stringify(text)};
+    const met = () => ((document.body && document.body.innerText) || '').includes(wanted) !== ${gone};
+    if (met()) return resolve(true);
+    const observer = new MutationObserver(() => { if (met()) finish(true); });
+    const timer = setTimeout(() => finish(met()), ms);
+    function finish(value) { observer.disconnect(); clearTimeout(timer); resolve(value); }
+    observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+  })`;
+}
+
+/** Where the page and its scrollable parts stand, as one comparable string. */
+async function scrollState(cdp: Cdp): Promise<string | null> {
+  try {
+    const reply = (await cdp.send('Runtime.evaluate', {
+      returnByValue: true,
+      expression: `(() => {
+        const parts = [scrollX, scrollY];
+        for (const el of document.querySelectorAll('*')) {
+          if (el.scrollTop || el.scrollLeft) parts.push(el.scrollTop, el.scrollLeft);
+        }
+        return parts.join(',');
+      })()`,
+    })) as { result?: { value?: unknown } };
+    return typeof reply?.result?.value === 'string' ? reply.result.value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One frame of `Page.getFrameTree`. */
+interface FrameTreeNode {
+  readonly frame?: { id?: string };
+  readonly childFrames?: ReadonlyArray<FrameTreeNode>;
+}
+
+/** Read a CDP `{ value }` wrapper as a string. */
+const str = (wrapper: { value?: unknown } | undefined): string | undefined =>
+  typeof wrapper?.value === 'string' ? wrapper.value : undefined;
+
+/** An element named by a uid; see `BrowserHost.elementFor`. */
+interface Element {
+  readonly backendNodeId: number;
+  readonly named: string;
+  /** The session the element's DOM lives in: the page's, or its frame's. */
+  readonly dom: Cdp;
+  /** The `<iframe>` holding it on the page, when it is inside a frame from another site. */
+  readonly owner?: number;
+}
 
 export class BrowserHost {
   private readonly tabs = new Map<string, Tab>();
@@ -595,6 +633,7 @@ export class BrowserHost {
   }
 
   private detachDebugger(tab: Tab): void {
+    tab.watch?.stop();
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) return;
     try {
@@ -611,10 +650,22 @@ export class BrowserHost {
   async snapshot(tabId?: string, opts: { full?: boolean } = {}): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(tabId);
-      const cdp = this.cdp(wc);
+      const cdp = await this.ready(tab, wc);
+      // A page showing a dialog runs nothing, and its tree is not worth reading:
+      // the only thing that can happen next is an answer to the dialog.
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) {
+        return ok({
+          text: `### Page\n- URL: ${wc.getURL()}\n- Title: ${wc.getTitle()}\n### Dialog\n${blocked}`,
+          tabId: tab.id,
+          url: wc.getURL(),
+          nodes: 0,
+          dialog: tab.watch?.openDialog,
+        });
+      }
       await cdp.send('Accessibility.enable');
       const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
-      const nodes = Array.isArray(reply?.nodes) ? reply.nodes : [];
+      const nodes = await this.withFrames(tab, wc, cdp, Array.isArray(reply?.nodes) ? (reply.nodes as AxNodeRaw[]) : []);
       // One memory per document: a node keeps its label read after read, which
       // is the whole reason a difference can be described at all.
       tab.uids ??= newUidMemory();
@@ -693,58 +744,532 @@ export class BrowserHost {
    * Refuses a uid taken before the page moved. Clicking whatever now sits at
    * that position looks like success and is undetectable downstream, so this
    * is deliberately the strict direction.
+   *
+   * A press goes the way a person's would, and each step that can go wrong
+   * says so instead of reporting a success that did not happen: the tab is
+   * brought to the front (a hidden view takes no input at all), the element is
+   * scrolled to, checked for being enabled and for something covering it, the
+   * pointer moves there, presses, and the page is given until it settles —
+   * a navigation loaded, or the DOM quiet. What the press set off comes back
+   * with it: a navigation, a dialog, a tab the page opened.
    */
-  async act(params: { action: string; uid: string; text?: string; tab_id?: string }): Promise<HostReply> {
+  async act(params: {
+    action: string;
+    uid: string;
+    text?: string;
+    submit?: boolean;
+    tab_id?: string;
+  }): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(params.tab_id);
-      const snap = tab.snapshot;
-      if (!snap) return fail(`no snapshot for tab ${tab.id} — call snapshot first`);
-      if (snap.url !== wc.getURL()) {
-        return fail(
-          `tab ${tab.id} navigated since the last snapshot (was ${snap.url}, now ${wc.getURL()}) — ` +
-            `uids are stale, take a fresh snapshot`,
-        );
-      }
-      const node = snap.index.get(params.uid);
-      if (!node) return fail(`uid ${params.uid} is not in the last snapshot of tab ${tab.id}`);
-      if (node.backendNodeId === undefined) return fail(`uid ${params.uid} (${node.role}) has no DOM node`);
+      const action = params.action;
+      if (action !== 'click' && action !== 'hover' && action !== 'type') return fail(`unknown action ${action}`);
+      const text = params.text;
+      if (action === 'type' && typeof text !== 'string') return fail('text is required for type');
 
-      const cdp = this.cdp(wc);
-      try {
-        await cdp.send('DOM.scrollIntoViewIfNeeded', { backendNodeId: node.backendNodeId });
-      } catch {
-        // Not scrollable; it may already be in view.
-      }
-      const box = (await cdp.send('DOM.getBoxModel', { backendNodeId: node.backendNodeId })) as {
-        model?: { content?: number[] };
-      };
-      const quad = box?.model?.content;
-      if (!Array.isArray(quad) || quad.length < 8) return fail(`uid ${params.uid} is not visible on screen`);
-      const x = (Math.min(quad[0]!, quad[2]!, quad[4]!, quad[6]!) + Math.max(quad[0]!, quad[2]!, quad[4]!, quad[6]!)) / 2;
-      const y = (Math.min(quad[1]!, quad[3]!, quad[5]!, quad[7]!) + Math.max(quad[1]!, quad[3]!, quad[5]!, quad[7]!)) / 2;
+      const cdp = await this.ready(tab, wc);
+      const el = this.elementFor(tab, wc, params.uid);
+      if ('error' in el) return fail(el.error);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      await this.focusView(tab, 1500);
 
-      switch (params.action) {
-        case 'click':
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-          break;
-        case 'hover':
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-          break;
-        case 'type': {
-          if (typeof params.text !== 'string') return fail('text is required for type');
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
-          await cdp.send('Input.insertText', { text: params.text });
-          break;
+      const at = await this.place(cdp, el);
+      if (!at) {
+        return fail(`${el.named} is not drawn on the page — it may sit in a closed menu or a hidden panel; open what holds it first`);
+      }
+      if (action !== 'hover') {
+        if (await isDisabled(el.dom, el.backendNodeId)) return fail(`${el.named} is disabled, so pressing it does nothing`);
+        let cover = await this.coverOf(cdp, el, at);
+        if (cover) {
+          // What covers it may be there only because of where the pointer is — a
+          // menu held open by hovering, as it is after the agent opened one. A
+          // hand leaves the menu before it reaches for what was under it; moving
+          // straight to the target would keep the pointer inside the menu.
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0, button: 'none' });
+          await waitQuiet(cdp, 100, 500);
+          cover = await this.coverOf(cdp, el, at);
         }
-        default:
-          return fail(`unknown action ${params.action}`);
+        if (cover) {
+          return fail(
+            `${el.named} is covered by ${cover}, so a press would land on that instead. ` +
+              `Close or move what is in the way first (or, if it asks for the user's choice, hand over with browser_await_human).`,
+          );
+        }
       }
-      return ok({ tabId: tab.id, url: wc.getURL() });
+
+      let shows: string | null = null;
+      const outcome = await this.watched(tab, cdp, async () => {
+        if (action === 'hover') {
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.page.x, y: at.page.y, button: 'none' });
+          return;
+        }
+        if (action === 'click') {
+          await this.press(cdp, el, at);
+          return;
+        }
+        shows = await this.typeInto(cdp, el, at, text ?? '');
+        if (params.submit) {
+          const problem = await pressKey(cdp, 'Enter');
+          if (problem) throw new Error(problem);
+        }
+      });
+      return ok({
+        tabId: tab.id,
+        ...outcome,
+        ...(shows !== null ? { value: shows } : {}),
+        url: wc.getURL(),
+      });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  /**
+   * The DOM node a uid from the last snapshot names, or why it cannot be used.
+   *
+   * Refuses a uid taken before the page moved. Acting on whatever now sits at
+   * that position looks like success and is undetectable downstream, so this
+   * is deliberately the strict direction.
+   */
+  private nodeFor(
+    tab: Tab,
+    wc: HostWebContents,
+    uid: string,
+  ): { backendNodeId: number; named: string; frame?: string } | { error: string } {
+    const snap = tab.snapshot;
+    if (!snap) return { error: `no snapshot for tab ${tab.id} — call snapshot first` };
+    if (snap.url !== wc.getURL()) {
+      return {
+        error:
+          `tab ${tab.id} navigated since the last snapshot (was ${snap.url}, now ${wc.getURL()}) — ` +
+          `uids are stale, take a fresh snapshot`,
+      };
+    }
+    const node = snap.index.get(uid);
+    if (!node) return { error: `uid ${uid} is not in the last snapshot of tab ${tab.id}` };
+    if (node.backendNodeId === undefined) return { error: `uid ${uid} (${node.role}) has no DOM node` };
+    return {
+      backendNodeId: node.backendNodeId,
+      named: `uid ${uid} (${node.role}${node.name ? ` "${node.name}"` : ''})`,
+      ...(node.frame !== undefined ? { frame: node.frame } : {}),
+    };
+  }
+
+  /**
+   * A uid as something to act on: its DOM node, the session that DOM lives in
+   * (the page's, or a frame's from another site), and the `<iframe>` holding it.
+   */
+  private elementFor(tab: Tab, wc: HostWebContents, uid: string): Element | { error: string } {
+    const found = this.nodeFor(tab, wc, uid);
+    if ('error' in found) return found;
+    if (found.frame === undefined) return { ...found, dom: this.cdp(wc) };
+    const owner = tab.frameOwners?.get(found.frame);
+    if (owner === undefined) return { error: `${found.named} is in a frame that has gone — take a fresh snapshot` };
+    return { backendNodeId: found.backendNodeId, named: found.named, dom: this.frameCdp(wc, found.frame), owner };
+  }
+
+  /** A frame's own session, for a frame from another site. */
+  private frameCdp(wc: HostWebContents, sessionId: string): Cdp {
+    return { send: (method, params) => wc.debugger.sendCommand(method, params ?? {}, sessionId) };
+  }
+
+  /**
+   * Scroll an element into view and say where it is: on the page (where input
+   * is dispatched) and inside its own document (where it is checked). They are
+   * the same point unless the element is in a frame from another site, whose
+   * coordinates start at the frame's corner.
+   */
+  private async place(cdp: Cdp, el: Element): Promise<{ page: Point; local: Point } | null> {
+    if (el.owner === undefined) {
+      const point = await locate(cdp, el.backendNodeId);
+      return point ? { page: point, local: point } : null;
+    }
+    if (!(await locate(cdp, el.owner))) return null;
+    const box = (await cdp.send('DOM.getBoxModel', { backendNodeId: el.owner })) as { model?: { content?: unknown } };
+    const corner = quadOrigin(box?.model?.content);
+    const local = await locate(el.dom, el.backendNodeId);
+    if (!corner || !local) return null;
+    return { page: { x: corner.x + local.x, y: corner.y + local.y }, local };
+  }
+
+  /** What a press would land on instead: inside the element's document, then on the page around its frame. */
+  private async coverOf(cdp: Cdp, el: Element, at: { page: Point; local: Point }): Promise<string | null> {
+    const inside = await coverAt(el.dom, el.backendNodeId, at.local);
+    if (inside || el.owner === undefined) return inside;
+    return coverAt(cdp, el.owner, at.page);
+  }
+
+  /**
+   * The page's tree with every frame read into it.
+   *
+   * `Accessibility.getFullAXTree` describes one document; a frame — an embedded
+   * form, a video, a payment field — shows up as an empty `Iframe` node where
+   * it sits. Seen live on the edge fixture, whose "Ramka testowa" read as
+   * empty. A frame from the same site is read through the page's session by
+   * its frame id; a frame from another site lives in another process and is
+   * read through its own session, and its nodes are tagged with that session,
+   * which is where an action on one of them must go. Each frame's tree hangs
+   * under its `Iframe` node, node ids prefixed with the frame's id so they
+   * cannot collide with the page's.
+   */
+  private async withFrames(tab: Tab, wc: HostWebContents, cdp: Cdp, nodes: AxNodeRaw[]): Promise<AxNodeRaw[]> {
+    tab.frameOwners = new Map();
+    const owners = nodes.filter((n) => str(n.role) === 'Iframe').length;
+    if (owners === 0) return nodes;
+    const watch = tab.watch?.watching ? tab.watch : undefined;
+    // A frame from another site attaches a moment after the page is first
+    // watched; reading before it does would show that frame empty.
+    if (watch) await watch.waitForFrames(owners, 500);
+    const sessions = new Map((watch?.frames ?? []).map((f) => [f.targetId, f.sessionId]));
+    const out = [...nodes];
+
+    const graft = async (frameId: string, read: Cdp, sessionId: string | undefined): Promise<void> => {
+      try {
+        const owner = (await cdp.send('DOM.getFrameOwner', { frameId })) as { backendNodeId?: number };
+        const ownerId = owner?.backendNodeId;
+        const at = out.findIndex((n) => n.backendDOMNodeId === ownerId && n.frame === undefined);
+        const holder = out[at];
+        if (ownerId === undefined || !holder) return;
+        await read.send('Accessibility.enable');
+        const reply = (await read.send('Accessibility.getFullAXTree', sessionId ? {} : { frameId })) as { nodes?: unknown };
+        const found = Array.isArray(reply?.nodes) ? (reply.nodes as AxNodeRaw[]) : [];
+        const first = found[0];
+        if (!first) return;
+        const key = (id: string): string => `${frameId}:${id}`;
+        out[at] = { ...holder, childIds: [...(holder.childIds ?? []), key(first.nodeId)] };
+        for (const node of found) {
+          out.push({
+            ...node,
+            nodeId: key(node.nodeId),
+            ...(node.childIds ? { childIds: node.childIds.map(key) } : {}),
+            ...(sessionId ? { frame: sessionId } : {}),
+          });
+        }
+        if (sessionId) tab.frameOwners?.set(sessionId, ownerId);
+      } catch {
+        // A frame that went away mid-read, or will not answer: the page is still read.
+      }
+    };
+
+    try {
+      // Frames from the page's own site. The page's frame tree leaves out the
+      // ones from other sites — measured in Electron — so those come after.
+      const tree = (await cdp.send('Page.getFrameTree')) as { frameTree?: FrameTreeNode };
+      const pending = [...(tree?.frameTree?.childFrames ?? [])];
+      // Parents before children, so a frame's holder is already in the tree.
+      while (pending.length > 0) {
+        const next = pending.shift();
+        const frameId = next?.frame?.id;
+        if (!frameId || sessions.has(frameId)) continue;
+        await graft(frameId, cdp, undefined);
+        pending.push(...(next.childFrames ?? []));
+      }
+    } catch {
+      // No frame tree to walk: the page alone is still a page.
+    }
+    for (const [targetId, sessionId] of sessions) await graft(targetId, this.frameCdp(wc, sessionId), sessionId);
+    return out;
+  }
+
+  /**
+   * Choose an option in a `<select>`, by its label or value.
+   *
+   * A native select opens its list in a popup Chromium draws outside the page,
+   * which no press on the page can reach — the agent clicked the list, pressed
+   * ArrowDown and Enter, and the select still said "— wybierz —". Seen live.
+   * Set the way the page's own change handlers expect: through the element's
+   * value setter, then `input` and `change`.
+   */
+  async selectOption(params: { uid: string; option: string; tabId?: string }): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const found = this.elementFor(tab, wc, params.uid);
+      if ('error' in found) return fail(found.error);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      await this.focusView(tab, 1500);
+      if (!(await this.place(cdp, found))) return fail(`${found.named} is not drawn on the page`);
+      if (await isDisabled(found.dom, found.backendNodeId)) return fail(`${found.named} is disabled`);
+      let selected = '';
+      const outcome = await this.watched(tab, cdp, async () => {
+        const handle = (await found.dom.send('DOM.resolveNode', { backendNodeId: found.backendNodeId })) as {
+          object?: { objectId?: string };
+        };
+        const objectId = handle?.object?.objectId;
+        if (!objectId) throw new Error(`${found.named} is gone from the page`);
+        const reply = (await found.dom.send('Runtime.callFunctionOn', {
+          objectId,
+          arguments: [{ value: params.option }],
+          returnByValue: true,
+          functionDeclaration: SELECT_OPTION,
+        })) as { result?: { value?: { selected?: string; error?: string } } };
+        const value = reply?.result?.value;
+        if (!value || value.error) throw new Error(`${found.named}: ${value?.error ?? 'the page did not answer'}`);
+        selected = value.selected ?? params.option;
+      });
+      return ok({ tabId: tab.id, selected, ...outcome, url: wc.getURL() });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Scroll the page, or the scrollable part a uid sits in, by screens.
+   *
+   * A wheel at a point is what scrolls the thing under it — the page, or a
+   * list inside it — and it is what loads the next part of a lazily loaded
+   * list. Reports whether anything moved, so "scroll again" is never a guess.
+   */
+  async scroll(params: { direction: 'up' | 'down'; screens?: number; uid?: string; tabId?: string }): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      await this.focusView(tab, 1500);
+      const metrics = (await cdp.send('Page.getLayoutMetrics')) as {
+        cssVisualViewport?: { clientWidth?: number; clientHeight?: number };
+      };
+      const width = metrics?.cssVisualViewport?.clientWidth ?? 800;
+      const height = metrics?.cssVisualViewport?.clientHeight ?? 600;
+      let point: Point = { x: width / 2, y: height / 2 };
+      if (params.uid) {
+        const found = this.elementFor(tab, wc, params.uid);
+        if ('error' in found) return fail(found.error);
+        const at = await this.place(cdp, found);
+        if (!at) return fail(`${found.named} is not drawn on the page`);
+        point = at.page;
+      }
+      const screens = Math.min(Math.max(params.screens ?? 1, 0.25), 10);
+      const deltaY = (params.direction === 'down' ? 1 : -1) * Math.round(height * 0.8 * screens);
+      const before = await scrollState(cdp);
+      const outcome = await this.watched(tab, cdp, async () => {
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none' });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: point.x, y: point.y, deltaX: 0, deltaY });
+      });
+      const after = await scrollState(cdp);
+      return ok({
+        tabId: tab.id,
+        moved: before === null || after === null ? null : before !== after,
+        ...outcome,
+        url: wc.getURL(),
+      });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Wait until the page shows a text, or stops showing it.
+   *
+   * For the moment between an action and its answer that the settle wait does
+   * not cover: a search still running, a file still uploading. Wakes on the
+   * page's own mutations, and a deadline answers "not yet", never "yes".
+   */
+  async waitFor(params: { text: string; gone?: boolean; timeoutMs?: number; tabId?: string }): Promise<HostReply> {
+    try {
+      if (!params.text) return fail('text is required');
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      const timeoutMs = Math.min(Math.max(params.timeoutMs ?? 10_000, 0), 30_000);
+      const deadline = Date.now() + timeoutMs;
+      const expression = waitTextExpression(params.text, params.gone === true);
+      for (;;) {
+        const left = deadline - Date.now();
+        const mark = tab.watch?.watching ? tab.watch.mark() : undefined;
+        try {
+          const reply = (await cdp.send('Runtime.evaluate', {
+            expression: `(${expression})(${Math.max(0, left)})`,
+            awaitPromise: true,
+            returnByValue: true,
+          })) as { result?: { value?: unknown } };
+          const met = reply?.result?.value === true;
+          return ok({ tabId: tab.id, met, url: wc.getURL(), ...(met ? {} : { waitedMs: timeoutMs }) });
+        } catch {
+          // The document was replaced mid-wait. Give the new one its load, then look again.
+          if (Date.now() >= deadline) return ok({ tabId: tab.id, met: false, url: wc.getURL(), waitedMs: timeoutMs });
+          if (tab.watch && mark) await tab.watch.waitLoad(mark, Math.max(0, deadline - Date.now()));
+        }
+      }
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * Answer the dialog a page is showing: accept or dismiss it, with the text a
+   * prompt asks for. Until this happens the page runs no script at all.
+   */
+  async answerDialog(params: { accept: boolean; text?: string; tabId?: string }): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(params.tabId);
+      const cdp = await this.ready(tab, wc);
+      const open = tab.watch?.openDialog;
+      if (!open) return fail(`no dialog is open on tab ${tab.id}`);
+      const outcome = await this.watched(tab, cdp, async () => {
+        await cdp.send('Page.handleJavaScriptDialog', {
+          accept: params.accept,
+          ...(params.text !== undefined ? { promptText: params.text } : {}),
+        });
+      });
+      return ok({
+        tabId: tab.id,
+        answered: { ...open, result: params.accept ? 'accepted' : 'dismissed' },
+        ...outcome,
+        url: wc.getURL(),
+      });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * A page asked for a new window — a `target=_blank` link, `window.open`.
+   *
+   * It becomes a tab in the pane. Left to Electron it opened as a bare window
+   * of its own: off to one side of the app, outside the pane the user watches,
+   * and invisible to the agent, whose click looked like it did nothing.
+   */
+  openFromPage(openerWebContentsId: number, url: string): void {
+    if (!/^https?:\/\//i.test(url) && url !== 'about:blank') return;
+    let opener: Tab | undefined;
+    for (const tab of this.tabs.values()) {
+      if (tab.webContentsId === openerWebContentsId) opener = tab;
+    }
+    const last = this.newTab(url).then(
+      (tabId) => ({ tabId, url }),
+      () => null,
+    );
+    if (opener) opener.opened = { count: (opener.opened?.count ?? 0) + 1, last };
+  }
+
+  /** The CDP channel for a tab, with its dialogs and navigations watched. */
+  private async ready(tab: Tab, wc: HostWebContents): Promise<Cdp> {
+    const cdp = this.cdp(wc);
+    tab.watch ??= new PageWatch(wc.debugger);
+    if (!tab.watch.watching) await tab.watch.start(cdp);
+    return cdp;
+  }
+
+  /** Why nothing can be done on this tab right now, if a dialog is holding it. */
+  private dialogBlocks(tab: Tab): string | null {
+    const open = tab.watch?.openDialog;
+    if (!open) return null;
+    return (
+      `a ${open.type} dialog is open on tab ${tab.id} ("${open.message}") and the page is frozen until it is answered — ` +
+      `accept or dismiss it with browser_dialog first`
+    );
+  }
+
+  /** Press at an element's place on the page and confirm its document felt it. */
+  private async press(cdp: Cdp, el: Element, at: { page: Point }): Promise<void> {
+    const felt = await armPressCheck(el.dom, el.backendNodeId, 2000);
+    await pressAt(cdp, at.page);
+    if (!(await felt())) {
+      throw new Error(
+        'the press did not reach the page — the tab is not on screen (the browser pane may be closed or showing another tab). ' +
+          'Ask the user to open the browser pane, then try again.',
+      );
+    }
+  }
+
+  /**
+   * Put text into a field, replacing what it held.
+   *
+   * Clicked first, the way a person focuses a field, so the page's own focus
+   * handlers run; then everything in it is selected and the text inserted over
+   * the selection — which is the input path a framework-controlled field
+   * actually listens to. A field that still does not show the text gets it a
+   * character at a time. Returns what the field shows when that is not the
+   * text: a field that formats its input (a phone number, a date) is not an
+   * error, but the agent should know what it now says.
+   */
+  private async typeInto(cdp: Cdp, el: Element, at: { page: Point }, text: string): Promise<string | null> {
+    const id = el.backendNodeId;
+    if ((await valueOf(el.dom, id)) === text) return null;
+    await this.press(cdp, el, at);
+    await selectContents(el.dom, id);
+    if (text) await cdp.send('Input.insertText', { text });
+    else await pressKey(cdp, 'Delete');
+    let shows = await valueOf(el.dom, id);
+    if (shows !== null && shows !== text) {
+      await selectContents(el.dom, id);
+      await pressKey(cdp, 'Delete');
+      await typeCharacters(cdp, text);
+      shows = await valueOf(el.dom, id);
+    }
+    return shows === null || shows === text ? null : shows;
+  }
+
+  /**
+   * Run something that acts on the page and report what it set off.
+   *
+   * A dialog the action opens is noticed while the action is still in flight:
+   * an alert is accepted on the spot (it has one button and says something
+   * worth passing on); a confirm or prompt is left open for the agent to answer
+   * with browser_dialog, because that answer is a decision. Then the page is
+   * given until it settles: a navigation to load, or the DOM to go quiet. A
+   * deadline means "still going", reported as such, never as finished.
+   */
+  private async watched(
+    tab: Tab,
+    cdp: Cdp,
+    run: () => Promise<void>,
+  ): Promise<{
+    navigated?: true;
+    loading?: true;
+    dialog?: Dialog & { open?: true; result?: 'accepted' };
+    opened?: { tabId: string; url: string };
+  }> {
+    const watch = tab.watch?.watching ? tab.watch : undefined;
+    const mark = watch?.mark();
+    const openedBefore = tab.opened?.count ?? 0;
+    let dialog: (Dialog & { open?: true; result?: 'accepted' }) | undefined;
+
+    const opening = watch?.nextDialog();
+    const running = run();
+    // An action left waiting on an open confirm finishes whenever that is answered.
+    running.catch(() => {});
+    if (opening) {
+      const first = await Promise.race([running.then(() => null), opening.promise]);
+      opening.cancel();
+      if (first && first.type !== 'alert') return { dialog: { ...first, open: true } };
+      if (first) {
+        await cdp.send('Page.handleJavaScriptDialog', { accept: true });
+        dialog = { ...first, result: 'accepted' };
+      }
+    }
+    await running;
+
+    const later = watch?.nextDialog();
+    await Promise.race([waitQuiet(cdp, 250, 1500), ...(later ? [later.promise] : [])]);
+    later?.cancel();
+    const lateDialog = watch?.openDialog;
+    if (lateDialog && !dialog) dialog = { ...lateDialog, open: true };
+
+    let navigated = false;
+    let loading = false;
+    if (watch && mark && watch.navigatedSince(mark)) {
+      navigated = true;
+      loading = !(await watch.waitLoad(mark, 3000));
+    }
+
+    let opened: { tabId: string; url: string } | null = null;
+    const popup = tab.opened;
+    if (popup && popup.count > openedBefore) {
+      opened = await Promise.race([popup.last, new Promise<null>((r) => setTimeout(() => r(null), 3000).unref?.())]);
+    }
+    if (navigated) this.changed();
+    return {
+      ...(navigated ? { navigated: true as const } : {}),
+      ...(loading ? { loading: true as const } : {}),
+      ...(dialog ? { dialog } : {}),
+      ...(opened ? { opened } : {}),
+    };
   }
 
   /**
@@ -884,24 +1409,6 @@ export class BrowserHost {
     }
   }
 
-  /** Middle of an element's box in viewport coordinates, or null if it has none. */
-  private async centreOf(
-    cdp: { send: (m: string, p?: Record<string, unknown>) => Promise<unknown> },
-    backendNodeId: number,
-  ): Promise<{ x: number; y: number } | null> {
-    try {
-      await cdp.send('DOM.scrollIntoViewIfNeeded', { backendNodeId });
-    } catch {
-      // Not scrollable; it may already be in view.
-    }
-    const box = (await cdp.send('DOM.getBoxModel', { backendNodeId })) as { model?: { content?: number[] } };
-    const q = box?.model?.content;
-    if (!Array.isArray(q) || q.length < 8) return null;
-    const xs = [q[0]!, q[2]!, q[4]!, q[6]!];
-    const ys = [q[1]!, q[3]!, q[5]!, q[7]!];
-    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
-  }
-
   /**
    * Press a key.
    *
@@ -916,7 +1423,7 @@ export class BrowserHost {
     try {
       if (!key) return fail('key is required');
       const { tab, wc } = this.resolve(tabId);
-      const cdp = this.cdp(wc);
+      const cdp = await this.ready(tab, wc);
 
       /**
        * Put keyboard focus back on the page first.
@@ -930,41 +1437,13 @@ export class BrowserHost {
        */
       await this.focusView(tab, focusTimeoutMs);
 
-      const parts = key.split('+').filter(Boolean);
-      const name = parts.pop() ?? '';
-      let modifiers = 0;
-      for (const mod of parts) {
-        const bit = MODIFIERS[mod.toLowerCase()];
-        if (bit === undefined) return fail(`unknown modifier ${mod} in ${key}`);
-        modifiers |= bit;
-      }
-
-      // A lone printable character is pressed as one, carrying its `text` so the
-      // character actually lands. `Input.insertText` looked like the shorter
-      // road and is not one: on its own, after the click that focused the field,
-      // it does nothing at all. Observed against a real input.
-      const printable = [...name].length === 1 && modifiers === 0;
-      const spelled = spellKey(name) ?? (printable ? { key: name, code: '', code_: 0 } : null);
-      if (!spelled) return fail(`unknown key ${key} — name it the way a keyboard event does, e.g. Enter, Escape, Meta+a`);
-
-      // Modified letters do not reach the editing pipeline on their own; the
-      // command does, and is what a real Cmd+A produces. Chromium takes both.
-      const command = modifiers & (MOD_CONTROL | MOD_META) ? EDITING[name.toLowerCase()] : undefined;
-      const event = {
-        key: spelled.key,
-        code: spelled.code,
-        windowsVirtualKeyCode: spelled.code_,
-        nativeVirtualKeyCode: spelled.code_,
-        modifiers,
-        ...(command ? { commands: [command] } : {}),
-      };
-      await cdp.send('Input.dispatchKeyEvent', {
-        type: printable ? 'keyDown' : 'rawKeyDown',
-        ...(printable ? { text: name } : {}),
-        ...event,
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(blocked);
+      const outcome = await this.watched(tab, cdp, async () => {
+        const problem = await pressKey(cdp, key);
+        if (problem) throw new Error(problem);
       });
-      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
-      return ok({ key });
+      return ok({ key, ...outcome });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }
@@ -1061,10 +1540,9 @@ export class BrowserHost {
       const cdp = this.cdp(wc);
       const node = await this.findNode(cdp, selector, opts.timeoutMs ?? BrowserHost.SELECTOR_TIMEOUT_MS);
       if (node === null) return fail(`nothing matched ${selector} on ${wc.getURL()}`);
-      const point = await this.centreOf(cdp, node);
+      const point = await locate(cdp, node);
       if (!point) return fail(`${selector} matched an element that is not visible on screen`);
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
-      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      await pressAt(cdp, point);
       return ok({ selector });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));

@@ -342,7 +342,7 @@ describe('the browser skill and the tools it names', () => {
 
   it('names only tools that exist', () => {
     const shipped = new Set([
-      ...buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }).map((t) => t.name),
+      ...buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { desktop: true }).map((t) => t.name),
       // The two the plugin ships alongside them.
       'browser_session',
       'web_fetch',
@@ -360,6 +360,14 @@ describe('the browser skill and the tools it names', () => {
     const missing = shipped.filter((t) => !allowed.has(t));
 
     expect(missing, 'the skill would hide these from the agent').toEqual([]);
+  });
+  it('withholds none of the desktop’s extra tools either', () => {
+    const allowed = new Set(allowedTools());
+    const shipped = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { desktop: true }).map(
+      (t) => t.name,
+    );
+
+    expect(shipped.filter((t) => !allowed.has(t)), 'the skill would hide these from the agent').toEqual([]);
   });
 });
 
@@ -437,5 +445,84 @@ describe('browser_batch', () => {
     expect(() =>
       byName(tools, 'browser_batch').inputSchema.parse({ steps: [{ kind: 'key', key: 'Enter' }] }),
     ).toThrow();
+  });
+});
+
+describe('the desktop’s extra tools', () => {
+  /**
+   * The desktop drives a real view the user watches, and its backend can do
+   * what the headless sidecar never could: answer a page's dialog, pick from a
+   * native list, scroll, hover, wait for an answer. Those tools ship only where
+   * the backend can serve them — the sidecar's set is unchanged, so the TUI
+   * keeps working exactly as it did.
+   */
+  const desktop = (fake = fakeSidecar()) =>
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+  const EXTRA = ['browser_select', 'browser_scroll', 'browser_hover', 'browser_wait', 'browser_dialog'];
+
+  it('adds its tools on the desktop and none on the sidecar', () => {
+    const names = desktop().map((t) => t.name);
+    const sidecar = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }).map((t) => t.name);
+
+    for (const name of EXTRA) expect(names).toContain(name);
+    for (const name of EXTRA) expect(sidecar).not.toContain(name);
+  });
+
+  it('can press Enter after typing, in the same call', async () => {
+    const fake = fakeSidecar();
+    const type = byName(desktop(fake), 'browser_type');
+
+    await type.handler(type.inputSchema.parse({ uid: '4', element: 'pole wyszukiwania', text: 'Marmolada', submit: true }), ctx());
+
+    expect(fake.received.at(-1)).toEqual({
+      method: 'act',
+      params: { action: 'type', uid: '4', text: 'Marmolada', submit: true },
+    });
+  });
+
+  it('offers no submit on the sidecar, which cannot honour it', () => {
+    const type = byName(buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }), 'browser_type');
+    const schema = zodToJsonSchema(type.inputSchema) as { properties?: Record<string, unknown> };
+
+    expect(Object.keys(schema.properties ?? {})).not.toContain('submit');
+  });
+
+  it('answers a dialog, and asks before doing so — the answer is a decision', async () => {
+    const fake = fakeSidecar();
+    const dialog = byName(desktop(fake), 'browser_dialog');
+
+    await dialog.handler(dialog.inputSchema.parse({ accept: true, element: 'potwierdzenie usunięcia' }), ctx());
+
+    expect(dialog.permission?.action).toBe('prompt');
+    expect(fake.received.at(-1)).toEqual({ method: 'dialog', params: { accept: true } });
+  });
+
+  it('picks an option by its label, behind a prompt like any other choice on the page', async () => {
+    const fake = fakeSidecar();
+    const select = byName(desktop(fake), 'browser_select');
+
+    await select.handler(select.inputSchema.parse({ uid: '17', option: 'Kraków', element: 'lista Miasto' }), ctx());
+
+    expect(select.permission?.action).toBe('prompt');
+    expect(fake.received.at(-1)).toEqual({ method: 'select', params: { uid: '17', option: 'Kraków' } });
+  });
+
+  it('scrolls, hovers and waits without asking: none of them decides anything', async () => {
+    const fake = fakeSidecar();
+    const tools = desktop(fake);
+    const scroll = byName(tools, 'browser_scroll');
+    const hover = byName(tools, 'browser_hover');
+    const wait = byName(tools, 'browser_wait');
+
+    await scroll.handler(scroll.inputSchema.parse({ direction: 'down' }), ctx());
+    await hover.handler(hover.inputSchema.parse({ uid: '25', element: 'Menu' }), ctx());
+    await wait.handler(wait.inputSchema.parse({ text: 'Znaleziono', timeout_ms: 5000 }), ctx());
+
+    for (const tool of [scroll, hover, wait]) expect(tool.permission?.action).toBe('allow');
+    expect(fake.received.slice(-3)).toEqual([
+      { method: 'scroll', params: { direction: 'down' } },
+      { method: 'act', params: { action: 'hover', uid: '25' } },
+      { method: 'wait', params: { text: 'Znaleziono', timeoutMs: 5000 } },
+    ]);
   });
 });

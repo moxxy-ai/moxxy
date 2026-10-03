@@ -151,7 +151,34 @@ export class BrowserBridge {
           action: String(params.action ?? ''),
           uid: String(params.uid ?? ''),
           ...(typeof params.text === 'string' ? { text: params.text } : {}),
+          ...(params.submit === true ? { submit: true } : {}),
           ...(tabId ? { tab_id: tabId } : {}),
+        });
+      case 'dialog':
+        return this.host.answerDialog({
+          accept: params.accept === true,
+          ...(typeof params.text === 'string' ? { text: params.text } : {}),
+          ...(tabId ? { tabId } : {}),
+        });
+      case 'select':
+        return this.host.selectOption({
+          uid: String(params.uid ?? ''),
+          option: String(params.option ?? ''),
+          ...(tabId ? { tabId } : {}),
+        });
+      case 'scroll':
+        return this.host.scroll({
+          direction: params.direction === 'up' ? 'up' : 'down',
+          ...(typeof params.screens === 'number' ? { screens: params.screens } : {}),
+          ...(typeof params.uid === 'string' && params.uid ? { uid: params.uid } : {}),
+          ...(tabId ? { tabId } : {}),
+        });
+      case 'wait':
+        return this.host.waitFor({
+          text: String(params.text ?? ''),
+          ...(params.gone === true ? { gone: true } : {}),
+          ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
+          ...(tabId ? { tabId } : {}),
         });
       case 'goto': {
         const url = params.url;

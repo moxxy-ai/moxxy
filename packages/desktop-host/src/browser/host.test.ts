@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { BrowserHost, type HostWebContents } from './host.js';
 
 /**
@@ -834,11 +835,28 @@ describe('BrowserHost — the keyboard', () => {
     const host = hostWith(a);
     host.register(1);
 
-    await host.key('Enter');
+    await host.key('Escape');
 
     const keys = sentKeys(a);
     expect(keys.map((k) => k.params?.type)).toEqual(['rawKeyDown', 'keyUp']);
-    expect(keys[0]?.params).toMatchObject({ key: 'Enter', windowsVirtualKeyCode: 13 });
+    expect(keys[0]?.params).toMatchObject({ key: 'Escape', windowsVirtualKeyCode: 27 });
+  });
+
+  /**
+   * Blink submits a form from the keypress an Enter with text produces, not
+   * from the bare key down. Pressed as a raw key, Enter in a search box did
+   * nothing at all — seen live on Wikipedia, reproduced in a plain `<form>`.
+   */
+  it('presses Enter as a key that types a carriage return, so it submits', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.key('Enter');
+
+    const keys = sentKeys(a);
+    expect(keys.map((k) => k.params?.type)).toEqual(['keyDown', 'keyUp']);
+    expect(keys[0]?.params).toMatchObject({ key: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
   });
 
   it('carries modifiers as the bitmask CDP expects', async () => {
@@ -912,7 +930,22 @@ describe('BrowserHost — keys land where the user last clicked "allow"', () => 
     expect(a.focusCount()).toBe(1);
   });
 
-  it('does not grab focus for reading or for clicking', async () => {
+  it('does not grab focus for reading', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.snapshot();
+
+    expect(a.focusCount()).toBe(0);
+  });
+
+  /**
+   * A view hidden behind another tab takes no input at all: CDP dispatches the
+   * press, reports success, and the page never sees it. Measured in a real
+   * window — no mousedown reached the page until its view was in front.
+   */
+  it('brings the page forward before pressing on it', async () => {
     const a = fakeWc(1);
     const host = hostWith(a);
     host.register(1);
@@ -920,7 +953,7 @@ describe('BrowserHost — keys land where the user last clicked "allow"', () => 
     await host.snapshot();
     await host.act({ action: 'click', uid: '2' });
 
-    expect(a.focusCount()).toBe(0);
+    expect(a.focusCount()).toBe(1);
   });
 });
 
@@ -975,7 +1008,7 @@ describe('BrowserHost — getting the page focused before a key', () => {
     expect(a.sent.some((s) => s.method === 'Input.dispatchKeyEvent')).toBe(true);
   });
 
-  it('asks for nothing when only reading or clicking', async () => {
+  it('asks for nothing when only reading', async () => {
     const a = fakeWc(1);
     const host = hostWith(a);
     host.register(1);
@@ -983,9 +1016,24 @@ describe('BrowserHost — getting the page focused before a key', () => {
     host.setFocuser(() => asked++);
 
     await host.snapshot();
-    await host.act({ action: 'click', uid: '2' });
 
     expect(asked).toBe(0);
+  });
+
+  it('asks the renderer to bring the view forward before a click', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    const asked: string[] = [];
+    host.setFocuser(({ requestId, tabId }) => {
+      asked.push(tabId);
+      host.confirmFocus(requestId);
+    });
+
+    await host.snapshot();
+    await host.act({ action: 'click', uid: '2' });
+
+    expect(asked).toEqual(['t1']);
   });
 });
 
@@ -1335,5 +1383,134 @@ describe('BrowserHost — what the uid memory survives', () => {
     // rather than being sent again from scratch.
     expect(text).toMatch(/unchanged/i);
     expect(text).not.toContain('Kup');
+  });
+});
+
+describe('BrowserHost — a tab the page opened', () => {
+  /**
+   * A click on a `target=_blank` link opens a tab in the pane. The agent has to
+   * hear about it from the click: otherwise the page it clicked looks unchanged
+   * and the tab it wanted sits there unnamed.
+   */
+  it('reports the tab a click opened, by id and address', async () => {
+    const a = fakeWc(1);
+    const b = fakeWc(2, 'https://example.org/', 'Regulamin');
+    const host = new BrowserHost((id) => (id === 1 ? a.wc : id === 2 ? b.wc : null));
+    host.register(1);
+    host.setOpener(({ requestId }) => host.register(2, requestId));
+    const send = a.wc.debugger.sendCommand;
+    a.wc.debugger.sendCommand = async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent' && params?.type === 'mouseReleased') {
+        host.openFromPage(1, 'https://example.org/');
+      }
+      return send(method, params);
+    };
+
+    await host.snapshot();
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+    expect((reply.result as { opened?: unknown }).opened).toEqual({ tabId: 't2', url: 'https://example.org/' });
+  });
+
+  it('opens nothing for an address that is not a web page', () => {
+    const a = fakeWc(1);
+    const host = new BrowserHost((id) => (id === 1 ? a.wc : null));
+    host.register(1);
+    const asked: string[] = [];
+    host.setOpener(({ url }) => asked.push(url));
+
+    host.openFromPage(1, 'file:///etc/passwd');
+
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('BrowserHost — a frame from another site', () => {
+  /**
+   * A frame from another site lives in a separate process, and the page's tree
+   * shows only an empty `Iframe` node where it sits — an embedded form, a
+   * video, a payment field were invisible to the agent. Seen live: the edge
+   * fixture's "Ramka testowa" read as an empty frame. Its own session has the
+   * whole tree, and an action on one of its nodes is placed by adding where
+   * the frame sits on the page.
+   */
+  function framed() {
+    const base = fakeWc(1);
+    base.setPage([
+      { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Strona' }, childIds: ['f'] },
+      { nodeId: 'f', role: { value: 'Iframe' }, name: { value: 'Ramka testowa' }, backendDOMNodeId: 30 },
+    ]);
+    type Listener = (event: unknown, method: string, params: unknown, sessionId?: string) => void;
+    const listeners = new Set<Listener>();
+    const calls: Array<{ method: string; params?: Record<string, unknown>; sessionId?: string }> = [];
+    const rootSend = base.wc.debugger.sendCommand;
+    base.wc.debugger.sendCommand = async (method, params, sessionId) => {
+      calls.push({ method, ...(params ? { params } : {}), ...(sessionId ? { sessionId } : {}) });
+      if (sessionId === 'S1') {
+        if (method === 'Accessibility.getFullAXTree') {
+          return {
+            nodes: [
+              { nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Example Domain' }, childIds: ['2'] },
+              { nodeId: '2', role: { value: 'link' }, name: { value: 'Learn more' }, backendDOMNodeId: 5 },
+            ],
+          };
+        }
+        if (method === 'DOM.getBoxModel') return { model: { content: [10, 10, 50, 10, 50, 30, 10, 30] } };
+        return {};
+      }
+      if (method === 'Target.setAutoAttach') {
+        queueMicrotask(() => {
+          for (const fn of listeners) {
+            fn({}, 'Target.attachedToTarget', {
+              sessionId: 'S1',
+              targetInfo: { targetId: 'T1', type: 'iframe', url: 'https://example.com/' },
+            });
+          }
+        });
+        return {};
+      }
+      if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'MAIN' }, childFrames: [{ frame: { id: 'T1' } }] } };
+      if (method === 'DOM.getFrameOwner') return { backendNodeId: 30 };
+      if (method === 'DOM.getBoxModel' && params?.backendNodeId === 30) {
+        return { model: { content: [100, 200, 600, 200, 600, 500, 100, 500] } };
+      }
+      return rootSend(method, params);
+    };
+    const withEvents = base.wc.debugger as typeof base.wc.debugger & {
+      on: (event: 'message', fn: Listener) => void;
+      removeListener: (event: 'message', fn: Listener) => void;
+    };
+    withEvents.on = (_event, fn) => listeners.add(fn);
+    withEvents.removeListener = (_event, fn) => listeners.delete(fn);
+    return { ...base, calls };
+  }
+
+  it('reads what is inside the frame, under the frame', async () => {
+    const page = framed();
+    const host = hostWith(page);
+    host.register(1);
+
+    const reply = await host.snapshot();
+    const text = String((reply.result as { text?: string }).text);
+
+    expect(text).toMatch(/Iframe: "Ramka testowa"\n\s+\[\w+\] RootWebArea: "Example Domain"\n\s+\[(\w+)\] link: "Learn more"/);
+  });
+
+  it('acts on a node in the frame through the frame, at its place on the page', async () => {
+    const page = framed();
+    const host = hostWith(page);
+    host.register(1);
+    const text = String(((await host.snapshot()).result as { text?: string }).text);
+    const link = /\[(\w+)\] link: "Learn more"/.exec(text)?.[1];
+    assertDefined(link, 'the link in the frame');
+
+    const reply = await host.act({ action: 'click', uid: link });
+
+    expect(reply.ok).toBe(true);
+    expect(page.calls).toContainEqual({ method: 'DOM.getBoxModel', params: { backendNodeId: 5 }, sessionId: 'S1' });
+    const press = page.calls.find((c) => c.method === 'Input.dispatchMouseEvent' && c.params?.type === 'mousePressed');
+    expect(press).toMatchObject({ params: { x: 130, y: 220 } });
+    expect(press).not.toHaveProperty('sessionId');
   });
 });

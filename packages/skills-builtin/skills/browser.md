@@ -5,7 +5,7 @@ triggers: ["open the browser", "in the browser", "go to this site", "navigate to
 label: Moxxy Browser
 aliases: [moxxy_browser, przegladarka]
 disallowed-tools: ["computer_*"]
-allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_session, web_fetch]
+allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_select, browser_scroll, browser_hover, browser_wait, browser_dialog, browser_session, web_fetch]
 ---
 
 # The in-window browser

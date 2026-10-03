@@ -93,4 +93,5 @@ export {
 // CDP. See ./browser/host.ts for why there is no frame pipeline.
 export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from './browser/host.js';
 export { BrowserBridge, type BridgeAddress } from './browser/bridge.js';
+export { routeGuestPopups } from './browser/popups.js';
 export { setRunnerExtraEnv } from './runner-env.js';

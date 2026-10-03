@@ -25,6 +25,8 @@ export interface AxNodeRaw {
   readonly childIds?: ReadonlyArray<string>;
   readonly backendDOMNodeId?: number;
   readonly properties?: ReadonlyArray<{ name?: string; value?: { value?: unknown } }>;
+  /** Set on nodes read from a frame's own session (a frame from another site); not CDP's. */
+  readonly frame?: string;
 }
 
 export interface AxNode {
@@ -37,6 +39,11 @@ export interface AxNode {
   readonly backendNodeId?: number;
   /** True when the node currently holds focus. */
   readonly focused?: boolean;
+  /**
+   * The frame session the node lives in, when it is inside a frame from another
+   * site. Its `backendNodeId` means something only in that session.
+   */
+  readonly frame?: string;
   readonly children: AxNode[];
 }
 
@@ -151,6 +158,7 @@ export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>, memory?: UidMemory)
       ...(str(raw.value) !== undefined ? { value: str(raw.value) } : {}),
       ...(raw.backendDOMNodeId !== undefined ? { backendNodeId: raw.backendDOMNodeId } : {}),
       ...(isFocused(raw) ? { focused: true } : {}),
+      ...(raw.frame !== undefined ? { frame: raw.frame } : {}),
       children,
     };
     index.set(node.uid, node);
