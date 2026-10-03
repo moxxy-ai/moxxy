@@ -151,6 +151,7 @@ export async function collectProviderStream(
     ...(cacheHints && cacheHints.length > 0 ? { cacheHints } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(reqReasoning ? { reasoning: reqReasoning } : {}),
+    ...(ctx.fast && descriptor?.supportsFast ? { fast: true } : {}),
     signal: ctx.signal,
   };
   const prepared=performance.now();

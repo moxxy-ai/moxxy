@@ -36,6 +36,7 @@ export {
 export {
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionSetFast,
   handleSessionLoadHistory,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,

@@ -30,6 +30,16 @@ export default defineConfig({
 
 `${vault:NAME}` placeholders are resolved when a session starts, through the **active secret provider** with the local vault as fallback, which is the same path `ctx.getSecret(name)` takes inside a tool. A placeholder therefore means the same thing in config as it does anywhere else. The vault unlocks through the OS keychain by default and supports a passphrase fallback. Headless environments can provide that passphrase with `MOXXY_VAULT_PASSPHRASE`.
 
+### Reasoning effort and fast mode
+
+```yaml
+context:
+  reasoning: { effort: high }   # low | medium | high | xhigh; leave out for off
+  fast: true                    # the provider's faster, pricier tier
+```
+
+`fast` asks OpenAI (the API and the ChatGPT-plan Codex backend) for `service_tier: "priority"`, its fast mode: answers come about 1.5× faster and use 2–2.5× more of the plan or credits. It reaches only models that offer it (`supportsFast` in the provider's catalog). Both settings belong to the conversation: the desktop sets them under the model list in **Model & usage**, every client of the conversation sees the change, and a new runner gets the person's last choice back.
+
 Do not commit plaintext credentials. See [SECURITY.md](../SECURITY.md) for the security model and hardening guidance.
 
 ## Environment variables

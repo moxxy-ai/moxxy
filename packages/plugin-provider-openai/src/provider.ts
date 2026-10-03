@@ -63,14 +63,14 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 export const openAIModels: ReadonlyArray<ModelDescriptor> = [
   // GPT-6: Astra, Sol (flagship, knowledge cutoff Apr 20, 2026) and Luna
   // (fast, cutoff May 18, 2026); 1,050,000-token window, 128k max output.
-  { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-6-astra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
+  { id: 'gpt-6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
+  { id: 'gpt-6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
   // GPT-5.6 family (GA July 9, 2026): Sol = flagship, Terra = balanced,
   // Luna = fast/cheap. Same 1,050,000-token window and 128k max output.
-  { id: 'gpt-5.6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.6-terra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.6-sol', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
+  { id: 'gpt-5.6-terra', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
+  { id: 'gpt-5.6-luna', contextWindow: 1_050_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true },
 ];
 
 interface PendingToolCall {
@@ -184,6 +184,8 @@ export class OpenAIProvider implements LLMProvider {
       ...((emitReasoning || toolsNeedNoReasoning) && reasoningEffort
         ? { reasoning_effort: reasoningEffort as OpenAI.Chat.Completions.ChatCompletionReasoningEffort }
         : {}),
+      // Fast mode; the installed SDK's types predate the `priority` tier.
+      ...(req.fast ? { service_tier: 'priority' as unknown as 'auto' } : {}),
       stream: true,
       // OpenAI only emits the final `usage` chunk when this is set;
       // without it `raw.usage` is null on every chunk and token usage

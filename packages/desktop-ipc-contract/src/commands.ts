@@ -806,6 +806,10 @@ export interface IpcCommands {
     workspaceId?: string;
     effort: ReasoningEffort;
   }) => Promise<void>;
+  /** Switch the session to the provider's faster, pricier tier (OpenAI fast
+   *  mode) on the runner. Read the current value from `session.info().fast`.
+   *  Throws a coded error against a pre-v24 runner. */
+  'settings.setFast': (args: { workspaceId?: string; enabled: boolean }) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
    *  stored provider entry didn't enumerate models upfront. */

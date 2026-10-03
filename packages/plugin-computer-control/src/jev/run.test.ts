@@ -189,6 +189,52 @@ describe('runSteps', () => {
     expect(report.outcomes[0]).toMatchObject({ status: 'failed', why: 'blocked (stale_state)' });
   });
 
+  // Jev reads one window: a window or tab that is new looks like any other, so it is never sure the key worked.
+  it('goes on after a key that brought another window to the front, without pressing it again', async () => {
+    let front = 'Listings';
+    const state = (): AppState => ({ tree: { app: 'Safari', window: front, elements: [{ key: `w/${front}`, index: 0, depth: 0, role: 'window', title: front }] } });
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.2) : undefined));
+    const acted: ComputerAction[] = [];
+    const steps: RunStep[] = [{ do: 'key', key: 'super+n', expect: 'a new window is open' }, { do: 'key', key: 'super+l' }];
+    const report = await runSteps('Open a new window', steps, state(), {
+      ask, selectAll: 'super+a', signal: new AbortController().signal, observe: async () => state(),
+      act: async (action) => { acted.push(action); if (action.action === 'press_key') front = 'Start Page'; return { result: { outcome: 'delivered' }, state: state() }; },
+    });
+    expect(acted.map((action) => action.action)).toEqual(['press_key', 'press_key']);
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }, { status: 'done' }]);
+  });
+
+  it('stops at a key whose result does not show while the same window stays in front', async () => {
+    const window = app([button(1, 'Export')]);
+    const { ask } = jev((_state, id) => (id === 'expected' ? yes(0.1) : undefined));
+    const report = await runSteps('Export', [{ do: 'key', key: 'super+e', expect: 'an export dialog is open' }], window.state(), deps(window, ask));
+    expect(window.acted).toHaveLength(1);
+    expect(report.outcomes).toMatchObject([{ status: 'failed', attempts: 1 }]);
+  });
+
+  // Typing again appends: "https://olx.plhttps://olx.pl".
+  it('does not type again once the text is in the field, whatever else the step expects', async () => {
+    const window = app([button(1, 'Address', { role: 'text field', value: '' })], (action, elements) => {
+      if (action.action === 'type_text') (elements[0] as AppElement).value += action.text;
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.1) : undefined));
+    const report = await runSteps('Open OLX', [{ do: 'type', target: 'the address field', text: 'https://olx.pl', expect: 'OLX opens' }], window.state(), deps(window, ask));
+    expect(window.acted).toEqual([{ action: 'type_text', element_index: 1, text: 'https://olx.pl' }]);
+    expect(report.state.tree.elements[1]?.value).toBe('https://olx.pl');
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 1 }]);
+  });
+
+  it('types the other way when the first left the field without the text', async () => {
+    const window = app([button(1, 'Address', { role: 'text field', value: '' })], (action, elements) => {
+      if (action.action === 'type_text' && action.element_index === undefined) (elements[0] as AppElement).value += action.text;
+    });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const report = await runSteps('Open OLX', [{ do: 'type', target: 'the address field', text: 'https://olx.pl' }], window.state(), deps(window, ask));
+    expect(window.acted.map((action) => action.action)).toEqual(['type_text', 'click', 'type_text']);
+    expect(report.state.tree.elements[1]?.value).toBe('https://olx.pl');
+    expect(report.outcomes).toMatchObject([{ status: 'done', attempts: 2 }]);
+  });
+
   it('hands back to the main model when Jev cannot be asked', async () => {
     const window = app([button(1, 'Export')]);
     const ask: AskJev = async () => { throw new JevError(401, 'Jev returned HTTP 401'); };

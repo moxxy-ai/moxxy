@@ -37,6 +37,7 @@ export {
   type SetResolverParams,
   type ReasoningEffortLevel,
   type SessionSetReasoningParams,
+  type SessionSetFastParams,
   type PermissionCheckParams,
   type PermissionCheckResult,
   type ApprovalConfirmParams,

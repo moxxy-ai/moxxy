@@ -422,6 +422,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: optionalWorkspace,
     effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
   }),
+  'settings.setFast': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),

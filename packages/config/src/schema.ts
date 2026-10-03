@@ -246,6 +246,8 @@ export const contextConfigSchema = z.object({
   reasoning: z
     .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high', 'xhigh']).optional() })])
     .optional(),
+  /** Ask the provider for its faster, pricier tier (OpenAI fast mode) on models that offer it. Default off. */
+  fast: z.boolean().optional(),
   /**
    * Stuck-loop guard tuning. The guard bails a turn early when the model keeps
    * making the same tool call; `maxIterations` is the hard backstop. Raise the

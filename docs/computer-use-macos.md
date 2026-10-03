@@ -132,6 +132,19 @@ Linux; only the helper underneath differs.
   the click did, and a second click would close what the first one opened. The
   step stops there instead of trying another way, and the report tells the
   main model to read the screenshot and go on with the single tools by x and y.
+- **What is never done twice.** A key goes to the focus: a `target` written
+  into a key step (strict providers fill every field) is dropped, so the key
+  has one way and is pressed once. Pressing `super+n` again would open one
+  more window, not check the first. Typing is not repeated once its text shows
+  in the field's value; another `type_text` would append it a second time
+  ("https://olx.plhttps://olx.pl"). Such a step counts as done, verified only
+  when Jev also sees its `expect`.
+- **Another window in front.** Jev reads one window, so a window or tab that a
+  key opened looks like any other: told the title before and after, it still
+  gave "a new window is open" 0.15–0.36 in Safari. A key after which another
+  window is in front therefore counts as done (verified only when Jev also sees
+  its `expect`), and the run goes on; the next steps are checked on the window
+  that is now in front.
 - **Key.** The secret `TYPESAFE_API_KEY` from the vault (`/vault set
   TYPESAFE_API_KEY`), or the environment variable of the same name. The tool
   may reach only `api.typesafe.ai`. The desktop sets it in Settings → Jev.
@@ -230,7 +243,10 @@ Measured on System Settings (25 single-step runs, each with a fresh look, the
 click and the check): first time with Jev 1.4–1.9 s (two slow panes 2.6–3.0 s);
 again from memory 0.8–1.2 s with no request to Jev. An action with its fresh
 state through the helper: 0.8–1.1 s. `MOXXY_COMPUTER_TIMING=<file>` makes the
-helper write where each request's time went.
+helper write where each request's time went. `MOXXY_JEV_TRACE=<file>` writes
+each request to Jev as one JSON line: the step, how many elements and characters
+of the window it was shown, the most likely answers with their element lines,
+and how long it took.
 
 In a source list whose cell offers "open" itself (Finder's sidebar), a click
 on the row performs that action: selecting the row there only highlights it.
@@ -252,7 +268,10 @@ memory and is then remembered under the new wording too.
 
 The rules tell the model that `computer_run` looks at the window itself and
 asks for its own app: a task starts with `computer_run`, without
-`computer_request_access`, `computer_list_apps` or `computer_get_app_state`. An app may be named in later
+`computer_request_access`, `computer_list_apps` or `computer_get_app_state`. The exception is a run
+that presses keys or types into a browser or terminal: approving the run grants
+those only their default level (read-only, click-only), so the model sends
+`computer_request_access` with `full_access` first, in the same response. An app may be named in later
 calls the way it was asked for ("System Settings"), not only the way the
 system names it ("Ustawienia systemowe").
 

@@ -109,7 +109,7 @@ const onApp = <N extends ActionName>(name: N) =>
 export const runStepShape = z.object({
   do: z.enum(['click', 'type', 'set_value', 'key', 'scroll']),
   target: z.string().min(1).max(300).optional()
-    .describe('The element in words, the way it reads on screen: its label and kind, and where it is when that matters ("the Export button", "the file name field of the dialog"). Needed for click, set_value and scroll; leave it out of type to type into the focus.'),
+    .describe('The element in words, the way it reads on screen: its label and kind, and where it is when that matters ("the Export button", "the file name field of the dialog"). Needed for click, set_value and scroll; leave it out of type to type into the focus. A key goes to the focus and takes none.'),
   text: z.string().max(20_000).optional().describe('The exact text for type and set_value.'),
   key: chord().optional().describe('The chord for key, in xdotool syntax.'),
   direction: fields.direction.optional().describe('For scroll.'),
@@ -122,11 +122,22 @@ const needs: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
   click: ['target'], type: ['text'], set_value: ['target', 'text'], key: ['key'], scroll: ['target', 'direction'],
 };
 
-/** null and "" are filler, except an empty text for set_value, which clears the field. */
+/** A key goes to the focus, so it has no target: one found for it would only be another way to press the key again. */
+const uses: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
+  click: ['target'], type: ['target', 'text'], set_value: ['target', 'text'], key: ['key'], scroll: ['target', 'direction'],
+};
+
+/**
+ * A strict provider fills every field of every step: null and "" are filler, and so is any field the step's kind
+ * does not use. An empty text for set_value is kept; it clears the field.
+ */
 function dropStepFiller(input: unknown): unknown {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return input;
   const step = input as Record<string, unknown>;
-  return Object.fromEntries(Object.entries(step).filter(([name, value]) => value !== null && (value !== '' || (name === 'text' && step.do === 'set_value'))));
+  const used = uses[step.do as RunStep['do']] as ReadonlyArray<string> | undefined;
+  return Object.fromEntries(Object.entries(step).filter(([name, value]) =>
+    value !== null && (value !== '' || (name === 'text' && step.do === 'set_value'))
+    && (used === undefined || name === 'do' || name === 'expect' || used.includes(name))));
 }
 
 const runStep = z.preprocess(dropStepFiller, runStepShape.superRefine((step, ctx) => {
@@ -180,7 +191,7 @@ export const computerTools = {
   computer_set_value: { description: `Set the value of an editable element directly (text fields, sliders, steppers).${AFTER}`, input: onApp('set_value') },
   computer_perform_secondary_action: { description: `Run an accessibility action an element lists besides a click (show menu, expand, increment, cancel).${AFTER}`, input: onApp('perform_secondary_action') },
   computer_run: {
-    description: 'Run several steps on one app in a row, without a round trip per step. Describe each element in words; the element is found on the live window, also on a screen you have not seen yet, each `expect` is checked, and a step that does not work is tried another way. Stops at the first step that cannot be done and returns what was done plus the fresh app state. Use it whenever the next steps are known; use the single tools for work by x and y. On an app not granted yet, approving this call grants the app for the conversation at its default level (browsers read-only, terminals click-only).',
+    description: 'Run several steps on one app in a row, without a round trip per step. Describe each element in words; the element is found on the live window, also on a screen you have not seen yet, each `expect` is checked, and a step that does not work is tried another way. Stops at the first step that cannot be done and returns what was done plus the fresh app state. Use it whenever the next steps are known; use the single tools for work by x and y. On an app not granted yet, approving this call grants the app for the conversation at its default level (browsers read-only, terminals click-only). Steps that send keys or text into a browser or terminal are refused at that level: call computer_request_access with full_access for it first, in the same response.',
     input: z.object({
       app,
       goal: z.string().min(1).max(500).describe('What these steps achieve, in one sentence. It tells similar elements apart.'),

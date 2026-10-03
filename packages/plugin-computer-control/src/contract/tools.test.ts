@@ -173,6 +173,21 @@ describe('computer_run', () => {
     expect(run([{ do: 'click', target: 'Save', text: null, key: '', expect: '' }]).steps).toEqual([{ do: 'click', target: 'Save' }]);
   });
 
+  // A model calls computer_run first and learns of the browser's read-only default only from the refused key.
+  it('says that keys and text in a browser need full control asked for first', () => {
+    expect(computerTools.computer_run.description).toMatch(/keys or text into a browser or terminal[^.]*full_access[^.]*first/);
+  });
+
+  // A key goes to the focus: a target found for it would only make more ways to press it again.
+  it('keeps only the fields a step of its kind uses, also when the model wrote something into the rest', () => {
+    expect(run([{ do: 'key', key: 'super+n', target: 'Safari window', text: '', direction: 'down', expect: 'a new window is open' }]).steps)
+      .toEqual([{ do: 'key', key: 'super+n', expect: 'a new window is open' }]);
+    expect(run([{ do: 'click', target: 'Save', text: 'x', key: 'Return', direction: 'down' }]).steps).toEqual([{ do: 'click', target: 'Save' }]);
+    expect(run([{ do: 'type', target: 'the address field', text: 'olx.pl', key: 'Return', direction: 'down' }]).steps)
+      .toEqual([{ do: 'type', target: 'the address field', text: 'olx.pl' }]);
+    expect(run([{ do: 'scroll', target: 'the list', text: 'x', direction: 'up' }]).steps).toEqual([{ do: 'scroll', target: 'the list', direction: 'up' }]);
+  });
+
   it('keeps an empty text for set_value, which clears the field', () => {
     expect(run([{ do: 'set_value', target: 'the name field', text: '' }]).steps).toEqual([{ do: 'set_value', target: 'the name field', text: '' }]);
   });

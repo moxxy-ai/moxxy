@@ -481,6 +481,42 @@ describe('runner end-to-end', () => {
     expect(provider.received.at(-1)?.reasoning).toBeUndefined();
   });
 
+  it('switches the session to fast mode, which every client sees and the provider receives (v24)', async () => {
+    const descriptor = { contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true };
+    const provider = new FakeProvider({
+      models: [{ id: 'quick', ...descriptor, supportsFast: true }, { id: 'plain', ...descriptor }],
+      script: [textReply('fast'), textReply('plain'), textReply('standard')],
+    });
+    const { session, socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+    const other = await attach(socketPath);
+    expect(remote.getInfo().fast).toBe(false);
+
+    await remote.providerAdmin.setFast(true);
+    await waitFor(() => other.getInfo().fast === true);
+    expect(session.fast).toBe(true);
+    for await (const _event of remote.runTurn('go', { model: 'quick' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBe(true);
+
+    // A model without the faster tier is never asked for it.
+    for await (const _event of remote.runTurn('go', { model: 'plain' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBeUndefined();
+
+    await remote.providerAdmin.setFast(false);
+    await waitFor(() => other.getInfo().fast === false);
+    for await (const _event of remote.runTurn('go', { model: 'quick' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBeUndefined();
+  });
+
+  it('reports the reasoning effort to every client', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [] }));
+    const remote = await attach(socketPath);
+    const other = await attach(socketPath);
+    expect(remote.getInfo().reasoningEffort).toBeNull();
+    await remote.providerAdmin.setReasoning('high');
+    await waitFor(() => other.getInfo().reasoningEffort === 'high');
+  });
+
   it('persists the picked provider to preferences so the next runner inherits it', async () => {
     // Regression: a remote `providers.setActive` only mutated THIS runner's
     // in-memory state. The desktop spawns one `moxxy serve` PER workspace, so

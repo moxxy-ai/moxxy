@@ -109,29 +109,11 @@ describe('ProvidersTab', () => {
     );
   });
 
-  it('shows the reasoning selector only for providers that support it', () => {
-    // anthropic carries no supportsReasoning flag → no selector.
-    renderTab();
-    fireEvent.click(screen.getByRole('button', { name: /configure anthropic/i }));
-    expect(screen.queryByTestId('provider-reasoning-select')).toBeNull();
-  });
-
-  it('applies the reasoning effort live via settings.setReasoning', async () => {
-    const invoke = vi.fn(() => Promise.resolve());
-    __setApiOverride({ invoke, subscribe: vi.fn(() => () => {}) } as never);
+  it('leaves reasoning effort to the model picker', () => {
     const reasoner: ProviderEntry = { ...anthropic, name: 'opus', active: false, supportsReasoning: true };
     renderTab({ providers: [reasoner] });
     fireEvent.click(screen.getByRole('button', { name: /configure opus/i }));
-    const select = screen.getByTestId('provider-reasoning-select');
-    fireEvent.change(select, { target: { value: 'high' } });
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { effort: 'high' }),
-    );
-    // 'off' clears it through the same path.
-    fireEvent.change(select, { target: { value: 'off' } });
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('settings.setReasoning', { effort: 'off' }),
-    );
+    expect(screen.queryByText('Reasoning effort')).toBeNull();
   });
 
   it('shows a "no key needed" note (not a key form) for the local provider', () => {

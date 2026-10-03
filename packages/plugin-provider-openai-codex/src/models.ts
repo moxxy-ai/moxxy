@@ -21,13 +21,13 @@ const CODEX_OUTPUT_RESERVE = 16_384;
 
 export const codexModels: ReadonlyArray<ModelDescriptor> = [
   // GPT-6: Astra, Sol (flagship) and Luna (fast).
-  { id: 'gpt-6-astra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-6-astra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
+  { id: 'gpt-6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
+  { id: 'gpt-6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
   // GPT-5.6 family (GA July 9, 2026), under the same ids the API uses.
-  { id: 'gpt-5.6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.6-terra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'gpt-5.6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'gpt-5.6-sol', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
+  { id: 'gpt-5.6-terra', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
+  { id: 'gpt-5.6-luna', contextWindow: CODEX_CONTEXT_WINDOW, maxOutputTokens: CODEX_OUTPUT_RESERVE, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, supportsFast: true, hostedTools: ['web_search'] },
 ];
 
 // OpenAI's own Codex default moved to gpt-5.6-sol at GA (July 9, 2026); mirror

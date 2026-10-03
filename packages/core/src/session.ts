@@ -206,6 +206,8 @@ export class Session implements ClientSession, SessionRuntime {
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
   reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
+  /** Ask for the provider's faster tier (OpenAI fast mode), from `config.context.fast`. */
+  fast = false;
   /**
    * Stuck-loop guard tuning, from `config.context.loopGuard`. Forwarded to each
    * turn's ModeContext and on to the mode's stuck-loop detector. Undefined →
@@ -670,6 +672,8 @@ export class Session implements ClientSession, SessionRuntime {
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
       autoApprove: this.autoApprove,
+      reasoningEffort: typeof this.reasoning === 'object' ? this.reasoning.effort ?? null : null,
+      fast: this.fast,
     };
   }
 }

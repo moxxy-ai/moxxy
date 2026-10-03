@@ -4,7 +4,7 @@ import type { CapabilitySpec } from './isolation.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
-import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
+import type { ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -155,6 +155,10 @@ export interface SessionInfo {
   /** Tool calls run without asking in this conversation (see `auto-approve.ts`).
    *  Absent from runners that predate the shared switch. */
   readonly autoApprove?: boolean;
+  /** How deeply the model thinks in this conversation; null when not set. Absent from older runners. */
+  readonly reasoningEffort?: ReasoningEffort | null;
+  /** Whether turns ask for the provider's faster tier. Absent from older runners. */
+  readonly fast?: boolean;
   /** Turns running now, whichever client (or in-process channel) started them.
    *  Reported by a runner to its clients; absent from runners that predate it. */
   readonly runningTurns?: ReadonlyArray<string>;

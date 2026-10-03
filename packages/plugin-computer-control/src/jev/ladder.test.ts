@@ -55,6 +55,21 @@ describe('judge', () => {
     expect(judge({ step, result: delivered, changed: false, expected: 0.45 })).toMatchObject({ verdict: 'retry' });
   });
 
+  it('takes typing for done once its text shows in the field: typing again would append it once more', () => {
+    const step = { do: 'type', target: 'the address field', text: 'olx.pl', expect: 'OLX opens' } as const;
+    expect(judge({ step, result: delivered, changed: true, expected: 0.1, typed: true })).toEqual({ verdict: 'done', verified: false });
+    expect(judge({ step, result: delivered, changed: false, typed: true })).toEqual({ verdict: 'done', verified: false });
+    expect(judge({ step, result: delivered, changed: true, expected: 0.9, typed: true })).toEqual({ verdict: 'done', verified: true });
+    expect(judge({ step, result: delivered, changed: true, expected: 0.1, typed: false })).toMatchObject({ verdict: 'retry' });
+  });
+
+  it('takes a key for done when another window came to the front: Jev cannot tell a new window from an old one', () => {
+    const step = { do: 'key', key: 'super+n', expect: 'a new window is open' } as const;
+    expect(judge({ step, result: delivered, changed: true, expected: 0.2, moved: true })).toEqual({ verdict: 'done', verified: false });
+    expect(judge({ step, result: delivered, changed: true, expected: 0.2, moved: false })).toMatchObject({ verdict: 'retry' });
+    expect(judge({ step: { do: 'click', target: 'Tab', expect: 'a new window is open' }, result: delivered, changed: true, expected: 0.2, moved: true })).toMatchObject({ verdict: 'retry' });
+  });
+
   it('stops when only the screenshot changed after a click at a point: Jev cannot see what the click did, and another click may undo it', () => {
     const step = { do: 'click', target: 'Sort', expect: 'the sort options show' } as const;
     expect(judge({ step, result: delivered, changed: true, expected: 0.1, unseen: true })).toMatchObject({ verdict: 'stop', why: expect.stringMatching(/screenshot/) });

@@ -175,4 +175,9 @@ describe('toResponsesBody', () => {
       { type: 'web_search' },
     ]);
   });
+
+  it('asks for the fast tier only when fast mode is on', () => {
+    expect(toResponsesBody({ ...req, fast: true }).service_tier).toBe('priority');
+    expect(toResponsesBody(req)).not.toHaveProperty('service_tier');
+  });
 });

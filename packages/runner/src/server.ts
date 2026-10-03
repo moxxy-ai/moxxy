@@ -64,6 +64,7 @@ import {
   handleSurfaceClose,
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionSetFast,
   handleSessionLoadHistory,
   handleSessionRecordExchange,
   handleSessionSetAutoApprove,
@@ -264,6 +265,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
+    peer.handle(RunnerMethod.SessionSetFast, (raw) => handleSessionSetFast(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));

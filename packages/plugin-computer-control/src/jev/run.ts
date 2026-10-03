@@ -109,6 +109,10 @@ function chosen(tree: AppTree, element: AppElement): boolean {
   return false;
 }
 
+/** Whether a type step's text shows in its element now. */
+const holdsText = (tree: AppTree, element: AppElement, text: string) =>
+  tree.elements.find((candidate) => candidate.key === element.key)?.value?.includes(text) === true;
+
 /** Whether two looks list the same elements; an index is only a position in one look. */
 const sameElements = (a: AppTree, b: AppTree) => JSON.stringify(a.elements.map(({ index: _, ...rest }) => rest)) === JSON.stringify(b.elements.map(({ index: _, ...rest }) => rest));
 
@@ -221,14 +225,17 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
       // One request: did this step do what it should, and where is the next step's element.
       let seen = proves !== undefined && shows(state.tree, proves);
       const upcoming = next ? before(next, state.tree, remembered(next)) : {};
+      const performed = () => ({ performed: step, changes: diffTrees(previous.tree, state.tree).text });
       let after = result.outcome === 'delivered'
-        ? await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text, ...(next ? { step: next } : {}) },
+        ? await ask({ ...performed(), ...(next ? { step: next } : {}) },
           { ...(step.expect === undefined || seen ? {} : { expected: EXPECTED_QUESTION }), ...upcoming })
         : {};
       // Jev is shown elements only: a real click that moved pixels and no element is not its to judge.
       const atPoint = rung.some((action) => action.action === 'click' && 'x' in action);
       const unseen = () => atPoint && fingerprint(previous.tree, previous.screenshot) !== fingerprint(state.tree, state.screenshot) && sameElements(previous.tree, state.tree);
-      let verdict = judge({ step, result, changed, unseen: unseen(), ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
+      const typed = () => step.do === 'type' && element !== undefined && step.text !== undefined && holdsText(state.tree, element, step.text);
+      const facts = () => ({ unseen: unseen(), typed: typed(), moved: previous.tree.window !== state.tree.window });
+      let verdict = judge({ step, result, changed, ...facts(), ...(step.expect === undefined ? {} : { expected: seen ? 1 : noul(after, 'expected') ?? 0 }) });
       let relooked = false;
       if (verdict.verdict === 'retry' && result.outcome === 'delivered' && step.expect !== undefined) {
         // The result can show a moment after the window first looked settled: look once more before another way.
@@ -237,8 +244,8 @@ export async function runSteps(goal: string, steps: readonly RunStep[], initial:
         if (fingerprint(first.tree, first.screenshot) !== fingerprint(state.tree, state.screenshot)) {
           relooked = true;
           seen = proves !== undefined && shows(state.tree, proves);
-          after = seen ? {} : await ask({ performed: step, changes: diffTrees(previous.tree, state.tree).text }, { expected: EXPECTED_QUESTION });
-          verdict = judge({ step, result, changed: true, unseen: unseen(), expected: seen ? 1 : noul(after, 'expected') ?? 0 });
+          after = seen ? {} : await ask(performed(), { expected: EXPECTED_QUESTION });
+          verdict = judge({ step, result, changed: true, ...facts(), expected: seen ? 1 : noul(after, 'expected') ?? 0 });
         }
       }
       if (verdict.verdict === 'done') {

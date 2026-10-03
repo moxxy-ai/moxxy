@@ -7,6 +7,7 @@ import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
+import { tracedFromEnv } from '../jev/trace.js';
 import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
 import { describeRun, runSteps, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
@@ -105,7 +106,7 @@ export class ComputerBackend {
     private readonly profile: PlatformProfile,
     private readonly hints: ReadonlyArray<AppHint> = loadAppHints(),
     /** Jev for a TypeSafe key; a seam so tests need no network. */
-    private readonly jev: (apiKey: string) => AskJev = jevClient,
+    private readonly jev: (apiKey: string) => AskJev = (apiKey) => tracedFromEnv(jevClient(apiKey)),
     private readonly memory: RunMemory = new RunMemory(undefined, Date.now, shippedLearned),
   ) {
     this.hooks = {

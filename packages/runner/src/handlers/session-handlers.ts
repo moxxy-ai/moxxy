@@ -7,6 +7,7 @@ import {
   sessionRecordExchangeParamsSchema,
   sessionSetAutoApproveParamsSchema,
   sessionSetReasoningParamsSchema,
+  sessionSetFastParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
   type SessionRecordExchangeResult,
@@ -35,6 +36,13 @@ export function handleSessionSetReasoning(
 ): Record<string, never> {
   const { effort } = sessionSetReasoningParamsSchema.parse(raw);
   ctx.session.reasoning = effort === 'off' ? undefined : { effort };
+  ctx.broadcastInfo();
+  return {};
+}
+
+/** Switch the provider's faster tier (v24); `run-turn` forwards it to models with `supportsFast`. */
+export function handleSessionSetFast(ctx: HandlerContext, raw: unknown): Record<string, never> {
+  ctx.session.fast = sessionSetFastParamsSchema.parse(raw).enabled;
   ctx.broadcastInfo();
   return {};
 }
