@@ -17,7 +17,8 @@ extension Methods {
         let heard = state.pid.map(Settler.listen)
         defer { heard?.stop() }
         Timing.mark("act: begin")
-        let result = input.gate?.waitWhilePaused() == true
+        state.leaving = nil
+        var result = input.gate?.waitWhilePaused() == true
             ? ActionResult.blocked("user_intervened", hint: "The user paused Computer Use and resumed it; nothing was done. Look at the fresh state before the next action.")
             : Executor(state: state, cursor: cursor, input: input).perform(request)
         Timing.mark("act: performed \(result.method.map { "\($0)" } ?? result.code ?? "-")")
@@ -25,6 +26,17 @@ extension Methods {
         heard?.forget(before: Settler.uptime(of: state.sent ?? began))
         state.heard = heard
         defer { state.heard = nil }
+        if result.outcome == .delivered, let leaving = state.leaving, let pid = state.pid {
+            if followed(from: leaving, pid: pid, heard: heard) {
+                // The new page is the action's effect: settle on it as right after the action.
+                state.lastAction = Date()
+                state.reacted = true
+            } else {
+                result = .stillLoading(result)
+            }
+            Timing.mark("act: link followed")
+        }
+        state.leaving = nil
         var until: [String] = []
         if case let .array(labels)? = params["until"] { until = labels.compactMap(\.stringValue) }
         let ready = result.outcome == .delivered && !until.isEmpty ? state.pid.flatMap { awaited(until, pid: $0) } : nil
@@ -33,6 +45,14 @@ extension Methods {
         let picture = params["screenshot"]?.boolValue ?? true
         let fresh = try appState(.object(["app": .string(app), "screenshot": .bool(picture)]), targets: targets, cursor: cursor, ready: ready)
         return .object(["result": result.json, "state": fresh])
+    }
+
+    /// Whether the app left `page` for another one before `Navigation.deadline`, woken by its notifications.
+    private static func followed(from page: Navigation.Page, pid: pid_t, heard: Settler?) -> Bool {
+        let clock = { ProcessInfo.processInfo.systemUptime }
+        return Navigation.awaited(from: page, now: clock, read: { Navigation.current(pid: pid) }, pause: { seconds in
+            if let heard { heard.pause(upTo: seconds) } else { Thread.sleep(forTimeInterval: seconds) }
+        })
     }
 
     /// The target app, which must be in the request's `allowed` list: the host checks grants first and the
@@ -72,6 +92,7 @@ struct Executor {
         let pressedInVain = state.pressed.map { $0.key == key && !differs(since: $0) } == true
         state.pressed = nil
         let before = isClick(request) ? seenBefore() : nil
+        state.leaving = leavingPage(request)
         // What the window said at the observation is true only until something is done to it.
         let said = before?.said ?? state.said
         state.said = nil
@@ -84,6 +105,23 @@ struct Executor {
     private func isClick(_ request: ActionRequest) -> Bool {
         if case .click = request { return true }
         return false
+    }
+
+    /// The page a left click on a link, or Return on a focused one, is about to leave.
+    private func leavingPage(_ request: ActionRequest) -> Navigation.Page? {
+        guard let root = state.root else { return nil }
+        let element: AXUIElement?
+        switch request {
+        case let .click(.element(index), .left, _, _):
+            element = state.elements[index]
+        case let .click(.point(point), .left, _, _):
+            element = state.frame.flatMap { onImage(point, $0) }.flatMap { AXReader.element(at: $0, pid: state.window?.pid) }
+        case let .pressKey(chord, _) where chord.confirms:
+            element = state.pid.flatMap { AXReader.attribute(AXReader.application($0), kAXFocusedUIElementAttribute) }
+        default:
+            element = nil
+        }
+        return element.flatMap { Navigation.leaving(from: $0, window: root) }
     }
 
     private typealias Look = (window: WindowCandidate, pixels: PixelBuffer, said: [String])

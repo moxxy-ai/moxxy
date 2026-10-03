@@ -76,6 +76,10 @@ export function formatTree(tree: AppTree): string {
 export const sameWindow = (a: Pick<AppTree, 'window' | 'windowId'>, b: Pick<AppTree, 'window' | 'windowId'>) =>
   a.window === b.window && (a.windowId === undefined || b.windowId === undefined || a.windowId === b.windowId);
 
+/** Whether two looks list the same elements; an index is only a position in one look. */
+export const sameElements = (a: AppTree, b: AppTree) =>
+  JSON.stringify(a.elements.map(({ index: _, ...rest }) => rest)) === JSON.stringify(b.elements.map(({ index: _, ...rest }) => rest));
+
 export interface TreeView { readonly kind: 'full' | 'diff' | 'unchanged'; readonly text: string }
 
 /** Render `next` relative to the state the model saw last; any change of index is listed so no old index is reused. */

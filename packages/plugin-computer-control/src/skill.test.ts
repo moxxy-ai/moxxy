@@ -18,6 +18,12 @@ it('teaches the shared contract and no longer mentions removed tools', () => {
   expect(skill.body).not.toMatch(/computer_observe|computer_windows|computer_app_catalog|observationId|captureId/);
 });
 
+it('teaches to wait for a followed link instead of clicking it again, and to explain a failure from what was seen', () => {
+  expect(skill.body).toContain('page_loading');
+  expect(skill.body).toMatch(/never click it again, double-click it or press\s+Return on it/);
+  expect(skill.body).toMatch(/asks why[\s\S]*look at the app again[\s\S]*never guess/i);
+});
+
 it('answers @computer_use in a chat prompt and keeps the in-window browser out of that request', () => {
   const frontmatter = skillFrontmatterSchema.parse(skill.frontmatter);
   const loaded = { id: asSkillId('plugin/computer-control'), path: 'computer-control.md', scope: 'plugin' as const, frontmatter, body: skill.body };

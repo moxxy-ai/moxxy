@@ -76,6 +76,15 @@ describe('judge', () => {
     expect(judge({ step, result: delivered, changed: true, expected: 0.9, unseen: true })).toEqual({ verdict: 'done', verified: true });
   });
 
+  // Canva creates the design before its editor loads: a second click would start a second one.
+  it('stops after a link was followed whose page has not come yet, instead of clicking again', () => {
+    const step = { do: 'click', target: 'YouTube thumbnail', expect: 'the editor opens' } as const;
+    const loading = { outcome: 'delivered', code: 'page_loading' } as const;
+    expect(judge({ step, result: loading, changed: false, expected: 0.1 })).toMatchObject({ verdict: 'stop', why: expect.stringMatching(/loading/) });
+    expect(judge({ step: { do: 'click', target: 'YouTube thumbnail' }, result: loading, changed: false })).toMatchObject({ verdict: 'stop' });
+    expect(judge({ step, result: loading, changed: true, expected: 0.9 })).toEqual({ verdict: 'done', verified: true });
+  });
+
   it('tries another way after a click or a value that changed nothing', () => {
     expect(judge({ step: { do: 'click', target: 'Save' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });
     expect(judge({ step: { do: 'set_value', target: 'Name', text: 'a' }, result: delivered, changed: false })).toMatchObject({ verdict: 'retry' });

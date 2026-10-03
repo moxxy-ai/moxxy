@@ -29,6 +29,7 @@ const hints = {
   invalid_key: 'Use xdotool key syntax such as "Return", "Tab", "super+c", "ctrl+shift+Tab", "Page_Down" or "KP_0".',
   timeout: 'The app did not respond in time; the action was not retried. Observe again before deciding.',
   helper_failed: 'The native helper failed or answered unexpectedly; the action was not retried. Observe again before deciding.',
+  page_loading: 'The click followed a link to another page, and after several seconds the page has not changed: it is probably still loading. Look again with computer_get_app_state before you act; clicking the link again, double-clicking it or pressing Return on it can start the same thing twice (a second new design, a second order).',
 } as const;
 
 export type ErrorCode = keyof typeof hints;
@@ -53,7 +54,9 @@ export const actionResultSchema = z.object({
 export type ActionResult = z.infer<typeof actionResultSchema>;
 
 export function describeResult(result: ActionResult): string {
-  if (result.outcome === 'delivered') return 'Action delivered; verify its effect in the new state before relying on it.';
+  if (result.outcome === 'delivered') {
+    return ['Action delivered; verify its effect in the new state before relying on it.', result.code ? hintFor(result.code) : undefined].filter(Boolean).join(' ');
+  }
   const hint = result.hint ?? (result.code ? hintFor(result.code) : undefined);
   return [`Action ${result.outcome}${result.code ? ` (${result.code})` : ''}.`, hint].filter(Boolean).join(' ');
 }

@@ -297,6 +297,16 @@ show, `computer_run` looks once more before it tries another way.
   as after any action, not only until the text is in the field: a page that
   answers typing (OLX's place and search suggestions) shows its answer a
   moment later, and a step that clicks a suggestion needs it in the state.
+- **A followed link waits for its page.** A left click on a link to another
+  document (its address differs from the page's, not only by `#…`), or Return
+  on a focused one, waits up to 8 s, woken by the browser's notifications,
+  until the window's title or the page's address changes; the state is then
+  the new page. Canva creates the design first and loads its editor seconds
+  later, so a look after the usual settle showed the old page and the model
+  clicked again. When nothing changes in 8 s the action comes back
+  `delivered` with code `page_loading`, and a run stops at that step instead
+  of trying another way. A link whose click only lit it up is never learned
+  as a step's element.
 - **Steps that check nothing go together.** Consecutive steps with no
   `expect` and no element to find (keys, typing into the focus) go to the
   helper as one `batch` request with one state at the end (macOS; elsewhere

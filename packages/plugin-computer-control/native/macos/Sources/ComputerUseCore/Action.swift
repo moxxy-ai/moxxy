@@ -140,6 +140,10 @@ public struct ActionResult: Equatable, Sendable {
     public var hint: String?
 
     public static func delivered(_ method: Method) -> ActionResult { ActionResult(outcome: .delivered, code: nil, method: method) }
+    /// A link was followed and its page has not come yet: another click could start the same thing twice.
+    public static func stillLoading(_ delivered: ActionResult) -> ActionResult {
+        ActionResult(outcome: .delivered, code: "page_loading", method: delivered.method)
+    }
     public static func blocked(_ code: String, hint: String? = nil) -> ActionResult { ActionResult(outcome: .blocked, code: code, method: nil, hint: hint) }
     /// Sent and understood, but it cannot change anything (for example scrolling past the end).
     public static func ineffective(hint: String) -> ActionResult { ActionResult(outcome: .ineffective, code: nil, method: nil, hint: hint) }

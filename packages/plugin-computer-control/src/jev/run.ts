@@ -2,7 +2,7 @@ import type { AppState, ShownText } from '../backend/rpc.js';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
-import { diffTrees, formatElements, sameWindow, type AppElement, type AppTree } from '../contract/tree.js';
+import { diffTrees, formatElements, sameElements, sameWindow, type AppElement, type AppTree } from '../contract/tree.js';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
 import { STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState, type Grounding } from './ground.js';
 import { judge, rungs } from './ladder.js';
@@ -151,9 +151,6 @@ const HELD = 'the field already holds this text';
 
 const holdsText = (tree: AppTree, element: AppElement, text: string) =>
   tree.elements.find((candidate) => candidate.key === element.key)?.value?.includes(text) === true;
-
-/** Whether two looks list the same elements; an index is only a position in one look. */
-const sameElements = (a: AppTree, b: AppTree) => JSON.stringify(a.elements.map(({ index: _, ...rest }) => rest)) === JSON.stringify(b.elements.map(({ index: _, ...rest }) => rest));
 
 /** What a step made appear: the named elements the window has now and did not have before. */
 function effectOf(previous: AppTree, now: AppTree): string[] {

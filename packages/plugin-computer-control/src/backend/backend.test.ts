@@ -422,6 +422,20 @@ describe('a run of steps', () => {
       expect(output).toMatch(/1\. verified/);
       expect(asked.flat()).not.toContain('target');
     });
+
+    // In Canva a click on a link only lit it up, and that link was then remembered as "the create button".
+    it('does not learn an element whose click changed only the picture, such as a hover highlight', async () => {
+      const asked: string[][] = [];
+      const { tools } = backend([], {}, recording(asked));
+      await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+      await run(tools, 'computer_type_text', { app: 'TextEdit', element_index: 1, text: '<hover>' }, 'turn', secrets);
+      const create = [{ do: 'click', target: 'the create button', expect: 'a new design opens' }];
+      expect(forModel(await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Create', steps: create }, 'turn', secrets))).toMatch(/1\. FAILED/);
+      expect(forModel(await run(tools, 'computer_click', { app: 'TextEdit', element_index: 2 }, 'turn', secrets))).toMatch(/No changes since the previous state/);
+      asked.length = 0;
+      await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Create', steps: create }, 'later', secrets);
+      expect(asked.flat()).toContain('target');
+    });
   });
 
   it('looks at the window without a picture for the run, and hands the model one at the end', async () => {

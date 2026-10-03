@@ -5,7 +5,7 @@ import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
 import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
-import { diffTrees, formatTree, type AppTree, type TreeView } from '../contract/tree.js';
+import { diffTrees, formatTree, sameElements, type AppTree, type TreeView } from '../contract/tree.js';
 import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '../jev/client.js';
 import { traceRun, tracedFromEnv } from '../jev/trace.js';
 import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
@@ -363,8 +363,10 @@ export class ComputerBackend {
     turn.failed.delete(app);
     const index = (action as { element_index?: number }).element_index;
     if (SINGLE[step.do] !== action.action || index === undefined || result.outcome !== 'delivered') return;
-    const element = turn.trees.get(app)?.elements.find((candidate) => candidate.index === index);
-    if (!element || turn.seen.get(app) === fingerprint(state.tree, state.screenshot)) return;
+    const before = turn.trees.get(app);
+    const element = before?.elements.find((candidate) => candidate.index === index);
+    // A click that changed only the picture may have lit the element up and done nothing else.
+    if (!before || !element || sameElements(before, state.tree)) return;
     await this.memory.learn(app, { targets: [{ do: step.do, target: step.target, key: element.key, label: labelOf(element), way: 0 }] });
   }
 

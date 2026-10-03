@@ -64,6 +64,8 @@ export interface Attempt {
 
 const UNSEEN = 'the click changed the screenshot but no element, so its result cannot be checked here and it was not clicked again (another click may undo it). Read the screenshot: when it shows the result, continue with the single tools by x and y';
 
+const LOADING = 'the click followed a link and the new page is still loading, so it was not clicked again (a second click can start the same thing twice). Look at the window again before the next action';
+
 /** What one attempt at a step means for the run. */
 export function judge({ step, result, changed, expected, unseen, typed, moved }: Attempt): Verdict {
   if (result.outcome !== 'delivered') {
@@ -73,8 +75,9 @@ export function judge({ step, result, changed, expected, unseen, typed, moved }:
   // Doing these again would do them twice. A key that brought another window forward opened or switched one, which Jev,
   // reading a single window, cannot tell from one that was there before.
   if (typed || (moved && step.do === 'key')) return { verdict: 'done', verified: expected !== undefined && expected >= HOLDS };
+  if (expected !== undefined && expected >= HOLDS) return { verdict: 'done', verified: true };
+  if (result.code === 'page_loading') return { verdict: 'stop', why: LOADING };
   if (expected !== undefined) {
-    if (expected >= HOLDS) return { verdict: 'done', verified: true };
     if (unseen) return { verdict: 'stop', why: UNSEEN };
     if (expected <= FAILS || !changed) return { verdict: 'retry', why: 'the expected result does not show' };
     return { verdict: 'done', verified: false };

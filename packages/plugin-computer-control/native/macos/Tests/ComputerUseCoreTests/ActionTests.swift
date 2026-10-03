@@ -78,6 +78,12 @@ import Testing
         #expect(ActionResult.blocked("stale_state").json == .object(["outcome": .string("blocked"), "code": .string("stale_state")]))
         #expect(ActionResult.unsupported("unsupported_action").json == .object(["outcome": .string("unsupported"), "code": .string("unsupported_action")]))
     }
+
+    // The click went through; the host must still hear that its page has not come yet.
+    @Test func aFollowedLinkWhosePageIsNotThereYetStaysDelivered() {
+        #expect(ActionResult.stillLoading(.delivered(.background)).json
+            == .object(["outcome": .string("delivered"), "code": .string("page_loading"), "method": .string("background")]))
+    }
 }
 
 @Suite struct RepeatKeyTests {

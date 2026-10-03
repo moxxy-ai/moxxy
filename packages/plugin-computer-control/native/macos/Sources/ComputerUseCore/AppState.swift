@@ -45,6 +45,8 @@ final class TargetState {
     var heard: Settler?
     /// Where the last pointer gesture in the window went, on screen; see `KeyAim`.
     var lastClick: CGPoint?
+    /// The page a click on a link (or Return on one) is leaving, until the action's wait is over; see `Navigation`.
+    var leaving: Navigation.Page?
     /// Accessibility actions its elements keep declining.
     let declines = DeclineMemory()
     var recentlyActed: Bool { lastAction.map { Date().timeIntervalSince($0) < SettlePolicy.afterAction.maximum } ?? false }
