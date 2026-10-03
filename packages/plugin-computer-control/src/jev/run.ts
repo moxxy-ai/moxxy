@@ -3,9 +3,9 @@ import { invariant } from '@moxxy/sdk';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
-import { diffTrees, formatElements, sameElements, sameWindow, type AppElement, type AppTree } from '../contract/tree.js';
-import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
-import { STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState, type Grounding } from './ground.js';
+import { diffTrees, formatElements, sameElements, sameWindow, type AppElement, type AppTree } from '@moxxy/jev';
+import { JevError, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
+import { STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState, type Grounding } from '@moxxy/jev';
 import { judge, rungs } from './ladder.js';
 import { labelOf } from './memory.js';
 

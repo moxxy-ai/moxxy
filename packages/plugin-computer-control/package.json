@@ -62,6 +62,7 @@
     }
   },
   "dependencies": {
+    "@moxxy/jev": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "zod": "catalog:"
   },

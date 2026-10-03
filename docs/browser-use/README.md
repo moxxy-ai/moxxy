@@ -18,7 +18,11 @@ person's would, and every step that can go wrong says so:
 1. **The tab comes to the front.** A view behind another tab takes no input at
    all, so the agent's tab is shown before anything is pressed — which is also
    what lets the user see it.
-2. **The element is scrolled into view** and its place read from the page.
+2. **The element is scrolled into view** and its place read from the page —
+   once the document has been parsed. A navigation answers while the page is
+   still loading, before its styles apply, and an element measured then is
+   somewhere else a moment later; `browser_navigate` therefore returns once the
+   new document is parsed (up to 5 s), and a press waits the same way.
 3. **Checks**: a disabled control is refused; if something covers the element
    (a banner, a dialog, a menu), the press is refused with the name of what is
    in the way. A menu held open by the pointer is given the chance to close
@@ -26,8 +30,9 @@ person's would, and every step that can go wrong says so:
 4. **The pointer moves there and presses.** The agent's own pointer — the
    same arrowhead as the Computer Use cursor — glides to the element, and the
    press goes out once the pane reports it has arrived (at most 250 ms of
-   glide; at once with reduced motion or when the pane is not drawing it). A
-   ring marks the press. The page is asked whether it felt the press; a press
+   glide; at once with reduced motion or when the pane is not drawing it). If
+   the element moved while the pointer was on its way, the pointer follows it
+   (up to three glides) and presses where it is now. A ring marks the press. The page is asked whether it felt the press; a press
    that reached nothing is an error, not a success.
 5. **The page settles**: a navigation is waited for until it loads (up to 3 s,
    reported as `loading` if it has not), otherwise until the DOM goes quiet
@@ -53,6 +58,7 @@ Only on the desktop:
 | `browser_wait` | Waits for a text to appear or go away; `met: false` means not yet | no |
 | `browser_point` | Clicks, double/right-clicks, moves, drags, scrolls, presses a key or types at a place in the latest viewport picture | no (site consent) |
 | `browser_upload` | Gives a file field local files, as the file dialog would | yes, every time |
+| `browser_run` | Carries out a run of steps named in words, finding each element and checking each `expect` with Jev — only with a TypeSafe key and Jev on | no (site consent) |
 
 On the desktop, `browser_type` replaces what a field holds (it no longer
 appends) and takes `submit: true` to press Enter afterwards.
@@ -79,6 +85,46 @@ canvas, and the picture that comes back already shows it.
 button with one inside, or any element on a page that has exactly one file
 input — which covers the usual hidden input behind an "Add attachment" button.
 It always asks first, since the files leave the computer.
+
+## Runs of steps (Jev)
+
+With a TypeSafe key in the vault and Jev switched on (Settings → Jev — the same
+switch as for Computer Use), the agent gets `browser_run`: it plans the steps it
+already knows and sends them in one call, each naming its element in words as
+it reads on the page, with `expect` on the steps that open or change something:
+
+```json
+{ "goal": "open the second Travel book",
+  "steps": [
+    { "do": "click", "target": "Travel", "expect": "a list of Travel books" },
+    { "do": "click", "target": "the title link of the second book", "expect": "the page of one book with its price" } ] }
+```
+
+A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
+`hover`. For each one the desktop serves the page as Jev reads it — the
+elements one can act on under the uids the other tools use, and the page as
+text (`tree` on the bridge, which leaves the agent's own reads untouched) — and
+code finds the element, in this order:
+
+1. **What worked on this site before**, from `~/.moxxy/browser-use/learned/`
+   (one file per site, the same memory format as Computer Use);
+2. **its name**, when exactly one element is called what the step says;
+3. **the focused field**, for a `type` step without a target;
+4. **Jev** (TypeSafe's System One model), asked which element the words mean.
+   When the one it picks cannot be pressed, the next likely one is tried.
+
+Each `expect` is a Jev yes/no over the page after the step, asked in the same
+request that finds the next step's element. The run stops at the first step
+whose element is not found, cannot be acted on, or does not show what it
+expects, and says why; a refusal (a site not allowed, the user has the browser)
+stops it at once. The answer lists every step and ends with the page as it is
+now, so the agent continues from there with the single tools. A run that
+reached its end is remembered with its goal.
+
+Without a key, or with Jev switched off, `browser_run` is not offered at all
+and the agent works one action at a time as before. Measured on
+books.toscrape.com: two steps with both expectations checked took 2.0 s, and
+1.7 s the second time, from memory.
 
 ## Allowing a site
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AppTree } from '../contract/tree.js';
+import type { AppTree } from './tree.js';
 import type { ChoiceAnswer } from './client.js';
 import { OPTIONS_PER_QUESTION, STATE_CHARS, byName, byText, readTarget, targetQuestions, windowState } from './ground.js';
 

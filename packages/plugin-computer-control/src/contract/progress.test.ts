@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ProgressTracker, fingerprint, looksDifferent } from './progress.js';
-import type { AppTree } from './tree.js';
+import type { AppTree } from '@moxxy/jev';
 
 const tree = (value: string): AppTree => ({ app: 'Notes', window: 'Untitled', elements: [{ key: 'w/text', index: 1, depth: 1, role: 'text area', value }] });
 

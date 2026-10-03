@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AppElement, AppTree } from '../contract/tree.js';
+import type { AppElement, AppTree } from './tree.js';
 import { RunMemory, describeRoutes, guess, labelOf, promote, recall, sameWords, targetOf } from './memory.js';
 
 let directory: string;
@@ -238,10 +238,10 @@ describe('describeRoutes', () => {
       { goal: 'Open Sound', steps: [{ do: 'click' as const, target: 'Sound', expect: 'the Sound pane shows' }], uses: 1, at: 5 },
       { goal: 'Export', steps: [{ do: 'click' as const, target: 'Export' }, { do: 'key' as const, key: 'Return' }], uses: 3, at: 1 },
     ];
-    const text = describeRoutes({ targets: [], routes }) ?? '';
+    const text = describeRoutes({ targets: [], routes }, 'computer_run') ?? '';
     expect(text.indexOf('Export')).toBeLessThan(text.indexOf('Open Sound'));
     expect(text).toContain('{"do":"click","target":"Sound","expect":"the Sound pane shows"}');
     expect(text).toMatch(/computer_run/);
-    expect(describeRoutes({ targets: [], routes: [] })).toBeUndefined();
+    expect(describeRoutes({ targets: [], routes: [] }, 'computer_run')).toBeUndefined();
   });
 });

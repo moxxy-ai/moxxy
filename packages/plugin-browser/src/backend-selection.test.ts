@@ -59,6 +59,7 @@ describe('browser plugin — picking a backend', () => {
       'browser_dialog',
       'browser_hover',
       'browser_point',
+      'browser_run',
       'browser_scroll',
       'browser_select',
       'browser_upload',

@@ -1,7 +1,12 @@
-import type { ShownText } from '../backend/rpc.js';
-import { wordsIn, type RunStep } from '../contract/tools.js';
-import { formatElements, type AppElement, type AppTree } from '../contract/tree.js';
 import type { JevAnswers, JevQuestion } from './client.js';
+import { formatElements, type AppElement, type AppTree } from './tree.js';
+import { wordsIn } from './words.js';
+
+/** What grounding needs of a step: what it does, and its element in words. */
+export interface GroundStep {
+  readonly do: string;
+  readonly target?: string;
+}
 
 /** TypeSafe takes 255 options per Choice; the rest of the window goes into further questions of the same request. */
 export const OPTIONS_PER_QUESTION = 250;
@@ -77,7 +82,7 @@ const same = (a: readonly string[], b: readonly string[]) => a.length > 0 && a.l
  * when the name is shared or the target says more than a name. Elements of one name inside each other are one:
  * the outermost is meant.
  */
-export function byName(tree: AppTree, step: RunStep): AppElement | undefined {
+export function byName(tree: AppTree, step: GroundStep): AppElement | undefined {
   if (step.target === undefined) return undefined;
   const names = namesIn(step.target);
   const takesText = step.do === 'type' || step.do === 'set_value';
@@ -103,7 +108,7 @@ const plain = (words: readonly string[]) => words.map((word) => word.normalize('
  * The one line of text in the screenshot that reads as a click target, for a control whose accessibility name
  * differs from what it shows (Canva's "Dodaj tytuł" is "Title, Heading" to accessibility).
  */
-export function byText(lines: readonly ShownText[], step: RunStep): ShownText | undefined {
+export function byText<Line extends { readonly text: string }>(lines: readonly Line[], step: GroundStep): Line | undefined {
   if (step.do !== 'click' || step.target === undefined) return undefined;
   const names = namesIn(step.target).map(plain);
   const matches = lines.filter((line) => names.some((words) => same(plain(wordsIn(line.text)), words)));

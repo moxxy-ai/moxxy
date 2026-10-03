@@ -61,7 +61,7 @@ export const UNTRUSTED_NOTE =
 /** Placeholder substituted for anything that looks like a credential. */
 const REDACTED = '[redacted]';
 
-function isSecret(node: AxNode): boolean {
+export function isSecret(node: AxNode): boolean {
   if (node.value === undefined || node.value === '') return false;
   if (MASKED_VALUE.test(node.value)) return true;
   return SECRET_LABEL.test(node.name);

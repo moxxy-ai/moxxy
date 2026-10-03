@@ -3,6 +3,7 @@ import { statSync } from 'node:fs';
 import { basename, isAbsolute } from 'node:path';
 import { assertDefined } from '@moxxy/sdk';
 import {
+  appTreeOf,
   buildAxTree,
   detectWall,
   diffRendering,
@@ -11,8 +12,10 @@ import {
   formatAxTree,
   formatSnapshot,
   redactSecretValues,
+  siteOf,
   type AxNode,
   type AxNodeRaw,
+  type AxTree,
   type TabInfo,
   type UidMemory,
   type WallKind,
@@ -27,6 +30,7 @@ import {
   quadOrigin,
   selectContents,
   typeCharacters,
+  untilParsed,
   valueOf,
   type Cdp,
   type Point,
@@ -170,6 +174,11 @@ export interface PointParams {
 }
 
 /** Pixels around the target, in the picture, that must look as they did. */
+/** How long a press or a navigation waits for a document still loading. */
+const PARSE_WAIT_MS = 5_000;
+/** How often the pointer follows an element still moving, and by how much it may move and still be hit. */
+const AIM_GLIDES = 3;
+const AIM_SLACK = 2;
 const TARGET_RADIUS = 16;
 /** Spacing of the moves a drag is made of, in CSS pixels. */
 const DRAG_STEP = 8;
@@ -808,18 +817,9 @@ export class BrowserHost {
           dialog: tab.watch?.openDialog,
         });
       }
-      await cdp.send('Accessibility.enable');
-      const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
-      const nodes = await this.withFrames(tab, wc, cdp, Array.isArray(reply?.nodes) ? (reply.nodes as AxNodeRaw[]) : []);
-      // One memory per document: a node keeps its label read after read, which
-      // is the whole reason a difference can be described at all.
-      tab.uids ??= newUidMemory();
-      const tree = nodes.length > 0 ? buildAxTree(nodes, tab.uids) : null;
+      const tree = await this.readTree(tab, wc, cdp);
       const url = wc.getURL();
       const title = wc.getTitle();
-
-      if (tree) tab.snapshot = { index: tree.index, url };
-      else delete tab.snapshot;
 
       // Render once. The fingerprint is taken from the rendering rather than
       // from the raw CDP reply, because that is what would actually be sent —
@@ -884,6 +884,48 @@ export class BrowserHost {
   }
 
   /**
+   * The page's accessibility tree, and the uids the actions resolve against it.
+   * One memory per document: a node keeps its label read after read, which is
+   * the whole reason a difference can be described at all.
+   */
+  private async readTree(tab: Tab, wc: HostWebContents, cdp: Cdp): Promise<AxTree | null> {
+    await cdp.send('Accessibility.enable');
+    const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
+    const nodes = await this.withFrames(tab, wc, cdp, Array.isArray(reply?.nodes) ? (reply.nodes as AxNodeRaw[]) : []);
+    tab.uids ??= newUidMemory();
+    const tree = nodes.length > 0 ? buildAxTree(nodes, tab.uids) : null;
+    if (tree) tab.snapshot = { index: tree.index, url: wc.getURL() };
+    else delete tab.snapshot;
+    return tree;
+  }
+
+  /**
+   * The page as Jev reads it for a run of steps: the elements one can act on,
+   * under the uids the actions take, and the page as text to check what a step
+   * expects against. The agent's own reads — what it last saw, and so what has
+   * changed since — stay as they were: a run is not the agent looking.
+   */
+  async tree(tabId?: string): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(tabId);
+      const cdp = await this.ready(tab, wc);
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return fail(`The page is showing a dialog and runs nothing until it is answered:\n${blocked}`);
+      const read = await this.readTree(tab, wc, cdp);
+      const shown = read ? redactSecretValues(read) : null;
+      const url = wc.getURL();
+      const title = wc.getTitle();
+      const tree = appTreeOf(shown ?? { uid: '0', role: 'RootWebArea', name: title, children: [] }, {
+        app: siteOf(url) ?? (url || 'page'),
+        window: title,
+      });
+      return ok({ tabId: tab.id, url, title, tree, page: shown ? formatAxTree(shown) : '' });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * Act on a node the last snapshot named.
    *
    * Refuses a uid taken before the page moved. Clicking whatever now sits at
@@ -919,6 +961,7 @@ export class BrowserHost {
       if (blocked) return fail(blocked);
       await this.focusView(tab, 1500);
 
+      await untilParsed(el.dom, PARSE_WAIT_MS);
       const at = await this.place(cdp, el);
       if (!at) {
         return fail(`${el.named} is not drawn on the page — it may sit in a closed menu or a hidden panel; open what holds it first`);
@@ -944,18 +987,18 @@ export class BrowserHost {
       }
 
       let shows: string | null = null;
-      await this.pointer.moveTo(tab.id, at.page);
+      const aimed = await this.aim(tab, cdp, el, at);
       const outcome = await this.marked(tab, action !== 'hover', () =>
         this.watched(tab, cdp, async () => {
           if (action === 'hover') {
-            await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.page.x, y: at.page.y, button: 'none' });
+            await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: aimed.page.x, y: aimed.page.y, button: 'none' });
             return;
           }
           if (action === 'click') {
-            await this.press(cdp, el, at);
+            await this.press(cdp, el, aimed);
             return;
           }
-          shows = await this.typeInto(cdp, el, at, text ?? '');
+          shows = await this.typeInto(cdp, el, aimed, text ?? '');
           if (params.submit) {
             const problem = await pressKey(cdp, 'Enter');
             if (problem) throw new Error(problem);
@@ -1039,6 +1082,26 @@ export class BrowserHost {
     const local = await locate(el.dom, el.backendNodeId);
     if (!corner || !local) return null;
     return { page: { x: corner.x + local.x, y: corner.y + local.y }, local };
+  }
+
+  /**
+   * Glide to the element, and again while it moves away under the pointer: a
+   * page still taking its styles, or one shifting as its images arrive, has put
+   * it elsewhere by the time the pointer gets there. Seen live: a navigation
+   * answers while the document is still loading, and the link the agent aimed
+   * at dropped 160 px before the press — which then landed on nothing at all.
+   */
+  private async aim(tab: Tab, cdp: Cdp, el: Element, at: { page: Point; local: Point }): Promise<{ page: Point; local: Point }> {
+    let target = at;
+    for (let glide = 0; glide < AIM_GLIDES; glide += 1) {
+      await this.pointer.moveTo(tab.id, target.page);
+      const now = await this.place(cdp, el);
+      if (!now) return target;
+      const still = Math.abs(now.page.x - target.page.x) <= AIM_SLACK && Math.abs(now.page.y - target.page.y) <= AIM_SLACK;
+      target = now;
+      if (still) break;
+    }
+    return target;
   }
 
   /** What a press would land on instead: inside the element's document, then on the page around its frame. */
@@ -2053,6 +2116,7 @@ export class BrowserHost {
       delete tab.rendering;
       const reply = (await this.cdp(wc).send('Page.navigate', { url })) as { errorText?: string };
       if (reply?.errorText) return fail(`could not open ${url}: ${reply.errorText}`);
+      await untilParsed(this.cdp(wc), PARSE_WAIT_MS);
       this.changed();
       return ok({ url, tabId: tab.id });
     } catch (err) {

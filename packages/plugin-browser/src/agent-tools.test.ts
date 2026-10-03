@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { buildAgentTools } from './agent-tools.js';
+import { JevAccess } from './run/run-tool.js';
 import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
 import { zodToJsonSchema } from '@moxxy/sdk';
 import type { EventLogReader, MoxxyEvent, ToolContext, ToolDef } from '@moxxy/sdk';
@@ -355,7 +356,10 @@ describe('the browser skill and the tools it names', () => {
 
   it('names only tools that exist', () => {
     const shipped = new Set([
-      ...buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { desktop: true }).map((t) => t.name),
+      ...buildAgentTools(
+        { sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn },
+        { desktop: true, run: { access: new JevAccess() } },
+      ).map((t) => t.name),
       // The two the plugin ships alongside them.
       'browser_session',
       'web_fetch',
@@ -376,10 +380,12 @@ describe('the browser skill and the tools it names', () => {
   });
   it('withholds none of the desktop’s extra tools either', () => {
     const allowed = new Set(allowedTools());
-    const shipped = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { desktop: true }).map(
-      (t) => t.name,
-    );
+    const shipped = buildAgentTools(
+      { sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn },
+      { desktop: true, run: { access: new JevAccess() } },
+    ).map((t) => t.name);
 
+    expect(shipped).toContain('browser_run');
     expect(shipped.filter((t) => !allowed.has(t)), 'the skill would hide these from the agent').toEqual([]);
   });
 });
@@ -674,5 +680,22 @@ describe('working by picture, and giving files, on the desktop', () => {
   it('tells the model on the desktop that a picture is something to point at', () => {
     expect(byName(desktop(), 'browser_capture').description).toContain('browser_point');
     expect(byName(sidecar(), 'browser_capture').description).not.toContain('browser_point');
+  });
+});
+
+describe('runs of steps, on the desktop', () => {
+  it('offers browser_run on the desktop only, and every browser call there notices whether there is a key', async () => {
+    const access = new JevAccess();
+    const fake = fakeSidecar();
+    fake.setReply(() => ({ text: 'strona', tabId: 't1', url: 'https://a.pl', nodes: 1 }));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true, run: { access } });
+    const sidecar = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { run: { access } });
+
+    expect(tools.map((t) => t.name)).toContain('browser_run');
+    expect(sidecar.map((t) => t.name)).not.toContain('browser_run');
+
+    const snapshot = byName(tools, 'browser_snapshot');
+    await snapshot.handler(snapshot.inputSchema.parse({}), { ...ctx(), getSecret: async (name: string) => (name === 'TYPESAFE_API_KEY' ? 'k' : null) });
+    expect(access.on('s')).toBe(true);
   });
 });

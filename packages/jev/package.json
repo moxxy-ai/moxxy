@@ -1,13 +1,13 @@
 {
-  "name": "@moxxy/plugin-browser",
-  "version": "0.41.1",
-  "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
+  "name": "@moxxy/jev",
+  "version": "0.1.0",
+  "description": "TypeSafe's Jev for moxxy's step runners: the System One client, a window's accessibility elements as Jev reads them, grounding a described target in them, and per-app memory of what worked. Shared by Computer Use and the desktop browser.",
   "keywords": [
     "moxxy",
-    "agent",
-    "browser",
-    "playwright",
-    "tools"
+    "typesafe",
+    "jev",
+    "accessibility",
+    "agent"
   ],
   "homepage": "https://moxxy.ai",
   "bugs": {
@@ -16,7 +16,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/moxxy-ai/moxxy.git",
-    "directory": "packages/plugin-browser"
+    "directory": "packages/jev"
   },
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
   "license": "MIT",
@@ -32,38 +32,19 @@
       "import": "./dist/index.js"
     }
   },
-  "bin": {
-    "moxxy-browser-sidecar": "./dist/sidecar.js"
-  },
   "files": [
     "dist",
-    "src",
-    "skills"
+    "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/sidecar.js",
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": {
-    "plugin": {
-      "entry": "./dist/index.js",
-      "skills": "./skills"
-    }
-  },
   "dependencies": {
-    "@moxxy/jev": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.28.1"
-  },
-  "peerDependencies": {
-    "playwright": "^1.40.0"
-  },
-  "peerDependenciesMeta": {
-    "playwright": {
-      "optional": true
-    }
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

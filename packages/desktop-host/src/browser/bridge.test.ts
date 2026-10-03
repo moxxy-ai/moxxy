@@ -509,3 +509,19 @@ describe('BrowserBridge — pointing at a picture and giving files', () => {
     }
   });
 });
+
+describe('BrowserBridge — the page for a run of steps', () => {
+  it('serves the elements and the page text, on any site and while the person has the browser', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    host.takeOver();
+
+    const reply = await c.send('tree', { sites: [] });
+
+    expect(reply.ok).toBe(true);
+    const result = reply.result as { tree: { app: string; elements: Array<{ index: number; title?: string }> }; page: string };
+    expect(result.tree.app).toBe('sklep.pl');
+    expect(result.tree.elements).toEqual([expect.objectContaining({ index: 2, title: 'Kup' })]);
+    expect(result.page).toContain('Kup');
+  });
+});

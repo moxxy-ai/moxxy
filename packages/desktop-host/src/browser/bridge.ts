@@ -167,6 +167,8 @@ export class BrowserBridge {
     switch (method) {
       case 'snapshot':
         return this.host.snapshot(tabId, params.full === true ? { full: true } : {});
+      case 'tree':
+        return this.host.tree(tabId);
       case 'act':
         return this.host.act({
           action: String(params.action ?? ''),

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ComputerUseError } from './outcome.js';
-import type { AppTree } from './tree.js';
+import type { AppTree } from '@moxxy/jev';
 
 /** What the model can see of an app: its tree and its screenshot. Pixels count, so canvas work is progress. */
 export function fingerprint(tree: AppTree, image?: { base64: string }): string {

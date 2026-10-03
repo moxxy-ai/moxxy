@@ -4,6 +4,7 @@ import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.j
 import { bridgeAddressFromEnv } from './bridge-client.js';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
 import { ALLOW_SITE_TOOL, siteOf, sitesFromLog, type SiteGrant } from './site-access.js';
+import { buildRunTool, type JevAccess, type RunToolOptions } from './run/run-tool.js';
 
 /**
  * The agent's view of the browser: read the page as structured text, act on
@@ -96,6 +97,8 @@ export interface AgentToolsOptions {
    * cannot, so it gets the original set and the original descriptions.
    */
   readonly desktop?: boolean;
+  /** Runs of steps through Jev (browser_run), on the desktop, for a session with a TypeSafe key. */
+  readonly run?: RunToolOptions;
 }
 
 export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptions = {}): ReadonlyArray<ToolDef> {
@@ -409,8 +412,23 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
   });
 
   const tools: ToolDef[] = [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman];
-  if (desktop) tools.push(...buildDesktopTools(call));
-  return tools;
+  if (!desktop) return tools;
+  tools.push(...buildDesktopTools(call));
+  if (!opts.run) return tools;
+  tools.push(buildRunTool(call, opts.run));
+  const { access } = opts.run;
+  return tools.map((tool) => noticingKey(tool, access));
+}
+
+/** Every browser call looks into the vault, so browser_run is offered from the next request once there is a key. */
+function noticingKey(tool: ToolDef, access: JevAccess): ToolDef {
+  return defineTool({
+    ...tool,
+    handler: async (input, ctx) => {
+      await access.key(ctx);
+      return tool.handler(input, ctx);
+    },
+  });
 }
 
 /** Tools only the desktop's backend can serve; see AgentToolsOptions.desktop. */

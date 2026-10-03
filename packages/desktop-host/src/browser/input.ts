@@ -40,6 +40,27 @@ export function quadOrigin(quad: unknown): Point | null {
   };
 }
 
+/**
+ * Wait until the document has been parsed — at most `timeoutMs` — woken by the
+ * page's own DOMContentLoaded. Before that its styles may not apply yet, and
+ * an element measured then is somewhere else a moment later: a press aimed at
+ * it lands on whatever moved into its place.
+ */
+export async function untilParsed(cdp: Cdp, timeoutMs: number): Promise<void> {
+  try {
+    await cdp.send('Runtime.evaluate', {
+      awaitPromise: true,
+      returnByValue: true,
+      expression: `document.readyState !== 'loading' || new Promise((done) => {
+        const timer = setTimeout(() => done(false), ${Math.max(0, timeoutMs)});
+        document.addEventListener('DOMContentLoaded', () => { clearTimeout(timer); done(true); }, { once: true });
+      })`,
+    });
+  } catch {
+    // A document being replaced has no context to ask; the caller measures what is there.
+  }
+}
+
 /** Scroll an element into view and say where its middle now is. */
 export async function locate(cdp: Cdp, backendNodeId: number): Promise<Point | null> {
   try {

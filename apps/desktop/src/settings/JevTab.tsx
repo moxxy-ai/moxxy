@@ -18,28 +18,28 @@ const noteStyle: React.CSSProperties = {
   fontSize: 'var(--type-meta)',
 };
 
-/** Render-only surface for Jev in Computer Use: the switch and the TypeSafe key. State lives in the hook. */
+/** Render-only surface for Jev: the switch and the TypeSafe key, shared by Computer Use and the Browser. State lives in the hook. */
 export function JevTab(): JSX.Element {
   const jev = useJevSettings();
 
   return (
     <Section
       title="Jev"
-      description="Jev finds the controls a Computer Use step names and checks what each step did. Without it, Computer Use works one action at a time."
+      description="Jev finds the controls a Computer Use step or a Browser step names and checks what each step did, so a run of steps needs no model call per click. Without it, both work one action at a time."
     >
       <section style={cardStyle} aria-labelledby="jev-switch-title">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
-            <h3 id="jev-switch-title" style={{ margin: 0, fontSize: 'var(--type-section)' }}>Use Jev in Computer Use</h3>
+            <h3 id="jev-switch-title" style={{ margin: 0, fontSize: 'var(--type-section)' }}>Use Jev</h3>
             <p style={{ ...noteStyle, marginTop: 5 }}>
               {jev.hasKey
-                ? 'Turning it off keeps the key stored. It applies from the next Computer Use action, on every surface.'
+                ? 'Turning it off keeps the key stored. It applies from the next Computer Use or Browser action, on every surface.'
                 : 'Add a TypeSafe API key below to turn it on.'}
             </p>
           </div>
           <Switch
             on={jev.enabled}
-            label="Use Jev in Computer Use"
+            label="Use Jev"
             disabled={jev.loading || jev.busy || !jev.hasKey}
             busy={jev.busy}
             onClick={() => void jev.setEnabled(!jev.enabled)}
@@ -51,7 +51,7 @@ export function JevTab(): JSX.Element {
         <div>
           <h3 id="jev-key-title" style={{ margin: 0, fontSize: 'var(--type-section)' }}>Key</h3>
           <p style={{ ...noteStyle, marginTop: 5 }}>
-            Stored encrypted in this device vault. Window contents of the app being operated are sent to TypeSafe while Jev is on.
+            Stored encrypted in this device vault. While Jev is on, the contents of the window or web page being operated are sent to TypeSafe.
           </p>
         </div>
         {jev.editing ? (

@@ -1,7 +1,7 @@
 import { computerCursorSchema } from '@moxxy/sdk';
 import { z } from 'zod';
 import { actionResultSchema } from '../contract/outcome.js';
-import { appTreeSchema } from '../contract/tree.js';
+import { appTreeSchema } from '@moxxy/jev';
 
 /** Protocol spoken by every helper that implements the shared contract (macOS first, Windows from v4 → v5). */
 export const CONTRACT_PROTOCOL_VERSION = 5;

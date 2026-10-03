@@ -22,6 +22,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
   let axNodes: unknown[] = AX_NODES;
   /** Zero-area means the element is in the tree but not drawn. */
   const boxes: Record<number, number[] | null> = {};
+  /** Boxes an element takes in turn, one per measurement, the last one kept: a page still laying itself out. */
+  const moving: Record<number, number[][]> = {};
   /** Whether the page reports the element inside its viewport. */
   let onScreen = true;
   /** Whether the page has a file input the element leads to. */
@@ -88,6 +90,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
         if (method === 'Accessibility.getFullAXTree') return { nodes: axNodes };
         if (method === 'DOM.getBoxModel') {
           const id_ = (params as { backendNodeId?: number })?.backendNodeId;
+          const steps = id_ === undefined ? undefined : moving[id_];
+          if (steps?.length) return { model: { content: steps.length > 1 ? steps.shift() : steps[0] } };
           if (id_ !== undefined && id_ in boxes) {
             const q = boxes[id_];
             return q ? { model: { content: q } } : {};
@@ -145,6 +149,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     /** Let a test change what the page says, the way a real page would. */
     setPage: (nodes: unknown[]) => (axNodes = nodes),
     setBox: (backendNodeId: number, quad: number[] | null) => (boxes[backendNodeId] = quad),
+    moveBox: (backendNodeId: number, ...quads: number[][]) => (moving[backendNodeId] = quads),
     setOnScreen: (v: boolean) => (onScreen = v),
     setFileInput: (v: boolean) => (fileInput = v),
     emit: (event: string, ...args: unknown[]) => {
@@ -306,6 +311,34 @@ describe('BrowserHost — acting on a uid', () => {
     expect(press?.params).toMatchObject({ x: 40, y: 20, button: 'left' });
   });
 
+  it('aims again at an element that moved while the pointer was on its way — a page still taking its styles', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    a.moveBox(21, [0, 0, 80, 0, 80, 40, 0, 40], [0, 200, 80, 200, 80, 240, 0, 240]);
+
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+    const press = a.sent.find((s) => s.params?.type === 'mousePressed');
+    expect(press?.params).toMatchObject({ x: 40, y: 220 });
+  });
+
+  it('waits for a document still loading before it measures where to press', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    const before = a.sent.length;
+
+    await host.act({ action: 'click', uid: '2' });
+
+    const methods = a.sent.slice(before).map((s) => (s.method === 'Runtime.evaluate' && String(s.params?.expression).includes('DOMContentLoaded') ? 'parsed' : s.method));
+    expect(methods.indexOf('parsed')).toBeGreaterThanOrEqual(0);
+    expect(methods.indexOf('parsed')).toBeLessThan(methods.indexOf('DOM.getBoxModel'));
+  });
+
   it('types via CDP insertText after focusing the field', async () => {
     const a = fakeWc(1);
     const host = hostWith(a);
@@ -441,6 +474,17 @@ describe('BrowserHost — navigation', () => {
 
     expect(reply.ok).toBe(true);
     expect(a.sent.find((s) => s.method === 'Page.navigate')?.params).toMatchObject({ url: 'https://nowa.pl' });
+  });
+
+  it('answers a navigation once the new document is parsed, so what is read next is the page and not its first bytes', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    await host.goto('https://sklep.pl/koszyk');
+
+    const methods = a.sent.map((s) => (s.method === 'Runtime.evaluate' && String(s.params?.expression).includes('DOMContentLoaded') ? 'parsed' : s.method));
+    expect(methods.slice(methods.indexOf('Page.navigate'))).toContain('parsed');
   });
 
   it('reports a navigation the page refused', async () => {
@@ -1720,5 +1764,47 @@ describe('BrowserHost — giving a page a file', () => {
       expect(reply.ok, path).toBe(false);
     }
     expect(a.sent.some((s) => s.method === 'DOM.setFileInputFiles')).toBe(false);
+  });
+});
+
+describe('BrowserHost — the page as Jev reads it', () => {
+  it('lists the elements one can act on, under the uids the actions take, with the page text beside them', async () => {
+    const a = fakeWc(1, 'https://www.sklep.pl/koszyk');
+    const host = hostWith(a);
+    host.register(1);
+
+    const reply = await host.tree();
+
+    expect(reply.ok).toBe(true);
+    const { tree, page, url, tabId } = reply.result as {
+      tree: { app: string; window?: string; elements: Array<{ index: number; role: string; title?: string; secure?: boolean; value?: string }> };
+      page: string;
+      url: string;
+      tabId: string;
+    };
+    expect(tree.app).toBe('sklep.pl');
+    expect(tree.window).toBe('Sklep');
+    expect(tree.elements.map((e) => [e.index, e.role, e.title])).toEqual([
+      [2, 'button', 'Do kasy'],
+      [3, 'textbox', 'Hasło'],
+    ]);
+    expect(tree.elements[1]).toMatchObject({ secure: true });
+    expect(JSON.stringify(reply.result)).not.toContain('tajne');
+    expect(page).toContain('Do kasy');
+    expect(url).toBe('https://www.sklep.pl/koszyk');
+    expect(tabId).toBe('t1');
+    expect((await host.act({ action: 'click', uid: '2' })).ok).toBe(true);
+  });
+
+  it("leaves the agent's own reads as they were, so its next snapshot still sends only what moved", async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    await host.tree();
+    const again = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(again).toMatch(/unchanged/i);
   });
 });
