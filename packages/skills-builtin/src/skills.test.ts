@@ -164,3 +164,33 @@ describe('the browser skill in the chat @ menu', () => {
     expect(frontmatter['disallowed-tools']).toEqual(['computer_*']);
   });
 });
+
+describe('the browser skill', () => {
+  const body = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8')).body;
+
+  it('offers runs of steps only where they exist, and says to carry on from the page they return', async () => {
+    const text = await body();
+    expect(text).toMatch(/When `browser_run` is among your tools/);
+    expect(text).toMatch(/When `browser_run` is not among your tools, do\s+not look for it/);
+    expect(text).toMatch(/do not read it again/);
+  });
+
+  it('keeps the agent from the slow habits the trials showed: guessing URLs again, reopening the page, looking twice', async () => {
+    const text = await body();
+    expect(text).toMatch(/guess once/);
+    expect(text).toMatch(/Never open the page you are already on/);
+    expect(text).toMatch(/Trust one clear signal/);
+  });
+
+  it('tells it to stop, not work around, when the user takes the browser', async () => {
+    const text = await body();
+    expect(text).toMatch(/taken over the browser/);
+    expect(text).toMatch(/Do not retry, and do not reach the page another way/);
+  });
+
+  it('teaches the picture tools for what has no name', async () => {
+    const text = await body();
+    expect(text).toMatch(/browser_point/);
+    expect(text).toMatch(/newest one/);
+  });
+});
