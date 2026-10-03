@@ -1381,6 +1381,73 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-main-bg);
 }
 
+/* The agent's pointer: the Computer Use arrowhead, drawn over the page it works on. */
+.browser__cursor {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transition-property: left, top;
+  transition-timing-function: ease-in-out;
+}
+.browser__cursor svg {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%));
+}
+.browser__cursor path { fill: var(--color-primary); stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+.browser__cursor[data-phase='failed'] path { fill: var(--color-red); }
+.browser__cursor-ring {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  opacity: 0;
+  animation: browser-cursor-press 350ms ease-out;
+}
+.browser__cursor[data-phase='failed'] .browser__cursor-ring {
+  border-color: var(--color-red);
+  background: color-mix(in srgb, var(--color-red) 16%, transparent);
+}
+@keyframes browser-cursor-press {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to { opacity: 0; transform: scale(1.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser__cursor { transition: none; }
+  .browser__cursor-ring { animation-name: browser-cursor-fade; }
+}
+@keyframes browser-cursor-fade {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+
+.browser__control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-input-soft);
+  font-size: var(--type-meta);
+}
+.browser__control[data-mode='user'] {
+  border-bottom-color: var(--color-amber-border);
+  background: var(--color-amber-soft);
+  color: var(--color-amber-text);
+}
+.browser__control-label { min-width: 0; }
+.browser__control-actions { display: flex; gap: var(--space-6); flex-shrink: 0; }
+
 .browser__empty {
   padding: var(--space-24);
   color: var(--color-text-dim);

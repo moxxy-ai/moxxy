@@ -1,4 +1,4 @@
-import { MoxxyError, defineTool, z, type ToolDef } from '@moxxy/sdk';
+import { MoxxyError, defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
 import { bridgeAddressFromEnv } from './bridge-client.js';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
@@ -46,13 +46,16 @@ const tabId = blankAsAbsent(z.string()).describe(
  */
 const element = z.string().min(1).describe('What the element is, in a few words — shown to the user when approving.');
 
-async function call(
-  method: string,
-  params: Record<string, unknown>,
-  deps: BrowserSessionDeps | undefined,
-  signal: AbortSignal,
-): Promise<unknown> {
-  return browserSidecarCall(method, params, deps, signal);
+type Call = (method: string, params: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
+
+/**
+ * How the tools reach the browser. On the desktop each call names its turn: the
+ * user can take the browser over, which stops the turn that was driving it, and
+ * their next message — a new turn — is what hands it back.
+ */
+function caller(deps: BrowserSessionDeps | undefined, desktop: boolean): Call {
+  return (method, params, ctx) =>
+    browserSidecarCall(method, desktop ? { ...params, turn_id: ctx.turnId } : params, deps, ctx.signal);
 }
 
 /** Capabilities shared by the acting tools; reading declares less. */
@@ -76,6 +79,7 @@ export interface AgentToolsOptions {
 
 export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptions = {}): ReadonlyArray<ToolDef> {
   const desktop = opts.desktop ?? (bridgeAddressFromEnv() !== null && !deps?.spawnFn);
+  const call = caller(deps, desktop);
 
   const snapshot = defineTool({
     name: 'browser_snapshot',
@@ -102,7 +106,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'allow' },
     compact: { verb: 'Reading', noun: { one: 'page', other: 'pages' }, previewKey: 'tab_id' },
     isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 60_000 } },
-    handler: ({ tab_id, full }, ctx) => call('snapshot', { tab_id, full }, deps, ctx.signal),
+    handler: ({ tab_id, full }, ctx) => call('snapshot', { tab_id, full }, ctx),
   });
 
   const click = defineTool({
@@ -121,7 +125,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'prompt' },
     compact: { verb: 'Clicking', noun: { one: 'element', other: 'elements' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
-    handler: ({ uid, tab_id }, ctx) => call('act', { action: 'click', uid, tab_id }, deps, ctx.signal),
+    handler: ({ uid, tab_id }, ctx) => call('act', { action: 'click', uid, tab_id }, ctx),
   });
 
   const typeFields = { uid: z.string().min(1), element, text: z.string(), tab_id: tabId };
@@ -142,7 +146,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
         isolation: ACT_ISOLATION,
         handler: ({ uid, text, submit, tab_id }, ctx) =>
-          call('act', { action: 'type', uid, text, ...(submit ? { submit: true } : {}), tab_id }, deps, ctx.signal),
+          call('act', { action: 'type', uid, text, ...(submit ? { submit: true } : {}), tab_id }, ctx),
       })
     : defineTool({
         name: 'browser_type',
@@ -154,7 +158,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         permission: { action: 'prompt' },
         compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
         isolation: ACT_ISOLATION,
-        handler: ({ uid, text, tab_id }, ctx) => call('act', { action: 'type', uid, text, tab_id }, deps, ctx.signal),
+        handler: ({ uid, text, tab_id }, ctx) => call('act', { action: 'type', uid, text, tab_id }, ctx),
       });
 
   const navigate = defineTool({
@@ -183,7 +187,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
         if (err instanceof SsrfBlockedError) throw new MoxxyError({ code: 'INTERNAL', message: err.message });
         throw err;
       }
-      return call('goto', { url, tab_id }, deps, ctx.signal);
+      return call('goto', { url, tab_id }, ctx);
     },
   });
 
@@ -203,7 +207,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'prompt' },
     compact: { verb: 'Managing', noun: { one: 'tab', other: 'tabs' }, previewKey: 'action' },
     isolation: ACT_ISOLATION,
-    handler: ({ action, tab_id, url }, ctx) => call('tabs', { action, tab_id, url }, deps, ctx.signal),
+    handler: ({ action, tab_id, url }, ctx) => call('tabs', { action, tab_id, url }, ctx),
   });
 
   const capture = defineTool({
@@ -226,9 +230,9 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       // ask for it first, then capture just that rectangle.
       let clip: unknown;
       if (uid) {
-        clip = await call('box', { uid, tab_id }, deps, ctx.signal);
+        clip = await call('box', { uid, tab_id }, ctx);
       }
-      return call('capture', { tab_id, ...(clip ? { clip } : {}) }, deps, ctx.signal);
+      return call('capture', { tab_id, ...(clip ? { clip } : {}) }, ctx);
     },
   });
 
@@ -261,7 +265,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'prompt' },
     compact: { verb: 'Pressing', noun: { one: 'key', other: 'keys' }, previewKey: 'key' },
     isolation: ACT_ISOLATION,
-    handler: ({ key: k, tab_id }, ctx) => call('key', { key: k, tab_id }, deps, ctx.signal),
+    handler: ({ key: k, tab_id }, ctx) => call('key', { key: k, tab_id }, ctx),
   });
 
   /**
@@ -308,19 +312,19 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       for (const [i, s] of steps.entries()) {
         try {
           if (s.kind === 'click') {
-            await call('act', { action: 'click', uid: s.uid, tab_id }, deps, ctx.signal);
+            await call('act', { action: 'click', uid: s.uid, tab_id }, ctx);
           } else if (s.kind === 'type') {
             const submit = 'submit' in s && s.submit === true;
-            await call('act', { action: 'type', uid: s.uid, text: s.text, ...(submit ? { submit: true } : {}), tab_id }, deps, ctx.signal);
+            await call('act', { action: 'type', uid: s.uid, text: s.text, ...(submit ? { submit: true } : {}), tab_id }, ctx);
           } else if (s.kind === 'select') {
-            await call('select', { uid: s.uid, option: s.option, tab_id }, deps, ctx.signal);
+            await call('select', { uid: s.uid, option: s.option, tab_id }, ctx);
           } else if (s.kind === 'key') {
-            await call('key', { key: s.key, tab_id }, deps, ctx.signal);
+            await call('key', { key: s.key, tab_id }, ctx);
           } else if (s.kind === 'navigate') {
             await assertPublicUrl(s.url, 'browser_batch', { failClosed: true });
-            await call('goto', { url: s.url, tab_id }, deps, ctx.signal);
+            await call('goto', { url: s.url, tab_id }, ctx);
           } else {
-            await call(s.action, { tab_id }, deps, ctx.signal);
+            await call(s.action, { tab_id }, ctx);
           }
         } catch (err) {
           // Name the step. "It failed" against a five-step sequence tells the
@@ -329,7 +333,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
           throw new MoxxyError({ code: 'INTERNAL', message: `step ${i + 1} (${s.kind}) failed: ${why}` });
         }
       }
-      return call('snapshot', { tab_id }, deps, ctx.signal).then((snap) => ({
+      return call('snapshot', { tab_id }, ctx).then((snap) => ({
         ...(snap as object),
         ran: steps.length,
       }));
@@ -346,7 +350,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'prompt' },
     compact: { verb: 'Navigating', noun: { one: 'page', other: 'pages' }, previewKey: 'action' },
     isolation: ACT_ISOLATION,
-    handler: ({ action, tab_id }, ctx) => call(action, { tab_id }, deps, ctx.signal),
+    handler: ({ action, tab_id }, ctx) => call(action, { tab_id }, ctx),
   });
 
   const awaitHuman = defineTool({
@@ -369,16 +373,16 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     permission: { action: 'allow' },
     compact: { verb: 'Waiting for', noun: { one: 'you', other: 'you' }, previewKey: 'reason' },
     isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 15 * 60_000 } },
-    handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, deps, ctx.signal),
+    handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, ctx),
   });
 
   const tools: ToolDef[] = [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman];
-  if (desktop) tools.push(...buildDesktopTools(deps));
+  if (desktop) tools.push(...buildDesktopTools(call));
   return tools;
 }
 
 /** Tools only the desktop's backend can serve; see AgentToolsOptions.desktop. */
-function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
+function buildDesktopTools(call: Call): ToolDef[] {
   const select = defineTool({
     name: 'browser_select',
     icon: 'globe',
@@ -396,7 +400,7 @@ function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
     permission: { action: 'prompt' },
     compact: { verb: 'Choosing in', noun: { one: 'list', other: 'lists' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
-    handler: ({ uid, option, tab_id }, ctx) => call('select', { uid, option, tab_id }, deps, ctx.signal),
+    handler: ({ uid, option, tab_id }, ctx) => call('select', { uid, option, tab_id }, ctx),
   });
 
   const scroll = defineTool({
@@ -416,7 +420,7 @@ function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
     compact: { verb: 'Scrolling', noun: { one: 'page', other: 'pages' }, previewKey: 'direction' },
     isolation: ACT_ISOLATION,
     handler: ({ direction, screens, uid, tab_id }, ctx) =>
-      call('scroll', { direction, ...(screens !== undefined ? { screens } : {}), ...(uid ? { uid } : {}), tab_id }, deps, ctx.signal),
+      call('scroll', { direction, ...(screens !== undefined ? { screens } : {}), ...(uid ? { uid } : {}), tab_id }, ctx),
   });
 
   const hover = defineTool({
@@ -429,7 +433,7 @@ function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
     permission: { action: 'allow' },
     compact: { verb: 'Pointing at', noun: { one: 'element', other: 'elements' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
-    handler: ({ uid, tab_id }, ctx) => call('act', { action: 'hover', uid, tab_id }, deps, ctx.signal),
+    handler: ({ uid, tab_id }, ctx) => call('act', { action: 'hover', uid, tab_id }, ctx),
   });
 
   const wait = defineTool({
@@ -452,8 +456,7 @@ function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
       call(
         'wait',
         { text, ...(gone ? { gone: true } : {}), ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}), tab_id },
-        deps,
-        ctx.signal,
+        ctx,
       ),
   });
 
@@ -475,7 +478,7 @@ function buildDesktopTools(deps: BrowserSessionDeps | undefined): ToolDef[] {
     compact: { verb: 'Answering', noun: { one: 'dialog', other: 'dialogs' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
     handler: ({ accept, text, tab_id }, ctx) =>
-      call('dialog', { accept, ...(text !== undefined ? { text } : {}), tab_id }, deps, ctx.signal),
+      call('dialog', { accept, ...(text !== undefined ? { text } : {}), tab_id }, ctx),
   });
 
   return [select, scroll, hover, wait, dialog];

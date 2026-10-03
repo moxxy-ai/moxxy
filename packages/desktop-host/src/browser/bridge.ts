@@ -28,6 +28,11 @@ import type { BrowserHost } from './host';
 /** Bytes past which an inbound line is malformed rather than large. */
 const MAX_LINE = 1_000_000;
 
+/** Methods that change the page or what the pane shows; refused while the person has the browser. */
+const ACTING = new Set([
+  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval',
+]);
+
 export interface BridgeAddress {
   readonly socketPath: string;
   readonly token: string;
@@ -141,6 +146,12 @@ export class BrowserBridge {
     // in the pane touches it — see BrowserHost.agentTarget.
     if (named) this.host.noteAgentTab(named);
     const tabId = named ?? this.host.agentTarget();
+    if (typeof params.turn_id === 'string' && params.turn_id) this.host.noteAgentTurn(params.turn_id);
+    // While the person has the browser the agent may look, not touch.
+    if (ACTING.has(method) || (method === 'tabs' && String(params.action ?? 'list') !== 'list')) {
+      const refusal = this.host.agentRefusal();
+      if (refusal) return { ok: false, error: { message: refusal } };
+    }
     const sel = typeof params.selector === 'string' ? params.selector : '';
     const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
     switch (method) {

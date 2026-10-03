@@ -6,8 +6,10 @@
 // env:   TRIAL_BRIDGE_FILE  where to write { socketPath, token } (0600)
 //        TRIAL_START_URL    the first tab's page (default about:blank)
 //        TRIAL_LOG          where hand-offs and tab changes are logged (optional)
+//        TRIAL_SHOTS        a directory for a picture of the window at every press, pointer included (optional)
 import { app, BrowserWindow, ipcMain, webContents } from 'electron';
 import { appendFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserHost, BROWSER_PARTITION } from '../../../../packages/desktop-host/dist/browser/host.js';
 import { BrowserBridge } from '../../../../packages/desktop-host/dist/browser/bridge.js';
@@ -47,6 +49,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('trial.release', (_event, { tabId }) => host.unregister(tabId));
   ipcMain.handle('trial.select', (_event, { tabId }) => host.select(tabId));
   ipcMain.on('trial.focused', (_event, { requestId }) => host.confirmFocus(requestId));
+  ipcMain.on('trial.cursorArrived', (_event, { requestId }) => host.confirmCursor(requestId));
+  // As the desktop pane does: the window draws the agent's pointer over the page.
+  let shots = 0;
+  host.setPointer((frame) => {
+    send('trial.cursor', frame);
+    const dir = process.env.TRIAL_SHOTS;
+    if (!dir || frame.cursor?.phase !== 'delivered') return;
+    const name = join(dir, `press-${String(++shots).padStart(2, '0')}.png`);
+    setTimeout(() => {
+      if (!window.isDestroyed()) void window.webContents.capturePage().then((image) => writeFileSync(name, image.toPNG()));
+    }, 80);
+  });
   host.setOpener((req) => send('trial.openTab', req));
   host.setFocuser((req) => send('trial.focusTab', req));
   // Nobody sits at a trial: a hand-off is logged and skipped, which the agent sees as "not completed".

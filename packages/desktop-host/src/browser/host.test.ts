@@ -76,6 +76,10 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
       },
       sendCommand: async (method, params) => {
         sent.push({ method, params });
+        // Electron reports input it forwards to the page, the agent's included, before CDP answers.
+        if (method === 'Input.dispatchMouseEvent' && params?.type === 'mousePressed') {
+          for (const fn of [...(listeners.get('input-event') ?? [])]) fn({}, { type: 'mouseDown' });
+        }
         if (method === 'Accessibility.getFullAXTree') return { nodes: axNodes };
         if (method === 'DOM.getBoxModel') {
           const id_ = (params as { backendNodeId?: number })?.backendNodeId;
@@ -132,8 +136,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     setPage: (nodes: unknown[]) => (axNodes = nodes),
     setBox: (backendNodeId: number, quad: number[] | null) => (boxes[backendNodeId] = quad),
     setOnScreen: (v: boolean) => (onScreen = v),
-    emit: (event: string) => {
-      for (const fn of [...(listeners.get(event) ?? [])]) fn();
+    emit: (event: string, ...args: unknown[]) => {
+      for (const fn of [...(listeners.get(event) ?? [])]) fn(...args);
     },
     listenerCount: () => [...listeners.values()].reduce((n, set) => n + set.size, 0),
     focusCount: () => focused,
@@ -1512,5 +1516,141 @@ describe('BrowserHost — a frame from another site', () => {
     const press = page.calls.find((c) => c.method === 'Input.dispatchMouseEvent' && c.params?.type === 'mousePressed');
     expect(press).toMatchObject({ params: { x: 130, y: 220 } });
     expect(press).not.toHaveProperty('sessionId');
+  });
+});
+
+describe('BrowserHost — the agent’s pointer', () => {
+  it('glides to the element, waits until the pane has it there, then presses and marks the press', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    const seen: Array<{ phase: string | null; pressedYet: boolean }> = [];
+    host.setPointer((frame) => {
+      seen.push({
+        phase: frame.cursor?.phase ?? null,
+        pressedYet: a.sent.some((s) => s.params?.type === 'mousePressed'),
+      });
+      if (frame.cursor?.phase === 'moving') queueMicrotask(() => host.confirmCursor(frame.requestId));
+    });
+
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+    expect(seen).toEqual([
+      { phase: 'moving', pressedYet: false },
+      { phase: 'delivered', pressedYet: true },
+    ]);
+  });
+
+  it('moves over an element to hover it and marks no press', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    const phases: Array<string | null> = [];
+    host.setPointer((frame) => {
+      phases.push(frame.cursor?.phase ?? null);
+      if (frame.cursor?.phase === 'moving') queueMicrotask(() => host.confirmCursor(frame.requestId));
+    });
+
+    await host.act({ action: 'hover', uid: '2' });
+
+    expect(phases).toEqual(['moving']);
+  });
+
+  it('shows nothing for an element it refused to press', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    a.setBox(21, null);
+    const phases: Array<string | null> = [];
+    host.setPointer((frame) => phases.push(frame.cursor?.phase ?? null));
+
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(false);
+    expect(phases).toEqual([]);
+  });
+});
+
+describe('BrowserHost — the person taking the browser back', () => {
+  it('lets the person take over by pressing on the page, and takes the agent’s pointer away', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    const frames: Array<string | null> = [];
+    host.setPointer((frame) => {
+      frames.push(frame.cursor?.phase ?? null);
+      if (frame.cursor?.phase === 'moving') queueMicrotask(() => host.confirmCursor(frame.requestId));
+    });
+    await host.act({ action: 'hover', uid: '2' });
+    let changes = 0;
+    host.onChange(() => changes++);
+
+    a.emit('input-event', {}, { type: 'mouseDown' });
+
+    expect(host.control.driver).toBe('user');
+    expect(changes).toBe(1);
+    expect(frames.at(-1)).toBeNull();
+  });
+
+  it('lets the person take over by typing into the page', () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    a.emit('before-input-event', {}, { type: 'keyDown' });
+
+    expect(host.control.driver).toBe('user');
+  });
+
+  it('does not take the agent’s own press for the person’s', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    await host.act({ action: 'click', uid: '2' });
+
+    expect(host.control.driver).toBe('agent');
+  });
+
+  it('is not taken over by the pointer passing over the page or a scroll', () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    a.emit('input-event', {}, { type: 'mouseMove' });
+    a.emit('input-event', {}, { type: 'mouseWheel' });
+    a.emit('before-input-event', {}, { type: 'keyUp' });
+
+    expect(host.control.driver).toBe('agent');
+  });
+
+  it('stops listening for the person’s input on a view it has given back', () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    host.unregister('t1');
+
+    a.emit('input-event', {}, { type: 'mouseDown' });
+
+    expect(host.control.driver).toBe('agent');
+    expect(a.listenerCount()).toBe(0);
+  });
+
+  it('hands the browser back when the person answers a hand-off', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    host.takeOver();
+    host.setHandoffPrompt((req) => host.resolveHandoff(req.requestId, false));
+
+    await host.awaitHuman({ reason: 'Zaloguj się' });
+
+    expect(host.control.driver).toBe('agent');
   });
 });

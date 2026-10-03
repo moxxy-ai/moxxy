@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('trial', {
   release: (tabId) => ipcRenderer.invoke('trial.release', { tabId }),
   select: (tabId) => ipcRenderer.invoke('trial.select', { tabId }),
   focused: (requestId) => ipcRenderer.send('trial.focused', { requestId }),
+  arrived: (requestId) => ipcRenderer.send('trial.cursorArrived', { requestId }),
   on: (channel, listener) => ipcRenderer.on(channel, (_event, payload) => listener(payload)),
 });

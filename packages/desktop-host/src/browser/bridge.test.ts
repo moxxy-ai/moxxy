@@ -368,3 +368,39 @@ describe('BrowserBridge — the layer below accessibility', () => {
     expect(await c.send('teleport', {})).toMatchObject({ ok: false });
   });
 });
+
+describe('BrowserBridge — when the person has the browser', () => {
+  it('refuses what would act on the page, and still lets the agent read it', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', {});
+    host.takeOver();
+
+    const acted = await c.send('act', { action: 'click', uid: '2' });
+    const went = await c.send('goto', { url: 'https://example.com' });
+    const opened = await c.send('tabs', { action: 'new' });
+    const read = await c.send('snapshot', {});
+    const listed = await c.send('tabs', { action: 'list' });
+
+    for (const reply of [acted, went, opened]) {
+      expect(reply.ok).toBe(false);
+      expect((reply.error as { message: string }).message).toMatch(/user has taken over the browser/);
+    }
+    expect(read.ok).toBe(true);
+    expect(listed.ok).toBe(true);
+  });
+
+  it('lets a new turn drive again, and keeps refusing the turn that was stopped', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { turn_id: 'T1' });
+    host.takeOver();
+
+    const same = await c.send('act', { action: 'click', uid: '2', turn_id: 'T1' });
+    const next = await c.send('act', { action: 'click', uid: '2', turn_id: 'T2' });
+
+    expect(same.ok).toBe(false);
+    expect(next.error).toBeUndefined();
+    expect(host.control).toEqual({ driver: 'agent', turnId: 'T2' });
+  });
+});

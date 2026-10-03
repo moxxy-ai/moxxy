@@ -29,6 +29,8 @@ import {
   type Point,
 } from './input.js';
 import { PageWatch, waitQuiet, type Dialog } from './page-watch.js';
+import { AgentPointer, type CursorSink } from './agent-pointer.js';
+import { BrowserControl, type ControlState } from './control.js';
 
 /**
  * The agent's browser, living in the desktop's main process.
@@ -80,9 +82,12 @@ export interface HostWebContents {
     ): void;
   };
   sendInputEvent(event: Record<string, unknown>): void;
-  /** Optional so a minimal stand-in still satisfies the type; Electron has both. */
-  on?(event: string, listener: () => void): void;
-  removeListener?(event: string, listener: () => void): void;
+  /**
+   * Optional so a minimal stand-in still satisfies the type; Electron has both.
+   * `input` is what `input-event` and `before-input-event` carry.
+   */
+  on?(event: string, listener: (event: unknown, input?: { type?: string }) => void): void;
+  removeListener?(event: string, listener: (event: unknown, input?: { type?: string }) => void): void;
   /** Give this view keyboard focus. Optional for the same reason. */
   focus?(): void;
 }
@@ -265,6 +270,14 @@ export class BrowserHost {
     | ((req: { requestId: string; tabId: string; reason: string; onScreen: boolean; label?: string }) => void)
     | null = null;
 
+  /** The agent's pointer, drawn by the pane over the page it is working on. */
+  private readonly pointer = new AgentPointer();
+  /** Who drives: the agent, or the person who took the browser back. */
+  private readonly hands = new BrowserControl(() => {
+    if (this.hands.state.driver === 'user') this.pointer.hideAll();
+    this.changed();
+  });
+
   constructor(
     private readonly lookup: WebContentsLookup,
     /** Overridable so a test does not have to wait half a minute. */
@@ -289,6 +302,39 @@ export class BrowserHost {
   confirmFocus(requestId: string): void {
     const waiting = this.pendingFocus.get(requestId);
     if (waiting) waiting();
+  }
+
+  /** Wire the channel main uses to draw the agent's pointer in the pane. */
+  setPointer(sink: CursorSink | null): void {
+    this.pointer.setSink(sink);
+  }
+
+  /** The pane reporting that the pointer reached the place it was sent to. */
+  confirmCursor(requestId: string): void {
+    this.pointer.arrived(requestId);
+  }
+
+  get control(): ControlState {
+    return this.hands.state;
+  }
+
+  /** The person takes the browser back; the agent's actions are refused until they resume. */
+  takeOver(): void {
+    this.hands.takeOver();
+  }
+
+  resume(): void {
+    this.hands.resume();
+  }
+
+  /** An agent call made in `turnId`; a new turn is the person's go-ahead to drive again. */
+  noteAgentTurn(turnId: string): void {
+    this.hands.noteAgentTurn(turnId);
+  }
+
+  /** Why the agent may not act on the page right now, or null when it may. */
+  agentRefusal(): string | null {
+    return this.hands.refusal();
   }
 
   private focusView(tab: Tab, timeoutMs: number): Promise<void> {
@@ -401,6 +447,8 @@ export class BrowserHost {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pendingHandoffs.delete(requestId);
+    // Answering the agent's question is handing the browser back to it, either way.
+    this.hands.resume();
     pending.resolve(completed);
   }
 
@@ -472,12 +520,28 @@ export class BrowserHost {
           delete tab.rendering;
           announce();
         };
+        /**
+         * The person pressing on the page or typing into it takes it over. A
+         * pointer passing over it, or a scroll to look, does not. Electron
+         * reports the agent's own CDP presses here too, which `hands` tells
+         * apart; CDP keys never reach `before-input-event`, real keys do.
+         */
+        const pressed = (_event: unknown, input?: { type?: string }): void => {
+          if (input?.type === 'mouseDown') this.hands.noteUserInput();
+        };
+        const typed = (_event: unknown, input?: { type?: string }): void => {
+          if (input?.type === 'keyDown') this.hands.noteUserInput();
+        };
         wc.on('did-navigate', restart);
+        wc.on('input-event', pressed);
+        wc.on('before-input-event', typed);
         for (const event of PAGE_CHANGE_EVENTS) {
           if (event !== 'did-navigate') wc.on(event, announce);
         }
         tab.unwatch = () => {
           wc.removeListener?.('did-navigate', restart);
+          wc.removeListener?.('input-event', pressed);
+          wc.removeListener?.('before-input-event', typed);
           for (const event of PAGE_CHANGE_EVENTS) {
             if (event !== 'did-navigate') wc.removeListener?.(event, announce);
           }
@@ -518,6 +582,7 @@ export class BrowserHost {
     tab.unwatch?.();
     if (tab.idle) clearTimeout(tab.idle);
     this.detachDebugger(tab);
+    this.pointer.forget(tabId);
     this.tabs.delete(tabId);
     if (this.active === tabId) this.active = this.tabs.keys().next().value ?? null;
     // An aim at a tab that is gone would resolve to "unknown tab_id" forever.
@@ -799,21 +864,24 @@ export class BrowserHost {
       }
 
       let shows: string | null = null;
-      const outcome = await this.watched(tab, cdp, async () => {
-        if (action === 'hover') {
-          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.page.x, y: at.page.y, button: 'none' });
-          return;
-        }
-        if (action === 'click') {
-          await this.press(cdp, el, at);
-          return;
-        }
-        shows = await this.typeInto(cdp, el, at, text ?? '');
-        if (params.submit) {
-          const problem = await pressKey(cdp, 'Enter');
-          if (problem) throw new Error(problem);
-        }
-      });
+      await this.pointer.moveTo(tab.id, at.page);
+      const outcome = await this.marked(tab, action !== 'hover', () =>
+        this.watched(tab, cdp, async () => {
+          if (action === 'hover') {
+            await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.page.x, y: at.page.y, button: 'none' });
+            return;
+          }
+          if (action === 'click') {
+            await this.press(cdp, el, at);
+            return;
+          }
+          shows = await this.typeInto(cdp, el, at, text ?? '');
+          if (params.submit) {
+            const problem = await pressKey(cdp, 'Enter');
+            if (problem) throw new Error(problem);
+          }
+        }),
+      );
       return ok({
         tabId: tab.id,
         ...outcome,
@@ -990,10 +1058,12 @@ export class BrowserHost {
       const blocked = this.dialogBlocks(tab);
       if (blocked) return fail(blocked);
       await this.focusView(tab, 1500);
-      if (!(await this.place(cdp, found))) return fail(`${found.named} is not drawn on the page`);
+      const at = await this.place(cdp, found);
+      if (!at) return fail(`${found.named} is not drawn on the page`);
       if (await isDisabled(found.dom, found.backendNodeId)) return fail(`${found.named} is disabled`);
       let selected = '';
-      const outcome = await this.watched(tab, cdp, async () => {
+      await this.pointer.moveTo(tab.id, at.page);
+      const outcome = await this.marked(tab, true, () => this.watched(tab, cdp, async () => {
         const handle = (await found.dom.send('DOM.resolveNode', { backendNodeId: found.backendNodeId })) as {
           object?: { objectId?: string };
         };
@@ -1008,7 +1078,7 @@ export class BrowserHost {
         const value = reply?.result?.value;
         if (!value || value.error) throw new Error(`${found.named}: ${value?.error ?? 'the page did not answer'}`);
         selected = value.selected ?? params.option;
-      });
+      }));
       return ok({ tabId: tab.id, selected, ...outcome, url: wc.getURL() });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -1045,6 +1115,7 @@ export class BrowserHost {
       const screens = Math.min(Math.max(params.screens ?? 1, 0.25), 10);
       const deltaY = (params.direction === 'down' ? 1 : -1) * Math.round(height * 0.8 * screens);
       const before = await scrollState(cdp);
+      await this.pointer.moveTo(tab.id, point);
       const outcome = await this.watched(tab, cdp, async () => {
         await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y, button: 'none' });
         await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: point.x, y: point.y, deltaX: 0, deltaY });
@@ -1205,6 +1276,18 @@ export class BrowserHost {
     return shows === null || shows === text ? null : shows;
   }
 
+  /** Mark a press with the pointer's ring once it has happened, or as failed when it threw. */
+  private async marked<T>(tab: Tab, press: boolean, run: () => Promise<T>): Promise<T> {
+    try {
+      const result = await run();
+      if (press) this.pointer.finish(tab.id, true);
+      return result;
+    } catch (err) {
+      if (press) this.pointer.finish(tab.id, false);
+      throw err;
+    }
+  }
+
   /**
    * Run something that acts on the page and report what it set off.
    *
@@ -1231,7 +1314,7 @@ export class BrowserHost {
     let dialog: (Dialog & { open?: true; result?: 'accepted' }) | undefined;
 
     const opening = watch?.nextDialog();
-    const running = run();
+    const running = this.hands.during(run);
     // An action left waiting on an open confirm finishes whenever that is answered.
     running.catch(() => {});
     if (opening) {
@@ -1536,13 +1619,14 @@ export class BrowserHost {
   async clickSelector(selector: string, opts: { tabId?: string; timeoutMs?: number } = {}): Promise<HostReply> {
     try {
       if (!selector) return fail('selector is required');
-      const { wc } = this.resolve(opts.tabId);
+      const { tab, wc } = this.resolve(opts.tabId);
       const cdp = this.cdp(wc);
       const node = await this.findNode(cdp, selector, opts.timeoutMs ?? BrowserHost.SELECTOR_TIMEOUT_MS);
       if (node === null) return fail(`nothing matched ${selector} on ${wc.getURL()}`);
       const point = await locate(cdp, node);
       if (!point) return fail(`${selector} matched an element that is not visible on screen`);
-      await pressAt(cdp, point);
+      await this.pointer.moveTo(tab.id, point);
+      await this.marked(tab, true, () => this.hands.during(() => pressAt(cdp, point)));
       return ok({ selector });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));

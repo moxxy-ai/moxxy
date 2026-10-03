@@ -23,8 +23,12 @@ person's would, and every step that can go wrong says so:
    (a banner, a dialog, a menu), the press is refused with the name of what is
    in the way. A menu held open by the pointer is given the chance to close
    first.
-4. **The pointer moves there and presses.** The page is asked whether it felt
-   the press; a press that reached nothing is an error, not a success.
+4. **The pointer moves there and presses.** The agent's own pointer — the
+   same arrowhead as the Computer Use cursor — glides to the element, and the
+   press goes out once the pane reports it has arrived (at most 250 ms of
+   glide; at once with reduced motion or when the pane is not drawing it). A
+   ring marks the press. The page is asked whether it felt the press; a press
+   that reached nothing is an error, not a success.
 5. **The page settles**: a navigation is waited for until it loads (up to 3 s,
    reported as `loading` if it has not), otherwise until the DOM goes quiet
    (up to 1.5 s).
@@ -49,6 +53,22 @@ Only on the desktop:
 
 On the desktop, `browser_type` replaces what a field holds (it no longer
 appends) and takes `submit: true` to press Enter afterwards.
+
+## Taking the browser back
+
+While a turn is working in the browser, the pane shows a bar: **Take over**
+and **Stop**. The person takes over with the button, or simply by pressing on
+the page or typing into it — moving the pointer over the page or scrolling to
+look does not count, and neither do the agent's own presses. From then on every
+action the agent attempts (click, type, navigate, keys, tabs, scripts) is
+refused with a message saying the user has the browser; reading the page still
+works. The bar then offers **Resume**. Sending a new message is also a go-ahead:
+a new turn drives again. Answering a hand-off hands the browser back too.
+**Stop** takes the browser over and ends the running turn.
+
+Who drives lives in one place, the desktop's `BrowserHost`, and reaches the
+pane through `browser.tabsChanged`; each agent call names its turn (`turn_id`),
+which is how a new request is told apart from the one that was stopped.
 
 ## Pages that need a person
 

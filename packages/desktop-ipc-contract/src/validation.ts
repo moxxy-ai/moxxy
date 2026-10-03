@@ -600,6 +600,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .optional(),
   }),
   'browser.confirmFocus': z.object({ requestId: z.string().min(1).max(64) }),
+  'browser.confirmCursor': z.object({ requestId: z.string().min(1).max(64) }).strict(),
+  'browser.control': z.object({ command: z.enum(['takeover', 'resume']) }).strict(),
   'browser.history': z.object({
     action: z.enum(['back', 'forward', 'reload']),
     tabId: z.string().min(1).max(64).optional(),

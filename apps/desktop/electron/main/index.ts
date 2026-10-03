@@ -407,6 +407,10 @@ async function createWindow(): Promise<void> {
   browserHost.setOpener((req) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.openTab', req);
   });
+  // The agent's pointer is drawn by the pane, over the page it is working on.
+  browserHost.setPointer((frame) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.cursor', frame);
+  });
 
   // The agent can switch, open and close tabs on its own. Without this push the
   // pane would keep showing whatever it last fetched, and the user would watch
@@ -419,6 +423,7 @@ async function createWindow(): Promise<void> {
     mainWindow.webContents.send('browser.tabsChanged', {
       tabs: browserHost.list(),
       activeTabId: browserHost.activeId,
+      control: browserHost.control,
     });
   });
 
@@ -442,6 +447,7 @@ async function createWindow(): Promise<void> {
     stopBrowserChangeFeed();
     browserHost.setOpener(null);
     browserHost.setFocuser(null);
+    browserHost.setPointer(null);
     browserHost.setHandoffPrompt(null);
     browserHost.closeAll();
   });

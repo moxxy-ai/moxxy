@@ -11,11 +11,23 @@
       #views { position: absolute; top: 28px; left: 0; right: 0; bottom: 0; }
       webview { position: absolute; inset: 0; visibility: hidden; }
       webview[data-active='true'] { visibility: visible; }
+      /* The pane's pointer (apps/desktop/src/styles.css .browser__cursor), in the desktop's primary colour. */
+      #cursor { position: absolute; z-index: 3; width: 0; height: 0; pointer-events: none; display: none;
+        transition-property: left, top; transition-timing-function: ease-in-out; }
+      #cursor svg { position: absolute; left: -2px; top: -2px; overflow: visible; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%)); }
+      #cursor path { fill: #d62a00; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+      #cursor[data-phase='failed'] path { fill: #d93025; }
+      #ring { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; border-radius: 50%;
+        border: 1.5px solid #d62a00; background: rgb(214 42 0 / 16%); opacity: 0; }
+      #ring.on { animation: press 350ms ease-out; }
+      @keyframes press { from { opacity: .9; transform: scale(.4); } to { opacity: 0; transform: scale(1.4); } }
     </style>
   </head>
   <body>
     <div id="tabs"></div>
-    <div id="views"></div>
+    <div id="views">
+      <span id="cursor"><span id="ring"></span><svg viewBox="-2 -2 18 23" width="16" height="20"><path d="M0 0 L0.6 19 L5.6 14.2 L13.8 13.6 Z" /></svg></span>
+    </div>
     <script>
       // Mirrors the desktop pane's contract with main: one <webview> per tab, adopted by id, kept mounted.
       const views = new Map();
@@ -60,6 +72,34 @@
           button.onclick = () => window.trial.select(tab.tabId);
           return button;
         }));
+      });
+
+      // The agent's pointer, drawn for the tab in front; a glide is answered once it ends, anything else at once.
+      const cursor = document.getElementById('cursor');
+      const ring = document.getElementById('ring');
+      let pending = null;
+      const answer = () => {
+        if (pending) window.trial.arrived(pending);
+        pending = null;
+      };
+      cursor.addEventListener('transitionend', answer);
+      window.trial.on('trial.cursor', ({ requestId, tabId, cursor: at }) => {
+        if (tabId !== activeTabId && activeTabId !== null) return window.trial.arrived(requestId);
+        if (!at) return void (cursor.style.display = 'none');
+        cursor.style.display = 'block';
+        cursor.dataset.phase = at.phase;
+        if (at.phase !== 'moving') {
+          ring.classList.remove('on');
+          void ring.offsetWidth;
+          ring.classList.add('on');
+          return;
+        }
+        cursor.style.transitionDuration = `${at.durationMs}ms`;
+        cursor.style.left = `${at.x}px`;
+        cursor.style.top = `${at.y}px`;
+        answer();
+        if (at.durationMs > 0) pending = requestId;
+        else window.trial.arrived(requestId);
       });
 
       open(new URLSearchParams(location.search).get('start') || 'about:blank');

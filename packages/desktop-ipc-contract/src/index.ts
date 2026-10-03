@@ -151,4 +151,4 @@ export { REMOTE_ALLOWED_COMMANDS } from './remote.js';
 export type { SubscribeFn, InvokeFn, MoxxyApi } from './api.js';
 
 // ---------- Agent browser (main-process Chromium view) --------------------
-export type { BrowserTabInfo } from './browser.js';
+export type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';

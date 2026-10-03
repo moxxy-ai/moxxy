@@ -211,3 +211,27 @@ describe('focusing a view so a key can land on it', () => {
   });
 });
 
+
+describe('who drives the browser', () => {
+  it('is read once and then followed as main pushes it', async () => {
+    let push: ((payload: unknown) => void) | null = null;
+    __setApiOverride({
+      invoke: ((channel: string) => {
+        if (channel === 'browser.listTabs') {
+          return Promise.resolve({ tabs: [], activeTabId: null, control: { driver: 'agent', turnId: 'T1' } });
+        }
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: ((channel: string, fn: (payload: unknown) => void) => {
+        if (channel === 'browser.tabsChanged') push = fn;
+        return () => undefined;
+      }) as never,
+    } as never);
+    const { result } = renderHook(() => useBrowserTabs());
+
+    await waitFor(() => expect(result.current.control).toEqual({ driver: 'agent', turnId: 'T1' }));
+    act(() => push?.({ tabs: [], activeTabId: null, control: { driver: 'user', turnId: 'T1' } }));
+
+    expect(result.current.control).toEqual({ driver: 'user', turnId: 'T1' });
+  });
+});

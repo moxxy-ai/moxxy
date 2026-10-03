@@ -468,6 +468,17 @@ describe('the desktop’s extra tools', () => {
     for (const name of EXTRA) expect(sidecar).not.toContain(name);
   });
 
+  it('names its turn on every call, so the desktop can tell a new request from the one the user stopped', async () => {
+    const fake = fakeSidecar();
+    const click = byName(desktop(fake), 'browser_click');
+    const sidecarClick = byName(buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }), 'browser_click');
+
+    await click.handler(click.inputSchema.parse({ uid: '4', element: 'przycisk Szukaj' }), ctx());
+    expect(fake.received.at(-1)?.params).toMatchObject({ turn_id: 't' });
+    await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'przycisk Szukaj' }), ctx());
+    expect(fake.received.at(-1)?.params).not.toHaveProperty('turn_id');
+  });
+
   it('can press Enter after typing, in the same call', async () => {
     const fake = fakeSidecar();
     const type = byName(desktop(fake), 'browser_type');
@@ -476,7 +487,7 @@ describe('the desktop’s extra tools', () => {
 
     expect(fake.received.at(-1)).toEqual({
       method: 'act',
-      params: { action: 'type', uid: '4', text: 'Marmolada', submit: true },
+      params: { action: 'type', uid: '4', text: 'Marmolada', submit: true, turn_id: 't' },
     });
   });
 
@@ -494,7 +505,7 @@ describe('the desktop’s extra tools', () => {
     await dialog.handler(dialog.inputSchema.parse({ accept: true, element: 'potwierdzenie usunięcia' }), ctx());
 
     expect(dialog.permission?.action).toBe('prompt');
-    expect(fake.received.at(-1)).toEqual({ method: 'dialog', params: { accept: true } });
+    expect(fake.received.at(-1)).toEqual({ method: 'dialog', params: { accept: true, turn_id: 't' } });
   });
 
   it('picks an option by its label, behind a prompt like any other choice on the page', async () => {
@@ -504,7 +515,7 @@ describe('the desktop’s extra tools', () => {
     await select.handler(select.inputSchema.parse({ uid: '17', option: 'Kraków', element: 'lista Miasto' }), ctx());
 
     expect(select.permission?.action).toBe('prompt');
-    expect(fake.received.at(-1)).toEqual({ method: 'select', params: { uid: '17', option: 'Kraków' } });
+    expect(fake.received.at(-1)).toEqual({ method: 'select', params: { uid: '17', option: 'Kraków', turn_id: 't' } });
   });
 
   it('scrolls, hovers and waits without asking: none of them decides anything', async () => {
@@ -520,9 +531,9 @@ describe('the desktop’s extra tools', () => {
 
     for (const tool of [scroll, hover, wait]) expect(tool.permission?.action).toBe('allow');
     expect(fake.received.slice(-3)).toEqual([
-      { method: 'scroll', params: { direction: 'down' } },
-      { method: 'act', params: { action: 'hover', uid: '25' } },
-      { method: 'wait', params: { text: 'Znaleziono', timeoutMs: 5000 } },
+      { method: 'scroll', params: { direction: 'down', turn_id: 't' } },
+      { method: 'act', params: { action: 'hover', uid: '25', turn_id: 't' } },
+      { method: 'wait', params: { text: 'Znaleziono', timeoutMs: 5000, turn_id: 't' } },
     ]);
   });
 });
