@@ -59,6 +59,18 @@ import Testing
         #expect(AXLadder.click(button: .middle, count: 1, modifiers: false, actions: ["AXPress"]) == .physical)
     }
 
+    // Canva's side tabs took an accessibility press and did nothing, twice; a real click switched them at once.
+    // A web page listens for the pointer, so a control it shows is clicked like a hand would. One scrolled out
+    // of view has no place to click, and keeps the press.
+    @Test func clicksAControlAWebPageShowsWithThePointer() {
+        #expect(AXLadder.click(button: .left, count: 1, modifiers: false, actions: ["AXPress"], onShownPage: true) == .physical)
+        #expect(AXLadder.pointClick(role: "AXTab", actions: ["AXPress"], button: .left, count: 1, modifiers: false, onShownPage: true) == .physical)
+        #expect(AXLadder.click(button: .left, count: 1, modifiers: false, actions: ["AXPress"], onShownPage: false) == .axAction("AXPress"))
+        #expect(AXLadder.pointClick(role: "AXTab", actions: ["AXPress"], button: .left, count: 1, modifiers: false) == .axAction("AXPress"))
+        // The page's context menu is the browser's own, and the press for it needs no pointer.
+        #expect(AXLadder.click(button: .right, count: 1, modifiers: false, actions: ["AXShowMenu"], onShownPage: true) == .axAction("AXShowMenu"))
+    }
+
     @Test func fallsBackOnlyWhenAccessibilityDeclinesAndRefusesEverythingUnknown() {
         #expect(AXLadder.outcome(.success) == .done)
         #expect(AXLadder.outcome(.actionUnsupported) == .fallBack)

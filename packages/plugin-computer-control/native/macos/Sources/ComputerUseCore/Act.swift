@@ -166,7 +166,8 @@ struct Executor {
         case let .click(.element(index), button, count, modifiers):
             return live(index) { element in
                 if let refused = guardSave(confirmedBy: element) { return refused }
-                if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element)),
+                if !retried, case let .axAction(name) = AXLadder.click(button: button, count: count, modifiers: !modifiers.isEmpty, actions: AXReader.actions(element),
+                                                                         onShownPage: AXReader.shownOnPage(element)),
                    let pressed = attempt(on: element, { tryPress(element, name) }) {
                     return pressed
                 }
@@ -187,7 +188,7 @@ struct Executor {
                 // A control under the point is pressed through accessibility, in the background.
                 for element in retried ? [] : hits {
                     if case let .axAction(name) = AXLadder.pointClick(role: AXReader.attribute(element, kAXRoleAttribute) ?? "", actions: AXReader.actions(element),
-                                                                       button: button, count: count, modifiers: !modifiers.isEmpty),
+                                                                       button: button, count: count, modifiers: !modifiers.isEmpty, onShownPage: AXReader.inPage(element)),
                        let pressed = attempt(at: screen, outline: AXReader.frame(element), { tryPress(element, name) }) {
                         return pressed
                     }

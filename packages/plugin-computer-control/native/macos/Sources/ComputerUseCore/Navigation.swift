@@ -5,7 +5,8 @@ import Foundation
 /// the design first, then loads its editor), and a look in between says the click did nothing, which invites
 /// a second click that starts the same thing again.
 public enum Navigation {
-    public static let deadline: Double = 8
+    /// A page that changes at all starts within half a second of a real click; this only caps the wait for one that does not.
+    public static let deadline: Double = 3
     /// The longest pause between looks when the app sends no notification.
     static let backstop: Double = 0.5
 

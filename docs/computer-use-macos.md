@@ -60,6 +60,12 @@ helper, so the model sees one set of tools on both systems (see
 - A control that accepts an accessibility press and does nothing (Qt buttons)
   gets a real click when the same action is asked for again. If that changes
   nothing either, the result is `ineffective` and a third try is not sent.
+- A left click on a control a web page shows is pointer input from the start,
+  sent to the browser's window in the background: pages listen for the
+  pointer, and Canva took the accessibility press on its side tabs, links and
+  buttons without doing anything (each tab then needed a second click, about
+  2.5 s; now one, about 0.75 s). A page control scrolled out of view, which
+  no click can land on, keeps the press.
 - A focused field that sits outside the window (Finder's rename field) is part
   of the state. Typing into an element that takes no text is refused.
 - Text typed through accessibility is checked: when the field and its caret stay
@@ -299,11 +305,11 @@ show, `computer_run` looks once more before it tries another way.
   moment later, and a step that clicks a suggestion needs it in the state.
 - **A followed link waits for its page.** A left click on a link to another
   document (its address differs from the page's, not only by `#…`), or Return
-  on a focused one, waits up to 8 s, woken by the browser's notifications,
-  until the window's title or the page's address changes; the state is then
-  the new page. Canva creates the design first and loads its editor seconds
-  later, so a look after the usual settle showed the old page and the model
-  clicked again. When nothing changes in 8 s the action comes back
+  on a focused one, waits until the window's title or the page's address
+  changes, woken by the browser's notifications, and at most 3 s; the state
+  is then the new page. A page that changes starts within half a second of a
+  real click (Canva's editor, recorded by hand), so the cap only holds an
+  action whose link does not change the page. Then the action comes back
   `delivered` with code `page_loading`, and a run stops at that step instead
   of trying another way. A link whose click only lit it up is never learned
   as a step's element.

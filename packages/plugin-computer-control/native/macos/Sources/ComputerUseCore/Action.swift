@@ -165,9 +165,11 @@ public enum AXLadder {
     public enum Step: Equatable, Sendable { case axAction(String), physical }
     public enum Outcome: Equatable, Sendable { case done, fallBack, refused(String) }
 
-    /// Only a plain single click has an accessibility equivalent; anything else is real input.
-    public static func click(button: MouseButton, count: Int, modifiers: Bool, actions: [String]) -> Step {
-        guard count == 1, !modifiers else { return .physical }
+    /// Only a plain single click has an accessibility equivalent; anything else is real input. A left click on a
+    /// control a web page shows (`onShownPage`) is real input too: pages listen for the pointer, and many (Canva)
+    /// take an accessibility press without doing anything.
+    public static func click(button: MouseButton, count: Int, modifiers: Bool, actions: [String], onShownPage: Bool = false) -> Step {
+        guard count == 1, !modifiers, !(onShownPage && button == .left) else { return .physical }
         let wanted = button == .left ? "AXPress" : button == .right ? "AXShowMenu" : nil
         guard let wanted, actions.contains(wanted) else { return .physical }
         return .axAction(wanted)
@@ -195,8 +197,8 @@ public enum AXLadder {
         "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXMenuBarItem", "AXMenuButton", "AXPopUpButton", "AXLink", "AXDisclosureTriangle", "AXTab",
     ]
 
-    public static func pointClick(role: String, actions: [String], button: MouseButton, count: Int, modifiers: Bool) -> Step {
-        pressable.contains(role) ? click(button: button, count: count, modifiers: modifiers, actions: actions) : .physical
+    public static func pointClick(role: String, actions: [String], button: MouseButton, count: Int, modifiers: Bool, onShownPage: Bool = false) -> Step {
+        pressable.contains(role) ? click(button: button, count: count, modifiers: modifiers, actions: actions, onShownPage: onShownPage) : .physical
     }
 
     /// Fail closed: only an explicit "not supported" may be retried another way.

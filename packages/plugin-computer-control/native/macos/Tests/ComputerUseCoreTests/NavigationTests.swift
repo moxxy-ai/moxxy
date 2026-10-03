@@ -34,9 +34,17 @@ import Testing
     }
 
     @Test func waitsUntilTheNewPageShows() {
-        let browser = SlowBrowser(after: 3.2, next: .init(url: "https://www.canva.com/design/DAH/edit", title: "Strona główna – Canva"))
+        let browser = SlowBrowser(after: 0.4, next: .init(url: "https://www.canva.com/design/DAH/edit", title: "Strona główna – Canva"))
         #expect(browser.awaited())
-        #expect(browser.clock >= 3.2 && browser.clock < 4)
+        #expect(browser.clock >= 0.4 && browser.clock < 1)
+    }
+
+    // Recorded by hand, Canva's page starts changing within half a second of the click. A link that opens
+    // something in the page itself changes neither, and must not hold the action for long.
+    @Test func waitsAtMostAFewSecondsByDefault() {
+        let browser = SlowBrowser(after: .infinity, next: .init(url: nil, title: nil))
+        #expect(!browser.awaited())
+        #expect(browser.clock >= 3 && browser.clock < 3.5)
     }
 
     // A link that opens another tab changes the window's title even when its address is not readable.
