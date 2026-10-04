@@ -113,10 +113,20 @@ code finds the element, in this order:
 4. **Jev** (TypeSafe's System One model), asked which element the words mean.
    When the one it picks cannot be pressed, the next likely one is tried.
 
-Each `expect` is a Jev yes/no over the page after the step, asked in the same
-request that finds the next step's element. The run stops at the first step
-whose element is not found, cannot be acted on, or does not show what it
-expects, and says why; a refusal (a site not allowed, the user has the browser)
+Each `expect` is checked by two Jev yes/no questions in one request — the
+same request that finds the next step's element: one over what the step
+changed (what the browser said it set off — a navigation, an answered dialog, a
+new tab — and the lines of the page that appeared and went away), one over the
+page as it is now. Either one seeing it is enough: something expected to
+disappear shows only among what went away. (Given as two named lists, Jev read
+a closed banner as gone at 0.9; given as lines marked + and −, at 0.3.)
+
+A run takes from each step only what its kind uses: strict providers fill every
+field, so a click arrives with an `option` and a key with a `target`, and both
+are dropped. It stops at the first step whose element is not found or cannot be
+acted on (**failed**), or whose expectation was not seen (**unverified** — the
+action was delivered, and the answer says to check the page before doing it
+again), and says why; a refusal (a site not allowed, the user has the browser)
 stops it at once. The answer lists every step and ends with the page as it is
 now, so the agent continues from there with the single tools. A run that
 reached its end is remembered with its goal.

@@ -36,7 +36,7 @@ import {
   type Point,
 } from './input.js';
 import { PageWatch, waitQuiet, type Dialog } from './page-watch.js';
-import { changedAround, decodePng, pngSize, type Pixels } from './view.js';
+import { changedAround, decodePng, pngSize } from './view.js';
 import { AgentPointer, type CursorSink } from './agent-pointer.js';
 import { BrowserControl, type ControlState } from './control.js';
 

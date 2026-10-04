@@ -27,7 +27,7 @@ export class JevAccess {
 
 const MARKER = '[Moxxy Browser Runs]';
 const GUIDANCE = `${MARKER}
-${RUN_TOOL} carries out a run of steps on the page in one call, and is the fastest way to act whenever you can name the elements: name each one in words as it reads on the page ("Add to basket button of the second book", "Search field"), send every step you already know together, and give "expect" to the steps that open or change something. It finds each element from its name, from what worked on this site before, or by asking Jev, checks every "expect", and stops at the first step that does not work, saying why; the page after the run comes with its answer, so do not read it again. Use the single tools (uids from browser_snapshot) for what a run reports as not done, for what has no name on the page, and when a step depends on reading something first. Allow the site with browser_allow_site before the first run there, like any action.`;
+Act through ${RUN_TOOL} by default — even a single click — instead of browser_click, browser_type, browser_select and browser_batch. Name each element in words as it reads on the page ("Add to basket button of the second book", "Search field"), send every step you already know in one call, and give "expect" to the steps that open or change something. It finds the elements on the live page itself, so once a page is open you can send a run without reading the page first whenever you know what is on it (a search field, a link by its text). It checks every "expect", stops at the first step that does not work, saying why, and its answer ends with the page as it is now — do not read it again. Use the single tools only for what a run reports as not done, for what has no name on the page (a canvas: browser_point), and for a step that depends on reading something first. Allow the site with browser_allow_site before the first run there, in the same response.`;
 
 /**
  * Hides browser_run from a session without a key, and tells a session with one
@@ -65,9 +65,10 @@ function portOver(call: Call, ctx: ToolContext): RunPort {
               'act',
               { action: step.do, uid, ...(step.do === 'type' ? { text: step.text, ...(step.submit ? { submit: true } : {}) } : {}), tab_id: tabId },
               ctx,
-            )) as { opened?: { tabId?: unknown } } | undefined;
+            )) as ({ opened?: { tabId?: unknown }; tabId?: unknown } & Record<string, unknown>) | undefined;
+      const { tabId: _tab, ...result } = reply ?? {};
       const opened = reply?.opened?.tabId;
-      return typeof opened === 'string' ? { opened: { tabId: opened } } : {};
+      return { ...(typeof opened === 'string' ? { opened: { tabId: opened } } : {}), ...(Object.keys(result).length > 0 ? { result } : {}) };
     },
   };
 }
@@ -86,7 +87,7 @@ export function buildRunTool(call: Call, opts: RunToolOptions): ToolDef {
     name: RUN_TOOL,
     icon: 'globe',
     description:
-      'Carry out several steps on the page in one call — click, type, select, key, hover — naming each element ' +
+      'The default way to act on a page: carry out one or several steps in one call — click, type, select, key, hover — naming each element ' +
       'in words as it reads on the page. Each element is found from its name, from what worked on this site ' +
       'before, or by Jev reading the page; each "expect" is checked the same way, and the run stops at the first ' +
       'step that does not work, saying why. Returns what every step did and the page after the last one.',

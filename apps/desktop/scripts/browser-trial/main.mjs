@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
   });
   host.onChange(() => {
     const tabs = host.list();
-    log({ tabs });
+    log({ tabs, control: host.control });
     send('trial.tabs', { tabs, activeTabId: host.activeId });
   });
 
@@ -78,6 +78,16 @@ app.whenReady().then(async () => {
   const address = await bridge.start();
   if (process.env.TRIAL_BRIDGE_FILE) writeFileSync(process.env.TRIAL_BRIDGE_FILE, JSON.stringify(address), { mode: 0o600 });
   log({ ready: true });
+});
+
+// Every press and key the pages get, the agent's and anyone's at this machine, so a take-over in a run can be traced to its cause.
+app.on('web-contents-created', (_e, wc) => {
+  wc.on('input-event', (_ev, input) => {
+    if (input.type === 'mouseDown') log({ input: input.type, wc: wc.id, control: host.control.driver });
+  });
+  wc.on('before-input-event', (_ev, input) => {
+    if (input.type === 'keyDown') log({ input: input.type, key: input.key, wc: wc.id, control: host.control.driver });
+  });
 });
 
 app.on('window-all-closed', () => app.quit());

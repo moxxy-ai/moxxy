@@ -45,7 +45,7 @@ const PAGES: Record<string, Page> = {
   basket: { title: 'Basket', elements: [], text: 'heading "Basket"\n1 item' },
 };
 
-type Effect = string | Error;
+type Effect = string | Error | { readonly page?: string; readonly result: Record<string, unknown> };
 
 function shop(links: Record<number, Effect>, start = 'home') {
   let at = start;
@@ -72,7 +72,11 @@ function shop(links: Record<number, Effect>, start = 'home') {
       acted.push({ do: step.do, ...(uid ? { uid } : {}), ...(step.text ? { text: step.text } : {}), ...(step.key ? { key: step.key } : {}) });
       const effect = uid ? links[Number(uid)] : undefined;
       if (effect instanceof Error) throw effect;
-      if (effect) at = effect;
+      if (typeof effect === 'string') at = effect;
+      if (typeof effect === 'object') {
+        if (effect.page) at = effect.page;
+        return { result: effect.result };
+      }
       return {};
     },
   };
@@ -80,7 +84,7 @@ function shop(links: Record<number, Effect>, start = 'home') {
 }
 
 /** Jev, as far as these tests need it: which uid a target means, and whether a page shows what a step expects. */
-function jev(meaning: { targets?: Record<string, number | 'none'>; shows?: (expect: string, page: string) => boolean }) {
+function jev(meaning: { targets?: Record<string, number | 'none'>; shows?: (expect: string, page: string, state: Record<string, unknown>) => boolean }) {
   const requests: Array<{ state: Record<string, unknown>; questions: Record<string, JevQuestion> }> = [];
   const ask: AskJev = async (state, questions) => {
     const said = state as Record<string, unknown>;
@@ -89,7 +93,7 @@ function jev(meaning: { targets?: Record<string, number | 'none'>; shows?: (expe
     for (const [id, question] of Object.entries(questions)) {
       if (question.type === 'noul') {
         const performed = said.performed as RunStep;
-        answers[id] = { type: 'noul', noul: meaning.shows?.(performed.expect ?? '', String(said.page)) ? 0.93 : 0.04 };
+        answers[id] = { type: 'noul', noul: meaning.shows?.(performed.expect ?? '', String(said.page), said) ? 0.93 : 0.04 };
         continue;
       }
       const step = said.step as RunStep;
@@ -149,7 +153,7 @@ describe('runBrowserSteps', () => {
 
     expect(report.outcomes.map((outcome) => [outcome.status, outcome.checked])).toEqual([['done', true], ['done', undefined]]);
     expect(requests).toHaveLength(1);
-    expect(Object.keys(requests[0]?.questions ?? {}).sort()).toEqual(['expected', 'target']);
+    expect(Object.keys(requests[0]?.questions ?? {}).sort()).toEqual(['expected', 'expected_change', 'target']);
     expect(site.at()).toBe('book');
   });
 
@@ -162,10 +166,69 @@ describe('runBrowserSteps', () => {
       { port: site.port, ask, memory: memory(), signal },
     );
 
-    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['failed', 'not_run']);
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['unverified', 'not_run']);
     expect(report.outcomes[0]?.why).toMatch(/the Mystery category/);
     expect(site.acted).toHaveLength(1);
-    expect(formatRunReport(report)).toMatch(/0 of 2 steps done/);
+    const text = formatRunReport(report);
+    expect(text).toMatch(/0 of 2 steps done/);
+    expect(text).toMatch(/delivered, but "the Mystery category" was not seen/);
+    expect(text).toMatch(/before doing it again/);
+  });
+
+  it('tells Jev what the action set off and what appeared and went away, not only the page after it', async () => {
+    const site = shop({ 3: { page: 'travel', result: { dialog: { type: 'alert', message: 'Zapisano', accepted: true } } } });
+    let seen: Record<string, unknown> = {};
+    const { ask } = jev({
+      shows: (_expect, _page, state) => {
+        seen = state;
+        return true;
+      },
+    });
+
+    await runBrowserSteps({ goal: 'g', steps: [{ do: 'click', target: 'Travel', expect: 'an alert' }] }, { port: site.port, ask, memory: memory(), signal });
+
+    expect(seen.performed).toMatchObject({ do: 'click', result: { dialog: { type: 'alert', message: 'Zapisano' } } });
+    expect(seen.changes).toMatchObject({
+      appeared: expect.arrayContaining(['heading "Travel"']),
+      went_away: expect.arrayContaining(['heading "All products"']),
+    });
+  });
+
+  it('asks apart whether the change and whether the page show it, and takes either as seen', async () => {
+    const site = shop({ 3: 'travel' });
+    const asked: string[][] = [];
+    const ask: AskJev = async (_state, questions) => {
+      asked.push(Object.keys(questions).sort());
+      return Object.fromEntries(
+        Object.entries(questions).map(([id]) => [id, { type: 'noul', noul: id === 'expected_change' ? 0.9 : 0.2 }]),
+      ) as JevAnswers;
+    };
+
+    const report = await runBrowserSteps({ goal: 'g', steps: [{ do: 'click', target: 'Travel', expect: 'the promo goes away' }] }, { port: site.port, ask, memory: memory(), signal });
+
+    expect(asked).toEqual([['expected', 'expected_change']]);
+    expect(report.outcomes[0]).toMatchObject({ status: 'done', checked: true });
+  });
+
+  it('takes from each step only what its kind uses, since strict providers fill every field', async () => {
+    const site = shop({ 3: 'travel' });
+    const { ask, requests } = jev({});
+
+    const report = await runBrowserSteps(
+      {
+        goal: 'g',
+        steps: [
+          { do: 'key', target: 'the alert', key: 'Enter', text: '', option: 'Kraków', submit: false },
+          { do: 'click', target: 'Travel', text: '', option: 'Kraków', key: 'Enter', submit: false },
+        ],
+      },
+      { port: site.port, ask, memory: memory(), signal },
+    );
+
+    expect(report.outcomes.map((outcome) => outcome.status)).toEqual(['done', 'done']);
+    expect(site.acted).toEqual([{ do: 'key', key: 'Enter' }, { do: 'click', uid: '3' }]);
+    expect(requests).toHaveLength(0);
+    expect(formatRunReport(report)).not.toMatch(/Kraków/);
   });
 
   it('forgets a remembered element that did not do its step', async () => {

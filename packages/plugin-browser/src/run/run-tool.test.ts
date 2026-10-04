@@ -130,6 +130,16 @@ describe('withBrowserRunGuidance', () => {
     expect(hook(request(['browser_snapshot', RUN_TOOL]), { sessionId: 'other' }).tools?.map((t) => t.name)).not.toContain(RUN_TOOL);
   });
 
+  it('makes a run the default way to act, not one tool among many', async () => {
+    const access = new JevAccess();
+    await access.key(ctx({ TYPESAFE_API_KEY: 'k' }));
+    const system = withBrowserRunGuidance(access)(request(['browser_click', RUN_TOOL]), { sessionId: 's1' }).system ?? '';
+
+    expect(system).toMatch(/even a single (click|step)/);
+    expect(system).toMatch(/instead of browser_click, browser_type, browser_select and browser_batch/);
+    expect(system).toMatch(/without reading the page first/);
+  });
+
   it('trusts the environment before any tool call has looked into the vault', () => {
     vi.stubEnv('TYPESAFE_API_KEY', 'k');
     const out = withBrowserRunGuidance(new JevAccess())(request([RUN_TOOL]), { sessionId: 's1' });

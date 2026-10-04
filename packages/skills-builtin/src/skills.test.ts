@@ -188,6 +188,17 @@ describe('the browser skill', () => {
     expect(text).toMatch(/Do not retry, and do not reach the page another way/);
   });
 
+  it('carries a task to its end instead of handing the next click to the user', async () => {
+    const text = await body();
+    expect(text).toMatch(/Finish the task yourself/);
+    expect(text).toMatch(/never ask the\s+user to click/i);
+  });
+
+  it('answers a question about a list from the whole list', async () => {
+    const text = await body();
+    expect(text).toMatch(/every item/);
+  });
+
   it('teaches the picture tools for what has no name', async () => {
     const text = await body();
     expect(text).toMatch(/browser_point/);
