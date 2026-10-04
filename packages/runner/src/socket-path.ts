@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { moxxyPath } from '@moxxy/sdk/server';
 
 /**
@@ -30,7 +34,55 @@ export function platformSocket(
     // The Windows pipe namespace is flat — sanitize the name to one safe segment.
     return `\\\\.\\pipe\\moxxy-${name.replace(/[^A-Za-z0-9_-]/g, '_')}`;
   }
-  return posixPath;
+  return fitSocketPath(posixPath, platform);
+}
+
+/**
+ * The longest unix socket path that binds whole: `sun_path` holds 104 bytes on
+ * macOS/BSD and 108 on Linux, the closing NUL included. Past it libuv cuts the
+ * path without a word, so two long paths that begin alike bind one socket.
+ */
+export function maxSocketPathBytes(platform: NodeJS.Platform = process.platform): number {
+  return platform === 'linux' ? 107 : 103;
+}
+
+/**
+ * A socket path that binds whole: the path itself when it fits, otherwise a
+ * name derived from it in a short folder only this user can enter (the
+ * per-user runtime or temp folder) — the same name every time, so the runner
+ * and its clients agree.
+ */
+export function fitSocketPath(
+  posixPath: string,
+  platform: NodeJS.Platform = process.platform,
+  shortDirs: ReadonlyArray<string> = defaultShortDirs(),
+): string {
+  const max = maxSocketPathBytes(platform);
+  if (Buffer.byteLength(posixPath) <= max) return posixPath;
+  const name = `moxxy-${createHash('sha256').update(posixPath).digest('hex').slice(0, 16)}.sock`;
+  for (const dir of shortDirs) {
+    const short = path.join(dir, name);
+    if (Buffer.byteLength(short) <= max && isPrivateDir(dir)) return short;
+  }
+  throw new Error(
+    `The socket path ${posixPath} is ${Buffer.byteLength(posixPath)} bytes, longer than the ${max} this system can bind, ` +
+      'and there is no short private folder to put it in instead. Point MOXXY_HOME at a shorter folder.',
+  );
+}
+
+function defaultShortDirs(): string[] {
+  return [process.env.XDG_RUNTIME_DIR, os.tmpdir()].filter((dir): dir is string => Boolean(dir));
+}
+
+/** A folder this user owns and nobody else can enter — a socket in it is reachable by this user alone. */
+function isPrivateDir(dir: string): boolean {
+  try {
+    const st = statSync(dir);
+    const mine = typeof process.getuid !== 'function' || st.uid === process.getuid();
+    return st.isDirectory() && mine && (st.mode & 0o077) === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -44,7 +96,7 @@ export function isNamedPipe(address: string): boolean {
 
 export function runnerSocketPath(): string {
   const override = process.env.MOXXY_RUNNER_SOCKET;
-  if (override) return override;
+  if (override) return process.platform === 'win32' || isNamedPipe(override) ? override : fitSocketPath(override);
   // Resolve under `moxxyPath` (honors `$MOXXY_HOME`, falling back to `~/.moxxy`)
   // so the runner socket follows the same data dir as the rest of the framework
   // instead of stranding it at a hardcoded `~/.moxxy` when MOXXY_HOME is set.

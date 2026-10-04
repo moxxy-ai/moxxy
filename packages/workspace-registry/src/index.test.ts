@@ -277,6 +277,59 @@ describe('WorkspaceRegistry — desk + session mutations', () => {
   });
 });
 
+/**
+ * A fresh home has no desks file: the first chat lands in the Moxxy workspace,
+ * which the view shows before anything persisted it. The sidebar offers that
+ * desk, so every action on it has to work — "New session" there used to fail
+ * with "unknown desk: moxxy".
+ */
+describe('WorkspaceRegistry — the Moxxy workspace before it was ever saved', () => {
+  const firstChat = (): void => writeSession({ id: 'first', cwd: home, source: 'desktop' });
+
+  it('takes a new session, which shows under it and in front', async () => {
+    firstChat();
+    const reg = registry();
+    expect((await reg.list()).map((d) => d.id)).toEqual([MOXXY_WORKSPACE_ID]);
+
+    const { desk, session } = await reg.createSession(MOXXY_WORKSPACE_ID);
+
+    expect(desk.id).toBe(MOXXY_WORKSPACE_ID);
+    const moxxy = (await registry().list()).find((d) => d.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions.map((s) => s.id).sort()).toEqual(['first', session.id].sort());
+    expect(moxxy?.activeSessionId).toBe(session.id);
+  });
+
+  it('takes a new session when none is named, in the desk the view puts in front', async () => {
+    firstChat();
+    const { desk } = await registry().createSession();
+    expect(desk.id).toBe(MOXXY_WORKSPACE_ID);
+  });
+
+  it('can be brought to front and renamed like any desk', async () => {
+    firstChat();
+    const reg = registry();
+    await reg.setActive(MOXXY_WORKSPACE_ID);
+    const renamed = await reg.rename(MOXXY_WORKSPACE_ID, 'Scratch');
+    expect(renamed.name).toBe('Scratch');
+    expect((await reg.getActive())?.id).toBe(MOXXY_WORKSPACE_ID);
+  });
+
+  it('takes a session moved into it', async () => {
+    const reg = registry();
+    const project = await reg.create({ name: 'P', cwd: path.join(home, 'p') });
+    firstChat();
+
+    const moxxy = await reg.moveSession(project.id, MOXXY_WORKSPACE_ID);
+
+    expect(moxxy.sessions.map((s) => s.id)).toContain(project.id);
+  });
+
+  it('still refuses a desk that does not exist', async () => {
+    firstChat();
+    await expect(registry().createSession('nope')).rejects.toThrow('unknown desk: nope');
+  });
+});
+
 describe('WorkspaceRegistry — overlay persistence (no migration)', () => {
   it('keeps desk definitions from an existing doc and ignores any embedded sessions', async () => {
     // An older-shape doc with embedded sessions[]: desk defs carry over, the

@@ -178,9 +178,7 @@ export class WorkspaceRegistry {
   async setActive(id: string): Promise<void> {
     return this.mutex.run(async () => {
       const doc = await this.loadDoc();
-      if (!doc.desks.some((desk) => desk.id === id)) {
-        throw new Error(`unknown desk: ${id}`);
-      }
+      if (!recordFor(doc, id)) throw new Error(`unknown desk: ${id}`);
       doc.activeId = id;
       await this.save(doc);
     });
@@ -191,7 +189,7 @@ export class WorkspaceRegistry {
     if (!trimmed) throw new Error('name must not be empty');
     return this.mutex.run(async () => {
       const doc = await this.loadDoc();
-      const record = doc.desks.find((d) => d.id === id);
+      const record = recordFor(doc, id);
       if (!record) throw new Error(`unknown desk: ${id}`);
       record.name = trimmed;
       await this.save(doc);
@@ -208,7 +206,7 @@ export class WorkspaceRegistry {
   ): Promise<{ desk: Desk; session: DeskSession }> {
     return this.mutex.run(async () => {
       const doc = await this.loadDoc();
-      const record = this.resolveRecord(doc, deskId);
+      const record = await this.resolveRecord(doc, deskId);
       if (!record) throw new Error(deskId ? `unknown desk: ${deskId}` : 'no active desk');
       const sessionId = randomUUID();
       const cwd = options.cwd ?? record.cwd;
@@ -278,8 +276,9 @@ export class WorkspaceRegistry {
   async moveSession(sessionId: string, deskId: string): Promise<Desk> {
     return this.mutex.run(async () => {
       const doc = await this.loadDoc();
-      const target = doc.desks.find((d) => d.id === deskId);
+      const target = recordFor(doc, deskId);
       if (!target) throw new Error(`unknown desk: ${deskId}`);
+      await this.save(doc);
       await setSessionGroup(sessionId, deskId);
       return (await this.derive()).desks.find((d) => d.id === deskId)!;
     });
@@ -331,10 +330,12 @@ export class WorkspaceRegistry {
     return view.desks.find((desk) => desk.id === id) ?? null;
   }
 
-  private resolveRecord(doc: DeskDoc, deskId?: string): DeskRecord | null {
-    const id = deskId ?? doc.activeId;
-    if (!id) return null;
-    return doc.desks.find((desk) => desk.id === id) ?? null;
+  /** The record a session goes into, matching the desk `derive()` shows in
+   *  front when none is named. */
+  private async resolveRecord(doc: DeskDoc, deskId?: string): Promise<DeskRecord | null> {
+    if (deskId) return recordFor(doc, deskId);
+    const { activeId } = await this.derive();
+    return activeId ? recordFor(doc, activeId) : null;
   }
 }
 
@@ -477,6 +478,14 @@ function synthMoxxyRecord(): DeskRecord {
     createdAt: 0,
     activeSessionId: null,
   };
+}
+
+/** A persisted desk by id — or the Moxxy workspace, which the view shows before
+ *  anything saved it, persisted on first use. */
+function recordFor(doc: DeskDoc, id: string): DeskRecord | null {
+  const record = doc.desks.find((desk) => desk.id === id);
+  if (record) return record;
+  return id === MOXXY_WORKSPACE_ID ? ensureMoxxyRecord(doc) : null;
 }
 
 function ensureMoxxyRecord(doc: DeskDoc): DeskRecord {
