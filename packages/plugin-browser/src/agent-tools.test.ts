@@ -215,6 +215,14 @@ describe('the tool set', () => {
       'browser_batch',
       'browser_history',
       'browser_await_human',
+      'browser_select',
+      'browser_scroll',
+      'browser_hover',
+      'browser_wait',
+      'browser_dialog',
+      'browser_allow_site',
+      'browser_point',
+      'browser_upload',
     ]);
   });
 
@@ -230,11 +238,14 @@ describe('the tool set', () => {
     expect(handoff.description).toMatch(/never ask the user to tell you a password/i);
   });
 
-  it('gates every acting tool behind a prompt', () => {
+  it('covers acting by the consent given to the site, and asks for the decisions that are the user’s', () => {
     const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
 
     for (const name of ['browser_click', 'browser_type', 'browser_navigate']) {
-      expect(byName(tools, name).permission?.action).toBe('prompt');
+      expect(byName(tools, name).permission?.action, name).toBe('allow');
+    }
+    for (const name of ['browser_allow_site', 'browser_dialog', 'browser_upload']) {
+      expect(byName(tools, name).permission?.action, name).toBe('prompt');
     }
   });
 });
@@ -321,10 +332,10 @@ describe('browser_key', () => {
     expect(tools.map((t) => t.name)).toContain('browser_key');
   });
 
-  it('asks before pressing, like every other tool that acts', () => {
+  it('is covered by the consent given to the site, like every other tool that acts', () => {
     const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
 
-    expect(byName(tools, 'browser_key').permission?.action).toBe('prompt');
+    expect(byName(tools, 'browser_key').permission?.action).toBe('allow');
   });
 
   it('requires a description of what it is pressing on, for the approval to mean anything', () => {
@@ -358,7 +369,7 @@ describe('the browser skill and the tools it names', () => {
     const shipped = new Set([
       ...buildAgentTools(
         { sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn },
-        { desktop: true, run: { access: new JevAccess() } },
+        { run: { access: new JevAccess() } },
       ).map((t) => t.name),
       // The two the plugin ships alongside them.
       'browser_session',
@@ -382,7 +393,7 @@ describe('the browser skill and the tools it names', () => {
     const allowed = new Set(allowedTools());
     const shipped = buildAgentTools(
       { sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn },
-      { desktop: true, run: { access: new JevAccess() } },
+      { run: { access: new JevAccess() } },
     ).map((t) => t.name);
 
     expect(shipped).toContain('browser_run');
@@ -446,10 +457,10 @@ describe('browser_batch', () => {
     expect(fake.received.map((r) => r.method)).toEqual(['act', 'act']);
   });
 
-  it('asks before running, like every other tool that acts', () => {
+  it('is covered by the consent given to the site, like every other tool that acts', () => {
     const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
 
-    expect(byName(tools, 'browser_batch').permission?.action).toBe('prompt');
+    expect(byName(tools, 'browser_batch').permission?.action).toBe('allow');
   });
 
   it('will not run an empty sequence', () => {
@@ -467,24 +478,23 @@ describe('browser_batch', () => {
   });
 });
 
-describe('the desktop’s extra tools', () => {
+describe('the tools beyond reading, clicking and typing', () => {
   /**
-   * The desktop drives a real view the user watches, and its backend can do
-   * what the headless sidecar never could: answer a page's dialog, pick from a
-   * native list, scroll, hover, wait for an answer. Those tools ship only where
-   * the backend can serve them — the sidecar's set is unchanged, so the TUI
-   * keeps working exactly as it did.
+   * Answer a page's dialog, pick from a native list, scroll, hover, wait for an
+   * answer. Both backends serve them through the same browser host — the
+   * desktop's pane and the headless sidecar the terminal uses — so a task does
+   * not depend on where it runs.
    */
   const desktop = (fake = fakeSidecar()) =>
-    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
   const EXTRA = ['browser_select', 'browser_scroll', 'browser_hover', 'browser_wait', 'browser_dialog'];
 
-  it('adds its tools on the desktop and none on the sidecar', () => {
+  it('ships them on the desktop and on the headless sidecar alike', () => {
     const names = desktop().map((t) => t.name);
     const sidecar = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }).map((t) => t.name);
 
     for (const name of EXTRA) expect(names).toContain(name);
-    for (const name of EXTRA) expect(sidecar).not.toContain(name);
+    for (const name of EXTRA) expect(sidecar).toContain(name);
   });
 
   it('names its turn on every call, so the desktop can tell a new request from the one the user stopped', async () => {
@@ -495,7 +505,7 @@ describe('the desktop’s extra tools', () => {
     await click.handler(click.inputSchema.parse({ uid: '4', element: 'przycisk Szukaj' }), ctx());
     expect(fake.received.at(-1)?.params).toMatchObject({ turn_id: 't' });
     await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'przycisk Szukaj' }), ctx());
-    expect(fake.received.at(-1)?.params).not.toHaveProperty('turn_id');
+    expect(fake.received.at(-1)?.params).toMatchObject({ turn_id: 't' });
   });
 
   it('can press Enter after typing, in the same call', async () => {
@@ -510,11 +520,11 @@ describe('the desktop’s extra tools', () => {
     });
   });
 
-  it('offers no submit on the sidecar, which cannot honour it', () => {
+  it('offers submit on the headless sidecar too, which honours it the same way', () => {
     const type = byName(buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }), 'browser_type');
     const schema = zodToJsonSchema(type.inputSchema) as { properties?: Record<string, unknown> };
 
-    expect(Object.keys(schema.properties ?? {})).not.toContain('submit');
+    expect(Object.keys(schema.properties ?? {})).toContain('submit');
   });
 
   it('answers a dialog, and asks before doing so — the answer is a decision', async () => {
@@ -557,15 +567,16 @@ describe('the desktop’s extra tools', () => {
   });
 });
 
-describe('consent per site, on the desktop', () => {
+describe('consent per site, on every backend', () => {
   /**
-   * On the desktop the person watches every action, so asking before each one
-   * buys nothing but interruptions. They allow a site once; the approval is a
-   * tool result in the session log, which every client of the conversation
-   * reads, and the desktop refuses actions on any site not allowed yet.
+   * Asking before each action buys nothing but interruptions. The person
+   * allows a site once; the approval is a tool result in the session log, which
+   * every client of the conversation reads, and the backend — the desktop's or
+   * the headless sidecar's, one browser host — refuses actions on any site not
+   * allowed yet.
    */
   const desktop = (fake = fakeSidecar()) =>
-    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
   const sidecar = (fake = fakeSidecar()) => buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
   const ACTING = ['browser_click', 'browser_type', 'browser_navigate', 'browser_tabs', 'browser_key', 'browser_batch', 'browser_history'];
 
@@ -578,7 +589,7 @@ describe('consent per site, on the desktop', () => {
     ] as MoxxyEvent[];
   };
 
-  it('asks for a site once, through a tool of its own, on the desktop only', async () => {
+  it('asks for a site once, through a tool of its own, on either backend', async () => {
     const allow = byName(desktop(), 'browser_allow_site');
 
     const out = await allow.handler(
@@ -588,7 +599,7 @@ describe('consent per site, on the desktop', () => {
 
     expect(allow.permission?.action).toBe('prompt');
     expect(out).toEqual({ kind: 'browser_site', site: 'canva.com' });
-    expect(sidecar().map((t) => t.name)).not.toContain('browser_allow_site');
+    expect(sidecar().map((t) => t.name)).toContain('browser_allow_site');
   });
 
   it('refuses to allow something that is not a web site', async () => {
@@ -599,7 +610,7 @@ describe('consent per site, on the desktop', () => {
     ).rejects.toThrow(/not a web site/);
   });
 
-  it('says in every desktop snapshot which sites are already allowed, so the agent never asks twice', async () => {
+  it('says in every snapshot which sites are already allowed, so the agent never asks twice', async () => {
     const fake = fakeSidecar();
     fake.setReply(() => ({ text: '### Page\n- URL: https://www.canva.com/', tabId: 't1' }));
     const snapshot = byName(desktop(fake), 'browser_snapshot');
@@ -611,21 +622,21 @@ describe('consent per site, on the desktop', () => {
 
     expect(allowed.text).toContain('Sites you may act on: canva.com');
     expect(none.text).toMatch(/Sites you may act on: none yet/);
-    expect(plain.text).not.toContain('Sites you may act on');
+    expect(plain.text).toContain('Sites you may act on: canva.com');
   });
 
-  it('acts without a prompt per call on the desktop, and keeps every prompt on the sidecar', () => {
+  it('acts without a prompt per call on either backend', () => {
     const tools = desktop();
     const headless = sidecar();
 
     for (const name of ACTING) {
       expect(byName(tools, name).permission?.action, name).toBe('allow');
-      expect(byName(headless, name).permission?.action, name).toBe('prompt');
+      expect(byName(headless, name).permission?.action, name).toBe('allow');
     }
     expect(byName(tools, 'browser_dialog').permission?.action).toBe('prompt');
   });
 
-  it('sends the sites the conversation allowed with every desktop call, and nothing of the kind to the sidecar', async () => {
+  it('sends the sites the conversation allowed with every call, to either backend', async () => {
     const fake = fakeSidecar();
     const click = byName(desktop(fake), 'browser_click');
     const sidecarClick = byName(sidecar(fake), 'browser_click');
@@ -634,16 +645,16 @@ describe('consent per site, on the desktop', () => {
     await click.handler(click.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
     expect(fake.received.at(-1)?.params).toMatchObject({ sites: ['canva.com'] });
     await sidecarClick.handler(sidecarClick.inputSchema.parse({ uid: '4', element: 'Udostępnij' }), ctx(log));
-    expect(fake.received.at(-1)?.params).not.toHaveProperty('sites');
+    expect(fake.received.at(-1)?.params).toMatchObject({ sites: ['canva.com'] });
   });
 });
 
-describe('working by picture, and giving files, on the desktop', () => {
+describe('working by picture, and giving files, on every backend', () => {
   const desktop = (fake = fakeSidecar()) =>
-    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true });
+    buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
   const sidecar = () => buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
 
-  it('points at a picture under the site’s consent, on the desktop only', async () => {
+  it('points at a picture under the site’s consent, on either backend', async () => {
     const fake = fakeSidecar();
     const point = byName(desktop(fake), 'browser_point');
 
@@ -657,7 +668,7 @@ describe('working by picture, and giving files, on the desktop', () => {
       method: 'point',
       params: { action: 'drag', x: 10, y: 20, path: [[30, 40]], view: 'v3', turn_id: 't', sites: [] },
     });
-    expect(sidecar().map((t) => t.name)).not.toContain('browser_point');
+    expect(sidecar().map((t) => t.name)).toContain('browser_point');
   });
 
   it('asks before every upload — the files are the user’s — and sends absolute paths', async () => {
@@ -674,25 +685,25 @@ describe('working by picture, and giving files, on the desktop', () => {
       method: 'upload',
       params: { uid: '9', paths: ['/tmp/raport.pdf', '/abs/zdjecie.png'], turn_id: 't', sites: [] },
     });
-    expect(sidecar().map((t) => t.name)).not.toContain('browser_upload');
+    expect(sidecar().map((t) => t.name)).toContain('browser_upload');
   });
 
-  it('tells the model on the desktop that a picture is something to point at', () => {
+  it('tells the model that a picture is something to point at, on either backend', () => {
     expect(byName(desktop(), 'browser_capture').description).toContain('browser_point');
-    expect(byName(sidecar(), 'browser_capture').description).not.toContain('browser_point');
+    expect(byName(sidecar(), 'browser_capture').description).toContain('browser_point');
   });
 });
 
-describe('runs of steps, on the desktop', () => {
-  it('offers browser_run on the desktop only, and every browser call there notices whether there is a key', async () => {
+describe('runs of steps, on every backend', () => {
+  it('offers browser_run on either backend, and every browser call notices whether there is a key', async () => {
     const access = new JevAccess();
     const fake = fakeSidecar();
     fake.setReply(() => ({ text: 'strona', tabId: 't1', url: 'https://a.pl', nodes: 1 }));
-    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { desktop: true, run: { access } });
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }, { run: { access } });
     const sidecar = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }, { run: { access } });
 
     expect(tools.map((t) => t.name)).toContain('browser_run');
-    expect(sidecar.map((t) => t.name)).not.toContain('browser_run');
+    expect(sidecar.map((t) => t.name)).toContain('browser_run');
 
     const snapshot = byName(tools, 'browser_snapshot');
     await snapshot.handler(snapshot.inputSchema.parse({}), { ...ctx(), getSecret: async (name: string) => (name === 'TYPESAFE_API_KEY' ? 'k' : null) });

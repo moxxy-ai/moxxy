@@ -1,7 +1,6 @@
 import { resolve as resolvePath } from 'node:path';
 import { MoxxyError, defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
-import { bridgeAddressFromEnv } from './bridge-client.js';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
 import { ALLOW_SITE_TOOL, siteOf, sitesFromLog, type SiteGrant } from './site-access.js';
 import { buildRunTool, type JevAccess, type RunToolOptions } from './run/run-tool.js';
@@ -52,20 +51,15 @@ const element = z.string().min(1).describe('What the element is, in a few words 
 type Call = (method: string, params: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
 
 /**
- * How the tools reach the browser. On the desktop each call names its turn: the
- * user can take the browser over, which stops the turn that was driving it, and
- * their next message — a new turn — is what hands it back. It also carries the
- * sites the conversation allowed, which the desktop checks against the page the
- * action would land on.
+ * How the tools reach the browser. Each call names its turn: on the desktop
+ * the user can take the browser over, which stops the turn that was driving it,
+ * and their next message — a new turn — is what hands it back. It also carries
+ * the sites the conversation allowed, which the backend — the desktop's or the
+ * headless sidecar's — checks against the page the action would land on.
  */
-function caller(deps: BrowserSessionDeps | undefined, desktop: boolean): Call {
+function caller(deps: BrowserSessionDeps | undefined): Call {
   return (method, params, ctx) =>
-    browserSidecarCall(
-      method,
-      desktop ? { ...params, turn_id: ctx.turnId, sites: sitesFromLog(ctx.log) } : params,
-      deps,
-      ctx.signal,
-    );
+    browserSidecarCall(method, { ...params, turn_id: ctx.turnId, sites: sitesFromLog(ctx.log) }, deps, ctx.signal);
 }
 
 /**
@@ -90,24 +84,15 @@ const ACT_ISOLATION = {
 };
 
 export interface AgentToolsOptions {
-  /**
-   * Whether the page is the desktop's own view, driven through its bridge.
-   * There the backend can answer dialogs, pick from native lists, scroll, hover
-   * and wait, and every press reports what it set off; the headless sidecar
-   * cannot, so it gets the original set and the original descriptions.
-   */
-  readonly desktop?: boolean;
-  /** Runs of steps through Jev (browser_run), on the desktop, for a session with a TypeSafe key. */
+  /** Runs of steps through Jev (browser_run), for a session with a TypeSafe key. */
   readonly run?: RunToolOptions;
 }
 
 export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptions = {}): ReadonlyArray<ToolDef> {
-  const desktop = opts.desktop ?? (bridgeAddressFromEnv() !== null && !deps?.spawnFn);
-  const call = caller(deps, desktop);
-  // On the desktop the person allows a site once (browser_allow_site) and the
-  // desktop refuses actions anywhere else, so asking per call would only
-  // interrupt; the headless sidecar has no such gate and keeps every prompt.
-  const acting = { action: desktop ? 'allow' : 'prompt' } as const;
+  const call = caller(deps);
+  // The person allows a site once (browser_allow_site) and the backend refuses
+  // actions anywhere else, so asking per call would only interrupt.
+  const acting = { action: 'allow' } as const;
 
   const snapshot = defineTool({
     name: 'browser_snapshot',
@@ -136,22 +121,20 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 60_000 } },
     handler: async ({ tab_id, full }, ctx) => {
       const read = await call('snapshot', { tab_id, full }, ctx);
-      return desktop ? withAllowedSites(read, sitesFromLog(ctx.log)) : read;
+      return withAllowedSites(read, sitesFromLog(ctx.log));
     },
   });
 
   const click = defineTool({
     name: 'browser_click',
     icon: 'globe',
-    description: desktop
-      ? 'Click an element by the [uid] shown in the latest browser_snapshot. The tab comes to the front, the ' +
+    description:
+      'Click an element by the [uid] shown in the latest browser_snapshot. The tab comes to the front, the ' +
         'element is scrolled into view, and the click is refused — with the reason — if the element is disabled ' +
         'or something covers it (a banner, a dialog); clear what is in the way rather than retrying. It returns ' +
         'once the page has settled, saying what the click set off: navigated (and the new url), a dialog ' +
         '(an alert is accepted and quoted; a confirm or prompt stays open for browser_dialog), or a tab the page ' +
-        'opened (its tab_id). Fails if the page navigated since that snapshot — take a fresh one.'
-      : 'Click an element by the [uid] shown in the latest browser_snapshot. Fails if the page navigated since ' +
-        'that snapshot — take a fresh one rather than retrying the old uid.',
+        'opened (its tab_id). Fails if the page navigated since that snapshot — take a fresh one.',
     inputSchema: z.object({ uid: z.string().min(1), element, tab_id: tabId }),
     permission: acting,
     compact: { verb: 'Clicking', noun: { one: 'element', other: 'elements' }, previewKey: 'element' },
@@ -160,37 +143,24 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
   });
 
   const typeFields = { uid: z.string().min(1), element, text: z.string(), tab_id: tabId };
-  const type = desktop
-    ? defineTool({
-        name: 'browser_type',
-        icon: 'edit',
-        description:
-          'Put text into a field by [uid], replacing whatever it held (an empty text clears it). A field that ' +
-          'already says exactly this is left alone. Pass submit: true to press Enter afterwards — the usual way to ' +
-          'run a search. If the field formats what it is given (a phone number, a date), the result says what it ' +
-          'now shows. Never use this for a password or one-time code — ask the user to enter those themselves.',
-        inputSchema: z.object({
-          ...typeFields,
-          submit: z.boolean().optional().describe('Press Enter after typing, e.g. to run a search.'),
-        }),
-        permission: acting,
-        compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
-        isolation: ACT_ISOLATION,
-        handler: ({ uid, text, submit, tab_id }, ctx) =>
-          call('act', { action: 'type', uid, text, ...(submit ? { submit: true } : {}), tab_id }, ctx),
-      })
-    : defineTool({
-        name: 'browser_type',
-        icon: 'edit',
-        description:
-          'Focus an element by [uid] and type into it. Use browser_snapshot first to find the field. ' +
-          'Never use this for a password or one-time code — ask the user to enter those themselves.',
-        inputSchema: z.object(typeFields),
-        permission: acting,
-        compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
-        isolation: ACT_ISOLATION,
-        handler: ({ uid, text, tab_id }, ctx) => call('act', { action: 'type', uid, text, tab_id }, ctx),
-      });
+  const type = defineTool({
+    name: 'browser_type',
+    icon: 'edit',
+    description:
+      'Put text into a field by [uid], replacing whatever it held (an empty text clears it). A field that ' +
+      'already says exactly this is left alone. Pass submit: true to press Enter afterwards — the usual way to ' +
+      'run a search. If the field formats what it is given (a phone number, a date), the result says what it ' +
+      'now shows. Never use this for a password or one-time code — ask the user to enter those themselves.',
+    inputSchema: z.object({
+      ...typeFields,
+      submit: z.boolean().optional().describe('Press Enter after typing, e.g. to run a search.'),
+    }),
+    permission: acting,
+    compact: { verb: 'Typing into', noun: { one: 'field', other: 'fields' }, previewKey: 'element' },
+    isolation: ACT_ISOLATION,
+    handler: ({ uid, text, submit, tab_id }, ctx) =>
+      call('act', { action: 'type', uid, text, ...(submit ? { submit: true } : {}), tab_id }, ctx),
+  });
 
   const navigate = defineTool({
     name: 'browser_navigate',
@@ -248,11 +218,8 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       'Take a picture of the page — the last resort, after browser_snapshot. Use it when the accessibility ' +
       'tree is empty where something is clearly visible (a <canvas> app, a chart, a rendered document). ' +
       'Pass a uid to crop to that element, which is far cheaper than a whole viewport and is usually the ' +
-      'part that was actually in question.' +
-      (desktop
-        ? ' Every picture comes back named — a view id and its size — and browser_point acts on what it shows, ' +
-          'in its pixels; a crop to a canvas is the cheap way to work on one.'
-        : ''),
+      'part that was actually in question. Every picture comes back named — a view id and its size — and ' +
+      'browser_point acts on what it shows, in its pixels; a crop to a canvas is the cheap way to work on one.',
     inputSchema: z.object({
       uid: blankAsAbsent(z.string().min(1)).describe('Crop to this element from the last snapshot.'),
       tab_id: tabId,
@@ -274,18 +241,12 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
   const key = defineTool({
     name: 'browser_key',
     icon: 'globe',
-    description: desktop
-      ? 'Press a key on the page. Use it for the things a click and a typed string cannot do: submitting ' +
-        'with Enter, dismissing with Escape, moving with Tab or the arrows. Combine modifiers with "+", e.g. ' +
-        '"Shift+Tab", "Meta+a". browser_type already replaces a field\'s text, so there is no need to clear one ' +
-        'first. The key goes wherever the page has focus, so browser_click the field first — otherwise it lands ' +
-        'on whatever was focused before. Returns once the page settles, saying whether it navigated.'
-      : 'Press a key on the page. Use it for the things a click and a typed string cannot do: submitting ' +
-        'with Enter, dismissing with Escape, moving between fields with Tab, and clearing a field that ' +
-        'already has something in it with "Meta+a" then "Backspace" before typing over it. Combine ' +
-        'modifiers with "+", e.g. "Shift+Tab", "Meta+a". ' +
-        'The key goes wherever the page has focus, so browser_click the field first — otherwise it lands ' +
-        'on whatever was focused before, which is rarely what you meant.',
+    description:
+      'Press a key on the page. Use it for the things a click and a typed string cannot do: submitting ' +
+      'with Enter, dismissing with Escape, moving with Tab or the arrows. Combine modifiers with "+", e.g. ' +
+      '"Shift+Tab", "Meta+a". browser_type already replaces a field\'s text, so there is no need to clear one ' +
+      'first. The key goes wherever the page has focus, so browser_click the field first — otherwise it lands ' +
+      'on whatever was focused before. Returns once the page settles, saying whether it navigated.',
     inputSchema: z.object({
       key: z
         .string()
@@ -314,13 +275,11 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     z.object({ kind: z.literal('navigate'), url: z.string().url() }),
     z.object({ kind: z.literal('history'), action: z.enum(['back', 'forward', 'reload']) }),
   ] as const;
-  const step = desktop
-    ? z.discriminatedUnion('kind', [
-        ...commonSteps,
-        z.object({ kind: z.literal('type'), uid: z.string().min(1), text: z.string(), submit: z.boolean().optional() }),
-        z.object({ kind: z.literal('select'), uid: z.string().min(1), option: z.string().min(1) }),
-      ])
-    : z.discriminatedUnion('kind', [...commonSteps, z.object({ kind: z.literal('type'), uid: z.string().min(1), text: z.string() })]);
+  const step = z.discriminatedUnion('kind', [
+    ...commonSteps,
+    z.object({ kind: z.literal('type'), uid: z.string().min(1), text: z.string(), submit: z.boolean().optional() }),
+    z.object({ kind: z.literal('select'), uid: z.string().min(1), option: z.string().min(1) }),
+  ]);
 
   const batch = defineTool({
     name: 'browser_batch',
@@ -397,7 +356,9 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       'screen, a CAPTCHA. Say plainly in `reason` what they should do. ' +
       'You are NOT reading the page while this is pending, and you must never ask the user to tell you a ' +
       'password or code — they type it themselves. The result reports whether they finished; take a fresh ' +
-      'browser_snapshot afterwards and confirm from the page that it worked before carrying on.',
+      'browser_snapshot afterwards and confirm from the page that it worked before carrying on. In a browser with ' +
+      'no window (outside the desktop app) nobody can take it over: the call says so, and you tell the user what ' +
+      'the page needs instead.',
     inputSchema: z.object({
       reason: z.string().min(1).describe('What the user should do, in one plain sentence.'),
       tab_id: tabId,
@@ -411,9 +372,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, ctx),
   });
 
-  const tools: ToolDef[] = [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman];
-  if (!desktop) return tools;
-  tools.push(...buildDesktopTools(call));
+  const tools: ToolDef[] = [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman, ...buildPageTools(call)];
   if (!opts.run) return tools;
   tools.push(buildRunTool(call, opts.run));
   const { access } = opts.run;
@@ -431,8 +390,8 @@ function noticingKey(tool: ToolDef, access: JevAccess): ToolDef {
   });
 }
 
-/** Tools only the desktop's backend can serve; see AgentToolsOptions.desktop. */
-function buildDesktopTools(call: Call): ToolDef[] {
+/** Lists, scrolling, waiting, dialogs, consent, pictures and files — both backends serve them through one browser host. */
+function buildPageTools(call: Call): ToolDef[] {
   const select = defineTool({
     name: 'browser_select',
     icon: 'globe',

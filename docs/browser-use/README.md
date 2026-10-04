@@ -4,14 +4,20 @@ The desktop's Browser pane is a real Chromium view (a `<webview>`) that the
 agent drives and the user watches. Every click the agent makes is a click on
 that view, so the user can see it happen and take over at any moment. Outside
 the desktop — the terminal UI, `moxxy -p` — the same tools drive a headless
-Playwright browser instead; that backend is unchanged by this work.
+Playwright browser instead, through the same `BrowserHost`: everything below
+works there too, except the pointer, taking over and hand-offs, which need a
+window someone can see.
 
 - [Baseline](baseline.md) — what the browser could and could not do before.
 - [Results by stage](results.md) — the same tasks after each stage.
 
-## How an action works (desktop)
+## How an action works
 
-The main process drives the view over CDP (`packages/desktop-host/src/browser/`).
+`BrowserHost` (`packages/plugin-browser/src/page/`) drives a tab over CDP. A
+tab is the slice of Electron's `WebContents` the host needs: on the desktop the
+pane's view, in the headless sidecar a Playwright page dressed the same way
+(`sidecar/playwright-contents.ts`). The wire methods the tools call are one
+table, `dispatchToHost`, which both the desktop's bridge and the sidecar use.
 An action on an element named by a `uid` from the last snapshot goes the way a
 person's would, and every step that can go wrong says so:
 
@@ -54,11 +60,10 @@ text: "£53.74"`), so a price or a date deep in a list is not lost.
 
 ## Tools
 
-On both backends: `browser_snapshot`, `browser_click`, `browser_type`,
-`browser_key`, `browser_batch`, `browser_navigate`, `browser_tabs`,
-`browser_capture`, `browser_history`, `browser_await_human`.
-
-Only on the desktop:
+Every tool is offered on both backends: `browser_snapshot`, `browser_click`,
+`browser_type`, `browser_key`, `browser_batch`, `browser_navigate`,
+`browser_tabs`, `browser_capture`, `browser_history`, `browser_await_human`,
+and these:
 
 | Tool | What it does | Asks first |
 |---|---|---|
@@ -72,14 +77,16 @@ Only on the desktop:
 | `browser_upload` | Gives a file field local files, as the file dialog would | yes, every time |
 | `browser_run` | Carries out a run of steps named in words, finding each element and checking each `expect` with Jev — only with a TypeSafe key and Jev on | no (site consent) |
 
-On the desktop, `browser_type` replaces what a field holds (it no longer
-appends) and takes `submit: true` to press Enter afterwards.
+`browser_type` replaces what a field holds (it no longer appends) and takes
+`submit: true` to press Enter afterwards. In the headless browser
+`browser_await_human` answers at once that nobody can take the page over there,
+so the agent tells the user what the page needs instead of waiting.
 
 ## Working by picture
 
 A canvas app (Excalidraw, a map, a chart) shows things the accessibility tree
-cannot name. There the agent takes `browser_capture` without a uid: on the
-desktop that is a **view** — `v1`, `v2`, … — a picture of the viewport in CSS
+cannot name. There the agent takes `browser_capture` without a uid: that is a
+**view** — `v1`, `v2`, … — a picture of the viewport in CSS
 pixels (not the screen's: a Retina screen would make it four times the cost),
 answered with its size. `browser_point` then acts at x, y of that picture:
 click, double_click, right_click, move, drag along a `path`, scroll, key, type.
@@ -113,7 +120,7 @@ it reads on the page, with `expect` on the steps that open or change something:
 ```
 
 A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
-`hover`. For each one the desktop serves the page as Jev reads it — the
+`hover`. For each one the backend serves the page as Jev reads it — the
 elements one can act on under the uids the other tools use, and the page as
 text (`tree` on the bridge, which leaves the agent's own reads untouched) — and
 code finds the element, in this order:
@@ -150,9 +157,10 @@ books.toscrape.com: two steps with both expectations checked took 2.0 s, and
 
 ## Allowing a site
 
-On the desktop the person allows a **site** once, and the agent then acts there
-without a prompt per action. Click, type, keys, batch, navigate, history, tabs
-and select ask nothing on their own; instead the desktop refuses any of them
+The person allows a **site** once, and the agent then acts there without a
+prompt per action — on the desktop and in the terminal alike. Click, type,
+keys, batch, navigate, history, tabs and select ask nothing on their own;
+instead the backend refuses any of them
 that would land on a site the conversation has not allowed, and the refusal
 names the site and tells the agent to call `browser_allow_site`. That call is
 the one prompt: the user sees the site and the agent's reason.
@@ -164,17 +172,16 @@ the one prompt: the user sees the site and the agent's reason.
 - **What is judged:** a navigation (`goto`, a new tab with a URL) by where it
   goes; every other action by the page it acts on. Reading, capturing,
   scrolling, hovering and waiting go anywhere.
-- **What the agent is told:** every desktop snapshot ends with the sites it
+- **What the agent is told:** every snapshot ends with the sites it
   may act on, so it does not ask twice for the same one.
 - **Still asked every time:** `browser_dialog` (a confirm usually guards
   something final) and `browser_session`, whose calls carry no sites.
 - **Where it lives:** the approved `browser_allow_site` result in the session
-  log, so every client of the conversation sees the same sites; each desktop
-  call carries them (`sites`), folded from the log by `sitesFromLog`. A policy
-  rule in `~/.moxxy/permissions.json` still wins, and the terminal UI keeps its
-  prompt per action.
+  log, so every client of the conversation sees the same sites; each call
+  carries them (`sites`), folded from the log by `sitesFromLog`. A policy rule
+  in `~/.moxxy/permissions.json` still wins.
 
-## Taking the browser back
+## Taking the browser back (desktop)
 
 While a turn is working in the browser, the pane shows a bar: **Take over**
 and **Stop**. The person takes over with the button, or simply by pressing on
@@ -206,8 +213,10 @@ neither stops the agent any more. A password field is still never typed into.
 - **Dialogs**: an `alert` is accepted and its text returned with the click; a
   `confirm` or `prompt` stays open, the page is frozen until it is answered,
   and every other action on that tab says to answer it with `browser_dialog`.
-- **New windows** (`target=_blank`, `window.open`) open as tabs in the pane,
-  and the click that opened one returns its `tab_id`.
+- **New windows** (`target=_blank`, `window.open`) open as tabs in the pane —
+  in the headless browser as tabs of its own — and the click that opened one
+  returns its `tab_id`. A tab the site opens does not move a command that
+  names no tab off the tab the agent was working in.
 
 ## Trying it
 

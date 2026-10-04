@@ -11,7 +11,7 @@ import { app, BrowserWindow, ipcMain, webContents } from 'electron';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserHost, BROWSER_PARTITION } from '../../../../packages/desktop-host/dist/browser/host.js';
+import { BrowserHost, BROWSER_PARTITION } from '../../../../packages/plugin-browser/dist/page/host.js';
 import { BrowserBridge } from '../../../../packages/desktop-host/dist/browser/bridge.js';
 import { routeGuestPopups } from '../../../../packages/desktop-host/dist/browser/popups.js';
 

@@ -15,6 +15,11 @@ page you drive — not a picture of one — so the user watches you work and can
 over on the spot. It carries their signed-in profile, which is why you must never
 treat it as a throwaway browser.
 
+Outside the desktop — `moxxy` in a terminal, or a runner on its own — the same
+tools drive a browser of your own with no window. Everything below works the
+same there, with two differences: nobody watches it or can take it over, and it
+has none of the user's logins.
+
 **For a web page, use these tools, not the computer** — unless the user names
 another browser or app (Arc, Safari, Chrome…) or writes `@computer_use`. Then
 the work belongs in that app on their screen, through the computer tools, and
@@ -166,13 +171,17 @@ stop reading the page while they deal with it. Afterwards, take a fresh snapshot
 and confirm from the page itself that it worked — "I clicked Done" is not
 evidence of anything.
 
+In a browser with no window, `browser_await_human` answers that nobody can do it
+there. Stop acting on that page and tell the user what it needs; they can finish
+it in the Moxxy desktop app or in their own browser.
+
 A file field is filled with `browser_upload` (paths on this computer; the user
 is asked each time) — never click the button that opens the system's file
 dialog, which you cannot answer.
 
 ## When the user takes over
 
-The user can take the browser at any moment — by pressing on the page, typing
+On the desktop the user can take the browser at any moment — by pressing on the page, typing
 into it, or Take over. From then on every action is refused with "The user has
 taken over the browser". Do not retry, and do not reach the page another way
 (`browser_session`, a script, the computer tools): tell them what you were about

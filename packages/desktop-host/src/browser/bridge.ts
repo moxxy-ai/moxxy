@@ -4,8 +4,7 @@ import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
-import { siteAllows, siteRefusal } from '@moxxy/plugin-browser';
-import type { BrowserHost, PointAction, PointParams } from './host';
+import { dispatchToHost, type BrowserHost, type HostReply } from '@moxxy/plugin-browser';
 
 /**
  * The channel the agent's tools reach the desktop browser through.
@@ -28,18 +27,6 @@ import type { BrowserHost, PointAction, PointParams } from './host';
 
 /** Bytes past which an inbound line is malformed rather than large. */
 const MAX_LINE = 1_000_000;
-
-/** Methods that change the page or what the pane shows; refused while the person has the browser. */
-const ACTING = new Set([
-  'act', 'dialog', 'select', 'scroll', 'goto', 'back', 'forward', 'reload', 'click', 'fill', 'key', 'eval', 'point', 'upload',
-]);
-
-const POINT_ACTIONS = new Set<PointAction>(['click', 'double_click', 'right_click', 'move', 'drag', 'scroll', 'type', 'key']);
-const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-
-function isPair(value: unknown): value is [number, number] {
-  return Array.isArray(value) && value.length === 2 && value.every((n) => typeof n === 'number' && Number.isFinite(n));
-}
 
 export interface BridgeAddress {
   readonly socketPath: string;
@@ -140,217 +127,15 @@ export class BrowserBridge {
   }
 
   /**
-   * Map the sidecar's method names onto the host. Same names, same shapes —
-   * that is what lets one set of tools serve either backend.
+   * Hand a call to the host. The method table is shared with the headless
+   * sidecar (`dispatchToHost`), so one set of tools serves either backend.
    */
-  private async dispatch(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<{ ok: boolean; result?: unknown; error?: { message: string } }> {
-    // An empty string is a model filling in a field it has nothing for, not a
-    // tab named "". Treat it as absent.
-    const named = typeof params.tab_id === 'string' && params.tab_id ? params.tab_id : undefined;
-    // Naming a tab is how the agent moves its own aim. Nothing the person does
-    // in the pane touches it — see BrowserHost.agentTarget.
-    if (named) this.host.noteAgentTab(named);
-    const tabId = named ?? this.host.agentTarget();
-    if (typeof params.turn_id === 'string' && params.turn_id) this.host.noteAgentTurn(params.turn_id);
-    // While the person has the browser the agent may look, not touch.
-    if (ACTING.has(method) || (method === 'tabs' && String(params.action ?? 'list') !== 'list')) {
-      const refusal = this.host.agentRefusal();
-      if (refusal) return { ok: false, error: { message: refusal } };
-    }
-    const offSite = this.offSite(method, params, tabId);
-    if (offSite) return { ok: false, error: { message: offSite } };
-    const sel = typeof params.selector === 'string' ? params.selector : '';
-    const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
-    switch (method) {
-      case 'snapshot':
-        return this.host.snapshot(tabId, params.full === true ? { full: true } : {});
-      case 'tree':
-        return this.host.tree(tabId);
-      case 'act':
-        return this.host.act({
-          action: String(params.action ?? ''),
-          uid: String(params.uid ?? ''),
-          ...(typeof params.text === 'string' ? { text: params.text } : {}),
-          ...(params.submit === true ? { submit: true } : {}),
-          ...(tabId ? { tab_id: tabId } : {}),
-        });
-      case 'dialog':
-        return this.host.answerDialog({
-          accept: params.accept === true,
-          ...(typeof params.text === 'string' ? { text: params.text } : {}),
-          ...(tabId ? { tabId } : {}),
-        });
-      case 'select':
-        return this.host.selectOption({
-          uid: String(params.uid ?? ''),
-          option: String(params.option ?? ''),
-          ...(tabId ? { tabId } : {}),
-        });
-      case 'scroll':
-        return this.host.scroll({
-          direction: params.direction === 'up' ? 'up' : 'down',
-          ...(typeof params.screens === 'number' ? { screens: params.screens } : {}),
-          ...(typeof params.uid === 'string' && params.uid ? { uid: params.uid } : {}),
-          ...(tabId ? { tabId } : {}),
-        });
-      case 'wait':
-        return this.host.waitFor({
-          text: String(params.text ?? ''),
-          ...(params.gone === true ? { gone: true } : {}),
-          ...(typeof params.timeoutMs === 'number' ? { timeoutMs: params.timeoutMs } : {}),
-          ...(tabId ? { tabId } : {}),
-        });
-      case 'point': {
-        const action = String(params.action ?? '') as PointAction;
-        if (!POINT_ACTIONS.has(action)) return { ok: false, error: { message: `unknown point action: ${action}` } };
-        const point: PointParams = {
-          action,
-          view: String(params.view ?? ''),
-          ...(typeof params.x === 'number' ? { x: params.x } : {}),
-          ...(typeof params.y === 'number' ? { y: params.y } : {}),
-          ...(Array.isArray(params.path) ? { path: params.path.filter(isPair) } : {}),
-          ...(typeof params.direction === 'string' && DIRECTIONS.has(params.direction)
-            ? { direction: params.direction as NonNullable<PointParams['direction']> }
-            : {}),
-          ...(typeof params.screens === 'number' ? { screens: params.screens } : {}),
-          ...(typeof params.text === 'string' ? { text: params.text } : {}),
-          ...(typeof params.key === 'string' ? { key: params.key } : {}),
-          ...(tabId ? { tabId } : {}),
-        };
-        return this.host.point(point);
-      }
-      case 'upload':
-        return this.host.upload({
-          uid: String(params.uid ?? ''),
-          paths: Array.isArray(params.paths) ? params.paths.filter((p): p is string => typeof p === 'string') : [],
-          ...(tabId ? { tabId } : {}),
-        });
-      case 'goto': {
-        const url = params.url;
-        if (typeof url !== 'string') return { ok: false, error: { message: 'url is required' } };
-        return this.host.goto(url, tabId);
-      }
-      case 'tabs': {
-        const action = String(params.action ?? 'list');
-        try {
-          if (action === 'new') {
-            const url = typeof params.url === 'string' && params.url ? params.url : 'about:blank';
-            const newId = await this.host.newTab(url);
-            // A tab the agent asked for is the tab the agent is now working in.
-            this.host.noteAgentTab(newId);
-            return { ok: true, result: { tabId: newId, tabs: this.host.list(), activeTabId: this.host.activeId } };
-          }
-          if (action === 'select') {
-            if (!named) return { ok: false, error: { message: 'tab_id is required for select' } };
-            this.host.select(named);
-          }
-          if (action === 'close') {
-            if (!named) return { ok: false, error: { message: 'tab_id is required for close' } };
-            this.host.unregister(named);
-          }
-          return { ok: true, result: { tabs: this.host.list(), activeTabId: this.host.activeId } };
-        } catch (err) {
-          return { ok: false, error: { message: err instanceof Error ? err.message : String(err) } };
-        }
-      }
-      case 'capture':
-        return this.host.capture({
-          view: true,
-          ...(tabId ? { tabId } : {}),
-          ...(params.clip ? { clip: params.clip as { x: number; y: number; width: number; height: number } } : {}),
-          ...(params.format === 'jpeg' ? { format: 'jpeg' as const } : {}),
-        });
-      case 'back':
-      case 'forward':
-      case 'reload':
-        return this.host.history(method, tabId);
-      case 'await_human':
-        return this.host.awaitHuman({
-          ...(tabId ? { tabId } : {}),
-          reason: String(params.reason ?? 'The page needs you to do something the agent must not do itself.'),
-        });
-      case 'box':
-        return this.host.boxOf(String(params.uid ?? ''), tabId);
-
-      // Below the accessibility layer: what `browser_session` asks for. Same
-      // method names and shapes as the sidecar, so the tool cannot tell the two
-      // backends apart — which is the whole point of this bridge.
-      case 'click':
-        return this.host.clickSelector(sel, { ...(tabId ? { tabId } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
-      case 'fill':
-        return this.host.fillSelector(sel, String(params.value ?? ''), {
-          ...(tabId ? { tabId } : {}),
-          ...(timeoutMs ? { timeoutMs } : {}),
-        });
-      case 'key':
-        return this.host.key(String(params.key ?? ''), tabId);
-      case 'text':
-        return this.host.textOf(sel || undefined, tabId);
-      case 'html':
-        return this.host.htmlOf(tabId);
-      case 'eval':
-        return this.host.evaluate(String(params.expression ?? ''), tabId);
-      case 'screenshot':
-        return this.host.capture({
-          ...(tabId ? { tabId } : {}),
-          ...(params.fullPage === true ? { fullPage: true } : {}),
-        });
-      case 'close':
-        // The sidecar's `close` tears its whole browser down. Here the browser
-        // is the user's, on screen, holding their logins — the tool disposing of
-        // its session must not take it with it.
-        return { ok: true };
-      case 'url': {
-        const tabs = this.host.list();
-        const current = tabs.find((t) => (tabId ? t.tabId === tabId : t.active));
-        return current
-          ? { ok: true, result: current.url }
-          : { ok: false, error: { message: 'no open tab' } };
-      }
-      default:
-        return { ok: false, error: { message: `unknown method: ${method}` } };
-    }
-  }
-
-  /**
-   * Why this call would land on a site the conversation has not allowed, or
-   * null. A navigation is judged by where it goes; any other action by the page
-   * it acts on. Reading, scrolling, pointing and waiting decide nothing and go
-   * anywhere. A call that carries no `sites` comes from `browser_session`, which
-   * the user approves call by call — that approval is its consent.
-   */
-  private offSite(method: string, params: Record<string, unknown>, tabId: string | undefined): string | null {
-    if (!Array.isArray(params.sites)) return null;
-    const sites = params.sites.filter((site): site is string => typeof site === 'string');
-    const destination = (url: unknown): string | null =>
-      typeof url === 'string' && url && !siteAllows(sites, url) ? siteRefusal(url) : null;
-    const here = (tab: string | undefined): string | null => {
-      const page = this.host.list().find((t) => (tab ? t.tabId === tab : t.active));
-      // No such tab: let the action report that in its own words.
-      return page && !siteAllows(sites, page.url) ? siteRefusal(page.url) : null;
-    };
-    switch (method) {
-      case 'goto':
-        return destination(params.url);
-      case 'tabs':
-        if (params.action === 'new') return destination(params.url);
-        return params.action === 'close' ? here(tabId) : null;
-      case 'act':
-        return params.action === 'hover' ? null : here(tabId);
-      case 'select':
-      case 'key':
-      case 'point':
-      case 'upload':
-      case 'back':
-      case 'forward':
-      case 'reload':
-        return here(tabId);
-      default:
-        return null;
-    }
+  private async dispatch(method: string, params: Record<string, unknown>): Promise<HostReply> {
+    // The sidecar's `close` tears its whole browser down. Here the browser is
+    // the user's, on screen, holding their logins — the tool disposing of its
+    // session must not take it with it.
+    if (method === 'close') return { ok: true };
+    return dispatchToHost(this.host, method, params);
   }
 
   async stop(): Promise<void> {

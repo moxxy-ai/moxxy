@@ -52,6 +52,19 @@ export { formatRunReport, runBrowserSteps, runStepSchema, type PageRead, type Ru
 export { diffRendering, renderingFromText, renderingOf } from './ax/diff.js';
 export { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from './ax/snapshot.js';
 export { detectWall, wallNote, type Wall, type WallKind } from './ax/wall.js';
+export {
+  BrowserHost,
+  BROWSER_PARTITION,
+  type HostReply,
+  type HostWebContents,
+  type PointAction,
+  type PointParams,
+  type Region,
+  type WebContentsLookup,
+} from './page/host.js';
+export { dispatchToHost, type HostDispatchOptions } from './page/dispatch.js';
+export type { CursorFrame, CursorPhase, CursorSink } from './page/agent-pointer.js';
+export type { ControlState, Driver } from './page/control.js';
 
 export interface BuildBrowserPluginOptions extends BrowserSessionDeps {
   readonly webSearch?: BuildWebSearchToolOptions;

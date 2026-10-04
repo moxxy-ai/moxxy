@@ -1514,9 +1514,6 @@ importers:
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
-      playwright:
-        specifier: ^1.40.0
-        version: 1.60.0
       undici:
         specifier: 6.28.1
         version: 6.28.1
@@ -1530,6 +1527,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.18
+      playwright:
+        specifier: ^1.60.0
+        version: 1.60.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

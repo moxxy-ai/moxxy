@@ -11,7 +11,7 @@
  * `security.ts`) and owns everything after.
  */
 
-import type { BrowserHost } from '../browser/host';
+import type { BrowserHost } from '@moxxy/plugin-browser';
 import { handle } from './shared';
 
 export function registerBrowserHandlers(host: BrowserHost): void {

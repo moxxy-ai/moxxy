@@ -2,24 +2,13 @@ import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { basename, isAbsolute } from 'node:path';
 import { assertDefined } from '@moxxy/sdk';
-import {
-  appTreeOf,
-  buildAxTree,
-  detectWall,
-  diffRendering,
-  newUidMemory,
-  renderingFromText,
-  formatAxTree,
-  formatSnapshot,
-  redactSecretValues,
-  siteOf,
-  type AxNode,
-  type AxNodeRaw,
-  type AxTree,
-  type TabInfo,
-  type UidMemory,
-  type WallKind,
-} from '@moxxy/plugin-browser';
+import { appTreeOf } from '../ax/app-tree.js';
+import { diffRendering, renderingFromText } from '../ax/diff.js';
+import { formatAxTree } from '../ax/format.js';
+import { formatSnapshot, redactSecretValues, type TabInfo } from '../ax/snapshot.js';
+import { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from '../ax/tree.js';
+import { detectWall, type WallKind } from '../ax/wall.js';
+import { siteOf } from '../site-access.js';
 import {
   armPressCheck,
   coverAt,
@@ -54,9 +43,9 @@ import { BrowserControl, type ControlState } from './control.js';
  * which is the property that makes "watch the agent work, then take over"
  * possible at all — two separate browsers could never offer it.
  *
- * Reuses the accessibility layer from `@moxxy/plugin-browser`: that code is
- * pure and takes a minimal CDP interface, so it does not care whether the
- * channel underneath is Playwright's or Electron's.
+ * Nothing here is Electron's: a tab is the slice of `WebContents` below, so the
+ * headless sidecar drives its Playwright pages through this same host (see
+ * `sidecar/playwright-contents.ts`) and both backends act alike.
  */
 
 /** One persistent profile shared by every tab, so a login survives. */
@@ -1391,15 +1380,25 @@ export class BrowserHost {
    */
   openFromPage(openerWebContentsId: number, url: string): void {
     if (!/^https?:\/\//i.test(url) && url !== 'about:blank') return;
-    let opener: Tab | undefined;
-    for (const tab of this.tabs.values()) {
-      if (tab.webContentsId === openerWebContentsId) opener = tab;
-    }
-    const last = this.newTab(url).then(
-      (tabId) => ({ tabId, url }),
-      () => null,
+    this.noteOpened(
+      openerWebContentsId,
+      this.newTab(url).then(
+        (tabId) => ({ tabId, url }),
+        () => null,
+      ),
     );
-    if (opener) opener.opened = { count: (opener.opened?.count ?? 0) + 1, last };
+  }
+
+  /**
+   * Count a tab a page opened, so the action that opened it can say so. `tab`
+   * settles once the new page is a tab here — or null when it never became one.
+   */
+  noteOpened(openerWebContentsId: number, tab: Promise<{ tabId: string; url: string } | null>): void {
+    for (const opener of this.tabs.values()) {
+      if (opener.webContentsId === openerWebContentsId) {
+        opener.opened = { count: (opener.opened?.count ?? 0) + 1, last: tab };
+      }
+    }
   }
 
   /** The CDP channel for a tab, with its dialogs and navigations watched. */

@@ -41,30 +41,18 @@ describe('browser plugin — picking a backend', () => {
   });
 
   /**
-   * Every tool the sidecar offers, the desktop offers too, under the same name
-   * and for the same job — a task written against one runs on the other. The
-   * desktop adds what only its backend can serve (dialogs, native lists,
-   * scrolling, hovering, waiting); the sidecar's set does not change.
+   * One set of tools, whichever backend serves them: both drive the same
+   * browser host, so a task written against one runs on the other.
    */
-  it('offers every sidecar tool on the desktop too, plus the desktop’s own', () => {
+  it('offers the same tools with or without the desktop', () => {
     delete process.env[BRIDGE_SOCKET_ENV];
     const withoutBridge = buildBrowserPlugin().tools?.map((t) => t.name) ?? [];
     process.env[BRIDGE_SOCKET_ENV] = '/tmp/x.sock';
     process.env[BRIDGE_TOKEN_ENV] = 'abc';
     const withBridge = buildBrowserPlugin().tools?.map((t) => t.name) ?? [];
 
-    expect(withBridge.filter((name) => withoutBridge.includes(name))).toEqual(withoutBridge);
-    expect(withBridge.filter((name) => !withoutBridge.includes(name)).sort()).toEqual([
-      'browser_allow_site',
-      'browser_dialog',
-      'browser_hover',
-      'browser_point',
-      'browser_run',
-      'browser_scroll',
-      'browser_select',
-      'browser_upload',
-      'browser_wait',
-    ]);
+    expect(withBridge).toEqual(withoutBridge);
+    expect(withoutBridge).toEqual(expect.arrayContaining(['browser_select', 'browser_allow_site', 'browser_point', 'browser_run']));
   });
 });
 
