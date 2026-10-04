@@ -759,8 +759,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Clip while the width animates, or the content spills over the field. */
-  overflow: hidden;
+  /* Clip while the width animates, or the content spills over the field.
+   * `clip`, not `hidden`: a hidden overflow still scrolls when something
+   * inside is scrolled into view, and slid the whole column sideways. */
+  overflow: clip;
   transition:
     width var(--motion-shift) ease,
     border-right-color var(--motion-shift) ease,
@@ -1943,7 +1945,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tip { position: relative; }
 
 .tip::after {
-  content: attr(data-tip);
+  /* No box until it shows: an invisible bubble still takes room beside its
+   * control, and in the session list that room made the sidebar scroll
+   * sideways. */
+  content: none;
   position: absolute;
   left: calc(100% + 8px);
   top: 50%;
@@ -1966,11 +1971,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   box-shadow: var(--color-card-shadow);
   white-space: normal;
   line-height: 1.35;
-  opacity: 0;
   pointer-events: none;
-  /* Hidden by default with NO delay, so leaving a control clears the bubble at
-   * once; the delay below applies only on the way in. */
-  transition: opacity 90ms ease 0ms;
 }
 
 .tip[data-tip-side='left']::after {
@@ -1984,18 +1985,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   transform: translateX(-50%);
 }
 
-/* Fast, but not so fast that dragging the pointer across the rail strobes. */
+/* Fast, but not so fast that dragging the pointer across the rail strobes;
+ * leaving a control clears the bubble at once. */
 .tip:hover::after,
 .tip:focus-visible::after {
-  opacity: 1;
-  transition-delay: 140ms;
+  content: attr(data-tip);
+  animation: moxxy-fade-in 90ms ease 140ms both;
 }
 
 /* An expanded rail already shows its labels; a bubble repeating them is noise. */
 .app-rail[data-expanded='true'] .tip::after { content: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tip::after { transition: none; }
+  .tip:hover::after,
+  .tip:focus-visible::after { animation: none; }
 }
 
 /* --- Telemetry ---------------------------------------------------
