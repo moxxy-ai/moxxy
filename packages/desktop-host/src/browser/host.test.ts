@@ -24,6 +24,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
   const boxes: Record<number, number[] | null> = {};
   /** Boxes an element takes in turn, one per measurement, the last one kept: a page still laying itself out. */
   const moving: Record<number, number[][]> = {};
+  /** Line boxes of an inline element, as `DOM.getContentQuads` gives them; unset answers nothing. */
+  const lines: Record<number, number[][]> = {};
   /** Whether the page reports the element inside its viewport. */
   let onScreen = true;
   /** Whether the page has a file input the element leads to. */
@@ -88,6 +90,10 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
           for (const fn of [...(listeners.get('input-event') ?? [])]) fn({}, { type: 'mouseDown' });
         }
         if (method === 'Accessibility.getFullAXTree') return { nodes: axNodes };
+        if (method === 'DOM.getContentQuads') {
+          const id_ = (params as { backendNodeId?: number })?.backendNodeId;
+          return id_ !== undefined && lines[id_] ? { quads: lines[id_] } : {};
+        }
         if (method === 'DOM.getBoxModel') {
           const id_ = (params as { backendNodeId?: number })?.backendNodeId;
           const steps = id_ === undefined ? undefined : moving[id_];
@@ -150,6 +156,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     setPage: (nodes: unknown[]) => (axNodes = nodes),
     setBox: (backendNodeId: number, quad: number[] | null) => (boxes[backendNodeId] = quad),
     moveBox: (backendNodeId: number, ...quads: number[][]) => (moving[backendNodeId] = quads),
+    setLines: (backendNodeId: number, ...quads: number[][]) => (lines[backendNodeId] = quads),
     setOnScreen: (v: boolean) => (onScreen = v),
     setFileInput: (v: boolean) => (fileInput = v),
     emit: (event: string, ...args: unknown[]) => {
@@ -323,6 +330,27 @@ describe('BrowserHost — acting on a uid', () => {
     expect(reply.ok).toBe(true);
     const press = a.sent.find((s) => s.params?.type === 'mousePressed');
     expect(press?.params).toMatchObject({ x: 40, y: 220 });
+  });
+
+  /**
+   * Seen live in the narrow Browser pane: Wikipedia's "Marmolada (góra)" link
+   * wrapped onto two lines, and the centre of the box around both fell between
+   * them, on the sentence holding the link. The press landed there, the page
+   * did not move, and the click still reported success.
+   */
+  it('presses a link that wraps onto two lines on one of its lines, not between them', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+    a.setBox(21, [59, 245, 306, 245, 306, 285, 59, 285]);
+    a.setLines(21, [230, 245, 306, 245, 306, 262, 230, 262], [59, 268, 99, 268, 99, 285, 59, 285]);
+
+    const reply = await host.act({ action: 'click', uid: '2' });
+
+    expect(reply.ok).toBe(true);
+    const press = a.sent.find((s) => s.params?.type === 'mousePressed');
+    expect(press?.params).toMatchObject({ x: 268, y: 253.5 });
   });
 
   it('waits for a document still loading before it measures where to press', async () => {
@@ -724,6 +752,22 @@ describe('BrowserHost — not re-reading a page that has not moved', () => {
     expect(second).not.toContain('Do kasy');
     expect(second).toMatch(/unchanged/i);
     expect(second.length).toBeLessThan(first.length / 2);
+  });
+
+  /**
+   * Seen live: an agent that lost its bearings asked for `full: true` and was
+   * told "unchanged" — twice — then told the user it could not open the link.
+   */
+  it('sends the whole tree when it is asked for, even for a page that has not moved', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    const text = String(((await host.snapshot(undefined, { full: true })).result as { text: string }).text);
+
+    expect(text).toContain('Do kasy');
+    expect(text).not.toMatch(/unchanged/i);
   });
 
   it('leaves the uids from that page usable', async () => {

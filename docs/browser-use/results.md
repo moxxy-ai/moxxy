@@ -81,3 +81,38 @@ Two rounds before this one changed the code:
   happened in this round.
 - Runs where the model looped on `collab_inbox` (twice, unrelated to the
   browser) were discarded.
+
+## Stage 7 — in the packaged app
+
+The same tasks typed into the chat of the packaged desktop app
+(`pnpm package:dir`, `release/mac-arm64`), with `gpt-6-luna`, fast, Medium,
+Auto-approve on, on a throwaway home, the Browser pane open beside the chat.
+Unlike the trial window, the pane there is narrow (371 px of page), which is
+what a user sees.
+
+The first pass found three faults the trial window had hidden:
+
+- **A link wrapped onto two lines was pressed between them.** On Wikipedia's
+  disambiguation page the press landed on the sentence that holds the link;
+  nothing happened and the click still reported success. Without Jev the agent
+  gave up; with Jev it reached the article by typing its URL.
+- **`full: true` answered "unchanged"**, so the agent could not get the page
+  back once it had lost its bearings.
+- **The prices on books.toscrape.com were never sent.** They sit past the depth
+  cap, which collapsed them to `paragraph ... (2 descendants)`. Without Jev the
+  agent named the first book as the cheapest (£45.17); with Jev it worked
+  around it with a script.
+
+After the fixes, each mode on a fresh home: books, then wiki as a second turn
+in the same chat; canvas as a third turn with Jev on, and in a chat of its own
+with Jev off:
+
+| Task | Jev off | Jev on |
+|---|---|---|
+| books | **done** (£23.21) · 20 s · 7 model calls · 6 tools | **done** (£23.21) · **15 s** · 5 model calls · 4 tools |
+| wiki | **done** (3343 m) · 28 s · 10 calls · 9 tools | **done** (3343 m) · **21 s** · 6 calls · 5 tools |
+| canvas | done, but a narrow rectangle with the letters stacked (which the agent reported) · 35 s · 9 tools | **done** (rectangle labelled "Moxxy") · 36 s · 9 tools |
+
+The edge task needs the local fixture page, which `browser_navigate` refuses
+to open by design (no internal hosts), so it is measured in the trial window
+only.

@@ -18,6 +18,12 @@ export interface Point {
 
 /** Middle of a CDP quad (`[x1,y1,…,x4,y4]`), or null when it has no area. */
 export function quadCentre(quad: unknown): Point | null {
+  const box = quadBounds(quad);
+  return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
+}
+
+/** The upright box around a CDP quad, or null when it is not one or has no area. */
+function quadBounds(quad: unknown): { x: number; y: number; width: number; height: number } | null {
   if (!Array.isArray(quad) || quad.length < 8) return null;
   const numbers = quad.slice(0, 8).map(Number);
   if (numbers.some((n) => !Number.isFinite(n))) return null;
@@ -26,7 +32,7 @@ export function quadCentre(quad: unknown): Point | null {
   const width = Math.max(...xs) - Math.min(...xs);
   const height = Math.max(...ys) - Math.min(...ys);
   if (!(width > 0 && height > 0)) return null;
-  return { x: Math.min(...xs) + width / 2, y: Math.min(...ys) + height / 2 };
+  return { x: Math.min(...xs), y: Math.min(...ys), width, height };
 }
 
 /** Top-left corner of a CDP quad, or null when it is not one. */
@@ -61,18 +67,41 @@ export async function untilParsed(cdp: Cdp, timeoutMs: number): Promise<void> {
   }
 }
 
-/** Scroll an element into view and say where its middle now is. */
+/** Scroll an element into view and say where to press it now. */
 export async function locate(cdp: Cdp, backendNodeId: number): Promise<Point | null> {
   try {
     await cdp.send('DOM.scrollIntoViewIfNeeded', { backendNodeId });
   } catch {
     // Not scrollable; it may already be in view.
   }
+  const line = await middleOfLargestLine(cdp, backendNodeId);
+  if (line) return line;
   try {
     const box = (await cdp.send('DOM.getBoxModel', { backendNodeId })) as { model?: { content?: unknown } };
     return quadCentre(box?.model?.content);
   } catch {
     // "Could not compute box model": not laid out — hidden, or inside a closed menu.
+    return null;
+  }
+}
+
+/**
+ * The middle of an element's largest line box. A link that wraps has one box
+ * per line, and the middle of the box around them all can fall between the
+ * lines, on the sentence that holds the link — seen live on Wikipedia in the
+ * narrow Browser pane, where the press then reached nothing that navigates.
+ */
+async function middleOfLargestLine(cdp: Cdp, backendNodeId: number): Promise<Point | null> {
+  try {
+    const reply = (await cdp.send('DOM.getContentQuads', { backendNodeId })) as { quads?: unknown };
+    if (!Array.isArray(reply?.quads)) return null;
+    let best: { x: number; y: number; width: number; height: number } | null = null;
+    for (const quad of reply.quads) {
+      const box = quadBounds(quad);
+      if (box && (!best || box.width * box.height > best.width * best.height)) best = box;
+    }
+    return best ? { x: best.x + best.width / 2, y: best.y + best.height / 2 } : null;
+  } catch {
     return null;
   }
 }

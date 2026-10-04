@@ -69,6 +69,37 @@ describe('formatAxTree — rule 1: depth cap', () => {
   });
 });
 
+/**
+ * Seen live on books.toscrape.com in the narrow Browser pane: every book's
+ * price sat in a paragraph at the cap, which collapsed to `paragraph ... (2
+ * descendants)`. The model saw the titles and none of the prices, and named
+ * the first book as the cheapest.
+ */
+describe('formatAxTree — rule 1: what a collapsed row still says', () => {
+  function deepPrice(): AxNode {
+    let top = n('paragraph', { children: [n('StaticText', { name: '£53.74', children: [n('InlineTextBox', { name: '£53.74' })] })] });
+    for (let i = 0; i < MAX_TREE_DEPTH; i++) top = n('article', { name: `poziom-${i}`, children: [top, n('link', { name: `obok-${i}` })] });
+    return top;
+  }
+
+  it('keeps the text under an unnamed row it collapses, once', () => {
+    const out = formatAxTree(deepPrice());
+    const collapsed = out.split('\n').find((line) => line.includes('descendants')) ?? '';
+
+    expect(collapsed).toContain('paragraph');
+    expect(collapsed).toContain('"£53.74"');
+    expect(collapsed.match(/£53\.74/g)).toHaveLength(1);
+  });
+
+  it('cuts that text like any other label', () => {
+    let top = n('paragraph', { children: [n('StaticText', { name: 'z'.repeat(MAX_LABEL_CHARS * 3) })] });
+    for (let i = 0; i < MAX_TREE_DEPTH; i++) top = n('article', { name: `p-${i}`, children: [top, n('link', { name: `o-${i}` })] });
+
+    const collapsed = formatAxTree(top).split('\n').find((line) => line.includes('descendants')) ?? '';
+    expect(collapsed.length).toBeLessThan(MAX_LABEL_CHARS + 120);
+  });
+});
+
 describe('formatAxTree — rule 2: label truncation', () => {
   it('truncates a long accessible name', () => {
     const long = 'x'.repeat(MAX_LABEL_CHARS + 500);

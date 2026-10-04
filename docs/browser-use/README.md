@@ -22,7 +22,10 @@ person's would, and every step that can go wrong says so:
    once the document has been parsed. A navigation answers while the page is
    still loading, before its styles apply, and an element measured then is
    somewhere else a moment later; `browser_navigate` therefore returns once the
-   new document is parsed (up to 5 s), and a press waits the same way.
+   new document is parsed (up to 5 s), and a press waits the same way. The
+   place is the middle of the element's largest line box: a link that wraps
+   onto two lines has one box per line, and the middle of the box around both
+   can fall between them, on the sentence that holds the link.
 3. **Checks**: a disabled control is refused; if something covers the element
    (a banner, a dialog, a menu), the press is refused with the name of what is
    in the way. A menu held open by the pointer is given the chance to close
@@ -39,6 +42,15 @@ person's would, and every step that can go wrong says so:
    (up to 1.5 s).
 6. **The result says what happened**: `navigated`, a `dialog`, a tab the page
    `opened`, or what a field `value` now shows.
+
+## Reading a page
+
+`browser_snapshot` sends the accessibility tree once, then only what changed;
+"unchanged" means the page has not moved. `full: true` always sends the whole
+tree, even for a page that has not moved — that is how the agent finds its
+bearings again. Rows deeper than the depth cap collapse to one, and an
+unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
+text: "£53.74"`), so a price or a date deep in a list is not lost.
 
 ## Tools
 

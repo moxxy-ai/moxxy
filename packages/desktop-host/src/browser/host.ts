@@ -858,8 +858,9 @@ export class BrowserHost {
 
       // An empty difference is the same news as a matching fingerprint, and the
       // fingerprint is gone whenever the tree was handed back for being idle.
-      // Say the short thing rather than a header with nothing under it.
-      if (tab.seen === fingerprint || (changes !== null && changes.length === 0)) {
+      // Say the short thing rather than a header with nothing under it — unless
+      // the whole tree was asked for, which is how an agent finds its bearings.
+      if (!opts.full && (tab.seen === fingerprint || (changes !== null && changes.length === 0))) {
         tab.seen = fingerprint;
         tab.rendering = rendering;
         return ok({
