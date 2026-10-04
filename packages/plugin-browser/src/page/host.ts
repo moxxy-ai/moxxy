@@ -8,10 +8,12 @@ import { formatAxTree } from '../ax/format.js';
 import { formatSnapshot, redactSecretValues, type TabInfo } from '../ax/snapshot.js';
 import { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from '../ax/tree.js';
 import { detectWall, type WallKind } from '../ax/wall.js';
+import { HANDOFF_LIMIT_MS } from '../handoff-limit.js';
 import { siteOf } from '../site-access.js';
 import {
   armPressCheck,
   coverAt,
+  drawnArea,
   isDisabled,
   locate,
   pressAt,
@@ -490,7 +492,7 @@ export class BrowserHost {
         onScreen = await this.elementOnScreen(cdp, tab.wall.backendNodeId);
       }
       const requestId = `h${++this.handoffSeq}`;
-      const timeoutMs = opts.timeoutMs ?? 10 * 60_000;
+      const timeoutMs = opts.timeoutMs ?? HANDOFF_LIMIT_MS;
       const done = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
           this.pendingHandoffs.delete(requestId);
@@ -952,10 +954,9 @@ export class BrowserHost {
       await this.focusView(tab, 1500);
 
       await untilParsed(el.dom, PARSE_WAIT_MS);
-      const at = await this.place(cdp, el);
-      if (!at) {
-        return fail(`${el.named} is not drawn on the page — it may sit in a closed menu or a hidden panel; open what holds it first`);
-      }
+      const notDrawn = `${el.named} is not drawn on the page — it may sit in a closed menu or a hidden panel; open what holds it first`;
+      let at = await this.place(cdp, el);
+      if (!at) return fail(notDrawn);
       if (action !== 'hover') {
         if (await isDisabled(el.dom, el.backendNodeId)) return fail(`${el.named} is disabled, so pressing it does nothing`);
         let cover = await this.coverOf(cdp, el, at);
@@ -966,6 +967,10 @@ export class BrowserHost {
           // straight to the target would keep the pointer inside the menu.
           await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0, button: 'none' });
           await waitQuiet(cdp, 100, 500);
+          // The page may have moved meanwhile — a field that grew as it was typed
+          // into pushes what is below it down — so look where the element is now.
+          at = await this.place(cdp, el);
+          if (!at) return fail(notDrawn);
           cover = await this.coverOf(cdp, el, at);
         }
         if (cover) {
@@ -1780,20 +1785,35 @@ export class BrowserHost {
   async boxOf(uid: string, tabId?: string): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(tabId);
-      const snap = tab.snapshot;
-      if (!snap) return fail(`no snapshot for tab ${tab.id} — call snapshot first`);
-      const node = snap.index.get(uid);
-      if (!node?.backendNodeId) return fail(`uid ${uid} has no DOM node`);
-      const box = (await this.cdp(wc).send('DOM.getBoxModel', { backendNodeId: node.backendNodeId })) as {
-        model?: { content?: number[] };
+      const found = this.elementFor(tab, wc, uid);
+      if ('error' in found) return fail(found.error);
+      // The border box: what is drawn. The content box alone leaves out padding
+      // and border, and is 0×0 for an element drawn entirely by its padding.
+      const border = async (dom: Cdp, backendNodeId: number): Promise<Region | null> => {
+        const reply = (await dom.send('DOM.getBoxModel', { backendNodeId }).catch(() => null)) as {
+          model?: { border?: number[] };
+        } | null;
+        const q = reply?.model?.border;
+        if (!Array.isArray(q) || q.length < 8) return null;
+        const xs = [q[0], q[2], q[4], q[6]] as number[];
+        const ys = [q[1], q[3], q[5], q[7]] as number[];
+        const x = Math.min(...xs);
+        const y = Math.min(...ys);
+        return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
       };
-      const q = box?.model?.content;
-      if (!Array.isArray(q) || q.length < 8) return fail(`uid ${uid} is not visible`);
-      const xs = [q[0]!, q[2]!, q[4]!, q[6]!];
-      const ys = [q[1]!, q[3]!, q[5]!, q[7]!];
-      const x = Math.min(...xs);
-      const y = Math.min(...ys);
-      return ok({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y });
+      let box = await border(found.dom, found.backendNodeId);
+      if (!box) return fail(`${found.named} is not drawn on the page`);
+      if (box.width < 1 || box.height < 1) {
+        box = await drawnArea(found.dom, found.backendNodeId).catch(() => null);
+        if (!box) {
+          return fail(`${found.named} has no size on the page — capture the page without a uid, or crop to an element that is drawn`);
+        }
+      }
+      if (found.owner === undefined) return ok(box);
+      // Inside a frame from another site its box is the frame's; the page's is offset by the frame.
+      const frame = await border(this.cdp(wc), found.owner);
+      if (!frame) return fail(`${found.named} is in a frame that is not drawn on the page`);
+      return ok({ ...box, x: box.x + frame.x, y: box.y + frame.y });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }

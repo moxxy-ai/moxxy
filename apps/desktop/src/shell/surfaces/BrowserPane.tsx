@@ -28,6 +28,14 @@ import { AgentCursor, BrowserControlBar } from './BrowserControl';
  * hand-off from renderer to main in {@link useAdoptedWebview}.
  */
 
+/**
+ * Lets a page open a tab. Electron reads the attribute's presence; React drops
+ * a bare `allowpopups` (true) on the way to the DOM, and without it Electron
+ * refuses every new window a page opens — so it goes as a string, which the
+ * typings (a boolean) do not allow written inline.
+ */
+const ALLOW_POPUPS = { allowpopups: 'true' } as unknown as { allowpopups: boolean };
+
 /** One tab's view. Owns its adoption handshake and renders nothing else. */
 function TabView({
   initialUrl,
@@ -65,7 +73,7 @@ function TabView({
       ref={ref as unknown as React.Ref<HTMLElement>}
       src={initialUrl}
       partition={BROWSER_PARTITION_NAME}
-      allowpopups
+      {...ALLOW_POPUPS}
       style={{
         // Laid out but hidden rather than `display:none`: a background tab must
         // stay a live page, and Chromium stops painting an undisplayed view.

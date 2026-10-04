@@ -118,6 +118,21 @@ describe('BrowserPane', () => {
     );
   });
 
+  it('lets a page open a tab — every view carries allowpopups in the DOM', async () => {
+    installApi();
+    const { container } = render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+
+    // Without the attribute Electron refuses every new window a page asks for
+    // before main's handler ever sees it: Canva's "create a design" clicks a
+    // target=_blank link to its editor and nothing opened. React drops a bare
+    // `allowpopups` (true) on an element it does not know, so the attribute
+    // has to arrive as a string.
+    const views = [...container.querySelectorAll('webview')];
+    expect(views.length).toBeGreaterThan(0);
+    for (const view of views) expect(view.hasAttribute('allowpopups')).toBe(true);
+  });
+
   it('is not covering the page until an area is asked for', async () => {
     installApi();
     render(<BrowserPane workspaceId="w1" />);

@@ -37,6 +37,30 @@ const PAGES: Record<string, string> = {
     <form action="/results"><input name="q" aria-label="Szukaj w serwisie"><button>Go</button></form>`,
   '/results': `<title>Wyniki</title><h1>Wyniki</h1>`,
   '/inner': `<title>Wnętrze</title><button onclick="document.title='z ramki'">Wewnątrz</button>`,
+  '/boxes': `<title>Pudełka</title>
+    <button style="padding:30px;width:0;height:0;box-sizing:content-box;overflow:hidden">Ramka</button>
+    <button style="width:0;height:0;padding:0;border:0;overflow:hidden">Zero</button>
+    <main aria-label="Płótno" style="display:flex;width:0;height:120px">
+      <div style="flex-shrink:0;width:200px;height:100px;background:#09f"></div>
+    </main>`,
+  '/scrolled': `<title>Przewinięte</title>
+    <div style="height:600px"></div>
+    <textarea aria-label="Twoja odpowiedź" style="display:block;width:400px;height:300px"></textarea>
+    <button onclick="document.title='wysłane'">Prześlij</button>
+    <div style="height:100px"></div>`,
+  '/shifts': `<title>Przesuwa</title>
+    <div id="gap"></div>
+    <button onclick="document.title='wysłane'" style="display:block;margin-top:20px">Prześlij</button>
+    <div id="over" style="position:absolute;top:0;left:0;width:400px;height:200px;background:#eee"></div>
+    <script>
+      // What a form does as a field grows: the cover goes, and the button moves down.
+      document.addEventListener('mousemove', () => {
+        const over = document.getElementById('over');
+        if (!over) return;
+        over.remove();
+        document.getElementById('gap').style.height = '300px';
+      });
+    </script>`,
   '/upload': `<title>Plik</title><input type="file" aria-label="Załącznik"
     onchange="document.title = 'plik=' + this.files[0].name">`,
 };
@@ -58,9 +82,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (launched) await (await launched).close();
   server.closeAllConnections();
   await new Promise((done) => server.close(done));
 }, 30_000);
+
+let launched: Promise<import('playwright').Browser> | null = null;
+const sharedBrowser = (): Promise<import('playwright').Browser> =>
+  (launched ??= import('playwright').then(({ chromium }) => chromium.launch({ headless: true })));
 
 let state: SidecarState | null = null;
 afterEach(async () => {
@@ -78,11 +107,13 @@ async function sidecarOn(path: string): Promise<{
   context: { route(url: string, handler: (route: { fulfill(response: { body: string; contentType: string }): Promise<void> }) => Promise<void>): Promise<void> };
   call: (method: string, params?: Record<string, unknown>) => Promise<Reply>;
 }> {
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const context = await (await sharedBrowser()).newContext();
   const page = await context.newPage();
   await page.goto(`${origin}${path}`);
+  // One Chromium for the file: teardown closes the test's context, and the
+  // browser stays up — launching and closing one per test is what overran the
+  // hook's limit under a full parallel `pnpm test`.
+  const browser = { close: async () => {} };
   const handle = { browser, context, page } as unknown as PlaywrightHandle;
   const current: SidecarState = { handle, pendingInstallNotice: null };
   state = current;
@@ -187,6 +218,50 @@ describe.skipIf(!available)('the headless sidecar acts as the desktop does', () 
 
     expect(box.width).toBeGreaterThan(0);
     expect(box.height).toBeGreaterThan(0);
+  });
+
+  it('crops to what is drawn — padding and border too — and says when an element has no size', async () => {
+    const { call } = await sidecarOn('/boxes');
+    const padded = await uidOf(call, 'button', 'Ramka');
+    const empty = await uidOf(call, 'button', 'Zero');
+
+    // Seen live on Canva: a box read from the content area alone was 0×0 for a
+    // drawn element, and the crop failed as "clip width and height must be positive".
+    expect(resultOf(await call('box', { uid: padded })).width).toBeGreaterThanOrEqual(60);
+    const none = await call('box', { uid: empty });
+    expect(none.ok ? '' : none.error.message).toMatch(/button "Zero"\) has no size on the page.*without a uid/);
+  });
+
+  it('crops to what an element draws outside its own box', async () => {
+    const { call } = await sidecarOn('/boxes');
+    const canvas = await uidOf(call, 'main', 'Płótno');
+
+    // Seen live on Canva in a narrow pane: the editor's main was 0 wide and its
+    // canvas overflowed it — "no size" was true of the box, not of the picture.
+    const box = resultOf(await call('box', { uid: canvas }));
+    expect(box.width).toBeGreaterThanOrEqual(200);
+    expect(box.height).toBeGreaterThanOrEqual(100);
+  });
+
+  it('presses a button the page had to scroll to, rather than what sat there before the scroll', async () => {
+    const { call, page } = await sidecarOn('/scrolled');
+    const button = await uidOf(call, 'button', 'Prześlij');
+
+    // Seen live on a Google Form in the terminal: the button below the fold was
+    // scrolled into view, and what covered it was read at the point as if the
+    // page had not scrolled — the textarea above, every time.
+    resultOf(await call('act', { action: 'click', uid: button }));
+    expect(await (page as unknown as { title(): Promise<string> }).title()).toBe('wysłane');
+  });
+
+  it('aims again when the page moves while it checks what is in the way', async () => {
+    const { call, page } = await sidecarOn('/shifts');
+    const button = await uidOf(call, 'button', 'Prześlij');
+
+    // Seen live on a Google Form: a field grew after typing, the button moved,
+    // and the second look at what covered it read the old place — a textarea.
+    resultOf(await call('act', { action: 'click', uid: button }));
+    expect(await (page as unknown as { title(): Promise<string> }).title()).toBe('wysłane');
   });
 
   it('reports the tab a link opened, as a tab the agent can work in', async () => {

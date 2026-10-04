@@ -8,6 +8,25 @@ Playwright browser instead, through the same `BrowserHost`: everything below
 works there too, except the pointer, taking over and hand-offs, which need a
 window someone can see.
 
+The headless browser keeps a profile on disk (`~/.moxxy/browser/profile`),
+as the pane keeps its own, so a site the user signed it in to stays signed in
+from run to run. Signing in happens in a window the person uses:
+
+```sh
+moxxy browser login canva.com   # opens a window; sign in, close it — the profile keeps it
+moxxy browser sites             # sites with a saved sign-in
+moxxy browser logout canva.com  # forget one site (its subdomains too)
+moxxy browser logout --all      # forget every sign-in (deletes the profile)
+```
+
+The same actions are `/browser …` in the TUI. One browser holds the profile
+at a time — a lock file (`profile.lock`) names its holder, because Chromium
+under Playwright does not refuse a second one and two would corrupt the cookie
+store. A run that finds the profile held starts signed out and says so; login
+and logout refuse until the holder lets go. The profile is protected by the
+`~/.moxxy` permissions (0700), not by the OS keychain: on macOS and Linux Playwright's Chromium
+encrypts cookies with a fixed key.
+
 - [Baseline](baseline.md) — what the browser could and could not do before.
 - [Results by stage](results.md) — the same tasks after each stage.
 
@@ -34,8 +53,15 @@ person's would, and every step that can go wrong says so:
    can fall between them, on the sentence that holds the link.
 3. **Checks**: a disabled control is refused; if something covers the element
    (a banner, a dialog, a menu), the press is refused with the name of what is
-   in the way. A menu held open by the pointer is given the chance to close
-   first.
+   in the way. What is there is asked of the page itself
+   (`elementFromPoint`, in the viewport coordinates the point was measured
+   in): `DOM.getNodeForLocation` read the point as if the page had not
+   scrolled in the terminal's Chromium, so a button scrolled into view was
+   "covered" by whatever had been at that spot before. A menu held open by the pointer is given the chance to close
+   first, and the element is then measured again: the page may have moved
+   meanwhile (a form field that grows as it is typed into pushes the button
+   below it down), and the second look must be at where the element is now,
+   not where it was.
 4. **The pointer moves there and presses.** The agent's own pointer — the
    same arrowhead as the Computer Use cursor — glides to the element, and the
    press goes out once the pane reports it has arrived (at most 250 ms of
@@ -88,7 +114,12 @@ A canvas app (Excalidraw, a map, a chart) shows things the accessibility tree
 cannot name. There the agent takes `browser_capture` without a uid: that is a
 **view** — `v1`, `v2`, … — a picture of the viewport in CSS
 pixels (not the screen's: a Retina screen would make it four times the cost),
-answered with its size. `browser_point` then acts at x, y of that picture:
+answered with its size. With a uid, the picture is cropped to everything the
+element draws — its padding and border too, content that overflows an element
+with no size of its own (a 0-wide flex container holding a canvas), and for an
+element in a frame from another site, offset by where that frame sits; an
+element that draws nothing is an error that says so, rather than an empty
+picture, and a uid the page does not have is answered with "leave uid out". `browser_point` then acts at x, y of that picture:
 click, double_click, right_click, move, drag along a `path`, scroll, key, type.
 
 A point is refused, with nothing done, when the picture no longer describes
@@ -204,6 +235,9 @@ CAPTCHA, a sign-in — and the agent hands over with `browser_await_human`
 instead of answering it. A link to a cookie *policy* is not a cookie choice,
 and a form that merely has a password field among others is not a sign-in;
 neither stops the agent any more. A password field is still never typed into.
+The pane waits ten minutes for the user to finish (`HANDOFF_LIMIT_MS`), and
+the call from the runner to the pane waits as long, plus a moment to answer —
+not the 150 s ceiling every other call has.
 
 ## Frames, dialogs, new tabs
 
@@ -216,7 +250,10 @@ neither stops the agent any more. A password field is still never typed into.
 - **New windows** (`target=_blank`, `window.open`) open as tabs in the pane —
   in the headless browser as tabs of its own — and the click that opened one
   returns its `tab_id`. A tab the site opens does not move a command that
-  names no tab off the tab the agent was working in.
+  names no tab off the tab the agent was working in. On the desktop this
+  rests on the view's `allowpopups` attribute, written as the string
+  `"true"`: React drops a bare boolean on `<webview>`, and without it
+  Electron refuses the window before main's handler sees it.
 
 ## Trying it
 

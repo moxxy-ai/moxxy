@@ -221,7 +221,9 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       'part that was actually in question. Every picture comes back named — a view id and its size — and ' +
       'browser_point acts on what it shows, in its pixels; a crop to a canvas is the cheap way to work on one.',
     inputSchema: z.object({
-      uid: blankAsAbsent(z.string().min(1)).describe('Crop to this element from the last snapshot.'),
+      uid: blankAsAbsent(z.string().min(1)).describe(
+        'Crop to this element from the last snapshot. Leave it out for the whole viewport — the page itself has no uid.',
+      ),
       tab_id: tabId,
     }),
     permission: { action: 'allow' },
@@ -232,7 +234,11 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
       // ask for it first, then capture just that rectangle.
       let clip: unknown;
       if (uid) {
-        clip = await call('box', { uid, tab_id }, ctx);
+        clip = await call('box', { uid, tab_id }, ctx).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!message.includes('is not in the last snapshot')) throw err;
+          throw new Error(`${message} — to see the whole viewport, leave uid out`);
+        });
       }
       return call('capture', { tab_id, ...(clip ? { clip } : {}) }, ctx);
     },

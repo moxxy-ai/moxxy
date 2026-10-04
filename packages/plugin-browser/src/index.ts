@@ -3,6 +3,7 @@ import { webFetchTool } from './web-fetch.js';
 import { buildWebSearchTool, type BuildWebSearchToolOptions } from './web-search.js';
 import { buildBrowserSessionTool, closeBrowserSidecar, type BrowserSessionDeps } from './browser-session.js';
 import { buildAgentTools } from './agent-tools.js';
+import { buildBrowserCommand } from './browser-command.js';
 import { buildBrowserSurface } from './browser-surface.js';
 import { bridgeAddressFromEnv } from './bridge-client.js';
 import { JevAccess, withBrowserRunGuidance } from './run/run-tool.js';
@@ -28,6 +29,17 @@ export {
 } from './browser-session.js';
 export { buildBrowserSurface } from './browser-surface.js';
 export { buildAgentTools } from './agent-tools.js';
+export { buildBrowserCommand, type BrowserCommandDeps } from './browser-command.js';
+export {
+  claimProfile,
+  defaultBrowserProfile,
+  ProfileBusyError,
+  signedInSites,
+  signIn,
+  signOut,
+  type BrowserProfile,
+  type SignInOptions,
+} from './profile.js';
 export {
   ALLOW_SITE_TOOL,
   siteAllows,
@@ -84,6 +96,7 @@ export function buildBrowserPlugin(opts: BuildBrowserPluginOptions = {}) {
       ...buildAgentTools(opts, { run: { access: jev } }),
       buildBrowserSessionTool(opts),
     ],
+    commands: [buildBrowserCommand()],
     // The polling frame surface exists for hosts that have no browser of their
     // own. Inside the desktop the page IS the pane — a real Chromium view the
     // window composites — so registering this too would launch a SECOND

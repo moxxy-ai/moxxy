@@ -18,7 +18,10 @@ treat it as a throwaway browser.
 Outside the desktop — `moxxy` in a terminal, or a runner on its own — the same
 tools drive a browser of your own with no window. Everything below works the
 same there, with two differences: nobody watches it or can take it over, and it
-has none of the user's logins.
+is signed in only where the user signed it in themselves (`moxxy browser login
+<site>`, or `/browser login <site>` in the TUI). When a page needs a sign-in it
+does not have, tell the user to run that and ask again — never type their
+password.
 
 **For a web page, use these tools, not the computer** — unless the user names
 another browser or app (Arc, Safari, Chrome…) or writes `@computer_use`. Then

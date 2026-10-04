@@ -70,6 +70,7 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
     rows: [
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
       ['login <action>', 'inspect or remove stored OAuth credentials'],
+      ['browser <action>', "sign the terminal's browser in to sites, or forget them"],
       ['onboard --advanced', 'add channels or background services after the first run'],
       ['provision', 'headless model setup for scripts and managed machines'],
       ['init', 're-run the recommended interactive model setup'],
@@ -278,6 +279,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   onboard: async () => (await import('./commands/onboard.js')).runOnboardCommand,
   provision: async () => (await import('./commands/provision.js')).runProvisionCommand,
   login: async () => (await import('./commands/login.js')).runLoginCommand,
+  browser: async () => (await import('./commands/browser.js')).runBrowserCommand,
   perms: async () => (await import('./commands/perms.js')).runPermsCommand,
   config: async () => (await import('./commands/config.js')).runConfigCommand,
   memory: async () => (await import('./commands/memory.js')).runMemoryCommand,

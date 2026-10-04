@@ -54,6 +54,11 @@ describe('browser plugin — picking a backend', () => {
     expect(withBridge).toEqual(withoutBridge);
     expect(withoutBridge).toEqual(expect.arrayContaining(['browser_select', 'browser_allow_site', 'browser_point', 'browser_run']));
   });
+
+  it('gives the terminal /browser, for the sign-ins of its own browser', () => {
+    const command = buildBrowserPlugin().commands?.find((c) => c.name === 'browser');
+    expect(command?.channels).toEqual(['tui']);
+  });
 });
 
 /**

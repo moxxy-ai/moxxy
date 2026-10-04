@@ -121,29 +121,36 @@ async function middleOfLargestLine(cdp: Cdp, backendNodeId: number): Promise<Poi
  */
 export async function coverAt(cdp: Cdp, backendNodeId: number, point: Point): Promise<string | null> {
   try {
-    const hit = (await cdp.send('DOM.getNodeForLocation', {
-      x: Math.round(point.x),
-      y: Math.round(point.y),
-      includeUserAgentShadowDOM: false,
-      // false: a layer with `pointer-events: none` is passed through, as the
-      // pointer passes through it. true would count it as the thing hit.
-      ignorePointerEventsNone: false,
-    })) as { backendNodeId?: number };
-    if (hit?.backendNodeId === undefined || hit.backendNodeId === backendNodeId) return null;
     const target = await objectOf(cdp, backendNodeId);
-    const top = await objectOf(cdp, hit.backendNodeId);
-    if (!target || !top) return null;
+    if (!target) return null;
+    // Asked of the page, in its own viewport coordinates — the ones the point
+    // was measured in. DOM.getNodeForLocation read the point as if the page had
+    // not scrolled in the terminal's Chromium: seen live on a Google Form, a
+    // button scrolled into view was "covered" by the textarea above it.
+    // elementFromPoint passes through a layer with `pointer-events: none`, as
+    // the pointer does; open shadow roots are descended into.
     const reply = (await cdp.send('Runtime.callFunctionOn', {
       objectId: target,
-      arguments: [{ objectId: top }],
+      arguments: [{ value: point.x }, { value: point.y }],
       returnByValue: true,
-      functionDeclaration: `function (top) {
+      functionDeclaration: `function (x, y) {
+        let top = this.ownerDocument && this.ownerDocument.elementFromPoint(x, y);
+        while (top && top.shadowRoot) {
+          const deeper = top.shadowRoot.elementFromPoint(x, y);
+          if (!deeper || deeper === top) break;
+          top = deeper;
+        }
+        if (!top) return null;
         const inside = (a, b) => a === b || (a instanceof Node && b instanceof Node && a.contains(b));
         if (inside(this, top) || inside(top, this)) return null;
         const label = top.closest && top.closest('label');
         if (label && (label.control === this || label.contains(this))) return null;
-        const host = top.getRootNode && top.getRootNode().host;
-        if (host && inside(this, host)) return null;
+        for (let at = top; at && at.getRootNode; ) {
+          const host = at.getRootNode().host;
+          if (!host) break;
+          if (inside(this, host)) return null;
+          at = host;
+        }
         const owner = top.closest ? top.closest('[role=dialog],[aria-modal=true],dialog,[id],[class]') || top : top;
         const name = (owner.getAttribute && (owner.getAttribute('aria-label') || '')) ||
           (owner.innerText || owner.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
@@ -181,6 +188,42 @@ export async function isDisabled(cdp: Cdp, backendNodeId: number): Promise<boole
   } catch {
     return false;
   }
+}
+
+/**
+ * The part of the viewport an element and everything inside it draws, in its
+ * frame's viewport pixels; null when nothing of it is on screen. An element's
+ * own box can be empty while its content overflows it — a 0-wide flex
+ * container whose child is the whole canvas — and a crop is about the picture.
+ */
+export async function drawnArea(
+  cdp: Cdp,
+  backendNodeId: number,
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  const objectId = await objectOf(cdp, backendNodeId);
+  if (!objectId) return null;
+  const reply = (await cdp.send('Runtime.callFunctionOn', {
+    objectId,
+    returnByValue: true,
+    functionDeclaration: `function () {
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      const take = (el) => {
+        const box = el.getBoundingClientRect();
+        if (box.width < 1 || box.height < 1) return;
+        if (getComputedStyle(el).visibility === 'hidden') return;
+        l = Math.min(l, box.left); t = Math.min(t, box.top);
+        r = Math.max(r, box.right); b = Math.max(b, box.bottom);
+      };
+      take(this);
+      const all = this.getElementsByTagName('*');
+      for (let i = 0; i < all.length && i < 5000; i++) take(all[i]);
+      l = Math.max(l, 0); t = Math.max(t, 0);
+      r = Math.min(r, innerWidth); b = Math.min(b, innerHeight);
+      if (!(r - l >= 1 && b - t >= 1)) return null;
+      return { x: l, y: t, width: r - l, height: b - t };
+    }`,
+  })) as { result?: { value?: { x: number; y: number; width: number; height: number } | null } };
+  return reply.result?.value ?? null;
 }
 
 /**

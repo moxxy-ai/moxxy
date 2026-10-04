@@ -1,3 +1,4 @@
+import type { BrowserProfile } from '../profile-lock.js';
 import type { SidecarBrowser } from './sidecar-browser.js';
 import type { PlaywrightHandle } from './types.js';
 
@@ -21,4 +22,6 @@ export interface SidecarState {
    * stays a valid state.
    */
   browser?: SidecarBrowser;
+  /** Where the browser keeps sign-ins between runs; without one it starts signed out every time. */
+  profile?: BrowserProfile;
 }

@@ -65,7 +65,7 @@ async function ensurePlaywright(
   const pw = await importPlaywright();
   const which = opts.browser ?? 'chromium';
   const browserType = pw[which];
-  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true);
+  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true, state.profile);
   state.handle = handle;
   if (installNotice) state.pendingInstallNotice = installNotice;
   return state.handle;

@@ -274,6 +274,18 @@ describe('optional fields the model leaves empty', () => {
     expect(parsed).toEqual({});
   });
 
+  it('tells a capture with a uid the page does not have that the whole viewport needs no uid', async () => {
+    const fake = fakeSidecar();
+    fake.setReplyRaw(() => ({ ok: false, error: { message: 'uid 0 is not in the last snapshot of tab t2' } }));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    // Seen live on Canva: the model asked for uid "0" four times, meaning "the page".
+    await expect(byName(tools, 'browser_capture').handler({ uid: '0' }, ctx())).rejects.toThrow(
+      /uid 0 is not in the last snapshot.*leave uid out/,
+    );
+    expect(fake.received.map((r) => r.method)).toEqual(['box']);
+  });
+
   it('reads an empty uid on browser_capture as "no crop"', () => {
     const parsed = byName(tools(), 'browser_capture').inputSchema.parse({ uid: '', tab_id: '' });
 
