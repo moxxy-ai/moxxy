@@ -205,3 +205,31 @@ describe('detectWall — a form with a password field is not a sign-in wall', ()
     );
   });
 });
+
+describe('detectWall — a page that talks about CAPTCHAs is not running one', () => {
+  /**
+   * Coolify's "New resource" page lists every service it can deploy, and one of
+   * them is "Cap Captcha — The self-hosted CAPTCHA for the modern web". The
+   * word alone made the whole catalogue a CAPTCHA wall: the agent stopped at it,
+   * asked the user to clear a CAPTCHA that was not there, and gave up when
+   * Done changed nothing. A CAPTCHA is a widget — its frame, its checkbox, its
+   * answer field — never a sentence.
+   */
+  const card = (...lines: string[]): AxNode => node('generic', '', lines.map((line) => node('StaticText', line)));
+
+  it('leaves a catalogue entry about a CAPTCHA service alone', () => {
+    expect(detectWall(page(card('Cap Captcha', 'The self-hosted CAPTCHA for the modern web.')))).toBeNull();
+  });
+
+  it('leaves headings, paragraphs and links about CAPTCHAs alone', () => {
+    expect(detectWall(page(node('heading', 'How reCAPTCHA works')))).toBeNull();
+    expect(detectWall(page(node('paragraph', 'We use hCaptcha to keep bots out.')))).toBeNull();
+    expect(detectWall(page(node('link', 'reCAPTCHA Privacy Policy')))).toBeNull();
+  });
+
+  it('still spots the widget itself', () => {
+    expect(detectWall(page(card('Cap Captcha'), node('Iframe', 'reCAPTCHA')))?.kind).toBe('captcha');
+    expect(detectWall(page(node('IframePresentational', 'hCaptcha challenge')))?.kind).toBe('captcha');
+    expect(detectWall(page(node('textbox', 'Enter the CAPTCHA')))?.kind).toBe('captcha');
+  });
+});

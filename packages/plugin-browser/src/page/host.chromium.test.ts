@@ -41,6 +41,11 @@ const PAGES: Record<string, string> = {
   '/overlay': `<title>Nakładka</title>
     <button onclick="document.title='kliknięte'" style="position:absolute;left:20px;top:20px">Prostokąt</button>
     <div style="position:fixed;inset:0;pointer-events:none"></div>`,
+  '/cards': `<title>Usługi</title>
+    <div class="card" data-name="n8n"><span>N8N</span><span>n8n is an extendable workflow automation tool.</span></div>
+    <div class="card" data-name="pg"><span>N8N With Postgresql</span><span>n8n with a database.</span></div>
+    <div><span>Not a card</span></div>
+    <script>for (const card of document.querySelectorAll('.card')) card.addEventListener('click', () => { document.title = 'wybrano ' + card.dataset.name; });</script>`,
   '/later': `<title>Później</title><p id="status">Szukam…</p>
     <script>setTimeout(() => { document.getElementById('status').textContent = 'Znaleziono 3 wyniki'; }, 300)</script>`,
 };
@@ -232,5 +237,22 @@ describe.skipIf(!available)('BrowserHost in a real Chromium page', () => {
     resultOf(await host.act({ action: 'click', uid: await uidOf(host, 'button', 'Prostokąt') }));
 
     expect(await page.read<string>('document.title')).toBe('kliknięte');
+  });
+
+  /**
+   * Coolify's service catalogue is a grid of `div` cards with click handlers and
+   * no role; read by role alone, a run found nothing to click. Chromium knows
+   * which nodes answer a click, and the run's tree lists them by their text.
+   */
+  it('lists a card the page answers clicks on, and the card can be pressed', async () => {
+    const { host, tab: page } = await hostOn('/cards');
+
+    const { tree } = resultOf(await host.tree()) as { tree: { elements: Array<{ index: number; role: string; title?: string }> } };
+    const card = tree.elements.find((element) => element.title === 'N8N');
+    expect(card?.role).toBe('generic');
+    expect(tree.elements.map((element) => element.title)).not.toContain('Not a card');
+
+    resultOf(await host.act({ action: 'click', uid: String(card?.index) }));
+    expect(await page.read<string>('document.title')).toBe('wybrano n8n');
   });
 });

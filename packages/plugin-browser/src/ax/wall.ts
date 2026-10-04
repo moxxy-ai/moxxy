@@ -23,6 +23,16 @@ const CAPTCHA =
   /(recaptcha|hcaptcha|turnstile|captcha|not a robot|nie jestem robotem|jestem człowiekiem|i am human)/i;
 
 /**
+ * Where a CAPTCHA actually lives: its frame, its checkbox, its answer field.
+ *
+ * Text does not count. Coolify's catalogue of deployable services lists "Cap
+ * Captcha — The self-hosted CAPTCHA for the modern web", and while any node
+ * could name one, that sentence made the whole page a wall the agent stopped
+ * at and the user could not clear.
+ */
+const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ...FILLABLE]);
+
+/**
  * A control belongs to a consent banner if it says so, or if it uses a phrase
  * that appears nowhere else.
  *
@@ -94,7 +104,7 @@ export function detectWall(tree: AxNode | null): Wall | null {
   walk(tree, (n) => {
     const name = n.name ?? '';
     if (!name) return;
-    if (captcha === null && CAPTCHA.test(name)) captcha = n.uid;
+    if (captcha === null && CAPTCHA_WIDGET.has(n.role) && CAPTCHA.test(name)) captcha = n.uid;
     if (FILLABLE.has(n.role)) {
       if (SECRET_LABEL.test(name)) secret ??= n.uid;
       else otherFields++;

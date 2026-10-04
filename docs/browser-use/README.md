@@ -154,7 +154,13 @@ A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
 `hover`. For each one the backend serves the page as Jev reads it — the
 elements one can act on under the uids the other tools use, and the page as
 text (`tree` on the bridge, which leaves the agent's own reads untouched) — and
-code finds the element, in this order:
+code finds the element, in this order. The elements one can act on are those
+with an interactive role plus anything the browser says answers a click
+(`DOMSnapshot.isClickable`, which counts click listeners): a card grid built
+from `div`s — Coolify's catalogue of services — is listed card by card, each
+titled by its first line of text and described by the rest, so "N8N" finds the
+N8N card. A clickable wrapper showing more than a label's worth of text is left
+out.
 
 1. **What worked on this site before**, from `~/.moxxy/browser-use/learned/`
    (one file per site, the same memory format as Computer Use);
@@ -233,8 +239,10 @@ which is how a new request is told apart from the one that was stopped.
 A snapshot flags a page that is waiting for the user — a cookie choice, a
 CAPTCHA, a sign-in — and the agent hands over with `browser_await_human`
 instead of answering it. A link to a cookie *policy* is not a cookie choice,
-and a form that merely has a password field among others is not a sign-in;
-neither stops the agent any more. A password field is still never typed into.
+a form that merely has a password field among others is not a sign-in, and a
+page that only *mentions* a CAPTCHA — Coolify lists a service called "Cap
+Captcha" — is not running one: a CAPTCHA counts only as its widget (a frame, a
+checkbox or an answer field named for it). None of these stops the agent any more. A password field is still never typed into.
 The pane waits ten minutes for the user to finish (`HANDOFF_LIMIT_MS`), and
 the call from the runner to the pane waits as long, plus a moment to answer —
 not the 150 s ceiling every other call has.

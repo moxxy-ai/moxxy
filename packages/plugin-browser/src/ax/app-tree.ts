@@ -41,7 +41,45 @@ const MAX_DEPTH = 64;
 
 const clip = (text: string) => (text.length <= MAX_LABEL_CHARS ? text : `${text.slice(0, MAX_LABEL_CHARS)}…`);
 
-export function appTreeOf(root: AxNode, page: { readonly app: string; readonly window?: string }): AppTree {
+/** The lines of text a node shows, in reading order. */
+function linesOf(node: AxNode, out: string[] = []): string[] {
+  for (const child of node.children) {
+    if (child.role === 'StaticText') {
+      const line = child.name.trim();
+      if (line) out.push(line);
+    } else linesOf(child, out);
+  }
+  return out;
+}
+
+/**
+ * A node with no role that the page answers clicks on — a card, a tile — named
+ * by the text it shows: its first line is what a person calls it.
+ *
+ * Only something with a label's worth of text: a wrapper that answers clicks
+ * anywhere on the page shows the whole page, and as an option it is one more
+ * way to pick wrong.
+ */
+function shownAs(node: AxNode): { title: string; description?: string } | undefined {
+  const [first, ...rest] = node.name ? [node.name, ...linesOf(node)] : linesOf(node);
+  if (first === undefined || first.length > MAX_LABEL_CHARS) return undefined;
+  const description = rest.join(' ');
+  if (first.length + description.length > MAX_LABEL_CHARS * 2) return undefined;
+  return description ? { title: first, description: clip(description) } : { title: first };
+}
+
+export function appTreeOf(
+  root: AxNode,
+  page: { readonly app: string; readonly window?: string },
+  /** Backend ids of the nodes the browser says answer a click, read alongside the tree. */
+  opts: { readonly clickable?: ReadonlySet<number> } = {},
+): AppTree {
+  const answersClicks = (node: AxNode) =>
+    !ACTIONABLE.has(node.role) &&
+    node.role !== 'RootWebArea' &&
+    node.frame === undefined &&
+    node.backendNodeId !== undefined &&
+    opts.clickable?.has(node.backendNodeId) === true;
   const elements: AppElement[] = [];
   let truncated = false;
 
@@ -49,7 +87,8 @@ export function appTreeOf(root: AxNode, page: { readonly app: string; readonly w
   const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>): void => {
     let inside = { depth, place, kinds };
     const index = Number(node.uid);
-    if (ACTIONABLE.has(node.role) && Number.isSafeInteger(index)) {
+    const shown = answersClicks(node) ? shownAs(node) : undefined;
+    if ((ACTIONABLE.has(node.role) || shown) && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
         return;
@@ -57,7 +96,7 @@ export function appTreeOf(root: AxNode, page: { readonly app: string; readonly w
       const ordinal = (kinds.get(node.role) ?? 0) + 1;
       kinds.set(node.role, ordinal);
       const key = `${place}/${node.role}[${ordinal}]`;
-      elements.push(elementOf(node, index, key, depth));
+      elements.push(shown ? { ...elementOf(node, index, key, depth), ...shown } : elementOf(node, index, key, depth));
       inside = { depth: Math.min(depth + 1, MAX_DEPTH), place: key, kinds: new Map() };
     }
     for (const child of node.children) walk(child, inside.depth, inside.place, inside.kinds);

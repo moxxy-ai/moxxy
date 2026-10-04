@@ -907,10 +907,11 @@ export class BrowserHost {
       const shown = read ? redactSecretValues(read) : null;
       const url = wc.getURL();
       const title = wc.getTitle();
-      const tree = appTreeOf(shown ?? { uid: '0', role: 'RootWebArea', name: title, children: [] }, {
-        app: siteOf(url) ?? (url || 'page'),
-        window: title,
-      });
+      const tree = appTreeOf(
+        shown ?? { uid: '0', role: 'RootWebArea', name: title, children: [] },
+        { app: siteOf(url) ?? (url || 'page'), window: title },
+        { clickable: await clickableNodes(cdp) },
+      );
       return ok({ tabId: tab.id, url, title, tree, page: shown ? formatAxTree(shown) : '' });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -2150,5 +2151,25 @@ export class BrowserHost {
         return fail(err instanceof Error ? err.message : String(err));
       }
     }
+  }
+}
+
+/**
+ * Backend ids of the nodes in the page's own document that answer a click —
+ * click listeners included, which the accessibility tree does not show. A card
+ * grid built from `div`s has no role to find it by; this is how a run finds it.
+ * One read of the document (about 0.1 s on a 20,000-node page), and nothing
+ * when the browser cannot give it: the tree is still useful by role alone.
+ */
+async function clickableNodes(cdp: Cdp): Promise<ReadonlySet<number>> {
+  try {
+    const reply = (await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: [] })) as {
+      documents?: ReadonlyArray<{ nodes?: { backendNodeId?: readonly number[]; isClickable?: { index?: readonly number[] } } }>;
+    };
+    const nodes = reply.documents?.[0]?.nodes;
+    const ids = nodes?.backendNodeId ?? [];
+    return new Set((nodes?.isClickable?.index ?? []).flatMap((at) => (ids[at] === undefined ? [] : [ids[at]])));
+  } catch {
+    return new Set();
   }
 }

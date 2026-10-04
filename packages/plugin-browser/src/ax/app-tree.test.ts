@@ -81,3 +81,50 @@ describe('appTreeOf', () => {
     expect(appTreeSchema.safeParse(capped).success).toBe(true);
   });
 });
+
+describe('appTreeOf — what a page answers clicks on without saying so', () => {
+  /**
+   * Coolify's catalogue of services is a grid of cards, each a `div` with a click
+   * handler and no role. Read by role alone the grid had nothing to click: a run
+   * asked for the "N8N" card twice and was told the closest thing was the
+   * "Coolify" logo. The browser knows which nodes answer a click; those count,
+   * named by the text they show.
+   */
+  const text = (uid: string, line: string) => node(uid, 'StaticText', line);
+  const card = (uid: string, backendNodeId: number, ...lines: string[]) =>
+    node(uid, 'generic', '', lines.map((line, at) => text(`${uid}${at}`, line)), { backendNodeId });
+  const catalogue = node('1', 'RootWebArea', 'New resource', [
+    node('2', 'main', '', [
+      card('20', 200, 'N8N', 'n8n is an extendable workflow automation tool.'),
+      card('21', 201, 'N8N With Postgresql', 'n8n is an extendable workflow automation tool.'),
+      card('22', 202, 'Cap Captcha', 'The self-hosted CAPTCHA for the modern web.'),
+      card('23', 203, 'Not clickable', 'Just prose.'),
+      card('24', 204, 'x'.repeat(300)),
+    ]),
+  ]);
+  const clickable = new Set([200, 201, 202, 204]);
+  const tree = appTreeOf(catalogue, { app: 'mgmt.warocket.shop' }, { clickable });
+
+  it('lists a card that answers clicks, titled by its first line and described by the rest', () => {
+    expect(appTreeSchema.safeParse(tree).success).toBe(true);
+    expect(tree.elements.map((element) => [element.index, element.role, element.title, element.description])).toEqual([
+      [20, 'generic', 'N8N', 'n8n is an extendable workflow automation tool.'],
+      [21, 'generic', 'N8N With Postgresql', 'n8n is an extendable workflow automation tool.'],
+      [22, 'generic', 'Cap Captcha', 'The self-hosted CAPTCHA for the modern web.'],
+    ]);
+  });
+
+  it('lets the card be found by the name it shows', () => {
+    expect(byName(tree, { do: 'click', target: 'N8N' })?.index).toBe(20);
+  });
+
+  it('leaves out what does not answer clicks, and a "card" that is a whole page of text', () => {
+    const indexes = tree.elements.map((element) => element.index);
+    expect(indexes).not.toContain(23);
+    expect(indexes).not.toContain(24);
+  });
+
+  it('lists nothing extra when it is not told what answers clicks', () => {
+    expect(appTreeOf(catalogue, { app: 'mgmt.warocket.shop' }).elements).toEqual([]);
+  });
+});
