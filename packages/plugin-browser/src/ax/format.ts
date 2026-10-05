@@ -85,9 +85,13 @@ function visibleChildren(node: AxNode): ReadonlyArray<AxNode> {
 }
 
 /** `[uid] role: "name" (value: "…") [focused]` */
+/** How a control with no name is called, from what its markup says. */
+export const unnamedTitle = (hint: string): string => `no name; markup: ${hint}`;
+
 export function row(node: AxNode, indent = 0): string {
   let out = `${'  '.repeat(indent)}[${node.uid}] ${node.role}`;
   if (node.name) out += `: "${clip(node.name)}"`;
+  else if (node.hint) out += ` (${unnamedTitle(node.hint)})`;
   if (node.value) out += ` (value: "${clip(node.value)}")`;
   if (node.focused) out += ' [focused]';
   if (node.inProgress) out += ' [in progress]';

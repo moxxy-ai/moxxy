@@ -41,6 +41,11 @@ describe('formatAxTree — the row', () => {
     );
   });
 
+  it('says what the markup says about a control with no name', () => {
+    const icon: AxNode = { uid: '90', role: 'button', name: '', hint: '@click="modalOpen=false"', children: [] };
+    expect(formatAxTree(icon)).toBe('[90] button (no name; markup: @click="modalOpen=false")');
+  });
+
   it('marks the focused node', () => {
     expect(formatAxTree(n('textbox', { name: 'Szukaj', focused: true }))).toBe(
       '[4] textbox: "Szukaj" [focused]',

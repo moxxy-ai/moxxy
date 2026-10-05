@@ -41,6 +41,8 @@ export interface AxNode {
   readonly focused?: boolean;
   /** True when the page says the element is still working (see {@link isInProgress}). */
   readonly inProgress?: boolean;
+  /** What the markup says about a control with no name (see `./hints.ts`). */
+  readonly hint?: string;
   /**
    * The frame session the node lives in, when it is inside a frame from another
    * site. Its `backendNodeId` means something only in that session.
@@ -87,6 +89,12 @@ function isFocused(raw: AxNodeRaw): boolean {
  * is left out — a disk or quota gauge is drawn the same way, and calling every
  * gauge "work under way" would make the signal worthless.
  */
+function hintOf(raw: AxNodeRaw, hints: ReadonlyMap<number, string> | undefined): { hint?: string } {
+  if (str(raw.name) || raw.backendDOMNodeId === undefined) return {};
+  const hint = hints?.get(raw.backendDOMNodeId);
+  return hint ? { hint } : {};
+}
+
 /** A document's own busy means it is still loading, which some pages never finish; it is no task's state. */
 const DOCUMENTS = new Set(['RootWebArea', 'WebArea']);
 
@@ -134,7 +142,11 @@ export function newUidMemory(): UidMemory {
   return { byNode: new Map(), next: 0 };
 }
 
-export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>, memory?: UidMemory): AxTree | null {
+export function buildAxTree(
+  nodes: ReadonlyArray<AxNodeRaw>,
+  memory?: UidMemory,
+  hints?: ReadonlyMap<number, string>,
+): AxTree | null {
   const root = nodes[0];
   if (!root) return null;
 
@@ -178,6 +190,7 @@ export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>, memory?: UidMemory)
       ...(raw.backendDOMNodeId !== undefined ? { backendNodeId: raw.backendDOMNodeId } : {}),
       ...(isFocused(raw) ? { focused: true } : {}),
       ...(isInProgress(raw) ? { inProgress: true } : {}),
+      ...hintOf(raw, hints),
       ...(raw.frame !== undefined ? { frame: raw.frame } : {}),
       children,
     };

@@ -145,6 +145,18 @@ connection or answers 5xx (up to 5 minutes), and says "up after N s" or
 "still not up after N s" with the last answer. A refused address (internal,
 too many redirects) is never retried.
 
+### Controls with no name
+
+An icon-only button has no accessible name, so the tree can say only
+`button`. On such a control a read shows what its markup says instead —
+`[236] button (no name; markup: @click="modalOpen=false")` — from the attribute
+that wires its click (`onclick`, `@click`, `x-on:click`, `wire:click`,
+`v-on:click`, `ng-click`, `hx-*`), or else its `title`, `data-testid`, `id` or
+`name`. It comes from the same `DOMSnapshot` capture that finds clickable
+`div`s, taken only when the page has such a control. A run (`browser_run`)
+offers these controls to Jev under that description; one with nothing in its
+markup is still left out, since nothing tells it from the next one.
+
 ### Work still under way
 
 A page read lists, under `### In progress`, what the page itself marks as not

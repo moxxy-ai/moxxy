@@ -265,3 +265,25 @@ describe('buildAxTree — work the page says is still under way', () => {
     expect(tree?.children[0]?.inProgress).toBeUndefined();
   });
 });
+
+describe('buildAxTree — a control the page gives no name', () => {
+  const root = { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] };
+
+  it('carries what its markup says, and leaves a named control as it is', () => {
+    const tree = buildAxTree(
+      [
+        root,
+        { nodeId: '2', role: { value: 'button' }, name: { value: '' }, backendDOMNodeId: 20 },
+        { nodeId: '3', role: { value: 'button' }, name: { value: 'Restart' }, backendDOMNodeId: 30 },
+      ],
+      undefined,
+      new Map([
+        [20, '@click="modalOpen=false"'],
+        [30, 'wire:click="restart"'],
+      ]),
+    );
+
+    expect(tree?.children[0]?.hint).toBe('@click="modalOpen=false"');
+    expect(tree?.children[1]?.hint).toBeUndefined();
+  });
+});

@@ -51,6 +51,12 @@ const PAGES: Record<string, string> = {
     <section aria-label="Deployment log" aria-busy="true"><p>Pulling image…</p></section>
     <div role="progressbar" aria-label="Deploying"></div>
     <div role="progressbar" aria-label="Disk usage" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100"></div>`,
+  '/notice': `<title>Zmiana</title>
+    <div><p>Please redeploy to apply the new configuration.</p>
+      <button onclick="dismissNotice()"><svg width="10" height="10"><path d="M0 0L10 10"/></svg></button></div>
+    <button x-on:click="open = !open"><svg width="10" height="10"><path d="M0 5h10"/></svg></button>
+    <button><svg width="10" height="10"><path d="M5 0v10"/></svg></button>
+    <button>Restart</button>`,
   '/settings': `<title>Ustawienia</title>
     <div><label>Description</label><input></div>
     <div><label>Domains</label><input placeholder="https://app.coolify.io" value="http://n8n.example:5678"></div>`,
@@ -284,6 +290,16 @@ describe.skipIf(!available)('BrowserHost in a real Chromium page', () => {
     expect(resultOf(await host.act({ action: 'type', uid: String(uid), text: 'https://moxxy.example:5678' }))).toBeDefined();
     const after = resultOf(await host.find('moxxy.example')) as { text: string };
     expect(after.text).toContain('https://moxxy.example:5678');
+  });
+
+  it('says what the markup says about a button with no name', async () => {
+    const { host } = await hostOn('/notice');
+
+    const read = resultOf(await host.snapshot()) as { text: string };
+
+    expect(read.text).toContain('button (no name; markup: onclick="dismissNotice()")');
+    expect(read.text).toContain('button (no name; markup: x-on:click="open = !open")');
+    expect(read.text).toContain('button: "Restart"');
   });
 
   it('reads what the page marks as still working, and leaves a gauge out', async () => {

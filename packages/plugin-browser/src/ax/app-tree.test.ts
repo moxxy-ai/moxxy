@@ -177,4 +177,12 @@ describe('appTreeOf — a control with nothing to call it by is not an option', 
     );
     expect(tree.elements.map((element) => element.index)).toEqual([3, 4]);
   });
+
+  it('offers one the markup describes, under that description', () => {
+    const tree = appTreeOf(
+      node('1', 'RootWebArea', 'Service', [node('2', 'button', '', [], { hint: '@click="modalOpen=false"' }), node('3', 'button', 'Restart')]),
+      { app: 'mgmt.warocket.shop' },
+    );
+    expect(tree.elements.find((element) => element.index === 2)?.title).toBe('no name; markup: @click="modalOpen=false"');
+  });
 });

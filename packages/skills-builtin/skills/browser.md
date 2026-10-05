@@ -53,6 +53,12 @@ looking again is.
   that lands on the wrong article, a disambiguation page, a list on two pages —
   each is one more step for you. Follow the link the page offers; never ask the
   user to click something you can click.
+- **A change the page says is not applied yet is not done.** When a page tells
+  you what is still needed ("restart to apply", "publish your changes") and no
+  control carries that word, use the control that does it under another name —
+  a restart that reloads the settings, a save that publishes. Do it yourself
+  when it applies only to what you set up or changed in this task; when it
+  would touch something else of the user's, ask first.
 - **Report what you saw after your last action.** What an action sets off — a
   save, an upload, a job — can take a while, and a check made before it says
   nothing about the result. A read lists what the page itself marks as still

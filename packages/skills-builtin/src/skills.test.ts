@@ -194,6 +194,16 @@ describe('the browser skill', () => {
     expect(text).toMatch(/never ask the\s+user to click/i);
   });
 
+  it('does what a page says is still needed, by the control that does it under its own name', async () => {
+    // A page said "Please redeploy to apply the new configuration." and offered
+    // only Restart; the agent looked for a Redeploy button, found none, and
+    // handed a change it had made back to the user, unapplied.
+    const text = await body();
+    expect(text).toMatch(/A change the page says is not applied yet is not done/);
+    expect(text).toMatch(/the control that does it under another name/);
+    expect(text).toMatch(/only to what you\s+set up or changed in this task/);
+  });
+
   it('answers a question about a list from the whole list', async () => {
     const text = await body();
     expect(text).toMatch(/every item/);

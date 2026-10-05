@@ -1,5 +1,5 @@
 import type { AppElement, AppTree } from '@moxxy/jev';
-import { MAX_LABEL_CHARS } from './format.js';
+import { MAX_LABEL_CHARS, unnamedTitle } from './format.js';
 import { isSecret } from './snapshot.js';
 import type { AxNode } from './tree.js';
 
@@ -100,7 +100,7 @@ export function appTreeOf(
     const index = Number(node.uid);
     if (node.role === 'LabelText') label = (node.name || linesOf(node).join(' ')).trim() || label;
     const shown = answersClicks(node) ? shownAs(node) : undefined;
-    const nameless = !shown && !node.name && node.value === undefined && !TAKES_TEXT.has(node.role);
+    const nameless = !shown && !node.name && !node.hint && node.value === undefined && !TAKES_TEXT.has(node.role);
     if ((ACTIONABLE.has(node.role) || shown) && !nameless && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
@@ -134,7 +134,7 @@ function elementOf(node: AxNode, index: number, key: string, depth: number): App
     index,
     depth,
     role: node.role.slice(0, 128),
-    ...(node.name ? { title: clip(node.name) } : {}),
+    ...(node.name ? { title: clip(node.name) } : node.hint ? { title: clip(unnamedTitle(node.hint)) } : {}),
     ...(secret ? { secure: true } : value === undefined ? {} : { value: clip(value) }),
     ...(node.focused ? { states: ['focused' as const] } : {}),
   };

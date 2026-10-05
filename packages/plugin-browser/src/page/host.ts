@@ -7,6 +7,7 @@ import { BRIEF_READ_BUDGET, FULL_READ_BUDGET, READ_BUDGET, withinBudget } from '
 import { diffRendering, renderingFromText } from '../ax/diff.js';
 import { findRows, MAX_FOUND } from '../ax/find.js';
 import { formatAxTree } from '../ax/format.js';
+import { HINTED_ROLES, readDomSnapshot, type DomSnapshotReply } from '../ax/hints.js';
 import { workInProgress } from '../ax/progress.js';
 import { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from '../ax/snapshot.js';
 import { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from '../ax/tree.js';
@@ -935,14 +936,28 @@ export class BrowserHost {
    * the whole reason a difference can be described at all.
    */
   private async readTree(tab: Tab, wc: HostWebContents, cdp: Cdp): Promise<AxTree | null> {
+    return (await this.readPage(tab, wc, cdp, false)).tree;
+  }
+
+  /**
+   * The tree, and — from one capture of the document, taken only when needed —
+   * what answers a click and what the markup says about controls with no name.
+   */
+  private async readPage(
+    tab: Tab,
+    wc: HostWebContents,
+    cdp: Cdp,
+    needClickable: boolean,
+  ): Promise<{ tree: AxTree | null; clickable: ReadonlySet<number> }> {
     await cdp.send('Accessibility.enable');
     const reply = (await cdp.send('Accessibility.getFullAXTree')) as { nodes?: unknown };
     const nodes = await this.withFrames(tab, wc, cdp, Array.isArray(reply?.nodes) ? (reply.nodes as AxNodeRaw[]) : []);
+    const facts = await domFacts(cdp, unnamedControls(nodes), needClickable);
     tab.uids ??= newUidMemory();
-    const tree = nodes.length > 0 ? buildAxTree(nodes, tab.uids) : null;
+    const tree = nodes.length > 0 ? buildAxTree(nodes, tab.uids, facts.hints) : null;
     if (tree) tab.snapshot = { index: tree.index, url: wc.getURL() };
     else delete tab.snapshot;
-    return tree;
+    return { tree, clickable: facts.clickable };
   }
 
   /**
@@ -957,14 +972,14 @@ export class BrowserHost {
       const cdp = await this.ready(tab, wc);
       const blocked = this.dialogBlocks(tab);
       if (blocked) return fail(`The page is showing a dialog and runs nothing until it is answered:\n${blocked}`);
-      const read = await this.readTree(tab, wc, cdp);
+      const { tree: read, clickable } = await this.readPage(tab, wc, cdp, true);
       const shown = read ? redactSecretValues(read) : null;
       const url = wc.getURL();
       const title = wc.getTitle();
       const tree = appTreeOf(
         shown ?? { uid: '0', role: 'RootWebArea', name: title, children: [] },
         { app: siteOf(url) ?? (url || 'page'), window: title },
-        { clickable: await clickableNodes(cdp) },
+        { clickable },
       );
       return ok({ tabId: tab.id, url, title, tree, page: shown ? formatAxTree(shown) : '' });
     } catch (err) {
@@ -2219,20 +2234,35 @@ export class BrowserHost {
  * Backend ids of the nodes in the page's own document that answer a click —
  * click listeners included, which the accessibility tree does not show. A card
  * grid built from `div`s has no role to find it by; this is how a run finds it.
- * One read of the document (about 0.1 s on a 20,000-node page), and nothing
- * when the browser cannot give it: the tree is still useful by role alone.
+ * The same capture gives what the markup says about a control with no name.
+ * One read of the document (about 0.1 s on a 20,000-node page), skipped when
+ * neither is needed, and nothing when the browser cannot give it: the tree is
+ * still useful by role alone.
  */
-async function clickableNodes(cdp: Cdp): Promise<ReadonlySet<number>> {
+async function domFacts(
+  cdp: Cdp,
+  unnamed: ReadonlySet<number>,
+  needClickable: boolean,
+): Promise<{ clickable: ReadonlySet<number>; hints: ReadonlyMap<number, string> }> {
+  if (!needClickable && unnamed.size === 0) return { clickable: new Set(), hints: new Map() };
   try {
-    const reply = (await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: [] })) as {
-      documents?: ReadonlyArray<{ nodes?: { backendNodeId?: readonly number[]; isClickable?: { index?: readonly number[] } } }>;
-    };
-    const nodes = reply.documents?.[0]?.nodes;
-    const ids = nodes?.backendNodeId ?? [];
-    return new Set((nodes?.isClickable?.index ?? []).flatMap((at) => (ids[at] === undefined ? [] : [ids[at]])));
+    const reply = (await cdp.send('DOMSnapshot.captureSnapshot', { computedStyles: [] })) as DomSnapshotReply;
+    return readDomSnapshot(reply, unnamed);
   } catch {
-    return new Set();
+    return { clickable: new Set(), hints: new Map() };
   }
+}
+
+/** Controls in the page's own document a person acts on that the page gives no name. */
+function unnamedControls(nodes: ReadonlyArray<AxNodeRaw>): ReadonlySet<number> {
+  const ids = new Set<number>();
+  for (const raw of nodes) {
+    const role = raw.role?.value;
+    const name = raw.name?.value;
+    if (raw.ignored || raw.frame !== undefined || raw.backendDOMNodeId === undefined) continue;
+    if (typeof role === 'string' && HINTED_ROLES.has(role) && !(typeof name === 'string' && name.trim())) ids.add(raw.backendDOMNodeId);
+  }
+  return ids;
 }
 
 /** What a read of a tab is keyed by in the conversation: one key per tab. */
