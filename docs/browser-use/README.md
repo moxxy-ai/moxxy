@@ -356,6 +356,17 @@ not the 150 s ceiling every other call has.
   rests on the view's `allowpopups` attribute, written as the string
   `"true"`: React drops a bare boolean on `<webview>`, and without it
   Electron refuses the window before main's handler sees it.
+- **A tab that closed between turns**: a new turn starts with the tab the
+  agent remembers, and the pane may have been closed and opened again since.
+  An address for that tab (`browser_navigate`) opens in a new tab, which
+  becomes the agent's (`note: "tab t1 is closed; opened the address in a new
+  tab, t3"`): what is open may be the person's own page, with a form half
+  filled in. When exactly one tab is open, a read (`browser_snapshot`,
+  `browser_find`) goes to it and says so (`note: "tab t1 is closed; used t2,
+  the only open tab"`). A click, typing or a run still refuses with the open
+  tabs named — its uids and names belong to a page the agent has not seen —
+  and so does a read when several tabs are open, since there is no telling
+  which one was meant.
 
 ## Trying it
 

@@ -515,15 +515,86 @@ describe('BrowserHost — acting on a uid', () => {
     expect((await host.act({ action: 'click', uid: '2' })).error?.message).toMatch(/snapshot/i);
   });
 
-  it('names the open tabs when the tab id is unknown', async () => {
+  it('names the open tabs when the tab id is unknown and several are open', async () => {
     const a = fakeWc(1);
-    const host = hostWith(a);
+    const b = fakeWc(2, 'https://inny.pl', 'Inny');
+    const host = hostWith(a, b);
     host.register(1);
+    host.register(2);
 
     const reply = await host.snapshot('t9');
 
     expect(reply.error?.message).toContain('t9');
-    expect(reply.error?.message).toContain('t1');
+    expect(reply.error?.message).toContain('t1, t2');
+  });
+});
+
+describe('BrowserHost — a tab that closed between turns', () => {
+  /**
+   * Seen live three times in one long session: a new turn began with the tab
+   * the agent remembered from the last one (t1), the pane had since been closed
+   * and opened again (t2), and the call came back "unknown tab_id t1 — open
+   * tabs: t2" for the agent to repeat. With one tab open there is nothing to
+   * choose between; a read or an address is safe to take there.
+   */
+  const reopened = () => {
+    const gone = fakeWc(1, 'https://stara.pl', 'Stara');
+    const now = fakeWc(2);
+    const host = hostWith(gone, now, fakeWc(3));
+    host.register(1);
+    host.register(2);
+    host.unregister('t1');
+    return { host, now };
+  };
+  const moved = 'tab t1 is closed; used t2, the only open tab';
+
+  it('reads the only open tab, and says so', async () => {
+    const { host } = reopened();
+
+    const reply = await host.snapshot('t1');
+
+    expect(reply.ok).toBe(true);
+    expect(reply.result).toMatchObject({ tabId: 't2', note: moved });
+  });
+
+  it('looks things up in the only open tab, and says so', async () => {
+    const { host } = reopened();
+
+    const reply = await host.find('Kup', 't1');
+
+    expect(reply.ok).toBe(true);
+    expect(reply.result).toMatchObject({ tabId: 't2', note: moved });
+  });
+
+  /**
+   * The tab left open may be the person's own, with a form half filled in;
+   * opening the address there would throw that away. The agent's tab is gone,
+   * so it gets a new one, and the person's page stays as it was.
+   */
+  it('opens an address in a new tab, leaving the open one as it was', async () => {
+    const { host, now } = reopened();
+    const asked: string[] = [];
+    host.setOpener(({ requestId, url }) => {
+      asked.push(url);
+      host.register(3, requestId);
+    });
+
+    const reply = await host.goto('https://ovh.pl/vps', 't1');
+
+    expect(reply.ok).toBe(true);
+    expect(reply.result).toMatchObject({ tabId: 't3', note: 'tab t1 is closed; opened the address in a new tab, t3' });
+    expect(asked).toEqual(['https://ovh.pl/vps']);
+    expect(now.sent.some((s) => s.method === 'Page.navigate')).toBe(false);
+    expect(host.agentTarget()).toBe('t3');
+  });
+
+  it('acts on no other tab: a click there would land on a page the agent has not seen', async () => {
+    const { host } = reopened();
+
+    const reply = await host.act({ action: 'click', uid: '2', tab_id: 't1' });
+
+    expect(reply.ok).toBe(false);
+    expect(reply.error?.message).toMatch(/unknown tab_id t1 — open tabs: t2/);
   });
 });
 

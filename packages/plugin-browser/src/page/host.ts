@@ -207,6 +207,9 @@ export interface HostReply {
 
 const ok = (result?: unknown): HostReply => ({ ok: true, ...(result !== undefined ? { result } : {}) });
 const fail = (message: string): HostReply => ({ ok: false, error: { message } });
+/** A reply that says what it did in place of what was asked. */
+const noted = (reply: HostReply, note: string): HostReply =>
+  reply.ok ? { ...reply, result: { ...(reply.result as Record<string, unknown> | undefined), note } } : reply;
 
 /** A viewport picture as the model receives it: the image, and how to point at it. */
 function pictureOf(view: View, tabId: string, said: string) {
@@ -711,6 +714,21 @@ export class BrowserHost {
     return out;
   }
 
+  /**
+   * The tab a read goes to when the one named is gone. A new turn starts with
+   * the tab the agent remembers from the last; when the pane was closed and
+   * opened again in between, that tab is gone. With exactly one tab open there
+   * is nothing to choose between, and a read changes nothing. A click or typing
+   * never comes here: its uid belongs to the page that went away. An address
+   * opens in a new tab instead (see `goto`).
+   */
+  private standIn(tabId: string | undefined): { tabId: string | undefined; note?: string } {
+    if (tabId === undefined || this.tabs.has(tabId) || this.tabs.size !== 1) return { tabId };
+    const [only] = this.tabs.keys();
+    if (only === undefined) return { tabId };
+    return { tabId: only, note: `tab ${tabId} is closed; used ${only}, the only open tab` };
+  }
+
   private resolve(tabId?: string): { tab: Tab; wc: HostWebContents } {
     const id = tabId ?? this.active;
     if (!id) throw new Error('no open tab');
@@ -797,6 +815,8 @@ export class BrowserHost {
    * backend, so a tool cannot tell which one served it.
    */
   async snapshot(tabId?: string, opts: { full?: boolean; brief?: boolean } = {}): Promise<HostReply> {
+    const aim = this.standIn(tabId);
+    if (aim.note) return noted(await this.snapshot(aim.tabId, opts), aim.note);
     try {
       const { tab, wc } = this.resolve(tabId);
       const cdp = await this.ready(tab, wc);
@@ -901,6 +921,8 @@ export class BrowserHost {
    * of a read, over the whole page rather than the part a read's budget sends.
    */
   async find(query: string, tabId?: string): Promise<HostReply> {
+    const aim = this.standIn(tabId);
+    if (aim.note) return noted(await this.find(query, aim.tabId), aim.note);
     try {
       const { tab, wc } = this.resolve(tabId);
       const cdp = await this.ready(tab, wc);
@@ -2204,6 +2226,18 @@ export class BrowserHost {
    * `loadURL` stays as the fallback for a view with no debugger yet.
    */
   async goto(url: string, tabId?: string): Promise<HostReply> {
+    // The agent's tab is gone (the pane was closed and opened again between
+    // turns). What is open now may be the person's own page, with a form half
+    // filled in, so the address gets a tab of its own rather than replacing it.
+    if (tabId !== undefined && !this.tabs.has(tabId)) {
+      try {
+        const opened = await this.newTab(url);
+        this.noteAgentTab(opened);
+        return ok({ url, tabId: opened, note: `tab ${tabId} is closed; opened the address in a new tab, ${opened}` });
+      } catch (err) {
+        return fail(err instanceof Error ? err.message : String(err));
+      }
+    }
     try {
       const { tab, wc } = this.resolve(tabId);
       delete tab.snapshot;
