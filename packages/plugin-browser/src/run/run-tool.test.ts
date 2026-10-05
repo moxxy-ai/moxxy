@@ -79,6 +79,9 @@ describe('browser_run', () => {
     expect(keys).toEqual(['k-1']);
     expect(b.calls.map((c) => c.method)).toEqual(['tree', 'act', 'tree', 'snapshot']);
     expect(b.calls[1]?.params).toMatchObject({ action: 'click', uid: '3', tab_id: 't1' });
+    // The report already says what each step did, so the page after it is the
+    // short read: in the Coolify task every run ended with 10–15k characters.
+    expect(b.calls[3]?.params).toMatchObject({ tab_id: 't1', brief: true });
     expect(out.text).toMatch(/1 of 1 steps done/);
     expect(out.text).toContain('### Page');
   });

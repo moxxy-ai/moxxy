@@ -129,7 +129,7 @@ export function buildRunTool(call: Call, opts: RunToolOptions): ToolDef {
         { goal, steps, ...(tab_id ? { tabId: tab_id } : {}) },
         { port: portOver(call, ctx), ask: jev(apiKey), memory, signal: ctx.signal },
       );
-      const after = (await call('snapshot', { tab_id: report.tabId }, ctx)) as { text?: unknown } | undefined;
+      const after = (await call('snapshot', { tab_id: report.tabId, brief: true }, ctx)) as { text?: unknown } | undefined;
       const page = typeof after?.text === 'string' ? after.text : '';
       return { ...(after ?? {}), text: `${formatRunReport(report)}\n\n${page}`.trimEnd() };
     },

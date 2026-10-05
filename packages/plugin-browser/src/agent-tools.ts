@@ -125,6 +125,24 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     },
   });
 
+  const find = defineTool({
+    name: 'browser_find',
+    icon: 'search',
+    description:
+      'Look something up on the current page and get back only the rows that match, each with its [uid]: ' +
+      '"n8n", "Domains", "Save button". Far cheaper than reading the page, and it searches all of it, including ' +
+      'what a read left out for length. Every word must appear in a row; a label that matches brings the field ' +
+      'after it. Use it to find what to act on; read the page when you need to see how it looks now.',
+    inputSchema: z.object({
+      query: z.string().trim().min(1).describe('Words the element shows or is called, optionally with its role.'),
+      tab_id: tabId,
+    }),
+    permission: { action: 'allow' },
+    compact: { verb: 'Finding', noun: { one: 'element', other: 'elements' }, previewKey: 'query' },
+    isolation: { capabilities: { subprocess: true, net: { mode: 'any' as const }, timeMs: 60_000 } },
+    handler: async ({ query, tab_id }, ctx) => call('find', { query, tab_id }, ctx),
+  });
+
   const click = defineTool({
     name: 'browser_click',
     icon: 'globe',
@@ -378,7 +396,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, ctx),
   });
 
-  const tools: ToolDef[] = [snapshot, click, type, navigate, tabs, capture, key, batch, back, awaitHuman, ...buildPageTools(call)];
+  const tools: ToolDef[] = [snapshot, find, click, type, navigate, tabs, capture, key, batch, back, awaitHuman, ...buildPageTools(call)];
   if (!opts.run) return tools;
   tools.push(buildRunTool(call, opts.run));
   const { access } = opts.run;

@@ -84,15 +84,46 @@ bearings again. Rows deeper than the depth cap collapse to one, and an
 unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
 text: "£53.74"`), so a price or a date deep in a list is not lost.
 
+### What a read costs
+
+Every read stays in the conversation and is sent again with each later call
+to the model, so its size is paid many times over. In the Coolify trial one
+read of the service catalogue (≈300 cards) was 178,073 characters, +48,011
+tokens in one call, and the task carried it through 44 calls of the next turn.
+Four rules keep that bounded:
+
+- **A read has a ceiling.** 20,000 characters for a read, 50,000 for one asked
+  for whole (`full: true`), 6,000 for the read that closes a `browser_run`.
+  A longer page is cut at a whole row and ends with "… N more rows not shown";
+  the rest is still there, its uids still work, and `browser_find` searches it.
+- **A large removal is one line.** Filtering a list from 300 cards to 3 used
+  to send back all 297 rows that went away; now it says
+  `- 297 elements went away (among them "…", …); their uids no longer work`.
+  Up to five removals are still listed row by row, and a changed row repeats
+  only the first 80 characters of what it used to say.
+- **Look up instead of reading.** `browser_find` takes a few words and gives
+  back up to 20 matching rows with their uids, from the whole page. Every word
+  must appear in a row, so a role narrows it (`postgresql link`). A label that
+  matches brings the field after it (`→ field: [8] textbox …`), which is how a
+  form whose labels are not tied to their fields is filled.
+- **A page read whole retires the reads before it.** Every read names its tab
+  (`supersede: { key: "browser:t1", whole }`). Once the same tab is read whole
+  again, earlier reads of it — and the changes reported against them — are
+  sent as a one-line marker with the `recall("…")` that brings them back. A
+  read of only what changed never retires anything, because it means
+  something only against the read before it. The rule lives in `@moxxy/sdk`
+  (`supersede.ts`) and holds for any tool result that names a key this way.
+
 ## Tools
 
-Every tool is offered on both backends: `browser_snapshot`, `browser_click`,
+Every tool is offered on both backends: `browser_snapshot`, `browser_find`, `browser_click`,
 `browser_type`, `browser_key`, `browser_batch`, `browser_navigate`,
 `browser_tabs`, `browser_capture`, `browser_history`, `browser_await_human`,
 and these:
 
 | Tool | What it does | Asks first |
 |---|---|---|
+| `browser_find` | Looks words up on the page and gives back only the matching rows with their uids; a matching label brings its field | no |
 | `browser_allow_site` | Asks the user to allow a site for the rest of the conversation | yes |
 | `browser_select` | Picks an option in a native `<select>` by its label or value | no (site consent) |
 | `browser_dialog` | Accepts or dismisses a `confirm` / `prompt` (an `alert` is accepted by the click itself and quoted) | yes |
@@ -107,6 +138,12 @@ and these:
 `submit: true` to press Enter afterwards. In the headless browser
 `browser_await_human` answers at once that nobody can take the page over there,
 so the agent tells the user what the page needs instead of waiting.
+
+`web_fetch` takes `untilUpMs` to check a service that was just deployed or
+restarted: it keeps trying every 5 seconds while the address refuses the
+connection or answers 5xx (up to 5 minutes), and says "up after N s" or
+"still not up after N s" with the last answer. A refused address (internal,
+too many redirects) is never retried.
 
 ## Working by picture
 

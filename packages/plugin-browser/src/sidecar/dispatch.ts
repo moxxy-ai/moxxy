@@ -40,7 +40,7 @@ const MAX_DIMENSION = 16_384;
  * table serves the live-view surface and `browser_session`.
  */
 const AGENT_METHODS = new Set([
-  'snapshot', 'tree', 'act', 'dialog', 'select', 'wait', 'point', 'upload', 'tabs', 'await_human', 'box',
+  'snapshot', 'find', 'tree', 'act', 'dialog', 'select', 'wait', 'point', 'upload', 'tabs', 'await_human', 'box',
   'key', 'back', 'forward', 'reload',
 ]);
 

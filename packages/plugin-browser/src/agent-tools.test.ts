@@ -125,6 +125,26 @@ describe('browser_snapshot', () => {
   });
 });
 
+describe('browser_find', () => {
+  it('asks the page for what matches, instead of reading the page out', async () => {
+    const fake = fakeSidecar();
+    fake.setReply(() => ({ text: '### Found\n[8] textbox: "Domains"', tabId: 't1', url: 'https://a.pl', matches: 1 }));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+
+    const out = (await byName(tools, 'browser_find').handler({ query: 'Domains', tab_id: 't1' }, ctx())) as { text: string };
+
+    expect(out.text).toContain('[8] textbox');
+    expect(fake.received[0]).toMatchObject({ method: 'find', params: { query: 'Domains', tab_id: 't1' } });
+  });
+
+  it('is read-only, and wants something to look for', () => {
+    const tool = byName(buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn }), 'browser_find');
+
+    expect(tool.permission?.action).toBe('allow');
+    expect(tool.inputSchema.safeParse({ query: '' }).success).toBe(false);
+  });
+});
+
 describe('browser_click', () => {
   it('sends the uid as a click action', async () => {
     const fake = fakeSidecar();
@@ -206,6 +226,7 @@ describe('the tool set', () => {
 
     expect(names).toEqual([
       'browser_snapshot',
+      'browser_find',
       'browser_click',
       'browser_type',
       'browser_navigate',

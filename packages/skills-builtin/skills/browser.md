@@ -5,7 +5,7 @@ triggers: ["open the browser", "in the browser", "go to this site", "navigate to
 label: Moxxy Browser
 aliases: [moxxy_browser, przegladarka]
 disallowed-tools: ["computer_*"]
-allowed-tools: [browser_snapshot, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_select, browser_scroll, browser_hover, browser_wait, browser_dialog, browser_allow_site, browser_point, browser_upload, browser_run, browser_session, web_fetch]
+allowed-tools: [browser_snapshot, browser_find, browser_click, browser_type, browser_key, browser_batch, browser_navigate, browser_tabs, browser_capture, browser_history, browser_await_human, browser_select, browser_scroll, browser_hover, browser_wait, browser_dialog, browser_allow_site, browser_point, browser_upload, browser_run, browser_session, web_fetch]
 ---
 
 # The in-window browser
@@ -53,6 +53,10 @@ looking again is.
   that lands on the wrong article, a disambiguation page, a list on two pages —
   each is one more step for you. Follow the link the page offers; never ask the
   user to click something you can click.
+- **A service you just deployed or restarted needs time to come up.** Check its
+  address with `web_fetch` and `untilUpMs` (e.g. 180000): it keeps trying while
+  the address refuses or answers 5xx, so "still starting" is not mistaken for
+  "broken". Say it does not work only when that wait is over.
 - **Answer from the whole list.** For "the cheapest", "the newest", "how many",
   compare every item the page lists (and the next page, when there is one)
   before you answer — not the first one that looks right.
@@ -72,6 +76,13 @@ a uid, not a CSS selector and not a coordinate.
 - If the answer is "unchanged since your last snapshot", the page really has not
   moved. Do something, then look again; reading twice in a row tells you nothing
   and is not free.
+- A read has a size limit. On a long page it ends with "… N more rows not
+  shown"; the rest is still there and its uids still work.
+- **To find one thing, look it up instead of reading:** `browser_find` with a
+  few words ("n8n", "Domains", "Save button") gives back only the rows that
+  match, each with its uid, from the whole page. A label that matches brings the
+  field after it. Every read stays in the conversation and is paid for again on
+  each later call, so a lookup of a few rows is the cheap way to aim.
 
 ## How to act
 

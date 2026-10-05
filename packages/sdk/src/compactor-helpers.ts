@@ -3,7 +3,7 @@ import {
   conversationalStub,
   conversationalStubbed,
   toolResultBytes,
-  toolResultStub,
+  toolResultStubText,
   toolResultStubbed,
   type ElisionState,
 } from './elision-state.js';
@@ -58,8 +58,7 @@ export function estimateContextTokens(
   for (const e of events) {
     if (isCompacted(e.seq)) continue;
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {
-      const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
-      chars += toolResultStub(e.callId, toolResultBytes(e.output), recalled).length;
+      chars += toolResultStubText(e, el).length;
       continue;
     }
     if ((e.type === 'user_prompt' || e.type === 'assistant_message') && conversationalStubbed(e, el)) {

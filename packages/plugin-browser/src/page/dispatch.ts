@@ -52,9 +52,14 @@ export async function dispatchToHost(
   const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
   switch (method) {
     case 'snapshot':
-      return host.snapshot(tabId, params.full === true ? { full: true } : {});
+      return host.snapshot(tabId, {
+        ...(params.full === true ? { full: true } : {}),
+        ...(params.brief === true ? { brief: true } : {}),
+      });
     case 'tree':
       return host.tree(tabId);
+    case 'find':
+      return host.find(String(params.query ?? ''), tabId);
     case 'act':
       return host.act({
         action: String(params.action ?? ''),

@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserHost, type HostWebContents } from './host.js';
+import { BRIEF_READ_BUDGET, FULL_READ_BUDGET, READ_BUDGET } from '../ax/budget.js';
 
 /**
  * The main-process browser. Driven against a recorded WebContents rather than
@@ -290,6 +291,80 @@ describe('BrowserHost — snapshot', () => {
     expect(text).toContain('Do kasy');
     expect(text).toContain('t1');
     expect(text).toContain('UNTRUSTED DATA');
+  });
+
+  it('keeps a read of a very large page within its budget, the full one too', async () => {
+    // Coolify's service catalogue: some 300 cards. Read whole, it came to
+    // 178,073 characters and +48,011 tokens in one call.
+    const cards = Array.from({ length: 3000 }, (_, i) => ({
+      nodeId: `k${i}`,
+      role: { value: 'link' },
+      name: { value: `Service ${i}: a self-hosted tool with a long description of what it does` },
+      backendDOMNodeId: 1000 + i,
+    }));
+    const a = fakeWc(1);
+    a.setPage([
+      { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Katalog' }, childIds: cards.map((c) => c.nodeId) },
+      ...cards,
+    ]);
+    const host = hostWith(a);
+    host.register(1);
+
+    const first = String(((await host.snapshot()).result as { text: string }).text);
+    const full = String(((await host.snapshot(undefined, { full: true })).result as { text: string }).text);
+    a.setPage([
+      { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Nowy' }, childIds: cards.map((c) => c.nodeId) },
+      ...cards.map((c) => ({ ...c, name: { value: `${c.name.value} (changed)` } })),
+    ]);
+    const brief = String(((await host.snapshot(undefined, { brief: true })).result as { text: string }).text);
+
+    expect(first.length).toBeLessThan(READ_BUDGET + 2_000);
+    expect(first).toContain('browser_find');
+    expect(full.length).toBeLessThan(FULL_READ_BUDGET + 2_000);
+    expect(full.length).toBeGreaterThan(first.length);
+    expect(brief.length).toBeLessThan(BRIEF_READ_BUDGET + 2_000);
+  });
+
+  it('names the tab it read and whether the read is whole, so a later whole read can retire it', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const first = (await host.snapshot()).result as { supersede?: unknown };
+    a.setPage([
+      { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b'] },
+      { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zapłać' }, backendDOMNodeId: 21 },
+    ]);
+    const changes = (await host.snapshot()).result as { supersede?: unknown };
+    const whole = (await host.snapshot(undefined, { full: true })).result as { supersede?: unknown };
+
+    expect(first.supersede).toEqual({ key: 'browser:t1', whole: true });
+    expect(changes.supersede).toEqual({ key: 'browser:t1', whole: false });
+    expect(whole.supersede).toEqual({ key: 'browser:t1', whole: true });
+  });
+
+  it('looks one thing up on the page and gives its uid, without reading the page out', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const reply = await host.find('kasy');
+    const text = String((reply.result as { text: string }).text);
+
+    expect(reply.ok).toBe(true);
+    expect(text).toMatch(/\[\d+\] button: "Do kasy"/);
+    expect(text).not.toContain('Hasło');
+    expect(text).toContain('UNTRUSTED DATA');
+  });
+
+  it('says so when nothing on the page matches', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+
+    const text = String(((await host.find('koszyk')).result as { text: string }).text);
+
+    expect(text).toContain('Nothing on this page matches "koszyk"');
   });
 
   it('redacts a password field before it reaches the model', async () => {

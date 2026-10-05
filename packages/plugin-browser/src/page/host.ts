@@ -3,9 +3,11 @@ import { statSync } from 'node:fs';
 import { basename, isAbsolute } from 'node:path';
 import { assertDefined } from '@moxxy/sdk';
 import { appTreeOf } from '../ax/app-tree.js';
+import { BRIEF_READ_BUDGET, FULL_READ_BUDGET, READ_BUDGET, withinBudget } from '../ax/budget.js';
 import { diffRendering, renderingFromText } from '../ax/diff.js';
+import { findRows, MAX_FOUND } from '../ax/find.js';
 import { formatAxTree } from '../ax/format.js';
-import { formatSnapshot, redactSecretValues, type TabInfo } from '../ax/snapshot.js';
+import { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from '../ax/snapshot.js';
 import { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from '../ax/tree.js';
 import { detectWall, type WallKind } from '../ax/wall.js';
 import { HANDOFF_LIMIT_MS } from '../handoff-limit.js';
@@ -792,7 +794,7 @@ export class BrowserHost {
    * Read a tab as the model reads it. Identical envelope to the sidecar
    * backend, so a tool cannot tell which one served it.
    */
-  async snapshot(tabId?: string, opts: { full?: boolean } = {}): Promise<HostReply> {
+  async snapshot(tabId?: string, opts: { full?: boolean; brief?: boolean } = {}): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(tabId);
       const cdp = await this.ready(tab, wc);
@@ -833,14 +835,17 @@ export class BrowserHost {
       const previous = tab.rendering;
       const asDiff = !opts.full && previous !== undefined && tree !== null;
       const changes = asDiff ? diffRendering(previous, rendering) : null;
-      const body = changes
-        ? [
-            'Changes since your last read of this tab. Everything else is as you last saw it;',
-            'ask for the whole tree with full: true if you have lost your bearings.',
-            '',
-            ...changes,
-          ].join('\n')
-        : full;
+      const body = withinBudget(
+        changes
+          ? [
+              'Changes since your last read of this tab. Everything else is as you last saw it;',
+              'ask for the whole tree with full: true if you have lost your bearings.',
+              '',
+              ...changes,
+            ].join('\n')
+          : full,
+        opts.full ? FULL_READ_BUDGET : opts.brief ? BRIEF_READ_BUDGET : READ_BUDGET,
+      );
       const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
       // A change detector, not a security primitive — but it runs over page text
       // that can carry anything the user has on screen, and sha256 is what the
@@ -863,13 +868,51 @@ export class BrowserHost {
           url,
           nodes: tree ? tree.index.size : 0,
           unchanged: true,
+          supersede: { key: readKey(tab.id), whole: false },
         });
       }
       tab.seen = fingerprint;
       tab.rendering = rendering;
 
       const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall });
-      return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0 });
+      // Names what was read, so the conversation can retire this read once the
+      // tab is read whole again (Supersede in @moxxy/sdk).
+      const supersede = { key: readKey(tab.id), whole: changes === null };
+      return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0, supersede });
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
+   * The rows of a tab that match `query`, each with its uid: a lookup in place
+   * of a read, over the whole page rather than the part a read's budget sends.
+   */
+  async find(query: string, tabId?: string): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(tabId);
+      const cdp = await this.ready(tab, wc);
+      const url = wc.getURL();
+      const blocked = this.dialogBlocks(tab);
+      if (blocked) return ok({ text: `### Page\n- URL: ${url}\n### Dialog\n${blocked}`, tabId: tab.id, url, matches: 0 });
+      const tree = await this.readTree(tab, wc, cdp);
+      const found = tree ? findRows(formatAxTree(redactSecretValues(tree)), query) : { rows: [], total: 0 };
+      const head =
+        found.total === 0
+          ? `Nothing on this page matches "${query}". Try another word for it, or read the page with browser_snapshot.`
+          : `${found.total} row(s) match "${query}"` +
+            (found.total > MAX_FOUND ? `; the first ${MAX_FOUND} below — narrow the query for the rest:` : ':');
+      const text = [
+        '### Page',
+        `- URL: ${url}`,
+        '### Untrusted page content',
+        UNTRUSTED_NOTE,
+        '### Found',
+        head,
+        ...found.rows,
+        ...(found.total ? ['The uids work as they are: act on them directly.'] : []),
+      ].join('\n');
+      return ok({ text, tabId: tab.id, url, matches: found.total });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }
@@ -2172,4 +2215,9 @@ async function clickableNodes(cdp: Cdp): Promise<ReadonlySet<number>> {
   } catch {
     return new Set();
   }
+}
+
+/** What a read of a tab is keyed by in the conversation: one key per tab. */
+function readKey(tabId: string): string {
+  return `browser:${tabId}`;
 }

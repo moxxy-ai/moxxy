@@ -268,4 +268,16 @@ describe.skipIf(!available)('BrowserHost in a real Chromium page', () => {
       expect.objectContaining({ role: 'textbox', title: 'Domains', description: 'https://app.coolify.io', value: 'http://n8n.example:5678' }),
     ]);
   });
+
+  it('finds that field by its label, with a uid that can be typed into', async () => {
+    const { host } = await hostOn('/settings');
+
+    const { text } = resultOf(await host.find('Domains')) as { text: string };
+    const uid = /→ field: \[(\d+)\] textbox/.exec(text)?.[1];
+
+    expect(uid, text).toBeDefined();
+    expect(resultOf(await host.act({ action: 'type', uid: String(uid), text: 'https://moxxy.example:5678' }))).toBeDefined();
+    const after = resultOf(await host.find('moxxy.example')) as { text: string };
+    expect(after.text).toContain('https://moxxy.example:5678');
+  });
 });
