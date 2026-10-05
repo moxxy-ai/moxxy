@@ -406,14 +406,15 @@ describe.skipIf(!fixtureBuilt)('Linux Computer Use on the fixture app', () => {
     try {
       const state = await observe(transport);
       await transport.request('preview.start', { fps: 5 }, signal());
-      expect(await until(() => previews.some((preview) => preview.image), 3000)).toBe(true);
+      const seen = () => JSON.stringify(previews.map((preview) => preview.error ?? (preview.image ? 'picture' : 'still')));
+      expect(await until(() => previews.some((preview) => preview.image), 5000), seen()).toBe(true);
       const quiet = previews.length;
       // A still window is not sent again; it only says it is still watched.
       expect(await until(() => previews.slice(quiet).some((preview) => !preview.image), 4000)).toBe(true);
       const pictures = previews.filter((preview) => preview.image).length;
       await act(transport, { action: 'click', element_index: named(state, 'push button', 'Press').index, mouse_button: 'left', click_count: 1 });
       expect(await until(() => previews.filter((preview) => preview.image).length > pictures, 3000)).toBe(true);
-      expect(previews.every((preview) => preview.error === undefined)).toBe(true);
+      expect(previews.every((preview) => preview.error === undefined), seen()).toBe(true);
       expect(previews.map((preview) => preview.seq)).toEqual(previews.map((_, index) => index));
       await expect(transport.request('preview.start', { codec: 'h264' }, signal())).rejects.toMatchObject({ code: 'invalid_params' });
       await transport.request('preview.stop', {}, signal());

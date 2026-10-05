@@ -8,6 +8,8 @@
 #include <X11/keysym.h>
 #include <algorithm>
 #include <cstring>
+#include <map>
+#include <mutex>
 #include <poll.h>
 #include <thread>
 
@@ -18,9 +20,22 @@ namespace moxxy {
 
 namespace {
 
-/// Set by the error handler; a window can vanish between two requests, which is no reason to exit.
-std::atomic<int> x_error{0};
-int on_error(Display*, XErrorEvent* event) { x_error = event->error_code; return 0; }
+/// The last error on each desktop's own connection, set by the error handler: a window can vanish
+/// between two requests, which is no reason to exit. Kept per connection, because the live preview
+/// captures on a thread of its own and an error there must not fail a request here, nor the reverse.
+std::mutex errors_mutex;
+std::map<Display*, int> x_errors;
+int on_error(Display* display, XErrorEvent* event) {
+  std::lock_guard lock(errors_mutex);
+  if (const auto found = x_errors.find(display); found != x_errors.end()) found->second = event->error_code;
+  return 0;
+}
+void clear_error(Display* display) { std::lock_guard lock(errors_mutex); x_errors[display] = 0; }
+bool had_error(Display* display) {
+  std::lock_guard lock(errors_mutex);
+  const auto found = x_errors.find(display);
+  return found != x_errors.end() && found->second != 0;
+}
 
 int shift_of(unsigned long mask) { int shift = 0; while (mask && !(mask & 1)) { mask >>= 1; shift++; } return shift; }
 
@@ -66,6 +81,7 @@ std::unique_ptr<Desktop> Desktop::open(OwnInput& own, HeldInput& held) {
 
 Desktop::Desktop(Display* display, OwnInput& own, HeldInput& held) : display_(display), root_(DefaultRootWindow(display)), own_(own), held_(held) {
   int event = 0, error = 0, major = 0, minor = 0;
+  clear_error(display_);
   xtest_ = XTestQueryExtension(display_, &event, &error, &major, &minor);
   composite_ = XCompositeQueryExtension(display_, &event, &error) && XCompositeQueryVersion(display_, &major, &minor) && (major > 0 || minor >= 2);
   // Changes of the active window and of the window list wake `wait_for`.
@@ -75,6 +91,8 @@ Desktop::Desktop(Display* display, OwnInput& own, HeldInput& held) : display_(di
 Desktop::~Desktop() {
   restore_scratch();
   XCloseDisplay(display_);
+  std::lock_guard lock(errors_mutex);
+  x_errors.erase(display_);
 }
 
 std::pair<int, int> Desktop::screen_size() const {
@@ -107,9 +125,9 @@ std::string Desktop::text(Window window, Atom property) {
 }
 
 std::optional<WindowInfo> Desktop::info(Window window) {
-  x_error = 0;
+  clear_error(display_);
   XWindowAttributes attributes;
-  if (!XGetWindowAttributes(display_, window, &attributes) || x_error) return std::nullopt;
+  if (!XGetWindowAttributes(display_, window, &attributes) || had_error(display_)) return std::nullopt;
   int x = 0, y = 0;
   Window child = 0;
   XTranslateCoordinates(display_, window, root_, 0, 0, &x, &y, &child);
@@ -125,7 +143,7 @@ std::optional<WindowInfo> Desktop::info(Window window) {
   const auto split = wm_class.find('\0');
   found.instance = clean_utf8(wm_class.substr(0, split));
   if (split != std::string::npos) found.app_class = clean_utf8(std::string(wm_class.c_str() + split + 1));
-  return x_error ? std::nullopt : std::optional(found);
+  return had_error(display_) ? std::nullopt : std::optional(found);
 }
 
 std::vector<WindowInfo> Desktop::windows() {
@@ -189,20 +207,20 @@ std::optional<WindowPicture> Desktop::capture(Window window) {
   const auto described = info(window);
   if (!described || !described->viewable) return std::nullopt;
   const int width = static_cast<int>(described->frame.width), height = static_cast<int>(described->frame.height);
-  x_error = 0;
+  clear_error(display_);
   XImage* image = nullptr;
   if (composite_) {
     // A redirected window keeps its own pixels, so the picture is whole even under another window.
     if (redirected_.insert(window).second) XCompositeRedirectWindow(display_, window, CompositeRedirectAutomatic);
     const Pixmap pixmap = XCompositeNameWindowPixmap(display_, window);
     XSync(display_, False);
-    if (!x_error && pixmap) image = XGetImage(display_, pixmap, 0, 0, width, height, AllPlanes, ZPixmap);
+    if (!had_error(display_) && pixmap) image = XGetImage(display_, pixmap, 0, 0, width, height, AllPlanes, ZPixmap);
     if (pixmap) XFreePixmap(display_, pixmap);
   }
   Rect bounds = described->frame;
   if (!image) {
     // What the screen shows of it: the part inside the screen, with whatever lies on top.
-    x_error = 0;
+    clear_error(display_);
     const int screen_width = DisplayWidth(display_, DefaultScreen(display_)), screen_height = DisplayHeight(display_, DefaultScreen(display_));
     const int left = std::max(0, int(bounds.x)), top = std::max(0, int(bounds.y));
     const int right = std::min(screen_width, int(bounds.x) + width), bottom = std::min(screen_height, int(bounds.y) + height);
@@ -211,7 +229,7 @@ std::optional<WindowPicture> Desktop::capture(Window window) {
     bounds = {double(left), double(top), double(right - left), double(bottom - top)};
   }
   XSync(display_, False);
-  if (!image || x_error) { if (image) XDestroyImage(image); return std::nullopt; }
+  if (!image || had_error(display_)) { if (image) XDestroyImage(image); return std::nullopt; }
   WindowPicture picture{{image->width, image->height, std::vector<uint8_t>(size_t(image->width) * image->height * 3)}, bounds};
   const int red = shift_of(image->red_mask), green = shift_of(image->green_mask), blue = shift_of(image->blue_mask);
   uint8_t* out = picture.pixels.rgb.data();
@@ -267,8 +285,8 @@ std::pair<pid_t, bool> Desktop::owner_at(double x, double y, Window target) {
     const Window top = children[index];
     if (top == ignored_) continue;
     XWindowAttributes attributes;
-    x_error = 0;
-    if (!XGetWindowAttributes(display_, top, &attributes) || x_error || attributes.map_state != IsViewable || attributes.c_class != InputOutput) continue;
+    clear_error(display_);
+    if (!XGetWindowAttributes(display_, top, &attributes) || had_error(display_) || attributes.map_state != IsViewable || attributes.c_class != InputOutput) continue;
     if (x < attributes.x || y < attributes.y || x >= attributes.x + attributes.width || y >= attributes.y + attributes.height) continue;
     owner = {pid_inside(top), descends(target, top)};
     break;
