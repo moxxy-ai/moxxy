@@ -87,7 +87,11 @@ function isFocused(raw: AxNodeRaw): boolean {
  * is left out — a disk or quota gauge is drawn the same way, and calling every
  * gauge "work under way" would make the signal worthless.
  */
+/** A document's own busy means it is still loading, which some pages never finish; it is no task's state. */
+const DOCUMENTS = new Set(['RootWebArea', 'WebArea']);
+
 function isInProgress(raw: AxNodeRaw): boolean {
+  if (DOCUMENTS.has(str(raw.role) ?? '')) return false;
   const props = raw.properties ?? [];
   // Chromium reports aria-busy="true" as 1; other builds may say true.
   if (props.some((p) => p.name === 'busy' && (p.value?.value === true || p.value?.value === 1))) return true;

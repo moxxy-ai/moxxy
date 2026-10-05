@@ -127,13 +127,16 @@ not look for it: act with the single tools.
 
 ## Allowing a site
 
-The user allows a site once, and you act there without asking again. Before the
-first action on a site — opening one of its pages, a click, typing — call
-`browser_allow_site` with the site and a one-line reason, in the same response
-as that action. Every snapshot lists the sites already allowed: never ask for
-one of those again. An action on a site nobody allowed comes back refused with
-the site to ask for: ask, then repeat the step. Reading a page never needs it.
-If the user declines, do not act on that site; say what you would have done.
+The user allows a site once, and you act there without asking again.
+`browser_allow_site` is how you ask: the tool puts the question to the user
+itself and returns their answer. Before the first action on a site — opening one
+of its pages, a click, typing — call it with the site and a one-line reason, in
+the same response as that action. A site not allowed yet is never a
+reason to stop or to hand the task back: call the tool and carry on. Every
+snapshot lists the sites already allowed: never ask for one of those again. An
+action on a site nobody allowed comes back refused with the site to ask for:
+call the tool, then repeat the step. Reading a page never needs it. Only if the
+user declines, do not act on that site; say what you would have done.
 
 ## Doing several things at once
 

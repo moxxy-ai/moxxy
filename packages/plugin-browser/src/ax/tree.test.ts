@@ -230,6 +230,20 @@ describe('buildAxTree — work the page says is still under way', () => {
     expect(tree?.children[0]?.inProgress).toBe(true);
   });
 
+  it('leaves a document that is still loading alone: that is the page, not work it reports', () => {
+    // n8n's sign-in page never finished loading; its root stayed busy, and the
+    // agent was told to wait for "[1] RootWebArea [in progress]".
+    const busy = [{ name: 'busy', value: { value: 1 } }];
+    const tree = buildAxTree([
+      { ...root, properties: busy, childIds: ['2'] },
+      { nodeId: '2', role: { value: 'Iframe' }, childIds: ['3'] },
+      { nodeId: '3', role: { value: 'WebArea' }, properties: busy },
+    ]);
+
+    expect(tree?.inProgress).toBeUndefined();
+    expect(tree?.children[0]?.children[0]?.inProgress).toBeUndefined();
+  });
+
   it('marks a progress bar that shows no amount — the spinner kind', () => {
     const tree = buildAxTree([root, { nodeId: '2', role: { value: 'progressbar' }, name: { value: 'Deploying' } }]);
 

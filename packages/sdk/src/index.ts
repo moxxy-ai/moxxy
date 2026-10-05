@@ -456,6 +456,7 @@ export {
   type MentionOption,
   type MentionQuery,
 } from './skill-mentions.js';
+export { toolsForMode } from './tool-modes.js';
 
 export type {
   Workflow,

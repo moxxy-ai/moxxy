@@ -150,6 +150,8 @@ too many redirects) is never retried.
 A page read lists, under `### In progress`, what the page itself marks as not
 finished — anything with `aria-busy`, and a progress bar that shows no amount
 (the spinner kind; a bar with an amount is as often a gauge and is left out).
+A document's own busy state is left out too: it only means the page is still
+loading, and some pages never finish (n8n's sign-in page held its root busy).
 Those rows also carry `[in progress]` in the tree. An action whose page was
 still changing when its settle wait ran out (or still loading) says so. Both
 signals are generic — no site's wording is matched.

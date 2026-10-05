@@ -199,6 +199,14 @@ describe('the browser skill', () => {
     expect(text).toMatch(/every item/);
   });
 
+  it('treats allowing a site as a step it takes, not a reason to stop', async () => {
+    // In a fresh conversation no site was allowed yet; the agent read "ask" as
+    // "I have no permission" and gave the task up instead of calling the tool.
+    const text = await body();
+    expect(text).toMatch(/`browser_allow_site` is how you ask/);
+    expect(text).toMatch(/never a\s+reason to stop/);
+  });
+
   it('teaches the picture tools for what has no name', async () => {
     const text = await body();
     expect(text).toMatch(/browser_point/);
