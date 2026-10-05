@@ -23,11 +23,11 @@
   "devDependencies": {
     "@moxxy/config": "workspace:*",
     "@types/node": "catalog:",
-    "dependency-cruiser": "^18.4.0",
+    "dependency-cruiser": "^18.5.0",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "catalog:",
-    "turbo": "^2.11.4",
+    "turbo": "^2.11.6",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
