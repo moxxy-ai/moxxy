@@ -40,14 +40,24 @@ describe('browser plugin — picking a backend', () => {
     expect(buildBrowserPlugin().surfaces).toHaveLength(0);
   });
 
-  it('offers the same tools either way, so the model sees one browser', () => {
+  /**
+   * One set of tools, whichever backend serves them: both drive the same
+   * browser host, so a task written against one runs on the other.
+   */
+  it('offers the same tools with or without the desktop', () => {
     delete process.env[BRIDGE_SOCKET_ENV];
-    const withoutBridge = buildBrowserPlugin().tools?.map((t) => t.name);
+    const withoutBridge = buildBrowserPlugin().tools?.map((t) => t.name) ?? [];
     process.env[BRIDGE_SOCKET_ENV] = '/tmp/x.sock';
     process.env[BRIDGE_TOKEN_ENV] = 'abc';
-    const withBridge = buildBrowserPlugin().tools?.map((t) => t.name);
+    const withBridge = buildBrowserPlugin().tools?.map((t) => t.name) ?? [];
 
     expect(withBridge).toEqual(withoutBridge);
+    expect(withoutBridge).toEqual(expect.arrayContaining(['browser_select', 'browser_allow_site', 'browser_point', 'browser_run']));
+  });
+
+  it('gives the terminal /browser, for the sign-ins of its own browser', () => {
+    const command = buildBrowserPlugin().commands?.find((c) => c.name === 'browser');
+    expect(command?.channels).toEqual(['tui']);
   });
 });
 

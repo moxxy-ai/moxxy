@@ -52,6 +52,10 @@ Switch modes from the TUI with `/mode` or set the default in configuration.
 
 Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait, and StopJob. Optional plugins add web fetching, Playwright browser sessions, macOS computer control, MCP servers, OAuth, subagents, and other integrations.
 
+### Moxxy Browser
+
+In the desktop, the agent works in the Browser pane — a real Chromium view you watch and can take over. A click brings its tab to the front, refuses an element something covers (naming what), and reports what it set off: a navigation, a dialog, a tab the page opened. It reads frames, answers dialogs (`browser_dialog`), picks from native lists (`browser_select`), scrolls, hovers and waits for text; links that open a new window open as tabs in the pane. You see the agent's own pointer glide to each element before it presses, and you can take the browser over at any time — press on the page, type into it, or use Take over — after which the agent's actions are refused until you resume or send a new message. You allow each site once (`browser_allow_site`) rather than approving every click; the agent's actions on a site you have not allowed are refused. On a canvas (Excalidraw, a map) it works from a picture of the page: it clicks, drags and types at places in its latest capture, and is refused when the page has changed there since. It can attach files to a page's upload field, asking you each time. With a TypeSafe key and Jev on (Settings → Jev), it carries out several steps named in words in one call (`browser_run`): code or Jev finds each element, Jev checks what each step should show, and what worked is remembered per site. In the terminal UI the same tools drive a headless browser. See [Moxxy Browser](browser-use/README.md).
+
 ### Waiting on work
 
 The agent waits on events, not on a clock. A long command — a dev server, a watcher, a slow build — runs as a background job: `Bash` with `background: true` returns a job id at once and the command keeps running. `Wait` then blocks until that job finishes, or until it prints output matching `until` (for example `ready on \d+`), and wakes the instant that happens instead of sleeping a fixed number of seconds and checking again. Each `Wait` returns only the output printed since the previous one.
@@ -71,7 +75,7 @@ Skills are Markdown playbooks that teach the agent repeatable procedures without
 
 ## Runtime capabilities
 
-- **Prompt caching:** the stable-prefix strategy places deterministic cache breakpoints around stable and rolling prompt sections. Inspect token and cost savings with `/usage`.
+- **Prompt caching:** the stable-prefix strategy places deterministic cache breakpoints around stable and rolling prompt sections. Inspect token and cost savings with `/usage`. In the desktop, the `tok` cell at the top counts every call's whole prompt — each call sends the conversation again — and says how much of that was read back from the cache (`2.4M · 94% cache`); hover it for the split into cached and new tokens.
 - **Memory:** long-term journal recall and short-term event-log selectors preserve useful context across sessions.
 - **Webhooks:** the webhook plugin provides signature verification, bearer authentication, include and exclude filters, delivery idempotency, and public tunnel helpers.
 - **Speech to text:** Whisper is built in. Register a different `Transcriber` to use Deepgram, AssemblyAI, or local `whisper.cpp`.

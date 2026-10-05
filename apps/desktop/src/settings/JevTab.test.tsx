@@ -19,11 +19,19 @@ function installVault(initial: ReadonlyArray<string> = []) {
 afterEach(() => __setApiOverride(null));
 
 describe('JevTab', () => {
+  it('says the one switch covers Computer Use and the Browser alike', async () => {
+    installVault(['TYPESAFE_API_KEY']);
+    render(<JevTab />);
+
+    await screen.findByRole('switch', { name: 'Use Jev' });
+    expect(screen.getByText(/Computer Use step/u).textContent).toMatch(/Browser/u);
+  });
+
   it('takes a key on a fresh install and turns Jev on', async () => {
     const invoke = installVault();
     render(<JevTab />);
 
-    const toggle = await screen.findByRole('switch', { name: 'Use Jev in Computer Use' });
+    const toggle = await screen.findByRole('switch', { name: 'Use Jev' });
     expect(toggle.getAttribute('aria-checked')).toBe('false');
     expect((toggle as HTMLButtonElement).disabled).toBe(true);
 
@@ -40,7 +48,7 @@ describe('JevTab', () => {
     const invoke = installVault(['TYPESAFE_API_KEY']);
     render(<JevTab />);
 
-    const toggle = await screen.findByRole('switch', { name: 'Use Jev in Computer Use' });
+    const toggle = await screen.findByRole('switch', { name: 'Use Jev' });
     await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
     fireEvent.click(toggle);
 

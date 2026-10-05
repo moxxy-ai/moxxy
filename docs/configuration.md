@@ -55,7 +55,7 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_VAULT_PASSPHRASE` | Supplies a headless vault passphrase instead of using the OS keychain. |
 | `MOXXY_NO_KEYCHAIN` | Set to `1` to keep the vault off the OS keychain: the key is read from and written to `~/.moxxy/vault.key` only. The test suite sets it. |
 | `MOXXY_SESSION_ID` | Resumes a specific persisted session when running `moxxy serve`. |
-| `MOXXY_RUNNER_SOCKET` | Overrides the runner's Unix socket path. |
+| `MOXXY_RUNNER_SOCKET` | Overrides the runner's Unix socket path. A socket path longer than the system binds (103 bytes on macOS, 107 on Linux) — this one, or one under a deep `MOXXY_HOME` — moves to a short name in the per-user runtime or temp folder; when neither is private to the user, the runner refuses to start and says to shorten `MOXXY_HOME`. |
 | `MOXXY_RUNNER_STRICT_ABORT=1` | Denies cross-client turn aborts instead of allowing and audit-logging them. |
 | `MOXXY_NO_CORE_UPDATE=1` | Disables registration of Tier 2 core self-update tools. |
 | `MOXXY_FIXTURES` | Selects `record`, `replay`, or `passthrough` provider fixture mode for tests. |

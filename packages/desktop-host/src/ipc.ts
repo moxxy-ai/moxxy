@@ -58,7 +58,7 @@ import { registerAnonymizerHandlers } from './ipc/anonymizer';
 import { registerGitHandlers } from './ipc/git';
 import { registerSurfaceHandlers } from './ipc/surfaces';
 import { registerBrowserHandlers } from './ipc/browser';
-import type { BrowserHost } from './browser/host';
+import type { BrowserHost } from '@moxxy/plugin-browser';
 import { registerDesksHandlers } from './ipc/desks';
 import { registerWorkflowsHandlers } from './ipc/workflows';
 import { registerSchedulerHandlers } from './ipc/scheduler';

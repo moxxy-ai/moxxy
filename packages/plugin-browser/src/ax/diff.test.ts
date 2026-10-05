@@ -63,6 +63,36 @@ describe('diffRendering', () => {
     expect(diffRendering(before, after)).toEqual([expect.stringMatching(/^\+ .*Nowy/)]);
   });
 
+  it('sums up a large removal in one line instead of repeating every row that went', () => {
+    // Typing "n8n" into Coolify's template filter hid ~297 cards, and the read
+    // after it sent every one of them back as "- …": 156,263 characters,
+    // +47,177 tokens, to say "the list got shorter". A uid that went away
+    // cannot be acted on anyway; what the agent needs is that it went.
+    const card = (i: number) =>
+      node(String(100 + i), 'link', `Service ${i}: a self-hosted tool with a long description of what it does`);
+    const cards = Array.from({ length: 300 }, (_, i) => card(i));
+    const filtered = renderingOf(page(...cards));
+    const after = renderingOf(page(...cards.slice(0, 3)));
+
+    const out = diffRendering(filtered, after);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/^- 297 elements went away/);
+    expect(out[0]).toContain('Service 3');
+    expect(out[0]?.length).toBeLessThan(300);
+  });
+
+  it('keeps what a changed row used to say short', () => {
+    const long = `Opis ${'bardzo długi '.repeat(15)}`;
+    const was = renderingOf(page(node('2', 'heading', long)));
+    const now = renderingOf(page(node('2', 'heading', 'Krótko')));
+
+    const [line] = diffRendering(was, now);
+
+    expect(line).toContain('Krótko');
+    expect(line).toMatch(/\(was: .{1,100}\)$/);
+  });
+
   it('puts removals before additions, so a replacement reads as one thing', () => {
     const after = renderingOf(page(node('2', 'heading', 'Koty'), node('9', 'link', 'Nowa oferta')));
 

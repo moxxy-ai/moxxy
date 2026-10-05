@@ -12,8 +12,7 @@ import {
   computeElisionState,
   conversationalStub,
   conversationalStubbed,
-  toolResultBytes,
-  toolResultStub,
+  toolResultStubText,
   toolResultStubbed,
   type ElisionState,
 } from '../elision-state.js';
@@ -432,8 +431,7 @@ export function projectMessages(
         // result isn't stubbed (elided) or an error and the call succeeded.
         let image: Extract<ContentBlock, { type: 'image' }> | null = null;
         if (toolResultStubbed(e, el)) {
-          const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
-          text = toolResultStub(e.callId, toolResultBytes(e.output), recalled);
+          text = toolResultStubText(e, el);
         } else if (e.error) {
           text = `[error:${e.error.kind}] ${e.error.message}`;
         } else if (isToolDisplayResult(e.output)) {

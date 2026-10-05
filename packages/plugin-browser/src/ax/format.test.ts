@@ -11,13 +11,17 @@ import type { AxNode } from './tree.js';
  */
 
 let uid = 0;
-function n(role: string, opts: { name?: string; value?: string; focused?: boolean; children?: AxNode[] } = {}): AxNode {
+function n(
+  role: string,
+  opts: { name?: string; value?: string; focused?: boolean; inProgress?: boolean; children?: AxNode[] } = {},
+): AxNode {
   return {
     uid: String(++uid),
     role,
     name: opts.name ?? '',
     ...(opts.value !== undefined ? { value: opts.value } : {}),
     ...(opts.focused ? { focused: true } : {}),
+    ...(opts.inProgress ? { inProgress: true } : {}),
     children: opts.children ?? [],
   };
 }
@@ -35,6 +39,11 @@ describe('formatAxTree — the row', () => {
     expect(formatAxTree(n('textbox', { name: 'E-mail', value: 'a@b.pl' }))).toBe(
       '[3] textbox: "E-mail" (value: "a@b.pl")',
     );
+  });
+
+  it('says what the markup says about a control with no name', () => {
+    const icon: AxNode = { uid: '90', role: 'button', name: '', hint: '@click="modalOpen=false"', children: [] };
+    expect(formatAxTree(icon)).toBe('[90] button (no name; markup: @click="modalOpen=false")');
   });
 
   it('marks the focused node', () => {
@@ -66,6 +75,37 @@ describe('formatAxTree — rule 1: depth cap', () => {
 
     expect(lines.length).toBeLessThanOrEqual(MAX_TREE_DEPTH + 1);
     expect(out).toMatch(/\.\.\. \(\d+ descendants\)/);
+  });
+});
+
+/**
+ * Seen live on books.toscrape.com in the narrow Browser pane: every book's
+ * price sat in a paragraph at the cap, which collapsed to `paragraph ... (2
+ * descendants)`. The model saw the titles and none of the prices, and named
+ * the first book as the cheapest.
+ */
+describe('formatAxTree — rule 1: what a collapsed row still says', () => {
+  function deepPrice(): AxNode {
+    let top = n('paragraph', { children: [n('StaticText', { name: '£53.74', children: [n('InlineTextBox', { name: '£53.74' })] })] });
+    for (let i = 0; i < MAX_TREE_DEPTH; i++) top = n('article', { name: `poziom-${i}`, children: [top, n('link', { name: `obok-${i}` })] });
+    return top;
+  }
+
+  it('keeps the text under an unnamed row it collapses, once', () => {
+    const out = formatAxTree(deepPrice());
+    const collapsed = out.split('\n').find((line) => line.includes('descendants')) ?? '';
+
+    expect(collapsed).toContain('paragraph');
+    expect(collapsed).toContain('"£53.74"');
+    expect(collapsed.match(/£53\.74/g)).toHaveLength(1);
+  });
+
+  it('cuts that text like any other label', () => {
+    let top = n('paragraph', { children: [n('StaticText', { name: 'z'.repeat(MAX_LABEL_CHARS * 3) })] });
+    for (let i = 0; i < MAX_TREE_DEPTH; i++) top = n('article', { name: `p-${i}`, children: [top, n('link', { name: `o-${i}` })] });
+
+    const collapsed = formatAxTree(top).split('\n').find((line) => line.includes('descendants')) ?? '';
+    expect(collapsed.length).toBeLessThan(MAX_LABEL_CHARS + 120);
   });
 });
 
@@ -161,5 +201,13 @@ describe('formatAxTree — the whole point', () => {
     expect(out.split('\n')).toHaveLength(62);
     expect(out).toContain('Do kasy');
     expect(out).not.toContain('p0');
+  });
+});
+
+describe('formatAxTree — work in progress', () => {
+  it('says on the row that the element is still working', () => {
+    expect(formatAxTree(n('progressbar', { name: 'Deploying', inProgress: true }))).toMatch(
+      /^\[\d+\] progressbar: "Deploying" \[in progress\]$/,
+    );
   });
 });

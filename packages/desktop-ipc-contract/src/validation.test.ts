@@ -675,4 +675,14 @@ describe('IPC payload validation', () => {
       validateIpcInput('scheduler.delete' as never, { id: 's'.repeat(257) }),
     ).toThrow();
   });
+  it('bounds what the pane may tell main about the agent’s browser pointer and control', () => {
+    expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: 'cur1' })).not.toThrow();
+    expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: '' })).toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'takeover' })).not.toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'resume' })).not.toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'stop' })).toThrow();
+    expect(() =>
+      validateIpcInput('browser.control' as IpcCommandName, { command: 'resume', driver: 'agent' }),
+    ).toThrow();
+  });
 });

@@ -410,10 +410,19 @@ export {
   conversationalStub,
   toolResultBytes,
   toolResultStubbed,
+  toolResultStubText,
   conversationalStubbed,
   TINY_TURN_CHARS,
   type ElisionState,
 } from './elision-state.js';
+export { supersedeOf, supersededCallIds, supersededStub, type Supersede } from './supersede.js';
+export {
+  progressOf,
+  unfinishedWork,
+  unfinishedWorkCheckpoint,
+  unfinishedWorkNudge,
+  type Progress,
+} from './progress.js';
 export {
   applyLazyTools,
   buildToolIndex,
@@ -447,6 +456,7 @@ export {
   type MentionOption,
   type MentionQuery,
 } from './skill-mentions.js';
+export { toolsForMode } from './tool-modes.js';
 
 export type {
   Workflow,

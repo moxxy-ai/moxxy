@@ -49,7 +49,7 @@ import type {
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 import type { FocusVerticalAnchor } from './focus-layout.js';
-import type { BrowserTabInfo } from './browser.js';
+import type { BrowserControlState, BrowserTabInfo } from './browser.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -533,12 +533,20 @@ export interface IpcCommands {
     requestId?: string;
   }) => Promise<{ tabId: string }>;
   'browser.releaseTab': (args: { tabId: string }) => Promise<void>;
-  'browser.listTabs': () => Promise<{ tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null }>;
+  'browser.listTabs': () => Promise<{
+    tabs: ReadonlyArray<BrowserTabInfo>;
+    activeTabId: string | null;
+    control: BrowserControlState;
+  }>;
   'browser.selectTab': (args: { tabId: string }) => Promise<void>;
   'browser.navigate': (args: { url: string; tabId?: string }) => Promise<{ url: string; tabId: string }>;
   'browser.history': (args: { action: 'back' | 'forward' | 'reload'; tabId?: string }) => Promise<void>;
   /** The pane reporting that the view it was asked to focus now has it. */
   'browser.confirmFocus': (args: { requestId: string }) => Promise<void>;
+  /** The pane reporting that the agent's pointer reached where a `browser.cursor` frame sent it. */
+  'browser.confirmCursor': (args: { requestId: string }) => Promise<void>;
+  /** The person takes the browser over from the agent, or hands it back. */
+  'browser.control': (args: { command: 'takeover' | 'resume' }) => Promise<void>;
   /** The user answered the pane's hand-off banner. */
   'browser.resolveHandoff': (args: { requestId: string; completed: boolean }) => Promise<void>;
   /** A picture of the tab as it stands, for the person to hand to the agent.

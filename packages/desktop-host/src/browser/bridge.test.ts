@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserBridge, bridgeEndpoint, sweepAbandonedBridges } from './bridge.js';
-import { BrowserHost, type HostWebContents } from './host.js';
+import { BrowserHost, type HostWebContents } from '@moxxy/plugin-browser';
 
 /**
  * The bridge is a trust boundary: it is a socket on the filesystem that hands
@@ -366,5 +366,162 @@ describe('BrowserBridge — the layer below accessibility', () => {
     await c.send('hello', { token: addr.token });
 
     expect(await c.send('teleport', {})).toMatchObject({ ok: false });
+  });
+});
+
+describe('BrowserBridge — when the person has the browser', () => {
+  it('refuses what would act on the page, and still lets the agent read it', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', {});
+    host.takeOver();
+
+    const acted = await c.send('act', { action: 'click', uid: '2' });
+    const went = await c.send('goto', { url: 'https://example.com' });
+    const opened = await c.send('tabs', { action: 'new' });
+    const read = await c.send('snapshot', {});
+    const listed = await c.send('tabs', { action: 'list' });
+
+    for (const reply of [acted, went, opened]) {
+      expect(reply.ok).toBe(false);
+      expect((reply.error as { message: string }).message).toMatch(/user has taken over the browser/);
+    }
+    expect(read.ok).toBe(true);
+    expect(listed.ok).toBe(true);
+  });
+
+  it('lets a new turn drive again, and keeps refusing the turn that was stopped', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { turn_id: 'T1' });
+    host.takeOver();
+
+    const same = await c.send('act', { action: 'click', uid: '2', turn_id: 'T1' });
+    const next = await c.send('act', { action: 'click', uid: '2', turn_id: 'T2' });
+
+    expect(same.ok).toBe(false);
+    expect(next.error).toBeUndefined();
+    expect(host.control).toEqual({ driver: 'agent', turnId: 'T2' });
+  });
+});
+
+describe('BrowserBridge — only on sites the conversation allowed', () => {
+  /** Every page in these tests is https://sklep.pl. */
+  const refused = (reply: Record<string, unknown>) => {
+    expect(reply.ok).toBe(false);
+    return String((reply.error as { message: string }).message);
+  };
+
+  it('refuses to act on a site nobody allowed, and says how to ask', async () => {
+    const { addr, c } = await boot(2);
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { sites: [] });
+
+    const replies = [
+      await c.send('act', { action: 'click', uid: '2', sites: [] }),
+      await c.send('act', { action: 'type', uid: '2', text: 'x', sites: ['example.com'] }),
+      await c.send('key', { key: 'Enter', sites: [] }),
+      await c.send('select', { uid: '2', option: 'A', sites: [] }),
+      await c.send('back', { sites: [] }),
+      await c.send('tabs', { action: 'close', tab_id: 't2', sites: [] }),
+    ];
+
+    for (const reply of replies) {
+      const message = refused(reply);
+      expect(message).toContain('sklep.pl');
+      expect(message).toContain('browser_allow_site');
+    }
+  });
+
+  it('acts on a site the conversation allowed', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    await c.send('snapshot', { sites: ['sklep.pl'] });
+
+    expect(await c.send('act', { action: 'click', uid: '2', sites: ['sklep.pl'] })).toMatchObject({ ok: true });
+  });
+
+  it('judges a navigation by where it goes, not where it starts', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    expect(refused(await c.send('goto', { url: 'https://example.com/a', sites: ['sklep.pl'] }))).toContain('example.com');
+    expect(refused(await c.send('tabs', { action: 'new', url: 'https://example.com', sites: [] }))).toContain('example.com');
+    expect(await c.send('goto', { url: 'https://www.example.com/a', sites: ['example.com'] })).toMatchObject({ ok: true });
+    // A blank tab goes nowhere; here it fails only because no pane can open one.
+    const blank = await c.send('tabs', { action: 'new', sites: [] });
+    expect(String((blank.error as { message?: string } | undefined)?.message)).not.toContain('browser_allow_site');
+  });
+
+  it('lets the agent read, scroll, point and wait anywhere', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    for (const [method, params] of [
+      ['snapshot', {}],
+      ['scroll', { direction: 'down' }],
+      ['act', { action: 'hover', uid: '2' }],
+      ['capture', {}],
+      ['tabs', { action: 'list' }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const reply = await c.send(method, { ...params, sites: [] });
+      expect(reply.error, method).toBeUndefined();
+    }
+  });
+
+  it('leaves a call that carries no sites to the prompt it already went through', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    // browser_session asks the user before every call; it sends no sites.
+    expect(await c.send('goto', { url: 'https://example.com' })).toMatchObject({ ok: true });
+  });
+});
+
+describe('BrowserBridge — pointing at a picture and giving files', () => {
+  it('passes point and upload through to the host', async () => {
+    const { addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    const pointed = await c.send('point', { action: 'click', x: 1, y: 1, view: 'v1', sites: ['sklep.pl'] });
+    const uploaded = await c.send('upload', { uid: '2', paths: ['/nie/ma/takiego.png'], sites: ['sklep.pl'] });
+
+    // Both reach the host, which answers in its own words.
+    expect((pointed.error as { message: string }).message).toMatch(/browser_capture/);
+    expect((uploaded.error as { message: string }).message).toMatch(/not a file/);
+  });
+
+  it('refuses both on a site nobody allowed, and while the person has the browser', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+
+    for (const [method, params] of [
+      ['point', { action: 'click', x: 1, y: 1, view: 'v1' }],
+      ['upload', { uid: '2', paths: ['/x.png'] }],
+    ] as Array<[string, Record<string, unknown>]>) {
+      const reply = await c.send(method, { ...params, sites: [] });
+      expect((reply.error as { message: string }).message, method).toContain('browser_allow_site');
+    }
+    host.takeOver();
+    for (const method of ['point', 'upload']) {
+      const reply = await c.send(method, { sites: ['sklep.pl'] });
+      expect((reply.error as { message: string }).message, method).toMatch(/user has taken over/);
+    }
+  });
+});
+
+describe('BrowserBridge — the page for a run of steps', () => {
+  it('serves the elements and the page text, on any site and while the person has the browser', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    host.takeOver();
+
+    const reply = await c.send('tree', { sites: [] });
+
+    expect(reply.ok).toBe(true);
+    const result = reply.result as { tree: { app: string; elements: Array<{ index: number; title?: string }> }; page: string };
+    expect(result.tree.app).toBe('sklep.pl');
+    expect(result.tree.elements).toEqual([expect.objectContaining({ index: 2, title: 'Kup' })]);
+    expect(result.page).toContain('Kup');
   });
 });

@@ -9,7 +9,7 @@ import { ComputerBackend, type PlatformProfile } from './backend.js';
 import { contractHelperScript, helperRequests, memoryLog, toolContext } from './helper.fixture.js';
 import type { PreviewMessage } from '../preview/controller.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
-import type { AskJev, JevAnswers } from '../jev/client.js';
+import type { AskJev, JevAnswers } from '@moxxy/jev';
 import { RunMemory } from '../jev/memory.js';
 
 let directory: string;

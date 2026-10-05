@@ -759,8 +759,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Clip while the width animates, or the content spills over the field. */
-  overflow: hidden;
+  /* Clip while the width animates, or the content spills over the field.
+   * `clip`, not `hidden`: a hidden overflow still scrolls when something
+   * inside is scrolled into view, and slid the whole column sideways. */
+  overflow: clip;
   transition:
     width var(--motion-shift) ease,
     border-right-color var(--motion-shift) ease,
@@ -1381,6 +1383,73 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-main-bg);
 }
 
+/* The agent's pointer: the Computer Use arrowhead, drawn over the page it works on. */
+.browser__cursor {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transition-property: left, top;
+  transition-timing-function: ease-in-out;
+}
+.browser__cursor svg {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%));
+}
+.browser__cursor path { fill: var(--color-primary); stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+.browser__cursor[data-phase='failed'] path { fill: var(--color-red); }
+.browser__cursor-ring {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  opacity: 0;
+  animation: browser-cursor-press 350ms ease-out;
+}
+.browser__cursor[data-phase='failed'] .browser__cursor-ring {
+  border-color: var(--color-red);
+  background: color-mix(in srgb, var(--color-red) 16%, transparent);
+}
+@keyframes browser-cursor-press {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to { opacity: 0; transform: scale(1.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser__cursor { transition: none; }
+  .browser__cursor-ring { animation-name: browser-cursor-fade; }
+}
+@keyframes browser-cursor-fade {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+
+.browser__control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-input-soft);
+  font-size: var(--type-meta);
+}
+.browser__control[data-mode='user'] {
+  border-bottom-color: var(--color-amber-border);
+  background: var(--color-amber-soft);
+  color: var(--color-amber-text);
+}
+.browser__control-label { min-width: 0; }
+.browser__control-actions { display: flex; gap: var(--space-6); flex-shrink: 0; }
+
 .browser__empty {
   padding: var(--space-24);
   color: var(--color-text-dim);
@@ -1876,7 +1945,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tip { position: relative; }
 
 .tip::after {
-  content: attr(data-tip);
+  /* No box until it shows: an invisible bubble still takes room beside its
+   * control, and in the session list that room made the sidebar scroll
+   * sideways. */
+  content: none;
   position: absolute;
   left: calc(100% + 8px);
   top: 50%;
@@ -1899,11 +1971,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   box-shadow: var(--color-card-shadow);
   white-space: normal;
   line-height: 1.35;
-  opacity: 0;
   pointer-events: none;
-  /* Hidden by default with NO delay, so leaving a control clears the bubble at
-   * once; the delay below applies only on the way in. */
-  transition: opacity 90ms ease 0ms;
 }
 
 .tip[data-tip-side='left']::after {
@@ -1917,18 +1985,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   transform: translateX(-50%);
 }
 
-/* Fast, but not so fast that dragging the pointer across the rail strobes. */
+/* Fast, but not so fast that dragging the pointer across the rail strobes;
+ * leaving a control clears the bubble at once. */
 .tip:hover::after,
 .tip:focus-visible::after {
-  opacity: 1;
-  transition-delay: 140ms;
+  content: attr(data-tip);
+  animation: moxxy-fade-in 90ms ease 140ms both;
 }
 
 /* An expanded rail already shows its labels; a bubble repeating them is noise. */
 .app-rail[data-expanded='true'] .tip::after { content: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tip::after { transition: none; }
+  .tip:hover::after,
+  .tip:focus-visible::after { animation: none; }
 }
 
 /* --- Telemetry ---------------------------------------------------

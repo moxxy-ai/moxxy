@@ -224,4 +224,10 @@ export interface ToolDef {
    * every request, so mark the entry point of a family, not the family.
    */
   readonly alwaysLoaded?: boolean;
+  /**
+   * The modes this tool is offered in; omitted = every mode. For a tool that
+   * means nothing elsewhere (goal mode's goal_abandon), so it is no way out of
+   * a task in a mode that never asked for it. See `toolsForMode`.
+   */
+  readonly modes?: ReadonlyArray<string>;
 }

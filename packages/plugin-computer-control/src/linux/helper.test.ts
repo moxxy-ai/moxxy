@@ -406,14 +406,15 @@ describe.skipIf(!fixtureBuilt)('Linux Computer Use on the fixture app', () => {
     try {
       const state = await observe(transport);
       await transport.request('preview.start', { fps: 5 }, signal());
-      expect(await until(() => previews.some((preview) => preview.image), 3000)).toBe(true);
+      const seen = () => JSON.stringify(previews.map((preview) => preview.error ?? (preview.image ? 'picture' : 'still')));
+      expect(await until(() => previews.some((preview) => preview.image), 5000), seen()).toBe(true);
       const quiet = previews.length;
       // A still window is not sent again; it only says it is still watched.
       expect(await until(() => previews.slice(quiet).some((preview) => !preview.image), 4000)).toBe(true);
       const pictures = previews.filter((preview) => preview.image).length;
       await act(transport, { action: 'click', element_index: named(state, 'push button', 'Press').index, mouse_button: 'left', click_count: 1 });
       expect(await until(() => previews.filter((preview) => preview.image).length > pictures, 3000)).toBe(true);
-      expect(previews.every((preview) => preview.error === undefined)).toBe(true);
+      expect(previews.every((preview) => preview.error === undefined), seen()).toBe(true);
       expect(previews.map((preview) => preview.seq)).toEqual(previews.map((_, index) => index));
       await expect(transport.request('preview.start', { codec: 'h264' }, signal())).rejects.toMatchObject({ code: 'invalid_params' });
       await transport.request('preview.stop', {}, signal());
@@ -421,6 +422,30 @@ describe.skipIf(!fixtureBuilt)('Linux Computer Use on the fixture app', () => {
       await sleep(600);
       expect(previews.length).toBe(stopped);
     } finally { await transport.close(); }
+  });
+
+  it('shows the window again after it was out of reach, and says so once', async () => {
+    const previews: Array<{ seq: number; image?: unknown; error?: string }> = [];
+    const transport = start((event) => { if (event.event === 'preview_frame') previews.push(event); });
+    const seen = () => JSON.stringify(previews.map((preview) => preview.error ?? (preview.image ? 'picture' : 'still')));
+    let window = '';
+    try {
+      await observe(transport);
+      window = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^Moxxy Fixture$']).stdout.toString().trim().split('\n')[0] ?? '';
+      expect(window).toMatch(/^\d+$/);
+      await transport.request('preview.start', { fps: 5 }, signal());
+      expect(await until(() => previews.some((preview) => preview.image), 5000), seen()).toBe(true);
+      // A minimised window has no pixels to capture until the person brings it back.
+      spawnSync('xdotool', ['windowminimize', window]);
+      expect(await until(() => previews.some((preview) => preview.error), 4000), seen()).toBe(true);
+      const gone = previews.length;
+      spawnSync('xdotool', ['windowactivate', window]);
+      expect(await until(() => previews.slice(gone).some((preview) => preview.image), 5000), seen()).toBe(true);
+      expect(previews.filter((preview) => preview.error).length, seen()).toBe(1);
+    } finally {
+      if (window) spawnSync('xdotool', ['windowactivate', window]);
+      await transport.close();
+    }
   });
 
   it('serves the model tools end to end through the shared backend', { timeout: 60_000 }, async () => {

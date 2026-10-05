@@ -176,7 +176,11 @@ export function ChatSurface({
 
   useVoiceCallRequest(voiceCall.open);
 
-  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
+  // A session the registry knows is empty (just made with New session) has no
+  // history to wait for: it keeps the surface — composer and empty state — while
+  // its runner starts, instead of swapping it for a loader and back.
+  const knownEmpty = activeDesk?.sessions.find((sn) => sn.id === workspaceId)?.eventCount === 0;
+  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty && !knownEmpty;
 
   if (showBlockingLoading) {
     return (

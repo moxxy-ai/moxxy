@@ -294,9 +294,14 @@ jobs:
         shell: bash
         run: pnpm exec turbo run build --filter='!docs'
 
+      # A hung test would otherwise hold the job for GitHub's 6-hour default,
+      # and a job cancelled mid-step uploads no log to say which one it was.
+      # Streamed, because on Actions turbo holds a task's output until the task
+      # ends, so a hung task would print nothing at all.
       - name: Test
         shell: bash
-        run: pnpm exec turbo run test --concurrency=2 --continue && pnpm run test:scripts
+        timeout-minutes: 30
+        run: pnpm exec turbo run test --concurrency=2 --continue --log-order=stream && pnpm run test:scripts
 
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})

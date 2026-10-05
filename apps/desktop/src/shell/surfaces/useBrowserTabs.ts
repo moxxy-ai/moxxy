@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
-import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
+import type { BrowserControlState, BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 
 /**
  * Everything the browser pane knows how to do, with none of the markup.
@@ -18,6 +18,8 @@ import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 export interface BrowserTabsApi {
   readonly tabs: ReadonlyArray<BrowserTabInfo>;
   readonly activeTabId: string | null;
+  /** Who drives the browser — the agent, or the person who took it over — as main holds it. */
+  readonly control: BrowserControlState;
   readonly error: string | null;
   /** Adopt a freshly attached view. Call once its webContents id is known. */
   readonly adopt: (webContentsId: number, requestId?: string) => Promise<string | null>;
@@ -86,9 +88,12 @@ export function normalizeAddress(input: string): string | null {
   return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
 }
 
+const AGENT_DRIVES: BrowserControlState = { driver: 'agent', turnId: null };
+
 export function useBrowserTabs(): BrowserTabsApi {
   const [tabs, setTabs] = useState<ReadonlyArray<BrowserTabInfo>>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [control, setControl] = useState<BrowserControlState>(AGENT_DRIVES);
   const [error, setError] = useState<string | null>(null);
   // Survives re-renders so an unmount can release what this pane adopted even
   // if React has already discarded the state.
@@ -107,9 +112,11 @@ export function useBrowserTabs(): BrowserTabsApi {
 
   const refresh = useCallback(async () => {
     try {
-      const { tabs: next, activeTabId: active } = await api().invoke('browser.listTabs');
+      const { tabs: next, activeTabId: active, control: drives } = await api().invoke('browser.listTabs');
       setTabs(next);
       setActiveTabId(active);
+      // An older main answers without it; the agent driving is what that main means.
+      setControl(drives ?? AGENT_DRIVES);
       setError(null);
     } catch (err) {
       setError(toErrorMessage(err));
@@ -240,9 +247,10 @@ export function useBrowserTabs(): BrowserTabsApi {
     });
     // The agent can switch, open and close tabs. Without this the strip would
     // show a set the page no longer matches.
-    const offTabs = api().subscribe('browser.tabsChanged', ({ tabs: next, activeTabId: active }) => {
+    const offTabs = api().subscribe('browser.tabsChanged', ({ tabs: next, activeTabId: active, control: drives }) => {
       setTabs(next);
       setActiveTabId(active);
+      setControl(drives ?? AGENT_DRIVES);
       const live = new Set(next.map((t) => t.tabId));
       // Drop views main no longer knows about, so a tab the agent closed stops
       // being rendered instead of lingering as an orphan.
@@ -301,6 +309,7 @@ export function useBrowserTabs(): BrowserTabsApi {
   return {
     tabs,
     activeTabId,
+    control,
     error,
     adopt,
     release,

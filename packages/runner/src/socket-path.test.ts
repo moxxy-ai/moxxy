@@ -1,7 +1,8 @@
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runnerSocketPath, isRunnerUp, platformSocket, isNamedPipe } from './socket-path.js';
+import { fitSocketPath, isNamedPipe, isRunnerUp, maxSocketPathBytes, platformSocket, runnerSocketPath } from './socket-path.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import type { TransportServer } from './transport.js';
 
@@ -77,6 +78,77 @@ describe('platformSocket — the OS socket-address split', () => {
 
   it('sanitizes the name into a single legal pipe segment on Windows', () => {
     expect(platformSocket('serve-a/b\\c:d', '/x', 'win32')).toBe('\\\\.\\pipe\\moxxy-serve-a_b_c_d');
+  });
+});
+
+/**
+ * A unix socket path past `sun_path` (104 bytes on macOS, 108 on Linux) is cut
+ * short by libuv without a word. Two runners under a deep MOXXY_HOME then bind
+ * one socket: the second dies with EADDRINUSE ("moxxy serve exited before
+ * binding") and a client of one session can reach another's runner.
+ */
+describe.skipIf(process.platform === 'win32')('a socket path too long to bind whole', () => {
+  const deep = path.join(os.tmpdir(), 'd'.repeat(120), 'desktop', 'sockets');
+  const bytes = (p: string): number => Buffer.byteLength(p);
+  // Linux CI has a shared /tmp and maybe no runtime folder: give it one, private
+  // as systemd makes it (mkdtemp creates 0700).
+  let runtime: string;
+  let savedRuntime: string | undefined;
+  beforeEach(() => {
+    savedRuntime = process.env.XDG_RUNTIME_DIR;
+    runtime = mkdtempSync(path.join(os.tmpdir(), 'rt-'));
+    process.env.XDG_RUNTIME_DIR = runtime;
+  });
+  afterEach(() => {
+    if (savedRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = savedRuntime;
+    rmSync(runtime, { recursive: true, force: true });
+  });
+
+  it('moves to a short private folder, a different socket for each long path', () => {
+    const a = platformSocket('a', path.join(deep, 'serve-aaaaaaaa-1234-1234-1234-123456789012.sock'));
+    const b = platformSocket('b', path.join(deep, 'serve-bbbbbbbb-1234-1234-1234-123456789012.sock'));
+
+    expect(bytes(a)).toBeLessThanOrEqual(maxSocketPathBytes());
+    expect(bytes(b)).toBeLessThanOrEqual(maxSocketPathBytes());
+    expect(a).not.toBe(b);
+  });
+
+  it('moves the same long path to the same place, so the runner and its clients agree', () => {
+    const long = path.join(deep, 'serve.sock');
+    expect(platformSocket('serve', long)).toBe(platformSocket('serve', long));
+  });
+
+  it('keeps a path that fits exactly as it is', () => {
+    const fits = '/' + 'a'.repeat(maxSocketPathBytes('darwin') - 1);
+    expect(platformSocket('x', fits, 'darwin')).toBe(fits);
+    expect(platformSocket('x', '/Users/u/.moxxy/desktop/sockets/serve-1.sock', 'darwin')).toBe('/Users/u/.moxxy/desktop/sockets/serve-1.sock');
+  });
+
+  it('follows a deep MOXXY_HOME and a too-long MOXXY_RUNNER_SOCKET alike', () => {
+    process.env.MOXXY_HOME = path.join(os.tmpdir(), 'h'.repeat(120));
+    expect(bytes(runnerSocketPath())).toBeLessThanOrEqual(maxSocketPathBytes());
+    process.env.MOXXY_RUNNER_SOCKET = path.join(deep, 'custom.sock');
+    expect(bytes(runnerSocketPath())).toBeLessThanOrEqual(maxSocketPathBytes());
+  });
+
+  it('refuses, saying why, rather than share a folder other users can write to', () => {
+    const shared = mkdtempSync(path.join(os.tmpdir(), 'shared-'));
+    chmodSync(shared, 0o777);
+    expect(() => fitSocketPath(path.join(deep, 'serve.sock'), process.platform, [shared])).toThrow(/MOXXY_HOME/);
+    rmSync(shared, { recursive: true, force: true });
+  });
+
+  it('lets two runners listen side by side and reach each its own', async () => {
+    const a = platformSocket('a', path.join(deep, `serve-${'a'.repeat(36)}.sock`));
+    const b = platformSocket('b', path.join(deep, `serve-${'b'.repeat(36)}.sock`));
+    const first = await createUnixSocketServer(a);
+    servers.push(first);
+    const second = await createUnixSocketServer(b);
+    servers.push(second);
+
+    expect(await isRunnerUp(a)).toBe(true);
+    expect(await isRunnerUp(b)).toBe(true);
   });
 });
 

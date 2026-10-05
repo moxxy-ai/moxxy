@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AppElement } from '../contract/tree.js';
+import type { AppElement } from '@moxxy/jev';
 import { judge, rungs } from './ladder.js';
 
 const field: AppElement = { key: 'w/name', index: 7, depth: 1, role: 'text field', title: 'Name', frame: { x: 100, y: 40, width: 200, height: 20 } };

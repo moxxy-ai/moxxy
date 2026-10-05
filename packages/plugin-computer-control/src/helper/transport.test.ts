@@ -22,14 +22,16 @@ describe('native helper transport', () => {
   });
   it('excludes explicit focus waiting from the active request timeout', async () => {
     const states: string[] = [];
+    // The budget also covers the helper's own start, which on a busy Windows
+    // runner outlasts 150 ms; the focus wait still outlasts the whole budget.
     const transport = helper(`process.stdin.once('data', bytes => {
       const r=JSON.parse(bytes.toString());
       process.stdout.write(JSON.stringify({version:4,event:'control_state',id:r.id,state:'waiting_for_focus'})+'\\n');
       setTimeout(()=>{
         process.stdout.write(JSON.stringify({version:4,event:'control_state',id:r.id,state:'foreground'})+'\\n');
         process.stdout.write(JSON.stringify({version:4,id:r.id,ok:true,result:{delivered:false,status:'needs_observation'}})+'\\n');
-      },250);
-    });`, { timeoutMs: 150, onEvent: (event) => { if (event.event === 'control_state') states.push(String(event.state)); } });
+      },1500);
+    });`, { timeoutMs: 1000, onEvent: (event) => { if (event.event === 'control_state') states.push(String(event.state)); } });
     try {
       expect(await transport.request('click', {}, new AbortController().signal)).toEqual({delivered:false,status:'needs_observation'});
       expect(states).toEqual(['waiting_for_focus','foreground']);

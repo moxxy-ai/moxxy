@@ -101,5 +101,12 @@ export interface TurnCheckpoint {
    * (goal/collab-style stall handling wants these too).
    */
   readonly gateOn?: 'end_turn' | 'idle';
+  /**
+   * A cheap test of whether this turn needs the checkpoint at all. When it
+   * says no, the checkpoint is skipped without a trace — no lifecycle events —
+   * so a check that rarely applies can sit on every turn without adding to
+   * every conversation's log.
+   */
+  applies?(ctx: ModeContext): boolean;
   run(check: CheckpointContext, ctx: ModeContext): Promise<CheckpointResult>;
 }

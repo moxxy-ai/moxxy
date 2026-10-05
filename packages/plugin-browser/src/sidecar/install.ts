@@ -5,6 +5,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { claimProfile, type BrowserProfile } from '../profile-lock.js';
 import { assertPublicUrl } from '../ssrf-guard.js';
 import { SidecarError } from './types.js';
 import type { BrowserKind, BrowserType, PageHandle, PlaywrightHandle } from './types.js';
@@ -133,9 +134,10 @@ export async function launchWithAutoInstall(
   browserType: BrowserType,
   which: BrowserKind,
   headless: boolean,
+  profile?: BrowserProfile,
 ): Promise<LaunchResult> {
   try {
-    return { handle: await launchOnce(browserType, headless), installNotice: null };
+    return await launchOnce(browserType, headless, profile);
   } catch (err) {
     if (!isMissingBrowserError(err)) throw err;
     process.stderr.write(
@@ -153,22 +155,52 @@ export async function launchWithAutoInstall(
       );
     }
     process.stderr.write(`moxxy-browser: install complete, retrying launch\n`);
-    return {
-      handle: await launchOnce(browserType, headless),
-      installNotice: `Auto-installed Playwright ${which} browser (~150MB, one-time).`,
-    };
+    const installed = `Auto-installed Playwright ${which} browser (~150MB, one-time).`;
+    const retried = await launchOnce(browserType, headless, profile);
+    return { handle: retried.handle, installNotice: [installed, retried.installNotice].filter(Boolean).join(' ') };
   }
 }
 
-async function launchOnce(browserType: BrowserType, headless: boolean): Promise<PlaywrightHandle> {
-  const browser = await browserType.launch({ headless });
+const profileBusy = (holder: number): string =>
+  `Another moxxy run (pid ${holder}) is using the browser profile, so this browser starts signed out ` +
+  'and keeps nothing once it closes.';
+
+/**
+ * Launch the browser — on the profile, when one is given and free, so what a
+ * person signed in to (`moxxy browser login`) is there; signed out otherwise.
+ */
+async function launchOnce(
+  browserType: BrowserType,
+  headless: boolean,
+  profile?: BrowserProfile,
+): Promise<LaunchResult> {
   // deviceScaleFactor: 2 so the live-view / region screenshots are captured at
   // Retina density — a 1× capture upscaled into a HiDPI pane is what made the
   // surface look blurry. Costs ~2× the screenshot bytes; worth it for crisp text.
-  const context = (await browser.newContext({ deviceScaleFactor: 2 })) as PlaywrightHandle['context'];
+  const options = { deviceScaleFactor: 2 };
+  let notice: string | null = null;
+  if (profile && browserType.launchPersistentContext) {
+    const claim = claimProfile(profile);
+    if (typeof claim === 'function') {
+      try {
+        const context = (await browserType.launchPersistentContext(profile.dir, { headless, ...options })) as PlaywrightHandle['context'];
+        await installNavigationSsrfGuard(context);
+        const page = (context.pages?.()[0] ?? (await context.newPage())) as PageHandle;
+        // The context is the browser here; closing it is what lets go of the profile.
+        const browser = { close: async () => claim() };
+        return { handle: { browser, context, page }, installNotice: null };
+      } catch (err) {
+        claim();
+        throw err;
+      }
+    }
+    notice = profileBusy(claim.busy);
+  }
+  const browser = await browserType.launch({ headless });
+  const context = (await browser.newContext(options)) as PlaywrightHandle['context'];
   await installNavigationSsrfGuard(context);
   const page = (await context.newPage()) as unknown as PageHandle;
-  return { browser, context, page };
+  return { handle: { browser, context, page }, installNotice: notice };
 }
 
 /**

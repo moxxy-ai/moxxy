@@ -36,6 +36,7 @@ export const greetTool = defineTool({
 - **Use `ctx.cwd` not `process.cwd()`.** Cwd is per-session.
 - **Permission default.** Anything with side effects (Write, Bash, network): `{ action: 'prompt' }`. Read-only tools (Read, Glob, Grep) also use `prompt` by default — let the resolver decide.
 - **Path handling.** For filesystem tools, use `resolvePath(ctx.cwd, target)` from `@moxxy/tools-builtin/src/util` (or wrap with `resolveWithinCwd` if you want strict containment). Real safety against unintended fs access lives at the permission layer, not the resolver.
+- **A tool for one mode names it.** A tool that means nothing outside its mode (goal mode's `goal_complete`/`goal_abandon`, the collaboration's `collab_*`) sets `modes: ['goal']`. It stays registered, so its permission and isolation are looked up as before, but no other mode offers it to the model (`toolsForMode`, applied by core to every turn and sub-agent). An inert tool on offer is still a way out: in a plain browser task the model called `goal_abandon` and gave up.
 - **No path-traversal sandboxes for the sake of it.** Adding `..` rejection by default breaks legitimate workflows ("read ~/.bashrc"). Only use `resolveWithinCwd` when the tool's *contract* is "inside cwd only."
 
 ## Hook ordering before your handler runs

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PeerSupervisor, type PeerSupervisorOptions } from './peer-supervisor.js';
@@ -64,13 +64,13 @@ describe('PeerSupervisor', () => {
 
     const sup = new PeerSupervisor(baseOpts({ cliEntry: script, peerMaxIterations: 7 }));
     cleanups.push(() => void sup.shutdownAll('test done'));
+    // Wait for the probe to exit, not just for its file: Windows will not remove
+    // a directory a live process has as its cwd (EBUSY in cleanup).
+    const exited = new Promise<string>((resolve) => sup.onExit(resolve));
     // The child is `node <script> agent`; our probe ignores the 'agent' arg.
     sup.spawn({ entry, cwd: dir, mode: 'collab-peer' });
+    await exited;
 
-    const { readFileSync, existsSync } = await import('node:fs');
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !existsSync(out)) await new Promise((r) => setTimeout(r, 50));
-    expect(existsSync(out)).toBe(true);
     expect(readFileSync(out, 'utf8')).toBe('7');
   });
 

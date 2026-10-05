@@ -17,10 +17,11 @@
 
 import * as readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { defaultBrowserProfile } from './profile-lock.js';
 import { dispatch, teardown, type SidecarState } from './sidecar/dispatch.js';
 import { errMsg, type Reply, type Req } from './sidecar/types.js';
 
-const state: SidecarState = { handle: null, pendingInstallNotice: null };
+const state: SidecarState = { handle: null, pendingInstallNotice: null, profile: defaultBrowserProfile() };
 
 function write(reply: Reply): void {
   // Drain the install-notice flag into the first reply that goes out

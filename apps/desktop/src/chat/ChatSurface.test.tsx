@@ -7,6 +7,13 @@ const chatState = vi.hoisted(() => ({
   events: [] as Array<{ type: string; text?: string; content?: string }>,
 }));
 
+/** The desk the surface's session belongs to, as the registry reports it. */
+const deskState = vi.hoisted(() => ({
+  desk: undefined as
+    | { id: string; name: string; activeSessionId: string; sessions: Array<{ id: string; name: string; eventCount?: number }> }
+    | undefined,
+}));
+
 const voiceCallState = vi.hoisted(() => ({
   active: false,
   phase: 'idle' as const,
@@ -91,7 +98,7 @@ vi.mock('@moxxy/client-core', () => ({
   }),
   useActionCatalog: () => ({ loaded: true, skills: [], tools: [] }),
   useDesks: () => ({
-    desks: [],
+    desks: deskState.desk ? [deskState.desk] : [],
     activeId: null,
     loading: false,
     error: null,
@@ -105,7 +112,7 @@ vi.mock('@moxxy/client-core', () => ({
   useActiveAsk: () => null,
   useVoiceCall: () => ({ ...voiceCallState }),
   useQueuedTurns: () => [],
-  deskForWorkspace: () => undefined,
+  deskForWorkspace: () => deskState.desk,
   // ChatSurface owns the session-info fetch now (one fetch shared by the
   // instrument bar's telemetry and the composer's mode menu), so its hook's
   // dependencies have to exist on the mock too.
@@ -140,6 +147,7 @@ describe('ChatSurface session readiness', () => {
   beforeEach(() => {
     chatState.loading = false;
     chatState.events = [];
+    deskState.desk = undefined;
     voiceCallState.active = false;
     voiceCallState.activeOperations = [];
     voiceCallState.open.mockClear();
@@ -183,6 +191,31 @@ describe('ChatSurface session readiness', () => {
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
     expect(screen.queryByText(/^Model:/)).not.toBeInTheDocument();
     expect(screen.queryByText('Attach')).not.toBeInTheDocument();
+  });
+
+  /**
+   * A session just made with New session has nothing to load. Swapping the
+   * whole surface for a loader and back — composer gone, then back — is the
+   * flash seen on every New session.
+   */
+  it('keeps the composer and the empty state for a brand-new session while its runner starts', () => {
+    deskState.desk = { id: 'desk', name: 'Moxxy', activeSessionId: 'new-session', sessions: [{ id: 'new-session', name: 'New session', eventCount: 0 }] };
+    chatState.loading = true;
+
+    render(<ChatSurface phase={loadingPhase} workspaceId="new-session" sessionLoading />);
+
+    expect(screen.queryByText('Moxxy is loading this session…')).not.toBeInTheDocument();
+    expect(screen.getByText('Getting your workspace ready…')).toBeInTheDocument();
+    expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
+  });
+
+  it('still waits for the history of a session that has one', () => {
+    deskState.desk = { id: 'desk', name: 'Moxxy', activeSessionId: 'old-session', sessions: [{ id: 'old-session', name: 'Old', eventCount: 12 }] };
+
+    render(<ChatSurface phase={loadingPhase} workspaceId="old-session" sessionLoading />);
+
+    expect(screen.getByText('Moxxy is loading this session…')).toBeInTheDocument();
+    expect(screen.queryByText('Getting your workspace ready…')).not.toBeInTheDocument();
   });
 
   it('keeps an already loaded transcript mounted while the selected session runner reconnects', () => {

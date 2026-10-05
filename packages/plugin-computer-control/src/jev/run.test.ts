@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { AppState } from '../backend/rpc.js';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
-import type { AppElement } from '../contract/tree.js';
-import { JevError, type AskJev, type JevAnswers, type JevQuestion } from './client.js';
-import { STATE_CHARS } from './ground.js';
+import type { AppElement } from '@moxxy/jev';
+import { JevError, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
+import { STATE_CHARS } from '@moxxy/jev';
 import { describeRun, runSteps, type RunDeps } from './run.js';
 
 const button = (index: number, title: string, extra: Partial<AppElement> = {}): AppElement =>

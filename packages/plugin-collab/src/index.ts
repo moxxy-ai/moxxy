@@ -24,7 +24,7 @@ export { createCollaborationHub, type CollaborationHub, type PeerReader, type Cr
 export { CollabHubClient } from './client.js';
 export { registerActiveHub, getActiveHub, unregisterActiveHub } from './active-hubs.js';
 export { COLLAB_ENV, isCollabPeer, getProcessHubClient, __resetProcessHubClient } from './process-client.js';
-export { collabTools, PEER_TOOL_NAMES } from './tools.js';
+export { collabTools, PEER_TOOL_NAMES, COLLAB_ARCHITECT_MODE_NAME, COLLAB_PEER_MODE_NAME } from './tools.js';
 export {
   collabCommands,
   collabSayCommand,

@@ -520,7 +520,8 @@ async function* runCheckpointGate(
   // only face the idle-tolerant ones — reviewing a half-sentence as if it
   // were a completion claim wastes a checker run and confuses the model.
   const eligible = checkpoints.filter(
-    (cp) => round.stopReason === 'end_turn' || (cp.gateOn ?? 'end_turn') === 'idle',
+    (cp) =>
+      (round.stopReason === 'end_turn' || (cp.gateOn ?? 'end_turn') === 'idle') && (cp.applies?.(ctx) ?? true),
   );
   if (eligible.length === 0) return { kind: 'end' };
 

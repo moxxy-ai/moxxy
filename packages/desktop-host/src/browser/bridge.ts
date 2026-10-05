@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
-import type { BrowserHost } from './host';
+import { dispatchToHost, type BrowserHost, type HostReply } from '@moxxy/plugin-browser';
 
 /**
  * The channel the agent's tools reach the desktop browser through.
@@ -127,116 +127,15 @@ export class BrowserBridge {
   }
 
   /**
-   * Map the sidecar's method names onto the host. Same names, same shapes —
-   * that is what lets one set of tools serve either backend.
+   * Hand a call to the host. The method table is shared with the headless
+   * sidecar (`dispatchToHost`), so one set of tools serves either backend.
    */
-  private async dispatch(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<{ ok: boolean; result?: unknown; error?: { message: string } }> {
-    // An empty string is a model filling in a field it has nothing for, not a
-    // tab named "". Treat it as absent.
-    const named = typeof params.tab_id === 'string' && params.tab_id ? params.tab_id : undefined;
-    // Naming a tab is how the agent moves its own aim. Nothing the person does
-    // in the pane touches it — see BrowserHost.agentTarget.
-    if (named) this.host.noteAgentTab(named);
-    const tabId = named ?? this.host.agentTarget();
-    const sel = typeof params.selector === 'string' ? params.selector : '';
-    const timeoutMs = typeof params.timeoutMs === 'number' ? params.timeoutMs : undefined;
-    switch (method) {
-      case 'snapshot':
-        return this.host.snapshot(tabId, params.full === true ? { full: true } : {});
-      case 'act':
-        return this.host.act({
-          action: String(params.action ?? ''),
-          uid: String(params.uid ?? ''),
-          ...(typeof params.text === 'string' ? { text: params.text } : {}),
-          ...(tabId ? { tab_id: tabId } : {}),
-        });
-      case 'goto': {
-        const url = params.url;
-        if (typeof url !== 'string') return { ok: false, error: { message: 'url is required' } };
-        return this.host.goto(url, tabId);
-      }
-      case 'tabs': {
-        const action = String(params.action ?? 'list');
-        try {
-          if (action === 'new') {
-            const url = typeof params.url === 'string' && params.url ? params.url : 'about:blank';
-            const newId = await this.host.newTab(url);
-            // A tab the agent asked for is the tab the agent is now working in.
-            this.host.noteAgentTab(newId);
-            return { ok: true, result: { tabId: newId, tabs: this.host.list(), activeTabId: this.host.activeId } };
-          }
-          if (action === 'select') {
-            if (!named) return { ok: false, error: { message: 'tab_id is required for select' } };
-            this.host.select(named);
-          }
-          if (action === 'close') {
-            if (!named) return { ok: false, error: { message: 'tab_id is required for close' } };
-            this.host.unregister(named);
-          }
-          return { ok: true, result: { tabs: this.host.list(), activeTabId: this.host.activeId } };
-        } catch (err) {
-          return { ok: false, error: { message: err instanceof Error ? err.message : String(err) } };
-        }
-      }
-      case 'capture':
-        return this.host.capture({
-          ...(tabId ? { tabId } : {}),
-          ...(params.clip ? { clip: params.clip as { x: number; y: number; width: number; height: number } } : {}),
-          ...(params.format === 'jpeg' ? { format: 'jpeg' as const } : {}),
-        });
-      case 'back':
-      case 'forward':
-      case 'reload':
-        return this.host.history(method, tabId);
-      case 'await_human':
-        return this.host.awaitHuman({
-          ...(tabId ? { tabId } : {}),
-          reason: String(params.reason ?? 'The page needs you to do something the agent must not do itself.'),
-        });
-      case 'box':
-        return this.host.boxOf(String(params.uid ?? ''), tabId);
-
-      // Below the accessibility layer: what `browser_session` asks for. Same
-      // method names and shapes as the sidecar, so the tool cannot tell the two
-      // backends apart — which is the whole point of this bridge.
-      case 'click':
-        return this.host.clickSelector(sel, { ...(tabId ? { tabId } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
-      case 'fill':
-        return this.host.fillSelector(sel, String(params.value ?? ''), {
-          ...(tabId ? { tabId } : {}),
-          ...(timeoutMs ? { timeoutMs } : {}),
-        });
-      case 'key':
-        return this.host.key(String(params.key ?? ''), tabId);
-      case 'text':
-        return this.host.textOf(sel || undefined, tabId);
-      case 'html':
-        return this.host.htmlOf(tabId);
-      case 'eval':
-        return this.host.evaluate(String(params.expression ?? ''), tabId);
-      case 'screenshot':
-        return this.host.capture({
-          ...(tabId ? { tabId } : {}),
-          ...(params.fullPage === true ? { fullPage: true } : {}),
-        });
-      case 'close':
-        // The sidecar's `close` tears its whole browser down. Here the browser
-        // is the user's, on screen, holding their logins — the tool disposing of
-        // its session must not take it with it.
-        return { ok: true };
-      case 'url': {
-        const tabs = this.host.list();
-        const current = tabs.find((t) => (tabId ? t.tabId === tabId : t.active));
-        return current
-          ? { ok: true, result: current.url }
-          : { ok: false, error: { message: 'no open tab' } };
-      }
-      default:
-        return { ok: false, error: { message: `unknown method: ${method}` } };
-    }
+  private async dispatch(method: string, params: Record<string, unknown>): Promise<HostReply> {
+    // The sidecar's `close` tears its whole browser down. Here the browser is
+    // the user's, on screen, holding their logins — the tool disposing of its
+    // session must not take it with it.
+    if (method === 'close') return { ok: true };
+    return dispatchToHost(this.host, method, params);
   }
 
   async stop(): Promise<void> {

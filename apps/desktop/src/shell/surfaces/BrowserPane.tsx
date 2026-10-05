@@ -5,6 +5,9 @@ import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
 import { BROWSER_PARTITION_NAME, HOME_URL, useBrowserTabs } from './useBrowserTabs';
 import { useBrowserChrome } from './useBrowserChrome';
 import { useAdoptedWebview, type WebviewElement } from './useAdoptedWebview';
+import { useAgentCursor } from './useAgentCursor';
+import { useBrowserControl } from './useBrowserControl';
+import { AgentCursor, BrowserControlBar } from './BrowserControl';
 
 /**
  * The agent's browser.
@@ -24,6 +27,14 @@ import { useAdoptedWebview, type WebviewElement } from './useAdoptedWebview';
  * the address bar and the screenshot hand-off in {@link useBrowserChrome}, and the
  * hand-off from renderer to main in {@link useAdoptedWebview}.
  */
+
+/**
+ * Lets a page open a tab. Electron reads the attribute's presence; React drops
+ * a bare `allowpopups` (true) on the way to the DOM, and without it Electron
+ * refuses every new window a page opens — so it goes as a string, which the
+ * typings (a boolean) do not allow written inline.
+ */
+const ALLOW_POPUPS = { allowpopups: 'true' } as unknown as { allowpopups: boolean };
 
 /** One tab's view. Owns its adoption handshake and renders nothing else. */
 function TabView({
@@ -62,7 +73,7 @@ function TabView({
       ref={ref as unknown as React.Ref<HTMLElement>}
       src={initialUrl}
       partition={BROWSER_PARTITION_NAME}
-      allowpopups
+      {...ALLOW_POPUPS}
       style={{
         // Laid out but hidden rather than `display:none`: a background tab must
         // stay a live page, and Chromium stops painting an undisplayed view.
@@ -184,9 +195,11 @@ function TabStrip({
 
 export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
   const {
-    tabs, activeTabId, error, adopt, release, select, navigate,
+    tabs, activeTabId, control, error, adopt, release, select, navigate,
     panes, openPane, closeTab, history, handoff, answerHandoff, noteAdoption, registerView,
   } = useBrowserTabs();
+  const driving = useBrowserControl(workspaceId, control);
+  const pointer = useAgentCursor(activeTabId, driving.mode === 'agent');
   const chrome = useBrowserChrome({ activeTabId, navigate });
   const [shotMenu, setShotMenu] = useState(false);
   const viewport = useRef<HTMLDivElement | null>(null);
@@ -314,6 +327,13 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         </div>
       )}
 
+      <BrowserControlBar
+        mode={driving.mode}
+        onTakeOver={() => void driving.takeOver()}
+        onResume={() => void driving.resume()}
+        onStop={() => void driving.stop()}
+      />
+
       {(error || chrome.captureError) && <div className="browser__error">{error ?? chrome.captureError}</div>}
 
       <div className="browser__viewport" ref={viewport}>
@@ -364,6 +384,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             onState={chrome.onViewState}
           />
         ))}
+        <AgentCursor cursor={pointer.cursor} onArrived={pointer.arrived} />
       </div>
 
     </div>

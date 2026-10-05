@@ -626,3 +626,55 @@ describe('runTurn with a skill called by an @ mention', () => {
     expect(seen.prompt).not.toHaveProperty('attachments');
   });
 });
+
+describe('runTurn with tools meant for one mode', () => {
+  // goal_abandon is goal mode's own way out; offered in a plain browser task,
+  // the model took it and gave up on work it could do.
+  function buildModesSession(seen: Record<string, { tools: string[]; reached: string }>): Session {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const tool = (name: string, modes?: string[]) =>
+      defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => name, ...(modes ? { modes } : {}) });
+    const echo = (name: string, spawn?: string) =>
+      defineMode({
+        name,
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          seen[name] = {
+            tools: ctx.tools.list().map((t) => t.name),
+            reached: await ctx.tools.execute('goal_abandon', {}, ctx.signal).then(String, (err: Error) => err.message),
+          };
+          if (spawn) await ctx.subagents?.spawn({ prompt: 'look', mode: spawn });
+        },
+      });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'modes-test',
+      version: '0.0.0',
+      providers: [makeNoopProvider()],
+      tools: [tool('Read'), tool('goal_abandon', ['goal'])],
+      modes: [echo('default'), echo('goal', 'default')],
+    }));
+    session.providers.setActive('noop');
+    return session;
+  }
+
+  it('leaves a tool meant for another mode out of the turn', async () => {
+    const seen: Record<string, { tools: string[]; reached: string }> = {};
+    const session = buildModesSession(seen);
+    session.modes.setActive('default');
+
+    await collectTurn(session, 'otwórz stronę');
+
+    expect(seen['default']?.tools).toEqual(['Read']);
+    expect(seen['default']?.reached).toMatch(/goal_abandon is not available in default mode/);
+  });
+
+  it('offers it in its own mode, and a sub-agent sees the tools of the mode it runs', async () => {
+    const seen: Record<string, { tools: string[]; reached: string }> = {};
+    const session = buildModesSession(seen);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'zrób to');
+
+    expect(seen['goal']).toEqual({ tools: ['Read', 'goal_abandon'], reached: 'goal_abandon' });
+    expect(seen['default']?.tools).toEqual(['Read']);
+  });
+});

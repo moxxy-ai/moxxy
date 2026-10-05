@@ -1,7 +1,7 @@
 import { assertDefined } from '@moxxy/sdk';
 import type { ActionResult, ErrorCode } from '../contract/outcome.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
-import type { AppElement } from '../contract/tree.js';
+import type { AppElement } from '@moxxy/jev';
 
 /** How sure Jev must be that the expected result shows, and below what it certainly does not. */
 const HOLDS = 0.6;

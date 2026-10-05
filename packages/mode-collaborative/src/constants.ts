@@ -8,8 +8,8 @@ import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 
 export const COLLAB_MODE_NAME = 'collaborative';
-export const COLLAB_ARCHITECT_MODE_NAME = 'collab-architect';
-export const COLLAB_PEER_MODE_NAME = 'collab-peer';
+// The agents' modes are named where their collab_* tools are, which are offered only there.
+export { COLLAB_ARCHITECT_MODE_NAME, COLLAB_PEER_MODE_NAME } from '@moxxy/plugin-collab';
 export const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
 export const ARCHITECT_AGENT_ID = 'architect';

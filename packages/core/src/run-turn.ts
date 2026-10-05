@@ -1,5 +1,5 @@
 import type { EmittedEvent, LLMProvider, ModeContext, MoxxyEvent, RunTurnOptions } from '@moxxy/sdk';
-import { mentionedSkills, skillAttachment, withoutTools } from '@moxxy/sdk';
+import { mentionedSkills, skillAttachment, toolsForMode, withoutTools } from '@moxxy/sdk';
 import type { SessionRuntime } from './session-runtime.js';
 import { createSubagentSpawner } from './subagents.js';
 
@@ -128,7 +128,8 @@ export async function* runTurn(
       ...(opts.contextWindow !== undefined ? { contextWindowOverride: opts.contextWindow } : {}),
       systemPrompt: opts.systemPrompt,
       provider,
-      tools,
+      // A tool meant for other modes (goal_abandon) is no way out of this one.
+      tools: toolsForMode(tools, strategy.name),
       skills: session.skills,
       log: session.log,
       compactor: session.compactors.getActive(),

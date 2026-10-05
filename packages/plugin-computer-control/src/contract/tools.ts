@@ -1,3 +1,4 @@
+import { OF_THE_FOCUS, pointsAtFocus, wordsIn } from '@moxxy/jev';
 import { z } from 'zod';
 import { parseKeyCombo, type KeyCombo } from './keys.js';
 
@@ -127,13 +128,7 @@ const uses: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
   click: ['target'], type: ['target', 'text'], set_value: ['target', 'text'], key: ['key'], scroll: ['target', 'direction'],
 };
 
-const FOCUS = new Set(['focus', 'focused', 'focussed', 'cursor', 'caret', 'fokus', 'fokusie', 'fokusem', 'kursor', 'kursorem', 'kursora']);
-/** Words that only say which element that is: the one with the focus. */
-const OF_THE_FOCUS = new Set([...FOCUS, 'the', 'a', 'keyboard', 'current', 'currently', 'active', 'element', 'field', 'input', 'with', 'has', 'in']);
-export const wordsIn = (target: string) => target.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-
-/** A target that says where the focus is, which changes from one run to the next, rather than which element it is. */
-export const pointsAtFocus = (target: string) => wordsIn(target).some((word) => FOCUS.has(word));
+export { pointsAtFocus, wordsIn };
 
 /**
  * A strict provider fills every field of every step: null and "" are filler, and so is any field the step's kind
