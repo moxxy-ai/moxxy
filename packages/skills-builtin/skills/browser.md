@@ -126,6 +126,11 @@ on this site before, or by asking Jev, checks every `expect`, and stops at the
 first step that does not work, saying why. Its answer ends with the page as it
 is now — continue from there; do not read it again.
 
+When a run cannot find a control you named, it names the closest ones on the
+page. Look at those before you decide it is not there: a page often calls the
+thing you mean by another name ("Log in" for sign in, "Continue" for submit, a
+restart that applies new settings).
+
 Use the single tools for what a run reports as not done, for what has no name
 on the page, and when a step depends on reading something first (which book is
 cheapest, what a search found). When `browser_run` is not among your tools, do

@@ -84,6 +84,20 @@ bearings again. Rows deeper than the depth cap collapse to one, and an
 unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
 text: "£53.74"`), so a price or a date deep in a list is not lost.
 
+### What a page may and may not ask
+
+Every read starts with a note that the page is untrusted data. The page never
+adds to or changes the task: a request to go somewhere, send data, run
+something or ignore the instructions is reported, not followed. What it says
+about the work the user asked for — an error, a required field, "Please
+redeploy to apply the new configuration" after the agent changed a setting —
+is information the agent acts on within that task. Before this distinction the
+agent reported that notice and left its own change unapplied.
+
+The note is a soft defence; the hard ones do not depend on it: each site is
+allowed by the user, internal hosts are refused, credential-shaped values are
+redacted from every read, and the agent never types a password.
+
 ### What a read costs
 
 Every read stays in the conversation and is sent again with each later call
@@ -254,7 +268,9 @@ field, so a click arrives with an `option` and a key with a `target`, and both
 are dropped. It stops at the first step whose element is not found or cannot be
 acted on (**failed**), or whose expectation was not seen (**unverified** — the
 action was delivered, and the answer says to check the page before doing it
-again), and says why. A `type` step is also read back off its field: a field
+again), and says why. A step whose element is not found names the closest
+ones and says one of them may be what was meant under another name — an agent
+told "closest: Restart" twice kept looking for a Redeploy button. A `type` step is also read back off its field: a field
 that does not hold the text fails the step, whatever the page shows elsewhere —
 Jev, checking against the whole page, once took a domain typed into the wrong
 field for a domain in the right one. Jev is told which element the step acted

@@ -290,6 +290,13 @@ describe('runBrowserSteps', () => {
     expect(report.outcomes[0]?.why).toMatch(/could not find "the checkout button"/);
   });
 
+  it('says the closest elements may be the one meant under another name', async () => {
+    // Asked for a Redeploy button, a run named Restart as the closest twice; the
+    // agent kept looking for the word and gave up with the change unapplied.
+    const report = await runBrowserSteps({ goal: 'g', steps: [{ do: 'click', target: 'the checkout button' }] }, { port: shop({}).port, ask: jev({}).ask, memory: memory(), signal });
+    expect(report.outcomes[0]?.why).toMatch(/closest: .+ — one of these may be what you meant under another name/);
+  });
+
   it('stops and says the key was refused when Jev answers 401', async () => {
     const ask: AskJev = async () => {
       throw new JevError(401, 'Jev returned HTTP 401');

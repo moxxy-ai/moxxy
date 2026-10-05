@@ -204,6 +204,12 @@ describe('the browser skill', () => {
     expect(text).toMatch(/only to what you\s+set up or changed in this task/);
   });
 
+  it('looks at the closest matches before deciding a control is not there', async () => {
+    const text = await body();
+    expect(text).toMatch(/names the closest/);
+    expect(text).toMatch(/before you decide it is not there/);
+  });
+
   it('answers a question about a list from the whole list', async () => {
     const text = await body();
     expect(text).toMatch(/every item/);

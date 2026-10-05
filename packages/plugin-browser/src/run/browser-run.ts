@@ -282,7 +282,7 @@ export async function runBrowserSteps(
           const grounding = readTarget(read.tree, answers);
           if (grounding.kind === 'none') {
             const closest = grounding.closest.map(named).join(', ');
-            fail(`could not find "${step.target}" on the page${closest ? `; closest: ${closest}` : ''}`);
+            fail(`could not find "${step.target}" on the page${closest ? `; closest: ${closest} — one of these may be what you meant under another name` : ''}`);
             break;
           }
           candidates = [grounding.element, ...grounding.others];
