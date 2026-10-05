@@ -1,5 +1,6 @@
 import {
   runReactLoop,
+  unfinishedWorkCheckpoint,
   type ModeContext,
   type MoxxyEvent,
 } from '@moxxy/sdk';
@@ -13,10 +14,12 @@ export { MAX_CONSECUTIVE_RETRIES, __setRetrySleepForTests } from '@moxxy/sdk';
 
 /**
  * Default ReAct-style loop: model thinks, calls tools, observes results,
- * repeats — and returns the moment the model stops calling tools. Pure
- * delegation to {@link runReactLoop} with no hooks and no checkpoints: the
- * shared core IS the default behavior; other modes layer policy on top.
+ * repeats — and returns the moment the model stops calling tools. The one
+ * gate on that: a report made while the last look at something found work
+ * still under way is asked, once, to look again (see unfinishedWorkCheckpoint).
  */
+const checkpoints = [unfinishedWorkCheckpoint()];
+
 export function runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> {
-  return runReactLoop(ctx, { strategyName: DEFAULT_MODE_NAME });
+  return runReactLoop(ctx, { strategyName: DEFAULT_MODE_NAME, checkpoints });
 }

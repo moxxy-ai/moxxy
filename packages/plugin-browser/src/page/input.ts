@@ -233,8 +233,12 @@ export async function drawnArea(
  * behind another tab takes no input at all, and CDP reports success either
  * way. Installed before the press (awaited, so the listener is in place before
  * any input can arrive) and collected after it; the returned function resolves
- * true once a mousedown was seen, false at the deadline. The pending promise is
- * held by CDP, not on `window`, so the page has nothing to find.
+ * true once a mousedown was seen, false when `timeoutMs` passes after it is
+ * called. The wait starts there, after the press was sent, not at the arming:
+ * a window behind another one draws few frames and Chromium holds input for
+ * the next one, so the press can take seconds to land and still land. The
+ * pending promise is held by CDP, not on `window`, so the page has nothing to
+ * find.
  */
 export async function armPressCheck(cdp: Cdp, backendNodeId: number, timeoutMs: number): Promise<() => Promise<boolean>> {
   const unknown = async (): Promise<boolean> => true;
@@ -246,11 +250,17 @@ export async function armPressCheck(cdp: Cdp, backendNodeId: number, timeoutMs: 
       returnByValue: false,
       functionDeclaration: `function () {
         const doc = this.ownerDocument;
-        return { seen: new Promise((resolve) => {
-          const seen = () => { clearTimeout(timer); resolve(true); };
-          const timer = setTimeout(() => { doc.removeEventListener('mousedown', seen, true); resolve(false); }, ${Math.max(0, timeoutMs)});
+        let seen;
+        const press = new Promise((resolve) => {
+          seen = () => resolve(true);
           doc.addEventListener('mousedown', seen, { capture: true, once: true });
-        }) };
+        });
+        return {
+          within: (ms) => Promise.race([press, new Promise((resolve) => setTimeout(() => resolve(false), ms))]).then((felt) => {
+            if (!felt) doc.removeEventListener('mousedown', seen, true);
+            return felt;
+          }),
+        };
       }`,
     })) as { result?: { objectId?: string } };
     const holder = reply?.result?.objectId;
@@ -260,7 +270,7 @@ export async function armPressCheck(cdp: Cdp, backendNodeId: number, timeoutMs: 
         const promise = (await cdp.send('Runtime.callFunctionOn', {
           objectId: holder,
           returnByValue: false,
-          functionDeclaration: 'function () { return this.seen; }',
+          functionDeclaration: `function () { return this.within(${Math.max(0, timeoutMs)}); }`,
         })) as { result?: { objectId?: string } };
         const promiseObjectId = promise?.result?.objectId;
         if (!promiseObjectId) return true;

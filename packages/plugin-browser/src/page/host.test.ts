@@ -31,6 +31,8 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
   let onScreen = true;
   /** Whether the page has a file input the element leads to. */
   let fileInput = true;
+  /** Whether the page keeps changing past the wait an action gives it. */
+  let stillChanging = false;
   let current = url;
   let attached = false;
   let reloads = 0;
@@ -128,6 +130,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
           if (expr.includes('outerHTML')) return { result: { value: '<html>sklep</html>' } };
           if (expr.includes('querySelector')) return { result: { value: 'Tytul produktu' } };
           if (expr.includes('innerText')) return { result: { value: 'caly tekst strony' } };
+          if (expr.includes('MutationObserver')) return { result: { value: !stillChanging } };
           return { result: { value: 4 } };
         }
         if (method === 'Page.navigate') {
@@ -160,6 +163,7 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
     setLines: (backendNodeId: number, ...quads: number[][]) => (lines[backendNodeId] = quads),
     setOnScreen: (v: boolean) => (onScreen = v),
     setFileInput: (v: boolean) => (fileInput = v),
+    setStillChanging: (v: boolean) => (stillChanging = v),
     emit: (event: string, ...args: unknown[]) => {
       for (const fn of [...(listeners.get(event) ?? [])]) fn(...args);
     },
@@ -341,6 +345,42 @@ describe('BrowserHost — snapshot', () => {
     expect(first.supersede).toEqual({ key: 'browser:t1', whole: true });
     expect(changes.supersede).toEqual({ key: 'browser:t1', whole: false });
     expect(whole.supersede).toEqual({ key: 'browser:t1', whole: true });
+  });
+
+  it('says what the page declares still working, and that the read found it so', async () => {
+    const a = fakeWc(1);
+    a.setPage([
+      { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Panel' }, childIds: ['b', 'c'] },
+      { nodeId: 'b', role: { value: 'button' }, name: { value: 'Wdróż' }, backendDOMNodeId: 21 },
+      { nodeId: 'c', role: { value: 'progressbar' }, name: { value: 'Wdrażanie' }, backendDOMNodeId: 23 },
+    ]);
+    const host = hostWith(a);
+    host.register(1);
+
+    const busy = (await host.snapshot()).result as { text: string; progress?: { key: string; pending: string | null } };
+    a.setPage(AX_NODES);
+    const calm = (await host.snapshot()).result as { progress?: unknown };
+
+    expect(busy.text).toContain('### In progress');
+    expect(busy.text).toContain('"Wdrażanie"');
+    expect(busy.progress?.key).toBe('browser:t1');
+    expect(busy.progress?.pending).toContain('"Wdrażanie"');
+    expect(calm.progress).toEqual({ key: 'browser:t1', pending: null });
+  });
+
+  it('says an action left the page still changing, and says nothing when it settled', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    await host.snapshot();
+
+    const settled = (await host.act({ action: 'click', uid: '2' })).result as { progress?: unknown };
+    a.setStillChanging(true);
+    const going = (await host.act({ action: 'click', uid: '2' })).result as { progress?: { key: string; pending: string | null } };
+
+    expect(settled.progress).toBeUndefined();
+    expect(going.progress?.key).toBe('browser:t1');
+    expect(going.progress?.pending).toMatch(/still changing/);
   });
 
   it('looks one thing up on the page and gives its uid, without reading the page out', async () => {

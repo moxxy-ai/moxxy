@@ -85,11 +85,12 @@ function visibleChildren(node: AxNode): ReadonlyArray<AxNode> {
 }
 
 /** `[uid] role: "name" (value: "…") [focused]` */
-function row(node: AxNode, indent: number): string {
+export function row(node: AxNode, indent = 0): string {
   let out = `${'  '.repeat(indent)}[${node.uid}] ${node.role}`;
   if (node.name) out += `: "${clip(node.name)}"`;
   if (node.value) out += ` (value: "${clip(node.value)}")`;
   if (node.focused) out += ' [focused]';
+  if (node.inProgress) out += ' [in progress]';
   return out;
 }
 

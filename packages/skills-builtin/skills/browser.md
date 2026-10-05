@@ -53,10 +53,13 @@ looking again is.
   that lands on the wrong article, a disambiguation page, a list on two pages —
   each is one more step for you. Follow the link the page offers; never ask the
   user to click something you can click.
-- **A service you just deployed or restarted needs time to come up.** Check its
-  address with `web_fetch` and `untilUpMs` (e.g. 180000): it keeps trying while
-  the address refuses or answers 5xx, so "still starting" is not mistaken for
-  "broken". Say it does not work only when that wait is over.
+- **Report what you saw after your last action.** What an action sets off — a
+  save, an upload, a job — can take a while, and a check made before it says
+  nothing about the result. A read lists what the page itself marks as still
+  working under "### In progress"; wait for it (`browser_wait`) and read again.
+  An address that should start answering once it is done: `web_fetch` with
+  `untilUpMs` keeps trying while it refuses or answers 5xx. Say something does
+  not work only when that wait is over.
 - **Answer from the whole list.** For "the cheapest", "the newest", "how many",
   compare every item the page lists (and the next page, when there is one)
   before you answer — not the first one that looks right.
@@ -78,8 +81,8 @@ a uid, not a CSS selector and not a coordinate.
   and is not free.
 - A read has a size limit. On a long page it ends with "… N more rows not
   shown"; the rest is still there and its uids still work.
-- **To find one thing, look it up instead of reading:** `browser_find` with a
-  few words ("n8n", "Domains", "Save button") gives back only the rows that
+- **When you need one thing on a long page,** `browser_find` with a few words
+  ("Save button", "email", "price") gives back only the rows that
   match, each with its uid, from the whole page. A label that matches brings the
   field after it. Every read stays in the conversation and is paid for again on
   each later call, so a lookup of a few rows is the cheap way to aim.

@@ -39,6 +39,8 @@ export interface AxNode {
   readonly backendNodeId?: number;
   /** True when the node currently holds focus. */
   readonly focused?: boolean;
+  /** True when the page says the element is still working (see {@link isInProgress}). */
+  readonly inProgress?: boolean;
   /**
    * The frame session the node lives in, when it is inside a frame from another
    * site. Its `backendNodeId` means something only in that session.
@@ -77,6 +79,19 @@ function str(wrapper: { value?: unknown } | undefined): string | undefined {
 
 function isFocused(raw: AxNodeRaw): boolean {
   return (raw.properties ?? []).some((p) => p.name === 'focused' && p.value?.value === true);
+}
+
+/**
+ * Whether the page itself declares the element still working: `aria-busy`, or
+ * a progress bar that shows no amount (the spinner kind). A bar with an amount
+ * is left out — a disk or quota gauge is drawn the same way, and calling every
+ * gauge "work under way" would make the signal worthless.
+ */
+function isInProgress(raw: AxNodeRaw): boolean {
+  const props = raw.properties ?? [];
+  // Chromium reports aria-busy="true" as 1; other builds may say true.
+  if (props.some((p) => p.name === 'busy' && (p.value?.value === true || p.value?.value === 1))) return true;
+  return str(raw.role) === 'progressbar' && str(raw.value) === undefined;
 }
 
 /**
@@ -158,6 +173,7 @@ export function buildAxTree(nodes: ReadonlyArray<AxNodeRaw>, memory?: UidMemory)
       ...(str(raw.value) !== undefined ? { value: str(raw.value) } : {}),
       ...(raw.backendDOMNodeId !== undefined ? { backendNodeId: raw.backendDOMNodeId } : {}),
       ...(isFocused(raw) ? { focused: true } : {}),
+      ...(isInProgress(raw) ? { inProgress: true } : {}),
       ...(raw.frame !== undefined ? { frame: raw.frame } : {}),
       children,
     };

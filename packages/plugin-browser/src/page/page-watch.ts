@@ -230,24 +230,29 @@ export class PageWatch {
  * page too early hands the model a half-drawn state. The observer runs inside
  * the page and resolves from the mutations themselves.
  *
+ * Resolves false when `maxMs` ran out with the page still changing — what
+ * the action set off had not finished.
+ *
  * A navigation tears this context down mid-wait; that is reported by the page
  * watch, not here, so an error from this evaluation is not a failure.
  */
-export async function waitQuiet(cdp: Cdp, quietMs: number, maxMs: number): Promise<void> {
+export async function waitQuiet(cdp: Cdp, quietMs: number, maxMs: number): Promise<boolean> {
   try {
-    await cdp.send('Runtime.evaluate', {
+    const reply = (await cdp.send('Runtime.evaluate', {
       awaitPromise: true,
       returnByValue: true,
       expression: `new Promise((resolve) => {
         let quiet;
-        const done = () => { observer.disconnect(); clearTimeout(quiet); clearTimeout(cap); resolve(true); };
-        const observer = new MutationObserver(() => { clearTimeout(quiet); quiet = setTimeout(done, ${quietMs}); });
+        const done = (settled) => { observer.disconnect(); clearTimeout(quiet); clearTimeout(cap); resolve(settled); };
+        const observer = new MutationObserver(() => { clearTimeout(quiet); quiet = setTimeout(() => done(true), ${quietMs}); });
         observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        quiet = setTimeout(done, ${quietMs});
-        const cap = setTimeout(done, ${maxMs});
+        quiet = setTimeout(() => done(true), ${quietMs});
+        const cap = setTimeout(() => done(false), ${maxMs});
       })`,
-    });
+    })) as { result?: { value?: unknown } } | undefined;
+    return reply?.result?.value !== false;
   } catch {
     // The document went away (a navigation) or the page would not run it.
+    return true;
   }
 }

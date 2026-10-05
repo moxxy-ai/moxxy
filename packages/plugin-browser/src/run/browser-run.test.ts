@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JevError, RunMemory, type AppTree, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
 import { describe, expect, it } from 'vitest';
-import { formatRunReport, runBrowserSteps, type PageRead, type RunPort, type RunStep } from './browser-run.js';
+import { formatRunReport, runBrowserSteps, shownText, type PageRead, type RunPort, type RunStep } from './browser-run.js';
 
 /**
  * A small shop as the desktop's bridge would serve it: pages of elements under
@@ -346,3 +346,37 @@ describe('runBrowserSteps', () => {
     expect(check?.state.performed).toMatchObject({ on: 'searchbox "Search"' });
   });
 });
+
+describe('formatRunReport — what a step typed', () => {
+  const typed = (text: string) =>
+    formatRunReport({
+      site: 'mgmt.example',
+      tabId: 't1',
+      outcomes: [{ step: { do: 'type', target: 'Domains', text }, status: 'done', element: 'textbox "Domains"', found: 'name' }],
+    });
+
+  it('shows a typed address whole, port included', () => {
+    // At 60 characters the report cut "…sslip.io:5678" to "…sslip.io": the agent
+    // read that as the port not taken and went back to type it again, ten times.
+    const address = 'http://n8n-hsg8k4cgcskck0088cwsg44o.135.125.131.111.sslip.io:5678';
+
+    expect(typed(address)).toContain(JSON.stringify(address));
+  });
+
+  it('marks a long text as cut, never passing a part off as all of it', () => {
+    const report = typed('x'.repeat(2_000));
+
+    expect(report).toMatch(/… \(2000 characters\)/);
+    expect(report.length).toBeLessThan(600);
+  });
+});
+
+describe('shownText — a value quoted back to the agent', () => {
+  it('quotes what a field holds whole, or says plainly how much there was', () => {
+    // Also what "holds …, not what was typed" quotes: a field value cut without a
+    // mark would read as the field holding only that much.
+    expect(shownText('https://moxxy.example:5678')).toBe('"https://moxxy.example:5678"');
+    expect(shownText('y'.repeat(300))).toMatch(/^"y{200}"… \(300 characters\)$/);
+  });
+});
+

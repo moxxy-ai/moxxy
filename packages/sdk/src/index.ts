@@ -417,6 +417,13 @@ export {
 } from './elision-state.js';
 export { supersedeOf, supersededCallIds, supersededStub, type Supersede } from './supersede.js';
 export {
+  progressOf,
+  unfinishedWork,
+  unfinishedWorkCheckpoint,
+  unfinishedWorkNudge,
+  type Progress,
+} from './progress.js';
+export {
   applyLazyTools,
   buildToolIndex,
   matchLoadableTools,

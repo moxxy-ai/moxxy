@@ -7,6 +7,7 @@ import { BRIEF_READ_BUDGET, FULL_READ_BUDGET, READ_BUDGET, withinBudget } from '
 import { diffRendering, renderingFromText } from '../ax/diff.js';
 import { findRows, MAX_FOUND } from '../ax/find.js';
 import { formatAxTree } from '../ax/format.js';
+import { workInProgress } from '../ax/progress.js';
 import { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from '../ax/snapshot.js';
 import { buildAxTree, newUidMemory, type AxNode, type AxNodeRaw, type AxTree, type UidMemory } from '../ax/tree.js';
 import { detectWall, type WallKind } from '../ax/wall.js';
@@ -847,6 +848,14 @@ export class BrowserHost {
         opts.full ? FULL_READ_BUDGET : opts.brief ? BRIEF_READ_BUDGET : READ_BUDGET,
       );
       const wall = tree ? await this.confirmWall(cdp, tree, tab) : null;
+      // The page's own word on work it has not finished, so a report is not
+      // made on a state that is still moving (Progress in @moxxy/sdk).
+      const working = workInProgress(tree);
+      const progress = { key: readKey(tab.id), pending: working.length ? `tab ${tab.id}: ${working.join('; ')}` : null };
+      const inProgress = working.length
+        ? `\n### In progress\n${working.join('\n')}\nThe page says this has not finished. What it leads to is not known yet — ` +
+          'wait for it (browser_wait) and read again before you report on it.'
+        : '';
       // A change detector, not a security primitive — but it runs over page text
       // that can carry anything the user has on screen, and sha256 is what the
       // rest of the repo uses. There is no reason to be the one exception.
@@ -863,22 +872,24 @@ export class BrowserHost {
           text:
             `### Page\n- URL: ${url}\n- Title: ${title}\n` +
             `### Snapshot\nunchanged since your last snapshot of tab ${tab.id} — ` +
-            `the uids you already have are still valid. Act, then read again.`,
+            `the uids you already have are still valid. Act, then read again.` +
+            inProgress,
           tabId: tab.id,
           url,
           nodes: tree ? tree.index.size : 0,
           unchanged: true,
           supersede: { key: readKey(tab.id), whole: false },
+          progress,
         });
       }
       tab.seen = fingerprint;
       tab.rendering = rendering;
 
-      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall });
+      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall }) + inProgress;
       // Names what was read, so the conversation can retire this read once the
       // tab is read whole again (Supersede in @moxxy/sdk).
       const supersede = { key: readKey(tab.id), whole: changes === null };
-      return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0, supersede });
+      return ok({ text, tabId: tab.id, url, nodes: tree ? tree.index.size : 0, supersede, progress });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }
@@ -1537,6 +1548,7 @@ export class BrowserHost {
   ): Promise<{
     navigated?: true;
     loading?: true;
+    progress?: { key: string; pending: string };
     dialog?: Dialog & { open?: true; result?: 'accepted' };
     opened?: { tabId: string; url: string };
   }> {
@@ -1561,7 +1573,7 @@ export class BrowserHost {
     await running;
 
     const later = watch?.nextDialog();
-    await Promise.race([waitQuiet(cdp, 250, 1500), ...(later ? [later.promise] : [])]);
+    const settled = await Promise.race([waitQuiet(cdp, 250, 1500), ...(later ? [later.promise.then(() => true)] : [])]);
     later?.cancel();
     const lateDialog = watch?.openDialog;
     if (lateDialog && !dialog) dialog = { ...lateDialog, open: true };
@@ -1579,9 +1591,15 @@ export class BrowserHost {
       opened = await Promise.race([popup.last, new Promise<null>((r) => setTimeout(() => r(null), 3000).unref?.())]);
     }
     if (navigated) this.changed();
+    const pending = loading
+      ? 'the page was still loading when the action returned'
+      : settled
+        ? null
+        : 'the page was still changing when the action returned — what it set off may not have finished';
     return {
       ...(navigated ? { navigated: true as const } : {}),
       ...(loading ? { loading: true as const } : {}),
+      ...(pending ? { progress: { key: readKey(tab.id), pending: `tab ${tab.id}: ${pending}` } } : {}),
       ...(dialog ? { dialog } : {}),
       ...(opened ? { opened } : {}),
     };

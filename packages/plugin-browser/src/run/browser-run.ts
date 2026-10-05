@@ -162,6 +162,19 @@ const refused = (message: string) => message.includes(ALLOW_SITE_TOOL) || /taken
 
 class Stop extends Error {}
 
+/**
+ * Room for a text quoted back to the agent — what a step typed, what a field
+ * holds: an address, a name, a short sentence whole. A longer text is cut
+ * visibly: a cut that looks complete reads as "the rest was not typed", and the
+ * agent goes back to type it again.
+ */
+const MAX_SHOWN_TEXT = 200;
+
+export const shownText = (text: string): string =>
+  text.length <= MAX_SHOWN_TEXT
+    ? JSON.stringify(text)
+    : `${JSON.stringify(text.slice(0, MAX_SHOWN_TEXT))}… (${text.length} characters)`;
+
 /** Whitespace aside: a field may wrap or trim what it was given. */
 const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
 
@@ -181,7 +194,7 @@ const fieldAfter = (element: AppElement, tree: AppTree) => {
 function typedMiss(element: AppElement, text: string, tree: AppTree): string | undefined {
   const now = fieldAfter(element, tree);
   if (!now || flat(now.value ?? '').includes(flat(text))) return undefined;
-  return `${named(now)} holds "${(now.value ?? '').slice(0, 120)}", not what was typed`;
+  return `${named(now)} holds ${shownText(now.value ?? '')}, not what was typed`;
 }
 
 const holdsValue = (element: AppElement, tree: AppTree) => fieldAfter(element, tree) !== undefined;
@@ -364,7 +377,7 @@ export async function runBrowserSteps(
 }
 
 const stepLabel = (step: RunStep) =>
-  [step.do, step.target ? `"${step.target}"` : '', step.text !== undefined ? `text ${JSON.stringify(step.text.slice(0, 60))}` : '', step.option ? `option "${step.option}"` : '', step.key ?? '']
+  [step.do, step.target ? `"${step.target}"` : '', step.text !== undefined ? `text ${shownText(step.text)}` : '', step.option ? `option "${step.option}"` : '', step.key ?? '']
     .filter(Boolean)
     .join(' ');
 

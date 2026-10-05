@@ -11,13 +11,17 @@ import type { AxNode } from './tree.js';
  */
 
 let uid = 0;
-function n(role: string, opts: { name?: string; value?: string; focused?: boolean; children?: AxNode[] } = {}): AxNode {
+function n(
+  role: string,
+  opts: { name?: string; value?: string; focused?: boolean; inProgress?: boolean; children?: AxNode[] } = {},
+): AxNode {
   return {
     uid: String(++uid),
     role,
     name: opts.name ?? '',
     ...(opts.value !== undefined ? { value: opts.value } : {}),
     ...(opts.focused ? { focused: true } : {}),
+    ...(opts.inProgress ? { inProgress: true } : {}),
     children: opts.children ?? [],
   };
 }
@@ -192,5 +196,13 @@ describe('formatAxTree — the whole point', () => {
     expect(out.split('\n')).toHaveLength(62);
     expect(out).toContain('Do kasy');
     expect(out).not.toContain('p0');
+  });
+});
+
+describe('formatAxTree — work in progress', () => {
+  it('says on the row that the element is still working', () => {
+    expect(formatAxTree(n('progressbar', { name: 'Deploying', inProgress: true }))).toMatch(
+      /^\[\d+\] progressbar: "Deploying" \[in progress\]$/,
+    );
   });
 });

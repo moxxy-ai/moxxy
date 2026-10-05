@@ -145,6 +145,23 @@ connection or answers 5xx (up to 5 minutes), and says "up after N s" or
 "still not up after N s" with the last answer. A refused address (internal,
 too many redirects) is never retried.
 
+### Work still under way
+
+A page read lists, under `### In progress`, what the page itself marks as not
+finished — anything with `aria-busy`, and a progress bar that shows no amount
+(the spinner kind; a bar with an amount is as often a gauge and is left out).
+Those rows also carry `[in progress]` in the tree. An action whose page was
+still changing when its settle wait ran out (or still loading) says so. Both
+signals are generic — no site's wording is matched.
+
+They reach the agent loop through `progress: { key, pending }` on the tool
+result (the `Progress` contract in `@moxxy/sdk`; any tool can use it). The
+default mode checks it when the agent ends its turn: if the last look at
+something found work still under way, the agent is asked once to wait, look
+again and report what it sees then — or to say plainly that it had not
+finished. A turn with nothing pending is not touched and leaves nothing in the
+log.
+
 ## Working by picture
 
 A canvas app (Excalidraw, a map, a chart) shows things the accessibility tree

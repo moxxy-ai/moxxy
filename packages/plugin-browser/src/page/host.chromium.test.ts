@@ -46,6 +46,11 @@ const PAGES: Record<string, string> = {
     <div class="card" data-name="pg"><span>N8N With Postgresql</span><span>n8n with a database.</span></div>
     <div><span>Not a card</span></div>
     <script>for (const card of document.querySelectorAll('.card')) card.addEventListener('click', () => { document.title = 'wybrano ' + card.dataset.name; });</script>`,
+  '/deploying': `<title>Wdrożenie</title>
+    <button>Deploy</button>
+    <section aria-label="Deployment log" aria-busy="true"><p>Pulling image…</p></section>
+    <div role="progressbar" aria-label="Deploying"></div>
+    <div role="progressbar" aria-label="Disk usage" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100"></div>`,
   '/settings': `<title>Ustawienia</title>
     <div><label>Description</label><input></div>
     <div><label>Domains</label><input placeholder="https://app.coolify.io" value="http://n8n.example:5678"></div>`,
@@ -279,5 +284,18 @@ describe.skipIf(!available)('BrowserHost in a real Chromium page', () => {
     expect(resultOf(await host.act({ action: 'type', uid: String(uid), text: 'https://moxxy.example:5678' }))).toBeDefined();
     const after = resultOf(await host.find('moxxy.example')) as { text: string };
     expect(after.text).toContain('https://moxxy.example:5678');
+  });
+
+  it('reads what the page marks as still working, and leaves a gauge out', async () => {
+    const { host } = await hostOn('/deploying');
+
+    const read = resultOf(await host.snapshot()) as { text: string; progress?: { pending: string | null } };
+    const section = read.text.slice(read.text.indexOf('### In progress'));
+
+    expect(read.text).toContain('### In progress');
+    expect(section).toContain('"Deployment log"');
+    expect(section).toContain('"Deploying"');
+    expect(section).not.toContain('Disk usage');
+    expect(read.progress?.pending).toContain('"Deploying"');
   });
 });

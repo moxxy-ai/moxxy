@@ -216,3 +216,38 @@ describe('buildAxTree — nodes read from a frame', () => {
     expect(tree).not.toHaveProperty('frame');
   });
 });
+
+describe('buildAxTree — work the page says is still under way', () => {
+  const root = { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] };
+
+  it('marks what the page declares busy', () => {
+    // Chromium reports aria-busy="true" as the number 1.
+    const tree = buildAxTree([
+      root,
+      { nodeId: '2', role: { value: 'region' }, name: { value: 'Logs' }, properties: [{ name: 'busy', value: { value: 1 } }] },
+    ]);
+
+    expect(tree?.children[0]?.inProgress).toBe(true);
+  });
+
+  it('marks a progress bar that shows no amount — the spinner kind', () => {
+    const tree = buildAxTree([root, { nodeId: '2', role: { value: 'progressbar' }, name: { value: 'Deploying' } }]);
+
+    expect(tree?.children[0]?.inProgress).toBe(true);
+  });
+
+  it('leaves a progress bar showing an amount alone: it is as likely a gauge as a task', () => {
+    const tree = buildAxTree([
+      root,
+      {
+        nodeId: '2',
+        role: { value: 'progressbar' },
+        name: { value: 'Disk usage' },
+        // Chromium carries the amount as the node's value, not as a property.
+        value: { value: 40 },
+      },
+    ]);
+
+    expect(tree?.children[0]?.inProgress).toBeUndefined();
+  });
+});
