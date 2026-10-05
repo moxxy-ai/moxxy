@@ -121,6 +121,12 @@ describe('byName', () => {
     expect(byName(page, { do: 'set_value', target: 'inteligentne pole wyszukiwania', text: 'olx.pl' })?.index).toBe(5);
   });
 
+  it('reads a field\'s kind as a kind too, the way a model names a web field ("Domains textbox")', () => {
+    expect(byName(page, { do: 'type', target: 'Znajdź coś dla siebie textbox', text: 'rower' })?.index).toBe(1);
+    expect(byName(page, { do: 'type', target: 'Znajdź coś dla siebie input', text: 'rower' })?.index).toBe(1);
+    expect(byName(page, { do: 'type', target: 'Znajdź coś dla siebie combobox', text: 'rower' })?.index).toBe(1);
+  });
+
   it('is nothing when the name is shared, only part of the target, or the element takes no text', () => {
     expect(byName(page, { do: 'click', target: 'Rower link' })).toBeUndefined();
     expect(byName(page, { do: 'click', target: 'Szukaj button next to the search field' })).toBeUndefined();

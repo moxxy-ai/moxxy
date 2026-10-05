@@ -72,7 +72,10 @@ function families(tree: AppTree): Map<number, Set<number>> {
 }
 
 /** Words a target uses to say what kind of element it names, not which one. */
-const KIND = new Set(['the', 'a', 'an', 'button', 'przycisk', 'przycisku', 'link', 'tab', 'karta', 'kartę', 'field', 'pole', 'menu', 'item', 'checkbox', 'option', 'opcja', 'opcję']);
+const KIND = new Set([
+  'the', 'a', 'an', 'button', 'przycisk', 'przycisku', 'link', 'tab', 'karta', 'kartę', 'field', 'pole', 'menu', 'item', 'checkbox', 'option', 'opcja', 'opcję',
+  'textbox', 'searchbox', 'combobox', 'textarea', 'input',
+]);
 /** Text a target puts in double quotes of any language; a target with one such quote names the element by it. */
 const QUOTED = /[„“”"«»]([^„“”"«»]+)[„“”"«»]/gu;
 const same = (a: readonly string[], b: readonly string[]) => a.length > 0 && a.length === b.length && a.every((word, at) => word === b[at]);

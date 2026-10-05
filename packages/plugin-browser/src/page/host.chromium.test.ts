@@ -46,6 +46,9 @@ const PAGES: Record<string, string> = {
     <div class="card" data-name="pg"><span>N8N With Postgresql</span><span>n8n with a database.</span></div>
     <div><span>Not a card</span></div>
     <script>for (const card of document.querySelectorAll('.card')) card.addEventListener('click', () => { document.title = 'wybrano ' + card.dataset.name; });</script>`,
+  '/settings': `<title>Ustawienia</title>
+    <div><label>Description</label><input></div>
+    <div><label>Domains</label><input placeholder="https://app.coolify.io" value="http://n8n.example:5678"></div>`,
   '/later': `<title>Później</title><p id="status">Szukam…</p>
     <script>setTimeout(() => { document.getElementById('status').textContent = 'Znaleziono 3 wyniki'; }, 300)</script>`,
 };
@@ -254,5 +257,15 @@ describe.skipIf(!available)('BrowserHost in a real Chromium page', () => {
 
     resultOf(await host.act({ action: 'click', uid: String(card?.index) }));
     expect(await page.read<string>('document.title')).toBe('wybrano n8n');
+  });
+
+  it('names a field by the label that stands before it without being tied to it', async () => {
+    const { host } = await hostOn('/settings');
+
+    const { tree } = resultOf(await host.tree()) as { tree: { elements: Array<{ role: string; title?: string; description?: string; value?: string }> } };
+    expect(tree.elements).toEqual([
+      expect.objectContaining({ role: 'textbox', title: 'Description', value: '' }),
+      expect.objectContaining({ role: 'textbox', title: 'Domains', description: 'https://app.coolify.io', value: 'http://n8n.example:5678' }),
+    ]);
   });
 });

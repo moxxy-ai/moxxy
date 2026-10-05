@@ -162,6 +162,30 @@ const refused = (message: string) => message.includes(ALLOW_SITE_TOOL) || /taken
 
 class Stop extends Error {}
 
+/** Whitespace aside: a field may wrap or trim what it was given. */
+const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+/** The typed field as the page now reads it, when it can be read: same element, a value, not a secret. */
+const fieldAfter = (element: AppElement, tree: AppTree) => {
+  const now = tree.elements.find((candidate) => candidate.index === element.index);
+  return now && now.value !== undefined && !now.secure ? now : undefined;
+};
+
+/**
+ * Why a type step did not do what it says, read off the field itself — or
+ * nothing when the field holds the text, or can no longer be read (the page
+ * moved on, the field is a secret or keeps no value). Jev checks an expectation
+ * against the whole page, and a domain typed into the wrong field is still on
+ * the page; the field's own value is not fooled by that.
+ */
+function typedMiss(element: AppElement, text: string, tree: AppTree): string | undefined {
+  const now = fieldAfter(element, tree);
+  if (!now || flat(now.value ?? '').includes(flat(text))) return undefined;
+  return `${named(now)} holds "${(now.value ?? '').slice(0, 120)}", not what was typed`;
+}
+
+const holdsValue = (element: AppElement, tree: AppTree) => fieldAfter(element, tree) !== undefined;
+
 /** Change lists stay this short: they are a hint beside the page, not a second copy of it. */
 const CHANGE_LINES = 40;
 const CHANGE_LINE_CHARS = 100;
@@ -284,13 +308,22 @@ export async function runBrowserSteps(
       const before = read;
       read = await deps.port.read(acted.opened ?? read.tabId);
 
+      const missed = acted.element && step.do === 'type' ? typedMiss(acted.element, step.text ?? '', read.tree) : undefined;
+      if (missed) {
+        await forget();
+        fail(missed);
+        break;
+      }
+      /** Seen by Jev, or a typed field read back holding the text: the only steps worth remembering. */
+      let seen = step.do === 'type' && acted.element !== undefined && holdsValue(acted.element, read.tree);
+
       if (step.expect !== undefined) {
         const next = steps[at + 1];
         const nextAsks = next !== undefined && next.target !== undefined && !groundHere(next, read.tree, await memoryOf(read.tree.app));
         const answers = await ask(
           {
             goal,
-            performed: { ...step, ...(acted.result ? { result: acted.result } : {}) },
+            performed: { ...step, ...(acted.element ? { on: named(acted.element) } : {}), ...(acted.result ? { result: acted.result } : {}) },
             changes: changesBetween(before.page, read.page),
             page: clip(read.page, nextAsks ? PAGE_CHARS - CHANGE_CHARS : STATE_CHARS - CHANGE_CHARS),
             ...(nextAsks ? { step: next, ...windowState(read.tree, STATE_CHARS - PAGE_CHARS) } : {}),
@@ -307,10 +340,11 @@ export async function runBrowserSteps(
           break;
         }
         outcomes[at] = { ...outcomes[at], step, status: 'done', checked: true };
+        seen = true;
         if (nextAsks) ahead = answers;
       }
 
-      if (acted.element && step.target !== undefined && found !== 'focus') {
+      if (seen && acted.element && step.target !== undefined && found !== 'focus') {
         await deps.memory.learn(site, {
           targets: [{ do: step.do, target: step.target, key: acted.element.key, label: labelOf(acted.element), way: 0 }],
         });

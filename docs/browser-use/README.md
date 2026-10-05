@@ -160,7 +160,11 @@ with an interactive role plus anything the browser says answers a click
 from `div`s — Coolify's catalogue of services — is listed card by card, each
 titled by its first line of text and described by the rest, so "N8N" finds the
 N8N card. A clickable wrapper showing more than a label's worth of text is left
-out.
+out, and so is a control with no name and no value: Jev cannot tell one nameless
+button from another, and offering them only invites a blind guess. A field whose
+`<label>` is not tied to it — Coolify's settings again — is named by the label
+standing right before it ("Domains"), and what it was called until then, often
+its placeholder, becomes its description.
 
 1. **What worked on this site before**, from `~/.moxxy/browser-use/learned/`
    (one file per site, the same memory format as Computer Use);
@@ -182,7 +186,13 @@ field, so a click arrives with an `option` and a key with a `target`, and both
 are dropped. It stops at the first step whose element is not found or cannot be
 acted on (**failed**), or whose expectation was not seen (**unverified** — the
 action was delivered, and the answer says to check the page before doing it
-again), and says why; a refusal (a site not allowed, the user has the browser)
+again), and says why. A `type` step is also read back off its field: a field
+that does not hold the text fails the step, whatever the page shows elsewhere —
+Jev, checking against the whole page, once took a domain typed into the wrong
+field for a domain in the right one. Jev is told which element the step acted
+on, and only a step whose effect was seen — or whose field holds the text — is
+remembered for the next run; an unchecked guess is not. A refusal (a site not
+allowed, the user has the browser)
 stops it at once. The answer lists every step and ends with the page as it is
 now, so the agent continues from there with the single tools. A run that
 reached its end is remembered with its goal.

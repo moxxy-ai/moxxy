@@ -68,6 +68,10 @@ function shownAs(node: AxNode): { title: string; description?: string } | undefi
   return description ? { title: first, description: clip(description) } : { title: first };
 }
 
+/** A field named by its label; what it was called before — usually its placeholder — becomes its description. */
+const labelledAs = (node: AxNode, label: string): { title: string; description?: string } =>
+  node.name ? { title: clip(label), description: clip(node.name) } : { title: clip(label) };
+
 export function appTreeOf(
   root: AxNode,
   page: { readonly app: string; readonly window?: string },
@@ -83,12 +87,21 @@ export function appTreeOf(
   const elements: AppElement[] = [];
   let truncated = false;
 
+  /**
+   * The text of the last `<label>` read since the previous control. A label tied
+   * to its field already names it; one that is not — Coolify's settings — stands
+   * right before the field it is for, and nothing else names that field.
+   */
+  let label: string | undefined;
+
   /** `place` is the key of the nearest listed container; `kinds` counts each role under it. */
   const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>): void => {
     let inside = { depth, place, kinds };
     const index = Number(node.uid);
+    if (node.role === 'LabelText') label = (node.name || linesOf(node).join(' ')).trim() || label;
     const shown = answersClicks(node) ? shownAs(node) : undefined;
-    if ((ACTIONABLE.has(node.role) || shown) && Number.isSafeInteger(index)) {
+    const nameless = !shown && !node.name && node.value === undefined && !TAKES_TEXT.has(node.role);
+    if ((ACTIONABLE.has(node.role) || shown) && !nameless && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
         return;
@@ -96,7 +109,9 @@ export function appTreeOf(
       const ordinal = (kinds.get(node.role) ?? 0) + 1;
       kinds.set(node.role, ordinal);
       const key = `${place}/${node.role}[${ordinal}]`;
-      elements.push(shown ? { ...elementOf(node, index, key, depth), ...shown } : elementOf(node, index, key, depth));
+      const labelled = TAKES_TEXT.has(node.role) && label !== undefined && label !== node.name ? labelledAs(node, label) : undefined;
+      elements.push({ ...elementOf(node, index, key, depth), ...(shown ?? labelled ?? {}) });
+      label = undefined;
       inside = { depth: Math.min(depth + 1, MAX_DEPTH), place: key, kinds: new Map() };
     }
     for (const child of node.children) walk(child, inside.depth, inside.place, inside.kinds);

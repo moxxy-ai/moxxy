@@ -47,9 +47,11 @@ const PAGES: Record<string, Page> = {
 
 type Effect = string | Error | { readonly page?: string; readonly result: Record<string, unknown> };
 
-function shop(links: Record<number, Effect>, start = 'home') {
+/** `drops`: fields that throw away what is typed into them, the way a framework-controlled input can. */
+function shop(links: Record<number, Effect>, start = 'home', drops: readonly number[] = []) {
   let at = start;
   const acted: Array<{ do: string; uid?: string; text?: string; option?: string; key?: string }> = [];
+  const typed = new Map<number, string>();
   const port: RunPort = {
     read: async () => {
       const page = PAGES[at] as Page;
@@ -62,7 +64,7 @@ function shop(links: Record<number, Effect>, start = 'home') {
           depth: 1,
           role: element.role,
           title: element.title,
-          ...(element.value !== undefined ? { value: element.value } : {}),
+          ...(element.value !== undefined ? { value: typed.get(element.uid) ?? element.value } : {}),
           ...(element.focused ? { states: ['focused' as const] } : {}),
         })),
       };
@@ -70,6 +72,7 @@ function shop(links: Record<number, Effect>, start = 'home') {
     },
     act: async (step, uid) => {
       acted.push({ do: step.do, ...(uid ? { uid } : {}), ...(step.text ? { text: step.text } : {}), ...(step.key ? { key: step.key } : {}) });
+      if (step.do === 'type' && uid && !drops.includes(Number(uid))) typed.set(Number(uid), step.text ?? '');
       const effect = uid ? links[Number(uid)] : undefined;
       if (effect instanceof Error) throw effect;
       if (typeof effect === 'string') at = effect;
@@ -126,20 +129,21 @@ describe('runBrowserSteps', () => {
 
   it('asks Jev for a target described in words, and the next run on the site finds it from memory', async () => {
     const remembered = memory();
-    const steps: RunStep[] = [{ do: 'click', target: 'the first book on the page' }];
-    const first = jev({ targets: { 'the first book on the page': 6 } });
+    const steps: RunStep[] = [{ do: 'click', target: 'the first book on the page', expect: 'the page of the book' }];
+    const first = jev({ targets: { 'the first book on the page': 6 }, shows: () => true });
 
     const report = await runBrowserSteps({ goal: 'open a book', steps }, { port: shop({ 6: 'book' }).port, ask: first.ask, memory: remembered, signal });
     expect(report.outcomes[0]).toMatchObject({ status: 'done', found: 'jev', element: 'link "A Light in the Attic"' });
-    expect(first.requests).toHaveLength(1);
+    expect(first.requests).toHaveLength(2);
     expect(String(first.requests[0]?.state.elements)).toContain('[6] link "A Light in the Attic"');
 
-    const again = jev({});
+    const again = jev({ shows: () => true });
     const site = shop({ 6: 'book' });
     const second = await runBrowserSteps({ goal: 'open a book', steps }, { port: site.port, ask: again.ask, memory: remembered, signal });
     expect(second.outcomes[0]).toMatchObject({ status: 'done', found: 'memory' });
     expect(site.acted).toEqual([{ do: 'click', uid: '6' }]);
-    expect(again.requests).toHaveLength(0);
+    // Jev is asked only whether the book opened, not where it is.
+    expect(again.requests.map((request) => request.state.performed !== undefined)).toEqual([true]);
   });
 
   it("checks what a step expects in the same request that finds the next step's element", async () => {
@@ -293,5 +297,52 @@ describe('runBrowserSteps', () => {
     const report = await runBrowserSteps({ goal: 'g', steps: [{ do: 'click', target: 'some book' }] }, { port: shop({}).port, ask, memory: memory(), signal });
     expect(report.stopped).toMatch(/TypeSafe key was refused/);
     expect(report.outcomes[0]?.status).toBe('not_run');
+  });
+
+  /**
+   * Coolify's settings: a run typed a domain into Description instead of Domains,
+   * Jev saw the domain somewhere on the page and called it done, and the next run
+   * typed it into Description again from memory. What a type step did is checked
+   * on the field itself, and only a step whose effect was seen is remembered.
+   */
+  it('fails a type step whose field does not hold what was typed, and remembers nothing from it', async () => {
+    const remembered = memory();
+    const site = shop({}, 'home', [5]);
+    const report = await runBrowserSteps(
+      { goal: 'g', steps: [{ do: 'type', target: 'Search', text: 'himalayas', expect: 'the search field holds himalayas' }] },
+      { port: site.port, ask: jev({ shows: () => true }).ask, memory: remembered, signal },
+    );
+    expect(report.outcomes[0]).toMatchObject({ status: 'failed' });
+    expect(report.outcomes[0]?.why).toMatch(/searchbox "Search" holds "", not what was typed/);
+    expect((await remembered.read('books.toscrape.com')).targets).toEqual([]);
+  });
+
+  it('remembers a typed field once it holds the text', async () => {
+    const remembered = memory();
+    const report = await runBrowserSteps(
+      { goal: 'g', steps: [{ do: 'type', target: 'the box to search books', text: 'himalayas' }] },
+      { port: shop({}).port, ask: jev({ targets: { 'the box to search books': 5 } }).ask, memory: remembered, signal },
+    );
+    expect(report.outcomes[0]).toMatchObject({ status: 'done', found: 'jev' });
+    expect((await remembered.read('books.toscrape.com')).targets).toEqual([expect.objectContaining({ do: 'type', key: '/searchbox[5]' })]);
+  });
+
+  it('does not remember an element Jev picked for a step nobody checked', async () => {
+    const remembered = memory();
+    await runBrowserSteps(
+      { goal: 'g', steps: [{ do: 'click', target: 'the first book on the page' }] },
+      { port: shop({ 6: 'book' }).port, ask: jev({ targets: { 'the first book on the page': 6 } }).ask, memory: remembered, signal },
+    );
+    expect((await remembered.read('books.toscrape.com')).targets).toEqual([]);
+  });
+
+  it('tells Jev which element the step acted on, so a check can see it was the wrong one', async () => {
+    const { ask, requests } = jev({ targets: { 'the box to search books': 5 }, shows: () => true });
+    await runBrowserSteps(
+      { goal: 'g', steps: [{ do: 'type', target: 'the box to search books', text: 'x', expect: 'the search box holds x' }] },
+      { port: shop({}).port, ask, memory: memory(), signal },
+    );
+    const check = requests.find((request) => request.state.performed !== undefined);
+    expect(check?.state.performed).toMatchObject({ on: 'searchbox "Search"' });
   });
 });

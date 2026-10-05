@@ -128,3 +128,53 @@ describe('appTreeOf — what a page answers clicks on without saying so', () => 
     expect(appTreeOf(catalogue, { app: 'mgmt.warocket.shop' }).elements).toEqual([]);
   });
 });
+
+describe('appTreeOf — a field is called what its label says', () => {
+  /**
+   * Coolify's service settings put a `<label>` above each field without tying
+   * the two together, so the fields reach the tree with no name ("Description")
+   * or with their placeholder for one ("https://app.coolify.io" for Domains).
+   * A run asked to type into "Domains" was given the unnamed field and typed the
+   * domain into Description. A label that stands right before a field names it.
+   */
+  const label = (uid: string, text: string) => node(uid, 'LabelText', '', [node(`${uid}0`, 'StaticText', text)]);
+  const form = node('1', 'RootWebArea', 'Configuration', [
+    node('2', 'generic', '', [label('30', 'Description'), node('31', 'textbox', '', [], { value: '' })]),
+    node('3', 'generic', '', [
+      label('40', 'Domains'),
+      node('41', 'textbox', 'https://app.coolify.io', [], { value: 'http://n8n.example.sslip.io:5678' }),
+    ]),
+    node('5', 'generic', '', [label('50', 'Image'), node('51', 'button', 'Pick'), node('52', 'textbox', '', [], { value: 'n8nio/n8n' })]),
+  ]);
+  const tree = appTreeOf(form, { app: 'mgmt.warocket.shop' });
+  const byIndex = new Map(tree.elements.map((element) => [element.index, element]));
+
+  it('names a field by the label right before it, and keeps what it was called as its description', () => {
+    expect(byIndex.get(31)).toMatchObject({ role: 'textbox', title: 'Description', value: '' });
+    expect(byIndex.get(41)).toMatchObject({ title: 'Domains', description: 'https://app.coolify.io' });
+  });
+
+  it('lets a run find the field by its label', () => {
+    expect(byName(tree, { do: 'type', target: 'Domains textbox' })?.index).toBe(41);
+  });
+
+  it('does not carry a label past another control', () => {
+    expect(byIndex.get(51)).toMatchObject({ title: 'Pick' });
+    expect(byIndex.get(52)?.title).toBeUndefined();
+  });
+});
+
+describe('appTreeOf — a control with nothing to call it by is not an option', () => {
+  /**
+   * A run asked for "Redeploy" was given a button with no name at all and pressed
+   * it: Jev cannot tell one nameless button from another, so offering them only
+   * invites a blind guess. A field stays, since its value says what it holds.
+   */
+  it('leaves out a button with no name, and keeps the named ones and the fields', () => {
+    const tree = appTreeOf(
+      node('1', 'RootWebArea', 'Service', [node('2', 'button', ''), node('3', 'button', 'Restart'), node('4', 'textbox', '', [], { value: 'x' })]),
+      { app: 'mgmt.warocket.shop' },
+    );
+    expect(tree.elements.map((element) => element.index)).toEqual([3, 4]);
+  });
+});
