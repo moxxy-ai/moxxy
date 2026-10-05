@@ -75,7 +75,7 @@ Skills are Markdown playbooks that teach the agent repeatable procedures without
 
 ## Runtime capabilities
 
-- **Prompt caching:** the stable-prefix strategy places deterministic cache breakpoints around stable and rolling prompt sections. Inspect token and cost savings with `/usage`.
+- **Prompt caching:** the stable-prefix strategy places deterministic cache breakpoints around stable and rolling prompt sections. Inspect token and cost savings with `/usage`. In the desktop, the `tok` cell at the top counts every call's whole prompt — each call sends the conversation again — and says how much of that was read back from the cache (`2.4M · 94% cache`); hover it for the split into cached and new tokens.
 - **Memory:** long-term journal recall and short-term event-log selectors preserve useful context across sessions.
 - **Webhooks:** the webhook plugin provides signature verification, bearer authentication, include and exclude filters, delivery idempotency, and public tunnel helpers.
 - **Speech to text:** Whisper is built in. Register a different `Transcriber` to use Deepgram, AssemblyAI, or local `whisper.cpp`.
