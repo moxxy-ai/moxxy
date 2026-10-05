@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { buildAgentTools } from './agent-tools.js';
 import { JevAccess } from './run/run-tool.js';
 import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
@@ -716,7 +717,12 @@ describe('working by picture, and giving files, on every backend', () => {
     expect(upload.permission?.action).toBe('prompt');
     expect(fake.received.at(-1)).toEqual({
       method: 'upload',
-      params: { uid: '9', paths: ['/tmp/raport.pdf', '/abs/zdjecie.png'], turn_id: 't', sites: [] },
+      params: {
+        uid: '9',
+        paths: [resolvePath('/tmp', 'raport.pdf'), resolvePath('/abs/zdjecie.png')],
+        turn_id: 't',
+        sites: [],
+      },
     });
     expect(sidecar().map((t) => t.name)).toContain('browser_upload');
   });

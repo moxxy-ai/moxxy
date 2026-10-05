@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
  * anything that scrolled a row into view (focus, a click) slid the whole
  * sidebar left and cut "RUNS" to "UNS".
  */
-const css = readFileSync(join(__dirname, 'styles.css'), 'utf8');
+// A Windows checkout (core.autocrlf) ends lines with \r\n.
+const css = readFileSync(join(__dirname, 'styles.css'), 'utf8').replace(/\r\n/g, '\n');
 
 /** The declarations of the rule whose selector list is exactly `selector`. */
 function rule(selector: string): string {

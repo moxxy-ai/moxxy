@@ -294,8 +294,11 @@ jobs:
         shell: bash
         run: pnpm exec turbo run build --filter='!docs'
 
+      # A hung test would otherwise hold the job for GitHub's 6-hour default,
+      # and a job cancelled mid-step uploads no log to say which one it was.
       - name: Test
         shell: bash
+        timeout-minutes: 30
         run: pnpm exec turbo run test --concurrency=2 --continue && pnpm run test:scripts
 
   build-and-test:

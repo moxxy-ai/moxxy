@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { EventEmitter } from 'node:events';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Transport } from '@moxxy/runner';
@@ -201,10 +202,17 @@ describe('createWebSocketTransportServer', () => {
   });
 
   it('frees a slot when a capped connection closes', async () => {
-    const server = await startServer({ maxConnections: 1 });
+    // The client can see its close before the server does (on Windows the TCP
+    // teardown lands later), so wait for the server to give the slot back.
+    const counts = new EventEmitter();
+    const emptied = new Promise((r) => counts.once('0', r));
+    const server = await startServer({
+      maxConnections: 1,
+      onClientCountChange: (count) => counts.emit(String(count)),
+    });
     const first = await connect(server.address, { headers: bearerHeaders });
     first.close();
-    await new Promise((r) => first.once('close', r));
+    await emptied;
     await expect(connect(server.address, { headers: bearerHeaders })).resolves.toBeDefined();
   });
 
