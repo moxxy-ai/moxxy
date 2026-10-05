@@ -424,6 +424,30 @@ describe.skipIf(!fixtureBuilt)('Linux Computer Use on the fixture app', () => {
     } finally { await transport.close(); }
   });
 
+  it('shows the window again after it was out of reach, and says so once', async () => {
+    const previews: Array<{ seq: number; image?: unknown; error?: string }> = [];
+    const transport = start((event) => { if (event.event === 'preview_frame') previews.push(event); });
+    const seen = () => JSON.stringify(previews.map((preview) => preview.error ?? (preview.image ? 'picture' : 'still')));
+    let window = '';
+    try {
+      await observe(transport);
+      window = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^Moxxy Fixture$']).stdout.toString().trim().split('\n')[0] ?? '';
+      expect(window).toMatch(/^\d+$/);
+      await transport.request('preview.start', { fps: 5 }, signal());
+      expect(await until(() => previews.some((preview) => preview.image), 5000), seen()).toBe(true);
+      // A minimised window has no pixels to capture until the person brings it back.
+      spawnSync('xdotool', ['windowminimize', window]);
+      expect(await until(() => previews.some((preview) => preview.error), 4000), seen()).toBe(true);
+      const gone = previews.length;
+      spawnSync('xdotool', ['windowactivate', window]);
+      expect(await until(() => previews.slice(gone).some((preview) => preview.image), 5000), seen()).toBe(true);
+      expect(previews.filter((preview) => preview.error).length, seen()).toBe(1);
+    } finally {
+      if (window) spawnSync('xdotool', ['windowactivate', window]);
+      await transport.close();
+    }
+  });
+
   it('serves the model tools end to end through the shared backend', { timeout: 60_000 }, async () => {
     const backend = new ComputerBackend(linuxProfile(arch));
     const tools = new Map(backend.tools().map((tool) => [tool.name, tool]));
