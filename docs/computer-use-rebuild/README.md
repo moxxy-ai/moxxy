@@ -218,7 +218,7 @@ wersję i plik, z którego wzięto wzorzec.
 - **ScreenCaptureKit przy dwóch helperach.** Dwa procesy helpera naraz
   potrafią zawiesić przechwytywanie okna (odtworzone w kroku 7c). Jeden
   helper na sesję tego nie dotyka; do zbadania przed obsługą wielu sesji.
-- **Branch bazowy.** `computer-use-rebuild` wyrasta z `google-gemini-tts`;
+- **Branch bazowy.** `computer-use-rebuild` wyrasta z `staging-agent-update` (dawniej `google-gemini-tts`);
   scalenie z `development` tylko za zgodą właściciela.
 - **Czas kroku.** Większość czasu to żądanie do dostawcy, nie helper. Przy
   wielu serwerach MCP narzędzia są ładowane leniwie (próg 200); poniżej progu

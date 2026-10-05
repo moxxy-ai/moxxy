@@ -16,9 +16,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    # google-gemini-tts is a staging branch: work that is not ready for
+    # staging-agent-update is a staging branch: work that is not ready for
     # development is gathered there and must be built and tested the same way.
-    branches: [main, development, google-gemini-tts]
+    branches: [main, development, staging-agent-update]
 
 concurrency:
   group: ci-${{ github.ref }}
