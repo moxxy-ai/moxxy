@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/jev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeSafe's Jev for moxxy's step runners: the System One client, a window's accessibility elements as Jev reads them, grounding a described target in them, and per-app memory of what worked. Shared by Computer Use and the desktop browser.",
   "keywords": [
     "moxxy",

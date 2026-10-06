@@ -1,5 +1,267 @@
 # @moxxy/desktop
 
+## 0.41.0
+
+### Minor Changes
+
+- 294ee09: Desktop browser: you see the agent's own pointer glide to each element before it presses, with a ring where it pressed, and you can take the browser over at any time — press on the page, type into it, or use Take over in the Browser pane. While you have it the agent's actions are refused (it can still read the page) until you press Resume or send a new message; Stop also ends the running turn.
+- f529046: Desktop browser: with a TypeSafe key and Jev on, `browser_run` carries out a run of steps named in words — each element found from what worked on the site before, by its name, or by Jev, each `expect` checked by Jev — and stops at the first step that does not work, saying why. Jev's engine (client, element grounding, per-app memory) moves from Computer Use into the new `@moxxy/jev` package that both share, and Settings → Jev now covers the Browser too. A press waits for a document still loading and follows an element that moves before the pointer reaches it, so a click right after opening a page no longer lands where the element was before the page's styles applied.
+- 313152d: Desktop browser: work on what the accessibility tree cannot name. `browser_capture` without a uid returns a named viewport picture in CSS pixels, and the new `browser_point` clicks, drags, scrolls, presses keys and types at places in it — refused when the page navigated, scrolled or changed at that place since the picture, and answering with a fresh one. The new `browser_upload` gives a page's file field local files (asking every time), including the hidden input behind an "Add attachment" button.
+- 15a2c80: Moxxy Browser acts the way a person does and says what happened. A click brings the agent's tab to the front, scrolls to the element, refuses a disabled one or one something covers (naming what is in the way), moves the pointer there, checks the page felt the press, and waits for the page to settle; the result reports a navigation, a dialog or a tab the page opened. Typing replaces what a field held instead of appending, and `submit: true` presses Enter afterwards; Enter now submits forms. An `alert()` no longer takes the tab down — it is accepted and quoted — and a `confirm` or `prompt` waits for the new `browser_dialog`. New desktop tools pick from a native list (`browser_select`), scroll, hover and wait for text. Frames are read into the snapshot and can be acted on, from the same site and from others, and `target=_blank` links open as tabs in the pane rather than as a separate window. A footer link to a cookie policy, or a form with a password field among others, no longer stops the agent as if the page were asking the user for something. The terminal UI's headless browser keeps its tools as they were.
+- 8906c4a: Desktop browser: allow a site once instead of approving every action. The new `browser_allow_site` asks for a site for the rest of the conversation; clicks, typing, keys, navigation and the other acting tools no longer prompt per call, and the desktop refuses any of them that would land on a site the conversation has not allowed. Approvals live in the session log, so every client sees the same sites; dialogs and `browser_session` still ask every time, and the terminal UI is unchanged.
+- e1341f9: Chat with a channel bot from the desktop: a new "Channels" section in the Runs sidebar opens Channels → <bot> as an ordinary chat attached live to the bot's own runner — write from the channel or from the app into one conversation (replies to app messages are also posted to the channel, falling back to the paired owner's DM). While the bot is down the chat shows its saved history and waits for it; the desktop never starts, stops or wipes a bot's runner (`/new` clears the conversation over the runner protocol). Setup, run mode and model moved behind the page's Setup button. Dedicated channel runners (Discord, Telegram, Slack, …) now resume one sticky session across restarts instead of starting a fresh one each time, and channel bot sessions no longer appear in the workspace tree, where opening one started a second writer on the bot's log.
+- 711ac74: Computer Use: a remembered step returns the moment the window shows what it showed last time (macOS), and a key pressed for an expected result is remembered too. Five remembered steps in one `computer_run` take about 2.5 s instead of 5.9 s, with no request to Jev.
+- c68bc61: Computer Use: the model goes from the access request straight to `computer_run` (two fewer tool rounds), an app can be named the way it was asked for, and a lesson is used even when the model words the target differently: Jev confirms all such guesses in one request per run.
+- 789cd60: Computer Use: shipped lessons for Finder and Safari. A click in Finder's sidebar now opens the place, Safari's toolbar stays reachable on long pages, long pages are fitted to Jev's input limit instead of failing, toolbar buttons known only by a description are remembered, and a typing step is remembered once a later step of the run was verified.
+- f9b6fae: Computer Use: new `computer_run` tool carries out a plan of steps in one call. Jev (TypeSafe) finds each control and checks each result; needs the `TYPESAFE_API_KEY` secret. On macOS an action with its fresh state now takes about 2 s instead of 5–7 s.
+- 66633a8: Computer Use works on Linux in X11 sessions. A native helper reads apps through the accessibility bus (AT-SPI) and operates them with the same 12 tools as on macOS and Windows: controls are pressed and text is entered in the background, everything else goes through real input with the pointer given back, Escape stops the turn, and the desktop chat shows a live view of the window. In a Wayland session `computer_status` says that Computer Use is not ready and why. The Linux desktop installer ships the helper.
+- 1060794: Computer Use on macOS now has a live picture-in-picture view in the desktop chat. While the agent works in an app, a small view above the composer shows that window at about two frames a second, with the agent's cursor drawn on top. The picture is for the person only: it travels over the surface channel, is never sent to the model, and is never written to the session log. The helper captures only while someone is watching and stops when the turn ends or the user presses Stop. The view can be hidden for one conversation or for all of them, and brought back from the control strip.
+- 8483361: Computer Use on macOS now runs on the native helper. The old macOS tools (`computer_type`, `computer_key`, `computer_open`, `computer_clipboard`, `computer_applescript` and the coordinate-only `computer_click` / `computer_screenshot`) are removed; macOS offers the shared tool set instead: `computer_request_access`, `computer_get_app_state`, element and point actions, `computer_batch`, `computer_zoom`, and `computer_status`, which reports missing system permissions and can open the right settings pane. A Mac without a matching helper offers `computer_status` only, with the reason. The model gets short working rules with every request that carries these tools, and notes for an app (browsers, Finder, office suites, video editors, design tools) the first time it looks at that app in a turn. The desktop app ships the universal helper: packaging on macOS builds it, verifies it, and its manifest stays valid after the app is signed.
+- dd35216: Computer Use: `computer_run` remembers what worked in each app (on this computer), so a repeated step needs no request to Jev. Without a TypeSafe key the tool is not offered and Computer Use works as before.
+- a070317: Computer Use: lessons for `computer_run` now ship with moxxy and are read before the computer's own and before Jev. On macOS a click on a list row selects it through accessibility (also rows scrolled out of view), and an action with its fresh state takes about 1 s.
+- 73a8f95: The live Computer Use view in the desktop chat is now real video on macOS. The helper encodes the app window as H.264 with the system encoder and the desktop decodes it with WebCodecs, so the view uses about thirty times less data than the JPEG frames it replaces and less CPU in the helper. A viewer that cannot decode video still gets JPEG frames, and so does everyone on Windows. When a viewer joins late or falls behind, it shows nothing new until the next key frame, which it asks for itself.
+- a846016: Computer Use on Windows x64 now uses the same tools as macOS. The earlier Windows-only tools (`computer_observe`, `computer_windows`, `computer_open`, `computer_action`, …) are removed: the model asks for access to an app with `computer_request_access`, reads it with `computer_get_app_state` (elements with an index plus a picture of the window) and acts by index or by a point of that picture. The Windows helper speaks protocol 5, shows the agent's own cursor over the target window, puts the user's pointer back after a click, hides apps that were not granted in full-screen pictures, and feeds the live picture-in-picture view in the desktop chat. An installed Computer Use extension from an earlier version is offered an update at startup of the Windows desktop app.
+- c329313: Allow selecting custom model IDs with an explicit or 200,000-token context window.
+- 92f7991: The desktop installer now carries Git, so the agent can clone and commit on a computer that has none — a clean Windows, or a Mac where `git` only offers to install the developer tools. It is unpacked to `~/.moxxy/runtimes/git` on first launch, with no download. A Git you installed yourself keeps being the one Moxxy uses.
+- c8acded: The desktop installer now carries Python and Node, so the agent can run the scripts it writes on a computer that has neither. Python comes with pip and the packages common tasks need (requests, numpy, pandas, matplotlib, openpyxl, python-docx, pypdf, pillow, beautifulsoup4, lxml, pyyaml); Node comes with npm and npx. Both are unpacked to `~/.moxxy/runtimes` on first launch, with no download, and the bundled Python is the one `python`, `python3` and `pip` mean inside Moxxy on Windows and macOS alike. The step that used to download Node during setup no longer appears.
+- f19452f: The desktop installer now carries offline voice: Piper and all its voices are installed with the app and work on the first launch, with no download. The Gemini voice is installed with the app too. On a computer without Node, the component moxxy needs is downloaded and installed by itself instead of asking the user to install it.
+- e1341f9: Give the Discord bot its own model. Pick it in Channels → Discord → Model in the desktop, or with `/model` in the chat (`/model <name>`, `/model default`). The choice is channel-scoped, so it never changes the model the app or TUI use, and it applies from the next message without restarting the bot. A saved model whose provider isn't connected falls back to the default with a notice.
+- e1341f9: Choose how the Discord bot runs from Channels → Discord → Run mode: Manual (Start/Stop in the panel), With the app (starts when the desktop opens), or Always (a launchd/systemd background service that stays online with the app closed). Switching away from Always stops and removes the service, so nothing keeps running or restarts at login; the panel never starts a second copy of a bot the service already runs. Adds `discord` to `moxxy service` and `moxxy service status <name> --json`.
+- 40b40f4: Add Google Gemini Flash-Lite speech synthesis with configurable cloud voices, interruption-aware sentence playback, and speech cleanup for links and file paths. Settings → Voice now holds everything voice in one place: the Voice Mode engine (Local / GPT-Live) and, for the Local engine, the spoken voice (Gemini Flash-Lite or Local Piper).
+- 194abc6: Desktop Voice Mode can now talk through GPT-Live over the existing ChatGPT login (Settings → Voice). GPT-Live holds the conversation itself with the chat as context; when the user explicitly asks for a task, the user's own transcribed words run as an ordinary agent turn and GPT-Live reads back that turn's real result. Conversation it answers itself is recorded into the chat through the new runner method `session.recordExchange` (runner protocol v20). While a task runs, GPT-Live hears the agent's progress and answers status questions itself; the agent works on one task at a time, so a task asked for by voice while it is busy is not started (voice never feeds the chat queue). Nothing is sent to GPT-Live while it is speaking, so its answers are no longer cut off mid-sentence. Voice conversation spoken while the agent works is appended after that turn ends as one collapsed "Voice conversation" block (new `TriggerOrigin` kind `voice` in the SDK), so it never enters the running task's context. In both voice engines the Voice Mode rail now shows "Agent thinking · m:ss" or "Agent writing a reply" while the agent works between tool calls, instead of "No tools running".
+- 5ca8fbe: Fast mode: `context.fast` (and the desktop's model panel) asks OpenAI for its priority tier on models that offer it (`supportsFast`). The conversation's reasoning effort and fast mode live in the session, reported in `SessionInfo` and switched with `session.setFast` (runner protocol v24), so every client shows the same values; reasoning that is on without a set effort shows as **Default**, not Off. Effort and fast switches made in quick succession reach the runner in order, the last one winning. The desktop sets both under the model list in **Model & usage** instead of in Settings → Providers.
+- b6cc796: Telegram works like the Discord bot: it keeps a model of its own (`/model` buttons, or Channels → Telegram → Setup in the desktop) that no longer changes the desktop's or TUI's model, `/auto-approve` is the same switch as Auto-approve in the desktop's chat with the bot, a message written in the app shows in Telegram with its reply, `telegram_send_message` sends files you ask for (up to 50 MB), a voice message is answered with a voice message, and the bot can run in the background from Channels → Telegram → Run mode. Telegram bots cannot take or place calls, so `/call` points to voice messages.
+
+### Patch Changes
+
+- 1bde2f6: The agent checks live facts — prices, timetables, availability, news — before stating them, and says so plainly when it has not. Redoing earlier work keeps every choice you already settled (dates, one-way or return), and the record of an older turn now keeps your own words, so such a choice survives once the turn is summarized. Moxxy speaks of herself in one form in Polish ("sprawdziłam") in both the chat and Voice Mode, instead of switching between "sprawdziłam" and "sprawdziłem". The chat no longer shows "Context compacted" after nearly every reply: the routine record of a finished turn only moves the context meter, and a compaction the context forced is still announced. `Sleep` no longer invites waiting on an app or page the agent acted on, or retrying a lasting condition such as a Wayland session.
+
+  `@moxxy/sdk` adds `AGENT_CONDUCT`, `SELF_REFERENCE_NOTE`, `withAgentConduct`, and an optional `routine` flag on `CompactionEvent`.
+
+- ac81f33: The agent now waits on events instead of sleeping on a clock. `Bash` takes `background: true` to start a long command (a dev server, a watcher, a slow build) as a job and return its id at once; the new `Wait` tool wakes the instant that job finishes or prints output matching `until`, and `StopJob` ends it. Closing a conversation stops its jobs. A collaborative run's coordinator now resumes the moment an agent finishes or its process exits instead of on a 500 ms poll. `Sleep` accepts `ms: 0` next to `seconds` (models sent it and every such first sleep failed). The SDK exports `waitFor` / `wakeAfter` for event-driven waits with a deadline. `moxxy -p` now closes its session on Ctrl+C / SIGTERM before exiting, so neither background jobs nor a running foreground command are left behind as orphans.
+- f354785: Updating the desktop app from its banner works again. The published update bundle left three packages (`zod`, `openai`, `electron-updater`) to the installed app's `node_modules`, which an update has none of, so every updated app failed to start ("Cannot find package 'zod'") and fell back to the installed version — and the banner then offered the same update again, forever. The app's main now carries those packages, building an update bundle fails if its main imports a package it does not carry, and a version that already failed to start on a machine is no longer offered there.
+- 1fd6b7a: The desktop's chat with a Telegram or Discord bot now shows and runs the bot's own model — also right after `/model` in the messenger — and a model picked in that chat's header becomes the bot's model. Telegram's `/model` shows the providers first, then the chosen provider's models, with the current one in green and a way back.
+- 41cba8e: The agent's browser crops a capture to everything an element draws — padding and border too, and content that overflows an element with no size of its own (Canva's canvas in a narrow pane) — instead of a 0×0 picture; an element that draws nothing is an error that says so. A capture asked for a uid the page does not have says to leave the uid out for the whole viewport. A press no longer refuses a button as covered by what sat at its place before the page scrolled to it — the terminal's browser read the point as if the page had not scrolled, so a Google Form's "Prześlij" below the fold was "covered" by the textarea above it every time — nor when the page moved under it while it checked — a form field that grew as it was typed into pushed the button down, and the second look read the old place.
+- 9ac8c77: The agent's browser no longer stops at a page that only mentions a CAPTCHA — Coolify's list of services includes one called "Cap Captcha", and the agent asked you to clear a CAPTCHA that was not there. A CAPTCHA now counts only as its widget. A run of steps also finds cards a page answers clicks on without calling them buttons, such as the service cards in Coolify's catalogue, by the text they show.
+- 4aba000: The Browser pane can fill the window: ⇧⌘F or the ⤢ button puts the workbench in full view, with the chat floating over it as a composer. Dragging the seam gives the pane as much room as the chat can spare, the chat no longer gets squeezed to a sliver on a smaller window, and the address bar names the site at rest.
+- 41cba8e: When the agent hands the desktop's browser to you — to sign in, enter a code or choose on a cookie banner — it waits the ten minutes the pane gives you. The call to the pane was cut at two and a half minutes like any other, so the agent read "browser bridge call timed out" while you were still signing in.
+- fe2eb5a: A page that is still loading is no longer read as work in progress. Chromium marks the whole document busy until it loads, and some pages never finish (n8n's sign-in page), so the agent was told to wait on the page itself and went on working instead of reporting.
+- efddcb4: Desktop browser, found by running the packaged app in its narrow Browser pane: a press goes to the middle of an element's largest line box, so a link that wraps onto two lines is pressed on its text, not between the lines. `browser_snapshot` with `full: true` always sends the whole tree, never "unchanged". A row the snapshot collapses past its depth cap keeps the text it holds, so prices deep in a product list reach the agent.
+- 41cba8e: A link or button that opens a new tab now opens one in the desktop's browser. The pane's views never actually allowed pages to open windows — the attribute was dropped on the way to the page — so Electron refused every new tab before the app could turn it into one: in Canva, choosing a design to create left you where you were instead of opening the editor beside it.
+- 97c44bd: A click in the desktop's browser is no longer reported as "the tab is not on screen" when the press merely landed late. With the window behind another one, Chromium holds input for the next frame, so a press can take seconds to arrive; the check now waits from the moment the press was sent instead of from when it was armed.
+- f44cf63: The browser costs far fewer tokens on large pages. A page read has a size limit and says what it left out; a list that empties reports one line instead of every row that went; `browser_find` looks words up on the page and returns only the matching rows (a matching label brings its field); a run of steps ends with a short read; and once a tab is read whole again, its earlier reads are sent as a one-line marker that `recall` can expand (a new `supersede` contract in `@moxxy/sdk` any tool result can use). `web_fetch` can wait for a service that was just deployed to come up (`untilUpMs`) instead of reporting it broken while it starts.
+- b819adc: Desktop browser: with Jev on, `browser_run` is now the default way to act on a page, even for one click, and it no longer reads the page first when the agent already knows what is on it. An `expect` is checked against what the action reported and against what appeared and went away on the page, so an alert, a banner closing or a new tab now counts as seen. A step delivered whose `expect` Jev could not confirm is reported as unverified rather than failed, so the agent checks the page instead of doing the step again. Fields a step's kind does not use are dropped before the run. The browser skill now tells the agent to finish the task itself and to compare every item in a list before answering. The browser trial harness logs every press and key a page gets, so a take-over during a run can be traced to its cause.
+- b46c70a: A run of browser steps types into the field you meant on forms whose labels are not tied to their fields, such as Coolify's service settings, where it had typed a domain into Description instead of Domains. A typed step is now checked on the field itself, only steps whose effect was seen are remembered for next time, and a button with no name is no longer picked blindly.
+- a3cb59b: When the tab the agent names closed between turns, an address it opens goes to a new tab instead of replacing the page that is open, and a page read goes to the one open tab and says so — instead of failing and costing the agent another call. Clicks and typing still refuse there.
+- 6cdb56e: Collaborative mode can start on Windows: its coordinator, hub and peer sockets are named pipes there instead of `.sock` paths, which Windows cannot listen on. The desktop no longer says "Reconnecting" while it is starting for the first time — it says it is starting the agent runtime and that this can take a few minutes after an install or update.
+- ca9a67f: Approving a `computer_run` call on an app that is not granted yet now grants that app for the conversation at its default level, so a task no longer spends a model round on `computer_request_access`. Approvals record whether the call was decided now (`decidedNow`); a standing "always allow" rule grants no new app.
+- 269c8de: Computer Use on macOS: shortcuts with modifiers (shift+a, command+z) now work in Blender and other apps that follow the modifier keys themselves, and the agent gets notes for Blender (commands by name through F3, shortcuts instead of small menus).
+- 2079504: Computer Use: Finder works from the bare desktop (keys reach it and the window an action opens is the returned state), and a remembered step that makes one more of something (a new tab) is no longer skipped because the window already looks like its result.
+- 16154e9: Computer Use on macOS: a file in an open or save panel can be clicked, and apps that draw their own window (Blender) get clicks, shortcuts and typed text in the right place.
+- 6b1c7c9: Computer Use on macOS: when an open or save panel shows, the agent is told to choose the file by its path (Go to folder) and then confirm, instead of searching in the panel.
+- 0dd7273: Computer Use reaches an app whose window is full screen on another Space: when the accessibility request does not bring it forward, the workspace switches to it, so the window can be captured and Command shortcuts arrive. The browser notes now say to work in the user's own browser when they name it or the task needs its tabs, accounts or downloads. The live view runs as video at 30 pictures a second (single JPEG pictures stay at 2).
+- 6e75d53: Computer Use on macOS: the wait after a key press or typed text is shorter (the helper hears the app's reaction from before the action), and the first look at a browser that already shows its page no longer waits a second.
+- 808bbfd: Computer Use status reaches every attached client as it changes, and the user can take over. The runner pushes a `computer.changed` notification (protocol 23) instead of being polled, the desktop forwards it to the chat, and the control strip names the app and window under control, shows the state as text with an icon, and offers Stop, Take over and Resume from the keyboard. Take over pauses the agent, lets go of any held key or button and hides the agent cursor until the user resumes. SDK: `ComputerControlService.subscribe` and the `takeover` control command.
+- 6319474: The live view of Computer Use shows the app again on a still screen: it stayed black because the first video frame arrived before its canvas existed. The live view and the control strip now use the app's own colours and type, with a lightly rounded frame and controls that appear on hover. The agent's cursor, on screen and in the live view, is a soft-cornered arrowhead.
+- ed74b61: Computer Use on macOS: the first look at Safari waits for the page instead of returning only the toolbar, and typing into a field of a page works while Safari stays in the background. `computer_run` tries another way when a target is blocked.
+- 51399e9: The Computer Use live view no longer encodes a window in which nothing changed: on a still window the helper sends no video and uses about a third of the processor time it did.
+- 9cb28d6: Pick up patched electron 43.7.7, undici, ip-address 10.7.1, brace-expansion, axios 1.20.0 and image-size 2.0.4 (with the metro patch that hands it a buffer). The dependency audit now keeps a reviewed list of advisories that have no upstream fix yet; it holds one entry, node-forge GHSA-86w9-cpqp-85rv, reached only through the Expo CLI's local iOS signing helper, and fails again as soon as a fix is published or the package appears anywhere else.
+- bd8473c: Moxxy now requires Node.js 22.19 or newer; Node 24 LTS is the recommended and default version. Node 20 reached end of life in April 2026, and the updated `openai`, `undici`, `officeparser` and `vitest` no longer support it.
+
+  Dependencies are updated in one batch: `@modelcontextprotocol/sdk` 1.31 (fixes a high-severity advisory), `openai` 7, `undici` 8, `officeparser` 8, `vitest` 5 with `@vitest/coverage-v8` 5, plus the non-major group (Anthropic SDK, turbo, typescript-eslint, Expo patch releases and others). Document text extraction drops an option officeparser 8 removed; behavior is unchanged.
+
+  Stopping `moxxy mobile` on macOS and Linux now ends the Expo server too, not only the npm process that started it; before, Expo could keep running in the background and hold port 8081.
+
+- aaee26d: Offer the Claude Pro/Max sign-in (`claude-code`) in the desktop. The desktop now ships the provider with its bundled extensions and lists it in onboarding and Settings → Providers, as the CLI's `moxxy init` already did. Packaging now fails if the provider is missing.
+- e91d17f: Clicking a link to a local file in the chat opens it instead of crashing: media, images and documents open in their default app, anything that could run (scripts, apps, unknown types) and folders are shown in Finder (new host command `files.open`). The app also never hands its own pages to the default browser, which is what opened a broken copy of the app for an emptied link.
+- 30ed44d: Three faults a fresh install showed. On Windows the agent's browser tools now drive the app's own Browser pane: the bridge to it listened on a file path, which Windows cannot do, so the tools fell back to Playwright and failed with "Playwright is not installed". On macOS and Linux the Computer Use helper starts again: packing the plugin into the installer dropped its permission to run ("Computer Use helper cannot start"). And the Browser pane now opens for every browser tool, so a tab the agent asks for no longer times out while the pane is closed.
+- 7aac13a: Installing a new desktop over an earlier one now moves the plugins in `~/.moxxy/plugins` to the versions the installer carries, on its first launch. A package whose content changed is replaced even when its version number did not, and a package the installer adds is copied in. Plugins updated from npm to a newer version, plugins you added yourself, and the connections the installer updates with a backup are kept. The replaced copies are kept in `~/.moxxy/plugins-backup`, latest only.
+- 40b41fe: The sidebar no longer slides sideways and cuts off "RUNS" when a row is scrolled into view: a tooltip bubble takes no room until it shows, and the column clips instead of scrolling. A brand-new session keeps the composer and its empty state while its runner starts, instead of swapping the whole chat for a loader and back — the flash on every New session.
+- 735de4d: The desktop app no longer gets stuck on "Waiting for workspace information…" at startup. While the first runner was still starting, the host reported no active workspace and the app dropped the one its saved workspace list had already chosen — so whether it opened depended on which answer arrived last, and a slow runner start meant a restart. The host now answers with the saved active session until its runner is up, and the app never clears a known workspace on an empty answer.
+- c1351ca: The Discord bot's agent now drives the desktop's browser instead of an unseen one of its own (a bot started from the app inherits the browser bridge like every workspace runner), and Channels → Discord shows the same Terminal / Files / Diff / Browser workbench as a workspace chat, opening the browser when the bot's agent uses it. On Discord the agent knows you cannot see its browser or terminal: it asks in the chat when a page wants your choice (such as a cookie banner) instead of waiting for a click you cannot make.
+- f9fa366: A Discord voice call no longer goes deaf when its voice connection gets stuck reconnecting: the bot rejoins the channel after 15 s, and if that does not help it ends the call and tells you in DMs so you can `/call` again. Connection changes are logged.
+- 32c1243: Discord voice calls tell you what the agent is doing while it works: the agent says in a short sentence what it is about to check, the bot names a step the agent starts silently ("Przeglądam pliki.", "Sprawdzam, czy wszystko działa."), and says it is still working during a long step. The voice feedback scheduler and the step categories moved to `@moxxy/chat-model` so the desktop's Voice Mode and the bot share them.
+- 8d300a1: Discord voice calls no longer go quiet for the rest of a turn after you (or noise on your microphone) talk over the bot: it skips only the rest of what it was saying, then still says the next step and the agent's result. A sentence the text-to-speech service could not voice is now logged with the reason instead of being skipped silently.
+- f9fa366: Discord voice calls voice each sentence in its language, like the desktop's Voice Mode: with the local Piper voice a Polish question is answered in the Polish voice instead of the English one.
+- f09441a: Discord voice calls start talking as soon as the agent has written its first sentence instead of after the whole reply, voicing the next sentences while one plays; talking over a reply drops the rest of it. The sentence splitter moved to `@moxxy/chat-model` so the desktop's Voice Mode and the bot share it.
+- da7f83a: A message you write in the desktop's chat with the Discord bot now shows in Discord too ("typed in moxxy: …") above its reply, and during a voice call the bot says that reply aloud. Channels share this through `TurnCoordinator.mirrorPrompt`, which skips machine prompts (schedules, webhooks, voice transcripts).
+- 8e72604: `/new` from another client of a conversation — such as the Discord bot — now clears the desktop's chat too, instead of leaving the old conversation on screen. `RemoteSession.onReset` tells a client when the runner started a new conversation.
+- 4aba000: The floating composer in full view can be tucked into a small moxxy button and opened again, and it keeps your draft and voice call meanwhile. Its + menu no longer gets cut off at the top, and Voice Mode in the narrow composer no longer paints its status over the Try again button.
+- 950dbec: The browser in the terminal acts like the desktop's. `moxxy` outside the desktop now drives its headless browser through the same browser host as the desktop's pane, so `browser_type` replaces a field instead of appending, a press on a covered or disabled element is refused with the reason, a click reports the navigation, dialog or new tab it set off, and `browser_select`, `browser_scroll`, `browser_hover`, `browser_wait`, `browser_dialog`, `browser_point`, `browser_upload` and (with Jev) `browser_run` work there too. `browser_capture` and `browser_await_human`, which failed headless, now answer — the hand-off saying plainly that nobody can take over a browser with no window. Acting asks once per site (`browser_allow_site`) instead of before every click, as on the desktop.
+- 7625088: Settings has a Jev section: paste the TypeSafe key, change it later, and switch Jev on or off without removing the key. The switch is a vault entry (`JEV_DISABLED`), so the desktop, the terminal and channel bots all read the same one, and with it off Computer Use works one action at a time as it does without a key. A run of steps also no longer clicks a control again when the click changed only the picture of the window: on a web page whose menu never reaches the accessibility tree, the second click closed the menu the first one opened, in a loop. The step now stops with the menu open and tells the model to continue by the screenshot.
+- e825fa1: A conversation no longer gets stuck on `No tool call found for function call output` after a long-running tool finishes late. When a tool call was answered only after later turns had begun, the `segments` compactor could summarize the call while leaving its result behind, and every following request was rejected by the provider. The compactor now stops its window before such a call, and the projection drops a result whose call was summarized away (and answers a visible call whose result was), so sessions already in that state recover on their next message.
+- 9dc64f5: A runner socket path too long for the system to bind — a deep `MOXXY_HOME`, a long user name, a long `MOXXY_RUNNER_SOCKET` — no longer gets cut short silently, which made every desktop session after the first fail with "moxxy serve exited before binding" and could connect one session to another's runner: it moves to a short name in the user's private runtime or temp folder, or the runner refuses with the reason. On a fresh home, "New session" in the Moxxy workspace works instead of failing with "unknown desk: moxxy", as do renaming it, bringing it to front and moving a session into it.
+- 7130f0c: One click on "Update" now brings everything up to date and restarts Moxxy: the app, the runner and the installed extensions. Extensions used to stay on the version first installed, so fixes in them — such as the terminal no longer waiting out its timeout — never reached existing installs, and the update banner asked for a second click to relaunch. Each part is installed and checked next to the one in use and only then swapped in, keeping the previous copy; if anything fails nothing changes, Moxxy keeps working as before and the banner offers another try. Workspaces, sessions, keys and settings are never touched. After an update the app no longer offers to replace a newer OpenAI connection with the older one it shipped with.
+- e0732de: The browser agent acts on what a page says about its own task — an error, a required field, a change not applied yet — while a page still cannot add to or change the task; and a run that cannot find a control says the closest ones may be it under another name.
+- 5a18a15: Reasoning effort has a new level, `xhigh`, in `context.reasoning.effort`, in the desktop's provider settings and in the SDK's `ReasoningEffort` type. Anthropic models receive it as `high`. `context.reasoning` from the config is now applied when a session starts; before, it only took effect after the config was edited while Moxxy was running, so one-shot runs always used the provider's default effort.
+- 97c44bd: The agent no longer reports on work that has not finished. A browser read lists what the page itself marks as still working (`aria-busy`, a progress bar with no amount) and an action says when the page was still changing as it returned; any tool result can say so through the new `Progress` contract in `@moxxy/sdk`. The default mode then asks the agent once, at the end of its turn, to wait and look again before it reports. Turn-end checkpoints can declare `applies` to be skipped without a trace on turns they do not concern.
+- 97c44bd: A `browser_run` report quotes what a step typed whole (up to 200 characters, a longer text marked as cut with its length) instead of silently cutting it at 60 — an address cut before its port read as the port not taken, and the agent typed it again and again. A field that does not hold what was typed is quoted the same way.
+- a7dcaf9: The desktop installer builds again: its bundled extensions now carry `@moxxy/chat-model`, which the Telegram and Discord bots need to pick a voice for the reply's language.
+- 8a10b7d: Auto-approve belongs to the conversation: switching it from Discord (`/auto-approve`) shows in the desktop's chat with the bot, and switching it in the desktop applies to the bot's own turns. The switch is recorded in the session log (runner protocol v21 adds `session.setAutoApprove`; `SessionInfo.autoApprove` reports it). A new conversation starts with it off.
+- a34b1d7: `@skill-name` in a chat prompt calls that skill for the request, on every surface (desktop, terminal UI, channel bots, mobile): the skill rides on the prompt as an attachment, so every client and every replay sees it, and a prompt a trigger wrote calls nothing. Skills gain `aliases:` (other names to mention them by; `_` reads as `-`) and `disallowed-tools:` (tools withheld from a request that mentions the skill, and from the sub-agents it starts). `@computer_use` calls Computer Use and keeps Moxxy's in-window Browser out of that request; the browser skill no longer tells the agent to use the in-window Browser when the user names another browser such as Arc. The SDK exports `mentionedSkills`, `skillAttachment`, `withoutTools` and `toolPatternMatches`. In the desktop, typing `@` in the composer opens a menu of the tools a prompt can call (Computer Use and Moxxy Browser first, labelled by the skills' new `label:` field), narrowed as you type; arrows, Enter/Tab and Escape drive it (Escape closes it for that @ word only), and `@moxxy_browser` keeps Computer Use out of its request. The SDK also exports `mentionQueryAt`, `mentionOptions` and `insertMention`, `SessionInfo.skills` carries each skill's description, label and aliases, and `@moxxy/client-core` has `useMentionPicker` for any composer.
+- 8782265: The desktop app no longer waits on the "Install the bundled … connection update?" question before it starts a conversation. The question used to be asked before the first runner, in a dialog that could sit hidden behind the window, so the app stayed on "Waiting for workspace information…" until someone found and answered it. Now the app starts right away on the installed extension, the question appears attached to the main window, and an approved update installs and reconnects the open conversations. The Computer Use update on Windows works the same way.
+- bf368a0: The desktop shows Stop while another client of a conversation runs a turn — such as the Discord bot's agent working on a Discord request in Channels → Discord — and stopping it there stops the bot's turn. A runner now lists every running turn in `SessionInfo.runningTurns`, including turns a channel bot runs inside it, and `abort` reaches them (runner protocol v22). Browser tabs in the workbench stay open when you collapse the workbench or switch to another pane, until you close them.
+- ca3dffa: The desktop's Terminal pane no longer stays on "Terminal unavailable: not connected to a runner" when it is shown while a new conversation's runner is still starting. It tried to open the terminal once and kept that first failure; it now opens it as soon as the runner is connected, and opens it again after the runner restarts.
+- 1573804: The token count at the top says how much of it was read back from the cache (`2.4M · 94% cache`), and its hover splits cached from new tokens, so a total that grows with every call no longer reads as all new tokens.
+- fe2eb5a: A tool can name the modes it is for (`modes` on `defineTool`); other modes do not offer it to the model. Goal mode's goal*complete/goal_abandon and the collaboration's collab*\* tools are now offered only there — in a plain browser task the model took goal_abandon and gave the task up. New `toolsForMode` in the SDK. The browser skill says plainly that allowing a site is a step the agent takes, never a reason to stop.
+- f6b1e6e: Keep the chat rendering when session history carries a trigger kind this build does not know (e.g. written by a newer version): it now shows a neutral "<Kind> trigger" marker instead of crashing the whole window.
+- 8d6a7ca: A button with no name is read with what its markup says (`button (no name; markup: @click="modalOpen=false")`), so the agent no longer takes a close button for the action beside it. The browser skill says a change the page reports as not applied yet is not done: the agent uses the control that does it under another name (a restart that reloads the settings) when it touches only what the task set up, and asks first otherwise.
+- 7e92362: On Windows the agent's shell commands work again: Bash runs in Git Bash, or in Windows PowerShell where Git is not installed, instead of failing with `spawn /bin/sh ENOENT`. Long commands can now run in the background there, and the agent continues the moment one finishes (Wait) instead of pausing for a fixed time. Stopping a background job ends every process it started, so a stopped dev server no longer keeps running.
+- 604fe0a: Five faults the test suite found the first time it ran on Windows: a one-level isolation path rule (`dir/*`) also matched files in subfolders, `Glob` found nothing for a pattern with a folder in it (`src/**/*.ts`), the desktop showed an empty diff for a new file, `moxxy mobile` could neither start nor stop Expo, and a component update failed for anyone with a linked plugin. The whole suite now runs on Windows in CI.
+- Updated dependencies [1bde2f6]
+- Updated dependencies [ac81f33]
+- Updated dependencies [2f408fa]
+- Updated dependencies [df14c3b]
+- Updated dependencies [1fd6b7a]
+- Updated dependencies [294ee09]
+- Updated dependencies [41cba8e]
+- Updated dependencies [9ac8c77]
+- Updated dependencies [41cba8e]
+- Updated dependencies [f529046]
+- Updated dependencies [fe2eb5a]
+- Updated dependencies [efddcb4]
+- Updated dependencies [313152d]
+- Updated dependencies [97c44bd]
+- Updated dependencies [f44cf63]
+- Updated dependencies [15a2c80]
+- Updated dependencies [b819adc]
+- Updated dependencies [b46c70a]
+- Updated dependencies [8906c4a]
+- Updated dependencies [e17a9f7]
+- Updated dependencies [e1341f9]
+- Updated dependencies [b45cf4b]
+- Updated dependencies [af1fc35]
+- Updated dependencies [b7a38f7]
+- Updated dependencies [99d4424]
+- Updated dependencies [aaee26d]
+- Updated dependencies [a3cb59b]
+- Updated dependencies [f4b8c5f]
+- Updated dependencies [6cdb56e]
+- Updated dependencies [352ce3a]
+- Updated dependencies [54d629a]
+- Updated dependencies [5ca8fbe]
+- Updated dependencies [03d14ba]
+- Updated dependencies [569750e]
+- Updated dependencies [cd2950d]
+- Updated dependencies [ca9a67f]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [5ca8fbe]
+- Updated dependencies [f94511e]
+- Updated dependencies [467542f]
+- Updated dependencies [711ac74]
+- Updated dependencies [f23b22a]
+- Updated dependencies [c58ac4a]
+- Updated dependencies [d9cd948]
+- Updated dependencies [269c8de]
+- Updated dependencies [c58ac4a]
+- Updated dependencies [d916969]
+- Updated dependencies [2079504]
+- Updated dependencies [c68bc61]
+- Updated dependencies [16154e9]
+- Updated dependencies [6b1c7c9]
+- Updated dependencies [789cd60]
+- Updated dependencies [40d310e]
+- Updated dependencies [0dd7273]
+- Updated dependencies [504cae7]
+- Updated dependencies [f9b6fae]
+- Updated dependencies [d421a44]
+- Updated dependencies [66633a8]
+- Updated dependencies [ed9bbcd]
+- Updated dependencies [6e75d53]
+- Updated dependencies [1060794]
+- Updated dependencies [808bbfd]
+- Updated dependencies [6319474]
+- Updated dependencies [ec46d4e]
+- Updated dependencies [b9445f8]
+- Updated dependencies [3081336]
+- Updated dependencies [a006a0c]
+- Updated dependencies [875ba3e]
+- Updated dependencies [ce4e53d]
+- Updated dependencies [01d8bff]
+- Updated dependencies [8483361]
+- Updated dependencies [2e9344c]
+- Updated dependencies [c58ac4a]
+- Updated dependencies [af1308b]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [dd35216]
+- Updated dependencies [ed74b61]
+- Updated dependencies [db4f18b]
+- Updated dependencies [0ad9ec0]
+- Updated dependencies [a070317]
+- Updated dependencies [c58ac4a]
+- Updated dependencies [51399e9]
+- Updated dependencies [ad6de5d]
+- Updated dependencies [73a8f95]
+- Updated dependencies [00cf576]
+- Updated dependencies [b56668f]
+- Updated dependencies [9c5e2f0]
+- Updated dependencies [a846016]
+- Updated dependencies [c58ac4a]
+- Updated dependencies [c329313]
+- Updated dependencies [9cb28d6]
+- Updated dependencies [bd8473c]
+- Updated dependencies [c8acded]
+- Updated dependencies [90ee910]
+- Updated dependencies [c1351ca]
+- Updated dependencies [f9fa366]
+- Updated dependencies [32c1243]
+- Updated dependencies [8d300a1]
+- Updated dependencies [f9fa366]
+- Updated dependencies [f09441a]
+- Updated dependencies [e1341f9]
+- Updated dependencies [ebe1003]
+- Updated dependencies [da7f83a]
+- Updated dependencies [8e72604]
+- Updated dependencies [e1341f9]
+- Updated dependencies [00e2898]
+- Updated dependencies [788cfda]
+- Updated dependencies [b0f2616]
+- Updated dependencies [6e36940]
+- Updated dependencies [40b40f4]
+- Updated dependencies [194abc6]
+- Updated dependencies [950dbec]
+- Updated dependencies [7625088]
+- Updated dependencies [e825fa1]
+- Updated dependencies [40d310e]
+- Updated dependencies [a3d3207]
+- Updated dependencies [9dc64f5]
+- Updated dependencies [5ca8fbe]
+- Updated dependencies [e4ed084]
+- Updated dependencies [e0732de]
+- Updated dependencies [c273722]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [5a18a15]
+- Updated dependencies [97c44bd]
+- Updated dependencies [97c44bd]
+- Updated dependencies [8a10b7d]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [1e5cb75]
+- Updated dependencies [bf368a0]
+- Updated dependencies [b6cc796]
+- Updated dependencies [1fd6b7a]
+- Updated dependencies [41cba8e]
+- Updated dependencies [c2db57d]
+- Updated dependencies [90fe2ce]
+- Updated dependencies [fe2eb5a]
+- Updated dependencies [8d6a7ca]
+- Updated dependencies [a34b1d7]
+- Updated dependencies [7e92362]
+- Updated dependencies [604fe0a]
+  - @moxxy/sdk@0.42.0
+  - @moxxy/cli@0.42.0
+  - @moxxy/chat-model@0.4.14
+  - @moxxy/client-core@0.13.32
+  - @moxxy/client-platform-web@0.1.71
+  - @moxxy/desktop-host@0.14.23
+  - @moxxy/desktop-ipc-contract@0.14.28
+  - @moxxy/ipc-server-ws@0.1.70
+  - @moxxy/plugin-channel-mobile@0.42.0
+  - @moxxy/plugin-stt-whisper-codex@0.42.0
+  - @moxxy/plugin-vault@0.42.0
+  - @moxxy/runner@0.2.57
+  - @moxxy/workflows-builder@0.1.54
+
 ## 0.40.3
 
 ### Patch Changes
