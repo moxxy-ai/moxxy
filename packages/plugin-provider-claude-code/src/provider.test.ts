@@ -451,7 +451,7 @@ describe('claude-code provider definition', () => {
     expect(input.indexOf('message system')).toBeLessThan(input.indexOf('system instructions'));
   });
 
-  it('turns a streamed moxxy tool-call block into tool_use events and stops at it', async () => {
+  it.skipIf(!posixShell)('turns a streamed moxxy tool-call block into tool_use events and stops at it', async () => {
     const delta = (text: string) => ({
       type: 'stream_event',
       event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
@@ -505,7 +505,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('Read');
   });
 
-  it('continues past an internal CLI tool round trip to the moxxy tool-call block', async () => {
+  it.skipIf(!posixShell)('continues past an internal CLI tool round trip to the moxxy tool-call block', async () => {
     // Shape captured from the live CLI: the model first tries a native Read,
     // the CLI rejects it, then the model uses the moxxy protocol.
     const dir = await makeFakeClaude([
@@ -529,7 +529,7 @@ describe('claude-code provider definition', () => {
     expect(events.at(-1)).toEqual({ type: 'message_end', stopReason: 'tool_use' });
   });
 
-  it('keeps call-shaped text as plain output when no tools were offered or the block never closes', async () => {
+  it.skipIf(!posixShell)('keeps call-shaped text as plain output when no tools were offered or the block never closes', async () => {
     const records = [
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
       { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'a <moxxy_tool_calls><call name="Read">{}' } } },
