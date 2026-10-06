@@ -1,5 +1,22 @@
 # @moxxy/cli
 
+## 0.41.3
+
+### Patch Changes
+
+- 8735a7f: claude-code provider: moxxy tools now work in the default text transport. They are described to Claude in the prompt and its call blocks become real tool calls that go through moxxy's permission flow, instead of the model printing a fake tool call as plain text. Internal CLI `tool_use` stop reasons no longer abort the stream.
+- 72e182b: Bump @napi-rs/keyring to 2.1.0. Vault keys already stored in the OS keychain stay readable; keychain errors now surface instead of reading as empty, and the vault still falls back to the on-disk key.
+- 6fefc59: Pick up patched undici (GHSA-3wwx-pv8p-q78v) and ip-address (GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc).
+- Updated dependencies [6fefc59]
+  - @moxxy/sdk@0.41.3
+
+## 0.41.2
+
+### Patch Changes
+
+- d5324c4: Update non-major dependencies (Anthropic SDK, MCP SDK, grammy, esbuild, tar-stream and others).
+  - @moxxy/sdk@0.41.2
+
 ## 0.41.1
 
 ### Patch Changes

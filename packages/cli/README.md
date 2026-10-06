@@ -83,7 +83,7 @@ Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign 
 2. Run `claude auth login` or `moxxy login claude-code`, then confirm with `claude auth status` and `moxxy doctor`.
 3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-5-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
 
-The default transport disables Claude's internal tools. To opt into an isolated coding task, configure the provider item explicitly:
+The default transport disables Claude's internal tools (except WebSearch). moxxy's own tools still work: they are described to the model in the prompt, and each call it makes runs through moxxy's permission resolver like with any other provider. To opt into an isolated coding task, configure the provider item explicitly:
 
 ```yaml
 plugins:

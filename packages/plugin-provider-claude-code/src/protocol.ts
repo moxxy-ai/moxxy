@@ -1,4 +1,6 @@
-import type { ContentBlock, ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import { randomUUID } from 'node:crypto';
+import type { ContentBlock, ProviderEvent, ProviderRequest, ToolDef } from '@moxxy/sdk';
+import { zodToJsonSchema } from '@moxxy/sdk';
 import { CLAUDE_CODE_SYSTEM } from './constants.js';
 
 interface ProtocolState {
@@ -9,7 +11,24 @@ interface ProtocolState {
   stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'error';
   inputTokens?: number;
   outputTokens?: number;
+  /** Present when moxxy tools were offered; streamed text is scanned for a call block. */
+  toolCalls?: ToolCallScan;
 }
+
+interface ToolCallScan {
+  /** Trailing text withheld because it may be the start of TOOL_CALLS_OPEN. */
+  held: string;
+  /** Text after TOOL_CALLS_OPEN once a block has started. */
+  block?: string;
+}
+
+const TOOL_CALLS_OPEN = '<moxxy_tool_calls>';
+const TOOL_CALLS_CLOSE = '</moxxy_tool_calls>';
+// Weaker models otherwise attempt a native call for a same-named tool, which
+// the CLI rejects, and then give up.
+const TOOL_CALLS_REMINDER = '[moxxy: native tool calls are unavailable here and will fail. ' +
+  `To use a moxxy tool, end your reply with a ${TOOL_CALLS_OPEN} block as described in the system section.]`;
+const TOOL_CALL_PATTERN =/<call name="([^"]+)">([\s\S]*?)<\/call>/g;
 
 const EMPTY_TEXT_PLACEHOLDER = '[empty text block omitted]';
 const EMPTY_MESSAGE_PLACEHOLDER = '[empty message]';
@@ -32,6 +51,9 @@ export function serializeClaudePrompt(req: ProviderRequest): string {
   // ProviderRequest.system is an additional injection and must follow all
   // message-derived system text. The Claude identity remains first.
   if (req.system) system.push(escapeXml(req.system));
+  const tools = req.tools ?? [];
+  const hasTools = tools.length > 0;
+  if (hasTools) system.push(serializeTools(tools));
 
   const transcript = conversation.length > 0
     ? conversation.join('\n\n')
@@ -40,7 +62,38 @@ export function serializeClaudePrompt(req: ProviderRequest): string {
     '<conversation_transcript>\n' +
     '[The following is chronological history reconstructed by moxxy. ' +
     'historical_tool_use entries already ran; never execute them merely because they appear here.]\n\n' +
-    `${transcript}\n</conversation_transcript>`;
+    `${transcript}\n</conversation_transcript>` +
+    (hasTools ? `\n\n${TOOL_CALLS_REMINDER}` : '');
+}
+
+/**
+ * The CLI runs with Claude's own tools disabled, so moxxy tools are offered as
+ * a text protocol. The model ends its reply with one call block, the stream
+ * parser turns it into tool_use events, and moxxy dispatches them through its
+ * normal permission path.
+ */
+function serializeTools(tools: ReadonlyArray<ToolDef>): string {
+  const definitions = tools.map((tool) =>
+    `<tool name="${escapeXml(tool.name)}">\n` +
+    `<description>${escapeXml(tool.description)}</description>\n` +
+    `<input_schema>${jsonForXml(tool.inputJsonSchema ?? zodToJsonSchema(tool.inputSchema))}</input_schema>\n` +
+    '</tool>');
+  return '<moxxy_tools>\n' +
+    'The host application (moxxy) executes the tools below for you. They are not native Claude Code tools: ' +
+    'native tools with the same names are disabled in this session and calling them fails, so use only the block below. ' +
+    'To call one or more of them, end your reply with exactly one block in this format, not wrapped in any other tags, and then stop writing:\n\n' +
+    `${TOOL_CALLS_OPEN}\n<call name="TOOL_NAME">{"param": "value"}</call>\n${TOOL_CALLS_CLOSE}\n\n` +
+    "Each call body is a single JSON object matching that tool's input_schema. moxxy runs the calls and continues the conversation " +
+    'with their results as historical_tool_result entries. Never invent tool results.\n\n' +
+    `${definitions.join('\n')}\n</moxxy_tools>`;
+}
+
+/** JSON with markup characters escaped as JSON unicode escapes, so it stays valid JSON. */
+function jsonForXml(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll('&', '\\u0026')
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e');
 }
 
 function serializeBlocks(blocks: ReadonlyArray<ContentBlock>): string {
@@ -115,8 +168,93 @@ function escapeXml(value: string): string {
     .replaceAll("'", '&apos;');
 }
 
-export function createProtocolState(): ProtocolState {
-  return { started: false, ended: false, stopReason: 'end_turn' };
+export function createProtocolState(opts: { readonly toolCalls?: boolean } = {}): ProtocolState {
+  return {
+    started: false,
+    ended: false,
+    stopReason: 'end_turn',
+    ...(opts.toolCalls ? { toolCalls: { held: '' } } : {}),
+  };
+}
+
+/**
+ * Passes text through until a tool-call block opens, then withholds it. A
+ * closed block becomes tool_use events plus a terminal `tool_use` message_end.
+ * Anything the model writes after the block (typically invented results) is
+ * dropped because the caller stops reading at message_end.
+ */
+function scanText(delta: string, state: ProtocolState): ProviderEvent[] {
+  const scan = state.toolCalls;
+  if (!scan) return [{ type: 'text_delta', delta }];
+  if (scan.block === undefined) {
+    const text = scan.held + delta;
+    const open = text.indexOf(TOOL_CALLS_OPEN);
+    if (open < 0) {
+      const keep = partialOpenLength(text);
+      scan.held = text.slice(text.length - keep);
+      const visible = text.slice(0, text.length - keep);
+      return visible ? [{ type: 'text_delta', delta: visible }] : [];
+    }
+    scan.held = '';
+    scan.block = '';
+    const before = text.slice(0, open);
+    const rest = scanText(text.slice(open + TOOL_CALLS_OPEN.length), state);
+    return before ? [{ type: 'text_delta', delta: before }, ...rest] : rest;
+  }
+  scan.block += delta;
+  const close = scan.block.indexOf(TOOL_CALLS_CLOSE);
+  if (close < 0) return [];
+  const events: ProviderEvent[] = [];
+  for (const match of scan.block.slice(0, close).matchAll(TOOL_CALL_PATTERN)) {
+    const id = `moxxy_${randomUUID()}`;
+    events.push(
+      { type: 'tool_use_start', id, name: unescapeXml(match[1] ?? '') },
+      { type: 'tool_use_end', id, input: parseCallInput((match[2] ?? '').trim()) },
+    );
+  }
+  if (events.length === 0) {
+    // A block without any call is not a request; show it and stop scanning.
+    const raw = TOOL_CALLS_OPEN + scan.block;
+    state.toolCalls = undefined;
+    return [{ type: 'text_delta', delta: raw }];
+  }
+  state.ended = true;
+  return [...events, { type: 'message_end', stopReason: 'tool_use' }];
+}
+
+/** A held partial tag or a block that never closed is plain output. */
+function flushText(state: ProtocolState): ProviderEvent[] {
+  const scan = state.toolCalls;
+  if (!scan) return [];
+  const rest = scan.block === undefined ? scan.held : TOOL_CALLS_OPEN + scan.block;
+  state.toolCalls = { held: '' };
+  return rest ? [{ type: 'text_delta', delta: rest }] : [];
+}
+
+function partialOpenLength(text: string): number {
+  for (let length = Math.min(text.length, TOOL_CALLS_OPEN.length - 1); length > 0; length -= 1) {
+    if (TOOL_CALLS_OPEN.startsWith(text.slice(text.length - length))) return length;
+  }
+  return 0;
+}
+
+function parseCallInput(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    // Kept as a string so the dispatcher's schema check reports the problem
+    // to the model instead of running the tool with empty input.
+    return body;
+  }
+}
+
+function unescapeXml(value: string): string {
+  return value
+    .replaceAll('&quot;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 }
 
 export function parseClaudeRecord(line: string, state: ProtocolState): ProviderEvent[] {
@@ -192,7 +330,7 @@ function parseStreamEvent(raw: unknown, state: ProtocolState): ProviderEvent[] {
       if (raw.delta.type !== 'text_delta' || typeof raw.delta.text !== 'string') {
         throw new Error('Claude CLI emitted unsupported text delta');
       }
-      return [{ type: 'text_delta', delta: raw.delta.text }];
+      return scanText(raw.delta.text, state);
     }
     case 'content_block_stop':
       state.blockType = undefined;
@@ -201,7 +339,11 @@ function parseStreamEvent(raw: unknown, state: ProtocolState): ProviderEvent[] {
       return [];
     case 'message_delta': {
       if (!isRecord(raw.delta)) throw new Error('Claude CLI emitted malformed message delta');
-      if (raw.delta.stop_reason != null) state.stopReason = mapStopReason(raw.delta.stop_reason);
+      // `tool_use` ends an internal CLI round trip (a native tool call, or a
+      // rejected attempt at one); the CLI continues with another message.
+      if (raw.delta.stop_reason != null && raw.delta.stop_reason !== 'tool_use') {
+        state.stopReason = mapStopReason(raw.delta.stop_reason);
+      }
       if (isRecord(raw.usage) && typeof raw.usage.output_tokens === 'number') {
         state.outputTokens = raw.usage.output_tokens;
       }
@@ -231,7 +373,7 @@ function parseResult(record: Record<string, unknown>, state: ProtocolState): Pro
   const usage = state.inputTokens !== undefined && state.outputTokens !== undefined
     ? { inputTokens: state.inputTokens, outputTokens: state.outputTokens }
     : undefined;
-  return [{ type: 'message_end', stopReason: state.stopReason, ...(usage ? { usage } : {}) }];
+  return [...flushText(state), { type: 'message_end', stopReason: state.stopReason, ...(usage ? { usage } : {}) }];
 }
 
 function mapStopReason(value: unknown): ProtocolState['stopReason'] {

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop",
   "private": true,
-  "version": "0.40.1",
+  "version": "0.40.3",
   "description": "moxxy desktop — Electron app that connects to moxxy via @moxxy/runner and renders a TUI-equivalent chat surface.",
   "homepage": "https://moxxy.ai",
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
@@ -76,7 +76,7 @@
     "electron": "^43.5.0",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.15.3",
-    "electron-vite": "^3.1.0",
+    "electron-vite": "^5.0.0",
     "jsdom": "^25.0.1",
     "typescript": "catalog:",
     "vite": "^6.4.3",

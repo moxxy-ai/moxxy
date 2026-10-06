@@ -67,7 +67,7 @@ describe('claude-code provider definition', () => {
     for (const model of claudeCodeProviderDef.models) {
       expect(model).toMatchObject({
         supportsStreaming: true,
-        supportsTools: false,
+        supportsTools: true,
         supportsImages: false,
         supportsDocuments: false,
         supportsAudio: false,
@@ -451,9 +451,108 @@ describe('claude-code provider definition', () => {
     expect(input.indexOf('message system')).toBeLessThan(input.indexOf('system instructions'));
   });
 
-  it('rejects capabilities that the text-only descriptors disable', async () => {
+  it('turns a streamed moxxy tool-call block into tool_use events and stops at it', async () => {
+    const delta = (text: string) => ({
+      type: 'stream_event',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
+    });
+    const dir = await makeFakeClaude([
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      delta("I'll read it.\n<moxxy_tool"),
+      delta('_calls>\n<call name="Read">{"file_path": "x.yaml"}</call>\n'),
+      delta('<call name="Grep">not json</call>\n</moxxy_tool_calls>'),
+      delta('The first line is: invented'),
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+    const events = await collect(client.stream({
+      ...textRequest(),
+      tools: [{
+        name: 'Read',
+        description: 'Read a <file>',
+        inputSchema: z.object({ file_path: z.string() }),
+        handler: async () => 'unused',
+      }, {
+        name: 'web_search',
+        description: 'Local search fallback',
+        inputSchema: z.object({ query: z.string() }),
+        hosted: { type: 'web_search' },
+        handler: async () => 'unused',
+      }],
+    }));
+
+    const ids = events.flatMap((event) => (event.type === 'tool_use_start' ? [event.id] : []));
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(events).toEqual([
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
+      { type: 'text_delta', delta: "I'll read it.\n" },
+      { type: 'tool_use_start', id: ids[0], name: 'Read' },
+      { type: 'tool_use_end', id: ids[0], input: { file_path: 'x.yaml' } },
+      { type: 'tool_use_start', id: ids[1], name: 'Grep' },
+      { type: 'tool_use_end', id: ids[1], input: 'not json' },
+      { type: 'message_end', stopReason: 'tool_use' },
+    ]);
+    const input = await readFile(join(dir, 'input.txt'), 'utf8');
+    expect(input).toContain('<tool name="Read">');
+    expect(input).toContain('<description>Read a &lt;file&gt;</description>');
+    expect(input).toContain('"file_path":{"type":"string"}');
+    expect(input).toContain('<moxxy_tool_calls>');
+    expect(input).not.toContain('<tool name="web_search">');
+    expect(input.trimEnd().endsWith('as described in the system section.]')).toBe(true);
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args).toEqual(expect.arrayContaining(['--tools', 'WebSearch']));
+    expect(args).not.toContain('Read');
+  });
+
+  it('continues past an internal CLI tool round trip to the moxxy tool-call block', async () => {
+    // Shape captured from the live CLI: the model first tries a native Read,
+    // the CLI rejects it, then the model uses the moxxy protocol.
+    const dir = await makeFakeClaude([
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"file_path":"x.yaml"}' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop' } },
+      { type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'tool_use' } } },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', is_error: true, content: 'No such tool available: Read' }] } },
+      { type: 'stream_event', event: { type: 'message_stop' } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '<moxxy_tool_calls>\n<call name="Read">{"file_path":"x.yaml"}</call>\n</moxxy_tool_calls>' } } },
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream({
+      ...textRequest(),
+      tools: [{ name: 'Read', description: 'Read', inputSchema: z.object({ file_path: z.string() }), handler: async () => 'unused' }],
+    }));
+
+    expect(events.filter((event) => event.type === 'error')).toEqual([]);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'tool_use_end', input: { file_path: 'x.yaml' } }));
+    expect(events.at(-1)).toEqual({ type: 'message_end', stopReason: 'tool_use' });
+  });
+
+  it('keeps call-shaped text as plain output when no tools were offered or the block never closes', async () => {
+    const records = [
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'a <moxxy_tool_calls><call name="Read">{}' } } },
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ];
+    const tool = { name: 'Read', description: 'Read', inputSchema: z.object({}), handler: async () => 'unused' };
+    for (const tools of [undefined, [tool]]) {
+      const dir = await makeFakeClaude(records);
+      const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream({
+        ...textRequest(),
+        ...(tools ? { tools } : {}),
+      }));
+      expect(events.filter((event) => event.type.startsWith('tool_use'))).toEqual([]);
+      expect(events.flatMap((event) => (event.type === 'text_delta' ? [event.delta] : [])).join(''))
+        .toBe('a <moxxy_tool_calls><call name="Read">{}');
+      expect(events.at(-1)).toMatchObject({ type: 'message_end', stopReason: 'end_turn' });
+    }
+  });
+
+  it('does not advertise or accept moxxy tools in native-tools mode', async () => {
     const spawn = () => { throw new Error('should not spawn'); };
-    const client = createClaudeCodeClient({ spawn });
+    const client = createClaudeCodeClient({ spawn, mode: 'native-tools' });
+    expect(client.models.every((model) => model.supportsTools === false)).toBe(true);
 
     const withTools = await collect(client.stream({
       ...textRequest(),
@@ -466,9 +565,14 @@ describe('claude-code provider definition', () => {
     }));
     expect(withTools[1]).toMatchObject({
       type: 'error',
-      message: expect.stringContaining('does not support tools'),
+      message: expect.stringContaining('does not support moxxy tools'),
       retryable: false,
     });
+  });
+
+  it('rejects capabilities that the descriptors disable', async () => {
+    const spawn = () => { throw new Error('should not spawn'); };
+    const client = createClaudeCodeClient({ spawn });
 
     const withReasoning = await collect(client.stream({ ...textRequest(), reasoning: true }));
     expect(withReasoning[1]).toMatchObject({

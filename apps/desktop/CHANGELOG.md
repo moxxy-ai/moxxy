@@ -1,5 +1,46 @@
 # @moxxy/desktop
 
+## 0.40.3
+
+### Patch Changes
+
+- Updated dependencies [8735a7f]
+- Updated dependencies [72e182b]
+- Updated dependencies [6fefc59]
+  - @moxxy/cli@0.41.3
+  - @moxxy/sdk@0.41.3
+  - @moxxy/chat-model@0.4.13
+  - @moxxy/client-core@0.13.31
+  - @moxxy/client-platform-web@0.1.70
+  - @moxxy/desktop-host@0.14.22
+  - @moxxy/desktop-ipc-contract@0.14.27
+  - @moxxy/ipc-server-ws@0.1.69
+  - @moxxy/plugin-channel-mobile@0.41.3
+  - @moxxy/plugin-stt-whisper-codex@0.41.3
+  - @moxxy/plugin-vault@0.41.3
+  - @moxxy/runner@0.2.56
+  - @moxxy/workflows-builder@0.1.53
+
+## 0.40.2
+
+### Patch Changes
+
+- d357984: macOS: raise the minimum system version to 12.0 (the bundled Electron's real floor) and ship the x64 native seed packages (keyring, sharp) in the universal app so Intel Macs get them too.
+- Updated dependencies [d5324c4]
+  - @moxxy/cli@0.41.2
+  - @moxxy/sdk@0.41.2
+  - @moxxy/plugin-channel-mobile@0.41.2
+  - @moxxy/plugin-stt-whisper-codex@0.41.2
+  - @moxxy/plugin-vault@0.41.2
+  - @moxxy/chat-model@0.4.12
+  - @moxxy/client-core@0.13.30
+  - @moxxy/client-platform-web@0.1.69
+  - @moxxy/desktop-host@0.14.21
+  - @moxxy/desktop-ipc-contract@0.14.26
+  - @moxxy/ipc-server-ws@0.1.68
+  - @moxxy/runner@0.2.55
+  - @moxxy/workflows-builder@0.1.52
+
 ## 0.40.1
 
 ### Patch Changes
