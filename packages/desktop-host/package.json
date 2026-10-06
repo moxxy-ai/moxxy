@@ -54,7 +54,7 @@
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
-    "electron": "^43.5.0",
+    "electron": "^44.5.1",
     "playwright": "^1.60.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
