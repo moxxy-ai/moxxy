@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readLocalFiles } from './local-files.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
+import { isWindows } from '@moxxy/vitest-preset/platform';
 
 let tmp: string;
 beforeEach(async () => {
@@ -26,6 +28,13 @@ describe('readLocalFiles (files the agent attaches to a message)', () => {
 
   it('refuses a path that is not a file before reading anything', async () => {
     await expect(readLocalFiles([tmp], { cwd: tmp, ...limits })).rejects.toThrow(/is not a file/);
+  });
+
+  it.skipIf(isWindows)('refuses a named pipe at once instead of waiting for a writer', async () => {
+    const pipe = path.join(tmp, 'pipe');
+    execFileSync('mkfifo', [pipe]);
+
+    await expect(readLocalFiles([pipe], { cwd: tmp, ...limits })).rejects.toThrow(/pipe is not a file/);
   });
 
   it("refuses files larger together than the messenger accepts, naming its limit", async () => {

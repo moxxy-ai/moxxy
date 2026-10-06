@@ -7,7 +7,7 @@
  * version.
  */
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
+import { open, readdir, readlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 
 export const SEED_FINGERPRINTS_FILE = 'seed-fingerprints.json';
@@ -51,19 +51,25 @@ async function topLevelEntries(modules) {
 async function treeFingerprint(root) {
   const hash = createHash('sha256');
   async function walk(dir, relative) {
-    for (const name of (await readdir(dir)).sort()) {
-      const file = path.join(dir, name);
-      const rel = relative ? `${relative}/${name}` : name;
-      const stat = await lstat(file);
-      if (stat.isSymbolicLink()) {
+    const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      const file = path.join(dir, entry.name);
+      const rel = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) {
         hash.update(`link\0${rel}\0${await readlink(file)}\0`);
-      } else if (stat.isDirectory()) {
+      } else if (entry.isDirectory()) {
         hash.update(`dir\0${rel}\0`);
         await walk(file, rel);
       } else {
-        const content = createHash('sha256').update(await readFile(file)).digest('hex');
-        const executable = process.platform !== 'win32' && (stat.mode & 0o111) !== 0;
-        hash.update(`file\0${rel}\0${executable ? 'x' : '-'}\0${content}\0`);
+        // The mode and the content from one handle, so both describe the same file.
+        const handle = await open(file, 'r');
+        try {
+          const content = createHash('sha256').update(await handle.readFile()).digest('hex');
+          const executable = process.platform !== 'win32' && ((await handle.stat()).mode & 0o111) !== 0;
+          hash.update(`file\0${rel}\0${executable ? 'x' : '-'}\0${content}\0`);
+        } finally {
+          await handle.close();
+        }
       }
     }
   }

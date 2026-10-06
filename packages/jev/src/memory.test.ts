@@ -73,6 +73,16 @@ describe('RunMemory', () => {
     expect(JSON.parse(readFileSync(join(directory, file as string), 'utf8')).app).toBe('C:\\Program Files\\App/../x.exe');
     mkdirSync(join(directory, 'sub'));
   });
+
+  it('names the file of an app with a long run of dashes without slowing down', async () => {
+    const memory = new RunMemory(directory);
+    const app = `-x${'-'.repeat(40_000)}x.`;
+    const started = performance.now();
+    await memory.learn(app, { targets: [exportButton] });
+    expect(performance.now() - started).toBeLessThan(1000);
+    const [file] = readdirSync(directory);
+    expect(file).toMatch(new RegExp(`^x-{59}-[0-9a-f]{8}\\.json$`));
+  });
 });
 
 describe('what ships with moxxy', () => {

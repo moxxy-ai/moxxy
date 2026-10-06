@@ -73,8 +73,18 @@ export const targetOf = (step: MemoryStep): string | undefined =>
 
 const newest = <T extends { at: number }>(items: T[], limit: number) => items.sort((a, b) => b.at - a.at).slice(0, limit);
 
+/** Without `-` and `.` at either end. A loop, since `/[-.]+$/` backtracks over every run of dashes. */
+function trimDashesAndDots(text: string): string {
+  const edge = (char: string | undefined) => char === '-' || char === '.';
+  let start = 0;
+  let end = text.length;
+  while (start < end && edge(text[start])) start += 1;
+  while (end > start && edge(text[end - 1])) end -= 1;
+  return text.slice(start, end);
+}
+
 const fileName = (app: string) => {
-  const name = app.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60);
+  const name = trimDashesAndDots(app.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')).slice(0, 60);
   return `${name || 'app'}-${createHash('sha256').update(app).digest('hex').slice(0, 8)}.json`;
 };
 

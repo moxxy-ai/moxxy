@@ -198,14 +198,14 @@ function archiveExtension(file) {
 async function download({ file, url, sha256 }) {
   mkdirSync(stagingDir, { recursive: true });
   const dest = path.join(stagingDir, file);
-  if (existsSync(dest) && (await sha256File(dest)) === sha256) return dest;
+  // A missing or unreadable copy is fetched again.
+  if ((await sha256File(dest).catch(() => undefined)) === sha256) return dest;
   console.log(`runtimes-seed: downloading ${file}`);
-  await writeFile(dest, await fetchWithRetry(url));
-  const actual = await sha256File(dest);
-  if (actual !== sha256) {
-    rmSync(dest, { force: true });
-    throw new Error(`${file} is not the pinned archive: sha256 ${actual}, expected ${sha256}`);
-  }
+  const archive = await fetchWithRetry(url);
+  // Checked against the pinned hash before it is written, so only the pinned archive reaches the disk.
+  const actual = createHash('sha256').update(archive).digest('hex');
+  if (actual !== sha256) throw new Error(`${file} is not the pinned archive: sha256 ${actual}, expected ${sha256}`);
+  await writeFile(dest, archive);
   return dest;
 }
 
