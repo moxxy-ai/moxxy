@@ -77,4 +77,49 @@ describe('mobile Expo launcher', () => {
       removeDirSync(appDir);
     }
   }, 30_000);
+
+  // npm runs the start script as its own child; killing only npm orphans Expo,
+  // which keeps the port taken and the parent's stdio open.
+  it.skipIf(process.platform === 'win32')('stops the process npm started, not only npm', async () => {
+    const appDir = mkdtempSync(join(tmpdir(), 'moxxy-expo-app-'));
+    const pidFile = join(appDir, 'pid');
+    writeFileSync(
+      join(appDir, 'start.cjs'),
+      "require('node:fs').writeFileSync('pid', String(process.pid)); setInterval(() => {}, 1000);",
+    );
+    writeFileSync(
+      join(appDir, 'package.json'),
+      JSON.stringify({ name: 'fake-mobile-app', private: true, scripts: { start: 'node start.cjs' } }),
+    );
+    const started = new Promise<void>((resolveStarted) => {
+      const watcher = watch(appDir, () => {
+        if (!existsSync(pidFile) || readFileSync(pidFile, 'utf8') === '') return;
+        watcher.close();
+        resolveStarted();
+      });
+    });
+    let appPid = 0;
+    try {
+      const handle = await startMobileExpoApp(
+        { enabled: true, host: 'lan', port: 8081, appDir },
+        { isPortOpen: async () => false },
+      );
+      await started;
+      appPid = Number(readFileSync(pidFile, 'utf8'));
+      await handle?.stop();
+      await expect.poll(() => isAlive(appPid), { timeout: 5_000 }).toBe(false);
+    } finally {
+      if (appPid > 0 && isAlive(appPid)) process.kill(appPid, 'SIGKILL');
+      removeDirSync(appDir);
+    }
+  }, 30_000);
 });
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

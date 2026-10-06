@@ -55,7 +55,7 @@
   "dependencies": {
     "@moxxy/jev": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.28.1"
+    "undici": "^8.11.2"
   },
   "peerDependencies": {
     "playwright": "^1.40.0"

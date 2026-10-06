@@ -5,7 +5,7 @@ open a project, and ask moxxy to work.
 
 ## Requirements
 
-- Node.js 20.19 or newer
+- Node.js 22.19 or newer (Node 24 LTS recommended)
 - one supported authentication method:
   - an API key for a supported provider;
   - ChatGPT OAuth;

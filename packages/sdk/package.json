@@ -34,7 +34,7 @@
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
   "license": "MIT",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22.19.0"
   },
   "sideEffects": false,
   "type": "module",
@@ -83,13 +83,13 @@
   },
   "peerDependencies": {
     "zod": "catalog:",
-    "undici": "^6.28.1"
+    "undici": "^8.11.2"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "typescript": "catalog:",
-    "undici": "^6.28.1",
+    "undici": "^8.11.2",
     "vitest": "catalog:",
     "zod": "catalog:"
   },

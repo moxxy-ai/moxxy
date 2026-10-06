@@ -36,6 +36,7 @@ export type SpawnProcess = (
     readonly cwd: string;
     readonly env: NodeJS.ProcessEnv;
     readonly stdio: 'inherit';
+    readonly detached: boolean;
   },
 ) => ChildProcess;
 
@@ -91,6 +92,8 @@ export async function startMobileExpoApp(
       EXPO_NO_TELEMETRY: '1',
     },
     stdio: 'inherit',
+    // Its own process group, so stop() can end Expo along with npm.
+    detached: process.platform !== 'win32',
   });
 
   const exited = new Promise<void>((resolveExit) => {
@@ -113,10 +116,18 @@ const spawnNpm: SpawnProcess = (command, args, options) => {
   return spawnExecutableTarget(target, args, options);
 };
 
-/** npm runs Expo as a child of its own. Windows has no signal that reaches it, so the tree is ended by pid. */
+/** npm runs Expo as a child of its own, so the whole tree is ended: by process group on POSIX, by pid on Windows. */
 function stopTree(child: ChildProcess): void {
-  if (process.platform !== 'win32' || child.pid === undefined) {
+  if (child.pid === undefined) {
     child.kill('SIGTERM');
+    return;
+  }
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      child.kill('SIGTERM');
+    }
     return;
   }
   const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');

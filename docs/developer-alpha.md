@@ -6,7 +6,7 @@ approvals, and resume the run without learning the runtime architecture.
 
 ## In scope
 
-- macOS and Linux CLI use on Node.js 20.19 or newer;
+- macOS and Linux CLI use on Node.js 22.19 or newer (Node 24 LTS recommended);
 - the desktop app on supported release platforms;
 - Anthropic and OpenAI API keys;
 - ChatGPT OAuth and an existing Claude Code subscription session;
