@@ -15,6 +15,8 @@ export interface AppHotkeysOptions {
   readonly setView: (view: View) => void;
   readonly benchTab: WorkbenchTab | null;
   readonly setBenchTab: (tab: WorkbenchTab | null) => void;
+  /** Into or out of full view (opens the browser in it when nothing is open). */
+  readonly toggleBenchFull: () => void;
   readonly onShowShortcuts: () => void;
 }
 
@@ -33,7 +35,7 @@ const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
  * `lib/pulse`.
  */
 export function useAppHotkeys(opts: AppHotkeysOptions): void {
-  const { setView, benchTab, setBenchTab, onShowShortcuts } = opts;
+  const { setView, benchTab, setBenchTab, toggleBenchFull, onShowShortcuts } = opts;
   const desks = useDesks();
   const activeSessionId = useActiveWorkspaceId();
 
@@ -133,6 +135,16 @@ export function useAppHotkeys(opts: AppHotkeysOptions): void {
       label: 'Show or hide the workbench pane',
       group: 'Navigation',
       run: () => setBenchTab(benchTab ? null : 'files'),
+    },
+    {
+      id: 'view.workbenchFull',
+      chord: 'mod+shift+f',
+      label: 'Full view of the workbench pane',
+      group: 'Navigation',
+      run: () => {
+        setView('chat');
+        toggleBenchFull();
+      },
     },
     {
       id: 'view.settings',

@@ -13,6 +13,8 @@ import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
 import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
+import { useChatDock } from './chat-surface/useChatDock';
+import { ChatHideButton, ChatLauncher } from './chat-surface/ChatDockControls';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
@@ -37,6 +39,9 @@ interface ChatSurfaceProps {
   readonly notice?: ReactNode;
   /** Who keeps the chat's model when it is not the app's pick (a bot's chat). */
   readonly modelOwner?: ModelOwner;
+  /** The workbench is in full view: the chat floats over it as a composer.
+   *  The transcript stays mounted, hidden, so coming back finds it as it was. */
+  readonly docked?: boolean;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -97,6 +102,7 @@ export function ChatSurface({
   title,
   notice,
   modelOwner,
+  docked = false,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -175,6 +181,12 @@ export function ChatSurface({
   });
 
   useVoiceCallRequest(voiceCall.open);
+  const dock = useChatDock(docked, activeAsk !== null);
+  const mainClass = dock.minimized
+    ? 'col-main col-main--flat col-main--docked col-main--minimized'
+    : docked
+      ? 'col-main col-main--flat col-main--docked'
+      : 'col-main col-main--flat';
 
   // A session the registry knows is empty (just made with New session) has no
   // history to wait for: it keeps the surface — composer and empty state — while
@@ -184,8 +196,8 @@ export function ChatSurface({
 
   if (showBlockingLoading) {
     return (
-      <main className="col-main col-main--flat">
-        <Header
+      <main className={mainClass}>
+        {!docked && <Header
           phase={phase}
           deskName={title?.context ?? activeDesk?.name ?? null}
           sessionName={title?.subject ?? activeSessionName}
@@ -197,7 +209,7 @@ export function ChatSurface({
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
-        />
+        />}
         <div
           key={workspaceId}
           className="anim-fade-in"
@@ -212,8 +224,8 @@ export function ChatSurface({
   }
 
   return (
-    <main className="col-main col-main--flat">
-      <Header
+    <main className={mainClass}>
+      {!docked && <Header
         phase={phase}
         deskName={title?.context ?? activeDesk?.name ?? null}
         sessionName={title?.subject ?? activeSessionName}
@@ -225,13 +237,14 @@ export function ChatSurface({
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
-      />
+      />}
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}
       <div
         key={workspaceId}
         className="anim-fade-in"
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}
+        hidden={docked}
+        style={{ flex: 1, minHeight: 0, display: docked ? 'none' : 'flex', flexDirection: 'column', position: 'relative' }}
       >
         {notice}
         {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
@@ -254,44 +267,50 @@ export function ChatSurface({
           />
         )}
       </div>
-      {activeAsk && <AskSheet ask={activeAsk} />}
-      {voiceCall.active && (
-        <div className="voice-rail-shell">
-          <VoicePresenceRail
-            phase={voiceCall.phase}
-            status={voicePresentation.status}
-            rail={voicePresentation.rail}
-            agentWork={voicePresentation.agentWork}
-            microphoneMuted={voiceCall.microphoneMuted}
-            waitingSoundEnabled={voiceCall.waitingSoundEnabled}
-            localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-            localPiperInstalling={voiceCall.localPiperInstalling}
-            localPiperInstallError={voiceCall.localPiperInstallError}
-            errorReason={voiceCall.errorReason}
-            inputAnalyser={voiceCall.inputAnalyser}
-            outputAnalyser={voiceCall.outputAnalyser}
-            onRetry={voiceCall.retry}
-            onInstallLocalPiper={voiceCall.installLocalPiper}
-            onMuteMicrophone={voiceCall.muteMicrophone}
-            onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-            onToggleWaitingSound={voiceCall.toggleWaitingSound}
-            onClose={voiceCall.close}
-          />
-        </div>
-      )}
-      <Composer
-        agent={agent}
-        voiceModeActive={voiceCall.active}
-        ready={ready}
-        sending={chat.sending}
-        compacting={chat.compacting}
-        activeTurnId={chat.activeTurnId}
-        workspaceId={workspaceId}
-        onOpenVoiceCall={voiceCall.open}
-        onSend={(p, atts) => void chat.send(p, atts)}
-        onAbort={() => void chat.abort()}
-        onPreviewImage={imagePreview.open}
-      />
+      {docked && !dock.minimized && <ChatHideButton onHide={dock.hide} />}
+      {dock.minimized && <ChatLauncher busy={chat.sending || (voiceCall.active && voiceCall.phase !== 'error')} onShow={dock.show} />}
+      {/* Tucked away, the composer stays mounted so a half-typed message and a
+       *  running voice call survive; `contents` keeps the column's own layout. */}
+      <div hidden={dock.minimized} style={{ display: dock.minimized ? 'none' : 'contents' }}>
+        {activeAsk && <AskSheet ask={activeAsk} />}
+        {voiceCall.active && (
+          <div className="voice-rail-shell">
+            <VoicePresenceRail
+              phase={voiceCall.phase}
+              status={voicePresentation.status}
+              rail={voicePresentation.rail}
+              agentWork={voicePresentation.agentWork}
+              microphoneMuted={voiceCall.microphoneMuted}
+              waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+              localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+              localPiperInstalling={voiceCall.localPiperInstalling}
+              localPiperInstallError={voiceCall.localPiperInstallError}
+              errorReason={voiceCall.errorReason}
+              inputAnalyser={voiceCall.inputAnalyser}
+              outputAnalyser={voiceCall.outputAnalyser}
+              onRetry={voiceCall.retry}
+              onInstallLocalPiper={voiceCall.installLocalPiper}
+              onMuteMicrophone={voiceCall.muteMicrophone}
+              onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+              onToggleWaitingSound={voiceCall.toggleWaitingSound}
+              onClose={voiceCall.close}
+            />
+          </div>
+        )}
+        <Composer
+          agent={agent}
+          voiceModeActive={voiceCall.active}
+          ready={ready}
+          sending={chat.sending}
+          compacting={chat.compacting}
+          activeTurnId={chat.activeTurnId}
+          workspaceId={workspaceId}
+          onOpenVoiceCall={voiceCall.open}
+          onSend={(p, atts) => void chat.send(p, atts)}
+          onAbort={() => void chat.abort()}
+          onPreviewImage={imagePreview.open}
+        />
+      </div>
       {chat.error && <ErrorToast text={chat.error} />}
       <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       {renameOpen && activeDesk && (

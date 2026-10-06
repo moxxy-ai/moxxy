@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { FILE_INSERT_EVENT } from '@/shell/WorkspaceFiles';
-import { useBrowserChrome } from './useBrowserChrome.js';
+import { shortAddress, useBrowserChrome } from './useBrowserChrome.js';
 
 /**
  * The chrome around the page: what the address bar says, which tab the buttons
@@ -50,6 +50,52 @@ describe('useBrowserChrome — the address bar', () => {
     await act(async () => result.current.submitAddress());
 
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Codex's bar: at rest it names the site — "google.com", centred — and only
+ * when you go to edit it does it become the full address you can change.
+ */
+describe('shortAddress', () => {
+  it('names the site without scheme, www or path', () => {
+    expect(shortAddress('https://www.google.com/')).toBe('google.com');
+    expect(shortAddress('https://github.com/moxxy-ai/moxxy/pull/627?x=1')).toBe('github.com');
+    expect(shortAddress('http://localhost:5678/setup')).toBe('localhost:5678');
+  });
+
+  it('leaves anything that is not a web address as it is', () => {
+    expect(shortAddress('about:blank')).toBe('about:blank');
+    expect(shortAddress('canva')).toBe('canva');
+    expect(shortAddress('')).toBe('');
+  });
+});
+
+describe('useBrowserChrome — what the bar shows', () => {
+  it('shows the site at rest and the full address while focused', () => {
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.onViewState('t1', 'https://www.google.com/search?q=moxxy'));
+
+    expect(result.current.shown).toBe('google.com');
+    act(() => result.current.focusAddress());
+    expect(result.current.shown).toBe('https://www.google.com/search?q=moxxy');
+    act(() => result.current.blurAddress());
+    expect(result.current.shown).toBe('google.com');
+  });
+
+  it('shows what the user typed, never a shortened version of it', () => {
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate: noop }));
+    act(() => result.current.setAddress('https://example.com/a/b'));
+    expect(result.current.shown).toBe('https://example.com/a/b');
+  });
+
+  it('submits a typed address when the bar loses focus', async () => {
+    const navigate = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useBrowserChrome({ activeTabId: 't1', navigate }));
+    act(() => result.current.focusAddress());
+    act(() => result.current.setAddress('canva.com'));
+    await act(async () => result.current.blurAddress());
+    expect(navigate).toHaveBeenCalledWith('https://canva.com', 't1');
   });
 });
 
