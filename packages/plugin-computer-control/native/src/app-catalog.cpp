@@ -8,27 +8,41 @@ namespace moxxy {
 namespace {
 struct Pidl { PIDLIST_ABSOLUTE value=nullptr; ~Pidl() { CoTaskMemFree(value); } };
 struct ShellText { PWSTR value=nullptr; ~ShellText() { CoTaskMemFree(value); } };
-std::wstring lower(std::wstring value) { for (auto& ch:value) ch=static_cast<wchar_t>(towlower(ch)); return value; }
 std::wstring property(IShellItem2* item, REFPROPERTYKEY key) {
   ShellText value;
   if (FAILED(item->GetString(key,&value.value)) || !value.value) return {};
   auto size=wcsnlen_s(value.value,32769);
   return size<=32768 ? std::wstring(value.value,size) : std::wstring();
 }
+bool is_executable(const std::wstring& path) {
+  auto name=lower(path);
+  return name.size()>4 && name.compare(name.size()-4,4,L".exe")==0;
+}
+}
+std::wstring lower(std::wstring value) { for (auto& ch:value) ch=static_cast<wchar_t>(towlower(ch)); return value; }
+std::wstring base_name(const std::wstring& path) {
+  auto start=path.find_last_of(L"\\/");
+  auto name=start==std::wstring::npos ? path : path.substr(start+1);
+  if (is_executable(name)) name.resize(name.size()-4);
+  return name;
+}
+std::wstring process_app_id(DWORD pid) {
+  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid));
+  if (!process.value) return {};
+  wchar_t id[512]{}; UINT32 size=512;
+  if (GetApplicationUserModelId(process.value,&size,id)==ERROR_SUCCESS && size>1) return id;
+  wchar_t path[32768]{}; DWORD length=32768;
+  if (!QueryFullProcessImageNameW(process.value,0,path,&length) || !length) return {};
+  return lower(std::wstring(path,length));
+}
+void AppCatalog::add(InstalledApp app) {
+  if (app.id.empty() || app.id.size()>512 || app.name.empty() || app.name.size()>512) return;
+  for (const auto& known:apps) if (known.id==app.id) return;
+  apps.push_back(std::move(app));
 }
 void AppCatalog::load() {
   if (loaded) return;
   loaded=true;
-  wchar_t system[MAX_PATH]{};
-  auto length=GetSystemDirectoryW(system,MAX_PATH);
-  if (length>0 && length<MAX_PATH) {
-    for (const auto& pair : {std::pair{L"Notepad",L"notepad.exe"},std::pair{L"Paint",L"mspaint.exe"}}) {
-      auto path=std::wstring(system)+L"\\"+pair.second;
-      auto attributes=GetFileAttributesW(path.c_str());
-      if (attributes!=INVALID_FILE_ATTRIBUTES && !(attributes&FILE_ATTRIBUTE_DIRECTORY))
-        apps.emplace(identifier(),InstalledApp{pair.first,path,L"",{}});
-    }
-  }
   try {
     Pidl root;
     check_hresult(SHGetKnownFolderIDList(FOLDERID_AppsFolder,KF_FLAG_DEFAULT,nullptr,&root.value));
@@ -40,43 +54,45 @@ void AppCatalog::load() {
       check_active_desktop();
       com_ptr<IShellItem> item; ULONG fetched=0;
       auto hr=enumerator->Next(1,item.put(),&fetched); check_hresult(hr);
-      if (hr==S_FALSE || !fetched) return;
+      if (hr==S_FALSE || !fetched) break;
       auto rich=item.as<IShellItem2>();
       ShellText name; if (FAILED(item->GetDisplayName(SIGDN_NORMALDISPLAY,&name.value)) || !name.value) continue;
       auto size=wcsnlen_s(name.value,513); if (!size || size>512) continue;
       auto executable=property(rich.get(),PKEY_Link_TargetParsingPath);
       auto app_id=property(rich.get(),PKEY_AppUserModel_ID);
-      apps.emplace(identifier(),InstalledApp{std::wstring(name.value,size),executable,app_id,std::move(rich)});
+      // A shortcut to a document or a web page is not an application.
+      if (!executable.empty() && !is_executable(executable)) continue;
+      auto id=executable.empty() ? app_id : lower(executable);
+      add(InstalledApp{id,std::wstring(name.value,size),executable,app_id,std::move(rich)});
     }
-    incomplete=true;
   } catch (const Error&) { throw; }
-  catch (...) { shell_unavailable=true; }
-}
-Json AppCatalog::list(const Json& params) {
-  load();
-  auto query=lower(text(params,L"query",256));
-  auto maximum=number(params,L"maxResults",1,64);
-  JsonArray output;
-  bool truncated=incomplete;
-  for (const auto& [id,app]:apps) {
-    if (lower(app.name).find(query)==std::wstring::npos && lower(app.application_id).find(query)==std::wstring::npos) continue;
-    if (output.Size()>=static_cast<unsigned>(maximum)) { truncated=true; break; }
-    Json row; row.Insert(L"appId",string_value(id)); row.Insert(L"name",string_value(app.name));
-    row.Insert(L"source",string_value(app.item ? L"windows-shell" : L"system")); output.Append(row);
+  catch (...) { /* Without the shell's list, the system tools below and running apps remain. */ }
+  wchar_t system[MAX_PATH]{};
+  auto length=GetSystemDirectoryW(system,MAX_PATH);
+  if (length>0 && length<MAX_PATH) {
+    for (const auto& pair : {std::pair{L"Notepad",L"notepad.exe"},std::pair{L"Paint",L"mspaint.exe"}}) {
+      // Where the shell already lists the app (a packaged Notepad), that entry is the one that starts it.
+      bool listed=false;
+      for (const auto& known:apps) if (lower(known.name)==lower(pair.first)) listed=true;
+      if (listed) continue;
+      auto path=std::wstring(system)+L"\\"+pair.second;
+      auto attributes=GetFileAttributesW(path.c_str());
+      if (attributes!=INVALID_FILE_ATTRIBUTES && !(attributes&FILE_ATTRIBUTE_DIRECTORY))
+        add(InstalledApp{lower(path),pair.first,path,L"",{}});
+    }
   }
-  JsonArray unavailable;
-  if (shell_unavailable) unavailable.Append(string_value(L"windows-shell"));
-  Json result; result.Insert(L"apps",output); result.Insert(L"truncated",boolean(truncated)); result.Insert(L"unavailableSources",unavailable); return result;
 }
-const InstalledApp& AppCatalog::get(const std::wstring& id) const {
-  auto found=apps.find(id);
-  require(found!=apps.end(),"unknown-app","Select an application from computer_app_catalog; command text is not accepted");
-  return found->second;
+const std::vector<InstalledApp>& AppCatalog::all() { load(); return apps; }
+const InstalledApp* AppCatalog::find(const std::wstring& id) {
+  load();
+  for (const auto& app:apps) if (app.id==id) return &app;
+  return nullptr;
 }
 HANDLE AppCatalog::launch(const InstalledApp& app) {
   SHELLEXECUTEINFOW request{}; request.cbSize=sizeof(request);
   request.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-  request.lpVerb=L"open"; request.nShow=SW_SHOWNORMAL;
+  // The app opens behind the user's work; the helper brings it forward only for real input.
+  request.lpVerb=L"open"; request.nShow=SW_SHOWNOACTIVATE;
   Pidl target;
   if (app.item) {
     check_hresult(SHGetIDListFromObject(app.item.get(),&target.value));
@@ -85,20 +101,7 @@ HANDLE AppCatalog::launch(const InstalledApp& app) {
   } else request.lpFile=app.executable.c_str();
   // No model-controlled command, arguments, shell interpolation or runas verb.
   input_may_have_run=true;
-  require(ShellExecuteExW(&request),"launch-failed","Windows did not confirm application launch; check installed application availability");
+  require(ShellExecuteExW(&request),"app_not_found","Windows could not start the application");
   return request.hProcess;
-}
-bool AppCatalog::matches(const InstalledApp& app,DWORD pid) const {
-  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid));
-  if (!process.value) return false;
-  if (!app.executable.empty()) {
-    wchar_t path[32768]{}; DWORD size=32768;
-    if (QueryFullProcessImageNameW(process.value,0,path,&size) && lower(app.executable)==lower(std::wstring(path,size))) return true;
-  }
-  if (!app.application_id.empty()) {
-    wchar_t id[512]{}; UINT32 size=512;
-    if (GetApplicationUserModelId(process.value,&size,id)==ERROR_SUCCESS && app.application_id==id) return true;
-  }
-  return false;
 }
 }

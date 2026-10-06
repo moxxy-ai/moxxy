@@ -1,15 +1,17 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ToolContext, ToolDef } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { WebhookConfigStore } from './config.js';
 import type { WebhookDispatcher } from './runner.js';
 import { WebhookStore } from './store.js';
 import { buildWebhookTools } from './tools.js';
 import { verifyDelivery } from './verify.js';
 import { createHmac } from 'node:crypto';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const ctx = {} as ToolContext;
 
@@ -49,7 +51,7 @@ describe('webhook tools', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   describe('webhook_create secret handling', () => {
@@ -84,7 +86,7 @@ describe('webhook tools', () => {
       // The out-of-band file holds the full value, owner-only.
       expect(secretPath).toBe(path.join(secretsDir, 'gh-events.secret'));
       expect((await readFile(secretPath, 'utf8')).trim()).toBe(realSecret);
-      expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+      if (posixFileModes) expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
 
       // Guidance points at the file, not the value.
       expect(result.guidance.join('\n')).toContain(secretPath);
@@ -349,7 +351,7 @@ describe('webhook target session (ownerSessionId routing)', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('stamps ownerSessionId from an explicit targetSessionId', async () => {

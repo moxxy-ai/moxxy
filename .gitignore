@@ -22,4 +22,6 @@ pnpm-debug.log*
 package.json.prepack-backup
 *.timestamp-*.mjs
 packages/plugin-computer-control/native/build/
+packages/plugin-computer-control/native/macos/.build/
 packages/plugin-computer-control/bin/
+packages/plugin-computer-control/native/linux/build/

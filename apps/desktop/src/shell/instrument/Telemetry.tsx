@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Modal } from '@moxxy/desktop-ui';
-import { useContextUsage } from '@moxxy/client-core';
+import { useContextUsage, type TokenSummary } from '@moxxy/client-core';
 import type { SessionInfo } from '../../chat/agent-picker/types';
 import { ProviderModelGrid } from '../../chat/agent-picker/ProviderModelGrid';
+import { ModelTuning } from '../../chat/agent-picker/ModelTuning';
+import { useModelTuning } from '../../chat/agent-picker/useModelTuning';
 import { UsagePanel } from '../../chat/composer/UsagePanel';
 import { ContextMeter, contextLevel } from './ContextMeter';
 
@@ -47,10 +49,11 @@ export function Telemetry({
   readonly info: SessionInfo;
   readonly selectedModel: string | null;
   readonly disabled: boolean;
-  readonly onPick: (provider: string, model: string | null) => void;
+  readonly onPick: (provider: string, model: string | null, contextWindow?: number) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const usage = useContextUsage(workspaceId);
+  const tuning = useModelTuning(workspaceId, info, selectedModel);
   // Model name only: the override when set, else the active provider (whose
   // runner-default model is not named until the first response).
   const model = selectedModel ?? info.activeProvider ?? 'model';
@@ -58,6 +61,7 @@ export function Telemetry({
   const fraction = usage.fraction;
   const prompt = usage.summary.totalPrompt;
   const output = usage.summary.totalOutput;
+  const cached = usage.summary.totalCacheRead;
 
   return (
     <>
@@ -96,10 +100,13 @@ export function Telemetry({
             className="tele__cell tip"
             data-cell="tokens"
             data-tip-side="bottom"
-            data-tip={`${(prompt + output).toLocaleString()} tokens over ${usage.summary.calls} calls`}
+            data-tip={tokensTip(usage.summary)}
           >
             <span className="tele__k">tok</span>
-            <span className="tele__v">{compact(prompt + output)}</span>
+            <span className="tele__v">
+              {compact(prompt + output)}
+              {cached > 0 && <small> · {Math.round((cached / (prompt + output)) * 100)}% cache</small>}
+            </span>
           </span>
         )}
         {/* No label. A model name says what it is; `agent openai-codex` spends a
@@ -108,6 +115,7 @@ export function Telemetry({
         <span className="tele__cell" data-cell="agent">
           <span className="tele__v tele__v--text">
             {model}
+            {tuning.fast && <small> · fast</small>}
             {mode && <small> · {mode}</small>}
           </span>
         </span>
@@ -136,6 +144,7 @@ export function Telemetry({
                   setOpen(false);
                 }}
               />
+              <ModelTuning tuning={tuning} />
             </section>
             <UsagePanel usage={usage} workspaceId={workspaceId} />
           </div>
@@ -155,6 +164,19 @@ function contextTip(
   const pct = `${Math.round(fraction * 100)}% of the context window`;
   if (used == null || window == null) return pct;
   return `${pct} · ${used.toLocaleString()} / ${window.toLocaleString()} tokens`;
+}
+
+/**
+ * Every call sends the whole conversation again, so the total is mostly the same
+ * prefix read back from the provider's cache at a tenth of the price. Saying how
+ * much keeps "2.4M" from reading as 2.4M new tokens.
+ */
+function tokensTip(summary: TokenSummary): string {
+  const total = summary.totalPrompt + summary.totalOutput;
+  const head = `${total.toLocaleString()} tokens over ${summary.calls} calls`;
+  if (summary.totalCacheRead === 0) return head;
+  const fresh = total - summary.totalCacheRead;
+  return `${head} — ${summary.totalCacheRead.toLocaleString()} read back from the cache, ${fresh.toLocaleString()} new`;
 }
 
 /**

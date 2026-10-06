@@ -1,7 +1,8 @@
 import {
+  channelRunnerSocket,
+  channelSessionId,
   connectRemoteSession,
   isRunnerUp,
-  platformSocket,
   runnerSocketPath,
   startRunnerServer,
   type RemoteSession,
@@ -9,7 +10,7 @@ import {
 } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
-import { moxxyPath, writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
+import { writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
 import type { ClientSession, SessionLike, SessionSource } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
@@ -115,13 +116,10 @@ export function applyDedicatedRunnerEnv(
     process.env.MOXXY_DEDICATED_RUNNER === '1';
   if (!dedicated) return false;
   if (!process.env.MOXXY_RUNNER_SOCKET) {
-    process.env.MOXXY_RUNNER_SOCKET = platformSocket(
-      `channel-${name}`,
-      moxxyPath(`channel-${name}.sock`),
-    );
+    process.env.MOXXY_RUNNER_SOCKET = channelRunnerSocket(name);
   }
   if (!process.env.MOXXY_SESSION_ID) {
-    process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
+    process.env.MOXXY_SESSION_ID = channelSessionId(name);
   }
   return true;
 }
@@ -193,6 +191,18 @@ async function runAttachedChannel(name: string, argv: ParsedArgv): Promise<numbe
   return 0;
 }
 
+/**
+ * Boot options for a self-hosted channel. A dedicated runner resumes its sticky
+ * session (`MOXXY_SESSION_ID`, set by `applyDedicatedRunnerEnv`) so the bot keeps
+ * one conversation across restarts — the same resume `serve` does.
+ * `skipKeyPrompt` — channels run for hours; a key resolving later from env/vault
+ * when a turn fires is fine, and an interactive prompt would race the channel.
+ */
+export function selfHostedSessionOptions(): { skipKeyPrompt: true; sessionId?: string } {
+  const sticky = process.env['MOXXY_SESSION_ID']?.trim();
+  return { skipKeyPrompt: true, ...(sticky ? { sessionId: sticky } : {}) };
+}
+
 /** Self-host mode: boot a local session and (unless standalone) open the socket. */
 async function runSelfHostedChannel(
   name: string,
@@ -200,10 +210,7 @@ async function runSelfHostedChannel(
   standalone: boolean,
   dedicated: boolean,
 ): Promise<number> {
-  // `skipKeyPrompt: true` - channels like telegram run for hours; if the model
-  // key resolves later from env/vault when a turn fires, that's fine. The
-  // interactive readline prompt would race the channel's event loop.
-  const { session, vault, config } = await bootSessionWithConfig(argv, { skipKeyPrompt: true });
+  const { session, vault, config } = await bootSessionWithConfig(argv, selfHostedSessionOptions());
 
   const def = session.channels.get(name);
   if (!def) {

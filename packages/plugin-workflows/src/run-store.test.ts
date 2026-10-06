@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Workflow } from '@moxxy/sdk';
 import { WorkflowRunStore } from './run-store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 let store: WorkflowRunStore;
@@ -14,7 +15,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 
 const fakeWorkflow = { name: 'x', description: 'x', steps: [] } as unknown as Workflow;

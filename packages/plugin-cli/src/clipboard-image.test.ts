@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 vi.mock('node:child_process', () => ({
   spawnSync: vi.fn(),
@@ -35,7 +36,7 @@ afterEach(() => {
   Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
   if (originalMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalMoxxyHome;
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of tempDirs.splice(0)) removeDirSync(dir);
 });
 
 describe('clipboard-image ESM safety (u77-1)', () => {

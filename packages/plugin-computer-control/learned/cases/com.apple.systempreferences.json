@@ -1,0 +1,255 @@
+{
+ "app": "com.apple.systempreferences",
+ "cases": [
+  {
+   "goal": "Open the Wi‑Fi settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Wi‑Fi in the left sidebar",
+     "expect": "the Wi‑Fi settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Bluetooth settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Bluetooth in the left sidebar",
+     "expect": "the Bluetooth settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Sieć settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Sieć in the left sidebar",
+     "expect": "the Sieć settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the VPN settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "VPN in the left sidebar",
+     "expect": "the VPN settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Bateria settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Bateria in the left sidebar",
+     "expect": "the Bateria settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Ogólne settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Ogólne in the left sidebar",
+     "expect": "the Ogólne settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Apple Intelligence i Siri settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Apple Intelligence i Siri in the left sidebar",
+     "expect": "the Apple Intelligence i Siri settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Biurko i Dock settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Biurko i Dock in the left sidebar",
+     "expect": "the Biurko i Dock settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Dostępność settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Dostępność in the left sidebar",
+     "expect": "the Dostępność settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Pasek menu settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Pasek menu in the left sidebar",
+     "expect": "the Pasek menu settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Spotlight settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Spotlight in the left sidebar",
+     "expect": "the Spotlight settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Tapeta settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Tapeta in the left sidebar",
+     "expect": "the Tapeta settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Wygląd settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Wygląd in the left sidebar",
+     "expect": "the Wygląd settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Wyświetlacze settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Wyświetlacze in the left sidebar",
+     "expect": "the Wyświetlacze settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Powiadomienia settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Powiadomienia in the left sidebar",
+     "expect": "the Powiadomienia settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Dźwięk settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Dźwięk in the left sidebar",
+     "expect": "the Dźwięk settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Tryb skupienia settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Tryb skupienia in the left sidebar",
+     "expect": "the Tryb skupienia settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Czas przed ekranem settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Czas przed ekranem in the left sidebar",
+     "expect": "the Czas przed ekranem settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Ekran blokady settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Ekran blokady in the left sidebar",
+     "expect": "the Ekran blokady settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Prywatność i ochrona settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Prywatność i ochrona in the left sidebar",
+     "expect": "the Prywatność i ochrona settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Klawiatura settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Klawiatura in the left sidebar",
+     "expect": "the Klawiatura settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Gładzik settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Gładzik in the left sidebar",
+     "expect": "the Gładzik settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Kontrolery do gier settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Kontrolery do gier in the left sidebar",
+     "expect": "the Kontrolery do gier settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Open the Drukarki i skanery settings",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Drukarki i skanery in the left sidebar",
+     "expect": "the Drukarki i skanery settings pane is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Put the cursor in the settings search field",
+   "steps": [
+    {
+     "do": "click",
+     "target": "Szukaj search field at the top of the sidebar",
+     "expect": "the search field is focused"
+    }
+   ]
+  }
+ ]
+}

@@ -13,6 +13,12 @@ export interface SkillFrontmatter {
   readonly description: string;
   readonly triggers?: ReadonlyArray<string>;
   readonly 'allowed-tools'?: ReadonlyArray<string>;
+  /** Other names a prompt can call the skill by with an @ mention (`computer_use`; `_` and `-` read the same). */
+  readonly aliases?: ReadonlyArray<string>;
+  /** How the chat's @ menu shows the skill ("Computer Use"); a skill with one is offered first. */
+  readonly label?: string;
+  /** Tools withheld from a turn whose prompt calls the skill by an @ mention (`browser_*` or exact names). */
+  readonly 'disallowed-tools'?: ReadonlyArray<string>;
   readonly version?: string;
   readonly tags?: ReadonlyArray<string>;
   readonly schedule?: SkillSchedule;

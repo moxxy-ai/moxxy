@@ -56,7 +56,7 @@ export type { ConnectionPhase, ConnectionSnapshot } from './connection.js';
 export type { OnboardingStatus, NodeProbe } from './onboarding.js';
 
 // ---------- Desktop preferences (first-run + auth state) -------------------
-export type { ThemePreference, DesktopPrefs } from './prefs.js';
+export type { ThemePreference, VoiceEnginePreference, DesktopPrefs } from './prefs.js';
 
 // ---------- Workflows ------------------------------------------------------
 export type {
@@ -82,6 +82,7 @@ export type {
   ChannelDescriptor,
   ChannelRuntimeStatus,
   ChannelEntry,
+  ChannelRunMode,
 } from './channels.js';
 
 // ---------- Settings -------------------------------------------------------
@@ -89,6 +90,7 @@ export type {
   ProviderEntry,
   McpServerEntry,
   VaultEntryName,
+  GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';
@@ -119,6 +121,7 @@ export {
 export type {
   AppUpdateInfo,
   AppUpdateCheck,
+  ComponentUpdateCheck,
   AppUpdateProgress,
   AppBootLogEntry,
   AppUpdateDiagnostics,
@@ -148,4 +151,4 @@ export { REMOTE_ALLOWED_COMMANDS } from './remote.js';
 export type { SubscribeFn, InvokeFn, MoxxyApi } from './api.js';
 
 // ---------- Agent browser (main-process Chromium view) --------------------
-export type { BrowserTabInfo } from './browser.js';
+export type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';

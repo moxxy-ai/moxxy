@@ -7,6 +7,7 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
+export { autostartConfiguredChannels } from './ipc/channels.js';
 export { type MobileGatewayController } from './ipc/mobile-gateway.js';
 export { sendEvent } from './send-event.js';
 export { ElectronCommandBus } from './bus/electron-bus.js';
@@ -19,9 +20,14 @@ export {
   type SeedManifestRepairResult,
   type SeedPluginsResult,
 } from './seed-plugins.js';
+export { seedModelsFromResources, type SeedModelsResult } from './seed-models.js';
+export { adoptSeededLocalPiper } from './local-piper.js';
 export { activateManagedNode } from './node-manager.js';
-export { offerBundledComputerUpdate } from './computer-update-runtime.js';
-export { offerBundledProviderUpdate } from './provider-update-runtime.js';
+export { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes } from './seed-runtimes.js';
+export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
+export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';
+export { DeferredPackageUpdates, type ManagedPackageUpdate } from './deferred-package-updates.js';
+export { recoverComponentUpdates } from './component-update.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {
   cwdForSession,
@@ -61,6 +67,7 @@ export {
   installMediaPermissions,
   lockDownNavigation,
   isSafeExternalUrl,
+  opensInBrowser,
   clerkFrontendApiHost,
   clerkCspHostSources,
   clerkAccountPortalHost,
@@ -83,7 +90,8 @@ export {
 } from './self-signed-cert.js';
 
 // The agent's browser: a real Chromium view this window composites, driven by
-// CDP. See ./browser/host.ts for why there is no frame pipeline.
-export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from './browser/host.js';
+// CDP. See @moxxy/plugin-browser's page/host.ts for why there is no frame pipeline.
+export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from '@moxxy/plugin-browser';
 export { BrowserBridge, type BridgeAddress } from './browser/bridge.js';
-export { setRunnerExtraEnv } from './runner-supervisor.js';
+export { routeGuestPopups } from './browser/popups.js';
+export { setRunnerExtraEnv } from './runner-env.js';

@@ -28,7 +28,9 @@ import { buildSessionConfigApplier } from './config-applier.js';
 import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
+import { applyContextConfig } from './setup/context-config.js';
 import { buildSecretResolver, vaultSecretProvider } from './setup/secrets.js';
+import { applyTranscriberDefault } from './setup/apply-transcriber.js';
 import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
@@ -313,11 +315,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // web plugin's onInit from ~/.moxxy/web.json or config.channels.web.tunnel,
   // and auto-selected per primary channel by coAttachWebSurface — no env needed.
 
-  // Elision is on by default (built-in defaults); config only needs to be
-  // carried when the user customizes or disables it.
-  if (config.context?.elision) session.elisionSettings = config.context.elision;
-  if (config.context?.lazyTools) session.lazyTools = true;
-  if (config.context?.loopGuard) session.loopGuard = config.context.loopGuard;
+  applyContextConfig(session, config.context);
 
   // No separate preferences overlay anymore: the persisted provider/mode IS the
   // manifest default, already applied by activateProvider + applyPluginsTree
@@ -329,7 +327,8 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   const discovered = await discoverSkills({
     projectDir: config.skills?.projectDir ?? defaultProjectSkillsDir(opts.cwd),
     userDir: config.skills?.userDir ?? defaultUserSkillsDir(),
-    pluginDirs: config.skills?.extraDirs,
+    // Plugins ship skills too (Computer Use, the browser, OAuth, sub-agents).
+    pluginDirs: [...session.pluginHost.skillDirs(), ...(config.skills?.extraDirs ?? [])],
     builtinDir: BUILTIN_SKILLS_DIR_RESOLVED,
     logger,
   });
@@ -347,6 +346,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // which the runner it attaches to already owns.
   if (!opts.skipInitHooks) {
     await session.dispatcher.dispatchInit(session.appContext());
+    // Voice input: the configured transcriber, else Codex when logged in with
+    // ChatGPT — so a channel bot hears voice notes like the desktop mic does.
+    // After onInit: activating builds the client, which may need services
+    // wired there (Codex resolves the vault in its onInit).
+    await applyTranscriberDefault(session, config, vault, logger);
   }
   progress({ kind: 'init-hooks-done' });
   progress({ kind: 'ready' });

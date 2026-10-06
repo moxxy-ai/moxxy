@@ -194,3 +194,87 @@ describe('resolveOptions', () => {
     expect(resolveOptions({ maxSegments: 3, foldSegments: 50 }).foldSegments).toBe(3);
   });
 });
+
+describe('planCompaction: tool calls answered after later turns began', () => {
+  const toolCall = (seq: number, turnId: string, callId: string): MoxxyEvent =>
+    ({
+      id: `tc${seq}` as never,
+      seq,
+      ts: 0,
+      type: 'tool_call_requested',
+      sessionId: 'sess' as never,
+      turnId: turnId as never,
+      source: 'model',
+      callId,
+      name: 'terminal',
+      input: {},
+    }) as MoxxyEvent;
+  const toolResult = (seq: number, turnId: string, callId: string): MoxxyEvent =>
+    ({
+      id: `tr${seq}` as never,
+      seq,
+      ts: 0,
+      type: 'tool_result',
+      sessionId: 'sess' as never,
+      turnId: turnId as never,
+      source: 'tool',
+      callId,
+      ok: true,
+      output: 'installed',
+    }) as MoxxyEvent;
+  const bigPrompt = (seq: number, turnId: string): MoxxyEvent => userPrompt(seq, turnId, 'q'.repeat(2_500));
+
+  it('stops the window before a call whose result lands outside it', () => {
+    const events = [
+      bigPrompt(0, 't1'),
+      toolCall(1, 't1', 'late'),
+      ...fatTurn(2, 't2', 'two'),
+      toolResult(4, 't1', 'late'),
+      ...fatTurn(5, 't3', 'three'),
+      ...fatTurn(7, 't4', 'four'),
+      ...fatTurn(9, 't5', 'five'),
+    ];
+    expect(planCompaction(events, opts)).toMatchObject({ kind: 'segment', from: 0, to: 0 });
+  });
+
+  it('still compacts a call that never got a result', () => {
+    const events = [
+      bigPrompt(0, 't1'),
+      toolCall(1, 't1', 'lost'),
+      ...fatTurn(2, 't2', 'two'),
+      ...fatTurn(4, 't3', 'three'),
+      ...fatTurn(6, 't4', 'four'),
+    ];
+    expect(planCompaction(events, opts)).toMatchObject({ kind: 'segment', from: 0, to: 1 });
+  });
+});
+
+describe('planCompaction: nested tool calls split by the window', () => {
+  const tool = (seq: number, type: 'tool_call_requested' | 'tool_result', callId: string): MoxxyEvent =>
+    ({
+      id: `n${seq}` as never,
+      seq,
+      ts: 0,
+      type,
+      sessionId: 'sess' as never,
+      turnId: 't1' as never,
+      source: type === 'tool_result' ? 'tool' : 'model',
+      callId,
+      ...(type === 'tool_result' ? { ok: true, output: 'ok' } : { name: 'terminal', input: {} }),
+    }) as MoxxyEvent;
+
+  it('stops before the outer call when cutting the inner one splits it too', () => {
+    const events = [
+      userPrompt(0, 't1', 'q'.repeat(2_500)),
+      tool(1, 'tool_call_requested', 'outer'),
+      tool(2, 'tool_call_requested', 'inner'),
+      ...fatTurn(3, 't2', 'two'),
+      tool(5, 'tool_result', 'outer'),
+      tool(6, 'tool_result', 'inner'),
+      ...fatTurn(7, 't3', 'three'),
+      ...fatTurn(9, 't4', 'four'),
+      ...fatTurn(11, 't5', 'five'),
+    ];
+    expect(planCompaction(events, opts)).toMatchObject({ kind: 'segment', from: 0, to: 0 });
+  });
+});

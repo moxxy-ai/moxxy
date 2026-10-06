@@ -30,8 +30,12 @@ export interface StuckSignal {
 export interface StuckLoopDetector {
   readonly windowSize: number;
   readonly repeatThreshold: number;
-  /** Record the call and report whether the loop guard should trip. */
-  record(toolName: string, input: unknown): StuckSignal;
+  /**
+   * Record the call and report whether the loop guard should trip. A
+   * `liveState` tool (see `ToolDef.liveState`) is expected to repeat between
+   * other calls, so only a back-to-back run of the same call counts for it.
+   */
+  record(toolName: string, input: unknown, opts?: { readonly liveState?: boolean }): StuckSignal;
   /**
    * Clear both sliding windows. Used by the nudge (steer-don't-stop) stuck
    * policy: after a trip is surfaced to the model, the detector starts a fresh
@@ -86,13 +90,18 @@ export function createStuckLoopDetector(opts: LoopGuardSettings = {}): StuckLoop
   const nearThreshold = opts.nearThreshold ?? Math.max(repeatThreshold + 2, 5);
   const recent: string[] = [];
   const recentNear: string[] = [];
+  let last: string | null = null;
+  let streak = 0;
   return {
     windowSize,
     repeatThreshold,
-    record(toolName, input): StuckSignal {
+    record(toolName, input, opts): StuckSignal {
       // Disabled → never trip (rely on the maxIterations cap alone).
       if (!enabled) return { stuck: false, count: 0, kind: 'exact' };
       const key = `${toolName}|${stableHash(input)}`;
+      streak = key === last ? streak + 1 : 1;
+      last = key;
+      if (opts?.liveState) return { stuck: streak >= repeatThreshold, count: streak, kind: 'exact' };
       recent.push(key);
       if (recent.length > windowSize) recent.shift();
       const exactCount = recent.filter((k) => k === key).length;
@@ -112,6 +121,8 @@ export function createStuckLoopDetector(opts: LoopGuardSettings = {}): StuckLoop
     reset(): void {
       recent.length = 0;
       recentNear.length = 0;
+      last = null;
+      streak = 0;
     },
   };
 }

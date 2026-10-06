@@ -1,0 +1,9 @@
+@moxxy_browser W otwartej karcie przeglądarki Moxxy jest strona testowa. Zrób po kolei:
+1. Zmień imię w polu „Imię” na „Kamil” (pole ma już wpisane „Jan” — ma zostać samo „Kamil”).
+2. W liście „Miasto” wybierz „Kraków”.
+3. Najedź na „Menu” i kliknij „Ustawienia”, które się wtedy pokaże.
+4. Kliknij „Pokaż alert” i zamknij okienko, które się pojawi.
+5. Kliknij „Zapisz” na dole strony (jeśli coś go zasłania, najpierw to zamknij).
+6. Otwórz link „Regulamin (nowa karta)” i podaj nagłówek strony, która się otworzy.
+7. Podaj nagłówek, który widać w ramce „Ramka testowa”.
+Na końcu podaj dokładny tekst z linii „Wynik:” na stronie testowej.

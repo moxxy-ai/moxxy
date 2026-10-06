@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import {
   countCorruptCoreTxns,
   coreTxnDir,
@@ -25,10 +26,11 @@ import {
   type CoreInstallInfo,
   type CoreJournal,
 } from './core-update.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
 });
 
 async function tmp(): Promise<string> {
@@ -80,7 +82,7 @@ describe('safeRepoPath', () => {
     expect(safeRepoPath('/repo', 'packages/core/src/a.ts')).toBe(path.resolve('/repo', 'packages/core/src/a.ts'));
   });
 
-  it('refuses a path that traverses a symlink out of the repo', async () => {
+  it.skipIf(!canSymlink)('refuses a path that traverses a symlink out of the repo', async () => {
     const repo = await tmp();
     const outside = await tmp();
     await fs.writeFile(path.join(outside, 'secret'), 'top secret\n', 'utf8');
@@ -97,14 +99,15 @@ describe('safeRepoPath', () => {
     expect(p.endsWith(path.join('packages', 'core', 'src', 'a.ts'))).toBe(true);
   });
 
-  it('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
+  it.skipIf(!canSymlink)('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
     // Regression: when the repo root resolves through a symlink (the norm on
     // macOS, where the tmp dir lives under /var→/private/var, and anywhere
     // $HOME/.moxxy is symlinked), a legitimate absolute path *inside* the repo
     // must not be misread as escaping. The realpath re-check must anchor the
     // already-validated in-repo segments onto realRoot, not re-resolve the raw
     // (possibly absolute) input against it.
-    const base = await tmp();
+    // Realpath first: a Windows temp dir can come back in its 8.3 short form.
+    const base = await fs.realpath(await tmp());
     const realTarget = path.join(base, 'real-repo');
     await fs.mkdir(path.join(realTarget, 'packages', 'core', 'src'), { recursive: true });
     // A symlink to the repo root: the raw path differs from its realpath on

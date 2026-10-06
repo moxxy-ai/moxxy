@@ -14,6 +14,7 @@ import {
   restoreEvents,
   type SessionMeta,
 } from './persistence.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 interface CapturedLine {
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -41,8 +42,24 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+const opened: SessionPersistence[] = [];
+
+/** A persistence the cleanup waits for before it removes the test's folder. */
+function openPersistence(...args: ConstructorParameters<typeof SessionPersistence>): SessionPersistence {
+  const persistence = new SessionPersistence(...args);
+  opened.push(persistence);
+  return persistence;
+}
+
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  // Appends run in the background and a detach only schedules the last index
+  // write; one that lands while the folder is being removed fails the removal
+  // on Windows (ENOTEMPTY), so every write finishes first.
+  for (const persistence of opened.splice(0)) {
+    await persistence.settleWrites();
+    await persistence.flush();
+  }
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 function meta(id: string, eventCount = 0): SessionMeta {
@@ -138,7 +155,7 @@ describe('SessionPersistence', () => {
         model: 'gpt-5.5',
       },
     ]);
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(restoredLog);
 
     await persistence.flush();
@@ -186,7 +203,7 @@ describe('SessionPersistence', () => {
         text: 'automatic prompt title',
       },
     ]);
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(restoredLog);
 
     await persistence.flush();
@@ -369,7 +386,7 @@ describe('SessionPersistence', () => {
   it('creates a resumable empty event log when a session is indexed before any events', async () => {
     const dir = await makeTempDir();
     const id = '01EMPTYSESSION000000000000';
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/project', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/project', dir });
     const detach = persistence.attach(new EventLog());
 
     await waitForFile(path.join(dir, `${id}.jsonl`));
@@ -381,7 +398,7 @@ describe('SessionPersistence', () => {
   it('writes a per-session sidecar that readIndex assembles', async () => {
     const dir = await makeTempDir();
     const id = '01SIDECAR00000000000000000';
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(new EventLog());
     await waitForFile(path.join(dir, `${id}.json`));
     const ids = (await readIndex(dir)).map((m) => m.id);
@@ -398,7 +415,7 @@ describe('SessionPersistence', () => {
       const dir = path.join(await makeTempDir(), 'sessions');
       const id = '01PRIVATEMODE00000000000000';
       const log = new EventLog();
-      const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+      const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
       const detach = persistence.attach(log);
       await log.append({ type: 'user_prompt', text: 'read ~/.ssh/config', source: 'user' } as never);
       await persistence.flush();
@@ -424,7 +441,7 @@ describe('SessionPersistence', () => {
       await fs.writeFile(path.join(dir, `${id}.jsonl`), '', 'utf8');
       await fs.chmod(path.join(dir, `${id}.jsonl`), 0o644);
 
-      const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+      const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
       const detach = persistence.attach(new EventLog());
       await waitForFile(path.join(dir, `${id}.json`));
 
@@ -438,7 +455,7 @@ describe('SessionPersistence', () => {
     const dir = await makeTempDir();
     const id = '01CLEARTRUNCATE00000000000';
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(log);
 
     await log.append({
@@ -477,7 +494,7 @@ describe('SessionPersistence', () => {
     const id = '01CURRENTSESSION0000000000';
     const log = new EventLog();
     const { logger, lines } = captureLogger();
-    const persistence = new SessionPersistence({
+    const persistence = openPersistence({
       sessionId: id as never,
       cwd: '/tmp/p',
       dir,
@@ -508,7 +525,7 @@ describe('SessionPersistence', () => {
     const dir = await makeTempDir();
     const id = '01LEGACYNOSESSION00000000';
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(log);
 
     await log.append({
@@ -540,7 +557,7 @@ describe('SessionPersistence', () => {
 
     const { logger, lines } = captureLogger();
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
     const detach = persistence.attach(log);
 
     const prompt = (text: string) =>
@@ -860,7 +877,7 @@ describe('SessionPersistence', () => {
     const dir = await makeTempDir();
     const id = '01SURROGATE0000000000000AA';
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(log);
     // 80 emoji (each a surrogate pair) + a trailing char. A naive
     // `slice(0, 80)` on UTF-16 code units would cut emoji #41 in half, leaving a
@@ -893,7 +910,7 @@ describe('SessionPersistence', () => {
     const id = '01BADTEXT00000000000000000';
     const { logger } = captureLogger();
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
     const detach = persistence.attach(log);
 
     // A hostile / hand-built event whose `text` is not a string. `firstPromptLabel`
@@ -923,10 +940,10 @@ describe('SessionPersistence', () => {
     const dir = await makeTempDir();
     const idA = '01AAAA00000000000000000001';
     const idB = '01BBBB00000000000000000002';
-    const detachA = new SessionPersistence({ sessionId: idA as never, cwd: '/a', dir }).attach(
+    const detachA = openPersistence({ sessionId: idA as never, cwd: '/a', dir }).attach(
       new EventLog(),
     );
-    const detachB = new SessionPersistence({ sessionId: idB as never, cwd: '/b', dir }).attach(
+    const detachB = openPersistence({ sessionId: idB as never, cwd: '/b', dir }).attach(
       new EventLog(),
     );
     await waitForFile(path.join(dir, `${idA}.json`));

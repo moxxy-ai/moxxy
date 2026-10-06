@@ -9,6 +9,7 @@ import {
   tokenFromWsProtocolHeader,
   MOXXY_WS_SUBPROTOCOL,
 } from './channel-auth.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 
@@ -17,7 +18,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeDirSync(dir);
 });
 
 describe('resolveChannelToken', () => {

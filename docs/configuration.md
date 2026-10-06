@@ -13,7 +13,7 @@ export default defineConfig({
       default: 'anthropic',
       items: {
         anthropic: {
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-5-5',
           config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
         },
       },
@@ -30,6 +30,16 @@ export default defineConfig({
 
 `${vault:NAME}` placeholders are resolved when a session starts, through the **active secret provider** with the local vault as fallback, which is the same path `ctx.getSecret(name)` takes inside a tool. A placeholder therefore means the same thing in config as it does anywhere else. The vault unlocks through the OS keychain by default and supports a passphrase fallback. Headless environments can provide that passphrase with `MOXXY_VAULT_PASSPHRASE`.
 
+### Reasoning effort and fast mode
+
+```yaml
+context:
+  reasoning: { effort: high }   # low | medium | high | xhigh; `true` for the provider's default; leave out for off
+  fast: true                    # the provider's faster, pricier tier
+```
+
+`fast` asks OpenAI (the API and the ChatGPT-plan Codex backend) for `service_tier: "priority"`, its fast mode: answers come about 1.5× faster and use 2–2.5× more of the plan or credits. It reaches only models that offer it (`supportsFast` in the provider's catalog). Both settings belong to the conversation: the desktop sets them under the model list in **Model & usage**, every client of the conversation sees the change, and a new runner gets the person's last choice back.
+
 Do not commit plaintext credentials. See [SECURITY.md](../SECURITY.md) for the security model and hardening guidance.
 
 ## Environment variables
@@ -43,8 +53,9 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, skills, sessions, and services. |
 | `MOXXY_DEBUG=1` | Enables verbose CLI errors and process diagnostics. |
 | `MOXXY_VAULT_PASSPHRASE` | Supplies a headless vault passphrase instead of using the OS keychain. |
+| `MOXXY_NO_KEYCHAIN` | Set to `1` to keep the vault off the OS keychain: the key is read from and written to `~/.moxxy/vault.key` only. The test suite sets it. |
 | `MOXXY_SESSION_ID` | Resumes a specific persisted session when running `moxxy serve`. |
-| `MOXXY_RUNNER_SOCKET` | Overrides the runner's Unix socket path. |
+| `MOXXY_RUNNER_SOCKET` | Overrides the runner's Unix socket path. A socket path longer than the system binds (103 bytes on macOS, 107 on Linux) — this one, or one under a deep `MOXXY_HOME` — moves to a short name in the per-user runtime or temp folder; when neither is private to the user, the runner refuses to start and says to shorten `MOXXY_HOME`. |
 | `MOXXY_RUNNER_STRICT_ABORT=1` | Denies cross-client turn aborts instead of allowing and audit-logging them. |
 | `MOXXY_NO_CORE_UPDATE=1` | Disables registration of Tier 2 core self-update tools. |
 | `MOXXY_FIXTURES` | Selects `record`, `replay`, or `passthrough` provider fixture mode for tests. |
@@ -221,7 +232,8 @@ network:
 
 | Variable | Effect |
 |---|---|
-| `MOXXY_TELEGRAM_TOKEN` | Overrides the vault-stored Telegram bot token. |
+| `MOXXY_TELEGRAM_TOKEN` | Overrides the vault-stored Telegram bot token (channel and `telegram_send_message`). |
+| `MOXXY_DISCORD_TOKEN` | Overrides the vault-stored Discord bot token (channel and `discord_send_message`). |
 | `MOXXY_HTTP_TOKEN` | Sets the bearer token for the HTTP channel. |
 | `MOXXY_WEB_TOKEN` | Sets the authentication token for the web surface. |
 | `MOXXY_NO_WEB_SURFACE=1` | Prevents `moxxy serve` from starting the web surface. |

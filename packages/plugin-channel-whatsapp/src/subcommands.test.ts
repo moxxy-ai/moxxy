@@ -11,6 +11,7 @@ import {
   WHATSAPP_CONSENT_KEY,
   WHATSAPP_OWNER_JID_KEY,
 } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -46,7 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   process.stdout.write = origOut;
   process.stderr.write = origErr;
   if (origHome === undefined) delete process.env.MOXXY_HOME;

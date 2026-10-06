@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { Session, silentLogger } from '@moxxy/core';
+import { assertDefined } from '@moxxy/sdk';
 import { MOXXY_WORKSPACE_ID, WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { describe, expect, it } from 'vitest';
 
@@ -65,18 +66,23 @@ describe('attachSessionPersistence workspace registry sync', () => {
       mkdirSync(cwd, { recursive: true });
       const session = new Session({ cwd, logger: silentLogger });
 
-      attachSessionPersistence(session, cwd, false);
+      const handle = attachSessionPersistence(session, cwd, false);
+      assertDefined(handle, 'session persistence handle');
       await session.log.append({
         type: 'user_prompt',
         turnId: 'turn-1',
         text: 'Summarize this project',
       });
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      // Wait on the write itself, not on the 250ms index debounce: a slow
+      // runner (Windows CI) misses any fixed sleep sized just above it.
+      await handle.settleWrites();
+      await handle.flush();
 
       const registry = new WorkspaceRegistry(path.join(home, 'desktop', 'desks.json'));
       const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
-      expect(moxxy?.sessions).toHaveLength(1);
-      expect(moxxy?.sessions[0]).toMatchObject({
+      assertDefined(moxxy, 'moxxy workspace desk');
+      expect(moxxy.sessions).toHaveLength(1);
+      expect(moxxy.sessions[0]).toMatchObject({
         id: String(session.id),
         cwd,
         firstPrompt: 'Summarize this project',

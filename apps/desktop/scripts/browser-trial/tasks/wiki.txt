@@ -1,0 +1,1 @@
+@moxxy_browser W otwartej karcie przeglądarki Moxxy (pl.wikipedia.org) wyszukaj artykuł o szczycie Marmolada przez wyszukiwarkę Wikipedii i podaj jego wysokość w metrach.

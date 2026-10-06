@@ -104,7 +104,12 @@ export function ConnectionBridge(): null {
 
     const resyncIfActiveStillLoading = (): void => {
       const active = connectionStore.active$();
-      if (!active) return;
+      // No active workspace yet (a desk with no session waits for its first
+      // runner): keep asking until the host names one, or the splash never ends.
+      if (!active) {
+        scheduleLoadingResync();
+        return;
+      }
       const activeSnapshot = connectionStore.get(active);
       if (!activeSnapshot || isRunnerLoadingPhase(activeSnapshot.phase)) {
         scheduleLoadingResync();
@@ -126,7 +131,9 @@ export function ConnectionBridge(): null {
       }
       try {
         const id = await api().invoke('connection.activeWorkspace');
-        if (!cancelled) connectionStore.setActive(id);
+        // `null` means the host has nothing foregrounded yet, not that the
+        // workspace the desk list already chose went away — never clear it.
+        if (!cancelled && id !== null) connectionStore.setActive(id);
       } catch {
         /* preload missing */
       }

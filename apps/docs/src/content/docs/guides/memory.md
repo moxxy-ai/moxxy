@@ -75,9 +75,18 @@ plugin runs this periodically. See `packages/plugin-memory/src/consolidate.ts`.
 ## Short-term memory
 
 The default `segments` compactor treats each substantial completed turn
-as a sub-session: user request, actions, outcome, facts, and open work.
+as a sub-session: user request, the choices the user settled, actions,
+outcome, facts, and open work. Each record also keeps the user's own
+words verbatim (up to 300 characters a message), so a choice such as
+"one-way only" survives even when the summary leaves it out.
 It keeps the recent tail verbatim, bounds the record index, and folds
 old records into chapters before the context window fills.
+
+These records are written every few turns by design, so the chat does
+not announce them: the event carries `routine: true`, the context meter
+still drops, and only a compaction the context forced (or one you run
+with `/compact`) shows a "Context compacted" line, in the desktop and
+the terminal UI alike.
 
 Nothing is deleted. `session_recall` searches those records offline;
 `recall({ turnId })` retrieves the exact original turn when detail is

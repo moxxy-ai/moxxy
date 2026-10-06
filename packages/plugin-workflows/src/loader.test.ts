@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { discoverWorkflows, MAX_WORKFLOW_FILE_BYTES } from './loader.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const VALID_YAML = `name: keeper
 description: a valid workflow
@@ -16,7 +17,7 @@ describe('discoverWorkflows: per-file read robustness', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    if (dir) await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    if (dir) await removeDir(dir).catch(() => undefined);
   });
 
   it('skips a file that vanishes between readdir and readFile, keeping the rest', async () => {

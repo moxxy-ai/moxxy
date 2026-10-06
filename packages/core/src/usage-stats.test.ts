@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { clearUsageStats, loadUsageStats, mergeUsageStats } from './usage-stats.js';
 import type { ModelUsageTotals } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const totals = (over: Partial<ModelUsageTotals> = {}): ModelUsageTotals => ({
   calls: 1,
@@ -23,7 +24,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 describe('usage-stats store', () => {

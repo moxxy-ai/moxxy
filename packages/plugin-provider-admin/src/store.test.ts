@@ -8,6 +8,7 @@ import {
   upsertStoredProvider,
 } from './store.js';
 import type { StoredProvider } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const sampleEntry: StoredProvider = {
   kind: 'openai-compat',
@@ -27,7 +28,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 describe('stored-provider tree store (plugins.provider.items)', () => {

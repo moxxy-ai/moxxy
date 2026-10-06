@@ -9,7 +9,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
+import { waitFor, wakeAfter, type ModeContext, type MoxxyEvent, type WakeSource } from '@moxxy/sdk';
 import {
   createCollaborationHub,
   registerActiveHub,
@@ -55,7 +55,6 @@ import { integrate } from './integrate.js';
 import { releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
 
-const POLL_MS = 500;
 /** Grace for a spawned agent to boot + register with the hub. Separate from the
  *  overall wall-clock so a peer that never comes up (bad spawn, crash on boot)
  *  fails in ~a minute instead of hanging the whole run for the wall-clock. */
@@ -683,8 +682,10 @@ function writeCharterFile(runId: string, entry: RosterEntry): string | undefined
   }
 }
 
-type HubLike = { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } };
-type ExitProbe = Pick<Supervisor, 'hasExited'> | null;
+type HubLike = Pick<CollaborationHub, 'subscribe'> & {
+  state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } };
+};
+type ExitProbe = Pick<Supervisor, 'hasExited' | 'onExit'> | null;
 
 function statusOf(hub: HubLike, id: string): string | undefined {
   return hub.state.rosterView().agents.find((a) => a.id === id)?.status;
@@ -716,41 +717,44 @@ function agentSettled(
   return undefined;
 }
 
-/** Poll until an agent settles (done/failed) or abort/wall-clock. Returns true iff done. */
-async function waitForAgent(
+/** Everything that can settle an agent: a hub status change, a peer process
+ *  exiting, and the boot deadline passing (re-checked just after it). */
+function agentWakeSources(hub: HubLike, supervisor: ExitProbe): WakeSource[] {
+  const sources: WakeSource[] = [(wake) => hub.subscribe(wake), wakeAfter(BOOT_DEADLINE_MS + 1)];
+  if (supervisor) sources.push((wake) => supervisor.onExit(wake));
+  return sources;
+}
+
+/** Wait until an agent settles (done/failed) or abort/wall-clock. Returns true iff done. */
+export async function waitForAgent(
   hub: HubLike,
   supervisor: ExitProbe,
   id: string,
   signal: AbortSignal,
   wallClockMs: number,
 ): Promise<boolean> {
-  const wallDeadline = Date.now() + wallClockMs;
   const bootDeadlineAt = Date.now() + BOOT_DEADLINE_MS;
   const connected = new Set<string>();
-  for (;;) {
-    const settled = agentSettled(hub, supervisor, id, connected, bootDeadlineAt);
-    if (settled === 'done') return true;
-    if (settled === 'failed') return false;
-    if (signal.aborted || Date.now() > wallDeadline) return false;
-    await sleep(POLL_MS, signal);
-  }
+  const outcome = await waitFor(() => agentSettled(hub, supervisor, id, connected, bootDeadlineAt), {
+    wakeOn: agentWakeSources(hub, supervisor),
+    timeoutMs: wallClockMs,
+    signal,
+  });
+  return outcome.status === 'ready' && outcome.value === 'done';
 }
 
-async function waitForAgents(
+export async function waitForAgents(
   hub: HubLike,
   supervisor: ExitProbe,
   ids: ReadonlyArray<string>,
   signal: AbortSignal,
   wallClockMs: number,
 ): Promise<void> {
-  const wallDeadline = Date.now() + wallClockMs;
   const bootDeadlineAt = Date.now() + BOOT_DEADLINE_MS;
   const connected = new Set<string>();
-  for (;;) {
-    if (ids.every((id) => agentSettled(hub, supervisor, id, connected, bootDeadlineAt) !== undefined)) return;
-    if (signal.aborted || Date.now() > wallDeadline) return;
-    await sleep(POLL_MS, signal);
-  }
+  const allSettled = (): true | undefined =>
+    ids.every((id) => agentSettled(hub, supervisor, id, connected, bootDeadlineAt) !== undefined) ? true : undefined;
+  await waitFor(allSettled, { wakeOn: agentWakeSources(hub, supervisor), timeoutMs: wallClockMs, signal });
 }
 
 /**
@@ -781,26 +785,6 @@ async function* surfaceFailures(
   }
 }
 
-/** Abortable delay. Exported for tests (it must not leak abort listeners over
- *  the run's thousands of poll iterations). Internal otherwise. */
-export function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve();
-    const onAbort = (): void => {
-      clearTimeout(t);
-      resolve();
-    };
-    const t = setTimeout(() => {
-      // The poll loop calls this thousands of times over a run; remove the
-      // abort listener on the normal-timeout path too, or they accumulate on
-      // the long-lived coordinator signal (MaxListenersExceededWarning + leak).
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    t.unref?.();
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 function toCollabEvent(ctx: ModeContext, e: CollabEvent): MoxxyEvent {
   const map: Record<CollabEvent['kind'], string> = {

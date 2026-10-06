@@ -1,7 +1,7 @@
 /**
- * useAppUpdate.runUpdateAll orchestration tests — the ONE unified update that
- * brings both the runner (`app.updateCli`) and the desktop app
- * (`app.checkUpdate` → `app.updateDashboard` / `app.updateShell`) to latest.
+ * useAppUpdate orchestration tests — the ONE update that brings the runner and
+ * extensions (`app.updateComponents`) and the desktop app (`app.checkUpdate` →
+ * `app.updateDashboard` / `app.updateShell`) to latest, then relaunches.
  *
  * Driven through the fake `api` shim (`__setApiOverride`); the real
  * download/verify/install all happen main-side, so this only asserts the
@@ -9,10 +9,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { __setApiOverride } from './transport.js';
 import { useAppUpdate } from './useAppUpdate.js';
-import type { AppUpdateCheck, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import type { AppUpdateCheck, ComponentUpdateCheck, MoxxyApi } from '@moxxy/desktop-ipc-contract';
 
 function fakeApi(invoke: MoxxyApi['invoke']): MoxxyApi {
   return { invoke, subscribe: () => () => {} };
@@ -36,104 +36,140 @@ const uptodateCheck: AppUpdateCheck = {
   compatible: true,
 };
 
+const componentsBehind: ComponentUpdateCheck = {
+  available: true,
+  version: '1.1.0',
+  runner: { current: '1.0.0' },
+  extensions: [{ name: '@moxxy/plugin-terminal', current: '1.0.0' }],
+};
+const componentsCurrent: ComponentUpdateCheck = { available: false, version: null, runner: null, extensions: [] };
+
+/** A host whose answers default to "everything is current". */
+function host(answers: Partial<Record<string, unknown>> = {}) {
+  const invoke = vi.fn(async (cmd: string) => {
+    const defaults: Record<string, unknown> = {
+      'app.updateInfo': updateInfo,
+      'app.cliInfo': cliInfo,
+      'app.checkUpdate': uptodateCheck,
+      'app.checkComponents': componentsCurrent,
+      'app.updateComponents': { ok: true, updated: false },
+      'app.relaunch': undefined,
+    };
+    const answer = cmd in answers ? answers[cmd] : defaults[cmd];
+    if (!(cmd in answers) && !(cmd in defaults)) throw new Error(`unexpected ${cmd}`);
+    return answer;
+  });
+  __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+  return invoke;
+}
+
+const calls = (invoke: ReturnType<typeof host>) => invoke.mock.calls.map(([cmd]) => cmd);
+
+describe('useAppUpdate.runCheck', () => {
+  it('offers an update when only the runner or extensions are behind', async () => {
+    host({ 'app.checkComponents': componentsBehind });
+    const { result } = renderHook(() => useAppUpdate());
+
+    await act(async () => {
+      await result.current.runCheck();
+    });
+
+    expect(result.current.state).toBe('available');
+  });
+
+  it('stays quiet when nothing can be checked (offline)', async () => {
+    host({
+      'app.checkUpdate': { ...uptodateCheck, available: false, error: 'offline' },
+      'app.checkComponents': { ...componentsCurrent, error: 'offline' },
+    });
+    const { result } = renderHook(() => useAppUpdate());
+
+    await act(async () => {
+      await result.current.runCheck();
+    });
+
+    expect(result.current.state).toBe('unavailable');
+  });
+});
+
 describe('useAppUpdate.runUpdateAll', () => {
-  it('CLI ok + dashboard available → staged', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
-      switch (cmd) {
-        case 'app.updateInfo':
-          return updateInfo;
-        case 'app.cliInfo':
-          return cliInfo;
-        case 'app.updateCli':
-          return { code: 0, version: '1.1.0' };
-        case 'app.checkUpdate':
-          return availableCheck;
-        case 'app.updateDashboard':
-          return { ok: true, version: '0.6.0' };
-        default:
-          throw new Error(`unexpected ${cmd}`);
-      }
+  it('updates the runner and extensions, then the app, then relaunches on its own', async () => {
+    const invoke = host({
+      'app.checkUpdate': availableCheck,
+      'app.checkComponents': componentsBehind,
+      'app.updateComponents': { ok: true, updated: true },
+      'app.updateDashboard': { ok: true, version: '0.6.0' },
     });
-    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
-
     const { result } = renderHook(() => useAppUpdate());
-    await waitFor(() => expect(result.current.cliInfo).toEqual(cliInfo));
 
     await act(async () => {
       await result.current.runUpdateAll();
     });
 
+    const order = calls(invoke);
+    expect(order.indexOf('app.updateComponents')).toBeLessThan(order.indexOf('app.updateDashboard'));
+    expect(order.at(-1)).toBe('app.relaunch');
     expect(result.current.state).toBe('staged');
-    expect(result.current.stagedVersion).toBe('0.6.0');
-    expect(result.current.cliError).toBeNull();
-    // The runner restarted live with the new version.
-    expect(result.current.cliInfo?.version).toBe('1.1.0');
-    expect(invoke).toHaveBeenCalledWith('app.updateCli');
-    expect(invoke).toHaveBeenCalledWith('app.updateDashboard');
   });
 
-  it('CLI fails (code≠0) but dashboard available → still staged, cliError set', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
-      switch (cmd) {
-        case 'app.updateInfo':
-          return updateInfo;
-        case 'app.cliInfo':
-          return cliInfo;
-        case 'app.updateCli':
-          return { code: 1, version: null };
-        case 'app.checkUpdate':
-          return availableCheck;
-        case 'app.updateDashboard':
-          return { ok: true, version: '0.6.0' };
-        default:
-          throw new Error(`unexpected ${cmd}`);
-      }
-    });
-    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
-
+  it('relaunches after updating only the runner and extensions', async () => {
+    const invoke = host({ 'app.checkComponents': componentsBehind, 'app.updateComponents': { ok: true, updated: true } });
     const { result } = renderHook(() => useAppUpdate());
-    await waitFor(() => expect(result.current.cliInfo).toEqual(cliInfo));
 
     await act(async () => {
       await result.current.runUpdateAll();
     });
 
-    // The runner failure is non-fatal: the app update still proceeds + stages.
-    expect(result.current.state).toBe('staged');
-    expect(result.current.stagedVersion).toBe('0.6.0');
-    expect(result.current.cliError).toMatch(/code 1/);
-    expect(invoke).toHaveBeenCalledWith('app.updateDashboard');
+    expect(invoke).toHaveBeenCalledWith('app.relaunch');
+    expect(invoke).not.toHaveBeenCalledWith('app.updateDashboard');
   });
 
-  it('everything up to date → uptodate', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
-      switch (cmd) {
-        case 'app.updateInfo':
-          return updateInfo;
-        case 'app.cliInfo':
-          return cliInfo;
-        case 'app.updateCli':
-          return { code: 0, version: '1.0.0' };
-        case 'app.checkUpdate':
-          return uptodateCheck;
-        default:
-          throw new Error(`unexpected ${cmd}`);
-      }
+  it('changes nothing and offers another try when the runner or extensions fail', async () => {
+    const invoke = host({
+      'app.checkUpdate': availableCheck,
+      'app.checkComponents': componentsBehind,
+      'app.updateComponents': { ok: false, updated: false, error: 'npm install failed (exit 1): E404' },
     });
-    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
-
     const { result } = renderHook(() => useAppUpdate());
-    await waitFor(() => expect(result.current.cliInfo).toEqual(cliInfo));
+
+    await act(async () => {
+      await result.current.runUpdateAll();
+    });
+
+    expect(result.current.state).toBe('error');
+    expect(result.current.error).toMatch(/works as before/);
+    expect(invoke).not.toHaveBeenCalledWith('app.updateDashboard');
+    expect(invoke).not.toHaveBeenCalledWith('app.relaunch');
+  });
+
+  it('still updates the app when the runner cannot be updated here (no Node.js)', async () => {
+    const invoke = host({
+      'app.checkUpdate': availableCheck,
+      'app.checkComponents': { ...componentsCurrent, error: 'npm not found' },
+      'app.updateComponents': { ok: false, updated: false, error: 'npm not found' },
+      'app.updateDashboard': { ok: true, version: '0.6.0' },
+    });
+    const { result } = renderHook(() => useAppUpdate());
+
+    await act(async () => {
+      await result.current.runUpdateAll();
+    });
+
+    expect(invoke).not.toHaveBeenCalledWith('app.updateComponents');
+    expect(invoke).toHaveBeenCalledWith('app.relaunch');
+    expect(result.current.cliError).toMatch(/npm not found/);
+  });
+
+  it('does nothing and relaunches nothing when everything is current', async () => {
+    const invoke = host();
+    const { result } = renderHook(() => useAppUpdate());
 
     await act(async () => {
       await result.current.runUpdateAll();
     });
 
     expect(result.current.state).toBe('uptodate');
-    expect(result.current.stagedVersion).toBeNull();
-    expect(result.current.cliError).toBeNull();
-    // No dashboard install was attempted — the app was already current.
     expect(invoke).not.toHaveBeenCalledWith('app.updateDashboard');
-    expect(invoke).not.toHaveBeenCalledWith('app.updateShell');
+    expect(invoke).not.toHaveBeenCalledWith('app.relaunch');
   });
 });

@@ -10,6 +10,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { platformSocket } from './socket-path.js';
 import {
   Session,
   autoAllowResolver,
@@ -53,7 +54,8 @@ function buildSession(provider: FakeProvider): Session {
 }
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-neg-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-neg-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 const servers: RunnerServer[] = [];

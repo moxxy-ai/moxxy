@@ -16,6 +16,7 @@ import {
   type AfterWorkflowNode,
   type WorkflowsIntegration,
 } from './workflows.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -296,9 +297,9 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   const savedEnv = { HOME: process.env.HOME, MOXXY_HOME: process.env.MOXXY_HOME };
 
   afterAll(async () => {
-    process.env.HOME = savedEnv.HOME;
+    process.env.HOME = process.env.USERPROFILE = savedEnv.HOME;
     process.env.MOXXY_HOME = savedEnv.MOXXY_HOME;
-    await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+    await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
   });
 
   async function setup(workflowYamls: Record<string, string>): Promise<{
@@ -309,7 +310,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-it-'));
     tempDirs.push(cwd);
     // Isolate every homedir-derived path (user workflows dir, inbox, run records).
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -395,7 +396,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   it('does NOT deliver a paused (awaitInput) run to the inbox (Finding 1)', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-pause-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -456,7 +457,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   it('registers fileChanged watchers for a workflow saved at RUNTIME (u28-1)', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-fc-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     // Boot with NO fileChanged workflow on disk — so onReady builds zero
@@ -519,7 +520,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     // per runner — which is the multi-tenant guarantee for fileChanged triggers.
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-fc-mt-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -603,7 +604,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   it('stop() cancels a pending fileChanged debounce so it does not fire after teardown', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-stopdebounce-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -661,7 +662,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     // throw broke boot). The sync must skip the bad one and sync the rest.
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-badsched-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -726,7 +727,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   it("stamps a scheduled workflow's mirror row with its targetSessionId as ownerSessionId", async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-target-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -770,7 +771,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     // scheduled runs they grow without bound. onReady must call sweepStaleRecords.
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-sweeprec-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -814,7 +815,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     // the bad zone (cron falls back to system-local) and warn, NOT pass it on.
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-badtz-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const projectDir = path.join(cwd, '.moxxy', 'workflows');
@@ -866,7 +867,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     // checkpoint whose pending step is a prompt and a spawner.continue stub.
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-resume-'));
     tempDirs.push(cwd);
-    process.env.HOME = cwd;
+    process.env.HOME = process.env.USERPROFILE = cwd;
     process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
 
     const { WorkflowRunStore, resumeWorkflowRun } = await import('@moxxy/plugin-workflows');

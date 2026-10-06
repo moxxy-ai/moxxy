@@ -8,6 +8,7 @@ import type {
   LoopGuardSettings,
   MoxxyEvent,
   Principal,
+  ReasoningEffort,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -52,7 +53,13 @@ import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
 import { currentPermissionScope } from './permissions/scope.js';
-import { evaluateToolRule, isSelectableMode } from '@moxxy/sdk';
+import {
+  AUTO_APPROVE_PLUGIN_ID,
+  AUTO_APPROVE_SUBTYPE,
+  autoApproveFromEvents,
+  evaluateToolRule,
+  isSelectableMode,
+} from '@moxxy/sdk';
 import type {
   ApprovalResolver,
   CredentialResolver,
@@ -191,14 +198,16 @@ export class Session implements ClientSession, SessionRuntime {
    * (elision on). Read into each turn's ModeContext.
    */
   elisionSettings: ElisionSettings | null = null;
-  /** Lazy tool loading toggle, from `config.context.lazyTools`. Default off. */
-  lazyTools = false;
+  /** Lazy tool loading, from `config.context.lazyTools`. Unset = automatic (on for a long tool list). */
+  lazyTools: boolean | undefined = undefined;
   /**
    * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
    * to each turn's ModeContext and on to the provider, which honors it only
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
-  reasoning: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined = undefined;
+  reasoning: { readonly effort?: ReasoningEffort } | boolean | undefined = undefined;
+  /** Ask for the provider's faster tier (OpenAI fast mode), from `config.context.fast`. */
+  fast = false;
   /**
    * Stuck-loop guard tuning, from `config.context.loopGuard`. Forwarded to each
    * turn's ModeContext and on to the mode's stuck-loop detector. Undefined →
@@ -347,6 +356,7 @@ export class Session implements ClientSession, SessionRuntime {
       this.permissions,
       (name) => this.tools.get(name)?.permission,
       this.cwd,
+      () => this.autoApprove,
     );
     this.dispatcher = new HookDispatcherImpl({
       logger: this.logger,
@@ -421,7 +431,29 @@ export class Session implements ClientSession, SessionRuntime {
       this.permissions,
       (name) => this.tools.get(name)?.permission,
       this.cwd,
+      () => this.autoApprove,
     );
+  }
+
+  /** Whether tool calls run without asking: a fold over the log, so a reset
+   *  conversation starts with it off and a resumed one keeps its last switch. */
+  get autoApprove(): boolean {
+    return autoApproveFromEvents(this.log.slice());
+  }
+
+  /** Switch auto-approve for this conversation. Recorded in the log so every
+   *  attached client (desktop, TUI, channel bot) sees the same state. */
+  async setAutoApprove(enabled: boolean): Promise<void> {
+    if (this.autoApprove === enabled) return;
+    await this.log.append({
+      type: 'plugin_event',
+      sessionId: this.id,
+      turnId: newTurnId(),
+      source: 'user',
+      pluginId: AUTO_APPROVE_PLUGIN_ID,
+      subtype: AUTO_APPROVE_SUBTYPE,
+      payload: { enabled },
+    });
   }
 
   /** Install/replace the generic approval resolver. Pass null to clear. */
@@ -620,7 +652,13 @@ export class Session implements ClientSession, SessionRuntime {
         ...(t.compact ? { compact: t.compact } : {}),
         ...(t.icon ? { icon: t.icon } : {}),
       })),
-      skills: this.skills.list().map((s) => ({ id: s.id, name: s.frontmatter.name })),
+      skills: this.skills.list().map((s) => ({
+        id: s.id,
+        name: s.frontmatter.name,
+        description: s.frontmatter.description,
+        ...(s.frontmatter.label ? { label: s.frontmatter.label } : {}),
+        ...(s.frontmatter.aliases?.length ? { aliases: s.frontmatter.aliases } : {}),
+      })),
       commands: this.commands.list().map((c) => ({
         name: c.name,
         description: c.description,
@@ -639,6 +677,9 @@ export class Session implements ClientSession, SessionRuntime {
       activeTranscriber: this.transcribers.getActiveName(),
       hasSynthesizer: this.synthesizers.list().length > 0,
       activeSynthesizer: this.synthesizers.getActiveName(),
+      autoApprove: this.autoApprove,
+      reasoningEffort: reasoningEffortOf(this.reasoning),
+      fast: this.fast,
     };
   }
 }
@@ -659,6 +700,7 @@ function wrapWithPolicy(
   engine: PermissionEngine,
   getToolRule: (name: string) => PermissionRule | undefined,
   cwd: string,
+  isAutoApprove: () => boolean,
 ): PermissionResolver {
   // The policy-only decision: user policy (permissions.json) wins, then the
   // tool's own declared rule (so a tool marked `allow` is never blocked in
@@ -680,7 +722,11 @@ function wrapWithPolicy(
         return async (call: PendingToolCall, ctx: PermissionContext) => {
           const decided = await policyDecision(call);
           if (decided) return decided;
-          return (currentPermissionScope() ?? target).check(call, ctx);
+          // Auto-approve replaces only the asking: policy denies above still
+          // win, and a scoped resolver (subagent, goal run) keeps its own say.
+          const scoped = currentPermissionScope();
+          if (!scoped && isAutoApprove()) return { mode: 'allow', reason: 'auto-approve', decidedNow: true };
+          return (scoped ?? target).check(call, ctx);
         };
       }
       if (prop === 'policyCheck') {
@@ -747,4 +793,10 @@ async function pathsStayInWorkspace(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The effort `SessionInfo` reports: reasoning on without a set effort runs at the provider's default. */
+function reasoningEffortOf(reasoning: Session['reasoning']): ReasoningEffort | 'default' | null {
+  if (!reasoning) return null;
+  return reasoning === true ? 'default' : reasoning.effort ?? 'default';
 }

@@ -150,6 +150,28 @@ describe('runReactLoop checkpoint gate', () => {
     expect(callTexts[2]).not.toContain('keep going (1)');
   });
 
+  it('skips a checkpoint that does not apply, leaving no trace in the log', async () => {
+    // A check that is cheap to rule out runs on every turn; one that does not
+    // apply must not add events to every conversation.
+    const provider = new FakeProvider({ script: [textReply('answer')] });
+    let ran = false;
+    const rarelyNeeded: TurnCheckpoint = {
+      name: 'rarely-needed',
+      applies: () => false,
+      run: async () => {
+        ran = true;
+        return { action: 'pass' };
+      },
+    };
+    const session = gatedSession(provider, [rarelyNeeded]);
+
+    const events = await collectTurn(session, 'do the thing');
+
+    expect(ran).toBe(false);
+    expect(checkpointSubtypes(events)).toEqual([]);
+    expect(lastAssistantText(events)).toBe('answer');
+  });
+
   it('retry loops again without injecting anything', async () => {
     const provider = new FakeProvider({ script: [textReply('one'), textReply('two')] });
     let calls = 0;

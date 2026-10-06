@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveExecutableTarget, spawnExecutableTarget } from '@moxxy/sdk/server';
 
 const DEFAULT_EXPO_HOST = 'lan';
 const DEFAULT_EXPO_PORT = 8081;
@@ -35,6 +36,7 @@ export type SpawnProcess = (
     readonly cwd: string;
     readonly env: NodeJS.ProcessEnv;
     readonly stdio: 'inherit';
+    readonly detached: boolean;
   },
 ) => ChildProcess;
 
@@ -81,7 +83,7 @@ export async function startMobileExpoApp(
     return { stop: async () => undefined };
   }
 
-  const spawnProcess = deps.spawnProcess ?? spawn;
+  const spawnProcess = deps.spawnProcess ?? spawnNpm;
   const child = spawnProcess('npm', buildExpoStartArgs(options), {
     cwd: appDir,
     env: {
@@ -90,6 +92,8 @@ export async function startMobileExpoApp(
       EXPO_NO_TELEMETRY: '1',
     },
     stdio: 'inherit',
+    // Its own process group, so stop() can end Expo along with npm.
+    detached: process.platform !== 'win32',
   });
 
   const exited = new Promise<void>((resolveExit) => {
@@ -99,10 +103,35 @@ export async function startMobileExpoApp(
 
   return {
     stop: async () => {
-      if (child.exitCode === null && !child.killed) child.kill('SIGTERM');
+      if (child.exitCode === null && !child.killed) stopTree(child);
       await exited;
     },
   };
+}
+
+// npm is a .cmd shim on Windows, which a bare spawn('npm') cannot start.
+const spawnNpm: SpawnProcess = (command, args, options) => {
+  const target = resolveExecutableTarget(command);
+  if (!target) throw new Error(`${command} was not found on PATH; cannot start the Moxxy Mobile Expo app`);
+  return spawnExecutableTarget(target, args, options);
+};
+
+/** npm runs Expo as a child of its own, so the whole tree is ended: by process group on POSIX, by pid on Windows. */
+function stopTree(child: ChildProcess): void {
+  if (child.pid === undefined) {
+    child.kill('SIGTERM');
+    return;
+  }
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      child.kill('SIGTERM');
+    }
+    return;
+  }
+  const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+  execFile(taskkill, ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined);
 }
 
 export function resolveMobileExpoAppDir(cwd = process.cwd()): string | null {

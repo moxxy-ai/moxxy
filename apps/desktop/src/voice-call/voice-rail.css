@@ -180,7 +180,13 @@
 .voice-rail-operation.is-cancelled { opacity: 0.55; }
 
 .voice-rail-work-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.voice-rail-work-copy strong { font-size: var(--type-label); font-weight: 600; white-space: nowrap; }
+.voice-rail-work-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--type-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
 .voice-rail-work-copy small {
   overflow: hidden;
   color: var(--color-text-dim);
@@ -279,15 +285,36 @@
   .voice-rail-operation-state { display: none; }
 }
 
+/* As narrow as the composer floating over a full-view pane: four columns no
+   longer fit, so the work (an operation, an error and its Try again) takes a
+   row of its own under the presence and the controls — with room again for
+   the reason a call stopped. */
 @container voice-rail (max-width: 520px) {
   .voice-rail {
-    padding: 0 8px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'presence controls end'
+      'work work work';
+    padding: 6px 8px;
     gap: 6px;
   }
 
-  .voice-rail-presence { min-width: 108px; }
+  .voice-rail-presence { grid-area: presence; min-width: 0; }
+  .voice-rail-controls { grid-area: controls; }
+  .voice-rail-end { grid-area: end; }
   .voice-rail-copy { margin-left: 6px; }
-  .voice-rail-work { padding-left: 8px; }
+  .voice-rail-work {
+    grid-area: work;
+    height: auto;
+    min-height: 34px;
+    padding: 6px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--color-card-border);
+  }
+  .voice-rail-work-copy { flex: 1 1 auto; }
+  .voice-rail-work-copy small { display: block; }
+  /* Nothing running: no empty second row. */
+  .voice-rail-work:has(.voice-rail-operation--idle) { display: none; }
   .voice-rail-operation--idle { display: none; }
   .voice-rail-operation-dots,
   .voice-rail-operation-more { display: none; }

@@ -1,6 +1,7 @@
 import type { ContentBlock, ProviderMessage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { Skill } from '../skill.js';
+import { toolPatternMatches } from '../skill-mentions.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
 import {
   activeCompactionRanges,
@@ -11,8 +12,7 @@ import {
   computeElisionState,
   conversationalStub,
   conversationalStubbed,
-  toolResultBytes,
-  toolResultStub,
+  toolResultStubText,
   toolResultStubbed,
   type ElisionState,
 } from '../elision-state.js';
@@ -69,6 +69,20 @@ export const ELISION_SYSTEM_NOTE =
   'These are NOT the real content — call the `recall` tool with the given id/seq to fetch ' +
   'the full text before relying on any detail from an elided turn. Recent turns are always ' +
   'shown verbatim.';
+
+/**
+ * Skills worth advertising: one that lists `allowed-tools` is written for those
+ * tools, so it is left out when none of them exists in the session (an MCP
+ * server that is not connected, a plugin that was replaced). Lists are loose in
+ * practice, so one tool that exists is enough; a trailing `*` matches a prefix.
+ */
+export function skillsWithinReach(skills: ReadonlyArray<Skill>, toolNames: ReadonlyArray<string>): ReadonlyArray<Skill> {
+  const exists = (pattern: string) => toolNames.some((name) => toolPatternMatches(pattern, name));
+  return skills.filter((skill) => {
+    const wanted = skill.frontmatter['allowed-tools'] ?? [];
+    return wanted.length === 0 || wanted.some(exists);
+  });
+}
 
 /**
  * Compose a model-facing system prompt that includes any base prompt
@@ -260,7 +274,13 @@ export function projectMessages(
   // (or tool_call_denied) somewhere in the log. Used to synthesize a
   // fallback `[interrupted]` tool_result for orphan tool_use blocks
   // when the assistant message gets flushed.
-  const resolvedCallIds = resolvedCallIdSet(allEvents);
+  // Only VISIBLE results count: one swallowed by a compaction is never sent, so
+  // its still-visible tool_use needs the fallback just like a missing one.
+  const resolvedCallIds = resolvedCallIdSet(allEvents.filter((e) => !compactionFor(e.seq)));
+  // callIds whose tool_use block is projected. A tool_result outside this set
+  // answers a call a compaction summarized away (the result landed after later
+  // turns began); providers reject a result with no matching call.
+  const projectedCallIds = new Set<string>();
 
   let pendingAssistant: ProviderMessage | null = null;
   let pendingAssistantMaxSeq = -1;
@@ -391,6 +411,7 @@ export function projectMessages(
           }
         }
         pendingAssistantMaxSeq = Math.max(pendingAssistantMaxSeq, e.seq);
+        projectedCallIds.add(e.callId);
         (pendingAssistant.content as Array<ProviderMessage['content'][number]>).push({
           type: 'tool_use',
           id: e.callId,
@@ -400,6 +421,7 @@ export function projectMessages(
         break;
       }
       case 'tool_result': {
+        if (!projectedCallIds.has(e.callId)) break;
         flush();
         // Stub bulky old tool output to a recall-able marker (decision shared
         // with estimateContextTokens via toolResultStubbed).
@@ -409,8 +431,7 @@ export function projectMessages(
         // result isn't stubbed (elided) or an error and the call succeeded.
         let image: Extract<ContentBlock, { type: 'image' }> | null = null;
         if (toolResultStubbed(e, el)) {
-          const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
-          text = toolResultStub(e.callId, toolResultBytes(e.output), recalled);
+          text = toolResultStubText(e, el);
         } else if (e.error) {
           text = `[error:${e.error.kind}] ${e.error.message}`;
         } else if (isToolDisplayResult(e.output)) {

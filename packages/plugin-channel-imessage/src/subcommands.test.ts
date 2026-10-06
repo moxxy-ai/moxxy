@@ -11,6 +11,7 @@ import {
   IMESSAGE_SERVER_PASSWORD_KEY,
   IMESSAGE_SERVER_URL_KEY,
 } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -55,7 +56,7 @@ afterEach(async () => {
   process.stderr.write = origStderrWrite;
   setPlatform(origPlatform);
   vi.unstubAllEnvs();
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function ctx(overrides: { startChannel?: () => Promise<number> } = {}) {

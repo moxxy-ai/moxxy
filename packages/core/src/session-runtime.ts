@@ -10,6 +10,7 @@ import type {
   ModeDef,
   PermissionResolver,
   PluginHostHandle,
+  ReasoningEffort,
   SessionId,
   SkillRegistry,
   TurnId,
@@ -61,9 +62,10 @@ export interface SessionRuntime {
   readonly resolver: PermissionResolver;
   readonly approvalResolver: ApprovalResolver | null;
   readonly elisionSettings: ElisionSettings | null;
-  readonly lazyTools: boolean;
+  readonly lazyTools: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
-  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
+  readonly fast?: boolean;
   /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */
   readonly loopGuard?: LoopGuardSettings;
   readonly dispatcher: HookDispatcher;

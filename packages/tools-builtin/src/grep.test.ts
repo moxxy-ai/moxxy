@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 import { grepTool } from './grep.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -22,7 +23,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-grep-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('grepTool size cap + binary skip', () => {

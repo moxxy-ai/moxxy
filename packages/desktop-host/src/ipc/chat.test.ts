@@ -111,4 +111,18 @@ describe('chat.loadHistory cache-first paging', () => {
     expect(deskForSession).not.toHaveBeenCalled();
     expect(readHistory).toHaveBeenCalledWith(UNBOUND_ID, { before: null, limit: 50 });
   });
+
+  it("pages a catalog channel bot's log while the bot is offline", async () => {
+    const { invoke, readHistory } = setup({ known: false });
+
+    await expect(invoke('moxxy-channel-discord')).resolves.toEqual({ events: [event], prevCursor: null });
+    expect(readHistory).toHaveBeenCalledWith('moxxy-channel-discord', { before: null, limit: 50 });
+  });
+
+  it('fails closed for a channel-looking id outside the catalog', async () => {
+    const { invoke, readHistory } = setup({ known: false });
+
+    await expect(invoke('moxxy-channel-nope')).resolves.toBeNull();
+    expect(readHistory).not.toHaveBeenCalled();
+  });
 });

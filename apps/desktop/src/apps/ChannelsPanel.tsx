@@ -49,6 +49,8 @@ export interface ChannelPageState {
   readonly busy: boolean;
   readonly save: () => Promise<void>;
   readonly toggleRun: () => Promise<void>;
+  /** The OS background service owns the bot, so the panel can't Start/Stop it. */
+  readonly runsInBackground: boolean;
 }
 
 /**
@@ -98,6 +100,7 @@ export function useChannelPage(entry: ChannelEntry, handlers: ChannelHandlers): 
     busy,
     save,
     toggleRun,
+    runsInBackground: status.runMode === 'background',
   };
 }
 
@@ -119,16 +122,37 @@ export function ChannelActions({
       >
         {state.configuring ? 'Hide' : status.configured ? 'Reconfigure' : 'Configure'}
       </Button>
-      <Button
-        variant={status.running ? 'secondary' : 'cta'}
-        onClick={() => void state.toggleRun()}
-        disabled={state.busy || (!status.running && !status.configured)}
-        data-testid={`channel-toggle-${descriptor.id}`}
-      >
-        <Icon name={status.running ? 'stop' : 'spark'} size={12} />
-        {status.running ? 'Stop' : 'Start'}
-      </Button>
+      <ChannelRunButton entry={entry} state={state} />
     </>
+  );
+}
+
+/** Start / Stop the bot (or say a background service runs it). */
+export function ChannelRunButton({
+  entry,
+  state,
+}: {
+  readonly entry: ChannelEntry;
+  readonly state: ChannelPageState;
+}): JSX.Element {
+  const { descriptor, status } = entry;
+  if (state.runsInBackground) {
+    return (
+      <Button variant="secondary" disabled data-testid={`channel-toggle-${descriptor.id}`}>
+        Runs in background
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant={status.running ? 'secondary' : 'cta'}
+      onClick={() => void state.toggleRun()}
+      disabled={state.busy || (!status.running && !status.configured)}
+      data-testid={`channel-toggle-${descriptor.id}`}
+    >
+      <Icon name={status.running ? 'stop' : 'spark'} size={12} />
+      {status.running ? 'Stop' : 'Start'}
+    </Button>
   );
 }
 

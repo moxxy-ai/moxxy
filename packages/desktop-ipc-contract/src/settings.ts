@@ -4,7 +4,7 @@
  *  `off` clears the preference; the others map to `config.context.reasoning`
  *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
  *  `ReasoningEffortLevel`. */
-export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface ProviderEntry {
   name: string;
@@ -47,6 +47,14 @@ export interface McpServerEntry {
 
 export interface VaultEntryName {
   name: string;
+}
+
+/** A voice returned by Google's authenticated Gemini Voices endpoint. */
+export interface GeminiVoiceInfo {
+  readonly id: string;
+  readonly displayName: string;
+  readonly languageCode?: string;
+  readonly description?: string;
 }
 
 export interface SkillFile {

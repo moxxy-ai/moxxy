@@ -326,6 +326,24 @@ export function exitAfterPairRequested(
 }
 
 /**
+ * The end of every successful pair flow. The bot that paired was started on the
+ * subcommand's probe session — booted WITHOUT an active provider — so it must
+ * not keep serving (every message would fail "No active provider"). Stop it,
+ * then either hand control back to an orchestrator ({@link EXIT_AFTER_PAIR_FLAG})
+ * or start the channel for real through `startChannel()`, which boots a full
+ * session with the configured model.
+ */
+export async function finishPairing(
+  ctx: Pick<ChannelSubcommandContext, 'args' | 'deps' | 'startChannel'>,
+  stopPairingBot: () => Promise<void>,
+  startOptions?: Readonly<Record<string, unknown>>,
+): Promise<number> {
+  await stopPairingBot();
+  if (exitAfterPairRequested(ctx)) return 0;
+  return ctx.startChannel(startOptions);
+}
+
+/**
  * Read-only registry of channels available in a Session. Implementation lives
  * in @moxxy/core.
  */

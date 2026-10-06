@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import { isDue, nextCronFire, SchedulerPoller } from './poller.js';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
 import { buildSchedulerTools } from './tools.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function fakeRegistry(skills: ReadonlyArray<Skill>): SkillRegistry {
   const map = new Map(skills.map((s) => [s.frontmatter.name, s] as const));
@@ -135,7 +136,7 @@ describe('SchedulerPoller integration', () => {
     inboxDir = path.join(dir, 'inbox');
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('tickOnce fires a due schedule and writes to the inbox', async () => {
@@ -441,7 +442,7 @@ describe('SchedulerPoller multi-tenant (concurrent runners)', () => {
     inboxDir = path.join(dir, 'inbox');
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   function countingRunner(): { calls: string[]; runner: { runPrompt: (i: { prompt: string }) => Promise<{ text: string }> } } {

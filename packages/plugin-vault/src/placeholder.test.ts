@@ -7,6 +7,7 @@ import { VaultStore } from './store.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, generateSalt } from './crypto.js';
 import { containsPlaceholder, resolveString, resolveValue } from './placeholder.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -21,7 +22,7 @@ beforeEach(async () => {
   await vault.set('CHAT_ID', '42');
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('resolveString', () => {

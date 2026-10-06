@@ -14,6 +14,7 @@ import {
 } from '@moxxy/sdk';
 import { loadSkillUsage, loadUsageStats } from '@moxxy/core';
 import { buildUsageStatsPlugin, summarizeSkillEvents } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const sid = asSessionId('s1');
 const tid = asTurnId('t1');
@@ -160,7 +161,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 describe('usage-stats plugin', () => {

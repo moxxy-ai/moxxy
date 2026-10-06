@@ -11,7 +11,7 @@
  * `security.ts`) and owns everything after.
  */
 
-import type { BrowserHost } from '../browser/host';
+import type { BrowserHost } from '@moxxy/plugin-browser';
 import { handle } from './shared';
 
 export function registerBrowserHandlers(host: BrowserHost): void {
@@ -26,6 +26,7 @@ export function registerBrowserHandlers(host: BrowserHost): void {
   handle('browser.listTabs', async () => ({
     tabs: host.list(),
     activeTabId: host.activeId,
+    control: host.control,
   }));
 
   handle('browser.selectTab', async ({ tabId }) => {
@@ -45,6 +46,15 @@ export function registerBrowserHandlers(host: BrowserHost): void {
 
   handle('browser.confirmFocus', async ({ requestId }) => {
     host.confirmFocus(requestId);
+  });
+
+  handle('browser.confirmCursor', async ({ requestId }) => {
+    host.confirmCursor(requestId);
+  });
+
+  handle('browser.control', async ({ command }) => {
+    if (command === 'takeover') host.takeOver();
+    else host.resume();
   });
 
   handle('browser.resolveHandoff', async ({ requestId, completed }) => {

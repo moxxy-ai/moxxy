@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop",
   "private": true,
-  "version": "0.40.3",
+  "version": "0.41.0",
   "description": "moxxy desktop — Electron app that connects to moxxy via @moxxy/runner and renders a TUI-equivalent chat surface.",
   "homepage": "https://moxxy.ai",
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
@@ -55,13 +55,14 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "^10.1.0",
-    "react-virtuoso": "^4.18.15",
+    "react-virtuoso": "^4.18.16",
     "remark-gfm": "^4.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
@@ -71,10 +72,10 @@
     "@types/react-dom": "catalog:",
     "@types/ws": "catalog:",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.1.11",
-    "electron": "^43.4.0",
+    "@vitest/coverage-v8": "^5.0.3",
+    "electron": "^43.5.0",
     "electron-builder": "^26.15.3",
-    "electron-builder-squirrel-windows": "^26.15.3",
+    "electron-builder-squirrel-windows": "^26.17.0",
     "electron-vite": "^5.0.0",
     "jsdom": "^25.0.1",
     "typescript": "catalog:",
@@ -106,7 +107,8 @@
     ],
     "files": [
       "dist-electron/**",
-      "dist/**"
+      "dist/**",
+      "!**/node_modules/@moxxy/plugin-computer-control/native/**"
     ],
     "extraResources": [
       {
@@ -114,7 +116,9 @@
         "to": ".",
         "filter": [
           "moxxy-cli/**/*",
-          "plugins-seed/**/*"
+          "plugins-seed/**/*",
+          "models-seed/**/*",
+          "runtimes-seed/**/*"
         ]
       }
     ],
@@ -136,7 +140,7 @@
           ]
         }
       ],
-      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3}",
+      "x64ArchFiles": "{*.node,*.dylib,*.bare,spawn-helper,python3,moxxy-computer}",
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

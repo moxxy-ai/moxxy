@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet } from './project-messages.js';
+import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet, skillsWithinReach } from './project-messages.js';
+import type { Skill } from '../skill.js';
 import { computeElisionState } from '../elision-state.js';
 import { asEventId, asSessionId, asTurnId } from '../ids.js';
 import type { EventLogReader } from '../log.js';
@@ -179,5 +180,75 @@ describe('projectMessagesFromLog tool_result stringify hardening', () => {
 
   it('passes a string output through verbatim', () => {
     expect(toolResultText(logWith('plain text'))).toBe('plain text');
+  });
+});
+
+describe('skillsWithinReach', () => {
+  const skill = (name: string, tools?: string[]): Skill => ({
+    id: name as Skill['id'], path: `/skills/${name}.md`, scope: 'user', body: '',
+    frontmatter: { name, description: name, ...(tools ? { 'allowed-tools': tools } : {}) },
+  });
+  const names = (skills: ReadonlyArray<Skill>) => skills.map((entry) => entry.frontmatter.name);
+  const tools = ['Bash', 'Read', 'mcp__gmail__send', 'computer_click'];
+
+  it('keeps a skill that names no tools or at least one tool of the session', () => {
+    const kept = skillsWithinReach([skill('prose'), skill('empty', []), skill('mixed', ['Bash', 'web-research']), skill('mail', ['mcp__gmail__*'])], tools);
+    expect(names(kept)).toEqual(['prose', 'empty', 'mixed', 'mail']);
+  });
+
+  it('drops a skill when none of the tools it is written for exists', () => {
+    const kept = skillsWithinReach([skill('charts', ['mcp__tradingview__tv_quote']), skill('zoho', ['mcp__zoho__*']), skill('old', ['AppleScript', 'computer'])], tools);
+    expect(kept).toEqual([]);
+  });
+});
+
+describe('projectMessagesFromLog tool pairing across a compaction boundary', () => {
+  const t2 = asTurnId('t2');
+  const call = (seq: number, callId: string): MoxxyEvent =>
+    event(seq, { type: 'tool_call_requested', turnId: t1, source: 'model', callId, name: 'terminal', input: {} });
+  const result = (seq: number, callId: string): MoxxyEvent =>
+    event(seq, { type: 'tool_result', turnId: t1, source: 'tool', callId, ok: true, output: 'installed' });
+  const compaction = (seq: number, replacedRange: [number, number]): MoxxyEvent =>
+    event(seq, {
+      type: 'compaction',
+      turnId: t2,
+      source: 'compactor',
+      compactor: 'segments',
+      replacedRange,
+      summary: 'earlier work',
+      tokensSaved: 10,
+    });
+
+  const blocksOf = (events: ReadonlyArray<MoxxyEvent>) =>
+    projectMessagesFromLog({ log: reader(events) }).flatMap((m) => m.content);
+
+  it('drops a late tool_result whose tool call was summarized away', () => {
+    const blocks = blocksOf([
+      userPrompt(0, { text: 'install it' }),
+      call(1, 'late'),
+      userPrompt(2, { text: 'anything new?', turnId: t2 }),
+      result(3, 'late'),
+      compaction(4, [0, 1]),
+    ]);
+    expect(blocks.filter((b) => b.type === 'tool_result')).toEqual([]);
+    expect(blocks.filter((b) => b.type === 'tool_use')).toEqual([]);
+  });
+
+  it('answers a visible tool call whose result was summarized away', () => {
+    const messages = projectMessagesFromLog({
+      log: reader([
+        userPrompt(0, { text: 'install it' }),
+        call(1, 'cut'),
+        userPrompt(2, { text: 'anything new?', turnId: t2 }),
+        result(3, 'cut'),
+        compaction(4, [2, 3]),
+      ]),
+    });
+    const useIndex = messages.findIndex((m) => m.content.some((b) => b.type === 'tool_use' && b.id === 'cut'));
+    expect(useIndex).toBeGreaterThanOrEqual(0);
+    expect(messages[useIndex + 1]).toMatchObject({
+      role: 'tool_result',
+      content: [{ type: 'tool_result', toolUseId: 'cut', isError: true }],
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, symlink } from 'node:fs/promises';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
+import { mkdtemp, mkdir, writeFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +9,7 @@ import path from 'node:path';
 vi.mock('electron', () => ({ protocol: { handle: () => undefined } }));
 
 import { resolveAssetRequest } from './assets-protocol';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let root: string;
 let appRoot: string;
@@ -22,7 +24,7 @@ beforeEach(async () => {
   await writeFile(path.join(root, 'secret.txt'), 'TOP SECRET');
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await removeDir(root);
 });
 
 describe('resolveAssetRequest', () => {
@@ -64,7 +66,7 @@ describe('resolveAssetRequest', () => {
     expect(resolveAssetRequest(root, 'moxxy-app://assets/anonymizer/nope.json')).toBeNull();
   });
 
-  it('rejects a symlink that escapes the app dir', async () => {
+  it.skipIf(!canSymlink)('rejects a symlink that escapes the app dir', async () => {
     // A symlink INSIDE the app dir pointing at the outside secret must not be
     // served (realpath-escape insurance).
     await symlink(path.join(root, 'secret.txt'), path.join(appRoot, 'leak.txt'));

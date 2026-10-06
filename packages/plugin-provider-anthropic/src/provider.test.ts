@@ -46,7 +46,7 @@ describe('AnthropicProvider.stream', () => {
 
     const events = [];
     for await (const event of provider.stream({
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       messages: [],
       tools: [fallback],
     })) events.push(event);
@@ -76,7 +76,7 @@ describe('AnthropicProvider.stream', () => {
     ]);
     const provider = new AnthropicProvider({ client: fake as never });
     const events = [];
-    for await (const event of provider.stream({ model: 'claude-sonnet-5', messages: [] })) {
+    for await (const event of provider.stream({ model: 'claude-sonnet-5-5', messages: [] })) {
       events.push(event);
     }
     const text = events
@@ -319,11 +319,11 @@ describe('AnthropicProvider.stream', () => {
 
 describe('anthropicModels', () => {
   it('offers the current Claude catalog and defaults to a model inside it', async () => {
-    expect(anthropicModels.map((model) => model.id)).toEqual([
-      'claude-fable-5',
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-haiku-4-5',
+    expect(anthropicModels.map((model) => [model.id, model.contextWindow, model.maxOutputTokens])).toEqual([
+      ['claude-fable-5-1', 1_000_000, 128_000],
+      ['claude-opus-5-5', 1_000_000, 128_000],
+      ['claude-sonnet-5-5', 1_000_000, 128_000],
+      ['claude-haiku-4-5', 200_000, 64_000],
     ]);
 
     const calls: Array<{ model?: string }> = [];

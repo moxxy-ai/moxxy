@@ -567,6 +567,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* --- Layout primitives ----------------------------------------- */
 
 .app-shell {
+  /* Anchors the chat docked over a full-view workbench. */
+  position: relative;
   display: flex;
   flex-direction: row;
   height: 100vh;
@@ -759,8 +761,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Clip while the width animates, or the content spills over the field. */
-  overflow: hidden;
+  /* Clip while the width animates, or the content spills over the field.
+   * `clip`, not `hidden`: a hidden overflow still scrolls when something
+   * inside is scrolled into view, and slid the whole column sideways. */
+  overflow: clip;
   transition:
     width var(--motion-shift) ease,
     border-right-color var(--motion-shift) ease,
@@ -896,6 +900,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   min-width: 0;
 }
 
+/* Pane actions portalled in through BarActions: laid out like the rest of the
+   bar, not as inline text (which baseline-aligned an icon button higher than
+   its neighbour and glued the two together). */
+.instrument__slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
 .crumbs {
   display: flex;
   align-items: center;
@@ -985,6 +998,33 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   gap: var(--space-2);
   padding: var(--space-8) 0;
   background: var(--color-app-bg);
+}
+
+/* Open, the workbench gives way before the chat does: its dragged width is
+ * where it starts, and it shrinks to its minimum when the window cannot hold
+ * both. The chat's own `min-width` is the other half of this. */
+.bench:not(.bench--closed) {
+  flex-shrink: 1;
+  min-width: 280px;
+}
+
+/* Full view: the pane takes the window. The project column steps aside and the
+ * chat floats over the pane as a composer (`.col-main--docked`). */
+.bench.bench--full {
+  flex: 1;
+  min-width: 0;
+  border-left: 0;
+}
+.app-shell:has(.bench--full) .index-col {
+  display: none;
+}
+
+/* A window too narrow for the project column, a readable chat and an open
+ * workbench drops the column, as Codex does, rather than crushing the chat. */
+@media (max-width: 960px) {
+  .app-shell:has(.bench:not(.bench--closed)) .index-col {
+    display: none;
+  }
 }
 
 .bench__stub {
@@ -1090,6 +1130,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
+/* The browser stays mounted once opened (its pages die with the element).
+ * Hidden, it is parked off-screen rather than `display:none`, which would stop
+ * Chromium painting it. */
+.bench__browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bench__browser[data-shown='false'] {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  height: 100vh;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* --- Browser pane ---------------------------------------------- */
 
 /* The agent's browser. Chrome only — the page is a Chromium view the window
@@ -1107,6 +1165,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* The page's own chrome reads as a browser's, not as the harness's: the
+   * proportional face for titles and addresses, as Codex and every browser do. */
+  font-family: var(--font-prose);
 }
 
 /* Recessed, so the active tab reads as lifted out of it. No accent underline
@@ -1115,11 +1176,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * work, which keeps the chrome achromatic. */
 .browser__tabs {
   display: flex;
+  align-items: center;
+  gap: var(--space-2);
   height: var(--frame-row);
   flex-shrink: 0;
   min-width: 0;
+  padding: 0 var(--space-4);
   background: var(--color-app-bg);
-  border-bottom: 1px solid var(--color-card-border);
 }
 
 /* Only as wide as the tabs need, so the new-tab button sits against the last
@@ -1129,7 +1192,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .browser__tablist {
   flex: 0 1 auto;
   min-width: 0;
+  height: 100%;
   display: flex;
+  align-items: center;
+  gap: var(--space-2);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -1140,30 +1206,22 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  max-width: 208px;
+  /* Narrow panes keep more tabs in view; a wide one lets titles breathe. */
+  width: clamp(120px, 22%, 220px);
+  height: calc(100% - 2 * var(--space-4));
   padding-right: var(--space-2);
-  border-right: 1px solid var(--color-card-border);
+  border-radius: var(--radius-chip);
   color: var(--color-text-dim);
 }
-.browser__tab:hover { color: var(--color-text); }
+.browser__tab:hover { color: var(--color-text); background: var(--color-input-soft); }
 .browser__tab[data-active='true'] {
   color: var(--color-text);
-  background: var(--color-main-bg);
-}
-/* Paint over the strip's bottom rule so the active tab joins the address row
- * beneath it, the way a browser tab has always joined its toolbar. */
-.browser__tab[data-active='true']::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 1px;
   background: var(--color-main-bg);
 }
 
 .browser__tab-name {
   display: inline-flex;
+  flex: 1;
   align-items: center;
   gap: var(--space-6);
   min-width: 0;
@@ -1224,23 +1282,31 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-bottom: 1px solid var(--color-card-border);
 }
 
+/* Codex's bar: a pill centred in the toolbar naming the site, which opens into
+ * the full, selected address when you go to change it. Auto margins centre it
+ * in the room the buttons leave; the cap keeps it a bar, not a banner, on a
+ * full-view pane. */
 .browser__address {
   flex: 1;
   min-width: 0;
+  max-width: 640px;
   height: var(--frame-control);
-  margin: 0 var(--space-4);
-  padding: 0 var(--space-8);
+  margin: 0 auto;
+  padding: 0 var(--space-12);
   border: 1px solid transparent;
-  border-radius: var(--radius-chip);
+  border-radius: var(--radius-pill);
   background: var(--color-input-soft);
   color: var(--color-text);
-  font-family: var(--font-mono);
+  font-family: var(--font-prose);
   font-size: var(--type-meta);
+  text-align: center;
+  text-overflow: ellipsis;
 }
 .browser__address:focus {
   outline: none;
   border-color: var(--color-card-border-strong);
   background: var(--color-surface);
+  text-align: left;
 }
 
 /* The agent has stopped and is waiting for the person at the keyboard. Amber is
@@ -1354,6 +1420,73 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   background: var(--color-main-bg);
 }
 
+/* The agent's pointer: the Computer Use arrowhead, drawn over the page it works on. */
+.browser__cursor {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transition-property: left, top;
+  transition-timing-function: ease-in-out;
+}
+.browser__cursor svg {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%));
+}
+.browser__cursor path { fill: var(--color-primary); stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+.browser__cursor[data-phase='failed'] path { fill: var(--color-red); }
+.browser__cursor-ring {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  opacity: 0;
+  animation: browser-cursor-press 350ms ease-out;
+}
+.browser__cursor[data-phase='failed'] .browser__cursor-ring {
+  border-color: var(--color-red);
+  background: color-mix(in srgb, var(--color-red) 16%, transparent);
+}
+@keyframes browser-cursor-press {
+  from { opacity: 0.9; transform: scale(0.4); }
+  to { opacity: 0; transform: scale(1.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser__cursor { transition: none; }
+  .browser__cursor-ring { animation-name: browser-cursor-fade; }
+}
+@keyframes browser-cursor-fade {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+
+.browser__control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--color-card-border);
+  background: var(--color-input-soft);
+  font-size: var(--type-meta);
+}
+.browser__control[data-mode='user'] {
+  border-bottom-color: var(--color-amber-border);
+  background: var(--color-amber-soft);
+  color: var(--color-amber-text);
+}
+.browser__control-label { min-width: 0; }
+.browser__control-actions { display: flex; gap: var(--space-6); flex-shrink: 0; }
+
 .browser__empty {
   padding: var(--space-24);
   color: var(--color-text-dim);
@@ -1412,6 +1545,123 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * that intentionally float a card. */
 .col-main--flat {
   padding: 0;
+}
+
+/* The chat beside a workbench keeps room to read and type in, and never paints
+ * past its own edge: squeezed to a sliver, its header used to draw over the
+ * workbench tabs. Mirrors CHAT_MIN_WIDTH in lib/useRailWidth. */
+.app-shell > .col-main {
+  min-width: 320px;
+  overflow: hidden;
+}
+
+/* Docked over a full-view workbench: only the composer and anything waiting on
+ * the person (a question, voice, an error) — floating in the bottom-right
+ * corner the way Codex floats its composer over the browser. */
+.app-shell > .col-main.col-main--docked {
+  position: absolute;
+  right: var(--space-16);
+  bottom: var(--space-16);
+  z-index: 40;
+  width: min(440px, calc(100% - 2 * var(--space-16)));
+  min-width: 0;
+  max-height: calc(100% - 2 * var(--space-16));
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+.col-main--docked > * {
+  pointer-events: auto;
+}
+.app-shell > .col-main.col-main--docked {
+  gap: var(--space-8);
+}
+/* Docked, these genuinely float above the pane, so here they get the card's
+ * radius and shadow that permanent chrome does not. */
+.col-main--docked .cmdbar,
+.col-main--docked .ask-dock,
+.col-main--docked .voice-rail {
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+}
+.col-main--docked .ask-dock,
+.col-main--docked .voice-rail {
+  overflow: hidden;
+}
+/* The composer is NOT clipped to its card: its + menu and mode submenu open
+ * upward past its edge. Its banded top row takes the corner radius instead. */
+.col-main--docked .cmdbar > :first-child {
+  border-top-left-radius: calc(var(--radius-card) - 1px);
+  border-top-right-radius: calc(var(--radius-card) - 1px);
+}
+.col-main--docked .cmdbar__keys {
+  display: none;
+}
+
+/* Tucks the floating composer away: a small round button on the corner of the
+ * topmost card, so it never takes a row of its own over the page. */
+.app-shell > .col-main--docked > .chat-dock__hide {
+  position: absolute;
+  top: calc(-1 * var(--space-8));
+  right: calc(-1 * var(--space-8));
+  /* Above the voice rail, which stacks itself at 3. */
+  z-index: 5;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  box-shadow: var(--color-card-shadow);
+  cursor: pointer;
+}
+.app-shell > .col-main--docked > .chat-dock__hide:hover {
+  color: var(--color-text);
+  background: var(--color-primary-soft);
+}
+
+/* Tucked away, only the moxxy button is left in the corner. */
+.app-shell > .col-main.col-main--minimized {
+  width: auto;
+}
+.chat-launcher {
+  align-self: flex-end;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--color-card-shadow);
+  cursor: pointer;
+  transition: transform var(--motion-shift) ease;
+}
+.chat-launcher:hover {
+  transform: scale(1.06);
+}
+.chat-launcher:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* The agent is still working (or listening): a slow ring says so without
+ * asking to be opened. */
+.chat-launcher.is-busy {
+  animation: chat-launcher-busy 1.6s ease-in-out infinite;
+}
+@keyframes chat-launcher-busy {
+  0%, 100% { box-shadow: var(--color-card-shadow), 0 0 0 0 color-mix(in srgb, var(--color-primary) 45%, transparent); }
+  50% { box-shadow: var(--color-card-shadow), 0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-launcher { transition: none; }
+  .chat-launcher.is-busy { animation: none; box-shadow: var(--color-card-shadow), 0 0 0 2px var(--color-primary); }
 }
 
 .card {
@@ -1849,7 +2099,10 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tip { position: relative; }
 
 .tip::after {
-  content: attr(data-tip);
+  /* No box until it shows: an invisible bubble still takes room beside its
+   * control, and in the session list that room made the sidebar scroll
+   * sideways. */
+  content: none;
   position: absolute;
   left: calc(100% + 8px);
   top: 50%;
@@ -1872,11 +2125,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   box-shadow: var(--color-card-shadow);
   white-space: normal;
   line-height: 1.35;
-  opacity: 0;
   pointer-events: none;
-  /* Hidden by default with NO delay, so leaving a control clears the bubble at
-   * once; the delay below applies only on the way in. */
-  transition: opacity 90ms ease 0ms;
 }
 
 .tip[data-tip-side='left']::after {
@@ -1890,18 +2139,20 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   transform: translateX(-50%);
 }
 
-/* Fast, but not so fast that dragging the pointer across the rail strobes. */
+/* Fast, but not so fast that dragging the pointer across the rail strobes;
+ * leaving a control clears the bubble at once. */
 .tip:hover::after,
 .tip:focus-visible::after {
-  opacity: 1;
-  transition-delay: 140ms;
+  content: attr(data-tip);
+  animation: moxxy-fade-in 90ms ease 140ms both;
 }
 
 /* An expanded rail already shows its labels; a bubble repeating them is noise. */
 .app-rail[data-expanded='true'] .tip::after { content: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .tip::after { transition: none; }
+  .tip:hover::after,
+  .tip:focus-visible::after { animation: none; }
 }
 
 /* --- Telemetry ---------------------------------------------------
@@ -2159,11 +2410,19 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * flex-END rather than flex-start so Send stays beside the last line you typed
  * as the input grows, instead of being pinned to the top of a tall box. */
 .cmdbar__in {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: var(--space-8);
   padding: var(--space-16);
 }
+
+/* The @ menu: as wide as the field it completes, rising out of it. */
+.mention-menu { left: var(--space-16); right: var(--space-16); bottom: calc(100% - var(--space-8)); }
+.mention-menu__row { cursor: pointer; }
+.mention-menu__row[data-active='true'] { color: var(--color-text); background: var(--color-input-soft); }
+.mention-menu__label { flex-shrink: 0; font-weight: 600; color: var(--color-text); }
+.mention-menu__hint { color: var(--color-text-dim); }
 
 /* The CHROME face, not prose — and this is a correction. The argument for prose
  * was that you are writing something a person reads, but the trace renders your

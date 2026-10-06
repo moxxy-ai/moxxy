@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asEventId, asSessionId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
-import { formatCompactionEvent, formatTriggerOrigin, formatUserPromptRows } from './EventLine.js';
+import { EventLine, formatCompactionEvent, formatTriggerOrigin, formatUserPromptRows } from './EventLine.js';
 
 describe('formatCompactionEvent', () => {
   it('renders a compact, readable compaction summary', () => {
@@ -24,12 +24,39 @@ describe('formatCompactionEvent', () => {
   });
 });
 
+describe('EventLine for a compaction', () => {
+  const compaction = (routine?: true) =>
+    ({
+      id: asEventId('e2'),
+      seq: 20,
+      ts: 1,
+      type: 'compaction',
+      sessionId: asSessionId('s1'),
+      turnId: asTurnId('t2'),
+      source: 'compactor',
+      compactor: 'segments',
+      replacedRange: [4, 9],
+      summary: '[segment 2 · turn t1 · seq 4-9]\nAsked: x',
+      tokensSaved: 6_100,
+      ...(routine ? { routine } : {}),
+    }) satisfies MoxxyEvent;
+
+  it('shows nothing for the routine record of a finished turn', () => {
+    expect(EventLine({ event: compaction(true) })).toBeNull();
+  });
+
+  it('still shows a compaction the context forced', () => {
+    expect(EventLine({ event: compaction() })).not.toBeNull();
+  });
+});
+
 describe('formatTriggerOrigin', () => {
   it('uses compact origin-aware labels for machine and checkpoint prompts', () => {
     expect(formatTriggerOrigin({ kind: 'webhook', name: 'github' })).toBe('Webhook received');
     expect(formatTriggerOrigin({ kind: 'schedule', name: 'morning' })).toBe('Schedule fired');
     expect(formatTriggerOrigin({ kind: 'workflow', name: 'release' })).toBe('Workflow ran');
     expect(formatTriggerOrigin({ kind: 'checkpoint', name: 'verify' })).toBe('Checkpoint intervened');
+    expect(formatTriggerOrigin({ kind: 'voice', name: '2 exchanges while the agent worked' })).toBe('Voice conversation');
   });
 });
 

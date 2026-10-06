@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-discord",
-  "version": "0.41.3",
+  "version": "0.42.0",
   "description": "Discord channel for moxxy via discord.js. Treats Discord DMs and allow-listed guild channels as a bidirectional channel: prompts in, streamed assistant replies out (edit-throttled), button-based permission prompts, DM code pairing.",
   "keywords": [
     "moxxy",
@@ -73,13 +73,17 @@
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
+    "@discordjs/voice": "^0.19.2",
     "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "discord.js": "^14.27.0"
+    "discord.js": "^14.27.0",
+    "opus-decoder": "^0.7.12"
   },
   "devDependencies": {
+    "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",

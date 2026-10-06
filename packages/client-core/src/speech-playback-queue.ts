@@ -1,3 +1,4 @@
+import type { SpeechPlaybackKind, SpeechPlaybackPhase } from '@moxxy/chat-model';
 import { toErrorMessage } from './errors.js';
 import { getPlatform, type AudioClipHandle } from './platform.js';
 import { toSpeakableText } from './speech.js';
@@ -5,8 +6,7 @@ import { planSpeechProsody, type SpeechProsody } from './speech-prosody.js';
 import { detectSpeechLanguage, type SpeechLanguage } from './streaming-speech.js';
 import { api } from './transport.js';
 
-export type SpeechPlaybackPhase = 'idle' | 'synthesizing' | 'speaking' | 'error';
-export type SpeechPlaybackKind = 'assistant' | 'cue';
+export type { SpeechPlaybackKind, SpeechPlaybackPhase };
 
 export interface SpeechPlaybackSnapshot {
   readonly phase: SpeechPlaybackPhase;
@@ -41,11 +41,13 @@ interface FailedClip {
 type PreparedResult = PreparedClip | FailedClip;
 
 interface QueuedSpeech {
+  readonly requestId: string;
   readonly text: string;
   readonly language: SpeechLanguage;
   readonly prosody: SpeechProsody;
   readonly kind: SpeechPlaybackKind;
   prepared: Promise<PreparedResult> | null;
+  synthesisPending: boolean;
   cancelled: boolean;
 }
 
@@ -56,6 +58,8 @@ const IDLE_SNAPSHOT: SpeechPlaybackSnapshot = Object.freeze({
 });
 
 let activeQueue: SpeechPlaybackQueue | null = null;
+let nextSynthesisRequest = 0;
+const PREFETCH_SENTENCE_COUNT = 2;
 
 function claimPlayback(queue: SpeechPlaybackQueue): void {
   if (activeQueue === queue) return;
@@ -69,7 +73,7 @@ function releasePlayback(queue: SpeechPlaybackQueue): void {
 
 /**
  * Serial audio player with bounded prefetch. Playback remains strictly ordered
- * while Piper prepares exactly one sentence ahead of the current audio.
+ * while up to two upcoming sentences are synthesized ahead of the current audio.
  */
 export class SpeechPlaybackQueue {
   private readonly listeners = new Set<() => void>();
@@ -83,6 +87,7 @@ export class SpeechPlaybackQueue {
   private pauseTimer: ReturnType<typeof setTimeout> | null = null;
   private previousLanguage: SpeechLanguage | undefined;
   private readonly preparedCues = new Map<string, Promise<PreparedResult>>();
+  private readonly inFlightSynthesis = new Set<QueuedSpeech>();
 
   constructor(
     private readonly workspaceId?: string,
@@ -128,9 +133,17 @@ export class SpeechPlaybackQueue {
 
   cancelPendingCues(): void {
     if (this.preparingItem?.kind === 'cue') this.preparingItem.cancelled = true;
+    this.cancelSynthesisRequests(
+      [...this.inFlightSynthesis].filter((item) => item.kind === 'cue'),
+    );
     for (let index = this.items.length - 1; index >= 0; index -= 1) {
-      if (this.items[index]?.kind === 'cue') this.items.splice(index, 1);
+      const item = this.items[index];
+      if (item?.kind === 'cue') {
+        item.cancelled = true;
+        this.items.splice(index, 1);
+      }
     }
+    this.clearPreparedCues();
   }
 
   clearPreparedCues(): void {
@@ -150,7 +163,7 @@ export class SpeechPlaybackQueue {
     if (this.snapshot.phase === 'idle' || this.snapshot.phase === 'error') {
       this.setSnapshot('synthesizing', null, kind);
     }
-    if (this.activeClip || this.systemSpeaking) this.prepareNext();
+    if (this.preparing || this.activeClip || this.systemSpeaking) this.prepareAhead();
     void this.pump(this.generation);
   }
 
@@ -169,6 +182,8 @@ export class SpeechPlaybackQueue {
       prosody,
       kind,
       prepared: null,
+      requestId: makeSynthesisRequestId(),
+      synthesisPending: false,
       cancelled: false,
     };
   }
@@ -176,6 +191,9 @@ export class SpeechPlaybackQueue {
   cancel(): void {
     const ownsPlayback = activeQueue === this;
     this.generation += 1;
+    this.cancelSynthesisRequests([...this.inFlightSynthesis]);
+    for (const item of this.items) item.cancelled = true;
+    if (this.preparingItem) this.preparingItem.cancelled = true;
     this.items.length = 0;
     this.preparing = false;
     this.preparingItem = null;
@@ -204,7 +222,9 @@ export class SpeechPlaybackQueue {
     this.preparing = true;
     this.preparingItem = item;
     this.setSnapshot('synthesizing', null, item.kind);
-    const prepared = await this.prepare(item);
+    const preparing = this.prepare(item);
+    this.prepareAhead();
+    const prepared = await preparing;
     if (generation !== this.generation) return;
     this.preparing = false;
     this.preparingItem = null;
@@ -269,7 +289,7 @@ export class SpeechPlaybackQueue {
           return;
         }
         this.activeClip = clip;
-        this.prepareNext();
+        this.prepareAhead();
         return;
       }
 
@@ -281,7 +301,7 @@ export class SpeechPlaybackQueue {
         onend: finish,
         onerror: failPlayback,
       });
-      this.prepareNext();
+      this.prepareAhead();
     } catch (error) {
       if (item.kind === 'cue') {
         this.activeClip = null;
@@ -303,15 +323,22 @@ export class SpeechPlaybackQueue {
   }
 
   private prepareUncached(item: QueuedSpeech): Promise<PreparedResult> {
+    if (item.cancelled) {
+      return Promise.resolve({ ok: false, error: new Error('Speech synthesis was interrupted.') });
+    }
+    item.synthesisPending = true;
+    this.inFlightSynthesis.add(item);
     return Promise.resolve()
-      .then(() =>
-        api().invoke('session.synthesize', {
+      .then(() => {
+        if (item.cancelled) throw new Error('Speech synthesis was interrupted.');
+        return api().invoke('session.synthesize', {
           ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
+          requestId: item.requestId,
           text: item.text,
           language: item.language,
           rate: item.prosody.rate,
-        }),
-      )
+        });
+      })
       .then<PreparedResult>((clip) => ({
         ok: true,
         text: item.text,
@@ -319,17 +346,33 @@ export class SpeechPlaybackQueue {
         prosody: item.prosody,
         clip,
       }))
-      .catch<PreparedResult>((error: unknown) => ({ ok: false, error }));
+      .catch<PreparedResult>((error: unknown) => ({ ok: false, error }))
+      .finally(() => {
+        item.synthesisPending = false;
+        this.inFlightSynthesis.delete(item);
+      });
+  }
+
+  private cancelSynthesisRequests(items: ReadonlyArray<QueuedSpeech>): void {
+    for (const item of items) {
+      if (!item.synthesisPending) continue;
+      item.cancelled = true;
+      void api().invoke('session.cancelSynthesis', {
+        ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
+        requestId: item.requestId,
+      }).catch(() => undefined);
+    }
   }
 
   private cueKey(item: QueuedSpeech): string {
     return `${item.language}\u0000${item.prosody.rate}\u0000${item.text}`;
   }
 
-  /** Keep exactly one sentence warm while the current sentence is playing. */
-  private prepareNext(): void {
-    const next = this.items[0];
-    if (next) void this.prepare(next);
+  /** Prepare a small bounded window; all additional sentences stay text-only. */
+  private prepareAhead(): void {
+    for (const item of this.items.slice(0, PREFETCH_SENTENCE_COUNT)) {
+      if (!item.cancelled) void this.prepare(item);
+    }
   }
 
   private pauseBeforeNext(durationMs: number, generation: number): void {
@@ -352,6 +395,7 @@ export class SpeechPlaybackQueue {
 
   private fail(reason: string): void {
     this.generation += 1;
+    this.cancelSynthesisRequests([...this.inFlightSynthesis]);
     this.items.length = 0;
     this.preparing = false;
     this.preparingItem = null;
@@ -378,4 +422,10 @@ export class SpeechPlaybackQueue {
     this.snapshot = Object.freeze({ phase, errorReason, currentKind });
     for (const listener of this.listeners) listener();
   }
+}
+
+function makeSynthesisRequestId(): string {
+  nextSynthesisRequest += 1;
+  const random = Math.random().toString(36).slice(2, 10);
+  return `speech-${Date.now().toString(36)}-${nextSynthesisRequest.toString(36)}-${random}`;
 }

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   estimateContextTokens,
   projectMessagesFromLog,
+  type CompactionEvent,
   type EventLogReader,
+  type LLMProvider,
+  type ProviderRequest,
   type MoxxyEvent,
   type MoxxyEventOfType,
   type MoxxyEventType,
@@ -194,6 +197,109 @@ describe('segments compactor: the records themselves', () => {
         signal: controller.signal,
       }),
     ).rejects.toThrow(/aborted/);
+  });
+});
+
+/** A finished turn: the user's words, then a reply long enough to be worth recording. */
+function turnEvents(turnId: string, firstSeq: number, text: string, replyChars = 1_200): MoxxyEvent[] {
+  return [
+    {
+      id: `u${firstSeq}` as never, seq: firstSeq, ts: 0, type: 'user_prompt',
+      sessionId: 'sess' as never, turnId: turnId as never, source: 'user', text,
+    } as MoxxyEvent,
+    {
+      id: `a${firstSeq + 1}` as never, seq: firstSeq + 1, ts: 0, type: 'assistant_message',
+      sessionId: 'sess' as never, turnId: turnId as never, source: 'model',
+      content: 'a'.repeat(replyChars), stopReason: 'end_turn',
+    } as MoxxyEvent,
+  ];
+}
+
+function history(prompts: ReadonlyArray<string>, replyChars?: number): MoxxyEvent[] {
+  return prompts.flatMap((text, i) => turnEvents(`t${i}`, i * 2, text, replyChars));
+}
+
+async function firstRecord(
+  events: ReadonlyArray<MoxxyEvent>,
+  options: Parameters<typeof createSegmentsCompactor>[0],
+  budget = budgetFor(events),
+): Promise<Omit<CompactionEvent, 'id' | 'seq' | 'ts'>> {
+  const compactor = createSegmentsCompactor(options);
+  return compactor.compact(events, { log: reader(events), budget, signal: new AbortController().signal });
+}
+
+describe('segments compactor: what the user settled survives the record', () => {
+  it("keeps the user's own words in the record even when the summary leaves them out", async () => {
+    const events = history([
+      'Ustaw lot tylko w jedną stronę, 7 października.',
+      'next',
+      'and next',
+      'and the last one',
+    ], 2_400);
+    const record = await firstRecord(events, { summary: () => 'Asked: flights. Did: searched.' });
+
+    expect(record.summary).toMatch(/^\[segment 1 · turn t0 · seq 0-1\]\nUser: Ustaw lot tylko w jedną stronę, 7 października\.\n/);
+  });
+
+  it('shortens a long message and still shrinks the context', async () => {
+    const events = history(['w'.repeat(5_000), 'next', 'and next', 'and the last one']);
+    const record = await firstRecord(events, { summary: () => 'Asked: a long paste.' });
+
+    const userLine = record.summary.split('\n').find((line) => line.startsWith('User: '));
+    expect(userLine).toBe(`User: ${'w'.repeat(300)}…`);
+    expect(record.tokensSaved).toBeGreaterThan(0);
+  });
+
+  it('never lets the kept words grow the context, even with a low record threshold', async () => {
+    const events = history(['u'.repeat(280), 'next', 'and next', 'and the last one'], 30);
+    const record = await firstRecord(events, { minSegmentChars: 300, summary: () => 'Asked: a short one.' });
+    expect(record.tokensSaved).toBeGreaterThan(0);
+  });
+
+  it('asks the summarizer for the choices the user settled', async () => {
+    const received: ProviderRequest[] = [];
+    const provider: LLMProvider = {
+      name: 'stub',
+      models: [{ id: 'stub-model', contextWindow: 200_000, maxOutputTokens: 1_000, supportsTools: false, supportsStreaming: true }],
+      async *stream(req) {
+        received.push(req);
+        yield { type: 'message_start', model: 'stub-model' };
+        yield { type: 'text_delta', delta: 'Asked: flights.' };
+        yield { type: 'message_end', stopReason: 'end_turn' };
+      },
+      countTokens: async () => 0,
+    };
+    const events = history(['one-way please', 'next', 'and next', 'and the last one'], 2_400);
+    await createSegmentsCompactor().compact(events, {
+      log: reader(events), budget: budgetFor(events), signal: new AbortController().signal,
+      provider, model: 'stub-model',
+    });
+
+    expect(received[0]?.system).toMatch(/^Settled: /m);
+    expect(received[0]?.system).toMatch(/one-way or return/);
+  });
+});
+
+describe('segments compactor: routine records', () => {
+  it('marks the record of a finished turn as routine, so surfaces need not announce it', async () => {
+    const events = history(['first', 'second', 'third', 'fourth'], 2_400);
+    const record = await firstRecord(events, { summary: () => 'Asked: something.' });
+    expect(record.routine).toBe(true);
+  });
+
+  it('does not mark a record written because the context is nearly full', async () => {
+    const events = history(['first', 'second', 'third', 'fourth'], 2_400);
+    const full = { contextWindow: 10_000, estimatedTokens: 9_000, reserveForOutput: 500 };
+    const record = await firstRecord(events, { summary: () => 'Asked: something.' }, full);
+    expect(record.tokensSaved).toBeGreaterThan(0);
+    expect(record.routine).toBeUndefined();
+  });
+
+  it('marks a chapter fold as routine too', async () => {
+    const s = session();
+    for (let i = 0; i < 40; i++) await s.turn(`task ${i}`);
+    const chapter = s.events.find((e) => e.type === 'compaction' && e.summary.startsWith('[chapter '));
+    expect(chapter).toMatchObject({ routine: true });
   });
 });
 

@@ -1,10 +1,9 @@
 /**
- * The Node.js prerequisite step — only applies when Node isn't detected.
+ * The runtime step — only applies when the computer has no Node.
  *
- * Offers a one-click **auto-install** (downloads the official Node LTS into the
- * app's data dir and puts it on PATH — no admin, no package manager) with the
- * manual nodejs.org download as a fallback. Streams install progress to a log
- * box and advances once Node is present.
+ * The install starts by itself ({@link useRuntimeAutoInstall}); this step only
+ * shows it happening, in the product's words rather than the runtime's name.
+ * A failed download offers a retry, with the manual download as a last resort.
  */
 
 import type { UseOnboarding } from '@moxxy/client-core';
@@ -35,14 +34,14 @@ export function NodeStep({
 
   return (
     <StepCard
-      title="Install Node.js"
-      sub="Node.js is the runtime moxxy runs on. I can install it for you — no setup or admin needed — or you can grab it from nodejs.org yourself."
+      title="Getting Moxxy ready"
+      sub="Moxxy is downloading a component it needs to run. This happens once and needs nothing from you."
     >
       {installed ? (
-        <SuccessRow text={`Node ${ob.node?.version ?? ''} is ready.`} />
-      ) : installing ? (
+        <SuccessRow text="Everything is in place." />
+      ) : installing || !error ? (
         <>
-          <Pulse label="Downloading and installing Node…" />
+          <Pulse label="Downloading and installing…" />
           {log.length > 0 && (
             <pre
               className="mono"
@@ -74,18 +73,15 @@ export function NodeStep({
             gap: 12,
           }}
         >
-          {error && (
-            <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
-              {error}
-            </div>
-          )}
-          <PrimaryButton onClick={() => void ob.installNode.run()}>
-            {error ? 'Try again' : 'Install automatically'}
-          </PrimaryButton>
+          <div role="alert" style={{ fontSize: 'var(--type-row)', color: 'var(--color-red)' }}>
+            The download did not finish. Check your internet connection and try again.
+          </div>
+          <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>{error}</div>
+          <PrimaryButton onClick={() => void ob.installNode.run()}>Try again</PrimaryButton>
           <SecondaryButton
             onClick={() => void ob.openExternal('https://nodejs.org/en/download')}
           >
-            Download from nodejs.org
+            Install it myself
           </SecondaryButton>
         </div>
       )}

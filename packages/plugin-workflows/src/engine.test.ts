@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sweepStaleRecords } from './engine.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 
@@ -11,7 +12,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 
 describe('sweepStaleRecords', () => {

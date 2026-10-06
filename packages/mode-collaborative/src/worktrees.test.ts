@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
+import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -16,6 +17,7 @@ import {
   resolveBase,
   takeFileFromBranch,
 } from './worktrees.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -25,7 +27,7 @@ afterEach(() => {
 
 async function initRepo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'mc-wt-'));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeDirSync(dir));
   await git(dir, ['init', '-b', 'main']);
   writeFileSync(join(dir, 'README.md'), '# base\n');
   await git(dir, ['add', '-A']);
@@ -237,14 +239,14 @@ describe('worktree git engine', () => {
     }
   });
 
-  it('peer-read does NOT follow a symlink that escapes the worktree', async () => {
+  it.skipIf(!canSymlink)('peer-read does NOT follow a symlink that escapes the worktree', async () => {
     const repo = await initRepo();
     const base = await headSha(repo);
     const wt = join(repo, '.wt-symlink');
     await addWorktree({ repoCwd: repo, path: wt, branch: 'b/symlink', baseSha: base });
     // A secret OUTSIDE the worktree.
     const outsideDir = mkdtempSync(join(tmpdir(), 'mc-secret-'));
-    cleanups.push(() => rmSync(outsideDir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(outsideDir));
     const secret = join(outsideDir, 'secret.txt');
     writeFileSync(secret, 'TOP SECRET\n');
     // An attacker-planted symlink whose path-string ('leak') passes resolveWithin
@@ -264,7 +266,7 @@ describe('worktree git engine', () => {
     // The no-git shared-workspace path: `path` is still untrusted peer input over
     // the hub socket, so traversal/absolute escapes must be rejected, not read.
     const cwd = mkdtempSync(join(tmpdir(), 'mc-cwd-'));
-    cleanups.push(() => rmSync(cwd, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(cwd));
     writeFileSync(join(cwd, 'inside.ts'), 'export const inside = true;\n');
     const reader = cwdPeerReader(cwd);
     // Legit in-tree read works.
@@ -278,13 +280,13 @@ describe('worktree git engine', () => {
     expect(await reader.diff('any')).toBe('');
   });
 
-  it('cwdPeerReader does NOT follow a symlink that escapes the shared cwd', async () => {
+  it.skipIf(!canSymlink)('cwdPeerReader does NOT follow a symlink that escapes the shared cwd', async () => {
     // The shared workspace is attacker-influenced content: a planted symlink whose
     // path-string passes the string guard but resolves outside must be refused.
     const cwd = mkdtempSync(join(tmpdir(), 'mc-cwd-sym-'));
-    cleanups.push(() => rmSync(cwd, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(cwd));
     const outsideDir = mkdtempSync(join(tmpdir(), 'mc-cwd-secret-'));
-    cleanups.push(() => rmSync(outsideDir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(outsideDir));
     const secret = join(outsideDir, 'secret.txt');
     writeFileSync(secret, 'TOP SECRET\n');
     const { symlinkSync } = await import('node:fs');

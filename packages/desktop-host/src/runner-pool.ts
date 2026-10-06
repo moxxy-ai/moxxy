@@ -81,6 +81,21 @@ export class RunnerPool extends EventEmitter {
     }
   }
 
+  /**
+   * Attach (creating if needed) an entry for a runner someone ELSE owns — a
+   * channel bot's own runner on `socketPath`. The supervisor is attach-only
+   * (never spawns, kills or wipes it), and the entry never takes the
+   * foreground: it is reached by id, like the chat view of that channel.
+   */
+  async attach(id: string, socketPath: string): Promise<RunnerSupervisor> {
+    if (this.stopped) throw new Error('RunnerPool is stopped');
+    const existing = this.entries.get(id);
+    if (existing) return existing.supervisor;
+    const supervisor = new RunnerSupervisor(socketPath, id, { attachOnly: true });
+    this.track(id, supervisor);
+    return supervisor;
+  }
+
   private async createSupervisor(id: string, cwd: string | null): Promise<RunnerSupervisor> {
     const socketPath = socketFor(id);
     // Pass the workspace id as the runner's sticky session id so each
@@ -93,14 +108,18 @@ export class RunnerPool extends EventEmitter {
       await supervisor.stop();
       throw new Error('RunnerPool stopped before supervisor creation completed');
     }
+    this.track(id, supervisor);
+    if (this.activeId === null) this.activeId = id;
+    return supervisor;
+  }
+
+  private track(id: string, supervisor: RunnerSupervisor): void {
     this.entries.set(id, { id, supervisor });
     // Forward every supervisor's change event upward, tagged with the
     // workspace id, so the IPC layer can fan out to the renderer with
     // a per-workspace routing key.
     supervisor.on('change', () => this.emit('change', id));
     void supervisor.run();
-    if (this.activeId === null) this.activeId = id;
-    return supervisor;
   }
 
   /**

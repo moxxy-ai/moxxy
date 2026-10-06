@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineMode, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
+import { defineMode, definePlugin, defineTool, runReactLoop, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 
@@ -614,5 +614,41 @@ describe('goalMode end-to-end', () => {
 
       expect(session.modes.getActiveName()).toBe(GOAL_MODE_NAME);
     });
+  });
+});
+
+describe('goal tools outside goal mode', () => {
+  // In a plain browser task the model was offered goal_abandon, took it, and
+  // gave up on work it could do. The goal tools are goal mode's own.
+  const offered = (provider: FakeProvider): string[] => (provider.received[0]?.tools ?? []).map((t) => t.name);
+
+  it('are not offered to the model in another mode', async () => {
+    const provider = new FakeProvider({ script: [textReply('done')] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'plain-mode',
+        version: '0.0.0',
+        modes: [defineMode({ name: 'plain', run: (ctx) => runReactLoop(ctx, { strategyName: 'plain' }) })],
+      }),
+    );
+    session.modes.setActive('plain');
+
+    await collectTurn(session, 'open the page');
+
+    expect(offered(provider)).not.toContain('goal_complete');
+    expect(offered(provider)).not.toContain('goal_abandon');
+  });
+
+  it('are offered in goal mode', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('goal_complete', { summary: 'done' }, 'gc1')] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+
+    await collectTurn(session, 'do it');
+
+    expect(offered(provider)).toEqual(expect.arrayContaining(['goal_complete', 'goal_abandon']));
   });
 });

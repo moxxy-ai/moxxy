@@ -19,7 +19,7 @@ beforeEach(() => {
   tmp = mkdtempSync(path.join(os.tmpdir(), 'cli-resolver-'));
   process.env = { ...originalEnv };
   process.env.PATH = tmp;
-  process.env.HOME = tmp;
+  process.env.HOME = process.env.USERPROFILE = tmp;
   delete process.env.MOXXY_CLI_ENTRY;
   process.chdir(tmp);
 });

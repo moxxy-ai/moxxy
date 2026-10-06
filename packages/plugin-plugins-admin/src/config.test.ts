@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -9,6 +9,7 @@ import {
   setCategoryDefault,
   setPluginEnabled,
 } from './config.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 let configPath: string;
@@ -16,7 +17,7 @@ beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'mox-plugins-cfg-'));
   configPath = path.join(dir, 'config.yaml');
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeDirSync(dir));
 
 describe('plugins-admin config', () => {
   it('round-trips a disabled flag', async () => {

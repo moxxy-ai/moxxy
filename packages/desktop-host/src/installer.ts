@@ -10,7 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
@@ -136,66 +136,6 @@ function readPackageVersion(pkgPath: string, expectName: string): string | null 
     return typeof pkg.version === 'string' ? pkg.version : null;
   } catch {
     return null;
-  }
-}
-
-/**
- * Install the latest published `@moxxy/cli` into the desktop's writable
- * `<userDataDir>/cli` prefix — producing
- * `<userDataDir>/cli/node_modules/@moxxy/cli/dist/bin.js`, exactly the
- * path the Electron main prefers over the read-only bundled copy.
- *
- * Mirrors {@link installMoxxyCli}: streams every stdout/stderr line to
- * the renderer as `onboarding.install.progress`, resolves with the exit
- * code (non-zero install failures resolve normally so the UI can react),
- * and rejects only if npm isn't on PATH.
- */
-export async function updateCli(userDataDir: string, window: BrowserWindow): Promise<number> {
-  const target = path.join(userDataDir, 'cli');
-  const npm = findExecutable('npm', augmentedPaths());
-  if (!npm) throw new Error('npm not found on PATH — install Node.js to update the CLI');
-  const npmTarget = resolveExecutableTarget(npm);
-  if (!npmTarget) throw new Error(`npm executable disappeared before launch: ${npm}`);
-
-  emit(window, `$ npm install @moxxy/cli@latest --prefix ${target}`);
-
-  return new Promise<number>((resolve, reject) => {
-    const proc = spawnExecutableTarget(npmTarget, ['install', '@moxxy/cli@latest', '--prefix', target], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // GUI launches lack the shell PATH; npm's `#!/usr/bin/env node`
-      // shebang needs node, which lives in npm's own dir.
-      env: { ...process.env, PATH: spawnPath([dirname(npm)]) },
-    });
-    proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
-    proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
-    proc.on('error', reject);
-    proc.on('exit', (code) => {
-      // npm (and pnpm's store) can drop the executable bit on node-pty's macOS
-      // `spawn-helper`, which makes the terminal surface silently fall back to a
-      // dead piped shell. Repair it here so a fresh install gets a real PTY on
-      // first use. The runner also self-heals at spawn time, so this is belt-and-
-      // suspenders; never let it fail the install.
-      if (code === 0) chmodNodePtyHelpers(target);
-      resolve(code ?? -1);
-    });
-  });
-}
-
-/** Re-add the executable bit to node-pty's prebuilt `spawn-helper` under a
- *  freshly-installed CLI prefix (see {@link updateCli}). Best-effort + silent. */
-function chmodNodePtyHelpers(prefixRoot: string): void {
-  const base = path.join(prefixRoot, 'node_modules', 'node-pty');
-  const candidates = [
-    path.join(base, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
-    path.join(base, 'build', 'Release', 'spawn-helper'),
-  ];
-  for (const file of candidates) {
-    try {
-      const st = statSync(file);
-      if (!(st.mode & 0o111)) chmodSync(file, st.mode | 0o111);
-    } catch {
-      /* not present / not permitted — runtime self-heal covers it */
-    }
   }
 }
 

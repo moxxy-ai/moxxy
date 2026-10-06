@@ -520,3 +520,46 @@ describe('defaultMode end-to-end', () => {
     }
   });
 });
+
+describe('defaultMode — reporting on work that had not finished', () => {
+  /** A tool that looks at a job and says whether it was still running. */
+  const lookTool = (pending: string | null) =>
+    defineTool({
+      name: 'look',
+      description: 'looks at the job',
+      inputSchema: z.object({}),
+      handler: () => ({ text: 'the job page', progress: { key: 'job', pending } }),
+    });
+
+  const sentTexts = (provider: FakeProvider, call: number): string =>
+    (provider.received[call]?.messages ?? [])
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+
+  it('asks once to look again when the last look found the work still under way', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('look', {}, 'c1'), textReply('it is down'), textReply('still building, not confirmed')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(lookTool('build running'));
+
+    const events = await collectTurn(session, 'deploy it');
+
+    expect(provider.received).toHaveLength(3);
+    expect(sentTexts(provider, 2)).toContain('build running');
+    expect(sentTexts(provider, 2)).toContain('still in progress');
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'still building, not confirmed' });
+  });
+
+  it('lets the turn end when the last look found the work finished', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('look', {}, 'c1'), textReply('it is up')] });
+    const session = sessionWith(provider);
+    session.tools.register(lookTool(null));
+
+    await collectTurn(session, 'deploy it');
+
+    expect(provider.received).toHaveLength(2);
+  });
+});

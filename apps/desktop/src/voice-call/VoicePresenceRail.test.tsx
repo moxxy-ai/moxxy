@@ -34,6 +34,21 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
   return { ...view, ...handlers };
 }
 
+describe('VoicePresenceRail agent work', () => {
+  it('shows that the agent is working when no tool runs, instead of "No tools running"', () => {
+    renderRail({ phase: 'working', agentWork: { label: 'Agent thinking', elapsed: '1:05' } });
+
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Agent thinking · 1:05');
+    expect(screen.queryByText('No tools running')).toBeNull();
+  });
+
+  it('keeps "No tools running" when the agent is not working', () => {
+    renderRail({ agentWork: null });
+
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('No tools running');
+  });
+});
+
 describe('VoicePresenceRail', () => {
   it('announces the phase and keeps every control reachable by name', () => {
     const { onMuteMicrophone, onToggleWaitingSound, onClose } = renderRail();

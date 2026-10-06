@@ -96,13 +96,18 @@ export function buildSessionConfigApplier(
     }
 
     if (next.context?.lazyTools !== last.context?.lazyTools) {
-      session.lazyTools = next.context?.lazyTools ?? false;
+      session.lazyTools = next.context?.lazyTools;
       applied.push('lazyTools');
     }
 
     if (!deepEqual(next.context?.reasoning, last.context?.reasoning)) {
       session.reasoning = next.context?.reasoning;
       applied.push('reasoning');
+    }
+
+    if (next.context?.fast !== last.context?.fast) {
+      session.fast = next.context?.fast ?? false;
+      applied.push('fast');
     }
 
     if (!deepEqual(next.context?.loopGuard, last.context?.loopGuard)) {

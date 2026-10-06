@@ -87,7 +87,7 @@ export const SETTINGS_KNOBS: ReadonlyArray<SettingsKnob> = [
   {
     id: 'lazy-tools',
     label: 'Lazy tools',
-    description: 'defer tool schemas out of the system prompt (default off)',
+    description: 'defer tool schemas out of the system prompt (unset: on above 200 tools)',
     kind: 'boolean',
     dotPath: 'context.lazyTools',
     current: (c) => onOff(c.context?.lazyTools, false),

@@ -64,3 +64,27 @@ export {
   type VoiceToggleInput,
   type VoiceToggleResult,
 } from './voice-reply.js';
+export {
+  applyModelChoice,
+  findModelOptions,
+  formatModelChoice,
+  listModelOptions,
+  parseModelChoice,
+  type ApplyModelResult,
+  type ModelChoice,
+  type ModelOption,
+  type ModelSwitchSession,
+} from './model-choice.js';
+export {
+  modelSuggestions,
+  resolveChannelModel,
+  runModelCommand,
+  savedChannelModel,
+  type ModelCommandDeps,
+  type ModelSuggestion,
+} from './channel-model.js';
+export { AutoApproveSwitch } from './auto-approve.js';
+export { ForeignTurnMirror, MirrorTarget, type ForeignTurnMirrorOptions } from './mirror.js';
+export { channelTurnContext, type ChannelTurnContextSpec } from './turn-context.js';
+export { applySessionAction, type SessionActionTarget } from './session-action.js';
+export { readLocalFiles, type LocalFile, type ReadLocalFilesOptions } from './local-files.js';

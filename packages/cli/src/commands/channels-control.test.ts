@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { writeChannelStatus } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { runChannelsCommand } from './channels.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 // These verbs are status-file-only (no session boot), so they're cheap to drive
 // end-to-end against a temp MOXXY_HOME.
@@ -27,7 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  fs.rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
   vi.restoreAllMocks();
 });
 
@@ -87,7 +89,7 @@ describe('moxxy channels rotate-token', () => {
     expect(typeof first.token).toBe('string');
     expect(first.token).toHaveLength(64); // 32 random bytes as hex
     // 0600 — never world/group readable (secret material).
-    expect(fs.statSync(file).mode & 0o077).toBe(0);
+    if (posixFileModes) expect(fs.statSync(file).mode & 0o077).toBe(0);
   });
 
   it('replaces the previous secret on each rotation', async () => {

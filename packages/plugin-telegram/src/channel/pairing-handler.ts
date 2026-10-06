@@ -66,6 +66,11 @@ export class PairingHandler {
     return this.state.phase;
   }
 
+  /** The paired chat — where the bot reaches its owner — or null while unpaired. */
+  authorizedChatId(): number | null {
+    return this.state.authorizedChatId;
+  }
+
   /**
    * Open a host-issued pairing window and return the code to embed in the
    * `t.me/<bot>?start=<code>` deep link / QR the control surface renders. The

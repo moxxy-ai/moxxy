@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   fullUrl,
@@ -26,7 +27,7 @@ describe('webhook tool shared helpers', () => {
 
   describe('secretFilePath', () => {
     it('builds <dir>/<name>.secret', () => {
-      expect(secretFilePath('/tmp/secrets', 'gh-events')).toBe('/tmp/secrets/gh-events.secret');
+      expect(secretFilePath('/tmp/secrets', 'gh-events')).toBe(path.join('/tmp/secrets', 'gh-events.secret'));
     });
   });
 

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BoardItem } from '@moxxy/plugin-collab';
 import { integrate } from './integrate.js';
 import { collabBranch, worktreePath, worktreeRoot } from './constants.js';
 import { addWorktree, commitAll, git, headSha } from './worktrees.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -15,7 +16,7 @@ afterEach(() => {
 
 async function initRepo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'mc-integ-'));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeDirSync(dir));
   await git(dir, ['init', '-b', 'main']);
   writeFileSync(join(dir, 'shared.ts'), 'export const v = 0;\n');
   await git(dir, ['add', '-A']);
@@ -56,7 +57,7 @@ describe('integrate ownership + verifyGate', () => {
     const repo = await initRepo();
     const base = await headSha(repo);
     const runId = 'r1';
-    cleanups.push(() => rmSync(worktreeRoot(runId), { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(worktreeRoot(runId)));
 
     const aWt = await agentWorktree(repo, runId, 'a', base, 'shared.ts', 'export const v = 1; // A\n');
     const bWt = await agentWorktree(repo, runId, 'b', base, 'shared.ts', 'export const v = 2; // B\n');
@@ -86,7 +87,7 @@ describe('integrate ownership + verifyGate', () => {
     const repo = await initRepo();
     const base = await headSha(repo);
     const runId = 'r2';
-    cleanups.push(() => rmSync(worktreeRoot(runId), { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(worktreeRoot(runId)));
 
     const aWt = await agentWorktree(repo, runId, 'a', base, 'feature.ts', 'export const a = 1;\n');
 

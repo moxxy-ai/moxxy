@@ -12,7 +12,22 @@ vi.mock('./surfaces/FilesPane', () => ({ FilesPane: () => <div data-testid="pane
 vi.mock('./surfaces/FilesExplorerPane', () => ({
   FilesExplorerPane: () => <div data-testid="pane-explorer" />,
 }));
-vi.mock('./surfaces/BrowserPane', () => ({ BrowserPane: () => <div data-testid="pane-browser" /> }));
+// The browser pane counts its mounts: unmounting it destroys its pages.
+const browserLife = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+vi.mock('./surfaces/BrowserPane', async () => {
+  const { useEffect } = await import('react');
+  return {
+    BrowserPane: () => {
+      useEffect(() => {
+        browserLife.mounts += 1;
+        return () => {
+          browserLife.unmounts += 1;
+        };
+      }, []);
+      return <div data-testid="pane-browser" />;
+    },
+  };
+});
 
 /**
  * The workbench replaced a drawer that was undiscoverable when closed and could
@@ -102,10 +117,120 @@ describe('Workbench, open', () => {
   });
 });
 
+/**
+ * Full view is the Codex gesture: the pane takes the window and the chat
+ * shrinks to a composer floating over it. Collapsed, there is nothing to show
+ * full, so the toggle is only on an open workbench.
+ */
+describe('Workbench, full view', () => {
+  it('offers full view on an open workbench and asks for it on click', () => {
+    const onToggleFull = vi.fn();
+    render(<Workbench tab="browser" onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" full={false} onToggleFull={onToggleFull} />);
+    const button = screen.getByTestId('bench-full');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.getAttribute('aria-label')).toBe('Full view');
+    fireEvent.click(button);
+    expect(onToggleFull).toHaveBeenCalledTimes(1);
+  });
+
+  it('fills the window in full view instead of keeping its dragged width', () => {
+    render(<Workbench tab="browser" onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" full onToggleFull={vi.fn()} />);
+    const aside = screen.getByRole('complementary', { name: 'Workbench' });
+    expect(aside.classList.contains('bench--full')).toBe(true);
+    expect(aside.style.width).toBe('');
+    // Nothing beside it to resize against.
+    expect(screen.queryByRole('separator', { name: 'Resize workbench' })).toBeNull();
+    const button = screen.getByTestId('bench-full');
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('aria-label')).toBe('Exit full view');
+  });
+
+  it('has no full view toggle while collapsed', () => {
+    render(<Workbench tab={null} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" full={false} onToggleFull={vi.fn()} />);
+    expect(screen.queryByTestId('bench-full')).toBeNull();
+  });
+});
+
+/**
+ * The drag used to run to a fixed 860 px whatever the window: on a laptop the
+ * chat beside it was crushed to a sliver, on a wide screen the browser stopped
+ * short of the room there was. It now stops where the chat reaches its minimum.
+ */
+describe('Workbench, resizing', () => {
+  it('stops the drag where the chat beside it would get narrower than its minimum', async () => {
+    const { setRailWidth, CHAT_MIN_WIDTH } = await import('../lib/useRailWidth');
+    setRailWidth(400);
+    render(
+      <div>
+        <main data-testid="chat" />
+        <Workbench tab="terminal" onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />
+      </div>,
+    );
+    const aside = screen.getByRole('complementary', { name: 'Workbench' });
+    const rect = (left: number, width: number) =>
+      ({ left, width, right: left + width, top: 0, bottom: 0, height: 0, x: left, y: 0, toJSON: () => ({}) }) as DOMRect;
+    screen.getByTestId('chat').getBoundingClientRect = () => rect(0, 800);
+    aside.getBoundingClientRect = () => rect(800, 400);
+
+    const grip = screen.getByRole('separator', { name: 'Resize workbench' });
+    fireEvent.pointerDown(grip, { clientX: 800 });
+    // jsdom has no PointerEvent; a MouseEvent of the same type carries clientX.
+    fireEvent(window, new MouseEvent('pointermove', { clientX: 0 }));
+    fireEvent(window, new MouseEvent('pointerup'));
+
+    expect(aside.style.width).toBe(`${400 + 800 - CHAT_MIN_WIDTH}px`);
+    expect(grip.getAttribute('aria-valuemax')).toBe(String(400 + 800 - CHAT_MIN_WIDTH));
+  });
+});
+
+describe('Workbench, the browser', () => {
+  beforeEach(() => {
+    browserLife.mounts = 0;
+    browserLife.unmounts = 0;
+  });
+
+  const bench = (tab: 'terminal' | 'browser' | null) => (
+    <Workbench tab={tab} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />
+  );
+  const shown = () => screen.getByTestId('pane-browser').closest('[data-shown]')?.getAttribute('data-shown');
+
+  it('keeps its pages when the workbench is collapsed and opened again', () => {
+    const { rerender } = render(bench('browser'));
+    rerender(bench(null));
+    expect(shown()).toBe('false');
+    rerender(bench('browser'));
+
+    expect(shown()).toBe('true');
+    expect(browserLife).toEqual({ mounts: 1, unmounts: 0 });
+  });
+
+  it('keeps its pages while another pane is shown', () => {
+    const { rerender } = render(bench('browser'));
+    rerender(bench('terminal'));
+    expect(screen.getByTestId('pane-terminal')).toBeTruthy();
+    expect(shown()).toBe('false');
+    rerender(bench('browser'));
+
+    expect(browserLife).toEqual({ mounts: 1, unmounts: 0 });
+  });
+
+  it('is not started before it is first opened', () => {
+    render(bench('terminal'));
+    expect(screen.queryByTestId('pane-browser')).toBeNull();
+  });
+});
+
 describe('workbenchTabForTool', () => {
   it('maps the surface-backed tools to their pane, and nothing else', () => {
     expect(workbenchTabForTool('terminal')).toBe('terminal');
     expect(workbenchTabForTool('browser_session')).toBe('browser');
     expect(workbenchTabForTool('Read')).toBeUndefined();
+  });
+
+  it('opens the browser for every browser tool, so a tab the agent asks for has a pane to open in', () => {
+    for (const tool of ['browser_tabs', 'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_batch']) {
+      expect(workbenchTabForTool(tool)).toBe('browser');
+    }
+    expect(workbenchTabForTool('browser')).toBeUndefined();
   });
 });

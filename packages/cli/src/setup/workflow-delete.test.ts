@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
@@ -7,12 +7,13 @@ import { ScheduleStore } from '@moxxy/plugin-scheduler';
 import { buildWorkflowsIntegration } from './workflows.js';
 import { startRunnerServer, connectRemoteSession } from '@moxxy/runner';
 import { randomUUID } from 'node:crypto';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('deleting a workflow through the view retires its cron and preserves other schedules', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-delete-'));
   const oldHome = process.env.MOXXY_HOME;
   const oldUserHome = process.env.HOME;
-  process.env.HOME = dir;
+  process.env.HOME = process.env.USERPROFILE = dir;
   process.env.MOXXY_HOME = join(dir, 'home');
   const definitions = join(dir, '.moxxy/workflows');
   await mkdir(definitions, { recursive: true });
@@ -39,7 +40,7 @@ it('deleting a workflow through the view retires its cron and preserves other sc
   } finally {
     integration.stop(); await remote.close(); await server.close(); await session.close();
     if (oldHome === undefined) delete process.env.MOXXY_HOME; else process.env.MOXXY_HOME = oldHome;
-    if (oldUserHome === undefined) delete process.env.HOME; else process.env.HOME = oldUserHome;
-    await rm(dir, { recursive: true, force: true });
+    if (oldUserHome === undefined) delete process.env.HOME; else process.env.HOME = process.env.USERPROFILE = oldUserHome;
+    await removeDir(dir);
   }
 });

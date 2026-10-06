@@ -15,7 +15,11 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api, chatStore, useConnection } from '@moxxy/client-core';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
 import { isSessionInfoReady } from '../../app-session-readiness';
-import { getModelPreference, setModelPreference } from './modelPreferences';
+import {
+  getModelContextWindowPreference,
+  getModelPreference,
+  setModelPreference,
+} from './modelPreferences';
 
 /** Modes hidden from the chat mode picker — collaboration is launched from the
  *  Collaborate tab (single-flight), and its peer modes are internal. */
@@ -40,12 +44,23 @@ export interface AgentSession {
   readonly onPickProviderModel: (
     provider: string,
     model: string | null,
+    contextWindow?: number,
   ) => Promise<void>;
+}
+
+/**
+ * Who keeps the chat's model when it is not the app's own pick — a bot's chat
+ * runs the bot's model, which the host pushes here (`session.model.changed`).
+ */
+export interface ModelOwner {
+  /** Save `model` of `provider` as the owner's model. */
+  readonly pick: (provider: string, model: string) => Promise<void>;
 }
 
 export function useAgentSession(
   workspaceId: string,
   disabled: boolean,
+  modelOwner?: ModelOwner,
 ): AgentSession {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const { snapshot } = useConnection(workspaceId);
@@ -54,6 +69,7 @@ export function useAgentSession(
       ? `${snapshot.phase.sessionId}:${snapshot.phase.activeProvider ?? ''}:${snapshot.phase.activeMode ?? ''}`
       : snapshot?.phase.phase ?? 'missing';
   const runnerConnected = snapshot?.phase.phase === 'connected';
+  const ownsModel = modelOwner !== undefined;
   const selectedModel = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getModel(workspaceId),
   );
@@ -102,12 +118,22 @@ export function useAgentSession(
 
   useEffect(() => {
     const provider = info?.activeProvider;
-    if (!provider) return;
+    // The owner's model arrives from the host; the app's saved pick must not
+    // overwrite it.
+    if (!provider || ownsModel) return;
     const persisted = getModelPreference(workspaceId, provider);
-    if (chatStore.getModel(workspaceId) === persisted) return;
-    chatStore.setModel(workspaceId, persisted);
-    void api().invoke('session.setModel', { workspaceId, model: persisted }).catch(() => {});
-  }, [info?.activeProvider, workspaceId]);
+    const contextWindow = getModelContextWindowPreference(workspaceId, provider);
+    if (
+      chatStore.getModel(workspaceId) === persisted
+      && chatStore.getModelContextWindow(workspaceId) === contextWindow
+    ) return;
+    chatStore.setModel(workspaceId, persisted, contextWindow);
+    void api().invoke('session.setModel', {
+      workspaceId,
+      model: persisted,
+      contextWindow,
+    }).catch(() => {});
+  }, [info?.activeProvider, workspaceId, ownsModel]);
 
   const onMode = (next: string): void => {
     // Optimistic flip so the picker updates instantly — the IPC fires a
@@ -131,7 +157,14 @@ export function useAgentSession(
   const onPickProviderModel = async (
     provider: string,
     model: string | null,
+    contextWindow?: number,
   ): Promise<void> => {
+    if (modelOwner) {
+      // An owner's model always names one: a provider alone means its first.
+      const modelId = model ?? info?.providers.find((p) => p.name === provider)?.models[0]?.id;
+      if (modelId) await modelOwner.pick(provider, modelId);
+      return;
+    }
     if (info && provider !== info.activeProvider) {
       try {
         await api().invoke('session.setProvider', { workspaceId, provider });
@@ -140,12 +173,16 @@ export function useAgentSession(
       }
     }
     try {
-      await api().invoke('session.setModel', { workspaceId, model });
+      await api().invoke('session.setModel', {
+        workspaceId,
+        model,
+        contextWindow: contextWindow ?? null,
+      });
     } catch {
       return;
     }
-    chatStore.setModel(workspaceId, model);
-    setModelPreference(workspaceId, provider, model);
+    chatStore.setModel(workspaceId, model, contextWindow ?? null);
+    setModelPreference(workspaceId, provider, model, contextWindow ?? null);
     refresh();
   };
 

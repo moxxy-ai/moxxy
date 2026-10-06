@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { canSymlink, posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -12,6 +13,13 @@ import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
 import { sleepTool, resolveSleepMs, MAX_SLEEP_MS } from './sleep.js';
 import { resolvePath, resolveWithinCwd } from './util.js';
+import { systemShell } from './shell.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
+
+// The Bash commands below are sh; Git Bash runs them on Windows. The process-group tests read
+// PIDs through `$!`, which Git Bash numbers differently from Windows, so they stay POSIX-only.
+const shCommands = systemShell().kind !== 'powershell';
+const posixGroups = posixShell;
 
 let tmp: string;
 
@@ -30,7 +38,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('readTool', () => {
@@ -113,24 +121,24 @@ describe('editTool', () => {
 });
 
 describe('bashTool', () => {
-  it('runs a command and captures stdout', async () => {
+  it.skipIf(!shCommands)('runs a command and captures stdout', async () => {
     const out = (await bashTool.handler({ command: 'echo hi', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('hi');
     expect(out).toContain('[exit 0]');
   });
 
-  it('captures non-zero exit', async () => {
+  it.skipIf(!shCommands)('captures non-zero exit', async () => {
     const out = (await bashTool.handler({ command: 'exit 3', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('[exit 3]');
   });
 
-  it('times out long commands', async () => {
+  it.skipIf(!shCommands)('times out long commands', async () => {
     await expect(
       bashTool.handler({ command: 'sleep 1', timeoutMs: 50 }, baseCtx()),
     ).rejects.toThrow(/timed out/);
   });
 
-  it('respects abort signal', async () => {
+  it.skipIf(!shCommands)('respects abort signal', async () => {
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
     const p = bashTool.handler({ command: 'sleep 2', timeoutMs: 5000 }, ctx) as Promise<string>;
@@ -186,7 +194,7 @@ describe('bashTool', () => {
     return !isAlive(pid);
   };
 
-  it('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
+  it.skipIf(!posixGroups)('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const p = bashTool.handler({ command: stubbornChildCommand(pidFile), timeoutMs: 300 }, baseCtx());
     const rejection = expect(p).rejects.toThrow(/timed out/);
@@ -197,7 +205,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
+  it.skipIf(!posixGroups)('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
@@ -211,7 +219,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it('scrubs secret-looking parent env vars before spawning the shell', async () => {
+  it.skipIf(!shCommands)('scrubs secret-looking parent env vars before spawning the shell', async () => {
     // A secret the runner holds in process.env must not reach the child shell;
     // a benign var must still pass through (usability preserved).
     process.env.MOX_TEST_SECRET_TOKEN = 'leak-me';
@@ -229,7 +237,7 @@ describe('bashTool', () => {
     }
   });
 
-  it('lets the model re-supply a needed var via the env input', async () => {
+  it.skipIf(!shCommands)('lets the model re-supply a needed var via the env input', async () => {
     process.env.MOX_TEST_API_KEY = 'inherited-secret';
     try {
       const out = (await bashTool.handler(
@@ -244,7 +252,7 @@ describe('bashTool', () => {
     }
   });
 
-  it('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
+  it.skipIf(!shCommands)('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
     // Emit a run of 4-byte emoji; if the sink decoded per-chunk, a sequence
     // split across two data events would yield replacement chars.
     const out = (await bashTool.handler(
@@ -255,7 +263,7 @@ describe('bashTool', () => {
     expect(out).toContain('🚀');
   }, 30_000);
 
-  it('bounds output retention during streaming and reports full truncated size', async () => {
+  it.skipIf(!shCommands)('bounds output retention during streaming and reports full truncated size', async () => {
     const total = 2_097_152; // 2 MiB of 'x' — far beyond the 200k clamp
     const out = (await bashTool.handler(
       { command: `head -c ${total} /dev/zero | tr '\\0' x`, timeoutMs: 30_000 },
@@ -295,7 +303,7 @@ describe('grepTool', () => {
 });
 
 describe('globTool symlinks', () => {
-  it('does not emit a directory symlink as a file match, but still matches a file symlink', async () => {
+  it.skipIf(!canSymlink)('does not emit a directory symlink as a file match, but still matches a file symlink', async () => {
     await fs.mkdir(path.join(tmp, 'target'));
     await fs.symlink(path.join(tmp, 'target'), path.join(tmp, 'dlink'), 'dir');
     // A dir-symlink is a directory, not a file — globbing its name as a file
@@ -311,7 +319,7 @@ describe('globTool symlinks', () => {
     expect(fileOut).toContain('flink.txt');
   });
 
-  it('does not follow a symlink outside the workspace root', async () => {
+  it.skipIf(!canSymlink)('does not follow a symlink outside the workspace root', async () => {
     const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-tools-outside-'));
     try {
       await fs.writeFile(path.join(outside, 'private.txt'), 'secret');
@@ -319,7 +327,7 @@ describe('globTool symlinks', () => {
       const out = (await globTool.handler({ pattern: '**/*.txt' }, baseCtx())) as string;
       expect(out).not.toContain('private.txt');
     } finally {
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(outside);
     }
   });
 });
@@ -331,8 +339,8 @@ describe('globTool', () => {
     await fs.writeFile(path.join(tmp, 'src/b.ts'), '');
     await fs.writeFile(path.join(tmp, 'src/c.md'), '');
     const out = (await globTool.handler({ pattern: 'src/**/*.ts' }, baseCtx())) as string;
-    expect(out).toContain('src/a.ts');
-    expect(out).toContain('src/b.ts');
+    expect(out).toContain(path.join('src', 'a.ts'));
+    expect(out).toContain(path.join('src', 'b.ts'));
     expect(out).not.toContain('c.md');
   });
 
@@ -381,6 +389,17 @@ describe('path resolution helpers', () => {
 });
 
 describe('sleepTool', () => {
+  // A live run slept 2 s after Computer Use reported a Wayland session, which
+  // no pause changes, and the old wording offered "a UI settling" as a reason.
+  it('steers away from waiting on an app or page the agent itself acted on', () => {
+    expect(sleepTool.description).not.toMatch(/a UI settling/);
+    expect(sleepTool.description).toMatch(/computer_\* and browser_\* actions already wait/);
+  });
+
+  it('says a pause does not change a lasting condition', () => {
+    expect(sleepTool.description).toMatch(/Never sleep to retry something that reported a lasting condition/);
+  });
+
   describe('resolveSleepMs', () => {
     it('converts seconds to ms', () => {
       expect(resolveSleepMs({ seconds: 2 })).toBe(2000);
@@ -394,6 +413,11 @@ describe('sleepTool', () => {
     it('clamps to MAX_SLEEP_MS', () => {
       expect(resolveSleepMs({ seconds: 9999 })).toBe(MAX_SLEEP_MS);
     });
+  });
+
+  it('accepts a zero part next to a positive one, as models often send `ms: 0`', () => {
+    expect(sleepTool.inputSchema.safeParse({ seconds: 3, ms: 0 }).success).toBe(true);
+    expect(sleepTool.inputSchema.safeParse({ seconds: 0, ms: 0 }).success).toBe(false);
   });
 
   it('resolves after the requested delay', async () => {

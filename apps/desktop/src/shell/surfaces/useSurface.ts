@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, toErrorMessage } from '@moxxy/client-core';
+import { api, isConnected, toErrorMessage, useConnection } from '@moxxy/client-core';
 import type { SurfaceInputMessage, SurfaceSize } from '@moxxy/sdk';
 
 export interface SurfaceControls {
@@ -18,6 +18,11 @@ export interface SurfaceControls {
  * its frames. `onSnapshot` fires once with the catch-up state; `onData` fires
  * per live frame. Opening is idempotent on the runner, so re-mounting attaches
  * to the shared instance. Closes (detaches the viewer) on unmount.
+ *
+ * The surface lives in the workspace's runner, so it opens once that runner is
+ * connected — a pane shown while a new session's runner still starts would
+ * otherwise fail once and stay dead — and opens again after a reconnect, since
+ * a restarted runner has none of the old surfaces.
  */
 export function useSurface(
   workspaceId: string | null,
@@ -27,6 +32,7 @@ export function useSurface(
     readonly onData: (payload: unknown) => void;
   },
 ): SurfaceControls {
+  const connected = isConnected(useConnection(workspaceId).snapshot?.phase);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const surfaceIdRef = useRef<string | null>(null);
@@ -36,11 +42,11 @@ export function useSurface(
   handlersRef.current = handlers;
 
   useEffect(() => {
-    if (!workspaceId) return;
-    let disposed = false;
     setReady(false);
     setError(null);
     surfaceIdRef.current = null;
+    if (!workspaceId || !connected) return;
+    let disposed = false;
 
     // Live frames for THIS workspace's matching surface instance. Drop frames
     // until our surfaceId is known (open hasn't resolved yet): otherwise a
@@ -77,7 +83,7 @@ export function useSurface(
         void api().invoke('surface.close', { workspaceId, surfaceId: id }).catch(() => {});
       }
     };
-  }, [workspaceId, kind]);
+  }, [workspaceId, kind, connected]);
 
   const input = (message: SurfaceInputMessage): void => {
     const id = surfaceIdRef.current;

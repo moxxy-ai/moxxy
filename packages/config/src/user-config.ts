@@ -105,6 +105,53 @@ export async function setCategoryDefault(
   });
 }
 
+/** Read the selected active-def contribution (`plugins.<category>.default`). */
+export async function loadCategoryDefault(
+  category: string,
+  opts: UserConfigOptions = {},
+): Promise<string | null> {
+  assertPluginCategory(category);
+  const doc = await readUserConfigDoc(opts.configPath ?? defaultUserConfigPath());
+  const value = readRawEntry(doc, ['plugins', category]).default;
+  return typeof value === 'string' ? value : null;
+}
+
+/** Read the persisted options for one active-def contribution. */
+export async function loadCategoryItemConfig(
+  category: string,
+  name: string,
+  opts: UserConfigOptions = {},
+): Promise<Record<string, unknown>> {
+  assertPluginCategory(category);
+  const doc = await readUserConfigDoc(opts.configPath ?? defaultUserConfigPath());
+  return readRawEntry(doc, ['plugins', category, 'items', name]);
+}
+
+/** Upsert options for one active-def contribution while preserving sibling items. */
+export async function setCategoryItemConfig(
+  category: string,
+  name: string,
+  config: Record<string, unknown>,
+  opts: UserConfigOptions = {},
+): Promise<void> {
+  assertPluginCategory(category);
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  await configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    const itemPath = ['plugins', category, 'items', name];
+    doc.setIn(itemPath, { ...readRawEntry(doc, itemPath), ...config });
+    await writeUserConfigDoc(configPath, doc);
+  });
+}
+
+function assertPluginCategory(category: string): asserts category is PluginCategoryKey {
+  if (!(PLUGIN_CATEGORY_KEYS as ReadonlyArray<string>).includes(category)) {
+    throw new Error(
+      `unknown plugin category '${category}' (expected one of: ${PLUGIN_CATEGORY_KEYS.join(', ')})`,
+    );
+  }
+}
+
 // --- provider item options (plugins.provider.items.<name>.{model,enabled}) -
 
 /** Persist the active model for a provider (`plugins.provider.items.<name>.model`). */

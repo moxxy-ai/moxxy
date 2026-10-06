@@ -6,6 +6,7 @@ import { asSessionId, type CommandDef, type EmittedEvent } from '@moxxy/sdk';
 import { buildVaultPlugin } from './index.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, generateSalt } from './crypto.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const SECRET = 'sk-super-secret-9999';
 const stableKey = deriveKey('test-passphrase', generateSalt());
@@ -18,7 +19,7 @@ beforeEach(async () => {
   filePath = path.join(tmp, 'vault.json');
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function setup() {

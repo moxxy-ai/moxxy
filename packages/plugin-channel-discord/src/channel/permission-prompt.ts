@@ -29,7 +29,8 @@ export async function askForPermission(
 ): Promise<void> {
   void ctx;
   if (!deps.channel || !deps.session) return;
-  // YOLO short-circuit: resolve immediately without rendering a prompt.
+  // Auto-approve on a runner without the shared switch (the session allows
+  // before asking when it has one): resolve without rendering a prompt.
   if (deps.yolo) {
     deps.resolver.resolvePending(call.callId, { mode: 'allow', reason: 'yolo mode' });
     return;

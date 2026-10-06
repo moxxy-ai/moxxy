@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { __setApiOverride, chatStore } from '@moxxy/client-core';
+import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { ContextMeter, contextLevel } from './ContextMeter';
-import { compact } from './Telemetry';
+import { compact, Telemetry } from './Telemetry';
 
 /**
  * The context gauge is the readout a supervisor actually watches during a long
@@ -63,5 +66,75 @@ describe('compact', () => {
     // Past 100k the decimal is noise in a 12px cell.
     expect(compact(128_412)).toBe('128k');
     expect(compact(1_234_567)).toBe('1.2M');
+  });
+});
+
+describe('Telemetry model panel', () => {
+  it('sets the effort and fast mode next to the model and marks a fast conversation', async () => {
+    const invoke = vi.fn(async () => {});
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+    const info = {
+      sessionId: 's1',
+      providers: [{ name: 'openai-codex', models: [{ id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }] }],
+      modes: [], activeProvider: 'openai-codex', activeMode: null, activeModeBadge: null,
+      reasoningEffort: 'high' as const, fast: true,
+    };
+    render(<Telemetry workspaceId="ws" info={info} selectedModel="gpt-6-luna" disabled={false} onPick={() => {}} />);
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('gpt-6-luna · fast');
+
+    fireEvent.click(screen.getByTestId('instrument-telemetry'));
+    expect(screen.getByLabelText('Reasoning effort')).toHaveValue('high');
+    fireEvent.click(screen.getByRole('switch', { name: 'Fast mode' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.setFast', { workspaceId: 'ws', enabled: false }));
+    __setApiOverride(null);
+  });
+});
+
+describe('Telemetry token count', () => {
+  /**
+   * Every call sends the whole conversation again, so the running total reaches
+   * millions after a few dozen calls. Almost all of it is the same prefix read
+   * back from the provider's cache, which costs a tenth of a new token; a bare
+   * "2.4M" read as if every one of them was new.
+   */
+  const info = {
+    sessionId: 's1', providers: [], modes: [], activeProvider: 'openai-codex',
+    activeMode: null, activeModeBadge: null,
+  };
+  const usage = (workspaceId: string, tokens: Record<string, number>): void =>
+    chatStore.dispatch(workspaceId, {
+      type: 'event',
+      event: {
+        id: `${workspaceId}-1`, seq: 1, ts: 1, turnId: 'T1', sessionId: 'S', source: 'model',
+        type: 'provider_response', provider: 'openai-codex', model: 'gpt-6-luna', ...tokens,
+      } as unknown as MoxxyEvent,
+    });
+  const tokensCell = (): HTMLElement => {
+    const cell = screen.getByTestId('instrument-telemetry').querySelector<HTMLElement>('[data-cell="tokens"]');
+    if (!cell) throw new Error('no tokens cell');
+    return cell;
+  };
+
+  it('says how much of the total was read back from the cache', () => {
+    __setApiOverride({ invoke: async () => null, subscribe: () => () => {} } as unknown as MoxxyApi);
+    usage('tok-cached', { inputTokens: 5_000, cacheReadTokens: 2_250_000, cacheCreationTokens: 0, outputTokens: 145_000 });
+    render(<Telemetry workspaceId="tok-cached" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
+
+    expect(tokensCell()).toHaveTextContent('tok2.4M · 94% cache');
+    expect(tokensCell()).toHaveAttribute(
+      'data-tip',
+      `${(2_400_000).toLocaleString()} tokens over 1 calls — ${(2_250_000).toLocaleString()} read back from the cache, ${(150_000).toLocaleString()} new`,
+    );
+    __setApiOverride(null);
+  });
+
+  it('says nothing about a cache the provider did not report', () => {
+    __setApiOverride({ invoke: async () => null, subscribe: () => () => {} } as unknown as MoxxyApi);
+    usage('tok-uncached', { inputTokens: 12_000, outputTokens: 400 });
+    render(<Telemetry workspaceId="tok-uncached" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
+
+    expect(tokensCell()).toHaveTextContent(/^tok12\.4k$/);
+    expect(tokensCell()).toHaveAttribute('data-tip', `${(12_400).toLocaleString()} tokens over 1 calls`);
+    __setApiOverride(null);
   });
 });

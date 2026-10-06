@@ -24,11 +24,12 @@ import type {
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { MobileGatewayStatus } from './mobile.js';
-import type { ChannelEntry, ChannelRuntimeStatus } from './channels.js';
+import type { ChannelEntry, ChannelRunMode, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
   McpServerEntry,
   VaultEntryName,
+  GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
 } from './settings.js';
@@ -42,12 +43,13 @@ import type {
 import type {
   AppUpdateInfo,
   AppUpdateCheck,
+  ComponentUpdateCheck,
   AppUpdateDiagnostics,
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 import type { FocusVerticalAnchor } from './focus-layout.js';
-import type { BrowserTabInfo } from './browser.js';
+import type { BrowserControlState, BrowserTabInfo } from './browser.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -128,6 +130,15 @@ export interface IpcCommands {
    *  `onboarding.install.progress`. Returns the exit code (0 = ok) and
    *  the post-update version. */
   'app.updateCli': () => Promise<{ code: number; version: string | null }>;
+  /** Whether the runner or the installed `@moxxy` extensions are behind the
+   *  latest published release. Never throws — failures come back in `error`. */
+  'app.checkComponents': () => Promise<ComponentUpdateCheck>;
+  /** Update the runner and the `@moxxy` extensions to the latest release,
+   *  streaming `app.update.progress`. Each is installed and verified next to
+   *  the live copy and swapped in only then, so a failure changes nothing.
+   *  The new versions run after a relaunch; `updated` says whether anything
+   *  was installed. */
+  'app.updateComponents': () => Promise<{ ok: boolean; updated: boolean; error?: string }>;
 
   /** The dashboard (app bundle) the desktop is currently running. */
   'app.updateInfo': () => Promise<AppUpdateInfo>;
@@ -186,6 +197,10 @@ export interface IpcCommands {
   /** Open a URL in the user's default browser. Used for the Node.js
    *  install fallback (the manual nodejs.org download). */
   'onboarding.openExternal': (args: { url: string }) => Promise<void>;
+  /** Open a local file the chat links to (an absolute path). Documents, media
+   *  and images open in their default app; anything that could run (scripts,
+   *  apps, unknown types) and folders are only shown in the file manager. */
+  'files.open': (args: { path: string }) => Promise<{ opened: 'app' | 'folder' }>;
   /** Run `moxxy vault set <NAME>_API_KEY` with the given secret piped
    *  on stdin, then call `provider.setActive` on the running session
    *  so the next turn picks it up without a relaunch. */
@@ -276,6 +291,7 @@ export interface IpcCommands {
   'session.setModel': (args: {
     workspaceId?: string;
     model: string | null;
+    contextWindow?: number | null;
   }) => Promise<void>;
   /** Switch the active mode. */
   'session.setMode': (args: { workspaceId?: string; mode: string }) => Promise<void>;
@@ -286,9 +302,11 @@ export interface IpcCommands {
   'session.newSession': (args: { workspaceId?: string }) => Promise<void>;
   /** Toggle auto-approve ("yolo") for the workspace's session: when
    *  enabled, tool calls are allowed WITHOUT showing the approval sheet.
-   *  Goal mode turns this on for hands-off autonomous runs. Lives on the
-   *  per-workspace SessionDriver, so it resets to off if the runner
-   *  reconnects (the renderer re-applies it on connect). */
+   *  Goal mode turns this on for hands-off autonomous runs. Belongs to the
+   *  conversation: every client of it (a channel bot, the TUI) shares the
+   *  switch and `session.autoApprove.changed` reports changes from any of
+   *  them. On a runner without the shared switch it lives on the driver and
+   *  the renderer re-applies it on connect. */
   'session.setAutoApprove': (args: {
     workspaceId?: string;
     enabled: boolean;
@@ -311,15 +329,43 @@ export interface IpcCommands {
    *  transcriber plugin (e.g. local Whisper), OR stored Codex OAuth creds back
    *  the in-process fallback. UI uses this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** Cancel an in-flight generated speech request for interruption/barge-in. */
+  'session.cancelSynthesis': (args: { workspaceId?: string; requestId: string }) => Promise<void>;
   /** True when the desktop's optional on-device Piper synthesizer package is
    *  complete on disk. Host-only: remote clients must not inspect plugins. */
   'voice.isLocalPiperInstalled': () => Promise<boolean>;
   /** Install, enable and select the fixed first-party Local Piper package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
   'voice.installLocalPiper': () => Promise<void>;
+  /** Read the authenticated Gemini voice library through the main process. */
+  'voice.listGeminiVoices': () => Promise<ReadonlyArray<GeminiVoiceInfo>>;
+  /** Select cloud TTS and persist the chosen voice ID. */
+  'voice.useGeminiTts': (args: { voiceId: string }) => Promise<void>;
+  /** Select the local Piper backend. */
+  'voice.useLocalPiper': () => Promise<void>;
+  /** Read the active backend and the saved Gemini voice selection. */
+  'voice.getSettings': () => Promise<{ backend: string | null; voiceId: string }>;
   /** Keep the local main renderer realtime while it owns an active Voice Mode
    * capture. Local desktop IPC only; no audio or workspace data crosses here. */
   'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
+  /** Whether GPT-Live can reuse the existing ChatGPT OAuth login. Never starts
+   *  a login and never returns credential material. Local desktop IPC only. */
+  'voice.live.preflight': () => Promise<{ readonly authenticated: boolean }>;
+  /** Exchange a renderer-created WebRTC offer for a GPT-Live call answer. The
+   *  host pins the endpoint, OAuth token, instructions and the workspace's chat
+   *  history; the renderer only ever sees the SDP answer and call id. */
+  'voice.live.start': (args: {
+    readonly workspaceId: string;
+    readonly sdp: string;
+  }) => Promise<{ readonly sdp: string; readonly callId: string }>;
+  /** Append one GPT-Live exchange (the user's transcribed speech and/or the
+   *  model's spoken reply) to the workspace session as an ordinary turn, so the
+   *  chat shows it and later agent turns see it. Runs no model and no tools. */
+  'session.recordVoiceExchange': (args: {
+    readonly workspaceId: string;
+    readonly userText?: string;
+    readonly assistantText?: string;
+  }) => Promise<void>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
    *  the Collaborate tab uses it to disable Start while one is running. */
@@ -382,9 +428,11 @@ export interface IpcCommands {
    *  `rate` is a bounded speaking-rate multiplier. */
   'session.synthesize': (args: {
     workspaceId?: string;
+    requestId?: string;
     text: string;
     language?: string;
     rate?: number;
+    voice?: string;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
@@ -485,12 +533,20 @@ export interface IpcCommands {
     requestId?: string;
   }) => Promise<{ tabId: string }>;
   'browser.releaseTab': (args: { tabId: string }) => Promise<void>;
-  'browser.listTabs': () => Promise<{ tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null }>;
+  'browser.listTabs': () => Promise<{
+    tabs: ReadonlyArray<BrowserTabInfo>;
+    activeTabId: string | null;
+    control: BrowserControlState;
+  }>;
   'browser.selectTab': (args: { tabId: string }) => Promise<void>;
   'browser.navigate': (args: { url: string; tabId?: string }) => Promise<{ url: string; tabId: string }>;
   'browser.history': (args: { action: 'back' | 'forward' | 'reload'; tabId?: string }) => Promise<void>;
   /** The pane reporting that the view it was asked to focus now has it. */
   'browser.confirmFocus': (args: { requestId: string }) => Promise<void>;
+  /** The pane reporting that the agent's pointer reached where a `browser.cursor` frame sent it. */
+  'browser.confirmCursor': (args: { requestId: string }) => Promise<void>;
+  /** The person takes the browser over from the agent, or hands it back. */
+  'browser.control': (args: { command: 'takeover' | 'resume' }) => Promise<void>;
   /** The user answered the pane's hand-off banner. */
   'browser.resolveHandoff': (args: { requestId: string; completed: boolean }) => Promise<void>;
   /** A picture of the tab as it stands, for the person to hand to the agent.
@@ -619,6 +675,25 @@ export interface IpcCommands {
   'channels.start': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
   /** Stop the channel's dedicated-runner subprocess. */
   'channels.stop': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
+  /** Set the model a channel's bot runs (`provider::model`), or `null` for the
+   *  default. Channel-scoped: never changes the global default. The running bot
+   *  picks it up on its next turn. Rejects for channels without `supportsModel`. */
+  'channels.setModel': (args: {
+    channelId: string;
+    model: string | null;
+  }) => Promise<ChannelRuntimeStatus>;
+  /** Open the bot's conversation as a live chat: the host attaches (never
+   *  spawns) to the bot's own runner and returns the chat id every `session.*`
+   *  / `chat.*` command takes as `workspaceId`. Works in every run mode; while
+   *  the bot is down the chat shows its saved history and waits for it. */
+  'channels.openChat': (args: { channelId: string }) => Promise<{ workspaceId: string }>;
+  /** Choose how the bot runs: `manual`, `app` (starts with the desktop) or
+   *  `background` (OS service, 24/7). Leaving `background` removes the service.
+   *  Rejects for channels without `supportsBackground`. */
+  'channels.setRunMode': (args: {
+    channelId: string;
+    mode: ChannelRunMode;
+  }) => Promise<ChannelRuntimeStatus>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are
@@ -739,6 +814,10 @@ export interface IpcCommands {
     workspaceId?: string;
     effort: ReasoningEffort;
   }) => Promise<void>;
+  /** Switch the session to the provider's faster, pricier tier (OpenAI fast
+   *  mode) on the runner. Read the current value from `session.info().fast`.
+   *  Throws a coded error against a pre-v24 runner. */
+  'settings.setFast': (args: { workspaceId?: string; enabled: boolean }) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
    *  stored provider entry didn't enumerate models upfront. */

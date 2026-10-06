@@ -1,9 +1,7 @@
 import { defineChannel, defineTool, definePlugin, z, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { Api, GrammyError } from 'grammy';
-import { markdownToTelegramHtml } from './format.js';
-import { stripHtml } from './channel/html.js';
 import { TelegramChannel } from './channel.js';
+import { buildTelegramSendMessageTool } from './tools/send-message.js';
 import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY, parseChatId } from './keys.js';
 import { runTelegramWizard } from './setup-wizard.js';
 import { runPairFlow } from './pair-flow.js';
@@ -34,7 +32,12 @@ export interface BuildTelegramPluginOptions {
   readonly vault: VaultStore;
 }
 
-export { TELEGRAM_TOKEN_KEY, TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_RE } from './keys.js';
+export {
+  TELEGRAM_TOKEN_KEY,
+  TELEGRAM_AUTHORIZED_CHAT_KEY,
+  TELEGRAM_MODEL_KEY,
+  TELEGRAM_TOKEN_RE,
+} from './keys.js';
 
 // Backwards-compat aliases for the existing call sites in this file.
 const TOKEN_KEY = TELEGRAM_TOKEN_KEY;
@@ -251,77 +254,7 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           };
         },
       }),
-      defineTool({
-        name: 'telegram_send_message',
-        description:
-          'Push a one-off message to the currently authorized Telegram chat. Use this from a ' +
-          'scheduled prompt to deliver results without an interactive channel running. By ' +
-          'default the text is rendered with the same rich Markdown→Telegram formatting as ' +
-          'interactive replies (bold, code, `> [!type]` callouts, `||spoilers||`, etc.); pass ' +
-          'an explicit `parseMode` to send the raw text under that parse mode instead. Requires ' +
-          'a stored bot token + a paired chat (run `moxxy channels telegram pair` once).',
-        inputSchema: z.object({
-          text: z.string().min(1).max(4096),
-          /** Optional override; defaults to the vault-paired chat id. */
-          chatId: z.number().int().optional(),
-          /**
-           * Force a specific Telegram parse mode and send `text` verbatim under
-           * it. Omit to get the default Markdown→HTML rendering (recommended).
-           */
-          parseMode: z.enum(['MarkdownV2', 'Markdown', 'HTML']).optional(),
-        }),
-        permission: { action: 'prompt' },
-        isolation: {
-          capabilities: {
-            fs: { read: ['~/.moxxy/vault.*'] },
-            net: { mode: 'allowlist', hosts: ['api.telegram.org'] },
-            env: ['MOXXY_TELEGRAM_TOKEN'],
-            timeMs: 60_000,
-          },
-        },
-        handler: async ({ text, chatId, parseMode }) => {
-          const token = process.env.MOXXY_TELEGRAM_TOKEN ?? (await getVault().get(TOKEN_KEY));
-          if (!token) {
-            throw new Error(
-              'no Telegram bot token configured (set MOXXY_TELEGRAM_TOKEN or run `moxxy init` to store one)',
-            );
-          }
-          const targetChat =
-            chatId ?? parseChatId(await getVault().get(AUTHORIZED_CHAT_KEY));
-          if (!targetChat) {
-            throw new Error(
-              'no authorized chat — run `moxxy channels telegram pair` first or pass `chatId` explicitly',
-            );
-          }
-          // Use grammy's lightweight `Api` client directly rather than a full
-          // `Bot` (which builds a polling-capable instance + lazily resolves
-          // bot info). This is a one-off send — no long-polling — so the Bot
-          // wrapper was pure overhead per invocation.
-          const api = new Api(token);
-          if (parseMode) {
-            // Explicit mode → caller owns the markup; send text verbatim.
-            await api.sendMessage(targetChat, text, { parse_mode: parseMode });
-          } else {
-            // Default → render Markdown to Telegram HTML for the same rich look
-            // as interactive replies, falling back to plain text if the model's
-            // text produced an entity Telegram can't parse (rare).
-            const html = markdownToTelegramHtml(text);
-            try {
-              await api.sendMessage(targetChat, html, {
-                parse_mode: 'HTML',
-                link_preview_options: { is_disabled: true },
-              });
-            } catch (err) {
-              if (err instanceof GrammyError && /can't parse entities|Bad Request: can't parse/i.test(err.description ?? '')) {
-                await api.sendMessage(targetChat, stripHtml(html));
-              } else {
-                throw err;
-              }
-            }
-          }
-          return { delivered: true, chatId: targetChat, length: text.length };
-        },
-      }),
+      buildTelegramSendMessageTool({ getVault }),
       defineTool({
         name: 'telegram_unpair',
         description: 'Forget the currently authorized Telegram chat. The next /start will start a fresh pairing.',

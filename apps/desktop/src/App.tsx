@@ -24,8 +24,8 @@ import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import { AppRail } from './shell/AppRail';
 import type { View } from './shell/views';
-import { Workbench, type WorkbenchTab } from './shell/Workbench';
-import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
+import { Workbench } from './shell/Workbench';
+import { useWorkbench } from './shell/useWorkbench';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
@@ -46,6 +46,7 @@ import {
   shouldShowBlockingConnectionScreen,
   shouldShowProviderRecovery,
   type LastConnectedSession,
+  describeConnectionPhase,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
@@ -82,10 +83,7 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  // The workbench starts collapsed — but collapsed now leaves a vertical tab
-  // strip, so it is still discoverable and one click opens the pane you want.
-  // Null = collapsed.
-  const [benchTab, setBenchTab] = useState<WorkbenchTab | null>(null);
+  const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
   const [automationsKind, setAutomationsKind] = useAutomationsKind();
@@ -147,10 +145,6 @@ export function App(): JSX.Element {
   // composer draft and pulses a request to show the chat view — switch to it so
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
-
-  // When the agent drives the browser / terminal, open the matching workbench
-  // tab so its work is shown to the user (once per session per tab).
-  useAgentSurfaceReveal(activeWorkspaceId, setBenchTab);
 
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
   // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
@@ -214,8 +208,9 @@ export function App(): JSX.Element {
   useHotkeyDispatcher();
   useAppHotkeys({
     setView: onView,
-    benchTab,
-    setBenchTab,
+    benchTab: bench.tab,
+    setBenchTab: bench.setTab,
+    toggleBenchFull: bench.toggleFull,
     onShowShortcuts: () => setShortcutsOpen(true),
   });
 
@@ -331,7 +326,15 @@ export function App(): JSX.Element {
       />
       {/* One index column per destination: the rail says where you are, the
           column says what is in here. */}
-      {view === 'chat' && <WorkspaceSidebar onOpenRun={() => onView('chat')} />}
+      {view === 'chat' && (
+        <WorkspaceSidebar
+          onOpenRun={() => onView('chat')}
+          onOpenChannel={(id) => {
+            setChannelId(id);
+            onView('channels');
+          }}
+        />
+      )}
       {view === 'automations' && (
         <AutomationsIndex kind={automationsKind} onPick={setAutomationsKind} />
       )}
@@ -352,12 +355,15 @@ export function App(): JSX.Element {
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
             sessionLoading={shell.sessionLoading}
+            docked={bench.full}
           />
           <Workbench
-            tab={benchTab}
-            onPick={setBenchTab}
-            onClose={() => setBenchTab(null)}
+            tab={bench.tab}
+            onPick={bench.setTab}
+            onClose={() => bench.setTab(null)}
             workspaceId={activeWorkspaceId}
+            full={bench.full}
+            onToggleFull={bench.toggleFull}
           />
         </>
       )}
@@ -387,12 +393,9 @@ export function App(): JSX.Element {
         </main>
       )}
       {/* Channels is independent of the runner session (the gateway lives in the
-          main process), so it is never runner-locked. */}
-      {view === 'channels' && (
-        <main className="field">
-          <ChannelsSurface selected={channelId} />
-        </main>
-      )}
+          main process), so it is never runner-locked. It owns its pane: a
+          channel's chat is a full chat surface, its setup a field page. */}
+      {view === 'channels' && <ChannelsSurface selected={channelId} />}
       {/* Mobile pairing is a property of the INSTALL, not another chat surface to
           configure, so it sits at the foot of the rail rather than in the channel
           catalog. Like Channels it never depends on the runner session. */}
@@ -402,7 +405,7 @@ export function App(): JSX.Element {
         </main>
       )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
-      {!connected && <ReconnectBanner label={describePhase(shellPhase)} />}
+      {!connected && <ReconnectBanner label={describeConnectionPhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
           background-agent modal is open — this fallback catches every other
@@ -442,33 +445,6 @@ function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | nul
       <AskSheet ask={ask} />
     </div>
   );
-}
-
-function describePhase(
-  phase: import('@moxxy/desktop-ipc-contract').ConnectionPhase | undefined,
-): string {
-  if (!phase) return 'Reconnecting…';
-  switch (phase.phase) {
-    case 'idle':
-      return 'Starting…';
-    case 'resolving-cli':
-      return 'Resolving moxxy CLI…';
-    case 'spawning':
-      return 'Starting agent runtime…';
-    case 'adopting':
-      return 'Attaching to running runner…';
-    case 'attaching':
-      return 'Attaching session…';
-    case 'reconnecting':
-      return phase.reason ? `Reconnecting — ${phase.reason}` : 'Reconnecting…';
-    case 'failed':
-      return phase.error ? `Disconnected — ${phase.error}` : 'Disconnected';
-    case 'protocol-incompatible':
-      // Terminal — say so plainly rather than implying a reconnect is coming.
-      return phase.hint;
-    default:
-      return 'Reconnecting…';
-  }
 }
 
 function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {

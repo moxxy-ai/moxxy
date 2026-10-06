@@ -290,7 +290,7 @@ function isAllowedUrl(url: string): boolean {
   return ALLOWED_URL_SCHEMES.has((m[1] ?? '').toLowerCase());
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
 }
 

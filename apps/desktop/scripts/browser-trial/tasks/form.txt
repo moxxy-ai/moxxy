@@ -1,0 +1,1 @@
+@moxxy_browser W otwartej karcie przeglądarki Moxxy jest formularz testowy. Wpisz w pole „Text input” tekst „Moxxy test”, w „Textarea” wpisz „Witaj”, w liście „Dropdown (select)” wybierz „Two”, pola hasła nie ruszaj, wyślij formularz przyciskiem Submit i podaj nagłówek strony, która się pokaże.

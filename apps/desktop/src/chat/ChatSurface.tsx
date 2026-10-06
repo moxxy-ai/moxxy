@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
@@ -7,12 +7,14 @@ import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
 import { Header } from './chat-surface/Header';
-import { useAgentSession } from './agent-picker/useAgentSession';
+import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
 import { EmptyState } from './chat-surface/EmptyState';
 import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
+import { useChatDock } from './chat-surface/useChatDock';
+import { ChatHideButton, ChatLauncher } from './chat-surface/ChatDockControls';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
@@ -22,11 +24,24 @@ import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { useVoiceModePresentation } from '../voice-call/useVoiceModePresentation';
 import { useComputerControl } from '../computer-control/useComputerControl';
 import { ComputerControlStrip } from '../computer-control/ComputerControlStrip';
+import { usesComputer } from '../computer-control/panel-model';
+import { useComputerPreview } from '../computer-control/useComputerPreview';
+import { ComputerPreviewPip } from '../computer-control/ComputerPreviewPip';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
   readonly sessionLoading: boolean;
+  /** The bar's crumbs for a chat that is not a desk session (a channel bot's
+   *  conversation); desk sessions name themselves from the desk registry. */
+  readonly title?: { readonly context: string; readonly subject: string };
+  /** A one-line note above the conversation (e.g. "the bot is offline"). */
+  readonly notice?: ReactNode;
+  /** Who keeps the chat's model when it is not the app's pick (a bot's chat). */
+  readonly modelOwner?: ModelOwner;
+  /** The workbench is in full view: the chat floats over it as a composer.
+   *  The transcript stays mounted, hidden, so coming back finds it as it was. */
+  readonly docked?: boolean;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -84,14 +99,20 @@ export function ChatSurface({
   phase,
   workspaceId,
   sessionLoading,
+  title,
+  notice,
+  modelOwner,
+  docked = false,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
-  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && actionCatalog.tools.some(tool=>tool.name==='computer_app_catalog')
+  const computer = useComputerControl(ready && phase.phase==='connected' && chat.activeTurnId && usesComputer(actionCatalog.tools)
     ? {workspaceId,sessionId:phase.sessionId,turnId:chat.activeTurnId} : null);
+  // The live view exists only while a turn can still act on the computer.
+  const preview = useComputerPreview(workspaceId, computer.view?.canStop === true);
   const voiceCall = useDesktopVoiceCall({
     surface: 'main',
     workspaceId,
@@ -113,7 +134,7 @@ export function ChatSurface({
   // ONE session-info fetch for the whole surface. The instrument bar's telemetry
   // and the composer's mode menu both read it; two independent hooks meant two
   // round-trips per refresh and two chances to disagree about the active model.
-  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending);
+  const agent = useAgentSession(workspaceId, !ready || chat.activeTurnId !== null || chat.sending, modelOwner);
   const activeSessionName =
     activeDesk?.sessions.find((sn) => sn.id === activeDesk.activeSessionId)?.name ?? null;
   // The run's state, as the bar reports it. `awaiting` outranks `running`
@@ -152,19 +173,34 @@ export function ChatSurface({
     localPiperInstalling: voiceCall.localPiperInstalling,
     activeOperations: voiceCall.activeOperations,
     events: chat.events,
+    agentTurn: {
+      sending: chat.sending,
+      activeTurnId: chat.activeTurnId,
+      streamingText: chat.streamingText,
+    },
   });
 
   useVoiceCallRequest(voiceCall.open);
+  const dock = useChatDock(docked, activeAsk !== null);
+  const mainClass = dock.minimized
+    ? 'col-main col-main--flat col-main--docked col-main--minimized'
+    : docked
+      ? 'col-main col-main--flat col-main--docked'
+      : 'col-main col-main--flat';
 
-  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
+  // A session the registry knows is empty (just made with New session) has no
+  // history to wait for: it keeps the surface — composer and empty state — while
+  // its runner starts, instead of swapping it for a loader and back.
+  const knownEmpty = activeDesk?.sessions.find((sn) => sn.id === workspaceId)?.eventCount === 0;
+  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty && !knownEmpty;
 
   if (showBlockingLoading) {
     return (
-      <main className="col-main col-main--flat">
-        <Header
+      <main className={mainClass}>
+        {!docked && <Header
           phase={phase}
-          deskName={activeDesk?.name ?? null}
-          sessionName={activeSessionName}
+          deskName={title?.context ?? activeDesk?.name ?? null}
+          sessionName={title?.subject ?? activeSessionName}
           runState={runState}
           agent={agent}
           agentDisabled={!ready}
@@ -173,7 +209,7 @@ export function ChatSurface({
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
-        />
+        />}
         <div
           key={workspaceId}
           className="anim-fade-in"
@@ -188,11 +224,11 @@ export function ChatSurface({
   }
 
   return (
-    <main className="col-main col-main--flat">
-      <Header
+    <main className={mainClass}>
+      {!docked && <Header
         phase={phase}
-        deskName={activeDesk?.name ?? null}
-        sessionName={activeSessionName}
+        deskName={title?.context ?? activeDesk?.name ?? null}
+        sessionName={title?.subject ?? activeSessionName}
         runState={runState}
         agent={agent}
         agentDisabled={!ready}
@@ -201,15 +237,19 @@ export function ChatSurface({
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
-      />
+      />}
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}
       <div
         key={workspaceId}
         className="anim-fade-in"
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        hidden={docked}
+        style={{ flex: 1, minHeight: 0, display: docked ? 'none' : 'flex', flexDirection: 'column', position: 'relative' }}
       >
-        {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)} />}
+        {notice}
+        {computer.view && <ComputerControlStrip view={computer.view} busy={computer.busy} error={computer.error} onCommand={command=>void computer.command(command)}
+          previewHidden={preview.hidden} onShowPreview={preview.show} />}
+        {preview.view && <ComputerPreviewPip view={preview.view} target={computer.view?.target ?? null} cursor={computer.cursor} onHide={preview.hide} videoCanvas={preview.videoCanvas} />}
         {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (
@@ -227,43 +267,50 @@ export function ChatSurface({
           />
         )}
       </div>
-      {activeAsk && <AskSheet ask={activeAsk} />}
-      {voiceCall.active && (
-        <div className="voice-rail-shell">
-          <VoicePresenceRail
-            phase={voiceCall.phase}
-            status={voicePresentation.status}
-            rail={voicePresentation.rail}
-            microphoneMuted={voiceCall.microphoneMuted}
-            waitingSoundEnabled={voiceCall.waitingSoundEnabled}
-            localPiperInstallRequired={voiceCall.localPiperInstallRequired}
-            localPiperInstalling={voiceCall.localPiperInstalling}
-            localPiperInstallError={voiceCall.localPiperInstallError}
-            errorReason={voiceCall.errorReason}
-            inputAnalyser={voiceCall.inputAnalyser}
-            outputAnalyser={voiceCall.outputAnalyser}
-            onRetry={voiceCall.retry}
-            onInstallLocalPiper={voiceCall.installLocalPiper}
-            onMuteMicrophone={voiceCall.muteMicrophone}
-            onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-            onToggleWaitingSound={voiceCall.toggleWaitingSound}
-            onClose={voiceCall.close}
-          />
-        </div>
-      )}
-      <Composer
-        agent={agent}
-        voiceModeActive={voiceCall.active}
-        ready={ready}
-        sending={chat.sending}
-        compacting={chat.compacting}
-        activeTurnId={chat.activeTurnId}
-        workspaceId={workspaceId}
-        onOpenVoiceCall={voiceCall.open}
-        onSend={(p, atts) => void chat.send(p, atts)}
-        onAbort={() => void chat.abort()}
-        onPreviewImage={imagePreview.open}
-      />
+      {docked && !dock.minimized && <ChatHideButton onHide={dock.hide} />}
+      {dock.minimized && <ChatLauncher busy={chat.sending || (voiceCall.active && voiceCall.phase !== 'error')} onShow={dock.show} />}
+      {/* Tucked away, the composer stays mounted so a half-typed message and a
+       *  running voice call survive; `contents` keeps the column's own layout. */}
+      <div hidden={dock.minimized} style={{ display: dock.minimized ? 'none' : 'contents' }}>
+        {activeAsk && <AskSheet ask={activeAsk} />}
+        {voiceCall.active && (
+          <div className="voice-rail-shell">
+            <VoicePresenceRail
+              phase={voiceCall.phase}
+              status={voicePresentation.status}
+              rail={voicePresentation.rail}
+              agentWork={voicePresentation.agentWork}
+              microphoneMuted={voiceCall.microphoneMuted}
+              waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+              localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+              localPiperInstalling={voiceCall.localPiperInstalling}
+              localPiperInstallError={voiceCall.localPiperInstallError}
+              errorReason={voiceCall.errorReason}
+              inputAnalyser={voiceCall.inputAnalyser}
+              outputAnalyser={voiceCall.outputAnalyser}
+              onRetry={voiceCall.retry}
+              onInstallLocalPiper={voiceCall.installLocalPiper}
+              onMuteMicrophone={voiceCall.muteMicrophone}
+              onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+              onToggleWaitingSound={voiceCall.toggleWaitingSound}
+              onClose={voiceCall.close}
+            />
+          </div>
+        )}
+        <Composer
+          agent={agent}
+          voiceModeActive={voiceCall.active}
+          ready={ready}
+          sending={chat.sending}
+          compacting={chat.compacting}
+          activeTurnId={chat.activeTurnId}
+          workspaceId={workspaceId}
+          onOpenVoiceCall={voiceCall.open}
+          onSend={(p, atts) => void chat.send(p, atts)}
+          onAbort={() => void chat.abort()}
+          onPreviewImage={imagePreview.open}
+        />
+      </div>
       {chat.error && <ErrorToast text={chat.error} />}
       <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       {renameOpen && activeDesk && (

@@ -234,7 +234,7 @@ function legacyDocToText(buf: Buffer): string | null {
  *  throw. NOT for PDFs — those go through {@link extractPdf}. */
 async function extractText(buf: Buffer, name: string): Promise<string | null> {
   try {
-    const ast = await parseOffice(buf, { outputErrorToConsole: false });
+    const ast = await parseOffice(buf);
     const { value: text } = await ast.to('text');
     return text.trim().length > 0 ? text : null;
   } catch (e) {

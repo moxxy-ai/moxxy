@@ -1,3 +1,6 @@
+import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
+import type { SkillInfo } from '@moxxy/sdk';
+
 /**
  * Shared session-shape types for the agent picker. A trimmed view of
  * the runner's SessionInfo — only the provider / model / mode fields
@@ -10,7 +13,11 @@
  *  ModelDescriptor, so the right column always rendered empty. */
 export interface ProviderInfo {
   readonly name: string;
-  readonly models: ReadonlyArray<{ readonly id: string }>;
+  readonly models: ReadonlyArray<{
+    readonly id: string;
+    readonly supportsReasoning?: boolean;
+    readonly supportsFast?: boolean;
+  }>;
   readonly supportsLiveModelDiscovery?: boolean;
 }
 
@@ -25,11 +32,19 @@ export interface ModeBadge {
 }
 
 export interface SessionInfo {
+  /** Changes when the workspace gets a new runner. */
+  readonly sessionId?: string;
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly modes: ReadonlyArray<string>;
   readonly activeProvider: string | null;
   readonly activeMode: string | null;
   readonly activeModeBadge: ModeBadge | null;
+  /** How deeply the model thinks in this conversation (`default`: on at the provider's default; null: off). Absent from older runners. */
+  readonly reasoningEffort?: ReasoningEffort | 'default' | null;
+  /** Whether turns ask for the provider's faster tier. Absent from older runners. */
+  readonly fast?: boolean;
+  /** What the composer's @ menu offers. */
+  readonly skills?: ReadonlyArray<SkillInfo>;
 }
 
 /**

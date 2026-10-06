@@ -36,6 +36,7 @@ export const greetTool = defineTool({
 - **Use `ctx.cwd` not `process.cwd()`.** Cwd is per-session.
 - **Permission default.** Anything with side effects (Write, Bash, network): `{ action: 'prompt' }`. Read-only tools (Read, Glob, Grep) also use `prompt` by default — let the resolver decide.
 - **Path handling.** For filesystem tools, use `resolvePath(ctx.cwd, target)` from `@moxxy/tools-builtin/src/util` (or wrap with `resolveWithinCwd` if you want strict containment). Real safety against unintended fs access lives at the permission layer, not the resolver.
+- **A tool for one mode names it.** A tool that means nothing outside its mode (goal mode's `goal_complete`/`goal_abandon`, the collaboration's `collab_*`) sets `modes: ['goal']`. It stays registered, so its permission and isolation are looked up as before, but no other mode offers it to the model (`toolsForMode`, applied by core to every turn and sub-agent). An inert tool on offer is still a way out: in a plain browser task the model called `goal_abandon` and gave up.
 - **No path-traversal sandboxes for the sake of it.** Adding `..` rejection by default breaks legitimate workflows ("read ~/.bashrc"). Only use `resolveWithinCwd` when the tool's *contract* is "inside cwd only."
 
 ## Hook ordering before your handler runs
@@ -79,7 +80,8 @@ For end-to-end (model invokes the tool): register the tool on a `Session`, drive
 - Forgetting `await` on async `handler` — the result becomes a Promise instead of the value.
 - Using `inputSchema` defaults but typing the handler param as `T | undefined` — `z.output<S>` gives you the resolved type. `defineTool` already wires this; if you see `undefined` where a default should apply, you're fighting zod.
 - Returning structured data without `outputSchema` — the model receives `JSON.stringify(value)`. For complex outputs add `outputSchema` for type-safety, but for the model just consider returning a formatted string.
-- Spawning child processes without a SIGKILL escalation. If `ctx.signal.aborted` fires, send SIGTERM, then SIGKILL after ~2s if the child hasn't exited. See `tools-builtin/src/bash.ts` for the pattern.
+- Spawning child processes without a SIGKILL escalation. If `ctx.signal.aborted` fires, send SIGTERM, then SIGKILL after ~2s if the child hasn't exited. See `tools-builtin/src/shell.ts` for the pattern.
+- Polling inside a handler (`while (!done) await sleep(500)`) to wait for something that can tell you it finished. Wake on its signal with `waitFor` from `@moxxy/sdk` (subscribe-then-check, deadline = "still running"); see `tools-builtin/src/wait.ts`. Work that outlives one call belongs in a background job the model waits on with `Wait`, not in a tool that blocks for minutes.
 - Reading the full file when only a slice is needed — for huge files this OOMs. Stream by line or stat-cap first.
 
 ## Don't

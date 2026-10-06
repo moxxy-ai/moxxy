@@ -39,6 +39,23 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 - **Third-party plugins run in-process by default.** `moxxy plugins install` executes npm install; installed code loads into the runner. Install-time hooks are blocked (see above), but the plugin's own module code runs in-process once loaded. Install plugins you trust, review their declared capabilities (`moxxy security audit`), and prefer isolation for anything unfamiliar.
 - **Autonomous channels are standing exposure.** A channel that runs turns without a human in the loop (Slack allow-list mode, webhooks, cron) should run on a dedicated runner with a minimal tool allow-list — supported out of the box (`dedicatedRunner`).
 
+## Known dependency advisories awaiting an upstream fix
+
+CI rejects any dependency with a published advisory (`pnpm audit:security`). An advisory that has **no fixed release yet** cannot be cleared by upgrading, so it is accepted here, in the open, until upstream ships a fix. The list is enforced from `scripts/security-audit-policy.mjs`, and a test fails if an entry there is missing from this table.
+
+| Advisory | Package | Status | Why it is tolerated for now |
+|---|---|---|---|
+| [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv) (high) | `node-forge` ≤ 1.4.0 | **Open — waiting for a fixed `node-forge` release** (accepted 2026-10-02) | The flaw is in RSA signature *verification*. moxxy does not use `node-forge`; it arrives only through `@expo/cli` (the mobile app's development tool), which uses it to read local Apple signing certificates during `expo run:ios` and verifies no signatures with it. It is not part of the CLI, the desktop installer, or the shipped mobile app. |
+| [GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp) (high) | `http-cache-semantics` ≤ 4.2.0 | **Open — waiting for a fixed `http-cache-semantics` release** (accepted 2026-10-03) | The flaw lets one user read another user's response from a *shared* HTTP cache. moxxy does not use `http-cache-semantics`; it arrives through `electron-builder` → `@electron/get`, which caches the Electron release it downloads on the build machine while the desktop installer is packaged (and through Astro when the docs site is built). No user requests or sessions pass through that cache, and it is not part of the CLI, the desktop installer, or the mobile app. |
+| [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) (high) | `braces` ≤ 3.0.3 | **Open — waiting for a fixed `braces` release** (accepted 2026-10-03) | The flaw is a stack overflow on deeply nested brace patterns. moxxy does not use `braces`; it arrives only through Metro (`expo` → `@expo/metro` → `metro-file-map` → `micromatch`), the mobile app's development bundler, which expands only the glob patterns of its own and the project's config on a developer machine. It takes no outside patterns and is not part of the CLI, the desktop installer, or the shipped mobile app. |
+| [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c) (moderate) | `sprintf-js` ≤ 1.1.3 | **Open — waiting for a fixed `sprintf-js` release** (accepted 2026-10-06) | The flaw is a denial of service when a format string asks for a huge precision. moxxy does not use `sprintf-js`; it arrives through `argparse` in the React Native CLI (mobile development tool) and through `roarr` in `electron-builder` → `@electron/get` on the build machine. Both format only their own fixed strings, take no format string from outside, and neither is part of the CLI, the desktop installer, or the shipped mobile app. |
+
+An accepted entry is not permanent. The audit fails again, and the entry must be removed, as soon as any of these happens:
+
+- upstream publishes a fixed version (upgrade, then delete the entry and its row here);
+- the package is reached through any dependency path other than the reviewed one;
+- the advisory is no longer reported.
+
 ## Hardening checklist
 
 1. `security.enabled: true` with the `subprocess` (or `worker`) isolator.

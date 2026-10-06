@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -11,6 +11,7 @@ vi.mock('node:os', async (importActual) => {
 });
 
 import { readPrefs, updatePrefs } from './prefs';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 function prefsPath(): string {
   return path.join(tmp, '.moxxy', 'desktop', 'prefs.json');
@@ -26,7 +27,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
+  removeDirSync(tmp);
 });
 
 describe('readPrefs', () => {
@@ -52,6 +53,12 @@ describe('readPrefs', () => {
     // Unset fields still fall back to defaults.
     expect(p.clerkUserId).toBeNull();
     expect((p as { focusMiniTextSize?: unknown }).focusMiniTextSize).toBeNull();
+  });
+
+  it('defaults Voice Mode to the local engine and keeps a chosen GPT-Live engine', () => {
+    expect(readPrefs().voiceEngine).toBe('local');
+    writePrefsFile({ voiceEngine: 'gpt-live' });
+    expect(readPrefs().voiceEngine).toBe('gpt-live');
   });
 
   it('forces version to 1 even if a stale file claims otherwise', () => {

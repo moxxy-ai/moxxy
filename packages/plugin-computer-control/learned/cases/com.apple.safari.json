@@ -1,0 +1,112 @@
+{
+ "app": "com.apple.Safari",
+ "cases": [
+  {
+   "goal": "Open a new tab in Safari with the keyboard",
+   "steps": [
+    {
+     "do": "key",
+     "key": "super+t"
+    }
+   ]
+  },
+  {
+   "goal": "Show the Safari sidebar",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the sidebar button (pokaż pasek boczny) in the toolbar",
+     "expect": "the sidebar is shown at the left of the window"
+    }
+   ]
+  },
+  {
+   "goal": "Hide the Safari sidebar",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the sidebar button (ukryj pasek boczny) in the toolbar",
+     "expect": "the sidebar is no longer shown"
+    }
+   ]
+  },
+  {
+   "goal": "Show all tabs in Safari",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the tab overview button (Podgląd kart) in the toolbar",
+     "expect": "the tab overview with thumbnails of the open tabs is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Leave the tab overview in Safari",
+   "steps": [
+    {
+     "do": "key",
+     "key": "Escape"
+    }
+   ]
+  },
+  {
+   "goal": "Go to Polish Wikipedia in Safari",
+   "steps": [
+    {
+     "do": "type",
+     "target": "the address field (inteligentne pole wyszukiwania) in the toolbar",
+     "text": "https://pl.wikipedia.org/wiki/Wikipedia:Strona_główna"
+    },
+    {
+     "do": "key",
+     "key": "Return",
+     "expect": "the Wikipedia main page is shown"
+    }
+   ]
+  },
+  {
+   "goal": "search Wikipedia for Mikołaj Kopernik",
+   "steps": [
+    {
+     "do": "type",
+     "target": "the Wikipedia search field on the page (Przeszukaj Wikipedię)",
+     "text": "Mikołaj Kopernik"
+    },
+    {
+     "do": "key",
+     "key": "Return",
+     "expect": "the article about Mikołaj Kopernik is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Go back one page in Safari",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the Back button (Wróć) in the toolbar",
+     "expect": "the Wikipedia main page is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Go forward one page in Safari",
+   "steps": [
+    {
+     "do": "click",
+     "target": "the Forward button (Idź dalej) in the toolbar",
+     "expect": "the article about Mikołaj Kopernik is shown"
+    }
+   ]
+  },
+  {
+   "goal": "Close the current tab in Safari",
+   "steps": [
+    {
+     "do": "key",
+     "key": "super+w"
+    }
+   ]
+  }
+ ]
+}

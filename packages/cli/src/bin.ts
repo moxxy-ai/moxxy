@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { ensurePrivateDir, moxxyHome, moxxyPath, pruneStaleTempFiles } from '@moxxy/sdk/server';
+import { ensurePrivateDir, moxxyHome, moxxyPath, pruneStaleTempFiles, utf8Locale } from '@moxxy/sdk/server';
 import { detectCoreInstall, finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 // Subpath, not the barrel: `@moxxy/plugin-cli` is the Ink TUI, and `--help`
 // must not evaluate a React renderer to print a tagline. logo-data.ts has no
@@ -70,6 +70,7 @@ const ADVANCED_SECTIONS: ReadonlyArray<HelpSection> = [
     rows: [
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
       ['login <action>', 'inspect or remove stored OAuth credentials'],
+      ['browser <action>', "sign the terminal's browser in to sites, or forget them"],
       ['onboard --advanced', 'add channels or background services after the first run'],
       ['provision', 'headless model setup for scripts and managed machines'],
       ['init', 're-run the recommended interactive model setup'],
@@ -278,6 +279,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   onboard: async () => (await import('./commands/onboard.js')).runOnboardCommand,
   provision: async () => (await import('./commands/provision.js')).runProvisionCommand,
   login: async () => (await import('./commands/login.js')).runLoginCommand,
+  browser: async () => (await import('./commands/browser.js')).runBrowserCommand,
   perms: async () => (await import('./commands/perms.js')).runPermsCommand,
   config: async () => (await import('./commands/config.js')).runConfigCommand,
   memory: async () => (await import('./commands/memory.js')).runMemoryCommand,
@@ -416,6 +418,11 @@ async function main(): Promise<number> {
 // whose command line carries a moxxy marker, and a dev-checkout daemon's
 // argv (`node …/packages/cli/dist/bin.js serve`) wouldn't otherwise match.
 process.title = ['moxxy', ...process.argv.slice(2)].join(' ');
+
+// Every command the agent runs (Bash, the terminal, background jobs, MCP
+// servers) inherits this env; without a UTF-8 character type `pbcopy` turns
+// Polish letters into mojibake.
+Object.assign(process.env, utf8Locale(process.env, process.platform));
 
 // Last-resort guards (log + survive unhandledRejection, log + exit 1 on
 // uncaughtException) — installed before any command runs so the long-lived

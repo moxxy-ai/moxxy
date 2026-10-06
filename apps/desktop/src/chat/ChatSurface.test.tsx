@@ -7,6 +7,13 @@ const chatState = vi.hoisted(() => ({
   events: [] as Array<{ type: string; text?: string; content?: string }>,
 }));
 
+/** The desk the surface's session belongs to, as the registry reports it. */
+const deskState = vi.hoisted(() => ({
+  desk: undefined as
+    | { id: string; name: string; activeSessionId: string; sessions: Array<{ id: string; name: string; eventCount?: number }> }
+    | undefined,
+}));
+
 const voiceCallState = vi.hoisted(() => ({
   active: false,
   phase: 'idle' as const,
@@ -27,6 +34,19 @@ const voiceCallState = vi.hoisted(() => ({
 }));
 
 const focusModeToggle = vi.hoisted(() => vi.fn());
+
+/** The question the runner is blocked on, if any. */
+const askState = vi.hoisted(() => ({ ask: null as null | { id: string } }));
+
+vi.mock('./AskSheet', () => ({
+  AskSheet: () => <div data-testid="ask-mock">Allow Bash?</div>,
+}));
+
+vi.mock('./chat-surface/Header', () => ({
+  Header: ({ sessionName }: { readonly sessionName: string | null }) => (
+    <header data-testid="header-mock">{sessionName}</header>
+  ),
+}));
 
 vi.mock('./chat-surface/useFocusModeToggle', () => ({
   useFocusModeToggle: () => focusModeToggle,
@@ -91,7 +111,7 @@ vi.mock('@moxxy/client-core', () => ({
   }),
   useActionCatalog: () => ({ loaded: true, skills: [], tools: [] }),
   useDesks: () => ({
-    desks: [],
+    desks: deskState.desk ? [deskState.desk] : [],
     activeId: null,
     loading: false,
     error: null,
@@ -102,14 +122,17 @@ vi.mock('@moxxy/client-core', () => ({
     pickFolder: vi.fn(),
     rename: vi.fn(),
   }),
-  useActiveAsk: () => null,
+  useActiveAsk: () => askState.ask,
   useVoiceCall: () => ({ ...voiceCallState }),
   useQueuedTurns: () => [],
-  deskForWorkspace: () => undefined,
+  deskForWorkspace: () => deskState.desk,
   // ChatSurface owns the session-info fetch now (one fetch shared by the
   // instrument bar's telemetry and the composer's mode menu), so its hook's
   // dependencies have to exist on the mock too.
   useConnection: () => ({ snapshot: undefined, hasEverConnected: false, retry: vi.fn() }),
+  // The live Computer Use view rides a surface, which reads the connection too.
+  isConnected: () => false,
+  toErrorMessage: (error: unknown) => String(error),
   chatStore: {
     subscribe: () => () => undefined,
     getModel: () => null,
@@ -137,11 +160,13 @@ describe('ChatSurface session readiness', () => {
   beforeEach(() => {
     chatState.loading = false;
     chatState.events = [];
+    deskState.desk = undefined;
     voiceCallState.active = false;
     voiceCallState.activeOperations = [];
     voiceCallState.open.mockClear();
     voiceCallState.close.mockClear();
     focusModeToggle.mockClear();
+    askState.ask = null;
   });
 
   it('uses the full loading state while the selected session runner is loading before transcript is available', () => {
@@ -180,6 +205,31 @@ describe('ChatSurface session readiness', () => {
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
     expect(screen.queryByText(/^Model:/)).not.toBeInTheDocument();
     expect(screen.queryByText('Attach')).not.toBeInTheDocument();
+  });
+
+  /**
+   * A session just made with New session has nothing to load. Swapping the
+   * whole surface for a loader and back — composer gone, then back — is the
+   * flash seen on every New session.
+   */
+  it('keeps the composer and the empty state for a brand-new session while its runner starts', () => {
+    deskState.desk = { id: 'desk', name: 'Moxxy', activeSessionId: 'new-session', sessions: [{ id: 'new-session', name: 'New session', eventCount: 0 }] };
+    chatState.loading = true;
+
+    render(<ChatSurface phase={loadingPhase} workspaceId="new-session" sessionLoading />);
+
+    expect(screen.queryByText('Moxxy is loading this session…')).not.toBeInTheDocument();
+    expect(screen.getByText('Getting your workspace ready…')).toBeInTheDocument();
+    expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
+  });
+
+  it('still waits for the history of a session that has one', () => {
+    deskState.desk = { id: 'desk', name: 'Moxxy', activeSessionId: 'old-session', sessions: [{ id: 'old-session', name: 'Old', eventCount: 12 }] };
+
+    render(<ChatSurface phase={loadingPhase} workspaceId="old-session" sessionLoading />);
+
+    expect(screen.getByText('Moxxy is loading this session…')).toBeInTheDocument();
+    expect(screen.queryByText('Getting your workspace ready…')).not.toBeInTheDocument();
   });
 
   it('keeps an already loaded transcript mounted while the selected session runner reconnects', () => {
@@ -252,4 +302,70 @@ describe('ChatSurface session readiness', () => {
     expect(screen.getByTestId('transcript-mock')).toBe(transcriptBefore);
   });
 
+});
+
+/**
+ * Docked is the chat while the workbench is in full view: a composer floating
+ * over the pane. What it keeps is what the person must still be able to do —
+ * type, and answer a question the agent is blocked on. The transcript stays
+ * mounted, hidden, so coming back finds it where it was.
+ */
+describe('ChatSurface, docked', () => {
+  beforeEach(() => {
+    chatState.loading = false;
+    chatState.events = [{ type: 'user_prompt', text: 'open the page' }];
+    deskState.desk = undefined;
+    voiceCallState.active = false;
+    askState.ask = null;
+  });
+
+  const connected = {
+    phase: 'connected',
+    socket: '/tmp/s.sock',
+    sessionId: 's',
+    activeProvider: 'openai-codex',
+    activeMode: 'default',
+  } as const;
+
+  it('floats as a composer: no header, the transcript hidden but kept', () => {
+    const view = render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} title={{ context: 'Ws', subject: 'My run' }} />);
+    const transcript = screen.getByTestId('transcript-mock');
+    expect(screen.getByTestId('header-mock')).toBeInTheDocument();
+
+    view.rerender(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} title={{ context: 'Ws', subject: 'My run' }} docked />);
+
+    expect(view.container.querySelector('main')).toHaveClass('col-main--docked');
+    expect(screen.queryByTestId('header-mock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('transcript-mock')).toBe(transcript);
+    expect(transcript).not.toBeVisible();
+    expect(screen.getByTestId('composer-mock')).toBeVisible();
+  });
+
+  it('still shows a question the agent is waiting on', () => {
+    askState.ask = { id: 'a1' };
+    render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
+    expect(screen.getByTestId('ask-mock')).toBeVisible();
+  });
+
+  it('tucks into a moxxy button and opens again, keeping the composer mounted', () => {
+    render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
+    const composer = screen.getByTestId('composer-mock');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the chat' }));
+
+    expect(screen.getByTestId('composer-mock')).toBe(composer);
+    expect(composer).not.toBeVisible();
+    const launcher = screen.getByRole('button', { name: 'Show the chat' });
+    expect(launcher.querySelector('svg[aria-label="moxxy"]')).not.toBeNull();
+
+    fireEvent.click(launcher);
+
+    expect(composer).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Show the chat' })).not.toBeInTheDocument();
+  });
+
+  it('offers no hide button beside the chat outside full view', () => {
+    render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} />);
+    expect(screen.queryByRole('button', { name: 'Hide the chat' })).not.toBeInTheDocument();
+  });
 });

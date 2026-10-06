@@ -51,6 +51,8 @@ const SEGMENT_SYSTEM_PROMPT =
   'did to answer it) into a durable record the agent can rely on months later, without the transcript. ' +
   'Write exactly these lines, each on one line, no preamble and no markdown headers:\n' +
   'Asked: what the user actually wanted.\n' +
+  'Settled: every choice the user made that later work must keep (dates, one-way or return, sizes, names, filters, ' +
+  'what to avoid). Omit the line if there are none.\n' +
   'Did: the concrete actions taken: files created/edited, commands run, decisions made.\n' +
   'Outcome: what resulted, INCLUDING failures and what was abandoned.\n' +
   'Facts: exact paths, identifiers, versions, numbers and names worth keeping. Omit the line if there are none.\n' +
@@ -59,10 +61,11 @@ const SEGMENT_SYSTEM_PROMPT =
 
 const CHAPTER_SYSTEM_PROMPT =
   'You merge several sub-session records of an AI agent into ONE coarser record covering the same period. ' +
-  'Keep the same line structure (Asked / Did / Outcome / Facts / Open), but describe the PERIOD rather than ' +
+  'Keep the same line structure (Asked / Settled / Did / Outcome / Facts / Open), but describe the PERIOD rather than ' +
   'a single request: what the work was about, what got done, what the standing results are. ' +
-  'Preserve exact identifiers (paths, names, versions) that later work may still need, and preserve every ' +
-  'still-open thread. Drop step-by-step detail that has been superseded. Never invent anything.';
+  'Preserve exact identifiers (paths, names, versions) that later work may still need, every choice the user ' +
+  'settled that still holds, and every still-open thread. Drop step-by-step detail that has been superseded. ' +
+  'Never invent anything.';
 
 export interface SegmentsCompactorOptions extends Partial<SegmentOptions> {
   /** Custom summarizer, for tests and offline hosts. */
@@ -97,11 +100,8 @@ export interface SegmentsCompactorOptions extends Partial<SegmentOptions> {
 export function createSegmentsCompactor(opts: SegmentsCompactorOptions = {}): CompactorDef {
   const base = resolveOptions(opts);
 
-  const effectiveOptions = (budget: TokenBudget | undefined): SegmentOptions => {
-    if (!budget || budget.contextWindow <= 0) return base;
-    if (budget.estimatedTokens <= PRESSURE_RATIO * budget.contextWindow) return base;
-    return { ...base, keepRecentTurns: 1 };
-  };
+  const effectiveOptions = (budget: TokenBudget | undefined): SegmentOptions =>
+    underPressure(budget) ? { ...base, keepRecentTurns: 1 } : base;
 
   return defineCompactor({
     name: 'segments',
@@ -135,9 +135,42 @@ export function createSegmentsCompactor(opts: SegmentsCompactorOptions = {}): Co
         replacedRange: [plan.from, plan.to] as const,
         summary,
         tokensSaved: Math.max(0, Math.ceil((plan.originalChars - summary.length) / 4)),
+        // Recording a finished turn and folding old records happen every few
+        // turns by design; only a step forced by a nearly full context is news.
+        ...(plan.kind === 'chapter' || !underPressure(ctx?.budget) ? { routine: true as const } : {}),
       };
     },
   });
+}
+
+function underPressure(budget: TokenBudget | undefined): boolean {
+  return budget !== undefined && budget.contextWindow > 0 && budget.estimatedTokens > PRESSURE_RATIO * budget.contextWindow;
+}
+
+/** Longest stretch of one message kept verbatim in a record, and of all of them together. */
+const USER_LINE_CHARS = 300;
+const USER_LINES_CHARS = 900;
+/** Share of what a record replaces that the kept words may take, so the record still shrinks the context. */
+const USER_LINES_RATIO = 0.4;
+
+/**
+ * The user's own words, kept verbatim beside the summary: a choice such as
+ * "one-way only" is exactly the detail a summarizer drops, and the agent needs
+ * it again when it redoes the work turns later.
+ */
+function userLines(events: ReadonlyArray<MoxxyEvent>, maxChars: number): string {
+  const lines: string[] = [];
+  let total = 0;
+  for (const e of events) {
+    if (e.type !== 'user_prompt') continue;
+    const text = e.text.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const line = `User: ${text.length > USER_LINE_CHARS ? `${text.slice(0, USER_LINE_CHARS)}…` : text}`;
+    if (total + line.length > maxChars) break;
+    lines.push(line);
+    total += line.length + 1;
+  }
+  return lines.join('\n');
 }
 
 async function summarizeSegment(
@@ -146,7 +179,8 @@ async function summarizeSegment(
   custom: SegmentsCompactorOptions['summary'],
 ): Promise<string> {
   const digest = buildDigest(plan.events);
-  const header = segmentHeader(plan);
+  const said = userLines(plan.events, Math.min(USER_LINES_CHARS, Math.floor(plan.originalChars * USER_LINES_RATIO)));
+  const header = said ? `${segmentHeader(plan)}\n${said}` : segmentHeader(plan);
   const body = custom
     ? await custom(digest, 'segment')
     : ((await summarizeWithProvider(digest, {

@@ -194,5 +194,7 @@ export async function handleVoiceMessage(
   // reply.
   await ctx.reply(`_heard:_ ${transcript}`, { parse_mode: 'Markdown' });
 
+  // The transcript is a prompt like any other: `/voice` decides whether the
+  // reply is spoken back.
   await cb.runUserTurn(ctx, chatId, transcript);
 }

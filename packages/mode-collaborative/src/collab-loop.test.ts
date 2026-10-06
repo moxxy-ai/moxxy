@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { platformSocket } from '@moxxy/runner';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
-import type { CollaborationHub } from '@moxxy/plugin-collab';
-import { runCollaborative, sleep, type CollabDeps } from './collab-loop.js';
+import { createCollaborationHub, type CollaborationHub } from '@moxxy/plugin-collab';
+import { runCollaborative, waitForAgent, waitForAgents, type CollabDeps } from './collab-loop.js';
 import { listRunRecords } from './archive.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -27,8 +29,8 @@ beforeEach(() => {
     delete process.env.MOXXY_COLLAB_LOCK;
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    rmSync(lockDir, { recursive: true, force: true });
-    rmSync(homeDir, { recursive: true, force: true });
+    removeDirSync(lockDir);
+    removeDirSync(homeDir);
   });
 });
 
@@ -38,7 +40,7 @@ afterEach(() => {
 
 async function initRepo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'mc-loop-'));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeDirSync(dir));
   await git(dir, ['init', '-b', 'main']);
   writeFileSync(join(dir, 'README.md'), '# base\n');
   await git(dir, ['add', '-A']);
@@ -107,6 +109,7 @@ function fakeSupervisor(hub: CollaborationHub): Supervisor {
     shutdownAll: async () => undefined,
     stderrOf: () => [],
     hasExited: () => false,
+    onExit: () => () => undefined,
   };
 }
 
@@ -143,6 +146,7 @@ function partiallyFailingSupervisor(hub: CollaborationHub, failingId: string): S
     shutdownAll: async () => undefined,
     stderrOf: () => ['boom: simulated crash'],
     hasExited: (id) => exited.has(id),
+    onExit: () => () => undefined,
   };
 }
 
@@ -233,6 +237,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -284,6 +289,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -338,7 +344,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('GIT-FIRST: auto-inits a plain folder and runs git-parallel (worktrees + merge)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-plain-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -360,7 +366,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('NO GIT: runs cwd-parallel (all agents in the shared workspace, lock-coordinated)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -389,7 +395,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('SEQUENTIAL (explicit): one agent at a time in the shared workspace', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-seq-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -411,7 +417,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('uses the coordinator-selected model as the default peer model', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-model-default-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx } = fakeCtx();
     let seenDefaultModel: string | undefined;
     const deps: CollabDeps = {
@@ -430,7 +436,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('canonicalizes shorthand peer model ids from the architect roster', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-model-roster-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx } = fakeCtx();
     const spawnedModels: Array<string | undefined> = [];
     const deps: CollabDeps = {
@@ -463,6 +469,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -489,6 +496,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -515,7 +523,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('cwd-parallel pre-seeds ownedPaths as locks and surfaces an overlap', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-overlap-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -544,6 +552,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         shutdownAll: async () => undefined,
         stderrOf: () => [],
         hasExited: () => false,
+        onExit: () => () => undefined,
       }),
     };
 
@@ -558,21 +567,93 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
   });
 });
 
-describe('sleep (poll helper)', () => {
-  it('does not leak abort listeners on the normal-timeout path', async () => {
-    // A collaboration polls every ~500ms for up to its wall-clock guard
-    // (30 min default) — thousands of sleeps on ONE long-lived signal. A leak
-    // here means a MaxListenersExceededWarning + unbounded listener growth.
-    const ac = new AbortController();
-    for (let i = 0; i < 20; i++) await sleep(0, ac.signal);
-    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
+describe('waiting on agents', () => {
+  async function liveHub(ids: ReadonlyArray<string>): Promise<CollaborationHub> {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-wait-'));
+    const hub = await createCollaborationHub({
+      socketPath: platformSocket(basename(dir), join(dir, 'hub.sock')),
+      task: 'wait probe',
+      roster: ids.map((id) => ({ id, name: id, role: 'implementer' as const, subtask: 'noop' })),
+    });
+    cleanups.push(() => {
+      void hub.close();
+      removeDirSync(dir);
+    });
+    return hub;
+  }
+
+  /** The peer processes' exit signal, driven by the test. */
+  function processes() {
+    const exited = new Set<string>();
+    const listeners = new Set<(agentId: string) => void>();
+    return {
+      hasExited: (id: string) => exited.has(id),
+      onExit(fn: (agentId: string) => void) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+      exit(id: string) {
+        exited.add(id);
+        for (const fn of listeners) fn(id);
+      },
+      listenerCount: () => listeners.size,
+    };
+  }
+
+  const WALL_CLOCK = 60_000;
+
+  it('notices an agent finishing the moment the hub reports it, not on a poll tick', async () => {
+    const hub = await liveHub(['a']);
+    const startedAt = Date.now();
+    setTimeout(() => hub.state.markDone('a', 'built it'), 20);
+
+    const ok = await waitForAgent(hub, processes(), 'a', new AbortController().signal, WALL_CLOCK);
+
+    expect(ok).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(300);
   });
 
-  it('still resolves and cleans up when aborted mid-sleep', async () => {
-    const ac = new AbortController();
-    const p = sleep(10_000, ac.signal);
-    ac.abort();
-    await p; // resolves immediately on abort rather than waiting out the timer
-    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
+  it('fails fast the moment an agent process exits without finishing', async () => {
+    const hub = await liveHub(['a']);
+    const peers = processes();
+    const startedAt = Date.now();
+    setTimeout(() => peers.exit('a'), 20);
+
+    const ok = await waitForAgent(hub, peers, 'a', new AbortController().signal, WALL_CLOCK);
+
+    expect(ok).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
+  it('returns as soon as the last of several agents settles', async () => {
+    const hub = await liveHub(['a', 'b']);
+    const peers = processes();
+    const startedAt = Date.now();
+    setTimeout(() => hub.state.markDone('a', 'done'), 20);
+    setTimeout(() => peers.exit('b'), 40);
+
+    await waitForAgents(hub, peers, ['a', 'b'], new AbortController().signal, WALL_CLOCK);
+
+    expect(Date.now() - startedAt).toBeLessThan(300);
+  });
+
+  it('leaves no listener behind once the wait is over', async () => {
+    const hub = await liveHub(['a']);
+    const peers = processes();
+    const turn = new AbortController();
+    setTimeout(() => hub.state.markDone('a', 'done'), 10);
+
+    await waitForAgent(hub, peers, 'a', turn.signal, WALL_CLOCK);
+
+    expect(peers.listenerCount()).toBe(0);
+    expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0);
+  });
+
+  it('stops waiting when the run is aborted', async () => {
+    const hub = await liveHub(['a']);
+    const turn = new AbortController();
+    setTimeout(() => turn.abort(), 20);
+
+    await expect(waitForAgent(hub, processes(), 'a', turn.signal, WALL_CLOCK)).resolves.toBe(false);
   });
 });

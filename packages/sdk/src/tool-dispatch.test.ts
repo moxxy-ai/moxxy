@@ -290,3 +290,16 @@ describe('emitRequestsAndNudgeOnStuck — steer, never stop', () => {
     expect(events.filter((e) => e.type !== 'tool_call_requested')).toHaveLength(0);
   });
 });
+
+describe('how an approval was reached', () => {
+  const approvedBy = async (decision: PermissionDecision): Promise<MoxxyEvent | undefined> => {
+    const { ctx, events } = makeCtx({ decision });
+    await drain(dispatchToolCall(ctx, { id: 'c1', name: 'computer_run', input: {} } as CollectedToolUse, 0));
+    return events.find((event) => event.type === 'tool_call_approved');
+  };
+
+  it('records that the call was decided now, so a tool can tell it from a standing rule', async () => {
+    expect(await approvedBy({ mode: 'allow', decidedNow: true })).toMatchObject({ mode: 'allow', decidedNow: true });
+    expect(await approvedBy({ mode: 'allow' })).not.toHaveProperty('decidedNow');
+  });
+});

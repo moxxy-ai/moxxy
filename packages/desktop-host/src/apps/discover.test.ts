@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { discoverApps } from './discover';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let root: string;
 
@@ -25,7 +26,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-apps-'));
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await removeDir(root);
 });
 
 async function writeApp(name: string, manifestText: string | null): Promise<void> {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +7,7 @@ import { readMcpConfig, writeMcpConfig } from '../config-io.js';
 import type { AddServerInput } from '../schema.js';
 import type { AdminToolRegistryLike } from '../types.js';
 import { buildAddServerTool, type AddServerToolDeps } from './add.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PING: McpToolDescriptor = { name: 'ping', description: 'pong', inputSchema: { type: 'object' } };
 
@@ -41,7 +42,7 @@ describe('admin/tools/add (mcp_add_server)', () => {
   afterEach(async () => {
     if (original === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = original;
-    await rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   const makeDeps = (over: Partial<AddServerToolDeps> = {}): {

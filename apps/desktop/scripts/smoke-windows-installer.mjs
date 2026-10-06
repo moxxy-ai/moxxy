@@ -5,6 +5,7 @@ import net from 'node:net';
 import * as path from 'node:path';
 
 import { seedPluginsFromResources } from '../../../packages/desktop-host/dist/seed-plugins.js';
+import { smokeRuntimes } from './smoke-runtimes.mjs';
 import { verifyDesktopResources } from './verify-desktop-resources.mjs';
 
 const installerPath = process.argv[2];
@@ -27,9 +28,17 @@ let server;
 
 try {
   await removeInstallDir();
-  run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 120_000);
+  // The installer carries the voices and every plugin: unpacking takes minutes on a CI disk.
+  run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 300_000);
 
-  await verifyDesktopResources(resourcesPath, { runtimePath });
+  await verifyDesktopResources(resourcesPath, {
+    runtimePath,
+    // Content was checked before packaging; electron-builder leaves out .gitkeep
+    // files and a release build signs the seed's .exe files since.
+    fingerprintContent: false,
+  });
+  // The agent's Python, pip, Node and npm come from the installer: run them as a first launch would unpack them.
+  await smokeRuntimes(resourcesPath);
 
   await mkdir(smokeHome, { recursive: true });
   await seedPluginsFromResources({

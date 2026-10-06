@@ -16,7 +16,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, development]
+    # staging-agent-update is a staging branch: work that is not ready for
+    # development is gathered there and must be built and tested the same way.
+    branches: [main, development, staging-agent-update]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -122,7 +124,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Setup Python (node-gyp needs distutils)
@@ -152,6 +154,11 @@ jobs:
       - name: Test packaging contracts
         run: node --test scripts/desktop-packaging.test.mjs
 
+      - name: Build macOS Computer Use component
+        # Needs the plugin's dist/ (manifest writer) from the workspace build.
+        if: runner.os == 'macOS'
+        run: packages/plugin-computer-control/native/macos/build.sh
+
       - name: Prepare embedded CLI and plugins
         # The native executable is a full-installer resource, not a JS hot update.
         if: runner.os != 'Windows'
@@ -173,6 +180,11 @@ jobs:
 
       - name: Verify unpacked desktop resources
         run: pnpm --filter @moxxy/desktop run verify:packaged
+
+      - name: Run the bundled Python, Node and Git
+        # Windows runs them from the installed app in the installer smoke below.
+        if: runner.os != 'Windows'
+        run: node apps/desktop/scripts/smoke-runtimes.mjs apps/desktop/resources
 
       - name: Package Windows installer
         if: runner.os == 'Windows'
@@ -205,7 +217,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20.19.0', '22.x', '24.x']
+        node: ['22.19.0', '24.x']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -242,14 +254,65 @@ jobs:
           pnpm --filter @moxxy/desktop-host exec vitest run src/cli-resolver.test.ts src/runner-pool.test.ts src/ipc/provider-login.test.ts
           pnpm --filter @moxxy/plugin-plugins-admin exec vitest run src/install.test.ts src/shared.test.ts
 
+  # The whole test suite on Windows, for every change. `Build + test` is Ubuntu
+  # only and the two Windows jobs above run for some paths and a few suites, so
+  # a change to sockets, paths, processes or permissions used to reach Windows
+  # untested. A test that needs something Windows lacks says so with a
+  # capability from @moxxy/vitest-preset/platform instead of failing here.
+  windows-test:
+    name: Windows test
+    runs-on: windows-2022
+    env:
+      MOXXY_FIXTURES: replay
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.x'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Turbo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo
+          key: turbo-windows-${{ github.sha }}
+          restore-keys: |
+            turbo-windows-
+
+      - name: Build
+        shell: bash
+        run: pnpm exec turbo run build --filter='!docs'
+
+      # A hung test would otherwise hold the job for GitHub's 6-hour default,
+      # and a job cancelled mid-step uploads no log to say which one it was.
+      # Streamed, because on Actions turbo holds a task's output until the task
+      # ends, so a hung task would print nothing at all.
+      - name: Test
+        shell: bash
+        timeout-minutes: 30
+        run: pnpm exec turbo run test --concurrency=2 --continue --log-order=stream && pnpm run test:scripts
+
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    # A normal run takes a few minutes; a hung test fails fast instead of holding the runner for hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Cover the declared engines floor (>=20.19), current LTS, and latest.
-        node: ['20.x', '22.x', '24.x']
+        # Cover the declared engines floor (>=22.19, Node 22 LTS) and the default, Node 24 LTS.
+        node: ['22.x', '24.x']
     env:
       MOXXY_FIXTURES: replay
 
@@ -286,20 +349,10 @@ jobs:
       # turbo's graph-aware ordering AND caching — the whole repo is built
       # around it; `pnpm -r` ignored the cache entirely.
       - name: Build
-        run: |
-          if [ "${{ matrix.node }}" = "20.x" ]; then
-            pnpm exec turbo run build --filter='!docs'
-          else
-            pnpm build
-          fi
+        run: pnpm build
 
       - name: Typecheck
-        run: |
-          if [ "${{ matrix.node }}" = "20.x" ]; then
-            pnpm exec turbo run typecheck --filter='!docs'
-          else
-            pnpm typecheck
-          fi
+        run: pnpm typecheck
 
       - name: Lint
         run: pnpm lint
@@ -313,10 +366,6 @@ jobs:
         run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
 
       - name: Dependency invariants
-        # dependency-cruiser 18 is a development-only analyzer and requires
-        # Node >=22.12. The Node 20 leg still verifies the shipped CLI/runtime;
-        # the invariant itself is checked independently on Node 22 and 24.
-        if: matrix.node != '20.x'
         run: pnpm check:deps
 
       - name: Smoke — CLI help loads
@@ -340,7 +389,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Install dependencies
@@ -348,6 +397,9 @@ jobs:
 
       - name: Reject unmitigated advisories
         run: pnpm audit:security
+
+      - name: Verify the advisory acceptance policy
+        run: node --test scripts/security-audit-policy.test.mjs
 
       - name: Verify image-size and the metro asset patch
         run: node --test scripts/image-size.test.mjs
@@ -372,7 +424,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Install dependencies

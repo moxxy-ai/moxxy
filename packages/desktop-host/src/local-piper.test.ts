@@ -2,11 +2,14 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadCategoryDefault, setCategoryDefault } from '@moxxy/config';
 import {
+  adoptSeededLocalPiper,
   createLocalPiperInstaller,
   isLocalPiperInstalled,
   LOCAL_PIPER_PACKAGE,
 } from './local-piper';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const temporaryDirectories: string[] = [];
 
@@ -19,7 +22,7 @@ async function temporaryMoxxyHome(): Promise<string> {
 afterEach(async () => {
   const { rm } = await import('node:fs/promises');
   await Promise.all(temporaryDirectories.splice(0).map((directory) => (
-    rm(directory, { recursive: true, force: true })
+    removeDir(directory)
   )));
 });
 
@@ -70,13 +73,35 @@ describe('Local Piper installer', () => {
   it('installs, enables and selects only the fixed Local Piper contribution', async () => {
     const run = vi.fn(async () => undefined);
     const repairManifest = vi.fn(async () => undefined);
-    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
+    const install = createLocalPiperInstaller({
+      runCommand: run,
+      repairManifest,
+      isInstalled: async () => false,
+    });
 
     await install();
 
     expect(repairManifest).toHaveBeenCalledTimes(1);
     expect(run.mock.calls).toEqual([
       [['plugins', 'install', LOCAL_PIPER_PACKAGE]],
+      [['plugins', 'enable', LOCAL_PIPER_PACKAGE]],
+      [['plugins', 'set-default', 'synthesizer', 'local-piper']],
+    ]);
+  });
+
+  it('selects a Piper that is already on disk without going to npm', async () => {
+    const run = vi.fn(async () => undefined);
+    const repairManifest = vi.fn(async () => undefined);
+    const install = createLocalPiperInstaller({
+      runCommand: run,
+      repairManifest,
+      isInstalled: async () => true,
+    });
+
+    await install();
+
+    expect(repairManifest).not.toHaveBeenCalled();
+    expect(run.mock.calls).toEqual([
       [['plugins', 'enable', LOCAL_PIPER_PACKAGE]],
       [['plugins', 'set-default', 'synthesizer', 'local-piper']],
     ]);
@@ -89,12 +114,15 @@ describe('Local Piper installer', () => {
     });
     const run = vi.fn(async () => gate);
     const repairManifest = vi.fn(async () => undefined);
-    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
+    const install = createLocalPiperInstaller({
+      runCommand: run,
+      repairManifest,
+      isInstalled: async () => false,
+    });
 
     const first = install();
     const second = install();
-    await Promise.resolve();
-    expect(run).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
 
     release?.();
     await Promise.all([first, second]);
@@ -111,10 +139,44 @@ describe('Local Piper installer', () => {
       calls.push('repair');
       throw new Error('manifest could not be repaired');
     });
-    const install = createLocalPiperInstaller({ runCommand: run, repairManifest });
+    const install = createLocalPiperInstaller({
+      runCommand: run,
+      repairManifest,
+      isInstalled: async () => false,
+    });
 
     await expect(install()).rejects.toThrow('manifest could not be repaired');
     expect(calls).toEqual(['repair']);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('Piper shipped with the installer', () => {
+  it('becomes the voice when the installer just put it there and none was chosen', async () => {
+    const configPath = path.join(await temporaryMoxxyHome(), 'config.yaml');
+
+    const adopted = await adoptSeededLocalPiper([LOCAL_PIPER_PACKAGE, '@moxxy/sdk'], { configPath });
+
+    expect(adopted).toBe(true);
+    expect(await loadCategoryDefault('synthesizer', { configPath })).toBe('local-piper');
+  });
+
+  it('keeps the voice the user chose', async () => {
+    const configPath = path.join(await temporaryMoxxyHome(), 'config.yaml');
+    await setCategoryDefault('synthesizer', 'gemini-tts', { configPath });
+
+    const adopted = await adoptSeededLocalPiper([LOCAL_PIPER_PACKAGE], { configPath });
+
+    expect(adopted).toBe(false);
+    expect(await loadCategoryDefault('synthesizer', { configPath })).toBe('gemini-tts');
+  });
+
+  it('changes nothing on a launch that copied no Piper', async () => {
+    const configPath = path.join(await temporaryMoxxyHome(), 'config.yaml');
+
+    const adopted = await adoptSeededLocalPiper(['@moxxy/sdk'], { configPath });
+
+    expect(adopted).toBe(false);
+    expect(await loadCategoryDefault('synthesizer', { configPath })).toBeNull();
   });
 });

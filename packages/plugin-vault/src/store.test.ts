@@ -6,6 +6,7 @@ import { MoxxyError } from '@moxxy/sdk';
 import { VaultStore } from './store.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, generateSalt } from './crypto.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let filePath: string;
@@ -19,7 +20,7 @@ beforeEach(async () => {
   filePath = path.join(tmp, 'vault.json');
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('VaultStore', () => {

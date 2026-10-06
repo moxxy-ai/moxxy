@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { __setApiOverride, chatStore, connectionStore } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
-import { useAgentSession } from './useAgentSession';
+import { useAgentSession, type ModelOwner } from './useAgentSession';
+import { setModelPreference } from './modelPreferences';
 import type { SessionInfo } from './types';
 
 const info: SessionInfo = {
@@ -17,11 +18,13 @@ const info: SessionInfo = {
 function Probe({
   workspaceId,
   disabled,
+  modelOwner,
 }: {
   readonly workspaceId: string;
   readonly disabled: boolean;
+  readonly modelOwner?: ModelOwner;
 }): JSX.Element {
-  const agent = useAgentSession(workspaceId, disabled);
+  const agent = useAgentSession(workspaceId, disabled, modelOwner);
   if (!agent.info) return <div>no-info</div>;
   return (
     <div>
@@ -30,6 +33,15 @@ function Probe({
       <span data-testid="selected-model">{agent.selectedModel ?? 'default'}</span>
       <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', 'gpt-5')}>
         pick
+      </button>
+      <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', null)}>
+        pick provider
+      </button>
+      <button
+        type="button"
+        onClick={() => void agent.onPickProviderModel('openai-codex', 'vendor/model-v2', 200_000)}
+      >
+        pick custom
       </button>
     </div>
   );
@@ -154,8 +166,28 @@ describe('useAgentSession', () => {
       expect(invoke).toHaveBeenCalledWith('session.setModel', {
         workspaceId: 'session-model',
         model: 'gpt-5',
+        contextWindow: null,
       }),
     );
+  });
+
+  it('persists custom model context metadata through session.setModel', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    render(<Probe workspaceId="custom-model-context" disabled={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pick custom' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('session.setModel', {
+      workspaceId: 'custom-model-context',
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
+    }));
+    expect(chatStore.getModelContextWindow('custom-model-context')).toBe(200_000);
   });
 
   it('restores the exact provider model after the desktop restarts', async () => {
@@ -180,6 +212,64 @@ describe('useAgentSession', () => {
     expect(invoke).toHaveBeenCalledWith('session.setModel', {
       workspaceId,
       model: 'gpt-5',
+      contextWindow: null,
     });
+  });
+
+  it('restores the custom model context window after the desktop restarts', async () => {
+    const workspaceId = 'restart-custom-model';
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'session.info') return info;
+      if (cmd === 'session.setModel') return undefined;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
+
+    const first = render(<Probe workspaceId={workspaceId} disabled={false} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pick custom' }));
+    await waitFor(() => expect(chatStore.getModelContextWindow(workspaceId)).toBe(200_000));
+    first.unmount();
+
+    chatStore.setModel(workspaceId, null);
+    invoke.mockClear();
+    render(<Probe workspaceId={workspaceId} disabled={false} />);
+
+    await waitFor(() => expect(chatStore.getModelContextWindow(workspaceId)).toBe(200_000));
+    expect(invoke).toHaveBeenCalledWith('session.setModel', {
+      workspaceId,
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
+    });
+  });
+});
+
+describe("useAgentSession in a bot's chat (the bot owns the model)", () => {
+  it("keeps the bot's model instead of restoring the app's own pick over it", async () => {
+    const invoke = installInfoSequence([info]);
+    setModelPreference('moxxy-channel-telegram', 'openai-codex', 'gpt-4', null);
+    chatStore.setModel('moxxy-channel-telegram', 'gpt-5.6-luna', null);
+
+    render(
+      <Probe workspaceId="moxxy-channel-telegram" disabled={false} modelOwner={{ pick: async () => undefined }} />,
+    );
+
+    expect(await screen.findByText('openai-codex')).toBeInTheDocument();
+    expect(screen.getByTestId('selected-model')).toHaveTextContent('gpt-5.6-luna');
+    expect(invoke.mock.calls.map(([cmd]) => cmd)).not.toContain('session.setModel');
+  });
+
+  it("saves a model picked in the header as the bot's model", async () => {
+    const invoke = installInfoSequence([info]);
+    const pick = vi.fn(async () => undefined);
+    render(<Probe workspaceId="moxxy-channel-telegram" disabled={false} modelOwner={{ pick }} />);
+
+    fireEvent.click(await screen.findByText('pick'));
+    fireEvent.click(screen.getByText('pick provider'));
+
+    await waitFor(() => expect(pick).toHaveBeenCalledTimes(2));
+    expect(pick).toHaveBeenNthCalledWith(1, 'openai-codex', 'gpt-5');
+    // A provider alone means its first model — a bot's model always names one.
+    expect(pick).toHaveBeenNthCalledWith(2, 'openai-codex', 'gpt-5');
+    expect(invoke.mock.calls.map(([cmd]) => cmd)).not.toContain('session.setProvider');
   });
 });

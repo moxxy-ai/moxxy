@@ -36,6 +36,18 @@ describe('CHANNEL_CATALOG', () => {
     }
   });
 
+  it('Telegram and Discord keep a model of their own and can run in the background', () => {
+    for (const [id, modelKey] of [
+      ['telegram', 'telegram_model'],
+      ['discord', 'discord_model'],
+    ] as const) {
+      const entry = CHANNEL_CATALOG[id];
+      expect(entry?.descriptor.supportsModel).toBe(true);
+      expect(entry?.descriptor.supportsBackground).toBe(true);
+      expect(entry?.modelVaultKey).toBe(modelKey);
+    }
+  });
+
   it('only Slack advertises a public Request URL', () => {
     expect(CHANNEL_CATALOG.slack?.descriptor.hasWebhookUrl).toBe(true);
     expect(CHANNEL_CATALOG.telegram?.descriptor.hasWebhookUrl).toBe(false);

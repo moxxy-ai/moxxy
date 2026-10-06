@@ -152,6 +152,21 @@ describe('useContextUsage context window resolution', () => {
     await waitFor(() => expect(result.current.contextWindow).toBe(200_000));
   });
 
+  it('prefers the user-supplied custom model context window over provider fallback metadata', async () => {
+    const id = ws();
+    chatStore.setModel(id, 'vendor/model-v2', 200_000);
+    __setApiOverride(
+      fakeApi(
+        info(
+          [{ name: 'p', models: [{ id: 'first', contextWindow: 128_000 }] }],
+          'p',
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useContextUsage(id));
+    await waitFor(() => expect(result.current.contextWindow).toBe(200_000));
+  });
+
   it('falls back to the first provider/first model when no match', async () => {
     const id = ws();
     chatStore.setModel(id, 'unknown-model');

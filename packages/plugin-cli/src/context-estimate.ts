@@ -2,8 +2,7 @@ import {
   computeElisionState,
   conversationalStub,
   conversationalStubbed,
-  toolResultBytes,
-  toolResultStub,
+  toolResultStubText,
   toolResultStubbed,
 } from '@moxxy/sdk';
 import type { EventLogReader, MoxxyEvent } from '@moxxy/sdk';
@@ -156,8 +155,7 @@ function fullWalk(log: EventLogReader, per: (e: MoxxyEvent) => number): number {
   for (const e of events) {
     if (compactedSeqs.has(e.seq)) continue;
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {
-      const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
-      chars += toolResultStub(e.callId, toolResultBytes(e.output), recalled).length;
+      chars += toolResultStubText(e, el).length;
       continue;
     }
     if ((e.type === 'user_prompt' || e.type === 'assistant_message') && conversationalStubbed(e, el)) {

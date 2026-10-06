@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { __setApiOverride } from '@moxxy/client-core';
+import { __setApiOverride, chatStore } from '@moxxy/client-core';
 import { FILE_INSERT_EVENT } from '@/shell/WorkspaceFiles';
 import { BrowserPane } from './BrowserPane';
 
@@ -118,6 +118,21 @@ describe('BrowserPane', () => {
     );
   });
 
+  it('lets a page open a tab — every view carries allowpopups in the DOM', async () => {
+    installApi();
+    const { container } = render(<BrowserPane workspaceId="w1" />);
+    await screen.findAllByRole('tab');
+
+    // Without the attribute Electron refuses every new window a page asks for
+    // before main's handler ever sees it: Canva's "create a design" clicks a
+    // target=_blank link to its editor and nothing opened. React drops a bare
+    // `allowpopups` (true) on an element it does not know, so the attribute
+    // has to arrive as a string.
+    const views = [...container.querySelectorAll('webview')];
+    expect(views.length).toBeGreaterThan(0);
+    for (const view of views) expect(view.hasAttribute('allowpopups')).toBe(true);
+  });
+
   it('is not covering the page until an area is asked for', async () => {
     installApi();
     render(<BrowserPane workspaceId="w1" />);
@@ -190,5 +205,42 @@ describe('BrowserPane — the hand-off banner', () => {
     renderWithHandoff(false);
 
     expect(screen.getByText(/not in view/i)).toBeTruthy();
+  });
+});
+
+describe('BrowserPane while the agent works in it', () => {
+  it('shows the agent’s pointer and the way to take over, for as long as its turn runs', async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const calls: string[] = [];
+    __setApiOverride({
+      invoke: ((channel: string) => {
+        calls.push(channel);
+        if (channel === 'browser.listTabs') {
+          return Promise.resolve({ tabs: TABS, activeTabId: 't1', control: { driver: 'agent', turnId: 'T1' } });
+        }
+        if (channel === 'browser.registerTab') return Promise.resolve({ tabId: 't1' });
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: ((channel: string, fn: (payload: unknown) => void) => {
+        handlers.set(channel, fn);
+        return () => handlers.delete(channel);
+      }) as never,
+    } as never);
+    act(() => chatStore.dispatch('w1', { type: 'send_started', turnId: 'T1' } as never));
+    render(<BrowserPane workspaceId="w1" />);
+
+    expect(await screen.findByRole('button', { name: 'Take over' })).toBeInTheDocument();
+    act(() =>
+      handlers.get('browser.cursor')?.({
+        requestId: 'c1',
+        tabId: 't1',
+        cursor: { x: 40, y: 50, phase: 'moving', durationMs: 0 },
+      }),
+    );
+    expect(screen.getByTestId('agent-cursor').style.left).toBe('40px');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Take over' }));
+    expect(calls).toContain('browser.control');
+    act(() => chatStore.drop('w1'));
   });
 });

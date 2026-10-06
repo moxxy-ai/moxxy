@@ -9,7 +9,6 @@
  */
 
 import { spawn } from 'node:child_process';
-import { devNull } from 'node:os';
 
 /** Cap a single diff so a massive generated-file change can't stream MBs. */
 const MAX_DIFF_BYTES = 1_000_000;
@@ -125,11 +124,12 @@ export async function diff(cwd: string, filePath: string): Promise<FileDiff> {
   } catch {
     /* fall through to the untracked path */
   }
-  // Untracked / new file: diff against the platform null device (`/dev/null`
-  // on POSIX, `\\.\nul` on Windows). `--no-index` exits 1 when there's a
-  // difference (that's expected), so don't treat non-zero as failure.
+  // Untracked / new file: diff against `/dev/null`, which git itself reads as
+  // "no file" on every platform (it rejects the Windows `nul` device).
+  // `--no-index` exits 1 when there's a difference (that's expected), so don't
+  // treat non-zero as failure.
   try {
-    const untracked = await git(cwd, ['diff', '--no-index', '--', devNull, filePath], {
+    const untracked = await git(cwd, ['diff', '--no-index', '--', '/dev/null', filePath], {
       allowNonZero: true,
     });
     return { path: filePath, diff: untracked.stdout, truncated: untracked.truncated };

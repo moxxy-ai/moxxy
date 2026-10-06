@@ -34,11 +34,15 @@ interface ActiveTurn {
 
 export class SessionDriver {
   private readonly turns = new Map<string, ActiveTurn>();
+  /** Turns another client of the conversation runs (a channel bot, the TUI),
+   *  as the runner reports them in `SessionInfo.runningTurns`. */
+  private readonly otherTurns = new Set<string>();
   private readonly disposes: Array<() => void> = [];
-  /** Auto-approve ("yolo"): when true, the permission resolver allows every
-   *  tool call without opening the renderer's approval sheet. Toggled via the
-   *  `session.setAutoApprove` IPC (goal mode turns it on). Defaults off and is
-   *  not persisted across driver recreation — the renderer re-applies it on
+  /** Auto-approve ("yolo"): when true, tool calls run without opening the
+   *  renderer's approval sheet. Toggled via the `session.setAutoApprove` IPC
+   *  (goal mode turns it on). On a runner with the shared switch (v21) this
+   *  mirrors the conversation's state, which any client of it may change; on
+   *  an older runner it lives here only and the renderer re-applies it on
    *  reconnect. */
   private autoApprove = false;
   /** Every window subscribed to this driver's events. Mutated by
@@ -74,8 +78,28 @@ export class SessionDriver {
     // require an app restart to show up.
     const infoUnsub = this.session.onInfoChanged(() => {
       this.send('session.info.changed', { workspaceId });
+      this.syncAutoApprove();
+      this.syncOtherTurns();
     });
+    this.syncAutoApprove();
+    this.syncOtherTurns();
     this.disposes.push(infoUnsub);
+
+    // Computer Use status is pushed, never polled: every change on the runner
+    // (from this app, a channel bot or the helper) reaches the control strip.
+    // A runner older than v23 has no push; the strip then shows the last read.
+    try {
+      const computerUnsub = this.session.computerControl.subscribe?.((turns) => {
+        this.send('computer.changed', { workspaceId, turns });
+      });
+      if (computerUnsub) this.disposes.push(computerUnsub);
+    } catch {
+      // Older runner: nothing to subscribe to.
+    }
+
+    // `/new` from another client of the conversation (a channel bot, the TUI)
+    // wiped the runner's log: clear this chat too, or it keeps the old one.
+    this.disposes.push(this.session.onReset(() => this.send('chat.cleared', { workspaceId })));
 
     // Forward agentic-surface frames (terminal bytes, browser frames) so the
     // renderer's pane can render them. Tagged with workspaceId so a background
@@ -96,7 +120,7 @@ export class SessionDriver {
         // Auto-approve ("yolo") short-circuit: allow without prompting so
         // goal mode (and any opted-in run) works hands-off. Mirrors the TUI's
         // yolo flag, which the permission queue checks before showing a prompt.
-        if (this.autoApprove) return { mode: 'allow' };
+        if (this.autoApprove) return { mode: 'allow', decidedNow: true };
         const signal = ctx.turnId ? this.turns.get(ctx.turnId)?.controller.signal : undefined;
         const res = await withComputerApprovalFocus(this.session.computerControl,
           String(this.session.id), call, ctx, signal, () => openAsk(
@@ -119,7 +143,8 @@ export class SessionDriver {
         if (res.mode === 'allow_always') {
           void this.session.permissions.addAllow({ name: call.name });
         }
-        return { mode: res.mode ?? 'deny' };
+        // A sheet that was answered decided this call; a vanished one did not.
+        return res.mode && res.mode !== 'deny' ? { mode: res.mode, decidedNow: true } : { mode: res.mode ?? 'deny' };
       },
     });
     this.session.setApprovalResolver({
@@ -195,6 +220,7 @@ export class SessionDriver {
     attachments?: ReadonlyArray<{ path: string; name: string }>,
     inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
     visibility: RunTurnVisibility = 'foreground',
+    contextWindow?: number,
   ): Promise<{ turnId: string }> {
     const id = randomUUID();
     const controller = new AbortController();
@@ -221,6 +247,7 @@ export class SessionDriver {
           // uuid to the SDK's TurnId without widening the field's type.
           turnId: asTurnId(id),
           ...(model ? { model } : {}),
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
           ...(promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
         };
         // RemoteSession's runTurn forwards opts.attachments verbatim
@@ -258,6 +285,7 @@ export class SessionDriver {
    * interrupted pre-restart turn cannot be mistaken for running work. */
   activeForegroundTurnId(): string | null {
     let active: string | null = null;
+    for (const turnId of this.otherTurns) active = turnId;
     for (const [turnId, turn] of this.turns) {
       if (turn.visibility === 'foreground') active = turnId;
     }
@@ -265,7 +293,9 @@ export class SessionDriver {
   }
 
   abortTurn(turnId: string): void {
-    this.turns.get(turnId)?.controller.abort();
+    const own = this.turns.get(turnId);
+    if (own) own.controller.abort();
+    else if (this.otherTurns.has(turnId)) void this.session.abortTurn(turnId).catch(() => undefined);
   }
 
   /** Abort every in-flight turn in this workspace without disposing the driver.
@@ -280,10 +310,39 @@ export class SessionDriver {
     return n;
   }
 
-  /** Toggle auto-approve. When on, the permission resolver allows every tool
-   *  call without opening the renderer's approval sheet. */
-  setAutoApprove(on: boolean): void {
+  /** Toggle auto-approve. When on, tool calls run without opening the
+   *  renderer's approval sheet — for the whole conversation when the runner
+   *  shares the switch, for this driver only on an older runner. */
+  async setAutoApprove(on: boolean): Promise<void> {
     this.autoApprove = on;
+    if (this.session.getInfo().autoApprove !== undefined) await this.session.setAutoApprove(on);
+  }
+
+  /** Show a turn another client runs as this chat's running turn — so it can
+   *  be stopped here — and as done once the runner no longer lists it. */
+  private syncOtherTurns(): void {
+    const running = this.session.getInfo().runningTurns;
+    if (!running) return;
+    const others = new Set(running.filter((turnId) => !this.turns.has(turnId)));
+    for (const turnId of others) {
+      if (this.otherTurns.has(turnId)) continue;
+      this.otherTurns.add(turnId);
+      this.send('runner.turn.started', { workspaceId: this.workspaceId, turnId, visibility: 'foreground' });
+    }
+    for (const turnId of [...this.otherTurns]) {
+      if (others.has(turnId)) continue;
+      this.otherTurns.delete(turnId);
+      this.send('runner.turn.complete', { workspaceId: this.workspaceId, turnId, error: null });
+    }
+  }
+
+  /** Adopt the conversation's auto-approve when another client (a channel
+   *  bot, the TUI) switched it, and tell the renderer. */
+  private syncAutoApprove(): void {
+    const shared = this.session.getInfo().autoApprove;
+    if (shared === undefined || shared === this.autoApprove) return;
+    this.autoApprove = shared;
+    this.send('session.autoApprove.changed', { workspaceId: this.workspaceId, enabled: shared });
   }
 
   dispose(): void {

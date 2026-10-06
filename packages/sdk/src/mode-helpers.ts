@@ -16,6 +16,7 @@
 export {
   ELISION_SYSTEM_NOTE,
   buildSystemPromptWithSkills,
+  skillsWithinReach,
   projectMessagesFromLog,
   projectMessages,
   type ProjectMessagesOptions,

@@ -9,14 +9,24 @@ import {
   type Message,
 } from 'discord.js';
 import { newTurnId } from '@moxxy/core';
-import { TurnCoordinator, deliverVoiceReply, resolveVoiceToggle } from '@moxxy/channel-kit';
+import {
+  AutoApproveSwitch,
+  ForeignTurnMirror,
+  MirrorTarget,
+  TurnCoordinator,
+  deliverVoiceReply,
+  modelSuggestions,
+  resolveChannelModel,
+  resolveVoiceToggle,
+  runModelCommand,
+  type ModelSuggestion,
+} from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
   Channel,
   ChannelHandle,
   ChannelStartOptsBase,
-  MoxxyEvent,
   PendingToolCall,
   PermissionContext,
 } from '@moxxy/sdk';
@@ -25,6 +35,7 @@ import { DiscordPermissionResolver } from './permission.js';
 import { DiscordApprovalResolver } from './approval.js';
 import {
   resolveBotToken,
+  DISCORD_MODEL_KEY,
   DISCORD_TOKEN_KEY,
   loadVoiceReplies,
   saveVoiceReplies,
@@ -46,6 +57,10 @@ import { askForApproval } from './channel/approval-prompt.js';
 import { publishAppCommands } from './channel/slash-handler.js';
 import { clampEditFrameMs, runDiscordTurn } from './channel/turn-runner.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
+import { Calls, pickCallChannel, type CallPorts } from './voice-call/calls.js';
+import { connectVoice, onOwnerMoved, viewGuilds } from './voice-call/discord-voice.js';
+import { speakForCall, transcribeForCall } from './voice-call/speech.js';
+import type { CallTurnListener } from './voice-call/call.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
 
 /** Cap on waiting for the gateway READY event (bot identity → invite link).
@@ -54,8 +69,8 @@ import { TypingIndicator } from './channel/typing-indicator.js';
 const READY_TIMEOUT_MS = 15_000;
 
 /** Minimal permission bits for the invite link: View Channels + Send Messages
- *  + Read Message History. */
-const INVITE_PERMISSIONS = 1024 + 2048 + 65536;
+ *  + Read Message History, plus Connect + Speak for voice calls. */
+const INVITE_PERMISSIONS = 1024 + 2048 + 65536 + 1048576 + 2097152;
 
 /**
  * Install guidance shown when enabling `/voice` with no active synthesizer —
@@ -109,12 +124,16 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private readonly connectListeners = new Set<() => void>();
   // Channel the CURRENT turn runs in (target for permission/approval prompts).
   private currentChannel: SendableChannelLike | null = null;
-  // Last channel we served — the target for mirroring foreign turns.
-  private lastChannel: SendableChannelLike | null = null;
+  // Where replies to foreign turns (e.g. typed in the desktop chat) go: the
+  // last channel we served, else the paired owner's DM.
+  private readonly mirrorTarget = new MirrorTarget<SendableChannelLike>(() => this.openOwnerDm());
   private logUnsub: (() => void) | null = null;
   private session: Session | null = null;
   private model: string | undefined;
-  private yolo = false;
+  /** `/auto-approve` — the conversation's shared switch (see AutoApproveSwitch). */
+  private readonly autoApprove = new AutoApproveSwitch(() => this.session);
+  /** `/call`, `/hangup` and the agent's `discord_call`. */
+  private readonly calls = new Calls(this.callPorts());
   // When true, the final assistant reply of each turn is also synthesized (via
   // the session's active Synthesizer) and sent as an audio attachment.
   // Persisted per paired account in the vault (`discord_voice_replies`),
@@ -122,8 +141,20 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private voiceReplies = false;
   // Single-flight turn state: `busy` guard, per-turn AbortController (so
   // /cancel aborts only the current turn), and the bounded own-turn-id set
-  // that mirrorForeignTurn filters on (AGENTS.md invariant #8).
+  // that the mirror filters on (AGENTS.md invariant #8).
   private readonly turns = new TurnCoordinator();
+  // Posts turns another surface ran (the desktop's chat with this bot) here —
+  // the prompt, then the reply, which a call also says aloud.
+  private readonly mirror = new ForeignTurnMirror<SendableChannelLike>({
+    turns: this.turns,
+    target: this.mirrorTarget,
+    post: async (target, text) => {
+      for (const part of splitForDiscord(text)) await target.send(part);
+    },
+    formatPrompt: (prompt) => `*typed in moxxy:* ${prompt}`,
+    onReply: (reply) => this.calls.say(reply),
+    onError: (err) => this.opts.logger?.warn('discord mirror failed', { err: String(err) }),
+  });
   private awaitingApprovalText: AwaitingApprovalText | null = null;
   private handle: ChannelHandle | null = null;
   private readonly typing = new TypingIndicator();
@@ -223,6 +254,8 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.DirectMessages,
         GatewayIntentBits.MessageContent,
+        // Voice calls: where the owner is, and when they join or leave.
+        GatewayIntentBits.GuildVoiceStates,
       ],
       partials: [Partials.Channel],
     });
@@ -237,7 +270,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     // Mirror-to-both: when the session runs a turn this channel did NOT
     // initiate (e.g. a co-attached web surface), post the assistant's prose
     // into the last channel we served. Our OWN turns render via the pump.
-    this.logUnsub = this.session.log.subscribe((event) => this.mirrorForeignTurn(event));
+    this.logUnsub = this.session.log.subscribe((event) => this.mirror.accept(event));
 
     // discord.js does not await event handlers, but we still fire-and-track so
     // rejections are logged (they would otherwise be unhandled rejections).
@@ -307,6 +340,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         // executing the moment the operator asks to shut down; then reject
         // pending prompts so no caller hangs (audit: TuiChannel.stop hang).
         this.turns.abort(reason);
+        this.calls.hangUp();
         this.permissionResolver.abortAll(reason);
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
@@ -397,14 +431,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        toggleYolo: () => {
-          this.yolo = !this.yolo;
-          return this.yolo;
-        },
-        setYolo: (value) => {
-          this.yolo = value;
-        },
+        toggleYolo: () => this.autoApprove.toggle(),
+        setYolo: () => this.autoApprove.forgetLocal(),
         voice: (arg) => this.voiceCommand(arg),
+        model: (arg) => this.modelCommand(arg),
+        call: () => this.calls.start(),
+        hangup: () => this.calls.hangUp(),
         runUserTurn: (c, text) => this.runUserTurn(c, text),
         runVoiceMessage: (c) =>
           handleVoiceMessage(
@@ -432,11 +464,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setAwaitingApprovalText: (state) => {
           this.awaitingApprovalText = state;
         },
-        toggleYolo: () => {
-          this.yolo = !this.yolo;
-          return this.yolo;
-        },
+        toggleYolo: () => this.autoApprove.toggle(),
         voice: (arg) => this.voiceCommand(arg),
+        model: (arg) => this.modelCommand(arg),
+        call: () => this.calls.start(),
+        hangup: () => this.calls.hangUp(),
+        modelSuggestions: (query) => this.modelSuggestions(query),
         performSessionAction: (action, notice) =>
           performSessionAction(
             action,
@@ -454,29 +487,109 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
               setAwaitingApprovalText: (state) => {
                 this.awaitingApprovalText = state;
               },
-              setYolo: (value) => {
-                this.yolo = value;
-              },
+              setYolo: () => this.autoApprove.forgetLocal(),
             },
           ),
       },
     );
   }
 
-  private async runUserTurn(ctx: InboundContext, text: string): Promise<void> {
+  /**
+   * Place a call from the agent (`discord_call`): the bot joins or rings the
+   * owner and says `reason` first. Null while the bot is not running.
+   */
+  placeCall(reason: string): Promise<string> | null {
+    if (!this.client) return null;
+    return this.calls.start({ greeting: reason });
+  }
+
+  private callPorts(): CallPorts {
+    const owner = (): string | null => this.pairing.authorizedUserId();
+    return {
+      findChannel: async () => {
+        const client = this.client;
+        const ownerId = owner();
+        if (!client || !ownerId) return null;
+        return pickCallChannel(await viewGuilds(client, ownerId));
+      },
+      connect: async (channel) => {
+        const client = this.client;
+        const ownerId = owner();
+        if (!client || !ownerId) throw new Error('the bot is not running or not paired');
+        return connectVoice(client, channel, ownerId, this.opts.logger);
+      },
+      notifyOwner: async (text) => {
+        const dm = await this.openOwnerDm();
+        await dm?.send(text);
+      },
+      onOwnerMoved: (listener) => {
+        const client = this.client;
+        const ownerId = owner();
+        return client && ownerId ? onOwnerMoved(client, ownerId, listener) : () => undefined;
+      },
+      transcribe: (packets) => {
+        const session = this.session;
+        if (!session) return Promise.resolve('');
+        return transcribeForCall(session, packets);
+      },
+      answer: (text, turn) => this.answerCall(text, turn),
+      speak: (text, language) =>
+        this.session
+          ? speakForCall(
+              this.session,
+              text,
+              (reason) => this.opts.logger?.warn('discord call: a sentence could not be voiced', { reason }),
+              language,
+            )
+          : Promise.resolve(null),
+      onError: (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.opts.logger?.warn('discord call failed', { err: message });
+        void this.openOwnerDm()
+          .then((dm) => dm?.send(`⚠ call: ${message}`))
+          .catch(() => undefined);
+      },
+    };
+  }
+
+  /** One utterance of a call: echoed and answered in the owner's DM like a
+   *  voice message, while the call says the reply as it is written. */
+  private async answerCall(text: string, turn: CallTurnListener): Promise<void> {
+    const dm = await this.openOwnerDm();
+    if (!dm) return;
+    await dm.send(`*heard:* ${text}`);
+    await this.runUserTurn({ channel: dm, reply: (t) => dm.send(t) }, text, {
+      spoken: true,
+      // Said out loud already — no reply.ogg on top of it.
+      onFinalReply: async () => undefined,
+      spokenTurn: turn,
+    });
+  }
+
+  private async runUserTurn(
+    ctx: Pick<InboundContext, 'channel' | 'reply'>,
+    text: string,
+    opts: {
+      readonly spoken?: boolean;
+      readonly onFinalReply?: (finalText: string) => Promise<void>;
+      readonly spokenTurn?: CallTurnListener;
+    } = {},
+  ): Promise<void> {
     if (!this.session) throw new Error('DiscordChannel.start() must be called first');
     // Atomic single-flight guard: `begin` claims the slot synchronously so a
     // concurrently dispatched second turn can't slip past the busy check. The
     // turnId is minted here so the coordinator records it as an own-turn id
-    // (mirrorForeignTurn filters on those).
+    // (the mirror filters on those).
     const lease = this.turns.begin(newTurnId());
     if (!lease) {
       await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
       return;
     }
     this.currentChannel = ctx.channel;
-    this.lastChannel = ctx.channel;
+    this.mirrorTarget.remember(ctx.channel);
     try {
+      const channelModel = await resolveChannelModel(this.modelDeps(this.session));
+      if (channelModel.warning) await ctx.reply(channelModel.warning);
       await runDiscordTurn(
         {
           session: this.session,
@@ -484,9 +597,16 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           typing: this.typing,
           editFrameMs: this.editFrameMs,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
-          onFinalReply: (finalText) => this.sendVoiceReply(ctx.channel, finalText),
+          onFinalReply: opts.onFinalReply ?? ((finalText) => this.sendVoiceReply(ctx.channel, finalText)),
+          ...(opts.spokenTurn ? { spokenTurn: opts.spokenTurn } : {}),
         },
-        { text, model: this.model, controller: lease.controller, turnId: lease.turnId },
+        {
+          text,
+          ...(opts.spoken ? { spoken: true } : {}),
+          model: channelModel.model ?? this.model,
+          controller: lease.controller,
+          turnId: lease.turnId,
+        },
       );
     } finally {
       lease.end();
@@ -506,6 +626,23 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     });
     if (result.persist) await this.setVoiceReplies(result.enabled);
     return result.reply;
+  }
+
+  /** Handle `/model [name|default]` (plain-text and application-command paths). */
+  private async modelCommand(arg: string): Promise<string> {
+    if (!this.session) return 'Session is not ready yet.';
+    return runModelCommand(arg, this.modelDeps(this.session));
+  }
+
+  /** Autocomplete for `/model name:` — the models matching what's typed. */
+  private async modelSuggestions(query: string): Promise<ModelSuggestion[]> {
+    if (!this.session) return [];
+    return modelSuggestions(query, this.modelDeps(this.session));
+  }
+
+  /** This bot's model lives under its own vault key (see resolveChannelModel). */
+  private modelDeps(session: Session) {
+    return { session, vault: this.opts.vault, vaultKey: DISCORD_MODEL_KEY };
   }
 
   private async setVoiceReplies(on: boolean): Promise<void> {
@@ -543,23 +680,12 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     }
   }
 
-  /**
-   * Post the assistant's prose for a turn this channel did not initiate. The
-   * coordinator skips turns THIS channel started, by turnId (invariant #8),
-   * and yields the trimmed prose; we only need a served channel to post into.
-   */
-  private mirrorForeignTurn(event: MoxxyEvent): void {
-    const text = this.turns.mirrorText(event);
-    if (text == null) return;
-    const target = this.lastChannel;
-    if (!target) return;
-    void (async () => {
-      for (const part of splitForDiscord(text)) {
-        await target.send(part);
-      }
-    })().catch((err) => {
-      this.opts.logger?.warn('discord mirror failed', { err: String(err) });
-    });
+  /** The paired owner's DM channel, or null while unpaired / logged out. */
+  private async openOwnerDm(): Promise<SendableChannelLike | null> {
+    const owner = this.pairing.authorizedUserId();
+    if (!owner || !this.client) return null;
+    const user = await this.client.users.fetch(owner);
+    return (await user.createDM()) as unknown as SendableChannelLike;
   }
 
   private askForPermission(call: PendingToolCall, ctx: PermissionContext): Promise<void> {
@@ -567,7 +693,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
       channel: this.currentChannel,
       session: this.session,
       resolver: this.permissionResolver,
-      yolo: this.yolo,
+      yolo: this.autoApprove.enabled,
       ...(this.opts.logger ? { logger: this.opts.logger } : {}),
     });
   }

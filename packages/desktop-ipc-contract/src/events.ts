@@ -1,4 +1,4 @@
-import type { ApprovalRequest, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
+import type { ApprovalRequest, ComputerControlSnapshot, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
 
 import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
@@ -9,7 +9,7 @@ import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
 import type { RunTurnVisibility } from './chat.js';
-import type { BrowserTabInfo } from './browser.js';
+import type { BrowserControlState, BrowserCursor, BrowserTabInfo } from './browser.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -61,8 +61,11 @@ export interface IpcEvents {
    *  on its EventBus so every info-derived view (Settings tabs, mode badge,
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
+  /** The session's Computer Use turns changed (state, cursor, target). Carries
+   *  every turn of the session; the control strip replaces what it showed. */
+  'computer.changed': { workspaceId: string; turns: ReadonlyArray<ComputerControlSnapshot> };
   /** The shared per-session model override changed. */
-  'session.model.changed': { workspaceId: string; model: string | null };
+  'session.model.changed': { workspaceId: string; model: string | null; contextWindow?: number };
   /** The shared per-session auto-approve flag changed. */
   'session.autoApprove.changed': { workspaceId: string; enabled: boolean };
   /** The workspace transcript was cleared by another attached surface. */
@@ -101,7 +104,15 @@ export interface IpcEvents {
   'browser.focusTab': { requestId: string; tabId: string };
   /** The tab set or the active tab changed — including when the AGENT changed
    *  it, which is the case the pane cannot observe on its own. */
-  'browser.tabsChanged': { tabs: ReadonlyArray<BrowserTabInfo>; activeTabId: string | null };
+  'browser.tabsChanged': {
+    tabs: ReadonlyArray<BrowserTabInfo>;
+    activeTabId: string | null;
+    control: BrowserControlState;
+  };
+  /** The agent's pointer on a tab; `null` takes it off the page. The pane
+   *  answers a `moving` frame through `browser.confirmCursor` once the pointer
+   *  is there, and the agent presses only then. */
+  'browser.cursor': { requestId: string; tabId: string; cursor: BrowserCursor | null };
   /** The agent stopped and needs the person at the keyboard: a login, a code,
    *  a consent screen. The pane shows a banner and answers via
    *  `browser.resolveHandoff`. While this is outstanding the agent is not

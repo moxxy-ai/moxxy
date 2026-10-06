@@ -23,6 +23,8 @@ import { VoiceModeButton } from './composer/VoiceModeButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
+import { MentionMenu } from './composer/MentionMenu';
+import { useComposerMentions } from './composer/useComposerMentions';
 import { sendBtn } from './composer/composer-styles';
 import {
   useComposerAttachments,
@@ -147,6 +149,7 @@ export function Composer({
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
   const setDraftEmpty = useCallback(() => setDraft(''), []);
+  const mentions = useComposerMentions(agent.info?.skills, draft, setDraft, taRef);
   const closeGoal = useCallback(() => setGoalArmed(false), []);
 
   const inFlight = activeTurnId !== null || sending;
@@ -246,6 +249,8 @@ export function Composer({
   }, [draft]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // The open @ menu has the arrows, Enter/Tab and Escape before anything else.
+    if (mentions.handleKey(e)) return;
     // Enter alone submits; Shift+Enter inserts a newline (the browser
     // default). ⌘↵ / Ctrl+↵ also submit so terminal-muscle-memory
     // users aren't surprised.
@@ -437,6 +442,9 @@ export function Composer({
         </div>
       )}
       <div className="cmdbar__in">
+        {mentions.open && (
+          <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
+        )}
         <OverflowMenu
           highlighted={autoApprove || modeBadge != null}
           items={overflowItems}
@@ -446,7 +454,11 @@ export function Composer({
           data-testid="composer-input"
           aria-label="prompt"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            mentions.trackCaret(e.target);
+          }}
+          onSelect={(e) => mentions.trackCaret(e.currentTarget)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={

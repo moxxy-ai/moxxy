@@ -5,11 +5,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { defineProvider, definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
 import { buildSessionConfigApplier } from './config-applier.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 /**
@@ -215,6 +216,15 @@ describe('buildSessionConfigApplier', () => {
     });
     expect(r.applied).not.toContain('elision');
     expect(r.applied).not.toContain('reasoning');
+  });
+
+  it('switches fast mode on and off when the config changes', async () => {
+    const session = makeSession();
+    const apply = buildSessionConfigApplier(session, {});
+    expect((await apply({ context: { fast: true } })).applied).toContain('fast');
+    expect(session.fast).toBe(true);
+    await apply({});
+    expect(session.fast).toBe(false);
   });
 
   it('a genuine change to a context object IS applied', async () => {

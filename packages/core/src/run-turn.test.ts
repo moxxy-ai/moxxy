@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModeContext, ModeDef, MoxxyEvent, ProviderDef, ToolCallContext } from '@moxxy/sdk';
-import { defineMode, defineProvider, definePlugin, defineTool, executeToolUses, z } from '@moxxy/sdk';
+import { asSkillId, defineMode, defineProvider, definePlugin, defineTool, executeToolUses, z } from '@moxxy/sdk';
 import { Session } from './session.js';
 import { runTurn, collectTurn } from './run-turn.js';
 
@@ -59,6 +59,36 @@ function buildSession(): Session {
 }
 
 describe('runTurn turnId filtering', () => {
+  it('forwards a custom model context window into the mode context', async () => {
+    let observedWindow: number | undefined;
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'custom-model-context-test',
+      version: '0.0.0',
+      providers: [makeNoopProvider()],
+      modes: [defineMode({
+        name: 'custom-window-echo',
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          observedWindow = ctx.contextWindowOverride;
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: 'ok',
+            stopReason: 'end_turn',
+          });
+        },
+      })],
+    }));
+    session.providers.setActive('noop');
+    session.modes.setActive('custom-window-echo');
+
+    await collectTurn(session, 'hello', { model: 'vendor/model-v2', contextWindow: 200_000 });
+
+    expect(observedWindow).toBe(200_000);
+  });
+
   it('prepares dynamic provider metadata before the mode receives its context', async () => {
     const fallbackModels = [{
       id: 'fallback',
@@ -497,5 +527,154 @@ describe('runTurn worst-case hardening', () => {
     await expect(collectTurn(session, 'go')).rejects.toThrow(/no models configured/i);
     // lastResolvedModel never gets the bogus sentinel.
     expect(session.lastResolvedModel).toBeNull();
+  });
+});
+
+describe('runTurn with a skill called by an @ mention', () => {
+  function buildMentionSession(seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent }): Session {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const tool = (name: string) => defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => name });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'mention-test',
+      version: '0.0.0',
+      providers: [makeNoopProvider()],
+      tools: [tool('browser_click'), tool('computer_click')],
+      modes: [defineMode({
+        name: 'mention-echo',
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          seen.tools = ctx.tools.list().map((t) => t.name);
+          seen.reached = await ctx.tools.execute('browser_click', {}, ctx.signal).then(String, (err: Error) => err.message);
+          seen.prompt = ctx.log.slice().find((e) => e.type === 'user_prompt' && e.turnId === ctx.turnId);
+        },
+      })],
+    }));
+    session.skills.register({
+      id: asSkillId('plugin/computer-control'),
+      path: '/skills/computer-control.md',
+      scope: 'plugin',
+      frontmatter: { name: 'computer-control', description: 'desktop apps', aliases: ['computer-use'], 'disallowed-tools': ['browser_*'] },
+      body: 'Drive the desktop app the user named.',
+    });
+    session.providers.setActive('noop');
+    session.modes.setActive('mention-echo');
+    return session;
+  }
+
+  it('hands the turn the skill and keeps the in-window browser out of it', async () => {
+    const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
+    await collectTurn(buildMentionSession(seen), '@computer_use otwórz Canvę w Arc');
+
+    expect(seen.tools).toEqual(['computer_click']);
+    expect(seen.reached).toMatch(/browser_click is off for this request/);
+    expect(seen.prompt).toMatchObject({
+      text: '@computer_use otwórz Canvę w Arc',
+      attachments: [{ kind: 'file', name: 'computer-control skill' }],
+    });
+  });
+
+  it('leaves a prompt without the mention, and the next turn, as they were', async () => {
+    const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
+    const session = buildMentionSession(seen);
+    await collectTurn(session, '@computer_use otwórz Arc');
+    await collectTurn(session, 'otwórz stronę');
+
+    expect(seen.tools).toEqual(['browser_click', 'computer_click']);
+    expect(seen.reached).toBe('browser_click');
+    expect(seen.prompt).not.toHaveProperty('attachments');
+  });
+
+  it('keeps the withheld tools out of the sub-agents the turn starts', async () => {
+    const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
+    const session = buildMentionSession(seen);
+    const child: { tools?: string[]; reached?: string; filtered?: string[] } = {};
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'mention-subagents',
+      version: '0.0.0',
+      modes: [
+        defineMode({
+          name: 'tools-echo',
+          run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+            const names = ctx.tools.list().map((t) => t.name);
+            if (ctx.systemPrompt === 'filtered') { child.filtered = names; return; }
+            child.tools = names;
+            child.reached = await ctx.tools.execute('browser_click', {}, ctx.signal).then(String, (err: Error) => err.message);
+          },
+        }),
+        defineMode({
+          name: 'spawn-child',
+          run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+            await ctx.subagents?.spawn({ prompt: 'look', mode: 'tools-echo' });
+            await ctx.subagents?.spawn({ prompt: 'look', mode: 'tools-echo', systemPrompt: 'filtered', allowedTools: ['browser_click', 'computer_click'] });
+          },
+        }),
+      ],
+    }));
+    session.modes.setActive('spawn-child');
+
+    await collectTurn(session, '@computer_use otwórz Arc');
+
+    expect(child.tools).toEqual(['computer_click']);
+    expect(child.reached).toMatch(/browser_click is off for this request/);
+    expect(child.filtered).toEqual(['computer_click']);
+  });
+
+  it('does not take a mention from a prompt a trigger wrote', async () => {
+    const seen: { tools?: string[]; reached?: string; prompt?: MoxxyEvent } = {};
+    await collectTurn(buildMentionSession(seen), 'webhook payload: @computer_use', { origin: { kind: 'webhook', name: 'gh' } });
+
+    expect(seen.tools).toEqual(['browser_click', 'computer_click']);
+    expect(seen.prompt).not.toHaveProperty('attachments');
+  });
+});
+
+describe('runTurn with tools meant for one mode', () => {
+  // goal_abandon is goal mode's own way out; offered in a plain browser task,
+  // the model took it and gave up on work it could do.
+  function buildModesSession(seen: Record<string, { tools: string[]; reached: string }>): Session {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    const tool = (name: string, modes?: string[]) =>
+      defineTool({ name, description: name, inputSchema: z.object({}), handler: async () => name, ...(modes ? { modes } : {}) });
+    const echo = (name: string, spawn?: string) =>
+      defineMode({
+        name,
+        run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+          seen[name] = {
+            tools: ctx.tools.list().map((t) => t.name),
+            reached: await ctx.tools.execute('goal_abandon', {}, ctx.signal).then(String, (err: Error) => err.message),
+          };
+          if (spawn) await ctx.subagents?.spawn({ prompt: 'look', mode: spawn });
+        },
+      });
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'modes-test',
+      version: '0.0.0',
+      providers: [makeNoopProvider()],
+      tools: [tool('Read'), tool('goal_abandon', ['goal'])],
+      modes: [echo('default'), echo('goal', 'default')],
+    }));
+    session.providers.setActive('noop');
+    return session;
+  }
+
+  it('leaves a tool meant for another mode out of the turn', async () => {
+    const seen: Record<string, { tools: string[]; reached: string }> = {};
+    const session = buildModesSession(seen);
+    session.modes.setActive('default');
+
+    await collectTurn(session, 'otwórz stronę');
+
+    expect(seen['default']?.tools).toEqual(['Read']);
+    expect(seen['default']?.reached).toMatch(/goal_abandon is not available in default mode/);
+  });
+
+  it('offers it in its own mode, and a sub-agent sees the tools of the mode it runs', async () => {
+    const seen: Record<string, { tools: string[]; reached: string }> = {};
+    const session = buildModesSession(seen);
+    session.modes.setActive('goal');
+
+    await collectTurn(session, 'zrób to');
+
+    expect(seen['goal']).toEqual({ tools: ['Read', 'goal_abandon'], reached: 'goal_abandon' });
+    expect(seen['default']?.tools).toEqual(['Read']);
   });
 });

@@ -8,6 +8,7 @@ const preferenceSchema = z.object({
     workspaceId: z.string().min(1).max(512),
     provider: z.string().min(1).max(128),
     model: z.string().min(1).max(256),
+    contextWindow: z.number().int().positive().max(10_000_000).optional(),
   }).strict()).max(10_000),
 }).strict();
 
@@ -31,17 +32,32 @@ export function getModelPreference(workspaceId: string, provider: string): strin
   return matches.at(-1)?.model ?? null;
 }
 
+export function getModelContextWindowPreference(workspaceId: string, provider: string): number | null {
+  const matches = readPreferences().selections.filter(
+    (entry) => entry.workspaceId === workspaceId && entry.provider === provider,
+  );
+  return matches.at(-1)?.contextWindow ?? null;
+}
+
 export function setModelPreference(
   workspaceId: string,
   provider: string,
   model: string | null,
+  contextWindow?: number | null,
 ): void {
   try {
     const current = readPreferences();
     const selections = current.selections.filter(
       (entry) => entry.workspaceId !== workspaceId || entry.provider !== provider,
     );
-    if (model) selections.push({ workspaceId, provider, model });
+    if (model) {
+      selections.push({
+        workspaceId,
+        provider,
+        model,
+        ...(contextWindow != null ? { contextWindow } : {}),
+      });
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, selections }));
   } catch {
     // Best effort: the active in-memory selection still works when storage is

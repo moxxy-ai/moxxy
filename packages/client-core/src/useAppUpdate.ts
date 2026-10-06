@@ -3,20 +3,21 @@
  * Settings → Update panel and the launch banner.
  *
  * Drives the dashboard IPC commands (`app.updateInfo` / `app.checkUpdate` /
- * `app.updateDashboard` / `app.updateShell`) plus the runner commands
- * (`app.cliInfo` / `app.updateCli`), and subscribes to `app.update.progress`
- * so the UI can show a bar while a bundle downloads. The actual
- * download/verify/install all happen main-side; this only orchestrates and
- * reflects status.
+ * `app.updateDashboard` / `app.updateShell`) plus the runner-and-extensions
+ * commands (`app.cliInfo` / `app.checkComponents` / `app.updateComponents`),
+ * and subscribes to `app.update.progress` so the UI can show progress. The
+ * actual download/verify/install all happen main-side; this only orchestrates
+ * and reflects status.
  *
- * The unified {@link UseAppUpdate.runUpdateAll} brings BOTH the runner and the
- * desktop app to latest in a single action — the one "Update" the settings UI
- * exposes.
+ * The unified {@link UseAppUpdate.runUpdateAll} is the one "Update" people
+ * click: it brings the runner, the extensions and the desktop app to latest
+ * and relaunches — no second step, nothing to decide.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AppUpdateCheck,
+  ComponentUpdateCheck,
   AppUpdateDiagnostics,
   AppUpdateInfo,
   AppUpdateProgress,
@@ -39,6 +40,8 @@ export type UpdateState =
 export interface UseAppUpdate {
   info: AppUpdateInfo | null;
   check: AppUpdateCheck | null;
+  /** The runner + extensions side of the last check. */
+  components: ComponentUpdateCheck | null;
   state: UpdateState;
   progress: AppUpdateProgress | null;
   error: string | null;
@@ -48,9 +51,9 @@ export interface UseAppUpdate {
    *  fetched on mount via `app.cliInfo`. Either field may be null if it can't
    *  be resolved. */
   cliInfo: { version: string | null; path: string | null } | null;
-  /** Non-fatal note when the runner update was skipped/failed during
-   *  {@link runUpdateAll} (e.g. npm not on PATH). The bundled CLI keeps
-   *  working, so this never blocks the app update. */
+  /** Non-fatal note when the runner and extensions can't be updated here
+   *  (e.g. npm not on PATH). The installed ones keep working, so this never
+   *  blocks the app update. */
   cliError: string | null;
   runCheck: () => Promise<void>;
   runUpdate: () => Promise<void>;
@@ -59,11 +62,9 @@ export interface UseAppUpdate {
    *  deliver. On success the app quits mid-call; on failure the state returns
    *  to the CTA with `error` set so the UI can offer the release page. */
   runShellUpdate: () => Promise<void>;
-  /** The ONE unified update: bring BOTH the runner (`@moxxy/cli`) and the
-   *  desktop app to latest in a single action. The runner restarts live; the
-   *  desktop bundle stages and applies on relaunch (or quits into a full
-   *  installer when a hot-update can't deliver). See the implementation for
-   *  the live-vs-relaunch distinction. */
+  /** The ONE update people click: the runner and extensions, then the app,
+   *  then a relaunch onto all of it. A part that can't install changes
+   *  nothing and leaves `error` set for another try. */
   runUpdateAll: () => Promise<void>;
   loadDiagnostics: () => Promise<void>;
   relaunch: () => void;
@@ -72,6 +73,7 @@ export interface UseAppUpdate {
 export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   const [info, setInfo] = useState<AppUpdateInfo | null>(null);
   const [check, setCheck] = useState<AppUpdateCheck | null>(null);
+  const [components, setComponents] = useState<ComponentUpdateCheck | null>(null);
   const [state, setState] = useState<UpdateState>('idle');
   const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,16 +110,22 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     setState('checking');
     setError(null);
     try {
-      const c = await api().invoke('app.checkUpdate');
+      const [c, parts] = await Promise.all([
+        api().invoke('app.checkUpdate'),
+        api().invoke('app.checkComponents').catch(() => null),
+      ]);
       setCheck(c);
-      if (c.error) setState('unavailable');
-      else if (!c.available) setState('uptodate');
-      else if (c.requiresFullUpdate) setState('requires-full-update');
-      else if (!c.compatible) setState('incompatible');
-      else setState('available');
+      setComponents(parts);
+      const appAvailable = !c.error && c.available;
+      if (appAvailable && c.requiresFullUpdate) setState('requires-full-update');
+      else if (appAvailable && !c.compatible) setState('incompatible');
+      else if (appAvailable || parts?.available) setState('available');
+      else if (c.error) setState('unavailable');
+      else setState('uptodate');
     } catch (e) {
+      // A check that can't run is not something to bother anyone with.
       setError(toErrorMessage(e));
-      setState('error');
+      setState('unavailable');
     }
   }, []);
 
@@ -167,99 +175,77 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   }, []);
 
   /**
-   * The single unified update flow: bring BOTH the runner and the desktop app
-   * to latest in one action.
-   *
-   * Two very different delivery models are composed here:
-   *   - The RUNNER (`@moxxy/cli`) updates LIVE: `app.updateCli` installs the
-   *     latest published CLI into the writable userData copy and restarts every
-   *     runner, so the new binary is in use immediately — no relaunch needed.
-   *     If it fails (e.g. npm not on PATH) the bundled CLI keeps working, so a
-   *     runner failure is recorded in `cliError` but is NON-FATAL: we continue
-   *     to the app update, which is independent and still valuable.
-   *   - The DESKTOP bundle stages and applies on the NEXT LAUNCH (a hot-update),
-   *     or — when the published bundle can't apply as a hot-update (its runner
-   *     protocol outruns the spawnable CLI, or the shell/ABI is incompatible) —
-   *     the full installer is downloaded and the app QUITS into it (Tier-2).
+   * The one "Update": runner and extensions first — installed and verified
+   * beside the live copies main-side, so a failure there changes nothing and
+   * stops here — then the desktop app, then a relaunch so everything new runs.
+   * When the app can only update through its full installer, the app quits
+   * into it instead (the installer brings its own runner).
    */
   const runUpdateAll = useCallback(async (): Promise<void> => {
     setState('updating');
     setError(null);
     setCliError(null);
     setProgress(null);
-
-    // 1) Runner first — updates live, non-fatal on failure.
-    setProgress({ phase: 'install', message: 'Updating the runner…' });
-    try {
-      const r = await api().invoke('app.updateCli');
-      if (r.code !== 0) {
-        setCliError(`Runner update skipped: npm install exited with code ${r.code}.`);
-      } else {
-        // The runner restarted live with the new CLI; reflect the new version.
-        setCliInfo((cur) => ({ version: r.version, path: cur?.path ?? null }));
+    let installed = false;
+    const failed = (detail?: string): string =>
+      `The update could not be finished; Moxxy works as before.${detail ? ` (${detail})` : ''}`;
+    const relaunchOntoUpdate = async (): Promise<void> => {
+      setState('staged');
+      setProgress({ phase: 'install', message: 'Restarting Moxxy…' });
+      await api().invoke('app.relaunch').catch(() => undefined);
+    };
+    const fullInstaller = async (): Promise<void> => {
+      const s = await api().invoke('app.updateShell');
+      if (s.ok) setProgress({ phase: 'install', message: 'Restarting to install…' });
+      else if (installed) await relaunchOntoUpdate();
+      else {
+        setError(s.error ?? 'Full update failed.');
+        setState('requires-full-update');
       }
-    } catch (e) {
-      setCliError(`Runner update skipped: ${toErrorMessage(e)}`);
-    }
+    };
 
-    // 2) Desktop app — independent of the runner result above.
-    setProgress({ phase: 'download', message: 'Checking for app updates…' });
     try {
+      setProgress({ phase: 'install', message: 'Checking the runner and extensions…' });
+      const parts = await api().invoke('app.checkComponents');
+      setComponents(parts);
+      if (parts.error) {
+        setCliError(`The runner and extensions stay as they are: ${parts.error}`);
+      } else if (parts.available) {
+        const r = await api().invoke('app.updateComponents');
+        if (!r.ok) {
+          setError(failed(r.error));
+          setState('error');
+          return;
+        }
+        installed = r.updated;
+      }
+
+      setProgress({ phase: 'download', message: 'Checking for app updates…' });
       const c = await api().invoke('app.checkUpdate');
       setCheck(c);
-
-      if (c.error) {
-        // Update channel unavailable (offline / not configured / bad sig). The
-        // app stays as-is; the runner may still have updated. Reflect that the
-        // app is current as far as we can act on it.
-        setState('uptodate');
-        return;
-      }
-      if (!c.available) {
-        // App already current. (The runner may still have been updated above —
-        // that's fine, it restarts live and `cliInfo`/`cliError` reflect it.)
-        setState('uptodate');
-        return;
-      }
-
-      if (c.requiresFullUpdate || !c.compatible) {
-        // Can't hot-update — download the full installer and quit into it.
-        // Mirrors runShellUpdate: on success the app quits mid-call; on failure
-        // drop to the requires-full-update CTA with `error` so the release-page
-        // fallback stays reachable.
-        const s = await api().invoke('app.updateShell');
-        if (s.ok) {
-          setProgress({ phase: 'install', message: 'Restarting to install…' });
-        } else {
-          setError(s.error ?? 'Full update failed.');
-          setState('requires-full-update');
+      if (!c.error && c.available) {
+        if (c.requiresFullUpdate || !c.compatible) {
+          await fullInstaller();
+          return;
         }
-        return;
+        const u = await api().invoke('app.updateDashboard');
+        if (u.ok && u.version) {
+          setStagedVersion(u.version);
+          installed = true;
+        } else if (u.requiresFullUpdate) {
+          await fullInstaller();
+          return;
+        } else if (!installed) {
+          setError(failed(u.error));
+          setState('error');
+          return;
+        }
       }
 
-      // Available + compatible → hot-update the dashboard bundle.
-      const u = await api().invoke('app.updateDashboard');
-      if (u.ok && u.version) {
-        setStagedVersion(u.version);
-        setState('staged');
-      } else if (u.requiresFullUpdate) {
-        // The bundle was deliberately not staged — fall through to the full
-        // installer (same Tier-2 path as above).
-        const s = await api().invoke('app.updateShell');
-        if (s.ok) {
-          setProgress({ phase: 'install', message: 'Restarting to install…' });
-        } else {
-          setError(s.error ?? 'Full update failed.');
-          setState('requires-full-update');
-        }
-      } else {
-        setError(u.error ?? 'Update failed.');
-        setState('error');
-      }
+      if (installed) await relaunchOntoUpdate();
+      else setState('uptodate');
     } catch (e) {
-      // A throw here is a fatal app-update error (the runner result, if any, is
-      // still reflected via cliInfo/cliError as a secondary note).
-      setError(toErrorMessage(e));
+      setError(failed(toErrorMessage(e)));
       setState('error');
     }
   }, []);
@@ -286,6 +272,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   return {
     info,
     check,
+    components,
     state,
     progress,
     error,

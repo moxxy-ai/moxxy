@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
 import type { AdminToolRegistryLike, McpStoredServer } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // The runtime connects through `defaultClientFactory` (from ../client.js),
 // which would spawn a real subprocess / open a real socket. Replace it with
@@ -88,7 +89,7 @@ describe('admin/runtime', () => {
   afterEach(async () => {
     if (original === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = original;
-    await rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   describe('attachServer (eager)', () => {

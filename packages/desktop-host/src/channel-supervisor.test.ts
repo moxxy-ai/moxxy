@@ -17,6 +17,7 @@ vi.mock('./cli-resolver', () => ({
 vi.mock('./event-bus', () => ({ broadcastHostEvent: vi.fn() }));
 
 import { startChannel } from './channel-supervisor';
+import { setRunnerExtraEnv } from './runner-env';
 
 /** Minimal ChildProcess stand-in: enough surface for the supervisor's wiring. */
 function fakeChild(): ChildProcess {
@@ -60,6 +61,21 @@ describe('channel-supervisor startChannel', () => {
       MOXXY_DEDICATED_RUNNER: '1',
       MOXXY_NO_WEB_SURFACE: '1',
       MOXXY_NO_CORE_UPDATE: '1',
+    });
+  });
+
+  it('hands the bot the same browser bridge as the workspace runners', () => {
+    // A bot left without it drove a browser of its own nobody could see, then
+    // asked the user to click through a cookie banner in it.
+    setRunnerExtraEnv({ MOXXY_BROWSER_BRIDGE_SOCKET: '/tmp/b.sock', MOXXY_BROWSER_BRIDGE_TOKEN: 'tok' });
+
+    startChannel('discord');
+
+    const [, , opts] = spawnCliMock.mock.calls[0] as [unknown, string[], { env: Record<string, string> }];
+    expect(opts.env).toMatchObject({
+      MOXXY_BROWSER_BRIDGE_SOCKET: '/tmp/b.sock',
+      MOXXY_BROWSER_BRIDGE_TOKEN: 'tok',
+      MOXXY_DEDICATED_RUNNER: '1',
     });
   });
 });

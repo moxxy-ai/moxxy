@@ -10,6 +10,7 @@ import { runSlash } from './slash-handler.js';
 import { runDiscordTurn } from './turn-runner.js';
 import type { SendableChannelLike, SentMessageLike } from './discord-like.js';
 import { TypingIndicator } from './typing-indicator.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('discord voice-replies vault flag round-trip', () => {
   let tmp: string;
@@ -23,7 +24,7 @@ describe('discord voice-replies vault flag round-trip', () => {
     });
   });
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('defaults to off, persists on, then off', async () => {
@@ -42,7 +43,7 @@ describe('runSlash routes /voice to the channel callback', () => {
     const args: string[] = [];
     const session = { commands: { get: () => undefined } } as unknown as Session;
     const reply = await runSlash('voice', 'on', session, {
-      toggleYolo: () => false,
+      toggleYolo: async () => false,
       voice: async (a) => {
         args.push(a);
         return '🔊 Voice replies ON';

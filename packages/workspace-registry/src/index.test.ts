@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -10,6 +10,7 @@ import {
   WorkspaceRegistry,
   type WorkspaceSessionSource,
 } from './index';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let home: string;
 let sessionsDir: string;
@@ -26,7 +27,7 @@ beforeEach(() => {
 afterEach(() => {
   if (originalHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalHome;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 /** Write a session's single metadata file (`<id>.json`) + its event log. */
@@ -136,6 +137,19 @@ describe('WorkspaceRegistry — derived session list', () => {
     const ids = (await reg.list()).flatMap((d) => d.sessions.map((s) => s.id));
     expect(ids).toContain('fresh-desktop');
     expect(ids).not.toContain('fresh-cli');
+  });
+
+  it('keeps messaging-channel bot sessions out of the workspace tree (they have their own read-only view)', async () => {
+    const reg = registry();
+    await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    writeSession({ id: 'moxxy-channel-discord', cwd: path.join(home, 'proj'), firstPrompt: 'jakie pliki?', source: 'discord' });
+    writeSession({ id: 'tg', cwd: path.join(home, 'proj'), firstPrompt: 'hi', source: 'telegram' });
+    writeSession({ id: 'dev', cwd: path.join(home, 'proj'), firstPrompt: 'explain', source: 'cli' });
+
+    const ids = (await reg.list()).flatMap((d) => d.sessions.map((s) => s.id));
+    expect(ids).toContain('dev');
+    expect(ids).not.toContain('moxxy-channel-discord');
+    expect(ids).not.toContain('tg');
   });
 
   it('hides a cli session whose cwd no longer exists', async () => {
@@ -261,6 +275,59 @@ describe('WorkspaceRegistry — desk + session mutations', () => {
     await reg.setActiveSession(b.id);
 
     expect((await reg.getActive())?.id).toBe(b.id);
+  });
+});
+
+/**
+ * A fresh home has no desks file: the first chat lands in the Moxxy workspace,
+ * which the view shows before anything persisted it. The sidebar offers that
+ * desk, so every action on it has to work — "New session" there used to fail
+ * with "unknown desk: moxxy".
+ */
+describe('WorkspaceRegistry — the Moxxy workspace before it was ever saved', () => {
+  const firstChat = (): void => writeSession({ id: 'first', cwd: home, source: 'desktop' });
+
+  it('takes a new session, which shows under it and in front', async () => {
+    firstChat();
+    const reg = registry();
+    expect((await reg.list()).map((d) => d.id)).toEqual([MOXXY_WORKSPACE_ID]);
+
+    const { desk, session } = await reg.createSession(MOXXY_WORKSPACE_ID);
+
+    expect(desk.id).toBe(MOXXY_WORKSPACE_ID);
+    const moxxy = (await registry().list()).find((d) => d.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions.map((s) => s.id).sort()).toEqual(['first', session.id].sort());
+    expect(moxxy?.activeSessionId).toBe(session.id);
+  });
+
+  it('takes a new session when none is named, in the desk the view puts in front', async () => {
+    firstChat();
+    const { desk } = await registry().createSession();
+    expect(desk.id).toBe(MOXXY_WORKSPACE_ID);
+  });
+
+  it('can be brought to front and renamed like any desk', async () => {
+    firstChat();
+    const reg = registry();
+    await reg.setActive(MOXXY_WORKSPACE_ID);
+    const renamed = await reg.rename(MOXXY_WORKSPACE_ID, 'Scratch');
+    expect(renamed.name).toBe('Scratch');
+    expect((await reg.getActive())?.id).toBe(MOXXY_WORKSPACE_ID);
+  });
+
+  it('takes a session moved into it', async () => {
+    const reg = registry();
+    const project = await reg.create({ name: 'P', cwd: path.join(home, 'p') });
+    firstChat();
+
+    const moxxy = await reg.moveSession(project.id, MOXXY_WORKSPACE_ID);
+
+    expect(moxxy.sessions.map((s) => s.id)).toContain(project.id);
+  });
+
+  it('still refuses a desk that does not exist', async () => {
+    firstChat();
+    await expect(registry().createSession('nope')).rejects.toThrow('unknown desk: nope');
   });
 });
 

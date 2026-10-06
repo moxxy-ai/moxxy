@@ -1,4 +1,5 @@
 import type { MoxxyEvent } from './events.js';
+import { supersededCallIds, supersededStub } from './supersede.js';
 import { isToolDisplayResult } from './tool-display.js';
 
 /**
@@ -56,6 +57,11 @@ export interface ElisionState {
   readonly unpinnedRecallCallIds: ReadonlySet<string>;
   /** Seq of the first user_prompt (task anchor) — never elided. */
   readonly firstUserPromptSeq: number;
+  /**
+   * callIds of results a later whole result of the same key replaced (see
+   * `supersede.ts`). Independent of the high-water mark: stubbed at any age.
+   */
+  readonly supersededCallIds?: ReadonlySet<string>;
 }
 
 const EMPTY_STATE: ElisionState = {
@@ -118,6 +124,9 @@ export function computeElisionState(events: ReadonlyArray<MoxxyEvent>): ElisionS
 }
 
 function computeElisionStateUncached(events: ReadonlyArray<MoxxyEvent>): ElisionState {
+  const superseded = supersededCallIds(events);
+  const withSuperseded = (state: ElisionState): ElisionState =>
+    superseded.size > 0 ? { ...state, supersededCallIds: superseded } : state;
   let hwm = -1;
   let elideConversational = false;
   let conversationalRecallThreshold = Number.POSITIVE_INFINITY;
@@ -132,7 +141,7 @@ function computeElisionStateUncached(events: ReadonlyArray<MoxxyEvent>): Elision
       neverElide = e.neverElideTools;
     }
   }
-  if (hwm < 0) return EMPTY_STATE;
+  if (hwm < 0) return withSuperseded(EMPTY_STATE);
 
   const toolNameByCall = new Map<string, string>();
   const recalledCallIds = new Set<string>();
@@ -185,7 +194,7 @@ function computeElisionStateUncached(events: ReadonlyArray<MoxxyEvent>): Elision
     }
   }
 
-  return {
+  return withSuperseded({
     hwm,
     effectiveElideConversational: elideConversational && seqRecalls < conversationalRecallThreshold,
     neverElide: new Set(neverElide),
@@ -195,7 +204,7 @@ function computeElisionStateUncached(events: ReadonlyArray<MoxxyEvent>): Elision
     recallResultCallIds,
     unpinnedRecallCallIds,
     firstUserPromptSeq,
-  };
+  });
 }
 
 /** Is this tool_result sent as a stub? (Shared by projection + estimate.) */
@@ -203,6 +212,7 @@ export function toolResultStubbed(
   e: Extract<MoxxyEvent, { type: 'tool_result' }>,
   state: ElisionState,
 ): boolean {
+  if (!e.error && state.supersededCallIds?.has(e.callId)) return true;
   if (e.seq > state.hwm || e.error) return false;
   const name = state.toolNameByCall.get(e.callId);
   if (name !== undefined && state.neverElide.has(name)) return false;
@@ -212,6 +222,17 @@ export function toolResultStubbed(
   }
   if (toolResultBytes(e.output) <= TINY_TURN_CHARS) return false; // tiny: keep full
   return true;
+}
+
+/** What a stubbed tool_result is sent as: the superseded marker, or the elided one. */
+export function toolResultStubText(
+  e: Extract<MoxxyEvent, { type: 'tool_result' }>,
+  state: ElisionState,
+): string {
+  const recalled = state.recalledCallIds.has(e.callId) || state.recalledSeqs.has(e.seq);
+  const bytes = toolResultBytes(e.output);
+  if (!recalled && state.supersededCallIds?.has(e.callId)) return supersededStub(e.callId, bytes);
+  return toolResultStub(e.callId, bytes, recalled);
 }
 
 /** Is this user/assistant turn collapsed to a conversational stub? */

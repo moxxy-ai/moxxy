@@ -1,5 +1,5 @@
 import { buildSynthesizeSkillPlugin, type Session } from '@moxxy/core';
-import { type CategoryView, type Plugin } from '@moxxy/sdk';
+import { definePlugin, withAgentConduct, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 // Provider plugins are installed/discovered like every other optional capability.
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
@@ -18,6 +18,11 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
 import { buildPluginSnapshot } from './plugin-snapshot.js';
 import { cliVersion } from '../version.js';
+
+const agentConductPlugin = definePlugin({
+  name: '@moxxy/agent-conduct',
+  hooks: { onBeforeProviderCall: withAgentConduct },
+});
 
 export interface BuiltinEntry {
   readonly name: string;
@@ -85,6 +90,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // the user installed and each ProviderDef owns its credential resolution.
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
+    // How Moxxy behaves in every mode and on every surface (checking live
+    // facts, keeping settled choices, one grammatical gender shared with the
+    // voice), appended to each provider request.
+    { name: '@moxxy/agent-conduct', plugin: agentConductPlugin },
     // Planning is a lightweight core path: inspect + recall, produce a
     // structured plan, then let the user revise it or deliberately switch to
     // default/goal for execution. It is read-only by construction.

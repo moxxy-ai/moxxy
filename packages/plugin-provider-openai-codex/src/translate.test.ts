@@ -141,7 +141,7 @@ describe('extractSystemText', () => {
 
 describe('toResponsesBody', () => {
   const req = {
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.6-sol',
     messages: [
       { role: 'system' as const, content: [{ type: 'text' as const, text: 'BASE' }] },
       { role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] },
@@ -174,5 +174,10 @@ describe('toResponsesBody', () => {
       expect.objectContaining({ type: 'function', name: 'Read' }),
       { type: 'web_search' },
     ]);
+  });
+
+  it('asks for the fast tier only when fast mode is on', () => {
+    expect(toResponsesBody({ ...req, fast: true }).service_tier).toBe('priority');
+    expect(toResponsesBody(req)).not.toHaveProperty('service_tier');
   });
 });

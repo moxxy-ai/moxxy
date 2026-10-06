@@ -1,8 +1,9 @@
-import { mkdtemp, rm, readdir, utimes } from 'node:fs/promises';
+import { mkdtemp, readdir, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CrossProcessFireLock } from './cross-process-lock.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('CrossProcessFireLock', () => {
   let dir: string;
@@ -10,7 +11,7 @@ describe('CrossProcessFireLock', () => {
     dir = await mkdtemp(path.join(tmpdir(), 'moxxy-xproc-lock-'));
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('claims a key exactly once — the first caller wins, the rest lose', async () => {

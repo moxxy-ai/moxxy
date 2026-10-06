@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
-import { OpenAIProvider } from './provider.js';
+import { OpenAIProvider, openAIModels } from './provider.js';
 
 function fakeOpenAI(chunks: ReadonlyArray<unknown>): { chat: { completions: { create: () => Promise<AsyncIterable<unknown>> } } } {
   return {
@@ -454,5 +454,55 @@ describe('OpenAIProvider.stream', () => {
     const plain = new OpenAIProvider({ client: fakeOpenAI([]) as never });
     expect(plain.name).toBe('openai');
     expect(plain.models.length).toBeGreaterThan(0);
+  });
+});
+
+describe('GPT-6 request shape (Chat Completions)', () => {
+  const tool = { name: 'read', description: 'Read a file', inputJsonSchema: { type: 'object' } } as never;
+
+  async function sent(model: string, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    let body: Record<string, unknown> = {};
+    const client = {
+      chat: {
+        completions: {
+          create: async (b: Record<string, unknown>) => {
+            body = b;
+            return (async function* () {})();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: client as never });
+    for await (const _ of p.stream({ model, messages: [], maxTokens: 1000, ...extra })) {
+      // drain
+    }
+    return body;
+  }
+
+  it('caps output with max_completion_tokens, like every reasoning model', async () => {
+    const body = await sent('gpt-6-sol');
+    expect(body.max_completion_tokens).toBe(1000);
+    expect('max_tokens' in body).toBe(false);
+  });
+
+  it('turns reasoning off when tools are sent to Sol or Luna — they only call tools that way here', async () => {
+    for (const model of ['gpt-6-sol', 'gpt-6-luna']) {
+      const body = await sent(model, { tools: [tool], reasoning: { effort: 'high' } });
+      expect(body.reasoning_effort).toBe('none');
+    }
+  });
+
+  it('asks for the fast tier only when fast mode is on', async () => {
+    expect((await sent('gpt-6-luna', { fast: true })).service_tier).toBe('priority');
+    expect('service_tier' in (await sent('gpt-6-luna'))).toBe(false);
+  });
+
+  it('offers fast mode on GPT-6 and GPT-5.6', () => {
+    for (const model of openAIModels) expect(model.supportsFast, model.id).toBe(true);
+  });
+
+  it('keeps the requested effort for Sol and Luna when no tools are sent', async () => {
+    const body = await sent('gpt-6-luna', { reasoning: { effort: 'high' } });
+    expect(body.reasoning_effort).toBe('high');
   });
 });

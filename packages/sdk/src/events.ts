@@ -64,9 +64,13 @@ export interface UserPromptAttachment {
  * kinds it does not open a turn — renderers that treat `user_prompt` as a
  * turn boundary must skip their boundary resets for it (see chat-model's
  * pair-events).
+ *
+ * `kind: 'voice'` marks the voice conversation (GPT-Live) held while an agent
+ * turn ran and recorded after it as one transcript: context for later turns,
+ * not a request, and shown as one collapsed block.
  */
 export interface TriggerOrigin {
-  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint';
+  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint' | 'voice';
   /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
 }
@@ -137,6 +141,8 @@ export interface ToolCallApprovedEvent extends EventBase {
   readonly callId: ToolCallId;
   readonly decidedBy: 'policy' | 'resolver' | 'hook';
   readonly mode: 'allow' | 'allow_session' | 'allow_always';
+  /** See `PermissionDecision.decidedNow`. */
+  readonly decidedNow?: boolean;
 }
 
 export interface ToolCallDeniedEvent extends EventBase {
@@ -232,6 +238,12 @@ export interface CompactionEvent extends EventBase {
   readonly replacedRange: readonly [number, number];
   readonly summary: string;
   readonly tokensSaved: number;
+  /**
+   * A step of the compactor's regular bookkeeping (recording a finished turn,
+   * folding old records) rather than a response to a nearly full context.
+   * Surfaces may leave it out of the transcript; it still frees context.
+   */
+  readonly routine?: true;
 }
 
 /**

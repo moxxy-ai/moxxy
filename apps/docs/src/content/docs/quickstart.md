@@ -5,7 +5,7 @@ description: Install moxxy, connect a model account, and complete a first task.
 
 ## 1. Install
 
-Moxxy requires Node.js 20.19 or newer.
+Moxxy requires Node.js 22.19 or newer; Node 24 LTS is recommended.
 
 ```sh
 npm install -g @moxxy/cli

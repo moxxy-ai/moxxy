@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { assertDefined, denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { mkdtempSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { MobileSessionHost } from './single-session-host.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Seed a session's single metadata file (`<id>.json`) + event log under the
  *  isolated MOXXY_HOME — the single-source replacement for the old
@@ -52,7 +53,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (originalMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalMoxxyHome;
-  await rm(isolatedMoxxyHome, { recursive: true, force: true });
+  await removeDir(isolatedMoxxyHome);
 });
 
 /** A bus that records handler registrations + broadcasts and can invoke handlers. */
@@ -729,5 +730,55 @@ describe('MobileSessionHost', () => {
     // Emitting a bad event must not unwind back into the session's emit loop.
     expect(() => emit({ kind: 'assistant_message', bad: true })).not.toThrow();
     expect(errs).toHaveLength(1);
+  });
+});
+
+describe('MobileSessionHost Computer Use', () => {
+  const turn = { sessionId: 'sess-1', turnId: 'turn-1', state: 'active' as const, target: 'Calculator' };
+
+  function computerControl() {
+    const listeners = new Set<(turns: ReadonlyArray<unknown>) => void>();
+    return {
+      push: (turns: ReadonlyArray<unknown>) => listeners.forEach((listener) => listener(turns)),
+      listeners,
+      service: {
+        snapshot: async () => [turn],
+        control: async () => {},
+        subscribe: (listener: (turns: ReadonlyArray<unknown>) => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      },
+    };
+  }
+
+  it('answers computer.snapshot with the turns under Computer Use', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession({ computerControl: computerControl().service });
+    new MobileSessionHost(bus, session).register();
+
+    expect(await bus.invoke('computer.snapshot', { workspaceId: 'sess-1' })).toEqual({ workspaceId: 'sess-1', turns: [turn] });
+  });
+
+  it('answers computer.snapshot with no turns when the session has no Computer Use', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession();
+    new MobileSessionHost(bus, session).register();
+
+    expect(await bus.invoke('computer.snapshot', { workspaceId: 'sess-1' })).toEqual({ workspaceId: 'sess-1', turns: [] });
+  });
+
+  it('pushes computer.changed to clients on every change and stops after dispose', () => {
+    const bus = new FakeBus();
+    const control = computerControl();
+    const { session } = fakeSession({ computerControl: control.service });
+    const host = new MobileSessionHost(bus, session);
+    host.wire();
+
+    control.push([turn]);
+    expect(bus.event('computer.changed').map((event) => event.payload)).toEqual([{ workspaceId: 'sess-1', turns: [turn] }]);
+
+    host.dispose();
+    expect(control.listeners.size).toBe(0);
   });
 });

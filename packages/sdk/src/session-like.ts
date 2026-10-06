@@ -4,7 +4,7 @@ import type { CapabilitySpec } from './isolation.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
-import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
+import type { ModelDescriptor, ProviderKeyValidation, ReasoningEffort } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
 import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
@@ -18,6 +18,8 @@ import type { ComputerControlService } from './computer-control.js';
  */
 export interface RunTurnOptions {
   readonly model?: string;
+  /** Optional context-window estimate for a custom model that is not in the provider catalog. */
+  readonly contextWindow?: number;
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
   /**
@@ -91,6 +93,11 @@ export interface ToolInfo {
 export interface SkillInfo {
   readonly id: string;
   readonly name: string;
+  readonly description?: string;
+  /** Other names an @ mention can use; the first is what the @ menu inserts. */
+  readonly aliases?: ReadonlyArray<string>;
+  /** How the @ menu shows the skill ("Computer Use"); a skill with one is offered first. */
+  readonly label?: string;
 }
 
 /** Serializable slash-command metadata for the picker / `/help`. */
@@ -150,6 +157,19 @@ export interface SessionInfo {
   /** Name of the active synthesizer, or null. Lets a thin client proxy TTS
    *  (the desktop routes "Read aloud" through it; null → OS voice fallback). */
   readonly activeSynthesizer: string | null;
+  /** Tool calls run without asking in this conversation (see `auto-approve.ts`).
+   *  Absent from runners that predate the shared switch. */
+  readonly autoApprove?: boolean;
+  /**
+   * How deeply the model thinks in this conversation: a set effort, `default` when reasoning is on at the
+   * provider's own default effort, null when it is off. Absent from older runners.
+   */
+  readonly reasoningEffort?: ReasoningEffort | 'default' | null;
+  /** Whether turns ask for the provider's faster tier. Absent from older runners. */
+  readonly fast?: boolean;
+  /** Turns running now, whichever client (or in-process channel) started them.
+   *  Reported by a runner to its clients; absent from runners that predate it. */
+  readonly runningTurns?: ReadonlyArray<string>;
 }
 
 /**

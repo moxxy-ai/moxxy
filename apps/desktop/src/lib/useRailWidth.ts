@@ -9,7 +9,12 @@ import { useSyncExternalStore } from 'react';
 
 const STORAGE_KEY = 'moxxy.rightRailWidth';
 export const RAIL_MIN_WIDTH = 280;
-export const RAIL_MAX_WIDTH = 860;
+/** A sanity bound for the stored value only. How wide the workbench may really
+ *  be depends on the window, so the drag asks {@link benchWidthLimit}. */
+export const RAIL_MAX_WIDTH = 4096;
+/** The room the chat keeps beside the workbench. Mirrors `.col-main`'s
+ *  `min-width`, which holds it when the window shrinks. */
+export const CHAT_MIN_WIDTH = 320;
 /** The design's bench width (`--frame-bench`). Stated here as a number because
  *  this store clamps and persists it; the token is the same 372. */
 export const RAIL_DEFAULT_WIDTH = 372;
@@ -26,6 +31,16 @@ function readStored(): number {
   } catch {
     return RAIL_DEFAULT_WIDTH;
   }
+}
+
+/**
+ * The widest the workbench can be right now: its own width plus whatever the
+ * chat beside it has beyond its minimum. Measured at drag start, so the panel
+ * stops where the chat would start to be squeezed rather than running on into
+ * a width the layout will not give it.
+ */
+export function benchWidthLimit(benchWidth: number, chatWidth: number): number {
+  return Math.max(RAIL_MIN_WIDTH, Math.round(benchWidth + chatWidth - CHAT_MIN_WIDTH));
 }
 
 let width = readStored();

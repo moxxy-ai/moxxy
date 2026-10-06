@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AuditExportBatch, AuditExporterDef, AuditExportResource } from '@moxxy/sdk';
 import { appendAuditRecord, resetAuditHeadForTests } from './jsonl-audit-sink.js';
 import { exportAuditTrail, pendingExportCount, readCheckpoint } from './export.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const resource: AuditExportResource = { host: 'h1', cliVersion: '0.0.0' };
 
@@ -37,7 +38,7 @@ describe('exportAuditTrail', () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
     resetAuditHeadForTests();
-    await fs.rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   const seed = async (n: number): Promise<void> => {
@@ -183,7 +184,7 @@ describe('pendingExportCount', () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
     resetAuditHeadForTests();
-    await fs.rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   it('can exclude one session, so a diagnostic does not count its own record', async () => {

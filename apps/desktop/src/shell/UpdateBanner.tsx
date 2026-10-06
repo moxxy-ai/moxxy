@@ -1,9 +1,9 @@
 /**
- * Top-of-window banner that surfaces a dashboard update found by the launch
- * auto-check. Stays out of the way: it only appears when there's something to
- * act on (a compatible hot-update, an in-progress install, a staged update
- * waiting for relaunch, or a Tier-2 "needs a full app update" notice) and can be
- * dismissed. The heavy lifting lives in {@link useAppUpdate}.
+ * Top-of-window banner that offers the update found by the launch check. It is
+ * the update people who aren't technical see, so it asks nothing: one
+ * "Update" brings the app, the runner and the extensions up to date and
+ * restarts Moxxy onto them ({@link useAppUpdate}'s `runUpdateAll`). A failure
+ * says Moxxy still works and offers another try. It can be dismissed.
  */
 
 import { useState } from 'react';
@@ -13,17 +13,11 @@ import { useAppUpdate } from '@moxxy/client-core';
 import { Button } from '@moxxy/desktop-ui';
 
 export function UpdateBanner(): JSX.Element | null {
-  const { check, state, progress, error, stagedVersion, runUpdate, runShellUpdate, relaunch } =
-    useAppUpdate({ autoCheck: true });
+  const { check, state, progress, error, runUpdateAll, relaunch } = useAppUpdate({ autoCheck: true });
   const [dismissed, setDismissed] = useState(false);
 
-  const visible =
-    !dismissed &&
-    (state === 'available' ||
-      state === 'updating' ||
-      state === 'staged' ||
-      state === 'incompatible' ||
-      state === 'requires-full-update');
+  const offered = state === 'available' || state === 'incompatible' || state === 'requires-full-update';
+  const visible = !dismissed && (offered || state === 'updating' || state === 'staged' || state === 'error');
   if (!visible) return null;
 
   const pct =
@@ -32,50 +26,34 @@ export function UpdateBanner(): JSX.Element | null {
       : null;
 
   let body: JSX.Element;
-  if (state === 'available') {
-    body = (
-      <>
-        <span>
-          Dashboard update <strong>v{check?.latestVersion}</strong> available
-          {check?.notes ? ` — ${check.notes}` : ''}
-        </span>
-        <Button variant="cta" style={primaryBtn} onClick={() => void runUpdate()}>
-          Update
-        </Button>
-      </>
-    );
-  } else if (state === 'updating') {
-    body = (
-      <span>
-        Updating dashboard… {pct != null ? `${pct}%` : (progress?.message ?? '')}
-      </span>
-    );
+  if (state === 'updating') {
+    body = <span>Updating Moxxy… {pct != null ? `${pct}%` : (progress?.message ?? '')}</span>;
   } else if (state === 'staged') {
     body = (
       <>
-        <span>
-          Updated to <strong>v{stagedVersion}</strong>. Relaunch to apply.
-        </span>
+        <span>Restarting Moxxy…</span>
         <Button variant="cta" style={primaryBtn} onClick={relaunch}>
-          Relaunch
+          Restart now
+        </Button>
+      </>
+    );
+  } else if (state === 'error') {
+    body = (
+      <>
+        <span style={{ color: 'var(--color-red)' }}>{error}</span>
+        <Button variant="cta" style={primaryBtn} onClick={() => void runUpdateAll()}>
+          Try again
         </Button>
       </>
     );
   } else {
-    // incompatible / requires-full-update → Tier-2: the app downloads its own
-    // installer and restarts into it. The release page stays as a fallback
-    // link once an automatic attempt failed (e.g. unsigned build).
     body = (
       <>
-        <span>
-          {state === 'requires-full-update'
-            ? `Version ${check?.latestVersion ?? ''} updates the bundled runner — a full app update will be installed.`
-            : 'A new version needs a full app update.'}
-        </span>
-        <Button variant="cta" style={primaryBtn} onClick={() => void runShellUpdate()}>
-          Update app
+        <span>A Moxxy update is available.</span>
+        <Button variant="cta" style={primaryBtn} onClick={() => void runUpdateAll()}>
+          Update
         </Button>
-        {error && check?.releaseUrl && (
+        {state === 'requires-full-update' && error && check?.releaseUrl && (
           <Button
             variant="cta"
             style={primaryBtn}
@@ -95,8 +73,8 @@ export function UpdateBanner(): JSX.Element | null {
   return (
     <div role="status" style={wrap}>
       {body}
-      {error && <span style={{ color: 'var(--color-red)' }}>{error}</span>}
-      {state !== 'updating' && (
+      {offered && error && <span style={{ color: 'var(--color-red)' }}>{error}</span>}
+      {state !== 'updating' && state !== 'staged' && (
         <button
           type="button"
           aria-label="Dismiss"

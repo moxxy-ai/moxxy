@@ -1,0 +1,30 @@
+# Python packages the desktop installer carries next to its Python, so common
+# agent tasks (data, charts, documents, web pages) need no download. Exact pins:
+# what ships is what was tried. To update, install the top-level names into a
+# fresh bundled Python and replace this list with its `pip freeze`.
+beautifulsoup4==4.15.0
+certifi==2026.7.22
+charset-normalizer==3.5.2
+contourpy==1.4.0
+cycler==0.12.1
+et_xmlfile==2.0.0
+fonttools==4.66.1
+idna==3.20
+kiwisolver==1.5.1
+lxml==6.1.3
+matplotlib==3.11.2
+numpy==2.5.3
+openpyxl==3.1.5
+packaging==26.3
+pandas==3.0.6
+pillow==12.3.0
+pyparsing==3.3.3
+pypdf==6.19.0
+python-dateutil==2.9.0.post0
+python-docx==1.2.0
+PyYAML==6.0.3
+requests==2.34.2
+six==1.17.0
+soupsieve==2.10
+typing_extensions==4.16.0
+urllib3==2.8.0

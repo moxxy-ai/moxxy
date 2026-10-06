@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { z } from '@moxxy/sdk';
+import { compareSemver, z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { readBoundedFile } from './bounded-read.js';
 import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, type ComputerLedger } from './computer-update-ledger.js';
@@ -9,6 +9,7 @@ import { applyComputerLedgers, computerLedgerSchema, prepareComputerLedgers, typ
 const pluginName = '@moxxy/plugin-computer-control';
 const managedPackageSchema = z.enum([pluginName, '@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex']);
 export type ManagedPackage = z.infer<typeof managedPackageSchema>;
+export const isManagedPackage = (name: string): name is ManagedPackage => managedPackageSchema.safeParse(name).success;
 interface UpdateOptions { resourcesPath: string; moxxyHome: string; plugin?: ManagedPackage }
 const packageName = /^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/i;
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -176,6 +177,34 @@ export async function isBundledComputerCurrent(options:UpdateOptions):Promise<bo
   const installed=await computerTreeHash(targetPath(home, plugin));
   const source=await bundleFingerprint(options.resourcesPath, plugin);
   return records.some(({record})=>record.phase==='verified' && record.staged===installed && record.source===source);
+}
+
+/** The installed copy is newer than the installer's (the desktop updated it
+ *  from npm since): replacing it would be a downgrade, never offered. */
+export async function isInstalledNewerThanBundled(options:UpdateOptions):Promise<boolean> {
+  const plugin = managedPackageSchema.parse(options.plugin ?? pluginName);
+  const home=path.resolve(options.moxxyHome);
+  const target=targetPath(home, plugin);
+  if (!await exists(path.join(target,'package.json'))) return false;
+  const bundled=await manifest(path.join(path.resolve(options.resourcesPath),'plugins-seed','node_modules',plugin));
+  return compareSemver(bundled.version,(await manifest(target)).version) < 0;
+}
+
+/** Record the installed copy as a verified managed install — the desktop's
+ *  own updater put it there — so the installer treats it as unchanged rather
+ *  than asking about local changes. */
+export async function recordManagedInstall(moxxyHome:string, plugin:ManagedPackage):Promise<void> {
+  const home=path.resolve(moxxyHome);
+  const target=targetPath(home, plugin);
+  await assertOwnedParents(home,target);
+  const staged=await computerTreeHash(target);
+  if (!staged) throw new Error(`${plugin} is not installed`);
+  const root=updatesPath(home, plugin);
+  await assertOwnedParents(home,root);
+  await fs.mkdir(root,{recursive:true});
+  const transaction=await fs.mkdtemp(path.join(root,'update-'));
+  const journal:Journal={schemaVersion:1,phase:'verified',previous:null,staged};
+  await writeFileAtomic(path.join(transaction,'transaction.json'),JSON.stringify(journal));
 }
 
 export async function prepareComputerUpdate(options: UpdateOptions): Promise<PreparedComputerUpdate> {

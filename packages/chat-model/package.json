@@ -1,8 +1,27 @@
 {
   "name": "@moxxy/chat-model",
-  "private": true,
-  "version": "0.4.13",
+  "version": "0.4.14",
   "description": "UI-framework-neutral chat model: the event→block fold (tool/result pairing, skill + subagent + live-tool grouping), formatting helpers, a markdown AST, and a chunked append log. Shared by the Ink TUI, the desktop renderer, and future channels.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "chat",
+    "markdown"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/chat-model"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

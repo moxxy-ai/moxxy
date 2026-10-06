@@ -30,6 +30,16 @@ describe('catalog: unbundled providers are installable', () => {
   });
 });
 
+describe('Gemini cloud speech extension', () => {
+  it('resolves the first-party TTS extension and contribution', async () => {
+    const entry = resolveCatalogEntry('tts-gemini');
+    expect(entry?.packageName).toBe('@moxxy/plugin-tts-gemini');
+    expect(entry?.installSpec).toBe('@moxxy/plugin-tts-gemini');
+    const { findCatalogEntryForContribution } = await import('./catalog.js');
+    expect(findCatalogEntryForContribution('synthesizer', 'gemini-tts')?.id).toBe('tts-gemini');
+  });
+});
+
 describe('resolveCatalogEntry / resolveCatalogPackageName', () => {
   it('resolves by id and by package name', () => {
     expect(resolveCatalogEntry(entry.id)?.packageName).toBe(entry.packageName);

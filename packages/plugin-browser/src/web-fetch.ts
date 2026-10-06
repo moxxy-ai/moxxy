@@ -1,7 +1,7 @@
 import { isIP } from 'node:net';
 import type { LookupFunction } from 'node:net';
 import { Agent } from 'undici';
-import { MoxxyError, assertDefined, defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, assertDefined, defineTool, z, type ToolContext } from '@moxxy/sdk';
 import { htmlToMarkdown, htmlToPlainText } from './html-extract.js';
 import {
   assertPublicUrl,
@@ -24,6 +24,10 @@ export { htmlToMarkdown, htmlToPlainText } from './html-extract.js';
 const MAX_BYTES_DEFAULT = 2 * 1024 * 1024; // 2 MB
 const MAX_REDIRECTS_DEFAULT = 5;
 const FETCH_TIMEOUT_MS_DEFAULT = 20_000;
+/** Longest a fetch may wait for a service to come up: an image pull and a cold start. */
+const UNTIL_UP_MAX_MS = 300_000;
+/** Between tries while waiting for a service to come up. */
+const UNTIL_UP_RETRY_MS = 5_000;
 
 // --- SSRF guard -------------------------------------------------------------
 // web_fetch can be driven by the model, so it must not be a confused-deputy
@@ -102,7 +106,8 @@ export const webFetchTool = defineTool({
   name: 'web_fetch',
   icon: 'globe',
   description:
-    'Fetch a URL over HTTP(S) and return the page content. HTML is post-processed to readable text (or markdown). Use for simple GETs; if the page needs JS execution, clicks, or form fills, use browser_session instead.',
+    'Fetch a URL over HTTP(S) and return the page content. HTML is post-processed to readable text (or markdown). Use for simple GETs; if the page needs JS execution, clicks, or form fills, use browser_session instead. ' +
+    'To check a service you just deployed or restarted, set untilUpMs: it keeps trying until the address answers below 500, so one still starting is not reported as broken.',
   inputSchema: z.object({
     url: z.string().url().describe('Absolute http:// or https:// URL.'),
     format: z
@@ -122,70 +127,140 @@ export const webFetchTool = defineTool({
       .describe(
         'Optional CSS-like selector for the readability extractor (e.g. "main", "article"). Falls back to whole-body extraction.',
       ),
+    untilUpMs: z
+      .number()
+      .int()
+      .positive()
+      .max(UNTIL_UP_MAX_MS)
+      .optional()
+      .describe(
+        'Wait for the address to come up: retry every few seconds while it refuses the connection or answers 5xx, for up to this many ms. For a service just deployed or restarted.',
+      ),
   }),
   permission: { action: 'prompt' },
   isolation: {
     capabilities: {
       net: { mode: 'any' },
-      timeMs: 120_000,
+      timeMs: UNTIL_UP_MAX_MS + 120_000,
     },
   },
-  async handler({ url, format, method, headers, maxBytes, timeoutMs, selector }, ctx) {
-    const cap = maxBytes ?? MAX_BYTES_DEFAULT;
-    const timeout = timeoutMs ?? FETCH_TIMEOUT_MS_DEFAULT;
+  async handler({ untilUpMs, ...request }, ctx) {
+    if (untilUpMs === undefined) return fetchOnce(request, ctx);
+    return fetchUntilUp(request, untilUpMs, ctx);
+  },
+});
 
-    const aborter = new AbortController();
-    const onParentAbort = (): void => aborter.abort('parent signal');
-    ctx.signal.addEventListener('abort', onParentAbort, { once: true });
-    const timer = setTimeout(() => aborter.abort('fetch timeout'), timeout);
+type FetchRequest = {
+  readonly url: string;
+  readonly format: 'text' | 'markdown' | 'raw';
+  readonly method: 'GET' | 'HEAD';
+  readonly headers?: Record<string, string> | undefined;
+  readonly maxBytes?: number | undefined;
+  readonly timeoutMs?: number | undefined;
+  readonly selector?: string | undefined;
+};
 
-    let fetched: FetchResult | null = null;
+/**
+ * Fetch until the address answers below 500, or `untilUpMs` passes.
+ *
+ * A service that was just restarted refuses connections, then sits behind a
+ * proxy answering 502/503 until it is ready; one look in that window reads as
+ * "broken". In the Coolify task the agent looked once, met the 503 and said it
+ * could not confirm the address; a minute later it answered 200. A refused
+ * policy (an internal address, too many redirects) is not a service starting
+ * and is never retried.
+ */
+async function fetchUntilUp(request: FetchRequest, untilUpMs: number, ctx: ToolContext): Promise<string> {
+  const started = Date.now();
+  for (let tries = 1; ; tries++) {
+    let answer: string;
+    let up = false;
     try {
-      const res = await fetchFollowRedirects(url, {
-        method,
-        headers: { 'user-agent': 'moxxy/0.0', ...(headers ?? {}) },
-        signal: aborter.signal,
-        maxRedirects: MAX_REDIRECTS_DEFAULT,
-      });
-      fetched = res;
+      answer = await fetchOnce(request, ctx);
+      up = Number(/^HTTP (\d+)/.exec(answer)?.[1] ?? 0) < 500;
+    } catch (err) {
+      if (err instanceof MoxxyError) throw err;
+      answer = `request failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    const seconds = Math.round((Date.now() - started) / 1000);
+    if (up) return tries > 1 ? `up after ${seconds} s (${tries} tries)\n${answer}` : answer;
+    if (ctx.signal.aborted || Date.now() - started + UNTIL_UP_RETRY_MS > untilUpMs) {
+      return `still not up after ${seconds} s (${tries} tries); the last answer:\n${answer}`;
+    }
+    await pause(UNTIL_UP_RETRY_MS, ctx.signal);
+  }
+}
 
-      if (method === 'HEAD') {
-        return formatHeadResult(res);
-      }
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    }
+  });
+}
 
-      const body = await readCapped(res, cap);
-      const contentType = res.headers.get('content-type') ?? '';
-      const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
+async function fetchOnce(
+  { url, format, method, headers, maxBytes, timeoutMs, selector }: FetchRequest,
+  ctx: ToolContext,
+): Promise<string> {
+  const cap = maxBytes ?? MAX_BYTES_DEFAULT;
+  const timeout = timeoutMs ?? FETCH_TIMEOUT_MS_DEFAULT;
 
-      if (format === 'raw' || !isHtml) {
-        return formatBodyResult({
-          status: res.status,
-          url: res.url,
-          contentType,
-          body,
-          truncated: body.truncated,
-        });
-      }
+  const aborter = new AbortController();
+  const onParentAbort = (): void => aborter.abort('parent signal');
+  ctx.signal.addEventListener('abort', onParentAbort, { once: true });
+  const timer = setTimeout(() => aborter.abort('fetch timeout'), timeout);
 
-      const extracted =
-        format === 'markdown'
-          ? htmlToMarkdown(body.text, { selector })
-          : htmlToPlainText(body.text, { selector });
+  let fetched: FetchResult | null = null;
+  try {
+    const res = await fetchFollowRedirects(url, {
+      method,
+      headers: { 'user-agent': 'moxxy/0.0', ...(headers ?? {}) },
+      signal: aborter.signal,
+      maxRedirects: MAX_REDIRECTS_DEFAULT,
+    });
+    fetched = res;
+
+    if (method === 'HEAD') {
+      return formatHeadResult(res);
+    }
+
+    const body = await readCapped(res, cap);
+    const contentType = res.headers.get('content-type') ?? '';
+    const isHtml = contentType.includes('text/html') || contentType.includes('application/xhtml');
+
+    if (format === 'raw' || !isHtml) {
       return formatBodyResult({
         status: res.status,
         url: res.url,
         contentType,
-        body: { text: extracted, truncated: body.truncated },
+        body,
         truncated: body.truncated,
       });
-    } finally {
-      clearTimeout(timer);
-      ctx.signal.removeEventListener('abort', onParentAbort);
-      // Close the final hop's pinned dispatcher (body is consumed by now).
-      if (fetched) await fetched.dispose();
     }
-  },
-});
+
+    const extracted =
+      format === 'markdown'
+        ? htmlToMarkdown(body.text, { selector })
+        : htmlToPlainText(body.text, { selector });
+    return formatBodyResult({
+      status: res.status,
+      url: res.url,
+      contentType,
+      body: { text: extracted, truncated: body.truncated },
+      truncated: body.truncated,
+    });
+  } finally {
+    clearTimeout(timer);
+    ctx.signal.removeEventListener('abort', onParentAbort);
+    // Close the final hop's pinned dispatcher (body is consumed by now).
+    if (fetched) await fetched.dispose();
+  }
+}
 
 interface FetchResult {
   readonly status: number;

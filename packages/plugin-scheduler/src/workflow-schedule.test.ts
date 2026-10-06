@@ -1,12 +1,13 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { ScheduleStore, type ScheduleEntry } from './store.js';
 import { isDue, nextCronFire } from './poller.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const dirs: string[] = [];
-afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of dirs.splice(0)) await removeDir(dir); });
 const noonDraft: ScheduleEntry = { id: '', name: 'wf-noon', workflowName: 'noon', prompt: 'run noon', source: 'workflow', enabled: true, createdAt: 0, cron: '0 12 * * *', timeZone: 'Europe/Warsaw' };
 it('keeps a deletion tombstone when a stale runner syncs a disabled definition', async () => {
   const { store, file } = await fixture(() => Date.now());

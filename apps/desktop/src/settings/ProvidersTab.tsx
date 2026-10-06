@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { api, type useSettings } from '@moxxy/client-core';
+import type { useSettings } from '@moxxy/client-core';
 import { Button, Icon, IconButton, Modal, Select, TextInput } from '@moxxy/desktop-ui';
 import { Section, CardList, Row, Tile, StatusDot, Switch, Badge, EmptyState } from './settings-primitives';
 import { AgentTaskModal } from './shared/AgentTaskModal';
@@ -17,48 +17,6 @@ import { OAuthSignIn } from './shared/OAuthSignIn';
 import { PROVIDER_PROMPT_TEMPLATE } from './provider-prompt';
 
 type ProviderRow = ReturnType<typeof useSettings>['providers'][number];
-
-/** Reasoning-effort levels offered for providers whose models support it.
- *  Mirrors the CLI's proven `config.context.reasoning` path. The order +
- *  values match the contract's `ReasoningEffort` (and the runner protocol's
- *  `ReasoningEffortLevel`), so the chosen level forwards verbatim. */
-const REASONING_LEVELS = ['off', 'low', 'medium', 'high'] as const;
-type ReasoningLevel = (typeof REASONING_LEVELS)[number];
-
-// The runner's `session.reasoning` is session-scoped and resets when its runner
-// restarts, so we remember the user's per-provider pick here to seed the
-// selector on reopen and to re-apply it. The LIVE effect comes from the
-// `settings.setReasoning` IPC call below — this is just the UI's memory.
-const REASONING_PREF_KEY = 'moxxy.reasoning.effort';
-
-function reasoningEffortFor(providerName: string): ReasoningLevel {
-  try {
-    const raw = localStorage.getItem(REASONING_PREF_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-    const v = map[providerName];
-    return REASONING_LEVELS.includes(v as ReasoningLevel) ? (v as ReasoningLevel) : 'off';
-  } catch {
-    return 'off';
-  }
-}
-
-function setReasoningEffortFor(providerName: string, level: ReasoningLevel): void {
-  try {
-    const raw = localStorage.getItem(REASONING_PREF_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-    map[providerName] = level;
-    localStorage.setItem(REASONING_PREF_KEY, JSON.stringify(map));
-  } catch {
-    // best-effort; a missing localStorage just means the choice doesn't persist
-  }
-}
-
-/** True when the provider's model catalog advertises reasoning support — now a
- *  typed field on `ProviderEntry`, populated runner-side from the model
- *  descriptors (see `settings.providers` in @moxxy/desktop-host). */
-function providerSupportsReasoning(p: ProviderRow): boolean {
-  return p.supportsReasoning === true;
-}
 
 /**
  * True for a provider that authenticates with NO API key — a local
@@ -238,15 +196,12 @@ function ConfigureProviderModal({
   const [key, setKey] = useState('');
   const [baseURL, setBaseURL] = useState(provider.baseURL ?? '');
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? '');
-  const [reasoning, setReasoning] = useState<ReasoningLevel>(() => reasoningEffortFor(provider.name));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<void>, doneNote: string): Promise<void> => {
-    // Guard against overlapping runs: a native <Select> fires onChange for each
-    // intermediate option during an arrow-key sweep, which would otherwise queue
-    // racing setReasoning IPC mutations. Drop calls while one is in flight.
+    // Drop a run while one is in flight.
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -377,38 +332,6 @@ function ConfigureProviderModal({
           <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
             Built-in provider — endpoint and model list ship with moxxy; only the key is configurable.
           </p>
-        )}
-
-        {providerSupportsReasoning(provider) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={fieldLabelStyle}>Reasoning effort</label>
-            <Select
-              value={reasoning}
-              disabled={busy}
-              aria-busy={busy}
-              onChange={(e) => {
-                const next = e.target.value as ReasoningLevel;
-                setReasoning(next);
-                setReasoningEffortFor(provider.name, next);
-                // Apply it live on the runner (maps onto config.context.reasoning).
-                void run(
-                  () => api().invoke('settings.setReasoning', { effort: next }),
-                  next === 'off' ? 'Reasoning effort cleared.' : `Reasoning effort set to ${next}.`,
-                );
-              }}
-          tone="soft"
-              data-testid="provider-reasoning-select"
-            >
-              {REASONING_LEVELS.map((level) => (
-                <option key={level} value={level}>
-                  {level === 'off' ? 'Off' : (level[0] ?? '').toUpperCase() + level.slice(1)}
-                </option>
-              ))}
-            </Select>
-            <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
-              How much the model thinks before answering. Higher effort is slower but deeper.
-            </p>
-          </div>
         )}
 
         {error && (

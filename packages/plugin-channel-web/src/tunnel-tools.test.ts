@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LifecycleHooks, ToolContext, ToolDef } from '@moxxy/sdk';
 import { buildWebChannelPlugin, readTunnelSetting, writeTunnelSetting, type TunnelControls } from './index.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const ctx = {} as ToolContext;
 
@@ -26,7 +27,7 @@ beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'mox-tt-'));
   file = path.join(dir, 'web.json');
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeDirSync(dir));
 
 function build(opts: Parameters<typeof buildWebChannelPlugin>[0]) {
   const plugin = buildWebChannelPlugin(opts);

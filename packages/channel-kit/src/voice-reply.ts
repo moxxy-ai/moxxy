@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
+import { detectSpeechLanguage } from '@moxxy/chat-model';
 import type { SynthesizeOptions, Synthesizer } from '@moxxy/sdk';
 
 /**
@@ -107,7 +108,8 @@ export async function synthesizeReply(
 
   const synthOpts: SynthesizeOptions = {};
   if (opts.voice !== undefined) (synthOpts as { voice?: string }).voice = opts.voice;
-  if (opts.language !== undefined) (synthOpts as { language?: string }).language = opts.language;
+  // A voice speaks one language: say which, or Polish is read with an English voice.
+  (synthOpts as { language?: string }).language = opts.language ?? detectSpeechLanguage(speech);
   if (opts.rate !== undefined) (synthOpts as { rate?: number }).rate = opts.rate;
   if (opts.signal !== undefined) (synthOpts as { signal?: AbortSignal }).signal = opts.signal;
 

@@ -9,7 +9,8 @@ import type { AxNode } from './tree.js';
  * every single step and buys nothing, so four rules prune them out:
  *
  *   1. depth cap — past {@link MAX_TREE_DEPTH} a subtree collapses to one row
- *      that still reports how much was hidden, so the model can drill in;
+ *      that still reports how much was hidden, so the model can drill in, and
+ *      an unnamed one keeps the text it holds (a price, a date), clipped;
  *   2. label truncation at {@link MAX_LABEL_CHARS} — a long paragraph is
  *      recognisable from its opening, and the model can read the full text
  *      with a targeted call;
@@ -61,6 +62,19 @@ function countDescendants(node: AxNode): number {
   return total;
 }
 
+/** The text a subtree shows, from its text nodes (their line boxes repeat it). */
+function textUnder(node: AxNode): string {
+  const parts: string[] = [];
+  const stack = [...node.children].reverse();
+  while (stack.length > 0) {
+    const next = stack.pop();
+    if (!next) continue;
+    if (next.role === 'StaticText' && next.name) parts.push(next.name);
+    else for (const child of [...next.children].reverse()) stack.push(child);
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 /** The children this node actually contributes, after rule 3. */
 function visibleChildren(node: AxNode): ReadonlyArray<AxNode> {
   if (OPAQUE_ROLES.has(node.role)) return [];
@@ -71,11 +85,16 @@ function visibleChildren(node: AxNode): ReadonlyArray<AxNode> {
 }
 
 /** `[uid] role: "name" (value: "…") [focused]` */
-function row(node: AxNode, indent: number): string {
+/** How a control with no name is called, from what its markup says. */
+export const unnamedTitle = (hint: string): string => `no name; markup: ${hint}`;
+
+export function row(node: AxNode, indent = 0): string {
   let out = `${'  '.repeat(indent)}[${node.uid}] ${node.role}`;
   if (node.name) out += `: "${clip(node.name)}"`;
+  else if (node.hint) out += ` (${unnamedTitle(node.hint)})`;
   if (node.value) out += ` (value: "${clip(node.value)}")`;
   if (node.focused) out += ' [focused]';
+  if (node.inProgress) out += ' [in progress]';
   return out;
 }
 
@@ -98,7 +117,9 @@ export function formatAxTree(node: AxNode, indent = 0, depth = 0): string {
   // Rule 1: past the cap, one row that still reports what it hides.
   if (depth >= MAX_TREE_DEPTH) {
     const hidden = countDescendants(node);
-    return hidden > 0 ? `${row(node, indent)} ... (${hidden} descendants)` : row(node, indent);
+    if (hidden === 0) return row(node, indent);
+    const text = node.name ? '' : textUnder(node);
+    return `${row(node, indent)} ... (${hidden} descendants)${text ? ` text: "${clip(text)}"` : ''}`;
   }
 
   const lines = [row(node, indent)];

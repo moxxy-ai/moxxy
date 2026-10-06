@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { discoverPlugins } from './discovery.js';
 import { createPluginLoader } from './loader.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let cwd: string;
@@ -16,7 +17,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function makePkg(pkgRoot: string, opts: { name: string; entry: string; entryContent: string }) {

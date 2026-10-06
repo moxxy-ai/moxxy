@@ -14,11 +14,13 @@
  * path, same memory access, no wasm bytecode needed.
  */
 import { describe, expect, it, beforeEach } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { CapabilitySpec } from '@moxxy/sdk';
 import { buildWasmHostImports, _resetScratch } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function makeMemory(): WebAssembly.Memory {
   return new WebAssembly.Memory({ initial: 2 });
@@ -105,8 +107,8 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       await fs.symlink(secret, link);
     } catch {
       // Some CI filesystems disallow symlink creation; skip rather than fail.
-      await fs.rm(scope, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(scope);
+      await removeDir(outside);
       return;
     }
     try {
@@ -129,8 +131,8 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       expect(message).toMatch(/via symlink|fs\.read capability/);
       expect(message).not.toContain('TOP-SECRET');
     } finally {
-      await fs.rm(scope, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(scope);
+      await removeDir(outside);
     }
   });
 
@@ -142,7 +144,7 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
     try {
       await fs.symlink(real, link);
     } catch {
-      await fs.rm(scope, { recursive: true, force: true });
+      await removeDir(scope);
       return;
     }
     try {
@@ -161,7 +163,7 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       expect(rc).toBe(0);
       expect(readResult(memory, outPtrOut, outLenOut)).toBe('in-scope-data');
     } finally {
-      await fs.rm(scope, { recursive: true, force: true });
+      await removeDir(scope);
     }
   });
 });
@@ -268,7 +270,7 @@ describe('wasm broker: broker_fs_write_file', () => {
     expect(message).toMatch(/\[broker:fs\.writeFile\]/);
     expect(message.length).toBeGreaterThan(0);
     // Carries the underlying errno reason rather than swallowing it.
-    expect(message).toMatch(/EISDIR|illegal operation|directory/i);
+    expect(message).toMatch(/EISDIR|EPERM|illegal operation|operation not permitted|directory/i);
   });
 });
 
@@ -293,7 +295,7 @@ describe('wasm broker: broker_fs_readdir', () => {
       const entries = readResult(memory, outPtrOut, outLenOut).split('\n').sort();
       expect(entries).toEqual(['a.txt', 'b.txt']);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeDir(dir);
     }
   });
 
@@ -361,7 +363,7 @@ describe('wasm broker: broker_exec', () => {
     expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/subprocess: true/);
   });
 
-  it('runs when subprocess cap is granted', () => {
+  it.skipIf(!posixShell)('runs when subprocess cap is granted', () => {
     const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
     const cmdPtr = 128;
     const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');

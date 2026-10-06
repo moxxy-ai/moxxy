@@ -9,15 +9,17 @@
  * "simplification" of resolveInside can't silently reopen arbitrary read.
  */
 
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import { listDir, readFile } from '../workspace-fs';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('workspace-fs confinement guard', () => {
   let root: string;
@@ -32,8 +34,8 @@ describe('workspace-fs confinement guard', () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
+    removeDirSync(root);
+    removeDirSync(outside);
   });
 
   describe('readFile', () => {
@@ -54,7 +56,7 @@ describe('workspace-fs confinement guard', () => {
       );
     });
 
-    it('refuses a symlink inside the root that points out of it', async () => {
+    it.skipIf(!canSymlink)('refuses a symlink inside the root that points out of it', async () => {
       symlinkSync(path.join(outside, 'secret.txt'), path.join(root, 'link.txt'));
       await expect(readFile(root, 'link.txt')).rejects.toThrow(/escapes the workspace.*symlink/);
     });
@@ -92,7 +94,7 @@ describe('workspace-fs confinement guard', () => {
       await expect(listDir(root, rel)).rejects.toThrow(/escapes the workspace/);
     });
 
-    it('drops a symlinked subdir that points out of the workspace', async () => {
+    it.skipIf(!canSymlink)('drops a symlinked subdir that points out of the workspace', async () => {
       symlinkSync(outside, path.join(root, 'escape'));
       const res = await listDir(root, '.');
       expect(res.entries.map((e) => e.name)).not.toContain('escape');

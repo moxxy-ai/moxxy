@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCompactSummary,
   compactPreviewLine,
+  describeToolCall,
   formatElapsed,
   formatToolActivity,
   formatTokensK,
@@ -138,6 +139,39 @@ describe('formatToolActivity', () => {
 
   it('falls back to the tool name and compact argument summary', () => {
     expect(formatToolActivity('custom_tool', { id: 42 }, false)).toBe('Ran custom_tool · id=42');
+  });
+});
+
+describe('background jobs', () => {
+  it('says a background Bash command was started, not that it ran', () => {
+    expect(formatToolActivity('Bash', { command: 'pnpm dev', background: true }, true)).toBe(
+      'Starting pnpm dev in the background',
+    );
+    expect(formatToolActivity('Bash', { command: 'pnpm dev', background: true }, false)).toBe(
+      'Started pnpm dev in the background',
+    );
+    expect(describeToolCall('Bash', { command: 'pnpm dev', background: true })).toEqual({
+      name: 'Bash',
+      detail: 'pnpm dev · in the background',
+    });
+  });
+
+  it('says which job Wait waits on and for what', () => {
+    expect(formatToolActivity('Wait', { jobId: 'bg-1', until: 'ready on \\d+' }, true)).toBe(
+      'Waiting for bg-1 to print ready on \\d+',
+    );
+    expect(formatToolActivity('Wait', { jobId: 'bg-1' }, false)).toBe('Waited for bg-1');
+    expect(formatToolActivity('Wait', {}, true)).toBe('Waiting for any background job');
+    expect(describeToolCall('Wait', { jobId: 'bg-1', until: 'ready' })).toEqual({
+      name: 'Wait',
+      detail: 'bg-1 · until ready',
+    });
+  });
+
+  it('names the job StopJob ends', () => {
+    expect(formatToolActivity('StopJob', { jobId: 'bg-2' }, true)).toBe('Stopping bg-2');
+    expect(formatToolActivity('StopJob', { jobId: 'bg-2' }, false)).toBe('Stopped bg-2');
+    expect(describeToolCall('StopJob', { jobId: 'bg-2' })).toEqual({ name: 'StopJob', detail: 'bg-2' });
   });
 });
 

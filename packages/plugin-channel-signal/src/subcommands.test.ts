@@ -7,6 +7,7 @@ import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@mox
 import type { ChannelDef } from '@moxxy/sdk';
 import { buildSignalPlugin } from './index.js';
 import { SIGNAL_ACCOUNT_KEY, SIGNAL_ALLOWED_SENDERS_KEY } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -45,7 +46,7 @@ afterEach(async () => {
   process.stdout.write = origStdoutWrite;
   process.stderr.write = origStderrWrite;
   vi.unstubAllEnvs();
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function ctx(

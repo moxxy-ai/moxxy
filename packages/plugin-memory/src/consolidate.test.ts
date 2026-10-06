@@ -6,6 +6,7 @@ import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
 import { MemoryStore } from './store.js';
 import { consolidateMemory, planConsolidation } from './consolidate.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -13,7 +14,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-cons-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const fakeProvider = (jsonReply: string): LLMProvider => ({

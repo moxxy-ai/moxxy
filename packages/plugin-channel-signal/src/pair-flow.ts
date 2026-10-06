@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
+import { finishPairing, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { SignalChannel } from './channel.js';
 
@@ -22,13 +22,15 @@ const dim = (s: string): string => (ANSI ? `\x1b[2m${s}\x1b[22m` : s);
  *   4. Render that URI as a scannable QR (+ the raw URI).
  *   5. On the phone: Signal → Settings → Linked Devices → Link New Device →
  *      scan; the channel stores the account and boots the daemon.
- *   6. Keep the channel running until the user Ctrl-Cs.
+ *   6. Stop the pairing channel (it ran on the provider-less probe session) and
+ *      start it for real with the configured model (`finishPairing`).
  */
 export async function runSignalPairFlow(
   ctx: ChannelSubcommandContext,
   overrides: { readonly allowedTools?: ReadonlyArray<string> } = {},
 ): Promise<number> {
   const session = ctx.session;
+  const startOptions = overrides.allowedTools ? { allowedTools: overrides.allowedTools } : undefined;
   const channel = new SignalChannel({
     vault: ctx.deps.vault as VaultStore,
     ...(typeof ctx.deps.options?.['account'] === 'string'
@@ -69,14 +71,7 @@ export async function runSignalPairFlow(
         'to link a different account, remove this device from Signal → Linked Devices first, ' +
         'then run `moxxy channels signal unpair` and pair again.',
     );
-    if (exitAfterPairRequested(ctx)) {
-      await stopChannel();
-      return 0;
-    }
-    log.info('Press Ctrl+C to stop.');
-    installSignalHandlers(stopChannel, session);
-    await handle.running;
-    return 0;
+    return finishPairing(ctx, stopChannel, startOptions);
   }
 
   const uri = channel.requestUrl;
@@ -110,21 +105,11 @@ export async function runSignalPairFlow(
   }
   spin.stop(`Linked ✓ — this machine is now a device of ${account}.`);
 
-  if (exitAfterPairRequested(ctx)) {
-    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
-    // starts the channel under its own service afterwards. Our SIGINT
-    // handlers would `process.exit` the orchestrator, so drop them first.
-    removeSignalHandlers();
-    await stopChannel();
-    return 0;
-  }
-
-  log.info(
-    'Message your own "Note to Self" in Signal to talk to moxxy. The channel is running; press Ctrl+C to stop.',
-  );
-
-  await handle.running;
-  return 0;
+  // Drop the pairing-only Ctrl+C handlers first: their `process.exit` would
+  // otherwise cut the real channel (or an orchestrator) short.
+  removeSignalHandlers();
+  log.info('Message your own "Note to Self" in Signal to talk to moxxy.');
+  return finishPairing(ctx, stopChannel, startOptions);
 }
 
 function installSignalHandlers(

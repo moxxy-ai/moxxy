@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { StringDecoder } from 'node:string_decoder';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { clampString, dropDanglingSurrogate } from './util.js';
+import { backgroundJobs } from './jobs.js';
+import { SIGKILL_GRACE_MS, boundedSink, killTree, spawnShell, systemShell, type Shell } from './shell.js';
 
 /** Max chars of combined output returned to the model (post-exit clamp). */
 const OUTPUT_LIMIT = 200_000;
@@ -15,112 +15,39 @@ const OUTPUT_LIMIT = 200_000;
  * exit code.
  */
 const STREAM_RETAIN_CAP = OUTPUT_LIMIT + 4_096;
-/** How long after SIGTERM before the whole process group gets SIGKILL. */
-const SIGKILL_GRACE_MS = 2_000;
 
-/**
- * Env vars that look like credentials. The inproc isolator can't enforce the
- * declared env allow-list, so the spawned shell would otherwise inherit every
- * secret the runner holds in `process.env` (API keys, vault material, CI
- * tokens) — a `printenv` then exfiltrates them. Scrub anything that looks like
- * a secret before spawning. The model can still set a needed var explicitly via
- * the `env` input (overlaid after scrubbing), so usability is preserved.
- */
-const SECRET_ENV_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|MOXXY_VAULT)/i;
-
-function scrubbedEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) {
-    if (SECRET_ENV_RE.test(k)) continue;
-    out[k] = v;
+/** Tells the model which shell reads its command, so it writes one that shell understands. */
+export function shellNote(shell: Shell): string {
+  switch (shell.kind) {
+    case 'sh':
+      return 'Run a shell command via /bin/sh.';
+    case 'git-bash':
+      return 'Run a shell command in Git Bash on Windows: bash and its POSIX tools, with Windows drives as /c/..., /d/....';
+    case 'powershell':
+      return (
+        'Run a command in Windows PowerShell: this Windows machine has no Git Bash, so write PowerShell, not sh ' +
+        '(Get-ChildItem, $env:NAME, `;` between commands).'
+      );
   }
-  return out;
-}
-
-/**
- * Signal the child's whole process group, not just the shell. The shell is
- * spawned `detached` on POSIX so it leads its own group; a negative-pid kill
- * then reaches every descendant (`sh -c 'sleep 1000 & wait'`, build workers,
- * …) instead of orphaning them.
- */
-function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) return;
-  if (process.platform === 'win32') {
-    // This tool is effectively POSIX-only (it spawns /bin/sh). Windows has
-    // no process groups / negative-pid kill; a real port would shell out to
-    // `taskkill /PID <pid> /T /F`. Until then, signal the direct child only.
-    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
-    return;
-  }
-  try {
-    // Deliberately *no* "child already exited" guard here: the group outlives
-    // its leader (SIGTERM may kill the shell while a TERM-ignoring descendant
-    // lives on), and the pgid stays valid — and un-reusable — while any
-    // member survives. ESRCH below covers the fully-gone case.
-    process.kill(-child.pid, signal);
-  } catch (e) {
-    // ESRCH: the group is already gone — nothing to do. Anything else
-    // (e.g. EPERM, or the child somehow not leading a group): fall back to
-    // signalling the shell itself so we at least keep the old behavior.
-    if ((e as NodeJS.ErrnoException).code !== 'ESRCH') {
-      if (child.exitCode === null && child.signalCode === null) child.kill(signal);
-    }
-  }
-}
-
-/**
- * Bounded output accumulator: retains up to `cap` chars and counts (drains)
- * the rest, so total truncated size can still be reported accurately.
- *
- * Decodes through a `StringDecoder` so a multibyte UTF-8 sequence (emoji, CJK,
- * accented chars) split across two `data` chunks at an arbitrary byte boundary
- * is held back and joined, rather than each fragment decoding to U+FFFD. Call
- * `end()` once the stream closes to flush any trailing partial bytes.
- */
-function boundedSink(cap: number): {
-  push: (b: Buffer) => void;
-  end: () => void;
-  readonly text: string;
-  readonly dropped: number;
-} {
-  const decoder = new StringDecoder('utf8');
-  let text = '';
-  let dropped = 0;
-  const absorb = (s: string): void => {
-    if (s.length === 0) return;
-    const room = cap - text.length;
-    if (room >= s.length) {
-      text += s;
-    } else {
-      if (room > 0) text += dropDanglingSurrogate(s.slice(0, room));
-      dropped += s.length - Math.max(room, 0);
-    }
-  };
-  return {
-    push(b: Buffer): void {
-      absorb(decoder.write(b));
-    },
-    end(): void {
-      absorb(decoder.end());
-    },
-    get text() {
-      return text;
-    },
-    get dropped() {
-      return dropped;
-    },
-  };
 }
 
 export const bashTool = defineTool({
   name: 'Bash',
   icon: 'terminal',
-  description: 'Run a shell command via /bin/sh. Respects the abort signal. Returns combined stdout/stderr with exit code.',
+  description:
+    `${shellNote(systemShell())} Respects the abort signal. Returns combined stdout/stderr with exit code. ` +
+    'Set `background: true` for a command that runs long or never ends (a dev server, a watcher, a slow build): ' +
+    'it returns a job id at once and keeps running; then use Wait to block until it finishes or prints what you ' +
+    'expect, and StopJob to end it.',
   inputSchema: z.object({
     command: z.string().min(1),
     cwd: z.string().optional(),
     timeoutMs: z.number().int().positive().max(600_000).optional().default(120_000),
     env: z.record(z.string(), z.string()).optional(),
+    background: z
+      .boolean()
+      .optional()
+      .describe('Start the command as a background job and return its id immediately; `timeoutMs` does not apply.'),
   }),
   permission: { action: 'prompt' },
   // Bash is the highest-privilege built-in: it spawns a real shell.
@@ -141,28 +68,25 @@ export const bashTool = defineTool({
       timeMs: 600_000,
     },
   },
-  async handler({ command, cwd, timeoutMs, env }, ctx) {
+  async handler({ command, cwd, timeoutMs, env, background }, ctx) {
     // An already-aborted signal won't fire an 'abort' event, so the listener
     // below would never run and the child would ignore the abort entirely.
     // Reject up front rather than spawning a process we can't cancel.
     if (ctx.signal.aborted) {
       throw new MoxxyError({ code: 'ABORTED', message: `Bash aborted before start: ${command}` });
     }
+    if (background === true) {
+      const job = backgroundJobs.start(String(ctx.sessionId), command, { cwd: cwd ?? ctx.cwd, ...(env ? { env } : {}) });
+      return (
+        `Started background job ${job.id}: ${command}\n` +
+        `It keeps running after this call. Call Wait with jobId "${job.id}" to block until it finishes ` +
+        '(or prints a line matching `until`), and StopJob to end it.'
+      );
+    }
     return await new Promise<string>((resolve, reject) => {
-      // Start from a secret-scrubbed copy of the parent env, then overlay any
-      // model-supplied vars (which are trusted to the same degree as `command`
-      // and may legitimately re-supply a needed credential).
-      const childEnv = { ...scrubbedEnv(process.env), ...(env ?? {}) };
-      const child = spawn('/bin/sh', ['-lc', command], {
-        cwd: cwd ?? ctx.cwd,
-        env: childEnv,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        // Own process group on POSIX so timeout/abort can kill the whole
-        // tree via a negative-pid signal. `detached` only detaches the
-        // controlling terminal/group — our piped stdio and exit reporting
-        // are unaffected. Not meaningful on win32 (would open a console).
-        detached: process.platform !== 'win32',
-      });
+      // Model-supplied `env` is trusted to the same degree as `command` and
+      // may legitimately re-supply a credential the scrub removed.
+      const child = spawnShell(command, { cwd: cwd ?? ctx.cwd, ...(env ? { env } : {}) });
 
       const out = boundedSink(STREAM_RETAIN_CAP);
       const err = boundedSink(STREAM_RETAIN_CAP);

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -23,6 +23,7 @@ import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSessionsHandlers } from './sessions';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -91,7 +92,7 @@ beforeEach(() => {
 afterEach(() => {
   if (originalHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalHome;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 const invoke = (channel: string, args?: unknown): Promise<unknown> => {
