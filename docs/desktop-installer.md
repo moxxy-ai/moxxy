@@ -126,7 +126,10 @@ its first launch, with no manual step:
 
 - `plugins-seed/seed-fingerprints.json` (written last by
   `bundle-plugins-seed.mjs`, checked by `verify:resources`) names the content
-  of every package in the seed. `~/.moxxy/plugins/.moxxy-seed-state.json`
+  of every package in the seed. A packaged or installed app is checked only
+  for covering every package: electron-builder leaves out `.gitkeep` files and
+  a release build signs the seed's `.exe` files, so their content no longer
+  hashes the same. `~/.moxxy/plugins/.moxxy-seed-state.json`
   records the content the desktop last copied.
 - A package whose content differs from the seed's is replaced, even at the
   same version number: a local build ships new code under an unchanged
