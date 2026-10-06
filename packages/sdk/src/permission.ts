@@ -7,6 +7,12 @@ export interface PermissionDecision {
   readonly reason?: string;
   /** Narrow an `allow_session` grant to calls with matching input values. */
   readonly sessionScope?: { readonly inputKeys: ReadonlyArray<string> };
+  /**
+   * This call was decided now: a prompt answered for it, or the run's own
+   * allow-list or auto-approve. Left unset by a standing rule and by an earlier
+   * answer reused, so a tool can tell consent to this call from a blanket one.
+   */
+  readonly decidedNow?: boolean;
 }
 
 export interface PermissionRule {

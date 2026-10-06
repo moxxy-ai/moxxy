@@ -69,6 +69,10 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     session.setPermissionResolver(createAllowListResolver(everyTool));
   }
 
+  // Ctrl+C / kill must still close the session: that is what stops the
+  // background jobs the run started. Dying on the default signal action skips
+  // every shutdown hook and orphans them.
+  const releaseSignals = closeOnSignal(() => closeSession(session, persistence, audit));
   let exitCode = 0;
   try {
     if (outputFormat === 'text') {
@@ -98,12 +102,37 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     printError(`fatal: ${err instanceof Error ? err.message : String(err)}`);
     exitCode = 1;
   } finally {
+    releaseSignals();
     // Drain persistence (last event + final index row) then fire onShutdown
     // hooks / stop daemons so the process exits promptly. Best-effort — never
     // masks the command's exit code.
     await closeSession(session, persistence, audit);
   }
   return exitCode;
+}
+
+/** Upper bound on the signal-time close, so a stuck hook can't keep the process alive. */
+const SIGNAL_CLOSE_GRACE_MS = 6_000;
+
+/**
+ * On the first SIGINT/SIGTERM, close the session and exit with the signal's
+ * conventional code. The handlers are one-shot, so a second Ctrl+C falls back
+ * to the default action and exits at once. Returns the unregister.
+ */
+function closeOnSignal(close: () => Promise<void>): () => void {
+  const onSignal = (signal: NodeJS.Signals): void => {
+    release();
+    const code = signal === 'SIGINT' ? 130 : 143;
+    setTimeout(() => process.exit(code), SIGNAL_CLOSE_GRACE_MS).unref();
+    void close().finally(() => process.exit(code));
+  };
+  const release = (): void => {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  return release;
 }
 
 const OUTPUT_FORMATS = ['text', 'json', 'stream-json'] as const;

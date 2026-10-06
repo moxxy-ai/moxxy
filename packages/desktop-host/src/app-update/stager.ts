@@ -297,6 +297,9 @@ export async function checkForUpdate(
      *  skip the gate (legacy callers / tests that don't model the CLI). */
     cliRunnerProtocol?: number;
     manifestUrlOverride?: string;
+    /** Versions that already failed to start here (`bad.json`). Offering one
+     *  again would loop: update, relaunch, revert, update… */
+    poisonedVersions?: ReadonlySet<string>;
   },
   deps: StagerDeps = {},
 ): Promise<CheckResult> {
@@ -349,7 +352,8 @@ export async function checkForUpdate(
     return none('The update manifest failed signature verification.');
   }
 
-  const newer = compareSemver(manifest.version, currentVersion) > 0;
+  const newer =
+    compareSemver(manifest.version, currentVersion) > 0 && !opts.poisonedVersions?.has(manifest.version);
   // Mirror the boot gate at CHECK time: a bundle whose runner protocol outruns
   // the spawnable CLI would stage fine but be rejected on every launch
   // (`runner-protocol-skew`) — report it as needing the full installer instead

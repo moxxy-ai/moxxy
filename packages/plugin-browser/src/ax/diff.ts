@@ -57,12 +57,39 @@ export function diffRendering(before: Map<string, string>, after: Map<string, st
   const added: string[] = [];
   const edited: string[] = [];
 
-  for (const [uid, line] of before) if (!after.has(uid)) removed.push(`- ${line}`);
+  for (const [uid, line] of before) if (!after.has(uid)) removed.push(line);
   for (const [uid, line] of after) {
     const was = before.get(uid);
     if (was === undefined) added.push(`+ ${line}`);
-    else if (was !== line) edited.push(`~ ${line}  (was: ${was})`);
+    else if (was !== line) edited.push(`~ ${line}  (was: ${shorten(was, MAX_WAS_CHARS)})`);
   }
 
-  return [...removed, ...added, ...edited];
+  return [...removals(removed), ...added, ...edited];
+}
+
+/** More removals than this read as one event — a list emptied, a page swapped — not row by row. */
+const MAX_LISTED_REMOVALS = 5;
+/** How much of a changed row's old text is worth repeating: enough to recognise it. */
+const MAX_WAS_CHARS = 80;
+/** Names quoted from a large removal, so the agent can tell which part of the page went. */
+const SAMPLE_NAMES = 3;
+
+/**
+ * Rows that went away. A uid that is gone cannot be acted on, so past a handful
+ * the rows themselves are noise: filtering Coolify's catalogue sent 297 of them
+ * back, 156,263 characters to say "the list got shorter".
+ */
+function removals(rows: string[]): string[] {
+  if (rows.length <= MAX_LISTED_REMOVALS) return rows.map((row) => `- ${row}`);
+  const names = rows
+    .map((row) => /: "([^"]*)/.exec(row)?.[1])
+    .filter((name): name is string => Boolean(name))
+    .slice(0, SAMPLE_NAMES)
+    .map((name) => `"${shorten(name, 40)}"`);
+  const among = names.length ? ` (among them ${names.join(', ')}, …)` : '';
+  return [`- ${rows.length} elements went away${among}; their uids no longer work`];
+}
+
+function shorten(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }

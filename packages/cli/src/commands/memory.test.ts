@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import type { MemoryType } from '@moxxy/plugin-memory';
 import { formatRelative, formatSize, groupByType, mapBounded, runMemoryCommand } from './memory.js';
 import type { ParsedArgv } from '../argv.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Minimal stat object — groupByType only reads `entry.frontmatter.type`. */
 function statOfType(type: MemoryType): Parameters<typeof groupByType>[0][number] {
@@ -112,7 +113,7 @@ describe('memory user-model subcommand', () => {
     vi.restoreAllMocks();
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('prints a "(none yet)" hint when no user model exists', async () => {

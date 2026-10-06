@@ -21,14 +21,19 @@
  *     a couple of columns. Open/close is a snap; only the seam fades.
  *   - The active pane is mounted only while the workbench is open, so a pane
  *     never mounts into a zero-width box.
+ *
+ * The browser is the exception: once opened it stays mounted, hidden off-screen
+ * while collapsed or behind another pane. Unmounting it destroys its pages (a
+ * `<webview>` dies with its element), so a tab would vanish on a collapse.
  */
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
 import {
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
+  benchWidthLimit,
   setRailWidth,
   useRailWidth,
 } from '../lib/useRailWidth';
@@ -63,12 +68,16 @@ const TABS: ReadonlyArray<TabDef> = [
  * its own copy.
  */
 const TOOL_TAB: Readonly<Record<string, WorkbenchTab>> = {
-  browser_session: 'browser',
   terminal: 'terminal',
 };
 
-/** The workbench tab a given agent tool should reveal, or undefined if none. */
+/**
+ * The workbench tab a given agent tool should reveal, or undefined if none.
+ * Every `browser_*` tool reveals the browser: a tab the agent asks for is made
+ * by the pane, so with the pane closed the request waits and times out.
+ */
 export function workbenchTabForTool(toolName: string): WorkbenchTab | undefined {
+  if (toolName.startsWith('browser_')) return 'browser';
   return TOOL_TAB[toolName];
 }
 
@@ -78,6 +87,8 @@ export function Workbench({
   onClose,
   workspaceId,
   changedCount,
+  full = false,
+  onToggleFull,
 }: {
   /** Active tab, or null when the workbench is collapsed. */
   readonly tab: WorkbenchTab | null;
@@ -87,20 +98,43 @@ export function Workbench({
   /** Badge on the Diff tab. Undefined while unknown (not a git repo, not
    *  loaded yet) so an unknown count never renders as a confident zero. */
   readonly changedCount?: number;
+  /** Full view: the pane fills the window and the chat floats over it as a
+   *  composer. Ignored while collapsed. */
+  readonly full?: boolean;
+  /** Offered as a button on an open workbench when given. */
+  readonly onToggleFull?: () => void;
 }): JSX.Element {
   const desks = useDesks();
   const active = deskForWorkspace(desks.desks, workspaceId);
   const width = useRailWidth();
   const ref = useRef<HTMLElement | null>(null);
   const open = tab !== null;
+  const isFull = open && full;
+  const [browserStarted, setBrowserStarted] = useState(false);
+  // The widest the last drag could go; the separator reports it as its maximum.
+  const [limit, setLimit] = useState<number | null>(null);
+  if (tab === 'browser' && !browserStarted) setBrowserStarted(true);
+
+  // The widest the workbench can be: its own width plus what the chat beside it
+  // (the element before it) can spare. Measured, because that depends on the
+  // window and on whatever else is open, not on a constant.
+  const measureLimit = (): number => {
+    const own = ref.current?.getBoundingClientRect().width ?? width;
+    const chat = ref.current?.previousElementSibling?.getBoundingClientRect().width ?? 0;
+    const next = benchWidthLimit(own, chat);
+    setLimit(next);
+    return next;
+  };
 
   // Drag the left edge to resize. The workbench is pinned to the window's right
-  // edge, so width = (its right edge) − pointer x. Capture the right edge at
-  // pointer-down so the maths survives the panel itself resizing mid-drag.
+  // edge, so width = (its right edge) − pointer x. Capture the right edge and
+  // the limit at pointer-down so the maths survives the panel itself resizing
+  // mid-drag.
   const startDrag = (e: React.PointerEvent): void => {
     e.preventDefault();
     const right = ref.current?.getBoundingClientRect().right ?? window.innerWidth;
-    const onMove = (ev: PointerEvent): void => setRailWidth(right - ev.clientX);
+    const max = measureLimit();
+    const onMove = (ev: PointerEvent): void => setRailWidth(Math.min(max, right - ev.clientX));
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -114,114 +148,147 @@ export function Workbench({
   // Collapsed: a vertical strip of the same tabs. This is the whole fix for
   // "closed meant gone" — the workbench is always visible as an affordance, and
   // clicking any tab both opens it and selects that pane.
-  if (!open) {
-    return (
-      <aside className="bench bench--closed" aria-label="Workbench">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className="bench__stub tip"
-            data-testid={`bench-open-${t.id}`}
-            data-tip={`Open ${t.label}`}
-            data-tip-side="left"
-            aria-label={`Open ${t.label}`}
-            onClick={() => onPick(t.id)}
-          >
-            <Icon name={t.icon} size={15} />
-            {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
-              <span className="bench__count">{changedCount}</span>
-            )}
-          </button>
-        ))}
-      </aside>
-    );
-  }
+  const stubs = TABS.map((t) => (
+    <button
+      key={t.id}
+      type="button"
+      className="bench__stub tip"
+      data-testid={`bench-open-${t.id}`}
+      data-tip={`Open ${t.label}`}
+      data-tip-side="left"
+      aria-label={`Open ${t.label}`}
+      onClick={() => onPick(t.id)}
+    >
+      <Icon name={t.icon} size={15} />
+      {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
+        <span className="bench__count">{changedCount}</span>
+      )}
+    </button>
+  ));
 
+  // One <aside> in both states, the body always last: the kept browser must
+  // stay at the same place in the tree, or React remounts it.
   return (
-    <aside ref={ref} className="bench" aria-label="Workbench" style={{ width }}>
-      <div
-        role="separator"
-        aria-label="Resize workbench"
-        aria-orientation="vertical"
-        aria-valuemin={RAIL_MIN_WIDTH}
-        aria-valuemax={RAIL_MAX_WIDTH}
-        aria-valuenow={width}
-        tabIndex={0}
-        onPointerDown={startDrag}
-        // The separator advertises slider semantics, so it must be operable
-        // without a pointer. The panel grows leftward: ArrowLeft widens,
-        // ArrowRight narrows, Home/End jump to the clamped extremes.
-        onKeyDown={(e) => {
-          const step = e.shiftKey ? 40 : 16;
-          if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            setRailWidth(width + step);
-          } else if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            setRailWidth(width - step);
-          } else if (e.key === 'Home') {
-            e.preventDefault();
-            setRailWidth(RAIL_MAX_WIDTH);
-          } else if (e.key === 'End') {
-            e.preventDefault();
-            setRailWidth(RAIL_MIN_WIDTH);
-          }
-        }}
-        title="Drag to resize"
-        className="bench__grip"
-      />
+    <aside
+      ref={ref}
+      className={!open ? 'bench bench--closed' : isFull ? 'bench bench--full' : 'bench'}
+      aria-label="Workbench"
+      style={open && !isFull ? { width } : undefined}
+    >
+      {open ? (
+        <>
+          {!isFull && <div
+            role="separator"
+            aria-label="Resize workbench"
+            aria-orientation="vertical"
+            aria-valuemin={RAIL_MIN_WIDTH}
+            aria-valuemax={limit ?? RAIL_MAX_WIDTH}
+            aria-valuenow={width}
+            tabIndex={0}
+            onPointerDown={startDrag}
+            onFocus={measureLimit}
+            // The separator advertises slider semantics, so it must be operable
+            // without a pointer. The panel grows leftward: ArrowLeft widens,
+            // ArrowRight narrows, Home/End jump to the clamped extremes.
+            onKeyDown={(e) => {
+              const step = e.shiftKey ? 40 : 16;
+              if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                setRailWidth(Math.min(measureLimit(), width + step));
+              } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                setRailWidth(width - step);
+              } else if (e.key === 'Home') {
+                e.preventDefault();
+                setRailWidth(measureLimit());
+              } else if (e.key === 'End') {
+                e.preventDefault();
+                setRailWidth(RAIL_MIN_WIDTH);
+              }
+            }}
+            title="Drag to resize"
+            className="bench__grip"
+          />}
 
-      <div className="bench__tabs">
-        {/* The tab row scrolls; the collapse cell after it never shrinks. Four
-            labelled tabs are wider than a narrow workbench, and when they lived
-            in the same flex row as the collapse button they pushed it past the
-            right edge — so an opened workbench could not be closed at all. */}
-        <div className="bench__tablist" role="tablist" aria-label="Workbench panes">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              className="bench__tab"
-              data-testid={`bench-tab-${t.id}`}
-              data-active={t.id === tab}
-              aria-selected={t.id === tab}
-              // Clicking the ACTIVE tab collapses the workbench: a second, more
-              // discoverable way out than hunting for the chevron, and the same
-              // toggle-back gesture the Apps sub-nav already uses.
-              onClick={() => (t.id === tab ? onClose() : onPick(t.id))}
-            >
-              <Icon name={t.icon} size={13} />
-              <span>{t.label}</span>
-              {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
-                <b>{changedCount}</b>
+          <div className="bench__tabs">
+            {/* The tab row scrolls; the collapse cell after it never shrinks. Four
+                labelled tabs are wider than a narrow workbench, and when they lived
+                in the same flex row as the collapse button they pushed it past the
+                right edge — so an opened workbench could not be closed at all. */}
+            <div className="bench__tablist" role="tablist" aria-label="Workbench panes">
+              {TABS.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  className="bench__tab"
+                  data-testid={`bench-tab-${t.id}`}
+                  data-active={t.id === tab}
+                  aria-selected={t.id === tab}
+                  // Clicking the ACTIVE tab collapses the workbench: a second, more
+                  // discoverable way out than hunting for the chevron, and the same
+                  // toggle-back gesture the Apps sub-nav already uses.
+                  onClick={() => (t.id === tab ? onClose() : onPick(t.id))}
+                >
+                  <Icon name={t.icon} size={13} />
+                  <span>{t.label}</span>
+                  {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
+                    <b>{changedCount}</b>
+                  )}
+                </button>
+              ))}
+            </div>
+            <span className="bench__tabs-end">
+              {onToggleFull && (
+                <button
+                  type="button"
+                  className="btn-quiet tip"
+                  aria-label={isFull ? 'Exit full view' : 'Full view'}
+                  aria-pressed={isFull}
+                  data-testid="bench-full"
+                  data-tip={isFull ? 'Exit full view  ⇧⌘F' : 'Full view  ⇧⌘F'}
+                  data-tip-side="left"
+                  onClick={onToggleFull}
+                >
+                  <Icon name={isFull ? 'minimize' : 'maximize'} size={13} />
+                </button>
               )}
-            </button>
-          ))}
-        </div>
-        <span className="bench__tabs-end">
-          <button
-            type="button"
-            className="btn-quiet tip"
-            aria-label="Collapse workbench"
-            data-testid="bench-collapse"
-            data-tip="Collapse"
-            data-tip-side="left"
-            onClick={onClose}
-          >
-            <Icon name="chevron-right" size={14} />
-          </button>
-        </span>
-      </div>
+              <button
+                type="button"
+                className="btn-quiet tip"
+                aria-label="Collapse workbench"
+                data-testid="bench-collapse"
+                data-tip="Collapse"
+                data-tip-side="left"
+                onClick={onClose}
+              >
+                <Icon name="chevron-right" size={14} />
+              </button>
+            </span>
+          </div>
+        </>
+      ) : (
+        stubs
+      )}
 
       {/* Only the active pane mounts, and only while open — see the header note
-          about xterm measuring its width at mount. */}
+          about xterm measuring its width at mount. The browser, once started,
+          stays (see the header note). */}
       <div className="bench__body">
         {tab === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
         {tab === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
         {tab === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
-        {tab === 'browser' && <BrowserPane workspaceId={workspaceId} />}
+        {browserStarted && (
+          <div
+            className="bench__browser"
+            data-shown={tab === 'browser'}
+            aria-hidden={tab !== 'browser'}
+            // Hidden at its real width so the pages keep their layout.
+            style={tab === 'browser' ? undefined : { width }}
+          >
+            <BrowserPane workspaceId={workspaceId} />
+          </div>
+        )}
       </div>
     </aside>
   );

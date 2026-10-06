@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PeerSupervisor, type PeerSupervisorOptions } from './peer-supervisor.js';
 import type { RosterEntry } from '@moxxy/plugin-collab';
 import { COLLAB_MAX_ITERATIONS_ENV } from './constants.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -52,7 +53,7 @@ describe('PeerSupervisor', () => {
     // Spawn a trivial node script (as the "CLI entry") that records the env var
     // the supervisor set, proving config.peerMaxIterations actually reaches a peer.
     const dir = mkdtempSync(join(tmpdir(), 'mc-sup-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const out = join(dir, 'env.txt');
     const script = join(dir, 'probe.js');
     writeFileSync(
@@ -64,13 +65,28 @@ describe('PeerSupervisor', () => {
 
     const sup = new PeerSupervisor(baseOpts({ cliEntry: script, peerMaxIterations: 7 }));
     cleanups.push(() => void sup.shutdownAll('test done'));
+    // Wait for the probe to exit, not just for its file: Windows will not remove
+    // a directory a live process has as its cwd (EBUSY in cleanup).
+    const exited = new Promise<string>((resolve) => sup.onExit(resolve));
     // The child is `node <script> agent`; our probe ignores the 'agent' arg.
     sup.spawn({ entry, cwd: dir, mode: 'collab-peer' });
+    await exited;
 
-    const { readFileSync, existsSync } = await import('node:fs');
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && !existsSync(out)) await new Promise((r) => setTimeout(r, 50));
-    expect(existsSync(out)).toBe(true);
     expect(readFileSync(out, 'utf8')).toBe('7');
+  });
+
+  it('tells listeners the moment a peer process exits', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-sup-'));
+    cleanups.push(() => removeDirSync(dir));
+    const script = join(dir, 'quit.js');
+    writeFileSync(script, 'process.exit(0);');
+    const sup = new PeerSupervisor(baseOpts({ cliEntry: script }));
+    cleanups.push(() => void sup.shutdownAll('test done'));
+
+    const exited = new Promise<string>((resolve) => sup.onExit(resolve));
+    sup.spawn({ entry, cwd: dir, mode: 'collab-peer' });
+
+    await expect(exited).resolves.toBe('peer1');
+    expect(sup.hasExited('peer1')).toBe(true);
   });
 });

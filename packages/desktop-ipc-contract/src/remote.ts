@@ -79,6 +79,10 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Read a workspace's transcript history from its authoritative session log
   // (a paired phone may read history, scoped to a known workspace, not host config).
   'chat.loadHistory',
+  // Computer Use status, read-only: which app the agent is operating and in
+  // what state. `computer.control` (pause/resume/take over) is NOT here; those
+  // belong to the person at the computer, and a phone stops with `session.abortTurn`.
+  'computer.snapshot',
   // Scheduler: mobile may inspect, pause/resume, and delete existing schedules
   // from the shared scheduler store. Creating/editing prompts remains an
   // agent/desktop-authoring flow so a paired phone cannot write arbitrary new

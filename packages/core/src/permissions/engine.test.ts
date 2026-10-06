@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { asToolCallId } from '@moxxy/sdk';
 import { PermissionEngine } from './engine.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const call = (name: string, input: unknown = {}) => ({
   callId: asToolCallId('c'),
@@ -202,7 +203,7 @@ describe('PermissionEngine', () => {
       await fs.writeFile(badShape, JSON.stringify({ allow: 'oops', deny: [{ name: 'Bash' }] }), 'utf8');
       await expect(PermissionEngine.load(badShape)).rejects.toBeInstanceOf(Error);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeDir(tmp);
     }
   });
 
@@ -260,7 +261,7 @@ describe('PermissionEngine', () => {
       const reloaded = await PermissionEngine.load(file);
       expect(reloaded.policySnapshot.allow).toHaveLength(20);
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeDir(tmp);
     }
   });
 });

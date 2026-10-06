@@ -48,6 +48,7 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
+    "@moxxy/vitest-preset": "workspace:*",
     "@babel/plugin-transform-react-jsx": "7.29.7",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@types/node": "catalog:",

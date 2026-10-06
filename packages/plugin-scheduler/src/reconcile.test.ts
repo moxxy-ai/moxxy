@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import type { Skill, SkillRegistry } from '@moxxy/sdk';
 import { asSkillId, assertDefined } from '@moxxy/sdk';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * Count atomic whole-file writes by wrapping the store's underlying
@@ -64,7 +65,7 @@ describe('syncSkillSchedules — single batched write', () => {
   });
   afterEach(async () => {
     vi.restoreAllMocks();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('a mixed add/update/remove sync performs exactly ONE atomic write', async () => {

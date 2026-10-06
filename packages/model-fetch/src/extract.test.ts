@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pack as tarPack } from 'tar-stream';
 
 import { extractTarBz2, safeEntryPath } from './extract.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Whether an executable is runnable (fixtures need system tar + bzip2). */
 function have(cmd: string): boolean {
@@ -69,7 +70,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
+  if (root) await removeDir(root);
 });
 
 describe('safeEntryPath', () => {

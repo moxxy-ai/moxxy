@@ -57,6 +57,10 @@
       "types": "./dist/workflow-approval.d.ts",
       "import": "./dist/workflow-approval.js"
     },
+    "./skill-mentions": {
+      "types": "./dist/skill-mentions.d.ts",
+      "import": "./dist/skill-mentions.js"
+    },
     "./transcriber": {
       "types": "./dist/transcriber.d.ts",
       "import": "./dist/transcriber.js"

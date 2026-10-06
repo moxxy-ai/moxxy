@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { runConfigCommand } from './config.js';
 import type { ParsedArgv } from '../argv.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -25,7 +26,7 @@ afterEach(async () => {
   writeSpy.mockRestore();
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function argv(positional: string[], flags: Record<string, string> = {}): ParsedArgv {

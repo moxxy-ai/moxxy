@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { homedir } from 'node:os';
+import os, { homedir } from 'node:os';
 import path from 'node:path';
 import { RunnerPool, socketFor, UNBOUND_ID } from './runner-pool';
 
@@ -33,11 +33,12 @@ describe('socketFor — platform-correct runner address', () => {
     expect(socketFor(UNBOUND_ID, 'win32')).toBe('\\\\.\\pipe\\custom');
   });
 
+  // The workspace layouts below are pinned under a short MOXXY_HOME: the test
+  // preset's temp home is too deep on some hosts (macOS's /var/folders, a
+  // Windows runner's AppData) for a workspace socket path to bind whole, and
+  // there the runner rightly falls back to a short hashed address instead.
   it('keeps the ~/.moxxy/*.sock filesystem layout on POSIX', () => {
     expect(socketFor(UNBOUND_ID, 'linux')).toBe(path.join(homedir(), '.moxxy', 'serve.sock'));
-    expect(socketFor('ws-1', 'darwin')).toBe(
-      path.join(homedir(), '.moxxy', 'desktop', 'sockets', 'serve-ws-1.sock'),
-    );
   });
 
   it('honors MOXXY_HOME for both unbound and workspace POSIX sockets', () => {
@@ -51,10 +52,10 @@ describe('socketFor — platform-correct runner address', () => {
   });
 
   it('accepts a real UUID workspace id on POSIX', () => {
+    const relocated = path.join('/tmp', 'moxxy-relocated');
+    process.env.MOXXY_HOME = relocated;
     const id = '6b1f3c2a-0e4d-4a7b-9c1e-2f3a4b5c6d7e';
-    expect(socketFor(id, 'linux')).toBe(
-      path.join(homedir(), '.moxxy', 'desktop', 'sockets', `serve-${id}.sock`),
-    );
+    expect(socketFor(id, 'linux')).toBe(path.join(relocated, 'desktop', 'sockets', `serve-${id}.sock`));
   });
 
   it('refuses a path-traversal / separator id on POSIX (no escaping the sockets dir)', () => {
@@ -93,5 +94,20 @@ describe('RunnerPool deferred startup', () => {
     await expect(second).rejects.toThrow(/stopped/i);
     await stopped;
     expect(pool.list()).toEqual([]);
+  });
+});
+
+describe('RunnerPool.attach (a channel bot runner)', () => {
+  it('adds an attach-only entry on the given socket without taking the foreground', async () => {
+    const pool = new RunnerPool();
+    const socketPath = path.join(os.tmpdir(), `moxxy-pool-attach-${Date.now()}.sock`);
+
+    const supervisor = await pool.attach('moxxy-channel-discord', socketPath);
+
+    expect(pool.get('moxxy-channel-discord')).toBe(supervisor);
+    expect(await pool.attach('moxxy-channel-discord', socketPath)).toBe(supervisor);
+    expect(pool.activeWorkspaceId()).toBeNull();
+    expect(supervisor.snapshot().phase.phase).not.toBe('spawning');
+    await pool.stopAll();
   });
 });

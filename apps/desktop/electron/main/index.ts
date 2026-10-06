@@ -45,23 +45,34 @@ import {
   installContentSecurityPolicy,
   installMediaPermissions,
   lockDownNavigation,
-  isSafeExternalUrl,
+  opensInBrowser,
   clerkAccountPortalHost,
   installAccountPortalRecovery,
   preferredCliEntry,
   seedPluginsFromResources,
+  seedModelsFromResources,
+  adoptSeededLocalPiper,
   offerBundledComputerUpdate,
   offerBundledProviderUpdate,
+  DeferredPackageUpdates,
+  recoverComponentUpdates,
+  type ComputerUpdateOffer,
+  type ProviderUpdateOffer,
   ensureDesktopVaultKey,
   activateManagedNode,
+  activateRuntimes,
+  bundledRuntimesReady,
+  prepareBundledRuntimes,
   startLoopbackServer,
   installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
   sendEvent,
   readPrefs,
   updatePrefs,
+  autostartConfiguredChannels,
   type LoopbackServer,
   type SelfSignedCert,
+  routeGuestPopups,
 } from '@moxxy/desktop-host';
 import type {
   DeepLinkPayload,
@@ -149,6 +160,9 @@ const browserHost = new BrowserHost((id) => {
   // against a plain object instead of a live Electron view.
   return wc as unknown as HostWebContents;
 });
+// A new window from a page in the pane becomes a tab there, not a bare window
+// of its own beside the app. See routeGuestPopups.
+app.on('web-contents-created', (_event, contents) => routeGuestPopups(contents, browserHost));
 /**
  * How the agent's browser tools — which run in the runner, a separate process —
  * reach the page this one owns. Without it the agent would drive its own
@@ -194,51 +208,101 @@ function focusMain(): void {
 // accessors so it stays decoupled from the `mainWindow` singleton.
 const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
 
+/** A dialog attached to the main window, so it can never sit hidden behind it. */
+function showAttachedMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
+}
+
+/** Bundled package updates that may need approval, asked outside the runner's startup path. */
+const bundledUpdates = new DeferredPackageUpdates({
+  restartRunners: async () => {
+    await Promise.all((pool?.list() ?? []).map(({ supervisor }) => supervisor.restart()));
+  },
+  warn: async (plugin, error) => {
+    console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
+    await showAttachedMessageBox({ type: 'warning', title: 'Extension update unavailable',
+      message: 'A bundled extension could not be updated.',
+      detail: `${plugin} kept its previous version. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.`,
+    });
+  },
+  log: (message) => console.log(`[moxxy] ${message}`),
+});
+
+/** Offline voice works on the first launch: the installer's Piper voices land
+ *  in the models dir and a freshly seeded Piper becomes the voice. A failure
+ *  here only means the voice downloads on first use, as it did before. */
+async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<string>): Promise<void> {
+  try {
+    await seedModelsFromResources({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+    if (await adoptSeededLocalPiper(seeded)) console.log('[moxxy] offline voice selected');
+  } catch (err) {
+    console.warn('[moxxy] offline voice preparation failed:', err);
+  }
+}
+
+/** Connections the installer updates through their own managed path (backup,
+ *  approval when changed locally); the plugin seed leaves them to it. */
+const BUNDLED_PROVIDER_UPDATES = ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const;
+/** Computer Use goes the same way on Windows x64, where its helper is replaced in place. */
+const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch === 'x64';
+
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
+  await bundledRuntimesReady();
   if (app.isPackaged) {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
     try {
+      // A runner or extension update a crash cut short is finished (or undone)
+      // before anything reads the plugins dir — seeding would otherwise fill a
+      // half-swapped one.
+      await recoverComponentUpdates({ moxxyHome, userDataDir: app.getPath('userData') });
       const seed = await seedPluginsFromResources({
         resourcesPath: process.resourcesPath,
         moxxyHome,
+        managedElsewhere: [
+          ...BUNDLED_PROVIDER_UPDATES,
+          ...(MANAGED_COMPUTER_UPDATE ? ['@moxxy/plugin-computer-control'] : []),
+        ],
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
-      for (const plugin of ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const) {
-        try {
-          const status = await offerBundledProviderUpdate({
+      await prepareOfflineVoice(moxxyHome, seed.copied);
+      await bundledUpdates.prepare<ProviderUpdateOffer>(
+        BUNDLED_PROVIDER_UPDATES.map((plugin) => ({
+          plugin,
+          run: (confirm) => offerBundledProviderUpdate({
             resourcesPath: process.resourcesPath, moxxyHome, plugin,
-            freshInstall: seed.copied.includes(plugin),
-            confirm: async ({ backupPath, localChanges, downgrade }) => {
-              const result = await dialog.showMessageBox({
-                type: 'question', title: 'Update model connection',
-                message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
-                detail: (downgrade ? 'The bundled version is older than the installed version. ' : '') +
-                  (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
-                  'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. A backup will be kept at:\n' + backupPath,
-                buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
-              });
-              return result.response === 1;
-            },
-          });
-          console.log(`[moxxy] ${plugin} preparation: ${status}`);
-        } catch (error) {
-          // One optional connection update must not block other connections or chat.
-          console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
-          await dialog.showMessageBox({ type: 'warning', title: 'Connection update unavailable',
-            message: 'A bundled model connection could not be updated.',
-            detail: 'The previous version was retained. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.',
-          });
-        }
-      }
-      if (process.platform === 'win32' && process.arch === 'x64') {
-        await offerBundledComputerUpdate({
-          resourcesPath:process.resourcesPath, moxxyHome,
-          freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
-          confirm:async ({backupPath,localChanges}) => {
-            const result=await dialog.showMessageBox({
+            freshInstall: seed.copied.includes(plugin), confirm,
+          }),
+          ask: async ({ backupPath, localChanges }) => {
+            const result = await showAttachedMessageBox({
+              type: 'question', title: 'Update model connection',
+              message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
+              detail: (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
+                'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. Open conversations reconnect after the update. A backup will be kept at:\n' + backupPath,
+              buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
+            });
+            return result.response === 1;
+          },
+        })),
+      );
+      if (MANAGED_COMPUTER_UPDATE) {
+        await bundledUpdates.prepare<ComputerUpdateOffer>([{
+          plugin: '@moxxy/plugin-computer-control',
+          run: (confirm) => offerBundledComputerUpdate({
+            resourcesPath:process.resourcesPath, moxxyHome,
+            freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
+            confirm,
+            log:(message)=>console.log(`[moxxy] ${message}`),
+          }),
+          ask: async ({backupPath,localChanges}) => {
+            const result=await showAttachedMessageBox({
               type:'question',title:'Update Computer Use',
               message:'Install the Computer Use package included with this Moxxy installer?',
               detail:(localChanges==='changed' ? 'The extension has changed since a managed installation. ' : localChanges==='untracked' ? 'The existing extension has no verified update record and may contain local changes. ' : '')+
@@ -247,9 +311,13 @@ async function prepareRunnerEnvironment(): Promise<void> {
             });
             return result.response===1;
           },
-          log:(message)=>console.log(`[moxxy] ${message}`),
-        });
+        }]);
       }
+      // The questions come once the window is up — never on the runner's
+      // startup path, where an unanswered (or hidden) dialog held every runner.
+      void bundledUpdates.offer().catch((err) => {
+        console.warn('[moxxy] bundled update offer failed:', err);
+      });
     } catch (err) {
       console.warn('[moxxy] bundled plugin preparation failed:', err);
     }
@@ -349,6 +417,10 @@ async function createWindow(): Promise<void> {
   browserHost.setOpener((req) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.openTab', req);
   });
+  // The agent's pointer is drawn by the pane, over the page it is working on.
+  browserHost.setPointer((frame) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser.cursor', frame);
+  });
 
   // The agent can switch, open and close tabs on its own. Without this push the
   // pane would keep showing whatever it last fetched, and the user would watch
@@ -361,6 +433,7 @@ async function createWindow(): Promise<void> {
     mainWindow.webContents.send('browser.tabsChanged', {
       tabs: browserHost.list(),
       activeTabId: browserHost.activeId,
+      control: browserHost.control,
     });
   });
 
@@ -384,6 +457,7 @@ async function createWindow(): Promise<void> {
     stopBrowserChangeFeed();
     browserHost.setOpener(null);
     browserHost.setFocuser(null);
+    browserHost.setPointer(null);
     browserHost.setHandoffPrompt(null);
     browserHost.closeAll();
   });
@@ -449,8 +523,9 @@ async function createWindow(): Promise<void> {
     }
     // Any other http/https link (e.g. a markdown link in the chat, opened
     // via target="_blank") goes to the user's default browser rather than an
-    // in-app window. Non-http(s) schemes are refused outright.
-    if (isSafeExternalUrl(url)) void shell.openExternal(url);
+    // in-app window — except the app's own pages. Non-http(s) schemes are
+    // refused outright; local files open through `files.open`.
+    if (opensInBrowser(url, mainWindow?.webContents.getURL() ?? '')) void shell.openExternal(url);
     return { action: 'deny' };
   });
 
@@ -860,6 +935,19 @@ app.whenReady().then(async () => {
   // spawns so `moxxy serve` / npm resolve it without a manual PATH edit.
   activateManagedNode(app.getPath('userData'));
 
+  // The installer carries Node and Python for a computer that has neither.
+  // Those unpacked on an earlier run are on PATH at once; a first launch
+  // unpacks them in the background, and the runner and the Node check wait.
+  if (app.isPackaged) {
+    const moxxyHome = process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
+    activateRuntimes(moxxyHome);
+    void prepareBundledRuntimes({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      log: (msg) => console.log(`[moxxy] ${msg}`),
+    });
+  }
+
   // The pool exists before the window so IPC can bind immediately, but its
   // expensive preparation + first supervisor are lazy and run after first
   // paint. Every user-triggered getOrCreate shares the same preparation gate.
@@ -976,9 +1064,16 @@ app.whenReady().then(async () => {
   // First paint is complete. Seed plugins, sweep stale sockets, and connect the
   // active runner in the background while the renderer shows the persisted
   // shell/transcript. User-triggered runner creation shares this same gate.
-  void primeInitialRunner(pool, desks).catch((err) => {
-    console.error('[moxxy] initial runner startup failed:', err);
-  });
+  void primeInitialRunner(pool, desks)
+    .catch((err) => {
+      console.error('[moxxy] initial runner startup failed:', err);
+    })
+    // After the first runner so bundled plugins are seeded before a channel
+    // (e.g. Discord, run mode "with the app") boots its own runner.
+    .then(() => autostartConfiguredChannels())
+    .catch((err) => {
+      console.error('[moxxy] channel autostart failed:', err);
+    });
 
   if (wsBridge && wsBus && wsConfig && mobileGateway) {
     // The opt-in env bridge is independent of first paint. Hand the running

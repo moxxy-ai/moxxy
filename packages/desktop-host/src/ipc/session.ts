@@ -23,7 +23,11 @@ import { authorizeAttachments, rememberPickedAttachment } from '../attachment-au
 import { persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
 import { assertDefined } from '@moxxy/sdk';
-import { getSessionModel, setSessionModel } from '../session-models.js';
+import {
+  getSessionModel,
+  getSessionModelContextWindow,
+  setSessionModel,
+} from '../session-models.js';
 import {
   getInProcessPlugins,
   handle,
@@ -32,14 +36,25 @@ import {
   resolveCtx,
   resolveDriver,
   resolveSupervisor,
+  providerActivator,
   waitForRemoteSession,
   waitForSessionState,
 } from './shared';
+import { channelOfChat, syncChannelChatModel, type ChannelChatModelDeps } from '../channel-chat-model';
 
 /** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
  *  drops invalid characters and decodes a partial/garbage buffer, so reject a
  *  malformed payload AT the boundary instead of feeding the transcriber junk. */
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/** Active speech requests are keyed by their resolved workspace and opaque
+ *  renderer request id. This lets barge-in stop the network fetch already in
+ *  progress instead of merely discarding its eventual audio. */
+const synthesisRequests = new Map<string, AbortController>();
+
+function synthesisRequestKey(workspaceId: string, requestId: string): string {
+  return `${workspaceId}\u0000${requestId}`;
+}
 
 // The collaboration on-disk layout (lock path + runs dir) and the defensive
 // lock parse/liveness probe are the coordinator's contract, owned by
@@ -48,7 +63,19 @@ const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 // workspace's runner is visible) — importing the SAME helpers the coordinator
 // writes with means the two can't drift apart.
 
-export function registerSessionHandlers(pool: RunnerPool): void {
+export interface SessionHandlerDependencies {
+  /** Where a bot chat's model comes from (defaults to the in-process vault). */
+  readonly channelModels: ChannelChatModelDeps;
+}
+
+export function registerSessionHandlers(
+  pool: RunnerPool,
+  dependencies: Partial<SessionHandlerDependencies> = {},
+): void {
+  const channelModels: ChannelChatModelDeps = dependencies.channelModels ?? {
+    vault: () => getInProcessPlugins().vault,
+    activateProvider: providerActivator(pool),
+  };
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('computer.snapshot', async ({workspaceId}) => {
@@ -96,15 +123,22 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       }
       safe = authorized;
     }
-    if (model !== undefined) setSessionModel(id, model);
-    let selectedModel = model ?? getSessionModel(id) ?? undefined;
+    // A bot's chat runs the bot's model (one state with the bot, see
+    // channel-chat-model); a workspace chat runs the model its picker sent.
+    const channelId = channelOfChat(id);
+    if (channelId) await syncChannelChatModel(channelId, channelModels);
+    else if (model !== undefined) setSessionModel(id, model);
+    let selectedModel = (channelId ? undefined : model) ?? getSessionModel(id) ?? undefined;
     const activeProvider = supervisor.remote()?.getInfo().activeProvider ?? null;
     if (activeProvider === 'local' && selectedModel === undefined) {
       const { resolveLocalModelForTurn } = await import('../provider-discovery.js');
       selectedModel = await resolveLocalModelForTurn();
       setSessionModel(id, selectedModel);
     }
-    return driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility);
+    const contextWindow = getSessionModelContextWindow(id);
+    return contextWindow === undefined
+      ? driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility)
+      : driver.runTurn(prompt, selectedModel, safe, inlineAttachments, visibility, contextWindow);
   });
   handle('session.activeTurn', async (args) => ({
     turnId: resolveDriver(pool, args?.workspaceId)?.activeForegroundTurnId() ?? null,
@@ -117,14 +151,14 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
     await session.setActiveProvider(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
-    setSessionModel(id, null, { force: true });
+    setSessionModel(id, null, { force: true, contextWindow: null });
     // Re-emit the connection phase so the renderer sees the new activeProvider
     // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
     supervisor.refreshConnectedInfo();
   });
-  handle('session.setModel', async ({ workspaceId, model }) => {
+  handle('session.setModel', async ({ workspaceId, model, contextWindow }) => {
     const { workspaceId: id } = resolveCtx(pool, { workspaceId }, { requireSession: false });
-    setSessionModel(id, model, { force: true });
+    setSessionModel(id, model, { force: true, contextWindow });
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
     const { session, supervisor } = resolveCtx(pool, { workspaceId });
@@ -143,9 +177,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   handle('session.setAutoApprove', async ({ workspaceId, enabled }) => {
     const id = workspaceId ?? pool.activeWorkspaceId();
     if (!id) return;
-    // The flag lives on the driver (where the permission resolver is set up),
-    // not on the RemoteSession — so target the driver directly.
-    mustDriver(id).setAutoApprove(enabled);
+    // The driver shares the switch with the conversation on the runner (and
+    // keeps it itself for an older runner that has no shared switch).
+    await mustDriver(id).setAutoApprove(enabled);
     broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
@@ -344,27 +378,56 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
-  handle('session.synthesize', async ({ workspaceId, text, language, rate }) => {
+  handle('session.synthesize', async ({ workspaceId, requestId, text, language, rate, voice }) => {
     // Text-to-speech routes through the RUNNER's active synthesizer (unlike
     // STT, which uses the in-process Codex transcriber): a user-authored TTS
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
     // Returns null only when no synthesizer is active. A present-but-failing
     // synthesizer surfaces its error; silently switching voices would hide a
     // broken local Piper installation from the user.
-    const session = resolveSupervisor(pool, workspaceId)?.remote();
-    const synth = session?.synthesizers.tryGetActive();
-    if (!synth) return null;
-    const options = language || rate !== undefined
-      ? {
-          ...(language ? { language } : {}),
-          ...(rate !== undefined ? { rate } : {}),
-        }
-      : undefined;
-    const result = await synth.synthesize(text, options);
-    return {
-      audioBase64: Buffer.from(result.audio).toString('base64'),
-      mimeType: result.mimeType,
-    };
+    const resolvedWorkspaceId = workspaceId ?? pool.activeWorkspaceId();
+    const key = resolvedWorkspaceId && requestId
+      ? synthesisRequestKey(resolvedWorkspaceId, requestId)
+      : null;
+    if (key && synthesisRequests.has(key)) {
+      throw new IpcError('runner-error', 'speech synthesis request id is already active');
+    }
+    const controller = new AbortController();
+    if (key) synthesisRequests.set(key, controller);
+    try {
+      const session = resolveSupervisor(pool, workspaceId)?.remote();
+      const synth = session?.synthesizers.tryGetActive();
+      if (!synth) return null;
+      const options = {
+        ...(language ? { language } : {}),
+        ...(rate !== undefined ? { rate } : {}),
+        ...(voice ? { voice } : {}),
+        signal: controller.signal,
+      };
+      const result = await synth.synthesize(text, options);
+      return {
+        audioBase64: Buffer.from(result.audio).toString('base64'),
+        mimeType: result.mimeType,
+      };
+    } finally {
+      if (key && synthesisRequests.get(key) === controller) synthesisRequests.delete(key);
+    }
+  });
+  handle('session.cancelSynthesis', async ({ workspaceId, requestId }) => {
+    const resolvedWorkspaceId = workspaceId ?? pool.activeWorkspaceId();
+    if (!resolvedWorkspaceId) return;
+    synthesisRequests.get(synthesisRequestKey(resolvedWorkspaceId, requestId))?.abort(
+      new DOMException('Speech synthesis was interrupted.', 'AbortError'),
+    );
+  });
+  handle('session.recordVoiceExchange', async ({ workspaceId, userText, assistantText }) => {
+    // GPT-Live answers the user itself; recording both sides keeps the runner
+    // log the one authoritative conversation the chat and later turns read.
+    const { session } = resolveCtx(pool, { workspaceId });
+    await session.recordExchange({
+      ...(userText ? { userText } : {}),
+      ...(assistantText ? { assistantText } : {}),
+    });
   });
   handle('session.pickAttachment', async () => {
     const window =

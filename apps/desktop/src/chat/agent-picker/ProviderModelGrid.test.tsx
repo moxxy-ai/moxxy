@@ -154,4 +154,50 @@ describe('ProviderModelGrid layout', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
     expect(await screen.findByText('gpt-oss:20b')).toBeTruthy();
   });
+
+  it('selects a custom model with the 200k context fallback when the user does not know its limit', async () => {
+    __setApiOverride({ invoke: async () => [], subscribe: () => () => {} } as unknown as MoxxyApi);
+    const onPick = vi.fn();
+    render(
+      <ProviderModelGrid
+        providers={[{ name: 'openai', models: [{ id: 'gpt-6-luna' }] }]}
+        activeProvider="openai"
+        activeModel={null}
+        onPick={onPick}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom model…' }));
+    fireEvent.change(screen.getByLabelText('Custom model ID'), {
+      target: { value: 'vendor/model-v2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use custom model' }));
+
+    expect(onPick).toHaveBeenCalledWith('openai', 'vendor/model-v2', 200_000);
+  });
+
+  it('uses the context window typed by a user who knows the custom model limit', () => {
+    __setApiOverride({ invoke: async () => [], subscribe: () => () => {} } as unknown as MoxxyApi);
+    const onPick = vi.fn();
+    render(
+      <ProviderModelGrid
+        providers={[{ name: 'openai', models: [{ id: 'gpt-6-luna' }] }]}
+        activeProvider="openai"
+        activeModel={null}
+        onPick={onPick}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom model…' }));
+    fireEvent.change(screen.getByLabelText('Custom model ID'), {
+      target: { value: 'vendor/model-v2' },
+    });
+    fireEvent.click(screen.getByLabelText('I know the context window'));
+    fireEvent.change(screen.getByLabelText('Context window (tokens)'), {
+      target: { value: '64000' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use custom model' }));
+
+    expect(onPick).toHaveBeenCalledWith('openai', 'vendor/model-v2', 64_000);
+  });
 });

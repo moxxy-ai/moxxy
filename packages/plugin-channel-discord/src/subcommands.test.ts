@@ -11,6 +11,7 @@ import {
   DISCORD_TOKEN_KEY,
   serializeAllowedChannels,
 } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -43,7 +44,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   process.stdout.write = origStdoutWrite;
   process.stderr.write = origStderrWrite;
 });

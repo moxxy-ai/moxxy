@@ -5,6 +5,7 @@ import { assertDefined } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { validateWorkflow } from './schema.js';
 import { WorkflowStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 let store: WorkflowStore;
@@ -16,7 +17,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 
 function sample(name: string) {

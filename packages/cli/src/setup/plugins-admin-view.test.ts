@@ -27,6 +27,7 @@ vi.mock('@moxxy/plugin-plugins-admin', async (importOriginal) => {
 
 import { installPluginPackagePinned, setPluginEnabled } from '@moxxy/plugin-plugins-admin';
 import { buildBuiltinsCore } from './builtins.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -37,7 +38,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function buildFixture() {

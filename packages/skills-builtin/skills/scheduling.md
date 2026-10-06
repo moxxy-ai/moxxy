@@ -21,9 +21,10 @@ allowed-tools:
   - schedule_disable
   - schedule_run_now
   - telegram_send_message
+  - discord_send_message
 ---
 
-Use this skill when the user wants a prompt to fire automatically — recurring on a cron, or once at a fixed time. Each scheduled run starts a fresh turn, the assistant's final message gets written to `~/.moxxy/inbox/`, and the prompt itself can call delivery tools (e.g. `telegram_send_message`) for push notifications.
+Use this skill when the user wants a prompt to fire automatically — recurring on a cron, or once at a fixed time. Each scheduled run starts a fresh turn, the assistant's final message gets written to `~/.moxxy/inbox/`, and the prompt itself can call delivery tools (e.g. `telegram_send_message`, `discord_send_message`) for push notifications.
 
 ## Pattern
 
@@ -40,6 +41,7 @@ Use this skill when the user wants a prompt to fire automatically — recurring 
    - "Fetch today's top 5 Hacker News posts; for each, write a 2-line summary; then call `telegram_send_message` with a markdown-formatted digest."
    - "Check Gmail for new messages from <X>; if any, summarize and call `telegram_send_message`."
    - "Remind me about <X>. Call `telegram_send_message` with a short reminder."
+   - "Check the CI status of <repo>; if a build failed, call `discord_send_message` with the failing job and a one-line cause."
 
 4. **Call `schedule_create`** with `{ name, prompt, cron | runAt, channel?, model? }`. The tool returns `nextFireIso` so you can confirm the schedule will fire when expected.
 

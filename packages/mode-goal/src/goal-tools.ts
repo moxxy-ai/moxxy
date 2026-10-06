@@ -1,16 +1,16 @@
 import { defineTool } from '@moxxy/sdk';
 import { z } from 'zod';
 
-import { GOAL_ABANDON_TOOL, GOAL_COMPLETE_TOOL } from './constants.js';
+import { GOAL_ABANDON_TOOL, GOAL_COMPLETE_TOOL, GOAL_MODE_NAME } from './constants.js';
 
 /**
  * The goal "utility": two side-effect-free tools the model calls to control the
  * goal loop. They don't DO anything — calling them is the signal. The loop in
  * `goal-loop.ts` watches for their (successful) tool_result and terminates.
  *
- * They're registered globally by the plugin, so they exist in every mode, but
- * only goal mode's system prompt tells the model to use them; elsewhere they're
- * inert. `permission: { action: 'allow' }` means they never trip a permission
+ * They're registered by the plugin but offered only in goal mode (`modes`):
+ * elsewhere goal_abandon was a way out of a task nobody had set as a goal.
+ * `permission: { action: 'allow' }` means they never trip a permission
  * prompt — declaring done is not a privileged action.
  */
 
@@ -28,6 +28,7 @@ export const goalCompleteTool = defineTool({
       .describe('Concrete proof the goal is met: commands run and their results, files changed, tests passed.'),
   }),
   permission: { action: 'allow' },
+  modes: [GOAL_MODE_NAME],
   // Side-effect-free loop signal (see the module comment) — no capabilities.
   isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
   handler: (input) => {
@@ -54,6 +55,7 @@ export const goalAbandonTool = defineTool({
       .describe('What the user must provide or decide for the goal to continue.'),
   }),
   permission: { action: 'allow' },
+  modes: [GOAL_MODE_NAME],
   // Side-effect-free loop signal (see the module comment) — no capabilities.
   isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
   handler: (input) => {

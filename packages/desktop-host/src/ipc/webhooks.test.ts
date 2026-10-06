@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ import { WebhookStore } from '@moxxy/plugin-webhooks';
 import { setActiveBus } from './shared';
 import { registerWebhookHandlers } from './webhooks';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -27,7 +28,7 @@ function fakeBus(): { readonly bus: CommandBus; readonly handlers: Map<string, H
 const temps: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temps.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
+  await Promise.all(temps.splice(0).map((dir) => removeDir(dir)));
 });
 
 async function tempStore(): Promise<{ readonly file: string; readonly store: WebhookStore }> {

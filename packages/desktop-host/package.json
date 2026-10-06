@@ -28,15 +28,18 @@
   },
   "dependencies": {
     "@moxxy/core": "workspace:*",
+    "@moxxy/config": "workspace:*",
     "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-computer-control": "workspace:*",
     "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/plugin-provider-openai-codex": "workspace:*",
     "@moxxy/plugin-provider-local": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
+    "@moxxy/plugin-tts-gemini": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/runner": "workspace:*",
@@ -51,7 +54,8 @@
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
-    "electron": "^43.4.0",
+    "electron": "^43.5.0",
+    "playwright": "^1.60.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

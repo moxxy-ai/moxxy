@@ -1,23 +1,27 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
 import { newTurnId } from '@moxxy/core';
-import { asTurnId, createMutex } from '@moxxy/sdk';
+import { asTurnId, autoApproveSwitch, createMutex } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
   ApprovalResolver,
+  ComputerControlService,
   MoxxyEvent,
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
   PermissionResolver,
   Principal,
+  RunTurnOptions,
+  SessionInfo,
   TurnId,
   UserPromptAttachment,
 } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport, TransportServer } from './transport.js';
 import { createUnixSocketServer } from './unix-socket.js';
+import { SpokenExchanges } from './spoken-exchanges.js';
 import { runnerSocketPath } from './socket-path.js';
 import { handleComputerApprovalFocus, handleComputerControl, handleComputerSnapshot } from './handlers/computer-handlers.js';
 import { handleWorkflowApprovals } from './handlers/workflow-handlers.js';
@@ -40,6 +44,8 @@ import {
   handleProviderConfigure,
   handleTranscribe,
   handleSynthesize,
+  handleCancelSynthesize,
+  abortActiveSyntheses,
   handleMcpListServers,
   handleMcpEnableAndAttach,
   handleMcpDetach,
@@ -58,7 +64,10 @@ import {
   handleSurfaceClose,
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionSetFast,
   handleSessionLoadHistory,
+  handleSessionRecordExchange,
+  handleSessionSetAutoApprove,
   handlePermissionAddAllow,
   handleCommandRun,
   type HandlerContext,
@@ -92,10 +101,11 @@ interface TurnScope {
   readonly turnId: TurnId;
 }
 
-/** An in-flight turn: its abort controller plus the connection that started it. */
+/** An in-flight turn: its abort controller plus the connection that started it
+ *  (null for a turn run inside the runner, e.g. by a channel bot hosting it). */
 interface TurnEntry {
   readonly controller: AbortController;
-  readonly owner: ConnectedClient;
+  readonly owner: ConnectedClient | null;
 }
 
 /**
@@ -118,6 +128,9 @@ export class RunnerServer {
   private readonly logClearUnsub: () => void;
   private readonly modesUnsub: () => void;
   private readonly surfacesUnsub: () => void;
+  /** The Computer Use service this runner pushes changes from; a plugin reload may replace it. */
+  private computerService: ComputerControlService | undefined;
+  private computerUnsub: () => void = () => undefined;
   /**
    * Resolvers for unscoped (local) turns - the fall-through path. Seeded from
    * whatever was installed before we wrapped the session, then kept current by
@@ -155,20 +168,29 @@ export class RunnerServer {
       session,
       prefsMutex: this.prefsMutex,
       broadcastInfo: () => this.broadcastInfo(),
+      spokenExchanges: new SpokenExchanges(session, () => this.turnControllers.size > 0),
     };
     this.fallbackPermission = session.resolver;
     this.fallbackApproval = session.approvalResolver;
     this.installRoutingResolvers();
+    this.trackLocalTurns();
     this.transport.onConnection((t) => this.onConnection(t));
-    this.logUnsub = session.log.subscribe((event) => this.broadcastEvent(event));
+    this.logUnsub = session.log.subscribe((event) => {
+      this.broadcastEvent(event);
+      // Auto-approve is read from the info snapshot; refresh it on every
+      // switch, whichever client (or in-process channel) made it.
+      if (autoApproveSwitch(event) !== null) this.broadcastInfo();
+    });
     // Mirror a log wipe to every attached client. Subscribing to the log's
     // clear listener (rather than broadcasting inside handleSessionReset)
     // covers BOTH reset paths — the session.reset RPC and a self-hosting
     // channel clearing the local log directly — so mirrors can never desync
     // against a wiped log whose next event restarts at seq 0.
-    this.logClearUnsub = session.log.onClear(() =>
-      this.broadcast(RunnerNotification.SessionReset, {}),
-    );
+    this.logClearUnsub = session.log.onClear(() => {
+      this.broadcast(RunnerNotification.SessionReset, {});
+      // A fresh conversation starts with auto-approve off.
+      this.broadcastInfo();
+    });
     // Mirror active-mode changes to clients — covers both the SetMode RPC and a
     // mode handing off to another mode post-turn.
     this.modesUnsub = session.modes.onActiveChange(() => this.broadcastInfo());
@@ -178,6 +200,20 @@ export class RunnerServer {
     this.surfacesUnsub = session.surfaces.onData((data) =>
       this.broadcast(RunnerNotification.SurfaceData, { data }),
     );
+    this.watchComputerControl();
+  }
+
+  /**
+   * Push every Computer Use change to every client (v23), so no surface polls.
+   * Re-checked with each info broadcast: a plugin reload registers a new service.
+   */
+  private watchComputerControl(): void {
+    const service = this.session.computerControl;
+    if (service === this.computerService) return;
+    this.computerUnsub();
+    this.computerService = service;
+    this.computerUnsub = service?.subscribe?.((turns) => this.broadcast(RunnerNotification.ComputerChanged, { turns }))
+      ?? (() => undefined);
   }
 
   get address(): string {
@@ -191,6 +227,8 @@ export class RunnerServer {
     this.logClearUnsub();
     this.modesUnsub();
     this.surfacesUnsub();
+    this.computerUnsub();
+    abortActiveSyntheses();
     void this.session.surfaces.closeAll();
     for (const client of this.clients) client.peer.close();
     this.clients.clear();
@@ -215,16 +253,19 @@ export class RunnerServer {
     // Turn / attach / resolver routing stay on the class (they touch per-client
     // and per-turn state). Every domain handler delegates to its module.
     peer.handle(RunnerMethod.Attach, (raw) => this.handleAttach(client, raw));
-    peer.handle(RunnerMethod.GetInfo, () => this.session.getInfo());
+    peer.handle(RunnerMethod.GetInfo, () => this.info());
     peer.handle(RunnerMethod.ComputerSnapshot, (raw) => handleComputerSnapshot(ctx, raw));
     peer.handle(RunnerMethod.ComputerControl, (raw) => handleComputerControl(ctx, raw));
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SessionLoadHistory, (raw) => handleSessionLoadHistory(ctx, raw));
+    peer.handle(RunnerMethod.SessionRecordExchange, (raw) => handleSessionRecordExchange(ctx, raw));
+    peer.handle(RunnerMethod.SessionSetAutoApprove, (raw) => handleSessionSetAutoApprove(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
+    peer.handle(RunnerMethod.SessionSetFast, (raw) => handleSessionSetFast(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));
@@ -233,6 +274,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.CommandRun, (raw) => handleCommandRun(ctx, raw));
     peer.handle(RunnerMethod.Transcribe, (raw) => handleTranscribe(ctx, raw));
     peer.handle(RunnerMethod.Synthesize, (raw) => handleSynthesize(ctx, raw));
+    peer.handle(RunnerMethod.CancelSynthesize, (raw) => handleCancelSynthesize(raw));
     peer.handle(RunnerMethod.McpListServers, () => handleMcpListServers(ctx));
     peer.handle(RunnerMethod.McpEnableAndAttach, (raw) => handleMcpEnableAndAttach(ctx, raw));
     peer.handle(RunnerMethod.McpDetach, (raw) => handleMcpDetach(ctx, raw));
@@ -323,7 +365,7 @@ export class RunnerServer {
     return {
       sessionId: this.session.id,
       protocolVersion: RUNNER_PROTOCOL_VERSION,
-      info: this.session.getInfo(),
+      info: this.info(),
     };
   }
 
@@ -342,11 +384,13 @@ export class RunnerServer {
     const controller = new AbortController();
     this.turnControllers.set(turnId, { controller, owner: client });
     client.turns.add(turnId);
+    this.broadcastInfo();
 
     const opts = {
       turnId,
       signal: controller.signal,
       ...(params.model ? { model: params.model } : {}),
+      ...(params.contextWindow !== undefined ? { contextWindow: params.contextWindow } : {}),
       ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
       ...(params.maxIterations ? { maxIterations: params.maxIterations } : {}),
       ...(params.attachments
@@ -386,6 +430,9 @@ export class RunnerServer {
           // as a normal event. No-op on the normal sealed path. Awaited so the
           // event is on the wire/disk before clients learn the turn finished.
           await this.sealUnsealedStreamedText(turnId);
+          // Before turn.complete, so a queued turn the client starts next
+          // cannot begin ahead of the voice conversation spoken during this one.
+          await this.handlerCtx.spokenExchanges.flush();
           this.broadcast(RunnerNotification.TurnComplete, {
             turnId,
             ...(error ? { error } : {}),
@@ -422,12 +469,12 @@ export class RunnerServer {
       // for single-client deployments.
       this.session.logger.warn('cross-client abort', {
         turnId: params.turnId,
-        ownerRole: entry.owner.role,
+        ownerRole: entry.owner?.role ?? 'runner',
         abortingRole: client.role,
       });
       if (process.env.MOXXY_RUNNER_STRICT_ABORT === '1') {
         throw new Error(
-          `turn ${params.turnId} was started by '${entry.owner.role}'; cross-client abort denied (MOXXY_RUNNER_STRICT_ABORT=1)`,
+          `turn ${params.turnId} was started by '${entry.owner?.role ?? 'runner'}'; cross-client abort denied (MOXXY_RUNNER_STRICT_ABORT=1)`,
         );
       }
     }
@@ -512,8 +559,52 @@ export class RunnerServer {
     return {};
   }
 
+  /** The session's snapshot plus the turns running now, whoever started them. */
+  private info(): SessionInfo {
+    return { ...this.session.getInfo(), runningTurns: [...this.turnControllers.keys()] };
+  }
+
   private broadcastInfo(): void {
-    this.broadcast(RunnerNotification.InfoChanged, { info: this.session.getInfo() });
+    this.watchComputerControl();
+    this.broadcast(RunnerNotification.InfoChanged, { info: this.info() });
+  }
+
+  /**
+   * A turn run inside the runner — a channel bot hosting it calls
+   * `session.runTurn` directly — is registered like a client's turn: attached
+   * clients see it running (`SessionInfo.runningTurns`) and may abort it. Turns
+   * the server drives for a client already run inside a scope and pass through.
+   */
+  private trackLocalTurns(): void {
+    const runTurn = this.session.runTurn.bind(this.session);
+    this.session.runTurn = (prompt, opts = {}) =>
+      this.scope.getStore() ? runTurn(prompt, opts) : this.runLocalTurn(runTurn, prompt, opts);
+  }
+
+  private async *runLocalTurn(
+    runTurn: Session['runTurn'],
+    prompt: string,
+    opts: RunTurnOptions,
+  ): AsyncIterable<MoxxyEvent> {
+    const turnId = opts.turnId ?? newTurnId();
+    const controller = new AbortController();
+    const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+    this.turnControllers.set(turnId, { controller, owner: null });
+    this.broadcastInfo();
+    try {
+      yield* runTurn(prompt, { ...opts, turnId, signal });
+    } finally {
+      this.turnControllers.delete(turnId);
+      try {
+        await this.handlerCtx.spokenExchanges.flush();
+        this.broadcastInfo();
+      } catch (err) {
+        this.session.logger.error('runner: post-turn finalization failed', {
+          turnId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   // --- resolver routing ----------------------------------------------------

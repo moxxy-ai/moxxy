@@ -106,6 +106,9 @@ export const EventLine: React.FC<{
         </Box>
       );
     case 'compaction':
+      // The default compactor records every finished turn; only a compaction
+      // the context forced is worth a line.
+      if (event.routine) return null;
       return (
         <Box marginTop={blockGap()}>
           <Text dimColor>⤺ </Text>
@@ -149,6 +152,7 @@ const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
   schedule: 'Schedule fired',
   workflow: 'Workflow ran',
   checkpoint: 'Checkpoint intervened',
+  voice: 'Voice conversation',
 };
 
 export function formatTriggerOrigin(origin: TriggerOrigin): string {

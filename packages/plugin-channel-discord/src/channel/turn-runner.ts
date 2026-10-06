@@ -1,9 +1,10 @@
 import type { newTurnId } from '@moxxy/core';
 import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
-import { FramePump, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
+import { FramePump, channelTurnContext, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import { DiscordTurnRenderer, splitForDiscord } from '../render.js';
 import type { ChannelLogger, SendableChannelLike, SentMessageLike } from './discord-like.js';
 import type { TypingIndicator } from './typing-indicator.js';
+import type { CallTurnListener } from '../voice-call/call.js';
 
 /**
  * Discord's per-channel edit budget is ~5 edits / 5s; the streaming edit
@@ -31,10 +32,35 @@ export interface RunDiscordTurnDeps {
    * reply. Best-effort — its failure is logged and never breaks the text turn.
    */
   readonly onFinalReply?: (text: string) => Promise<void>;
+  /**
+   * A call listening to the turn: the reply as it is written, piece by piece
+   * (spoken sentence by sentence), and each approved step as it starts and
+   * ends. A blank line marks where one assistant message ends, so text before
+   * and after a tool call never runs into one sentence.
+   */
+  readonly spokenTurn?: CallTurnListener;
 }
+
+/** What the model must know about replying on Discord (see channelTurnContext). */
+export const DISCORD_TURN_CONTEXT = channelTurnContext({
+  service: 'Discord',
+  sendTool: 'discord_send_message',
+  delivery: 'their Discord DMs',
+  uploadLimit: '10 MB per message',
+});
+
+/** Added when the reply is said out loud in a voice call. */
+export const DISCORD_CALL_CONTEXT =
+  'This message was spoken in a voice call and your reply will be read aloud: answer briefly, in ' +
+  'plain spoken sentences, without markdown, code blocks, tables or links. The caller hears nothing ' +
+  'while you work, so before you use tools, say in one short sentence what you are about to do ' +
+  '(for example "Dobrze, sprawdzam logi."), and before each further step say in a few words what ' +
+  'you are checking now. Speak in the language of the request.';
 
 export interface RunDiscordTurnOptions {
   readonly text: string;
+  /** The reply will be said out loud in a voice call. */
+  readonly spoken?: boolean;
   readonly model?: string | undefined;
   readonly controller: AbortController;
   /** Pre-minted turn id; the channel records it as an own-turn id. */
@@ -59,7 +85,7 @@ export async function runDiscordTurn(
   deps: RunDiscordTurnDeps,
   opts: RunDiscordTurnOptions,
 ): Promise<void> {
-  const { session, channel, typing, editFrameMs, logger, onFinalReply } = deps;
+  const { session, channel, typing, editFrameMs, logger, onFinalReply, spokenTurn } = deps;
   const { text, model, controller, turnId } = opts;
 
   const renderer = new DiscordTurnRenderer();
@@ -103,8 +129,40 @@ export async function runDiscordTurn(
   });
 
   typing.start(channel);
+  let streamed = false;
+  const requested = new Map<string, { readonly name: string; readonly input: unknown }>();
+  const running = new Set<string>();
   const unsubscribe = subscribeTurn(session, turnId, (event) => {
     if (renderer.accept(event)) pump.scheduleEdit();
+    if (!spokenTurn) return;
+    switch (event.type) {
+      case 'assistant_chunk':
+        streamed = true;
+        spokenTurn.text(event.delta);
+        break;
+      case 'assistant_message':
+        if (!streamed && event.content) spokenTurn.text(event.content);
+        streamed = false;
+        spokenTurn.messageEnded();
+        break;
+      case 'tool_call_requested':
+        requested.set(String(event.callId), { name: event.name, input: event.input });
+        break;
+      case 'tool_call_approved': {
+        const callId = String(event.callId);
+        const call = requested.get(callId);
+        requested.delete(callId);
+        if (!call) break;
+        running.add(callId);
+        spokenTurn.toolStarted(callId, call.name, call.input);
+        break;
+      }
+      case 'tool_result':
+        if (running.delete(String(event.callId))) spokenTurn.toolFinished(String(event.callId), event.ok);
+        break;
+      default:
+        break;
+    }
   });
 
   try {
@@ -112,6 +170,7 @@ export async function runDiscordTurn(
       turnId,
       prompt: text,
       ...(model ? { model } : {}),
+      systemPrompt: opts.spoken ? `${DISCORD_TURN_CONTEXT}\n\n${DISCORD_CALL_CONTEXT}` : DISCORD_TURN_CONTEXT,
       signal: controller.signal,
     });
     await pump.flush(true);

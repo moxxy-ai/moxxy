@@ -31,4 +31,6 @@ export interface ViewContext {
    * class's `requireServerProtocol`.
    */
   readonly requireServerProtocol: (minVersion: number, feature: string) => void;
+  /** Negotiated runner version; null until attach completes. */
+  readonly serverProtocolVersion: () => number | null;
 }

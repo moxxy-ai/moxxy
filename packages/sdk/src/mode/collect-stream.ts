@@ -1,7 +1,7 @@
 import type { ProviderEvent, ProviderMessage, TokenUsage } from '../provider.js';
 import type { ModeContext } from '../mode.js';
 import type { StopReason } from '../provider-utils.js';
-import { applyLazyTools } from '../tool-gating.js';
+import { applyLazyTools, shouldGateTools } from '../tool-gating.js';
 import type { ProviderCallTiming } from '../events.js';
 import { providerTiming } from './provider-timing.js';
 
@@ -110,7 +110,7 @@ export async function collectProviderStream(
     opts.includeTools === false || descriptor?.supportsTools === false
       ? undefined
       : ctx.tools.list();
-  if (ctx.lazyTools && toolList) {
+  if (toolList && shouldGateTools(ctx.lazyTools, toolList.length)) {
     const gated = applyLazyTools(messages, toolList, ctx.log);
     effectiveMessages = gated.messages;
     toolList = gated.tools;
@@ -151,6 +151,7 @@ export async function collectProviderStream(
     ...(cacheHints && cacheHints.length > 0 ? { cacheHints } : {}),
     ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
     ...(reqReasoning ? { reasoning: reqReasoning } : {}),
+    ...(ctx.fast && descriptor?.supportsFast ? { fast: true } : {}),
     signal: ctx.signal,
   };
   const prepared=performance.now();

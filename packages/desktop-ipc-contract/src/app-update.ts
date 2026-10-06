@@ -28,6 +28,19 @@ export interface AppUpdateCheck {
   error?: string;
 }
 
+/** What an update would bring to the runner (`@moxxy/cli`) and the `@moxxy`
+ *  extensions installed in `~/.moxxy/plugins`. */
+export interface ComponentUpdateCheck {
+  /** Something is behind the latest release and can be updated. */
+  available: boolean;
+  /** The release they would move to. */
+  version: string | null;
+  runner: { current: string | null } | null;
+  extensions: ReadonlyArray<{ name: string; current: string }>;
+  /** Why nothing can be checked or updated (no npm, …). */
+  error?: string;
+}
+
 /** Streamed progress while a dashboard update downloads + installs.
  *  `install` is the Tier-2 (`app.updateShell`) installer phase. */
 export interface AppUpdateProgress {

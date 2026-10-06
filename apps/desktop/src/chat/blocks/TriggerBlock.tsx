@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { TriggerOrigin } from '@moxxy/sdk';
-import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { Icon } from '@moxxy/desktop-ui';
+import { describeTrigger } from './trigger-meta';
 
 /**
  * Compact marker for a machine-initiated turn (a fired webhook / schedule /
@@ -11,19 +12,6 @@ import { Icon, type IconName } from '@moxxy/desktop-ui';
  * context); this only changes how it's displayed. See {@link TriggerOrigin}.
  */
 
-const KIND_META: Record<TriggerOrigin['kind'], { readonly icon: IconName; readonly verb: string }> = {
-  webhook: { icon: 'bell', verb: 'received' },
-  schedule: { icon: 'rotate', verb: 'fired' },
-  workflow: { icon: 'workflow', verb: 'ran' },
-  // Mid-turn feedback injected by the ReAct loop's turn-end checkpoint gate
-  // (lint report, reviewer verdict) — chip label reads "Checkpoint intervened".
-  checkpoint: { icon: 'check', verb: 'intervened' },
-};
-
-function titleCase(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 export function TriggerBlock({
   origin,
   text,
@@ -32,8 +20,7 @@ export function TriggerBlock({
   readonly text: string;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const meta = KIND_META[origin.kind];
-  const label = `${titleCase(origin.kind)} ${meta.verb}`;
+  const { icon, label } = describeTrigger(origin);
   return (
     <div
       data-testid="block-trigger"
@@ -58,7 +45,7 @@ export function TriggerBlock({
           fontWeight: 600,
         }}
       >
-        <Icon name={meta.icon} size={13} />
+        <Icon name={icon} size={13} />
         <span>
           {label} · <span style={{ color: 'var(--color-text)' }}>{origin.name}</span>
         </span>

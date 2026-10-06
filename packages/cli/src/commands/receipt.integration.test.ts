@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appendAuditRecord, auditDir, resetAuditHeadForTests } from '@moxxy/core';
 import { parseArgv } from '../argv.js';
 import { runReceiptCommand } from './receipt.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * The guarantee worth an integration test: a receipt read back off disk must
@@ -33,7 +34,7 @@ describe('moxxy receipt against a real trail', () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
     resetAuditHeadForTests();
-    await fs.rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   const seed = async (): Promise<void> => {

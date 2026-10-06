@@ -7,6 +7,7 @@ import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { assertDefined, defineTool, z } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
 // point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
@@ -19,7 +20,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = priorMoxxyHome;
-  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+  await removeDir(moxxyHomeTmp);
 });
 
 function makeTokens(overrides: Partial<CodexTokens> = {}): CodexTokens {
@@ -50,7 +51,7 @@ async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
 
 function baseRequest(over: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.6-sol',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     ...over,
   };
@@ -124,7 +125,7 @@ describe('CodexProvider.stream', () => {
     expect(h['Accept']).toBe('text/event-stream');
 
     // Event sequence: message_start, text_delta('hello'), message_end (with usage)
-    expect(events[0]).toMatchObject({ type: 'message_start', model: 'gpt-5.3-codex' });
+    expect(events[0]).toMatchObject({ type: 'message_start', model: 'gpt-5.6-sol' });
     expect(events.some((e) => e.type === 'text_delta' && e.delta === 'hello')).toBe(true);
     const end = events.find((e): e is Extract<ProviderEvent, { type: 'message_end' }> => e.type === 'message_end');
     expect(end?.usage).toEqual({ inputTokens: 3, outputTokens: 5 });
@@ -209,6 +210,19 @@ describe('CodexProvider.stream', () => {
 
     expect(bodies[0]?.reasoning).toMatchObject({ effort: 'medium' });
     expect(bodies[1]?.reasoning).toMatchObject({ effort: 'high' });
+  });
+
+  it('sends the xhigh reasoning effort a request asks for', async () => {
+    let body: Record<string, unknown> = {};
+    const fakeFetch = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const provider = new CodexProvider({ tokens: makeTokens(), fetch: fakeFetch as unknown as typeof fetch });
+
+    await collect(provider.stream({ ...baseRequest(), reasoning: { effort: 'xhigh' } }));
+
+    expect(body.reasoning).toMatchObject({ effort: 'xhigh' });
   });
 
   it('uses a stable default session id across turns so the prefix cache can hit', async () => {
@@ -465,13 +479,13 @@ describe('CodexProvider.stream', () => {
     const provider = new CodexProvider({ tokens: makeTokens() });
     const bigImage = 'A'.repeat(4 * 1024 * 1024); // 4 MiB of base64
     const withImage = await provider.countTokens({
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.6-sol',
       messages: [
         { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: bigImage }] },
       ],
     });
     const textOnly = await provider.countTokens({
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.6-sol',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
     });
     // A 4 MiB base64 image must NOT be counted as ~1M tokens (4MiB/4) — the

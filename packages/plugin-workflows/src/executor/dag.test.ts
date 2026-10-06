@@ -8,13 +8,14 @@ import {
   type Workflow,
   type WorkflowRunDeps,
 } from '@moxxy/sdk';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateWorkflow } from '../schema.js';
 import { WorkflowRunStore } from '../run-store.js';
 import { dagExecutor, resumeWorkflowRun } from './dag.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function wf(obj: Record<string, unknown>): Workflow {
   const r = validateWorkflow(obj);
@@ -491,7 +492,7 @@ describe('dag executor', () => {
     // No orphaned inner checkpoint left behind in the store.
     const leftover = (await readdir(dir)).filter((f) => f.endsWith('.json'));
     expect(leftover).toEqual([]);
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('emits lifecycle events', async () => {
@@ -568,7 +569,7 @@ describe('dag executor', () => {
     const go = h.specs.find((s) => s.label === 'go');
     assertDefined(go, 'the go step spawned after resume');
     expect(go.prompt).toContain('FINAL_ask');
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('resume does not re-emit workflow_started (single start across the lifecycle)', async () => {
@@ -597,7 +598,7 @@ describe('dag executor', () => {
     const goCompletedAt = events.lastIndexOf('workflow_step_completed');
     expect(resumedAt).toBeGreaterThanOrEqual(0);
     expect(resumedAt).toBeLessThan(goCompletedAt);
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('end-to-end human-in-the-loop: schema-validated workflow PAUSES, then resumes to COMPLETE with the reply + vars available', async () => {
@@ -646,7 +647,7 @@ describe('dag executor', () => {
     expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: '#ops', body: 'FINAL_Approve' });
     // The checkpoint is cleaned up once resumed (no orphaned paused run).
     expect(await store.load(runId)).toBeNull();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('restores vars set before the pause on resume (Finding 4)', async () => {
@@ -679,7 +680,7 @@ describe('dag executor', () => {
     const resumed = await resumeWorkflowRun(runId, 'go ahead', h.deps, store);
     expect(resumed.ok).toBe(true);
     expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: 'ops@example.com' });
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('rejects a concurrent resume of the same runId (no double-continue / double-remove)', async () => {
@@ -744,7 +745,7 @@ describe('dag executor', () => {
     // The child session was continued exactly once and the checkpoint removed once.
     expect(continueCalls).toBe(1);
     expect(removeCalls).toBe(1);
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('drops prototype-pollution keys from logic-step vars (Finding 6)', async () => {

@@ -61,6 +61,7 @@ import type { SessionDriver } from '../session-driver';
 import { desktopEventBus } from '../event-bus';
 import { __resetPickedAttachments } from '../attachment-authz';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -137,11 +138,11 @@ describe('session.setModel handler', () => {
 
     const setModelHandler = handlers.get('session.setModel');
     assertDefined(setModelHandler, 'session.setModel handler');
-    await setModelHandler({ workspaceId: 'ws-model', model: 'gpt-5.4' });
+    await setModelHandler({ workspaceId: 'ws-model', model: 'gpt-5.4', contextWindow: 200_000 });
 
     expect(events).toContainEqual({
       channel: 'session.model.changed',
-      payload: { workspaceId: 'ws-model', model: 'gpt-5.4' },
+      payload: { workspaceId: 'ws-model', model: 'gpt-5.4', contextWindow: 200_000 },
     });
     off();
   });
@@ -257,6 +258,72 @@ describe('session.runTurn handler', () => {
     }
   });
 
+  it("sends a message written in a bot's chat with the bot's model, whatever the app last picked", async () => {
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-bot' });
+    drivers.set('moxxy-channel-telegram', { runTurn } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'moxxy-channel-telegram',
+      get: (id: string) => id === 'moxxy-channel-telegram'
+        ? ({ getCwd: () => '/tmp/moxxy-test', remote: () => null } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool, {
+      channelModels: {
+        vault: () => ({ get: async (key: string) => (key === 'telegram_model' ? 'openai-codex::gpt-5.6-luna' : null) }),
+        activateProvider: async () => undefined,
+      },
+    });
+
+    try {
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await runTurnHandler({ workspaceId: 'moxxy-channel-telegram', prompt: 'hi', model: 'gpt-5.5' });
+
+      expect(runTurn).toHaveBeenCalledWith('hi', 'gpt-5.6-luna', undefined, undefined, undefined);
+    } finally {
+      drivers.delete('moxxy-channel-telegram');
+    }
+  });
+
+  it('forwards the selected custom model context window to the runner driver', async () => {
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-custom-context' });
+    drivers.set('ws-custom-context', { runTurn } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'ws-custom-context',
+      get: (id: string) => id === 'ws-custom-context'
+        ? ({ getCwd: () => '/tmp/moxxy-test', remote: () => null } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      const setModelHandler = handlers.get('session.setModel');
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(setModelHandler, 'session.setModel handler');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await setModelHandler({
+        workspaceId: 'ws-custom-context',
+        model: 'vendor/model-v2',
+        contextWindow: 200_000,
+      });
+      await runTurnHandler({
+        workspaceId: 'ws-custom-context',
+        prompt: 'hello',
+        model: 'vendor/model-v2',
+      });
+
+      expect(runTurn).toHaveBeenCalledWith(
+        'hello', 'vendor/model-v2', undefined, undefined, undefined, 200_000,
+      );
+    } finally {
+      drivers.delete('ws-custom-context');
+    }
+  });
+
   it('uses the configured local model only when the live server advertises it', async () => {
     const model = 'SpeakLeash/bielik-11b-v3.0-instruct:Q8_0';
     const server = createServer((_request, response) => {
@@ -302,7 +369,7 @@ describe('session.runTurn handler', () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   });
 });
@@ -524,7 +591,111 @@ describe('session.synthesize prosody', () => {
     expect(synthesize).toHaveBeenCalledWith('Świetnie!', {
       language: 'pl',
       rate: 1.06,
+      signal: expect.any(AbortSignal),
     });
+  });
+
+  it('returns cloud speech without recording or broadcasting a usage estimate', async () => {
+    // An older runner or third-party synthesizer may still attach token counts.
+    const synthesize = vi.fn(async () => ({
+      audio: new Uint8Array([82, 73, 70, 70]),
+      mimeType: 'audio/wav',
+      usage: { inputTextTokens: 8, outputAudioTokens: 25 },
+    }));
+    const remote = {
+      synthesizers: {
+        tryGetActive: () => ({ name: 'gemini-tts', synthesize }),
+      },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-gemini',
+      get: (id: string) => id === 'ws-gemini'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    const emittedEvents: Array<{ channel: string; payload: unknown }> = [];
+    const unsubscribe = desktopEventBus.addSink({
+      broadcast: (channel, payload) => emittedEvents.push({ channel, payload }),
+    });
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const handler = handlers.get('session.synthesize');
+    assertDefined(handler, 'session.synthesize handler');
+    const result = await handler({ workspaceId: 'ws-gemini', text: 'A short sentence.' });
+    unsubscribe();
+    expect(result).toEqual({ audioBase64: 'UklGRg==', mimeType: 'audio/wav' });
+    expect(emittedEvents.map((e) => e.channel)).not.toContain('voice.usage.changed');
+  });
+
+  it('aborts the matching in-flight synthesizer request', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let rejectSynthesis: ((reason?: unknown) => void) | undefined;
+    const synthesize = vi.fn((_text: string, options?: { signal?: AbortSignal }) => {
+      observedSignal = options?.signal;
+      return new Promise<never>((_resolve, reject) => { rejectSynthesis = reject; });
+    });
+    const remote = {
+      synthesizers: { tryGetActive: () => ({ name: 'gemini-tts', synthesize }) },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-cancel',
+      get: (id: string) => id === 'ws-cancel'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const synthesizeHandler = handlers.get('session.synthesize');
+    const cancelHandler = handlers.get('session.cancelSynthesis');
+    assertDefined(synthesizeHandler, 'session.synthesize handler');
+    assertDefined(cancelHandler, 'session.cancelSynthesis handler');
+    const request = synthesizeHandler({
+      workspaceId: 'ws-cancel', requestId: 'speech-abort-1', text: 'Przerwij.', voice: 'Fola',
+    });
+    await Promise.resolve();
+    expect(observedSignal).toBeDefined();
+    await cancelHandler({ workspaceId: 'ws-cancel', requestId: 'speech-abort-1' });
+    expect(observedSignal?.aborted).toBe(true);
+    rejectSynthesis?.(new Error('aborted'));
+    await expect(request).rejects.toThrow('aborted');
+  });
+
+  it('rejects a duplicate active speech request id without replacing its cancellation target', async () => {
+    let observedSignal: AbortSignal | undefined;
+    const synthesize = vi.fn((_text: string, options?: { signal?: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        observedSignal = options?.signal;
+        options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      }),
+    );
+    const remote = {
+      synthesizers: { tryGetActive: () => ({ name: 'gemini-tts', synthesize }) },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-duplicate',
+      get: (id: string) => id === 'ws-duplicate'
+        ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+        : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+    const synthesizeHandler = handlers.get('session.synthesize');
+    const cancelHandler = handlers.get('session.cancelSynthesis');
+    assertDefined(synthesizeHandler, 'session.synthesize handler');
+    assertDefined(cancelHandler, 'session.cancelSynthesis handler');
+    const args = { workspaceId: 'ws-duplicate', requestId: 'speech-duplicate', text: 'Sentence.' };
+
+    const first = synthesizeHandler(args);
+    await expect(synthesizeHandler(args)).rejects.toThrow(/already active/u);
+    await cancelHandler({ workspaceId: 'ws-duplicate', requestId: 'speech-duplicate' });
+
+    expect(observedSignal?.aborted).toBe(true);
+    await expect(first).rejects.toThrow('aborted');
   });
 });
 
@@ -542,7 +713,7 @@ describe('session.* attachment provenance', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     __resetPickedAttachments();
-    await rm(CWD, { recursive: true, force: true });
+    await removeDir(CWD);
     await mkdir(CWD, { recursive: true });
     const { bus, handlers } = fakeBus();
     provenanceHandlers = handlers;
@@ -561,7 +732,7 @@ describe('session.* attachment provenance', () => {
 
   afterEach(async () => {
     unpublishDriver(WS);
-    await rm(CWD, { recursive: true, force: true });
+    await removeDir(CWD);
   });
 
   const invoke = (channel: string, args?: unknown): Promise<unknown> => {

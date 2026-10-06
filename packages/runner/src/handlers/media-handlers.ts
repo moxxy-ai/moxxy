@@ -1,10 +1,13 @@
 import {
   transcribeParamsSchema,
+  cancelSynthesizeParamsSchema,
   synthesizeParamsSchema,
   type SynthesizeResult,
   type TranscribeResult,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
+
+const activeSyntheses = new Map<string, AbortController>();
 
 export async function handleTranscribe(
   ctx: HandlerContext,
@@ -50,16 +53,42 @@ export async function handleSynthesize(
   const params = synthesizeParamsSchema.parse(raw);
   const synth = session.synthesizers.tryGetActive();
   if (!synth) throw new Error('no active synthesizer on the runner');
+  if (params.requestId && activeSyntheses.has(params.requestId)) {
+    throw new Error('speech synthesis request id is already active');
+  }
+  const controller = new AbortController();
+  if (params.requestId) activeSyntheses.set(params.requestId, controller);
   const opts = {
     ...(params.voice ? { voice: params.voice } : {}),
     ...(params.language ? { language: params.language } : {}),
     ...(typeof params.rate === 'number' ? { rate: params.rate } : {}),
+    signal: controller.signal,
   };
-  const result = await synth.synthesize(params.text, opts);
-  return {
-    audio: Buffer.from(result.audio).toString('base64'),
-    mimeType: result.mimeType,
-  };
+  try {
+    const result = await synth.synthesize(params.text, opts);
+    return {
+      audio: Buffer.from(result.audio).toString('base64'),
+      mimeType: result.mimeType,
+    };
+  } finally {
+    if (params.requestId && activeSyntheses.get(params.requestId) === controller) {
+      activeSyntheses.delete(params.requestId);
+    }
+  }
+}
+
+export function handleCancelSynthesize(raw: unknown): Record<string, never> {
+  const { requestId } = cancelSynthesizeParamsSchema.parse(raw);
+  activeSyntheses.get(requestId)?.abort(new DOMException('Synthesis cancelled by client.', 'AbortError'));
+  return {};
+}
+
+/** Abort runner-side synthesis requests during graceful server shutdown. */
+export function abortActiveSyntheses(): void {
+  for (const controller of activeSyntheses.values()) {
+    controller.abort(new DOMException('Runner is shutting down.', 'AbortError'));
+  }
+  activeSyntheses.clear();
 }
 
 /** Ordered candidate list for a transcribe call.

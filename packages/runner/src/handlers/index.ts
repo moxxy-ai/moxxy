@@ -5,7 +5,12 @@ export {
   handleProviderRefreshReady,
   handleProviderConfigure,
 } from './provider-handlers.js';
-export { handleTranscribe, handleSynthesize } from './media-handlers.js';
+export {
+  handleTranscribe,
+  handleSynthesize,
+  handleCancelSynthesize,
+  abortActiveSyntheses,
+} from './media-handlers.js';
 export {
   handleMcpListServers,
   handleMcpEnableAndAttach,
@@ -31,7 +36,10 @@ export {
 export {
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionSetFast,
   handleSessionLoadHistory,
+  handleSessionRecordExchange,
+  handleSessionSetAutoApprove,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

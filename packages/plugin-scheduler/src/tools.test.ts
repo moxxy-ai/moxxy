@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import type { ToolContext, ToolDef } from '@moxxy/sdk';
 import { assertDefined, zodToJsonSchema } from '@moxxy/sdk';
 import { ScheduleStore } from './store.js';
 import { buildSchedulerTools } from './tools.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const ctx = {} as ToolContext;
 
@@ -33,7 +34,7 @@ describe('schedule_create tool — input validation hardening', () => {
     create = found;
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('schema rejects supplying BOTH cron and runAt', () => {
@@ -183,7 +184,7 @@ describe('schedule target session (ownerSessionId routing)', () => {
     store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('stamps ownerSessionId from an explicit targetSessionId, overriding the creator', async () => {

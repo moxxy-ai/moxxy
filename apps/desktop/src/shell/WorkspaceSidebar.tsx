@@ -12,6 +12,7 @@ import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { filterDesks } from './workspace-sidebar/filter-desks';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
+import { SidebarChannelsSection } from './SidebarChannels';
 
 /** Stable empty set: while filtering every folder is force-expanded, and a fresh
  *  Set per render would hand WorkspaceTree a new prop identity every time. */
@@ -20,6 +21,8 @@ const NO_COLLAPSED: ReadonlySet<string> = new Set();
 interface Props {
   /** Lands on a session's run after picking it in the tree. */
   readonly onOpenRun: () => void;
+  /** Opens a channel bot's page (its conversation, run mode, model). */
+  readonly onOpenChannel?: (channelId: string) => void;
 }
 
 /**
@@ -37,7 +40,7 @@ interface Props {
  * contributes no width at all, and the instrument bar grows the expand button so
  * the affordance never disappears with it. {@link IndexColumn} owns that.
  */
-export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
+export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Element | null {
   const desks = useDesks();
   const foldedDesks = useWorkspaceCollapsed();
   // useUnreadWorkspaces returns a reference-stable array (the store caches it
@@ -223,6 +226,7 @@ export function WorkspaceSidebar({ onOpenRun }: Props): JSX.Element | null {
             onRemoveWorkspace={(d) => setPendingRemove(d)}
           />
         )}
+        {onOpenChannel && <SidebarChannelsSection onOpen={onOpenChannel} />}
       </>
       {pendingFolder && (
         <NameWorkspaceModal

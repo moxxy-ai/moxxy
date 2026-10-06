@@ -232,6 +232,28 @@ describe('checkForUpdate runner-protocol gate', () => {
     expect(lower.compatible).toBe(true);
   });
 
+  it('does not offer a version that already failed to start on this machine', async () => {
+    const { manifestJson } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: 'https://github.com/moxxy-ai/moxxy/releases/latest/download/b.json.gz',
+      privateKeyPem: PRIVKEY,
+      files: { 'dist/index.html': Buffer.from('x') },
+    });
+    const fetchImpl = (async () => new Response(manifestJson)) as unknown as typeof fetch;
+    const check = (poisonedVersions: ReadonlySet<string>) =>
+      checkForUpdate(
+        { repo: 'moxxy-ai/moxxy', currentVersion: '0.0.5', publicKeyPem: PUBKEY, shell: SHELL, manifestUrlOverride: MANIFEST_URL, poisonedVersions },
+        { fetchImpl },
+      );
+
+    expect((await check(new Set())).available).toBe(true);
+    const poisoned = await check(new Set(['0.0.6']));
+    expect(poisoned.available).toBe(false);
+    expect(poisoned.error).toBeUndefined();
+  });
+
   it('does not flag when either side of the gate is unknown', async () => {
     const noStamp = await checkWithProtocol(undefined, 6); // legacy manifest
     expect(noStamp.requiresFullUpdate).toBeUndefined();

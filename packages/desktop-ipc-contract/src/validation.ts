@@ -71,6 +71,8 @@ const vaultKeyName = z
   .refine((s) => !s.includes('..'), 'vault key name may not contain ".."');
 
 const optionalWorkspace = z.string().min(1).max(256).optional();
+/** Mirrors the runner's per-side cap for a recorded exchange. */
+const MAX_VOICE_EXCHANGE_TEXT = 100_000;
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
  *  can't OOM the main process with one transcribe call. */
 const MAX_AUDIO_BASE64 = 40_000_000;
@@ -161,6 +163,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // "nothing" so a hostile renderer can't smuggle args across.
   'app.cliInfo': z.undefined(),
   'app.updateCli': z.undefined(),
+  'app.checkComponents': z.undefined(),
+  'app.updateComponents': z.undefined(),
   // Self-update: all no-arg. The update SOURCE (manifest/bundle URL) is resolved
   // main-side only — a hostile renderer must never be able to point the loader
   // at an attacker URL, so these accept nothing.
@@ -176,7 +180,31 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // accepted, preventing package-spec / CLI-argument injection.
   'voice.isLocalPiperInstalled': z.undefined(),
   'voice.installLocalPiper': z.undefined(),
+  'voice.listGeminiVoices': z.undefined(),
+  'voice.useGeminiTts': z.object({
+    voiceId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+  }).strict(),
+  'voice.useLocalPiper': z.undefined(),
+  'voice.getSettings': z.undefined(),
   'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
+  // GPT-Live spends the host's ChatGPT OAuth credential: the renderer supplies
+  // only its WebRTC offer; instructions, model and history stay host-owned.
+  'voice.live.preflight': z.undefined(),
+  'voice.live.start': z
+    .object({
+      workspaceId: z.string().min(1).max(256),
+      sdp: z.string().max(1_000_000).refine((value) => value.startsWith('v=0'), {
+        message: 'SDP must start with v=0',
+      }),
+    })
+    .strict(),
+  'session.recordVoiceExchange': z
+    .object({
+      workspaceId: z.string().min(1).max(256),
+      userText: z.string().max(MAX_VOICE_EXCHANGE_TEXT).optional(),
+      assistantText: z.string().max(MAX_VOICE_EXCHANGE_TEXT).optional(),
+    })
+    .strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
@@ -218,11 +246,17 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.synthesize': z
     .object({
       workspaceId: optionalWorkspace,
+      requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/).optional(),
       text: z.string().max(MAX_SYNTHESIZE_TEXT),
       language: speechLanguage.optional(),
       rate: speechRate.optional(),
+      voice: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
     })
     .strict(),
+  'session.cancelSynthesis': z.object({
+    workspaceId: optionalWorkspace,
+    requestId: z.string().min(1).max(64).regex(/^[A-Za-z0-9-]+$/),
+  }).strict(),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
   // bridge — they carry free-form ids/workspaceId, so bound them like the
   // sibling validated commands so a hostile remote can't OOM/log-bloat the host
@@ -240,6 +274,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'session.setModel': z.object({
     workspaceId: optionalWorkspace,
     model: z.string().min(1).max(256).nullable(),
+    contextWindow: z.number().int().positive().max(10_000_000).nullable().optional(),
   }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
   'session.newSession': z.object({ workspaceId: optionalWorkspace }),
@@ -385,8 +420,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // can't push an arbitrary string through to the runner / provider request.
   'settings.setReasoning': z.object({
     workspaceId: optionalWorkspace,
-    effort: z.enum(['off', 'low', 'medium', 'high']),
+    effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
   }),
+  'settings.setFast': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),
@@ -406,6 +442,19 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'channels.start': z.object({ channelId }),
   'channels.stop': z.object({ channelId }),
+  'channels.openChat': z.object({ channelId }).strict(),
+  // A path the agent wrote into a chat link; the host re-checks it is an
+  // existing absolute path and never executes it (see ipc/files.ts).
+  'files.open': z.object({ path: z.string().min(1).max(4096) }).strict(),
+  'channels.setRunMode': z.object({ channelId, mode: z.enum(['manual', 'app', 'background']) }),
+  'channels.setModel': z.object({
+    channelId,
+    model: z
+      .string()
+      .max(256)
+      .regex(/^[^:\s][^\s]*::[^\s]+$/, 'expected provider::model')
+      .nullable(),
+  }),
   // Anonymizer: parseDocument reads a file (bound the path), saveRedacted writes
   // one (bound name + cap content so a renderer can't OOM main). pickDocument
   // takes nothing — pin it to "nothing" so no args can be smuggled across.
@@ -457,6 +506,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       signedInAt: z.number().nullable().optional(),
       mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
+      voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),
@@ -550,6 +600,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .optional(),
   }),
   'browser.confirmFocus': z.object({ requestId: z.string().min(1).max(64) }),
+  'browser.confirmCursor': z.object({ requestId: z.string().min(1).max(64) }).strict(),
+  'browser.control': z.object({ command: z.enum(['takeover', 'resume']) }).strict(),
   'browser.history': z.object({
     action: z.enum(['back', 'forward', 'reload']),
     tabId: z.string().min(1).max(64).optional(),

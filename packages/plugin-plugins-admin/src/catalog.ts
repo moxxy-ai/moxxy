@@ -74,8 +74,8 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   },
   {
     id: 'computer-control',
-    label: 'Computer control (macOS)',
-    description: 'Screenshot, click, type, open, clipboard, AppleScript tools. macOS only.',
+    label: 'Computer control',
+    description: 'Operate desktop apps through a native helper: app state, click, type, drag, screenshots. macOS and Windows x64.',
     packageName: '@moxxy/plugin-computer-control',
     installSpec: '@moxxy/plugin-computer-control',
   },
@@ -242,6 +242,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-tts-local',
     installSpec: '@moxxy/plugin-tts-local',
     provides: [{ category: 'synthesizer', name: 'local-piper' }],
+  },
+  {
+    id: 'tts-gemini',
+    label: 'Gemini Flash-Lite cloud voice',
+    description:
+      'Cloud text-to-speech via Gemini 3.8 Flash-Lite. Add GEMINI_API_KEY in Voice settings and choose a voice from your Google voice library.',
+    packageName: '@moxxy/plugin-tts-gemini',
+    installSpec: '@moxxy/plugin-tts-gemini',
+    provides: [{ category: 'synthesizer', name: 'gemini-tts' }],
   },
   {
     id: 'stt-local',

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Synthesizer, SynthesizersClientView } from '@moxxy/sdk';
 import { RunnerMethod, type SynthesizeResult } from '../protocol.js';
 import type { ViewContext } from './context.js';
@@ -12,16 +13,30 @@ export function makeSynthesizersView(ctx: ViewContext): SynthesizersClientView {
   const proxy = (): Synthesizer => ({
     name: info()?.activeSynthesizer ?? 'runner',
     synthesize: async (text, opts) => {
-      const res = await peer.request<SynthesizeResult>(RunnerMethod.Synthesize, {
+      opts?.signal?.throwIfAborted();
+      const supportsCancellation = (ctx.serverProtocolVersion() ?? 0) >= 16;
+      const requestId = opts?.signal && supportsCancellation ? randomUUID() : undefined;
+      if (requestId) ctx.requireServerProtocol(16, 'Cancelling speech synthesis');
+      const cancelRemote = (): void => {
+        if (!requestId) return;
+        void peer.request(RunnerMethod.CancelSynthesize, { requestId }).catch(() => undefined);
+      };
+      if (requestId) opts?.signal?.addEventListener('abort', cancelRemote, { once: true });
+      try {
+        const res = await peer.request<SynthesizeResult>(RunnerMethod.Synthesize, {
+        ...(requestId ? { requestId } : {}),
         text,
         ...(opts?.voice ? { voice: opts.voice } : {}),
         ...(opts?.language ? { language: opts.language } : {}),
         ...(typeof opts?.rate === 'number' ? { rate: opts.rate } : {}),
-      });
-      return {
-        audio: new Uint8Array(Buffer.from(res.audio, 'base64')),
-        mimeType: res.mimeType,
-      };
+        }, opts?.signal ? { signal: opts.signal } : {});
+        return {
+          audio: new Uint8Array(Buffer.from(res.audio, 'base64')),
+          mimeType: res.mimeType,
+        };
+      } finally {
+        if (requestId) opts?.signal?.removeEventListener('abort', cancelRemote);
+      }
     },
   });
   return {

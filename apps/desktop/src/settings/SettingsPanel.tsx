@@ -7,6 +7,8 @@ import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { PreferencesTab } from './PreferencesTab';
+import { VoiceTab } from './VoiceTab';
+import { JevTab } from './JevTab';
 import { SearchBox } from './settings-primitives';
 import { InstrumentBar } from '../shell/InstrumentBar';
 import { IndexColumn } from '../shell/IndexColumn';
@@ -87,6 +89,8 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
     ),
   },
   { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
+  { id: 'voice', label: 'Voice', standalone: true, render: () => <VoiceTab /> },
+  { id: 'jev', label: 'Jev', standalone: true, render: () => <JevTab /> },
 ];
 
 export type SettingsTab = (typeof TAB_DESCRIPTORS)[number]['id'];
@@ -108,6 +112,8 @@ const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.
 const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<SettingsTab> }> = [
   { label: 'agent', ids: ['providers'] },
   { label: 'extend', ids: ['mcp', 'skills'] },
+  { label: 'voice', ids: ['voice'] },
+  { label: 'computer use', ids: ['jev'] },
   { label: 'trust', ids: ['vault'] },
   { label: 'app', ids: ['preferences'] },
 ];
@@ -178,7 +184,7 @@ export function SettingsIndex({
 export function useSettingsTab(
   scope: SettingsScope = 'all',
 ): readonly [SettingsTab, (t: SettingsTab) => void] {
-  const [tab, setTab] = useState<SettingsTab>(scope === 'settings' ? 'vault' : 'providers');
+  const [tab, setTab] = useState<SettingsTab>(scope === 'settings' ? 'voice' : 'providers');
   return [tab, setTab];
 }
 

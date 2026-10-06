@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { makeExecutable, resolveNodePtyModule, TerminalProcessImpl } from './pty.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const MAX_SCROLLBACK = 200_000;
 
@@ -64,11 +66,11 @@ describe('resolveNodePtyModule (degrade on a malformed optional dep)', () => {
 describe('makeExecutable (node-pty spawn-helper repair)', () => {
   let dir: string | null = null;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) removeDirSync(dir);
     dir = null;
   });
 
-  it('adds the executable bit to a file that lacks it', () => {
+  it.skipIf(!posixFileModes)('adds the executable bit to a file that lacks it', () => {
     dir = mkdtempSync(join(tmpdir(), 'moxxy-pty-'));
     const file = join(dir, 'spawn-helper');
     writeFileSync(file, 'binary');
@@ -80,7 +82,7 @@ describe('makeExecutable (node-pty spawn-helper repair)', () => {
     expect(statSync(file).mode & 0o111).not.toBe(0);
   });
 
-  it('is idempotent on an already-executable file', () => {
+  it.skipIf(!posixFileModes)('is idempotent on an already-executable file', () => {
     dir = mkdtempSync(join(tmpdir(), 'moxxy-pty-'));
     const file = join(dir, 'spawn-helper');
     writeFileSync(file, 'binary', { mode: 0o755 });

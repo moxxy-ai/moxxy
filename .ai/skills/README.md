@@ -40,6 +40,7 @@ One thin SKILL.md per task; read only what the task needs. Frontmatter
 | Skill | Trigger |
 |---|---|
 | verify-desktop-packaged | Packaged-app smoke: electron-builder --dir + launch + WS-bridge check |
+| windows-parity | Keep a change working on Windows when you can only run macOS/Linux (processes, sockets, paths, packaging) |
 | verify-mobile | Expo PoC verification without a device (tests + export proof + pairing) |
 | debug-self-update | Tier-1 hot-update misbehavior via <userData>/app state files + boot-log |
 | debug-session-logs | Resume/desync/duplication issues in session JSONL + chat NDJSON |

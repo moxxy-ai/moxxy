@@ -31,6 +31,7 @@ function installFakeApi(): { invokes: string[]; subscribes: string[] } {
       // Node NOT installed → the 'node' step is the unmet prerequisite the
       // recovery gate resolves to. `installed:false` is non-null → nodeProbed.
       if (channel === 'onboarding.probeNode') return Promise.resolve({ installed: false });
+      if (channel === 'onboarding.installNode') return Promise.resolve({ ok: false, version: null });
       return Promise.resolve(undefined);
     }) as never,
     subscribe: ((channel: string) => {
@@ -47,22 +48,28 @@ afterEach(() => {
 });
 
 describe('NodeStep — single shared useOnboarding instance', () => {
-  it('probes node once and subscribes to install progress once while the node step is active', async () => {
+  it('installs the runtime once, on its own, and subscribes to its progress once', async () => {
     const fake = installFakeApi();
     render(<Onboarding onComplete={() => {}} phase={{ phase: 'cli-missing' } as never} />);
 
-    // The node step's CTA confirms we're on the node step.
+    // The step never asks the person to install anything or names the runtime.
     await waitFor(() => {
-      expect(screen.getByText(/Install Node\.js/i)).toBeTruthy();
+      expect(screen.getByText(/Getting Moxxy ready/i)).toBeTruthy();
+    });
+    expect(screen.queryByText(/Install automatically/i)).toBeNull();
+    expect(screen.queryByText(/Node\.js/i)).toBeNull();
+
+    // The failed install is reported with a way to retry — and is not retried by itself.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Try again/i })).toBeTruthy();
     });
 
-    // One onboarding instance ⇒ one probe pair, one progress subscription.
-    const probeCount = fake.invokes.filter((c) => c === 'onboarding.probeNode').length;
-    const statusCount = fake.invokes.filter((c) => c === 'onboarding.status').length;
-    const progressSubs = fake.subscribes.filter((c) => c === 'onboarding.install.progress').length;
-
-    expect(probeCount).toBe(1);
-    expect(statusCount).toBe(1);
-    expect(progressSubs).toBe(1);
+    // One onboarding instance ⇒ one install, one progress subscription, and
+    // one probe pair on mount plus the one re-check after the install.
+    const count = (list: string[], name: string): number => list.filter((c) => c === name).length;
+    expect(count(fake.invokes, 'onboarding.installNode')).toBe(1);
+    expect(count(fake.invokes, 'onboarding.probeNode')).toBe(2);
+    expect(count(fake.invokes, 'onboarding.status')).toBe(2);
+    expect(count(fake.subscribes, 'onboarding.install.progress')).toBe(1);
   });
 });

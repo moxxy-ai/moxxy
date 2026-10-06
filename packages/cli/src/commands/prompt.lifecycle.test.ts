@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { definePlugin } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * Regression: `moxxy -p` must drain persistence + close the session before it
@@ -27,7 +28,7 @@ const realIsTTY = process.stdin.isTTY;
 afterEach(async () => {
   vi.restoreAllMocks();
   process.stdin.isTTY = realIsTTY;
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 const core = await vi.importActual<typeof import('@moxxy/core')>('@moxxy/core');
@@ -128,5 +129,43 @@ describe('runPromptCommand lifecycle', () => {
     expect(harness.onShutdown).toHaveBeenCalledTimes(1);
     const restored = await core.restoreSessionEvents(harness.id, harness.dir);
     expect(restored.at(-1)).toMatchObject({ text: 'last before crash' });
+  });
+
+  it('closes the session before exiting when the run is interrupted by a signal', async () => {
+    let turnStarted!: () => void;
+    const started = new Promise<void>((resolve) => (turnStarted = resolve));
+    runTurnImpl = async function* () {
+      turnStarted();
+      await new Promise(() => undefined); // a turn still waiting on a background job
+      yield undefined;
+    };
+    let exited!: (code: number | undefined) => void;
+    const exitCode = new Promise<number | undefined>((resolve) => (exited = resolve));
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => exited(code)) as never);
+    const signalListeners = process.listenerCount('SIGTERM');
+
+    void runPromptCommand(argv());
+    await started;
+    process.emit('SIGTERM');
+
+    await expect(exitCode).resolves.toBe(143);
+    expect(harness.onShutdown).toHaveBeenCalledTimes(1);
+    expect(process.listenerCount('SIGTERM')).toBe(signalListeners);
+  });
+
+  // --allow-all lets this invocation's tools run; it is not the conversation's auto-approve, which the log keeps.
+  it('keeps --allow-all to this invocation: the conversation\'s auto-approve stays off', async () => {
+    const flags = { p: 'hello', 'output-format': 'stream-json', 'allow-all': true };
+    await runPromptCommand({ positional: [], flags } as unknown as ParsedArgv);
+    expect(harness.session.autoApprove).toBe(false);
+    expect(harness.session.log.ofType('plugin_event')).toEqual([]);
+  });
+
+  it('leaves no signal handler behind after a normal run', async () => {
+    const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+
+    await runPromptCommand(argv());
+
+    expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(before);
   });
 });

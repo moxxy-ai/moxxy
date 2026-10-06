@@ -179,7 +179,7 @@ export async function installPluginPackage(
       opts.signal,
     );
     if (exitCode !== 0) {
-      throw new Error(`npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+      throw new Error(`npm install failed (exit ${exitCode}): ${truncateNpmError(stderr, 400)}`);
     }
     return { installed: spec, dir };
   });
@@ -266,7 +266,7 @@ export async function removePluginPackage(
       opts.signal,
     );
     if (exitCode !== 0) {
-      throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+      throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncateNpmError(stderr, 400)}`);
     }
     return { removed: spec, dir };
   });
@@ -650,6 +650,8 @@ function runNpm(
   });
 }
 
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…';
+export function truncateNpmError(s: string, n: number): string {
+  if (s.length <= n) return s;
+  if (n <= 1) return '…';
+  return `…${s.slice(-(n - 1))}`;
 }

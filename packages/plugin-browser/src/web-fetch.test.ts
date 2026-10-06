@@ -156,6 +156,71 @@ describe('web_fetch handler', () => {
   });
 });
 
+describe('web_fetch waiting for a service to come up', () => {
+  /**
+   * After a restart in the Coolify task the agent fetched the new address
+   * once, met the proxy's 503 while n8n was still starting, and reported it
+   * could not confirm the address. A minute later it answered 200.
+   */
+  let origFetch: typeof globalThis.fetch;
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+    setWebFetchDnsResolver(async () => ['93.184.216.34']);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.fetch = origFetch;
+    setWebFetchDnsResolver(null);
+  });
+
+  async function settle<T>(run: Promise<T>): Promise<T> {
+    let done = false;
+    void run.finally(() => (done = true));
+    while (!done) await vi.advanceTimersByTimeAsync(1_000);
+    return run;
+  }
+
+  it('keeps trying through 503s until the address answers', async () => {
+    const answers = [503, 503, 200];
+    globalThis.fetch = vi.fn(async () =>
+      mkResponse('<html><body>n8n</body></html>', { 'content-type': 'text/html' }, answers.shift() ?? 200),
+    ) as never;
+
+    const out = (await settle(
+      webFetchTool.handler({ url: 'https://example.com', format: 'text', method: 'GET', untilUpMs: 120_000 }, baseCtx()),
+    )) as string;
+
+    expect(out).toContain('HTTP 200');
+    expect(out).toMatch(/up after \d+ s \(3 tries\)/);
+  });
+
+  it('keeps trying through a refused connection too', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      if (++calls === 1) throw new TypeError('fetch failed');
+      return mkResponse('ok', { 'content-type': 'text/plain' });
+    }) as never;
+
+    const out = (await settle(
+      webFetchTool.handler({ url: 'https://example.com', format: 'raw', method: 'GET', untilUpMs: 60_000 }, baseCtx()),
+    )) as string;
+
+    expect(out).toContain('HTTP 200');
+  });
+
+  it('says it is still down once the wait is over, with the last answer', async () => {
+    globalThis.fetch = vi.fn(async () => mkResponse('no available server', { 'content-type': 'text/plain' }, 503)) as never;
+
+    const out = (await settle(
+      webFetchTool.handler({ url: 'https://example.com', format: 'raw', method: 'GET', untilUpMs: 30_000 }, baseCtx()),
+    )) as string;
+
+    expect(out).toMatch(/still not up after \d+ s/);
+    expect(out).toContain('HTTP 503');
+  });
+});
+
 describe('web_fetch SSRF guard', () => {
   let origFetch: typeof globalThis.fetch;
   beforeEach(() => {

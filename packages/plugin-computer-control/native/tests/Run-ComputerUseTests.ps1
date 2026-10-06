@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$HelperPath = (Join-Path $PSScriptRoot 'moxxy-computer.exe'),
   [string]$FixturePath = (Join-Path $PSScriptRoot 'moxxy-computer-fixture.exe'),
   [string]$ReportDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('moxxy-computer-tests-' + [guid]::NewGuid())),
@@ -7,10 +7,11 @@ param(
   [switch]$TestInstalledApps
 )
 $ErrorActionPreference = 'Stop'
+$ProtocolVersion = 5
 if (-not $NonInteractive) {
   Write-Host 'Test controls ONLY its own windows. Do not use the mouse or keyboard during the test.'
   Write-Host 'Use Stop Computer Use to stop. No data is uploaded.'
-  if ($TestClipboard) { Write-Host 'Clipboard test is enabled: non-text clipboard contents may be replaced.' }
+  if ($TestClipboard) { Write-Host 'Clipboard test is enabled: text on the clipboard is replaced for a moment and put back.' }
   if ($TestInstalledApps) { Write-Host 'Installed-app test is enabled: a NEW Notepad window will receive test text and close without saving files.' }
   if ((Read-Host 'Type START to continue') -cne 'START') { return }
 }
@@ -18,6 +19,7 @@ New-Item -ItemType Directory -Path $ReportDirectory -Force | Out-Null
 $results = [Collections.Generic.List[object]]::new()
 $peers = [Collections.Generic.List[Diagnostics.Process]]::new()
 $fixtures = [Collections.Generic.List[Diagnostics.Process]]::new()
+$script:events = [Collections.Generic.List[object]]::new()
 function Record($name, $status, $detail = '') {
   $results.Add([pscustomobject]@{ name=$name; status=$status; detail=$detail })
   Write-Host "$status : $name $detail"
@@ -32,36 +34,49 @@ function Start-Peer {
   $info.RedirectStandardOutput = $true
   $info.RedirectStandardError = $true
   $info.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
-  $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
+  # Windows PowerShell 5.1 has no StandardInputEncoding; there the child's stdin follows the console's.
+  if ($info.PSObject.Properties['StandardInputEncoding']) { $info.StandardInputEncoding = [Text.UTF8Encoding]::new($false) }
+  else { [Console]::InputEncoding = [Text.UTF8Encoding]::new($false) }
   $peer = [Diagnostics.Process]::new(); $peer.StartInfo = $info
   if (-not $peer.Start()) { throw 'Helper did not start' }
+  Add-Member -InputObject $peer -NotePropertyName PendingRead -NotePropertyValue $null -Force
   $peers.Add($peer)
   return $peer
 }
-function Request($peer, $method, $parameters, $version = 4) {
+# One read is outstanding at a time. A read that timed out is kept and answered by
+# the next call, so no line is lost and the stream is never read twice at once.
+function Read-Frame($peer, $timeout = 20000) {
+  if ($null -eq $peer.PendingRead) { $peer.PendingRead = $peer.StandardOutput.ReadLineAsync() }
+  if (-not $peer.PendingRead.Wait($timeout)) { return $null }
+  $line = $peer.PendingRead.Result
+  $peer.PendingRead = $null
+  if ($null -eq $line) { throw "Helper exited before answering ($($peer.ExitCode))" }
+  return $line | ConvertFrom-Json
+}
+function Send($peer, $method, $parameters, $version = $ProtocolVersion) {
   $id = [guid]::NewGuid().ToString()
   $frame = @{ version=$version; id=$id; method=$method; params=$parameters } | ConvertTo-Json -Depth 20 -Compress
-  # A timed-out ReadLineAsync keeps running against the StreamReader. Reusing
-  # that peer then fails with "The stream is currently in use by a previous
-  # operation", or silently consumes the abandoned line as the answer to a
-  # later request, which surfaces as 'Invalid protocol response' somewhere
-  # unrelated. Both are the same bug, so a peer that times out is finished.
-  if ($peer.PSObject.Properties['MoxxyPeerPoisoned'] -and $peer.MoxxyPeerPoisoned) {
-    throw "Helper is unusable after an earlier timeout (no request was sent for $method)"
-  }
   $peer.StandardInput.WriteLine($frame); $peer.StandardInput.Flush()
-  do {
-    $read = $peer.StandardOutput.ReadLineAsync()
-    if (-not $read.Wait(15000)) {
-      Add-Member -InputObject $peer -NotePropertyName MoxxyPeerPoisoned -NotePropertyValue $true -Force
-      try { if (-not $peer.HasExited) { $peer.Kill() } } catch { }
-      throw "Helper response timeout for $method (operation not retried)"
-    }
-    if (-not $read.Result) { throw "Helper exited before response ($($peer.ExitCode))" }
-    $response = $read.Result | ConvertFrom-Json
-    if ($response.id -ne $id -or $response.version -ne 4) { throw 'Invalid protocol response' }
-  } while ($response.event -eq 'control_state')
-  return $response
+  return $id
+}
+function Control($peer, $command) {
+  $peer.StandardInput.WriteLine((@{ version=$ProtocolVersion; control=$command } | ConvertTo-Json -Compress)); $peer.StandardInput.Flush()
+}
+# Events (state changes, cursor moves, preview frames) arrive between responses; they are kept for the tests that look at them.
+function Await($peer, $id, $timeout = 25000) {
+  $until = [DateTime]::UtcNow.AddMilliseconds($timeout)
+  while ([DateTime]::UtcNow -lt $until) {
+    $frame = Read-Frame $peer 500
+    if ($null -eq $frame) { continue }
+    if ($frame.version -ne $ProtocolVersion) { throw 'Invalid protocol response' }
+    if ($frame.PSObject.Properties['event']) { $script:events.Add($frame); continue }
+    if ($frame.id -ne $id) { throw 'Response does not match the request' }
+    return $frame
+  }
+  throw 'Helper response timeout (operation not retried)'
+}
+function Request($peer, $method, $parameters, $version = $ProtocolVersion) {
+  return Await $peer (Send $peer $method $parameters $version)
 }
 function Call($method, $parameters) {
   $response = Request $script:helper $method $parameters
@@ -69,28 +84,29 @@ function Call($method, $parameters) {
   return $response.result
 }
 function Check($condition, $message) { if (-not $condition) { throw $message } }
-function Observe { return Call 'observe' @{ windowId=$script:windowId; maxNodes=128 } }
-function Await-Action($receipt) {
-  for ($i=0;$i -lt 8 -and $receipt.status -eq 'pending';$i++) {
-    $receipt=Call 'action_status' @{actionId=$receipt.actionId;waitMs=500}
-  }
-  Check ($receipt.status -eq 'completed') ('UIA operation did not complete: '+($receipt | ConvertTo-Json -Compress))
+function Look([switch]$AnyWindow) {
+  $parameters = @{ app=$script:app; screenshot=$true }
+  if (-not $AnyWindow) { $parameters.window_id = $script:windowId }
+  $script:state = Call 'get_app_state' $parameters
+  return $script:state
 }
-function Accessible-Action($name,$action) {
-  $observation=Observe
-  $control=@($observation.elements | Where-Object name -eq $name)[0]
-  Check ($null -ne $control -and $control.actions -contains $action) ('Action not advertised for '+$name+': '+$action)
-  return Call 'action' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$control.elementId;action=$action}
+function Find($state, $title, $role = $null) {
+  return @($state.tree.elements | Where-Object { $_.PSObject.Properties['title'] -and $_.title -eq $title -and (-not $role -or $_.role -eq $role) })[0]
 }
-function Screenshot {
-  return Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false }
+function Field($state) {
+  return @($state.tree.elements | Where-Object { $_.role -eq 'Edit' -and -not $_.PSObject.Properties['secure'] })[0]
 }
-function Canvas-Point($capture, $xOffset = 60, $yOffset = 60) {
-  $observation=Observe
-  $canvas=@($observation.elements | Where-Object { $_.name -eq 'Canvas' })[0]
-  Check ($null -ne $canvas) 'Canvas not found in fixture'
-  return @{ x=[math]::Floor(($canvas.bounds.x+$xOffset-$capture.source.x)*$capture.width/$capture.source.width);
-    y=[math]::Floor(($canvas.bounds.y+$yOffset-$capture.source.y)*$capture.height/$capture.source.height) }
+function Act($action) {
+  $result = Call 'act' @{ app=$script:app; action=$action; allowed=@($script:app) }
+  if ($result.PSObject.Properties['state']) { $script:state = $result.state }
+  return $result
+}
+function Delivered($result, $what) {
+  Check ($result.result.outcome -eq 'delivered') ($what + ' was not delivered: ' + ($result.result | ConvertTo-Json -Compress))
+}
+function Chord($key, $modifiers = @()) { return @{ modifiers=@($modifiers); key=$key } }
+function Middle($element, $dx = 0, $dy = 0) {
+  return @{ x=[math]::Floor($element.frame.x + $element.frame.width / 2 + $dx); y=[math]::Floor($element.frame.y + $element.frame.height / 2 + $dy) }
 }
 # A fixture rewrites its report while the test reads it, so a bare Get-Content
 # races the writer and fails with "being used by another process", or catches a
@@ -111,20 +127,26 @@ function Read-StateFile($path) {
 }
 function Fixture-State {
   # Wait for real window messages to be processed, not for a model declaration.
-  Start-Sleep -Milliseconds 200
+  Start-Sleep -Milliseconds 250
   return Read-StateFile $script:statePath
 }
-function Focus-TestFixture($process, [switch]$ProbeEvents) {
-  # Simulate a real title-bar click outside the backend under test, and wait
-  # for the actor's independent WinEvent witness before ending its process.
-  $actor=Start-Process -FilePath $FixturePath -ArgumentList '--focus-test-window',([string]$process.Id) -PassThru
+function Close-Peer($peer) {
   try {
-    if (-not $actor.WaitForExit(5000)) { $actor.Kill(); $actor.WaitForExit(); throw 'Test focus actor timed out' }
-    # Exit 11 means actual foreground was confirmed but the independent OS
-    # event receiver timed out. Other tests may rely on foreground alone.
-    Check ($actor.ExitCode -eq 0 -or $actor.ExitCode -eq 11) ('Test fixture could not acquire real foreground focus (actor exit '+$actor.ExitCode+')')
-    if ($ProbeEvents) { return $actor.ExitCode -eq 0 }
-  } finally { $actor.Dispose() }
+    if (-not $peer.HasExited) { $peer.StandardInput.Close(); if (-not $peer.WaitForExit(3000)) { $peer.Kill(); $peer.WaitForExit() } }
+  } catch { }
+}
+# A new helper knows no windows: find the fixture's main window again and look at it.
+function Attach {
+  # A test that failed half-way may have left its helper holding the desktop.
+  if ($script:helper) { Close-Peer $script:helper }
+  $script:helper = Start-Peer
+  $listed = Call 'list_apps' @{ query='moxxy-computer-fixture'; limit=20 }
+  $row = @($listed.apps | Where-Object id -eq $script:app)[0]
+  Check ($null -ne $row -and $row.running) 'The fixture is not listed as a running app'
+  $main = @($row.windows | Where-Object title -eq 'Moxxy Computer Use Test')
+  Check ($main.Count -eq 1) 'The fixture window is ambiguous or absent'
+  $script:windowId = $main[0].id
+  return Look
 }
 function Test($name, [scriptblock]$work) {
   try { & $work; Record $name 'passed' }
@@ -135,14 +157,16 @@ $exitCode = 1
 try {
   $script:helper = Start-Peer
   $status = Call 'status' @{}
-  Check ($status.protocolVersion -eq 4 -and $status.architecture -eq 'x64') 'Wrong helper architecture/protocol'
+  Check ($status.permissions.accessibility -and $status.permissions.screenRecording) 'Status does not follow the shared contract'
   Test 'protocol rejects wrong version' {
-    $response = Request $script:helper 'status' @{} 1
+    $response = Request $script:helper 'status' @{} 4
     Check (-not $response.ok) 'Wrong version was accepted'
   }
-  Test 'protocol rejects unknown parameters' {
+  Test 'protocol rejects unknown parameters and unknown methods' {
     $response = Request $script:helper 'status' @{ unexpected=$true }
     Check (-not $response.ok) 'Unknown parameter was accepted'
+    $response = Request $script:helper 'observe' @{}
+    Check (-not $response.ok -and $response.error.code -eq 'unsupported_action') 'A removed method was accepted'
   }
   if (-not $status.ready) {
     Record 'interactive desktop preflight' 'not-tested' 'Windows has no unlocked interactive desktop.'
@@ -156,9 +180,9 @@ try {
         try {
           $busy=Request $other 'maintenance' @{}
           Check (-not $busy.ok -and $busy.error.code -eq 'control-busy') 'Maintenance allowed competing desktop owner'
-        } finally { $other.StandardInput.Close(); $other.WaitForExit(3000) | Out-Null }
+        } finally { Close-Peer $other }
       } finally {
-        $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null
+        Close-Peer $script:helper
         $script:helper=Start-Peer
       }
     }
@@ -166,602 +190,373 @@ try {
     $fixture = Start-Process -FilePath $FixturePath -ArgumentList ('"' + $script:statePath + '"') -PassThru
     $fixtures.Add($fixture)
     Check ($fixture.WaitForInputIdle(10000)) 'Fixture did not become responsive'
-    $windows = Call 'windows' @{}
-    $window = @($windows | Where-Object { $_.pid -eq $fixture.Id })
-    Check ($window.Count -eq 1) 'Fixture window identity is ambiguous or absent'
-    $script:windowId = $window[0].windowId
-    Call 'focus' @{ windowId=$script:windowId } | Out-Null
-    $observation = Observe
-    Check ($observation.elements.Count -gt 2) 'UI Automation is unavailable'
-    $image = Screenshot
+    Start-Sleep -Milliseconds 500
+    $resolved = (Call 'resolve_apps' @{ names=@('moxxy-computer-fixture', 'no such application 4711') }).apps
+    Check ($resolved[0].status -eq 'resolved' -and $resolved[1].status -eq 'not_found') ('App names were not resolved: ' + ($resolved | ConvertTo-Json -Compress))
+    $script:app = $resolved[0].id
+    Close-Peer $script:helper
+    $state = Attach
+    Check ($state.tree.elements.Count -gt 5) 'UI Automation is unavailable'
+    Check ($state.PSObject.Properties['screenshot'] -and $state.screenshot.mediaType -eq 'image/jpeg') ('No window picture: ' + $state.screenshotUnavailable)
     Add-Type -AssemblyName System.Drawing
-    $stream = [IO.MemoryStream]::new([Convert]::FromBase64String($image.base64))
+    $stream = [IO.MemoryStream]::new([Convert]::FromBase64String($state.screenshot.base64))
     $bitmap = [Drawing.Bitmap]::new($stream)
     try {
+      Check ($bitmap.Width -eq $state.screenshot.width -and $bitmap.Height -eq $state.screenshot.height) 'Reported picture size is wrong'
       $markers = 0
       for ($x=0; $x -lt $bitmap.Width; $x+=10) {
         for ($y=0; $y -lt $bitmap.Height; $y+=10) {
           $pixel=$bitmap.GetPixel($x,$y)
-          if ($pixel.R -gt 240 -and $pixel.G -lt 20 -and $pixel.B -gt 240) { $markers++ }
+          if ($pixel.R -gt 200 -and $pixel.G -lt 90 -and $pixel.B -gt 200) { $markers++ }
         }
       }
       Check ($markers -gt 100) 'Capture did not contain fixture pixel markers'
     } finally { $bitmap.Dispose(); $stream.Dispose() }
     Record 'interactive desktop / UIA / image marker preflight' 'passed'
-    Test 'UIA invoke toggle selection and tree expansion affect real controls' {
+
+    Test 'app state lists indexed elements and never the value of a protected field' {
+      $state = Look
+      $save = Find $state 'Save' 'Button'
+      Check ($null -ne $save -and $save.index -ge 0 -and $save.frame.width -gt 0) 'The Save button is not listed with an index and a frame'
+      $secure = @($state.tree.elements | Where-Object { $_.PSObject.Properties['secure'] })
+      Check ($secure.Count -eq 1 -and -not $secure[0].PSObject.Properties['value']) 'The protected field is missing or shows its value'
+      Check (($state | ConvertTo-Json -Depth 20) -notmatch 'fixture-secret') 'Protected text leaked into the state'
+      $again = Look
+      Check ((Find $again 'Save' 'Button').index -eq $save.index) 'An unchanged element received a new index'
+    }
+    Test 'click by element index reaches the real button and returns the fresh state' {
       $before=(Fixture-State).saves
-      Await-Action (Accessible-Action 'Save' 'invoke')
-      Check ((Fixture-State).saves -eq $before+1) 'Invoke did not activate the real button'
-      Await-Action (Accessible-Action 'Enable test option' 'toggle')
-      Check ((Fixture-State).checked) 'Toggle did not change the real checkbox'
-      Await-Action (Accessible-Action 'Second choice' 'select')
-      Check ((Fixture-State).selectedItem -eq 1) 'Selection did not reach the real list item'
-      Await-Action (Accessible-Action 'Test branch' 'expand')
-      Check ((Fixture-State).expanded) 'Tree branch did not expand'
-      Await-Action (Accessible-Action 'Test branch' 'collapse')
-      Check (-not (Fixture-State).expanded) 'Tree branch did not collapse'
+      $result = Act @{ action='click'; element_index=(Find (Look) 'Save' 'Button').index; mouse_button='left'; click_count=1 }
+      Delivered $result 'Click'
+      Check ($result.result.method -eq 'input') 'A click must report how it was delivered'
+      Check ($result.PSObject.Properties['state'] -and $result.state.tree.elements.Count -gt 5) 'No fresh state came back with the action'
+      Check ((Fixture-State).saves -eq $before+1) 'The click did not reach the real button'
+      Check (@($script:events | Where-Object { $_.event -eq 'cursor' -and $null -ne $_.cursor -and $_.cursor.phase -eq 'delivered' -and $_.cursor.x -ge 0 -and $_.cursor.x -le 1 }).Count -gt 0) 'The agent cursor was not reported'
     }
-    Test 'accessibility reads and selects real Unicode text without exposing protected text' {
-      $before=Observe
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      $value='Zażółć gęślą jaźń, gęślą'
-      Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=$value} | Out-Null
-      $before=Observe
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      $ref=@{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId}
-      $read=Call 'read_text' ($ref+@{maxChars=100})
-      Check ($read.text -eq $value -and -not $read.truncated) 'TextPattern did not return actual Unicode document text'
-      $short=Call 'read_text' ($ref+@{maxChars=3})
-      Check ($short.text -eq 'Zaż' -and $short.truncated) 'Text output did not report truncation'
-      Call 'select_text' ($ref+@{text='gęślą';occurrence=2}) | Out-Null
+    Test 'unknown index and ungranted app are refused without input' {
+      $before=(Fixture-State).saves
+      $result = Act @{ action='click'; element_index=987654; mouse_button='left'; click_count=1 }
+      Check ($result.result.outcome -eq 'blocked' -and $result.result.code -eq 'stale_state') 'An invented index was not refused as stale'
+      $denied = Request $script:helper 'act' @{ app=$script:app; action=@{ action='click'; element_index=0; mouse_button='left'; click_count=1 }; allowed=@() }
+      Check (-not $denied.ok -and $denied.error.code -eq 'app_not_allowed') 'An app outside the grant list was acted on'
+      Check ((Fixture-State).saves -eq $before) 'A refused action reached the application'
+    }
+    Test 'set value keeps Polish and Unicode text and refuses a protected field' {
+      $value='Zażółć gęślą jaźń, gęślą ✅'
+      $result = Act @{ action='set_value'; element_index=(Field (Look)).index; value=$value }
+      Delivered $result 'Set value'
+      Check ((Fixture-State).text -ceq $value) 'The value did not arrive unchanged'
+      Check ((Field $script:state).value -ceq $value) 'The fresh state does not show the new value'
+      $secure = @($script:state.tree.elements | Where-Object { $_.PSObject.Properties['secure'] })[0]
+      $refused = Act @{ action='set_value'; element_index=$secure.index; value='not allowed' }
+      Check ($refused.result.outcome -eq 'unsupported') 'A protected field was changed'
+    }
+    Test 'text selection finds the right repeat and places the caret' {
+      $value='Zażółć gęślą jaźń, gęślą ✅'
+      $index=(Field (Look)).index
+      Delivered (Act @{ action='select_text'; element_index=$index; text='gęślą'; prefix=', '; selection_type='text' }) 'Selection'
       $state=Fixture-State
-      Check ($state.selectionStart -eq $value.LastIndexOf('gęślą') -and $state.selectionEnd -eq $value.Length) 'Second occurrence was not selected in the actual EDIT'
-      $before=Observe
-      $secret=@($before.elements | Where-Object { $_.protected })[0]
-      $denied=Request $script:helper 'read_text' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$secret.elementId;maxChars=100}
-      Check (-not $denied.ok -and $denied.error.code -eq 'protected-element') 'Protected text read was not rejected'
+      Check ($state.selectionStart -eq $value.LastIndexOf('gęślą') -and $state.selectionEnd -eq $value.LastIndexOf('gęślą')+5) 'The second repeat was not selected'
+      Delivered (Act @{ action='select_text'; element_index=$index; text='jaźń'; selection_type='cursor_before' }) 'Caret placement'
+      $state=Fixture-State
+      Check ($state.selectionStart -eq $value.IndexOf('jaźń') -and $state.selectionEnd -eq $state.selectionStart) 'The caret was not placed before the text'
+      $missing = Act @{ action='select_text'; element_index=$index; text='not in the field'; selection_type='text' }
+      Check ($missing.result.outcome -ne 'delivered') 'Missing text was reported as selected'
     }
-    Test 'inventory preserves unchanged window and observation identities' {
-      $before=Observe
-      $inventory=Call 'windows' @{}
-      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id })[0]
-      $previous=$script:windowId
-      $script:windowId=$target.windowId
-      Check ($previous -eq $target.windowId) 'Unchanged window received a new identity'
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='inventory retained'} | Out-Null
+    Test 'typing and key chords reach the focused control' {
+      $index=(Field (Look)).index
+      Delivered (Act @{ action='set_value'; element_index=$index; value='' }) 'Clearing'
+      Delivered (Act @{ action='type_text'; element_index=$index; text="Zażółć`nlinia 2" }) 'Typing'
+      Check ((Fixture-State).text.Replace("`r",'') -ceq "Zażółć`nlinia 2") 'Typed text differs'
+      Delivered (Act @{ action='press_key'; chord=(Chord 'a' @('ctrl')); repeat=1 }) 'Select all'
+      Delivered (Act @{ action='type_text'; text='replaced' }) 'Typing into the focus'
+      Check ((Fixture-State).text -ceq 'replaced') 'Ctrl+A followed by typing did not replace the text'
+      Delivered (Act @{ action='press_key'; chord=(Chord 'backspace'); repeat=3 }) 'Repeated key'
+      Check ((Fixture-State).text -ceq 'repla') 'A repeated key was not pressed three times'
+      $bad = Request $script:helper 'act' @{ app=$script:app; action=@{ action='press_key'; chord=(Chord 'no_such_key'); repeat=1 }; allowed=@($script:app) }
+      Check (-not $bad.ok -and $bad.error.code -eq 'invalid_key') 'An unknown key was accepted'
     }
-    Test 'background UIA change does not steal foreground or require focus' {
-      $before=Observe
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      $otherPath=Join-Path $ReportDirectory 'other-fixture-state.json'
-      $other=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$otherPath+'"') -PassThru
-      $fixtures.Add($other)
-      try {
-        Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
-        Focus-TestFixture $other
-        Start-Sleep -Milliseconds 250
-        Check ((Read-StateFile $otherPath).foreground) 'Second fixture was not foreground'
-        Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='background updated'} | Out-Null
-        Check ((Fixture-State).text -eq 'background updated') 'Background value not set'
-        $image=Screenshot
-        Check ($image.mode -eq 'window') 'Background capture used desktop fallback'
-        Check ((Read-StateFile $otherPath).foreground) 'Automation stole foreground'
-      } finally {
-        $other.CloseMainWindow() | Out-Null
-        $other.WaitForExit(3000) | Out-Null
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
+    if ($TestClipboard) {
+      Test 'paste goes through the clipboard and puts the old text back' {
+        Set-Clipboard -Value 'user clipboard text'
+        $index=(Field (Look)).index
+        Delivered (Act @{ action='set_value'; element_index=$index; value='' }) 'Clearing'
+        Delivered (Act @{ action='paste'; element_index=$index; text='wklejone ✅'; format='text' }) 'Paste'
+        Check ((Fixture-State).text -ceq 'wklejone ✅') 'Pasted text differs'
+        Check ((Get-Clipboard -Raw) -ceq 'user clipboard text') 'The clipboard was not restored'
       }
-    }
-    Test 'permission focus returns only from the approval host and never after a human app switch' {
-      $hostPath=Join-Path $ReportDirectory 'approval-host-state.json'
-      $approvalHost=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$hostPath+'"') -PassThru
-      $fixtures.Add($approvalHost)
-      $humanPath=Join-Path $ReportDirectory 'human-app-state.json'
-      $human=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$humanPath+'"') -PassThru
-      $fixtures.Add($human)
-      try {
-        Check ($approvalHost.WaitForInputIdle(10000) -and $human.WaitForInputIdle(10000)) 'Approval fixtures unavailable'
-        Focus-TestFixture $human
-        if (-not (Focus-TestFixture $approvalHost -ProbeEvents)) {
-          throw [System.PlatformNotSupportedException]::new('Independent foreground-event preflight unavailable: a physical title-bar click changed foreground but the fixture actor received no EVENT_SYSTEM_FOREGROUND. Approval return is NOT verified; repeat on the user Windows desktop. No backend failure is converted to a pass.')
-        }
-        Focus-TestFixture $fixture
-        Start-Sleep -Milliseconds 250
-        $fieldSnapshot=Observe
-        $field=@($fieldSnapshot.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        Call 'click' @{windowId=$script:windowId;observationId=$fieldSnapshot.observationId;elementId=$field.elementId;button='left';count=1} | Out-Null
-        $approvedSnapshot=Observe
-        $beforeText=(Fixture-State).text
-        $approval=@{windowId=$script:windowId;callId=[guid]::NewGuid().ToString();hostPid=$approvalHost.Id}
-        $prepared=Call 'approval_focus' ($approval+@{stage='begin';approved=$false})
-        Check ($prepared.reason -eq 'prepared') ('Approval setup rejected: '+($prepared | ConvertTo-Json -Compress))
-        Focus-TestFixture $approvalHost
-        Start-Sleep -Milliseconds 250
-        $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
-        Check ($restored.restored -and (Fixture-State).foreground) ('Approval-only return did not reach the original window: '+($restored | ConvertTo-Json -Compress))
-        Call 'key' @{windowId=$script:windowId;observationId=$approvedSnapshot.observationId;key='a';modifiers=@()} | Out-Null
-        Check ((Fixture-State).text.Length -eq $beforeText.Length+1) 'The approved key did not execute exactly once after focus restoration'
-        $canvasSnapshot=Observe
-        $canvas=@($canvasSnapshot.elements | Where-Object name -eq 'Canvas')[0]
-        Call 'click' @{windowId=$script:windowId;observationId=$canvasSnapshot.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
-        $approvedCapture=Screenshot
-        # Do not perform an extra Observe here: image-only clients must also
-        # survive the approval round-trip without a hidden accessibility read.
-        $point=@{x=[math]::Floor(($canvas.bounds.x+60-$approvedCapture.source.x)*$approvedCapture.width/$approvedCapture.source.width);
-          y=[math]::Floor(($canvas.bounds.y+60-$approvedCapture.source.y)*$approvedCapture.height/$approvedCapture.source.height)}
-        $beforeClicks=(Fixture-State).left
-        $approval.callId=[guid]::NewGuid().ToString()
-        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
-        Focus-TestFixture $approvalHost
-        Start-Sleep -Milliseconds 250
-        Call 'approval_focus' ($approval+@{stage='finish';approved=$true}) | Out-Null
-        Call 'click' @{windowId=$script:windowId;captureId=$approvedCapture.captureId;x=$point.x;y=$point.y;button='left';count=1} | Out-Null
-        Check ((Fixture-State).left -eq $beforeClicks+1) 'Approved image click did not execute exactly once'
-        $approval.callId=[guid]::NewGuid().ToString()
-        Call 'approval_focus' ($approval+@{stage='begin';approved=$false}) | Out-Null
-        Focus-TestFixture $human
-        Start-Sleep -Milliseconds 250
-        Focus-TestFixture $approvalHost
-        Start-Sleep -Milliseconds 250
-        $restored=Call 'approval_focus' ($approval+@{stage='finish';approved=$true})
-        Check (-not $restored.restored) 'Approval stole focus after a human app switch'
-        Check ((Read-StateFile $hostPath).foreground) 'Approval host lost foreground unexpectedly'
-      } finally {
-        $approvalHost.CloseMainWindow() | Out-Null; $human.CloseMainWindow() | Out-Null
-        $approvalHost.WaitForExit(3000) | Out-Null; $human.WaitForExit(3000) | Out-Null
-        Focus-TestFixture $fixture
+    } else { Record 'paste through the clipboard' 'not-tested' 'Explicitly opt in with -TestClipboard.' }
+    Test 'secondary actions toggle, select, expand and collapse real controls' {
+      $do = { param($title, $name)
+        $element = Find (Look) $title
+        Check ($null -ne $element -and $element.PSObject.Properties['actions'] -and $element.actions -contains $name) ('Action not listed for ' + $title + ': ' + $name)
+        Delivered (Act @{ action='perform_secondary_action'; element_index=$element.index; secondary_action=$name }) ($name + ' on ' + $title)
       }
+      & $do 'Enable test option' 'toggle'
+      Check ((Fixture-State).checked) 'Toggle did not change the real checkbox'
+      Check ((Find (Look) 'Enable test option').states -contains 'checked') 'The state does not show the box as checked'
+      & $do 'Second choice' 'select'
+      Check ((Fixture-State).selectedItem -eq 1) 'Selection did not reach the real list item'
+      & $do 'Test branch' 'expand'
+      Check ((Fixture-State).expanded) 'Tree branch did not expand'
+      & $do 'Test branch' 'collapse'
+      Check (-not (Fixture-State).expanded) 'Tree branch did not collapse'
+      $guessed = Act @{ action='perform_secondary_action'; element_index=(Find (Look) 'Save' 'Button').index; secondary_action='expand' }
+      Check ($guessed.result.outcome -eq 'unsupported') 'A guessed action was tried'
     }
-    Test 'window capture does not include a moving human pointer' {
-      $snapshot=Observe
-      $canvas=@($snapshot.elements | Where-Object name -eq 'Canvas')[0]
-      Call 'click' @{windowId=$script:windowId;observationId=$snapshot.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
-      $before=Screenshot
-      $actor=Start-Process -FilePath $FixturePath -ArgumentList '--move-test-pointer',([string]$fixture.Id) -PassThru
-      try {
-        Check ($actor.WaitForExit(5000) -and $actor.ExitCode -eq 0) 'Human pointer actor failed'
-        $after=Screenshot
-        Check ($before.base64 -eq $after.base64) 'Moving the pointer changed the captured window pixels'
-      } finally { if (-not $actor.HasExited) { $actor.Kill(); $actor.WaitForExit(3000) | Out-Null } }
-    }
-    Test 'window-local crop retains source geometry' {
-      $full=Screenshot
-      $crop=Call 'screenshot' @{ windowId=$script:windowId; maxDim=1280; format='png'; quality=72; allowVisibleFallback=$false; region=@{x=20;y=30;width=200;height=100} }
-      Check ($crop.width -eq 200 -and $crop.height -eq 100 -and $crop.source.x -eq $full.source.x+20 -and $crop.source.y -eq $full.source.y+30) 'Crop source mapping differs'
-    }
-    Test 'explicit pause stays paused on foreground and resumes only by user command' {
-      try {
-        $before=Observe
-        $script:helper.StandardInput.WriteLine('{"version":4,"control":"pause"}'); $script:helper.StandardInput.Flush()
-        $id=[guid]::NewGuid().ToString()
-        $frame=@{version=4;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
-        $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
-        $read=$script:helper.StandardOutput.ReadLineAsync()
-        Check ($read.Wait(5000)) 'No paused state'
-        $state=$read.Result | ConvertFrom-Json
-        Check ($state.id -eq $id -and $state.state -eq 'paused_by_user') 'Explicit pause was not honored'
-        $pending=$script:helper.StandardOutput.ReadLineAsync()
-        Check (-not $pending.Wait(1200)) 'Pause auto-resumed while target was foreground'
-        $script:helper.StandardInput.WriteLine('{"version":4,"control":"resume"}'); $script:helper.StandardInput.Flush()
-        Check ($pending.Wait(5000)) 'Resume could not reach blocked helper'
-        $state=$pending.Result | ConvertFrom-Json
-        Check ($state.state -in @('foreground','background')) 'Missing resumed state'
-        $read=$script:helper.StandardOutput.ReadLineAsync()
-        Check ($read.Wait(5000)) 'Missing paused operation result'
-        $response=$read.Result | ConvertFrom-Json
-        Check ($response.ok -and $response.result.status -eq 'needs_observation' -and $response.result.effect -eq 'none') 'Paused input was replayed'
-      } finally {
-        $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null
-        $script:helper=Start-Peer
-        $inventory=Call 'windows' @{}
-        $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-      }
-    }
-    Test 'focus wait stays pending and returns observation-required after target resumes' {
-      $before=Observe
-      $otherPath=Join-Path $ReportDirectory 'focus-wait-fixture.json'
-      $other=Start-Process -FilePath $FixturePath -ArgumentList ('"'+$otherPath+'"') -PassThru
-      $fixtures.Add($other)
-      try {
-        Check ($other.WaitForInputIdle(10000)) 'Second fixture unavailable'
-        Focus-TestFixture $other
-        Start-Sleep -Milliseconds 250
-        Check ((Read-StateFile $otherPath).foreground) 'Second fixture was not foreground'
-        $id=[guid]::NewGuid().ToString()
-        $frame=@{version=4;id=$id;method='key';params=@{windowId=$script:windowId;observationId=$before.observationId;key='a';modifiers=@()}} | ConvertTo-Json -Compress -Depth 10
-        $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
-        $read=$script:helper.StandardOutput.ReadLineAsync()
-        Check ($read.Wait(5000)) 'No waiting state event'
-        $state=$read.Result | ConvertFrom-Json
-        Check ($state.id -eq $id -and $state.event -eq 'control_state' -and $state.state -eq 'waiting_for_focus') 'Focus loss ended the operation instead of waiting locally'
-        $pending=$script:helper.StandardOutput.ReadLineAsync()
-        Check (-not $pending.Wait(1200)) 'Focus waiting ended prematurely'
-        Check ((Read-StateFile $otherPath).text -eq '') 'Input leaked into another window'
-        $other.CloseMainWindow() | Out-Null
-        Check ($other.WaitForExit(3000)) 'Second fixture did not close'
-        Check ($pending.Wait(5000)) 'Target focus did not resume waiting'
-        $state=$pending.Result | ConvertFrom-Json
-        Check ($state.state -eq 'foreground') 'Missing foreground resume state'
-        $read=$script:helper.StandardOutput.ReadLineAsync()
-        Check ($read.Wait(5000)) 'No resumed result'
-        $response=$read.Result | ConvertFrom-Json
-        Check ($response.id -eq $id -and $response.ok -and $response.result.status -eq 'needs_observation' -and -not $response.result.delivered) 'Waiting replayed stale input'
-      } finally {
-        if (-not $other.HasExited) { $other.CloseMainWindow() | Out-Null; $other.WaitForExit(3000) | Out-Null }
-      }
-    }
-    Test 'observation supports a selected subtree and bounded element filters' {
-      $observation=Observe
-      $button=@($observation.elements | Where-Object { $_.name -eq 'Save' })[0]
-      $subtree=Call 'observe' @{windowId=$script:windowId;maxNodes=32;root=@{observationId=$observation.observationId;elementId=$button.elementId}}
-      Check ($subtree.elements.Count -eq 1 -and $subtree.elements[0].name -eq 'Save') 'Subtree did not stay inside requested control'
-      $filtered=Call 'observe' @{windowId=$script:windowId;maxNodes=32;filter=@{nameIncludes='save';controlType=50000}}
-      Check ($filtered.elements.Count -eq 1 -and $filtered.elements[0].name -eq 'Save') 'Observation ignored element filter'
-      $stale=Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=32;root=@{observationId=$observation.observationId;elementId=$button.elementId}}
-      Check (-not $stale.ok) 'Subtree accepted stale element reference'
-    }
-    # Physical input uses a separate path from semantic background operations.
-    Test 'window-targeted typing reaches a non-text canvas but refuses protected focus' {
-      $observation=Observe
-      $canvas=@($observation.elements | Where-Object name -eq 'Canvas')[0]
-      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$canvas.elementId;button='left';count=1} | Out-Null
-      $observation=Observe
-      Call 'type_window' @{windowId=$script:windowId;observationId=$observation.observationId;text='Zażółć'} | Out-Null
-      Check ((Fixture-State).canvasText -eq 'Zażółć') 'Window-targeted typing did not reach the real canvas'
-      $observation=Observe
-      $secret=@($observation.elements | Where-Object protected)[0]
-      $capture=Screenshot
-      $x=[math]::Floor(($secret.bounds.x+10-$capture.source.x)*$capture.width/$capture.source.width)
-      $y=[math]::Floor(($secret.bounds.y+10-$capture.source.y)*$capture.height/$capture.source.height)
-      Call 'click' @{windowId=$script:windowId;captureId=$capture.captureId;x=$x;y=$y;button='left';count=1} | Out-Null
-      $observation=Observe
-      $denied=Request $script:helper 'type_window' @{windowId=$script:windowId;observationId=$observation.observationId;text='must not type'}
-      Check (-not $denied.ok -and $denied.error.code -eq 'protected-element') 'Window typing accepted a password focus'
-    }
-    Test 'UIA set value preserves Polish and Unicode' {
-      $observation = Observe
-      $field = @($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      $text = 'Za' + [char]0x17C + [char]0xF3 + [char]0x142 + [char]0x107 + ' g' + [char]0x119 + [char]0x15B + 'l' + [char]0x105 + ' ja' + [char]0x17A + [char]0x144 + [char]0x0A + [char]::ConvertFromUtf32(0x1F600)
-      Call 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$text } | Out-Null
-      $actual=(Fixture-State).text.Replace("`r",'')
-      Check ($actual -ceq $text) ("UIA text differs: actual="+($actual|ConvertTo-Json -Compress)+" expected="+($text|ConvertTo-Json -Compress))
-      $field=@((Observe).elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      Check ($field.value.Replace("`r",'') -ceq $text) 'Observation omitted editable value'
-    }
-    $emoji=[char]::ConvertFromUtf32(0x1F600)
-    $valueCases=@(
-      @{name='511 units';text=('A'*511);expected=('A'*511)},
-      @{name='512 units';text=('A'*512);expected=('A'*512)},
-      @{name='513 units';text=(('A'*512)+'B');expected=('A'*512)},
-      @{name='4000 units';text=('A'*4000);expected=('A'*512)},
-      @{name='emoji crossing cutoff';text=(('A'*511)+$emoji+'B');expected=('A'*511)},
-      @{name='emoji ending at cutoff';text=(('A'*510)+$emoji+'B');expected=(('A'*510)+$emoji)}
-    )
-    foreach ($case in $valueCases) {
-      Test ('bounded observation preserves actual control value: '+$case.name) {
-        $before=Observe
-        $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        Call 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=$case.text} | Out-Null
-        $after=Observe
-        $actual=@($after.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        Check ($actual.value -ceq $case.expected) 'Bounded observation changed text or split a surrogate pair'
-        Check ((Fixture-State).text -ceq $case.text) 'Observation changed the real control text'
-        Check ((Call 'status' @{}).ready) 'Helper did not survive bounded text observation'
-      }
-    }
-    Test 'oversized text input remains rejected without changing the control' {
-      $before=Observe
-      $original=(Fixture-State).text
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      $denied=Request $script:helper 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text=('A'*4001)}
-      Check (-not $denied.ok -and $denied.error.code -eq 'invalid-input') 'Oversized input was not rejected'
-      Check ((Fixture-State).text -ceq $original) 'Oversized input changed the control'
-      Check ((Call 'status' @{}).ready) 'Input rejection terminated the helper'
-    }
-    Test 'protected control has no value/name disclosure' {
-      $observation=Observe
-      $secret=@($observation.elements | Where-Object { $_.protected })[0]
-      Check ($null -ne $secret -and $secret.name -eq '') 'Password leaked through accessibility'
-      Check ($null -eq $secret.value) 'Password value leaked through accessibility'
-      $response=Request $script:helper 'set_value' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$secret.elementId; text='not allowed' }
-      Check (-not $response.ok) 'Protected field mutation accepted'
-    }
-    Test 'observed element click reaches button; stale reference rejected' {
-      $savesBefore=(Fixture-State).saves
-      $observation=Observe
-      $button=@($observation.elements | Where-Object { $_.name -eq 'Save' })[0]
-      $input=@{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 }
-      Call 'click' $input | Out-Null
-      Check ((Fixture-State).saves -eq $savesBefore+1) 'Button did not receive exactly one click'
-      Check (-not (Request $script:helper 'click' $input).ok) 'Stale element accepted'
-    }
-    Test 'invented observation IDs are diagnosed without a focus-repair loop' {
-      $observation=Observe
-      foreach ($fake in @('unused','x','fresh')) {
-        $invalid=Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=120;root=@{observationId=$fake;elementId='root'}}
-        Check (-not $invalid.ok -and $invalid.error.code -eq 'unknown-observation') 'Invented reference was mistaken for a focus/geometry change'
-        Check ($invalid.error.message.Contains('omit root')) 'Recovery did not explain how to get the first observation'
-      }
-      Check ((Observe).elements.Count -gt 0) 'Cannot recover with an unscoped observation'
-    }
-    Test 'SendInput typing and Ctrl+A affect the named focused control' {
-      $observation=Observe
-      $field=@($observation.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; button='left'; count=1 } | Out-Null
-      $observation=Observe
-      Call 'key' @{ windowId=$script:windowId; observationId=$observation.observationId; key='a'; modifiers=@('control') } | Out-Null
-      $observation=Observe
-      $field=@($observation.elements | Where-Object { $_.elementId -eq $observation.focusedElementId })[0]
-      $typed='Moxxy '+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+"`n"+[char]::ConvertFromUtf32(0x1F600)
-      Call 'type' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$field.elementId; text=$typed } | Out-Null
-      $actual=(Fixture-State).text.Replace("`r",'')
-      Check ($actual -ceq $typed) ("SendInput text differs: actual="+($actual|ConvertTo-Json -Compress)+" expected="+($typed|ConvertTo-Json -Compress))
-    }
-    Test 'mouse buttons reach the real canvas' {
-      foreach ($button in @('left','right','middle')) {
-        $before=(Fixture-State).$button
-        $capture=Screenshot; $point=Canvas-Point $capture
-        Call 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; button=$button; count=1 } | Out-Null
-        Check ((Fixture-State).$button -eq $before+1) "$button click missing"
-      }
-    }
-    Test 'full and cropped screenshots map to the exact received canvas pixel' {
-      foreach ($variant in @(@{maxDim=1280},@{maxDim=256},@{maxDim=256;region=@{x=10;y=40;width=500;height=440}})) {
-        $parameters=@{windowId=$script:windowId;maxDim=$variant.maxDim;format='png';quality=72;allowVisibleFallback=$false}
-        if ($variant.region) { $parameters.region=$variant.region }
-        $capture=Call 'screenshot' $parameters
-        $view=Observe
-        $canvas=@($view.elements | Where-Object name -eq 'Canvas')[0]
-        $point=Canvas-Point $capture 85 55
-        $expectedX=$capture.source.x+[math]::Floor($point.x*$capture.source.width/$capture.width)-$canvas.bounds.x
-        $expectedY=$capture.source.y+[math]::Floor($point.y*$capture.source.height/$capture.height)-$canvas.bounds.y
-        Call 'click' @{windowId=$script:windowId;captureId=$capture.captureId;x=$point.x;y=$point.y;button='left';count=1} | Out-Null
-        $state=Fixture-State
-        Check ([math]::Abs($state.clickX-$expectedX) -le 1 -and [math]::Abs($state.clickY-$expectedY) -le 1) "Image point landed at wrong pixel: got $($state.clickX),$($state.clickY); expected $expectedX,$expectedY"
-      }
-    }
-    Test 'double click reaches the real canvas' {
-      Start-Sleep -Milliseconds 600
-      $before=(Fixture-State).doubleClicks
-      $capture=Screenshot; $point=Canvas-Point $capture
-      Call 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; button='left'; count=2 } | Out-Null
-      Check ((Fixture-State).doubleClicks -eq $before+1) 'Double click missing'
-    }
-    Test 'both scroll axes reach the real canvas' {
+    Test 'points of the screenshot reach the exact canvas pixel with every button' {
+      $canvas = Find (Look) 'Canvas'
+      Check ($null -ne $canvas) 'Canvas not found in fixture'
       $before=Fixture-State
-      $capture=Screenshot; $point=Canvas-Point $capture
-      Call 'scroll' @{ windowId=$script:windowId; captureId=$capture.captureId; x=$point.x; y=$point.y; deltaX=120; deltaY=-120 } | Out-Null
+      $point = Middle $canvas -100 -20
+      Delivered (Act (@{ action='click'; mouse_button='left'; click_count=1 } + $point)) 'Left click'
+      Delivered (Act (@{ action='click'; mouse_button='right'; click_count=1 } + $point)) 'Right click'
+      Delivered (Act (@{ action='click'; mouse_button='middle'; click_count=1 } + $point)) 'Middle click'
       $after=Fixture-State
-      Check ($after.scrollX -eq $before.scrollX+120 -and $after.scrollY -eq $before.scrollY-120) 'Scroll messages missing'
+      Check ($after.left -eq $before.left+1 -and $after.right -eq $before.right+1 -and $after.middle -eq $before.middle+1) 'A mouse button did not reach the canvas'
+      $expectedX = [math]::Floor($canvas.frame.width / 2) - 100
+      Check ([math]::Abs($after.clickX - $expectedX) -le 3) ('The click landed at ' + $after.clickX + ' instead of ' + $expectedX)
+      Delivered (Act (@{ action='click'; mouse_button='left'; click_count=2 } + $point)) 'Double click'
+      Check ((Fixture-State).doubleClicks -eq $before.doubleClicks+1) 'Double click did not reach the canvas'
+      $outside = Act @{ action='click'; mouse_button='left'; click_count=1; x=50000; y=50000 }
+      Check ($outside.result.outcome -eq 'blocked' -and $outside.result.code -eq 'point_outside_frame') 'A point outside the picture was accepted'
     }
-    Test 'drag reaches canvas and old capture is rejected' {
-      Start-Sleep -Milliseconds 600
+    Test 'scrolling in both axes reaches the canvas' {
+      $canvas = Find (Look) 'Canvas'
+      $before=Fixture-State
+      Delivered (Act (@{ action='scroll'; direction='down'; pages=1 } + (Middle $canvas))) 'Scroll down'
+      Delivered (Act (@{ action='scroll'; direction='right'; pages=1 } + (Middle $canvas))) 'Scroll right'
+      $after=Fixture-State
+      Check ($after.scrollY -lt $before.scrollY -and $after.scrollX -gt $before.scrollX) 'The wheel did not reach the canvas in both axes'
+    }
+    Test 'drag along a path and a press-move-release gesture both reach the canvas' {
+      $canvas = Find (Look) 'Canvas'
       $before=(Fixture-State).drags
-      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 180 90
-      $input=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=400 }
-      Call 'drag' $input | Out-Null
-      Check ((Fixture-State).drags -eq $before+1) 'Drag did not reach target'
-      Check (-not (Request $script:helper 'drag' $input).ok) 'Stale capture accepted'
+      $from = Middle $canvas -150 -30; $over = Middle $canvas 0 20; $to = Middle $canvas 120 -10
+      Delivered (Act @{ action='drag'; path=@(@($from.x,$from.y), @($over.x,$over.y), @($to.x,$to.y)); duration_ms=400; mouse_button='left' }) 'Drag'
+      Check ((Fixture-State).drags -eq $before+1) 'The drag did not reach the canvas'
+      $hover = Act (@{ action='mouse'; event='move'; mouse_button='left' } + $to)
+      Check ($hover.result.outcome -eq 'unsupported') 'A move without a pressed button was accepted'
+      Delivered (Act (@{ action='mouse'; event='down'; mouse_button='left' } + $from)) 'Press'
+      Check ((Fixture-State).leftDown) 'The button is not held after event down'
+      Delivered (Act (@{ action='mouse'; event='move'; mouse_button='left' } + $over)) 'Move'
+      Delivered (Act (@{ action='mouse'; event='up'; mouse_button='left' } + $to)) 'Release'
+      $after=Fixture-State
+      Check ($after.drags -eq $before+2 -and -not $after.leftDown) 'The gesture did not end as a drag with the button released'
     }
-    Test 'desktop lease prevents concurrent control' {
-      $other=Start-Peer
-      $inventory=(Request $other 'windows' @{}).result
-      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id })[0]
-      $response=Request $other 'focus' @{ windowId=$target.windowId }
-      Check (-not $response.ok -and $response.error.code -eq 'control-busy') 'Concurrent desktop control accepted'
-      $other.StandardInput.Close(); Check ($other.WaitForExit(3000)) 'Second helper leaked'
+    Test 'a batch runs its steps in order and stops at the first one that is not delivered' {
+      $index=(Field (Look)).index
+      $batch = Call 'batch' @{ app=$script:app; allowed=@($script:app); actions=@(
+        @{ action='click'; element_index=$index; mouse_button='left'; click_count=1 },
+        @{ action='press_key'; chord=(Chord 'a' @('ctrl')); repeat=1 },
+        @{ action='type_text'; text='batch' },
+        @{ action='wait'; duration_s=0.2 }) }
+      Check ($batch.results.Count -eq 4 -and @($batch.results | Where-Object outcome -ne 'delivered').Count -eq 0) ('Batch steps failed: ' + ($batch.results | ConvertTo-Json -Compress))
+      Check ($batch.PSObject.Properties['state'] -and (Fixture-State).text -ceq 'batch') 'The batch did not type into the field or returned no state'
+      $stopped = Call 'batch' @{ app=$script:app; allowed=@($script:app); actions=@(
+        @{ action='click'; element_index=987654; mouse_button='left'; click_count=1 },
+        @{ action='type_text'; text='must not be typed' }) }
+      Check ($stopped.results.Count -eq 1 -and $stopped.results[0].outcome -eq 'blocked') 'The batch went on after a refused step'
+      Check ((Fixture-State).text -ceq 'batch') 'A step after the refused one was run'
     }
-    Test 'semantic modal invocation returns a receipt without blocking observation or closure' {
-      $observation=Observe
-      $button=@($observation.elements | Where-Object { $_.name -eq 'Open modal' })[0]
-      $clock=[Diagnostics.Stopwatch]::StartNew()
-      $receipt=Call 'action' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; action='invoke' }
-      Check ($clock.ElapsedMilliseconds -lt 2000) 'Invoke blocked the request loop until modal closure'
-      Start-Sleep -Milliseconds 250
-      $inventory=Call 'windows' @{}
-      $modal=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy test modal' })[0]
-      $parent=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
-      Check ($null -ne $modal -and $null -ne $parent) 'Modal/parent identity unavailable'
-      $script:windowId=$modal.windowId
-      Call 'focus' @{ windowId=$script:windowId } | Out-Null
-      $observation=Observe
-      $ok=@($observation.elements | Where-Object { $_.name -eq 'OK' -and $_.controlType -eq 50000 })[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$ok.elementId; button='left'; count=1 } | Out-Null
-      Await-Action $receipt
-      Start-Sleep -Milliseconds 200
-      $script:windowId=$parent.windowId
-      Call 'focus' @{ windowId=$script:windowId } | Out-Null
-      Check ((Observe).elements.Count -gt 2) 'Parent not usable after modal'
-    }
-    Test 'owned and nested dialogs expose their own controls and never wait on a disabled parent' {
-      $mainId=$script:windowId
-      $receipt=Accessible-Action 'Open editor' 'invoke'
-      Start-Sleep -Milliseconds 300
-      $inventory=Call 'windows' @{}
-      $dialog=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy test editor' })[0]
-      Check ($null -ne $dialog) 'Editor dialog did not open'
+    Test 'zoom and the full-screen picture show granted apps only' {
+      $state = Look
+      $zoomed = Call 'zoom' @{ app=$script:app; region=@(0, 0, 200, 100); allowed=@($script:app) }
+      Check ($zoomed.mediaType -eq 'image/jpeg' -and $zoomed.width -gt 0 -and $zoomed.height -gt 0) 'Zoom returned no picture'
+      $outside = Request $script:helper 'zoom' @{ app=$script:app; region=@(0, 0, 90000, 100); allowed=@($script:app) }
+      Check (-not $outside.ok -and $outside.error.code -eq 'point_outside_frame') 'A region outside the screenshot was accepted'
+      $none = Request $script:helper 'screenshot' @{ allowed=@() }
+      Check (-not $none.ok -and $none.error.code -eq 'app_not_allowed') 'A full-screen picture was taken without any granted app'
+      $screen = Call 'screenshot' @{ allowed=@($script:app) }
+      Check ($screen.width -gt 0 -and $screen.height -gt 0) 'No full-screen picture'
+      $part = Call 'zoom' @{ region=@(0, 0, [math]::Min(300, $screen.width), [math]::Min(200, $screen.height)); allowed=@($script:app) }
+      Check ($part.width -gt 0) 'Zoom into the full-screen picture returned nothing'
+      $stream = [IO.MemoryStream]::new([Convert]::FromBase64String($screen.base64))
+      $bitmap = [Drawing.Bitmap]::new($stream)
       try {
-        $parentView=Observe
-        # Store evidence before closure so a failing assertion does not strand the fixture.
-        $parentBlocked=$parentView.blockingWindowId -eq $dialog.windowId
-        $parentIsolated=@($parentView.elements | Where-Object { $_.windowId -ne $mainId }).Count -eq 0
-        $ownerCorrect=$dialog.ownerWindowId -eq $mainId
-        $blockedClock=[Diagnostics.Stopwatch]::StartNew()
-        $blocked=Call 'focus' @{windowId=$mainId}
-        Check ($blockedClock.ElapsedMilliseconds -lt 2000 -and $blocked.status -eq 'target_blocked' -and $blocked.blockingWindowId -eq $dialog.windowId -and -not $blocked.delivered) 'Disabled parent waited for focus or received input'
-        $script:windowId=$dialog.windowId
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-        $view=Observe
-        $field=@($view.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        Check ($null -ne $field) 'Dialog edit field missing'
-        Call 'set_value' @{windowId=$script:windowId;observationId=$view.observationId;elementId=$field.elementId;text='123'} | Out-Null
-        $view=Observe
-        $field=@($view.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        $valueCorrect=$field.value -eq '123' -and $field.windowId -eq $dialog.windowId
-        $nestedReceipt=Accessible-Action 'Nested editor' 'invoke'
-        Start-Sleep -Milliseconds 300
-        $inventory=Call 'windows' @{}
-        $nested=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy nested editor' })[0]
-        Check ($null -ne $nested) 'Nested dialog did not open'
-        $nestedParentView=Observe
-        $nestedCorrect=$nested.ownerWindowId -eq $dialog.windowId -and $nestedParentView.blockingWindowId -eq $nested.windowId
-        $blocked=Call 'focus' @{windowId=$mainId}
-        Check ($blocked.status -eq 'target_blocked' -and $blocked.blockingWindowId -eq $nested.windowId) 'Nested modal was not selected as the blocking target'
-        $script:windowId=$nested.windowId
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-        $nestedView=Observe
-        $nestedField=@($nestedView.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-        Call 'set_value' @{windowId=$script:windowId;observationId=$nestedView.observationId;elementId=$nestedField.elementId;text='255'} | Out-Null
-        $nestedText=@((Observe).elements | Where-Object controlType -eq 50004)[0].value
-        $close=Accessible-Action 'OK' 'invoke'; Await-Action $close; Await-Action $nestedReceipt
-        $script:windowId=$dialog.windowId
-        $freshParent=Observe
-        $stale=Request $script:helper 'set_value' @{windowId=$nested.windowId;observationId=$nestedView.observationId;elementId=$nestedField.elementId;text='999'}
-        Check (-not $stale.ok) 'Closed nested dialog accepted stale input'
-        Check ($null -eq $freshParent.blockingWindowId -and $nestedText -eq '255') 'Nested dialog did not restore parent correctly'
-      } finally {
-        $script:windowId=$dialog.windowId
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-        $close=Accessible-Action 'OK' 'invoke'; Await-Action $close; Await-Action $receipt
-        $script:windowId=$mainId
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-      }
-      Check ($ownerCorrect -and $parentBlocked -and $parentIsolated -and $valueCorrect -and $nestedCorrect) 'Dialog ownership/observation contract is missing or incorrect'
+        $markers = 0; $lit = 0
+        for ($x=0; $x -lt $bitmap.Width; $x+=10) {
+          for ($y=0; $y -lt $bitmap.Height; $y+=10) {
+            $pixel=$bitmap.GetPixel($x,$y)
+            if ($pixel.R -gt 200 -and $pixel.G -lt 90 -and $pixel.B -gt 200) { $markers++ }
+            if ($pixel.R + $pixel.G + $pixel.B -gt 60) { $lit++ }
+          }
+        }
+        Check ($markers -gt 50) 'The granted app is not visible in the full-screen picture'
+        Check ($lit -lt ($bitmap.Width * $bitmap.Height / 100) * 0.7) 'The rest of the screen was not hidden'
+      } finally { $bitmap.Dispose(); $stream.Dispose() }
     }
-    Test 'delayed control appears in fresh observations' {
-      $until=[DateTime]::UtcNow.AddSeconds(3)
-      do {
-        $found=@((Observe).elements | Where-Object name -eq 'Delayed button')
-        if ($found.Count) { break }
-        Start-Sleep -Milliseconds 100
-      } while ([DateTime]::UtcNow -lt $until)
-      Check ($found.Count -eq 1) 'Delayed control absent'
-    }
-    Test 'cancellation during drag releases input and desktop lease' {
+    Test 'the live preview sends pictures only while someone watches' {
+      Look | Out-Null
+      $script:events.Clear()
+      Check ((Call 'preview.start' @{ fps=5 }).started) 'Preview did not start'
+      Delivered (Act @{ action='click'; element_index=(Find $script:state 'Save' 'Button').index; mouse_button='left'; click_count=1 }) 'Click during preview'
+      Start-Sleep -Milliseconds 1500
+      Call 'status' @{} | Out-Null
+      $frames = @($script:events | Where-Object { $_.event -eq 'preview_frame' })
+      Check ($frames.Count -gt 0) 'No preview frame arrived'
+      $pictures = @($frames | Where-Object { $_.PSObject.Properties['image'] })
+      Check ($pictures.Count -gt 0 -and $pictures[0].image.mediaType -eq 'image/jpeg' -and $pictures[0].image.width -le 960) ('Preview frames carry no picture: ' + (@($frames | Where-Object { -not $_.PSObject.Properties['image'] } | Select-Object -First 3) | ConvertTo-Json -Compress -Depth 4))
+      Check ((Call 'preview.stop' @{}).stopped) 'Preview did not stop'
       Start-Sleep -Milliseconds 600
-      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{ version=4; id=[guid]::NewGuid().ToString(); method='drag'; params=@{ windowId=$script:windowId; captureId=$capture.captureId; from=$from; to=$to; durationMs=2000 } } | ConvertTo-Json -Depth 20 -Compress
-      $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
-      Start-Sleep -Milliseconds 150
+      Call 'status' @{} | Out-Null
+      $script:events.Clear()
+      Start-Sleep -Milliseconds 1500
+      Call 'status' @{} | Out-Null
+      Check (@($script:events | Where-Object { $_.event -eq 'preview_frame' }).Count -eq 0) 'Preview frames kept coming after stop'
+    }
+    Test 'the live preview sends H.264 video when asked for it, or pictures when the system cannot encode' {
+      Look | Out-Null
+      $script:events.Clear()
+      Check ((Call 'preview.start' @{ fps=5; codec='h264' }).started) 'Video preview did not start'
+      Delivered (Act @{ action='click'; element_index=(Find $script:state 'Save' 'Button').index; mouse_button='left'; click_count=1 }) 'Click during video preview'
+      Start-Sleep -Milliseconds 1500
+      Call 'status' @{} | Out-Null
+      $chunks = @($script:events | Where-Object { $_.event -eq 'preview_chunk' })
+      $pictures = @($script:events | Where-Object { $_.event -eq 'preview_frame' -and $_.PSObject.Properties['image'] })
+      Write-Host ("  video chunks: {0}, pictures: {1}" -f $chunks.Count, $pictures.Count)
+      $empty = @($script:events | Where-Object { $_.event -eq 'preview_frame' -and -not $_.PSObject.Properties['image'] })
+      Check ($chunks.Count -gt 0 -or $pictures.Count -gt 0) ('Neither video nor pictures arrived: ' + (@($empty | Select-Object -First 3) | ConvertTo-Json -Compress -Depth 4))
+      if ($chunks.Count -gt 0) {
+        $first = $chunks[0]
+        Check ($first.key -eq $true) 'The video does not start with a key picture'
+        Check ($first.codec -match '^avc1\.[0-9a-f]{6}$') ('Codec name is wrong: ' + $first.codec)
+        Check ($first.width -le 960 -and $first.height -le 960 -and $first.width % 2 -eq 0 -and $first.height % 2 -eq 0) 'Video size is wrong'
+        $bytes = [Convert]::FromBase64String($first.data)
+        Check ($bytes.Length -gt 8 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and ($bytes[2] -eq 1 -or ($bytes[2] -eq 0 -and $bytes[3] -eq 1))) 'The video is not an Annex B stream'
+        # The units of the stream in order; an encoder may put a delimiter (9) in front.
+        $units = @()
+        for ($i = 0; $i + 3 -lt $bytes.Length; $i++) {
+          if ($bytes[$i] -eq 0 -and $bytes[$i+1] -eq 0 -and $bytes[$i+2] -eq 1) { $units += ($bytes[$i+3] -band 0x1f); $i += 2 }
+        }
+        $sets = [array]::IndexOf($units, 7); $picture = [array]::IndexOf($units, 5)
+        Check ($sets -ge 0 -and $picture -gt $sets -and $units -contains 8) ('The key picture does not carry its parameter sets: ' + ($units -join ','))
+        for ($i = 1; $i -lt $chunks.Count; $i++) { Check ($chunks[$i].seq -eq $chunks[$i-1].seq + 1) 'Video chunks are not numbered in order' }
+        # A viewer that joins while the window stands still gets a picture to start from.
+        Start-Sleep -Milliseconds 800
+        Call 'status' @{} | Out-Null
+        $script:events.Clear()
+        Check ((Call 'preview.keyframe' @{}).requested) 'A key picture could not be asked for'
+        Start-Sleep -Milliseconds 1200
+        Call 'status' @{} | Out-Null
+        $joined = @($script:events | Where-Object { $_.event -eq 'preview_chunk' -and $_.key -eq $true })
+        Check ($joined.Count -gt 0) 'No key picture came after asking for one'
+      }
+      Check ((Call 'preview.stop' @{}).stopped) 'Video preview did not stop'
+      Start-Sleep -Milliseconds 600
+      Call 'status' @{} | Out-Null
+    }
+    Test 'a dialog that covers the window becomes the state, and closing it gives the window back' {
+      $before = Look
+      $result = Act @{ action='click'; element_index=(Find $before 'Open modal' 'Button').index; mouse_button='left'; click_count=1 }
+      Delivered $result 'Opening the dialog'
+      Check ($result.state.tree.window -eq 'Moxxy test modal') ('The state after the click is not the dialog: ' + $result.state.tree.window)
+      $ok = Find $result.state 'OK' 'Button'
+      Check ($null -ne $ok) 'The dialog button is not listed'
+      $closed = Act @{ action='click'; element_index=$ok.index; mouse_button='left'; click_count=1 }
+      Delivered $closed 'Closing the dialog'
+      Check ($closed.state.tree.window -eq 'Moxxy Computer Use Test') ('The state after closing is not the main window: ' + $closed.state.tree.window)
+      Check ((Find (Look) 'Save' 'Button').index -eq (Find $before 'Save' 'Button').index) 'The main window lost its indices while the dialog was open'
+    }
+    Test 'a control that appears later is in the next state' {
+      Start-Sleep -Milliseconds 1700
+      Check ($null -ne (Find (Look) 'Delayed button')) 'Dynamically added control not observed'
+    }
+    Test 'a moved window refuses points and indices of the old state' {
+      $state = Look
+      $canvas = Find $state 'Canvas'
+      $before=Fixture-State
+      Delivered (Act @{ action='click'; element_index=(Find $state 'Move later' 'Button').index; mouse_button='left'; click_count=1 }) 'Arming the move'
+      Start-Sleep -Milliseconds 3400
+      $stale = Act (@{ action='click'; mouse_button='left'; click_count=1 } + (Middle $canvas))
+      Check ($stale.result.outcome -eq 'blocked' -and $stale.result.code -eq 'stale_state') ('A point of the old picture was used: ' + ($stale.result | ConvertTo-Json -Compress))
+      Check ((Fixture-State).left -eq $before.left) 'The refused click reached the canvas'
+      Check ($stale.PSObject.Properties['state']) 'No fresh state came back with the refusal'
+      Delivered (Act (@{ action='click'; mouse_button='left'; click_count=1 } + (Middle (Find $script:state 'Canvas')))) 'Click on the fresh state'
+      Check ((Fixture-State).left -eq $before.left+1) 'The click on the fresh state did not reach the canvas'
+    }
+    Test 'a second helper cannot control the desktop at the same time' {
+      $other=Start-Peer
+      try {
+        $busy=Request $other 'get_app_state' @{ app=$script:app; screenshot=$false }
+        Check (-not $busy.ok -and $busy.error.code -eq 'control-busy') 'Concurrent desktop control accepted'
+      } finally { Close-Peer $other }
+    }
+    Test 'pause holds an action, and resuming does nothing but report it' {
+      try {
+        $before=(Fixture-State).saves
+        $index=(Find (Look) 'Save' 'Button').index
+        Control $script:helper 'pause'
+        $id = Send $script:helper 'act' @{ app=$script:app; action=@{ action='click'; element_index=$index; mouse_button='left'; click_count=1 }; allowed=@($script:app) }
+        $paused = $null
+        for ($i=0; $i -lt 10 -and $null -eq $paused; $i++) {
+          $frame = Read-Frame $script:helper 5000
+          if ($null -eq $frame) { break }
+          if ($frame.PSObject.Properties['event'] -and $frame.event -eq 'control_state') { $paused = $frame }
+        }
+        Check ($null -ne $paused -and $paused.id -eq $id -and $paused.event -eq 'control_state' -and $paused.state -eq 'paused_by_user') 'Explicit pause was not honored'
+        # Cursor and preview events may still arrive; an answer to the held request may not.
+        $until=[DateTime]::UtcNow.AddMilliseconds(1200)
+        while ([DateTime]::UtcNow -lt $until) {
+          $frame = Read-Frame $script:helper 200
+          Check ($null -eq $frame -or $frame.PSObject.Properties['event']) ('Pause ended by itself: ' + ($frame | ConvertTo-Json -Compress -Depth 6))
+        }
+        Check ((Fixture-State).saves -eq $before) 'Input was sent while paused'
+        Control $script:helper 'resume'
+        $response = Await $script:helper $id
+        Check ($response.ok -and $response.result.result.outcome -eq 'blocked' -and $response.result.result.code -eq 'user_intervened') ('The paused action was not reported as interrupted: ' + ($response.result.result | ConvertTo-Json -Compress))
+        Check ((Fixture-State).saves -eq $before) 'The paused click was replayed after resume'
+        Delivered (Act @{ action='click'; element_index=$index; mouse_button='left'; click_count=1 }) 'Click after resume'
+        Check ((Fixture-State).saves -eq $before+1) 'Control did not come back after resume'
+      } finally { Close-Peer $script:helper; Attach | Out-Null }
+    }
+    Test 'take over releases held input, hides the cursor and pauses' {
+      try {
+        $canvas = Find (Look) 'Canvas'
+        Delivered (Act (@{ action='mouse'; event='down'; mouse_button='left' } + (Middle $canvas))) 'Press'
+        Check ((Fixture-State).leftDown) 'The button is not held before the take over'
+        $script:events.Clear()
+        Control $script:helper 'takeover'
+        Start-Sleep -Milliseconds 400
+        Check (-not (Fixture-State).leftDown) 'The held button was not released when the user took over'
+        $id = Send $script:helper 'act' @{ app=$script:app; action=@{ action='click'; element_index=(Find $script:state 'Save' 'Button').index; mouse_button='left'; click_count=1 }; allowed=@($script:app) }
+        $seen = @()
+        for ($i=0; $i -lt 10; $i++) {
+          $frame = Read-Frame $script:helper 3000
+          if ($null -eq $frame) { break }
+          $seen += $frame
+          if ($frame.PSObject.Properties['event'] -and $frame.event -eq 'control_state') { break }
+        }
+        Check (@($seen | Where-Object { $_.PSObject.Properties['event'] -and $_.event -eq 'cursor' -and $null -eq $_.cursor }).Count -gt 0) 'The cursor was not hidden'
+        Check (@($seen | Where-Object { $_.PSObject.Properties['event'] -and $_.event -eq 'control_state' -and $_.state -eq 'paused_by_user' }).Count -eq 1) 'Take over did not pause the next action'
+        Control $script:helper 'resume'
+        $response = Await $script:helper $id
+        Check ($response.ok -and $response.result.result.code -eq 'user_intervened') 'The action held by the take over was not reported as interrupted'
+      } finally { Close-Peer $script:helper; Attach | Out-Null }
+    }
+    Test 'closing the connection during a drag releases the button and the desktop' {
+      $canvas = Find (Look) 'Canvas'
+      $from = Middle $canvas -150 -30; $to = Middle $canvas 120 20
+      Send $script:helper 'act' @{ app=$script:app; allowed=@($script:app); action=@{ action='drag'; path=@(@($from.x,$from.y), @($to.x,$to.y)); duration_ms=3000; mouse_button='left' } } | Out-Null
+      Start-Sleep -Milliseconds 700
+      Check ((Fixture-State).leftDown) 'The drag never held the button'
       $script:helper.StandardInput.Close()
       Check ($script:helper.WaitForExit(3000)) 'Cancelled helper did not exit'
       Check (-not (Fixture-State).leftDown) 'Mouse button remained held after cancellation'
-      $script:helper=Start-Peer
-      $inventory=Call 'windows' @{}
-      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
-      $script:windowId=$target.windowId
-      Call 'focus' @{ windowId=$script:windowId } | Out-Null
-      Check ((Observe).elements.Count -gt 2) 'Desktop lease not released on cancellation'
+      Check ((Attach).tree.elements.Count -gt 5) 'Desktop lease not released on cancellation'
     }
-    Test 'window movement rejects old image coordinates' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Move later')[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
-      $capture=Screenshot
-      Start-Sleep -Milliseconds 3300
-      $response=Request $script:helper 'click' @{ windowId=$script:windowId; captureId=$capture.captureId; x=50; y=50; button='left'; count=1 }
-      Check (-not $response.ok -and $response.error.code -eq 'stale-capture') 'Moved window accepted old coordinates'
-    }
-    Test 'focus theft rejects old observation' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Focus later')[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
-      $observation=Observe
-      Start-Sleep -Milliseconds 3300
-      $response=Request $script:helper 'key' @{ windowId=$script:windowId; observationId=$observation.observationId; key='a'; modifiers=@() }
-      Check (-not $response.ok -and $response.error.code -eq 'focus-changed') 'Input sent after focus theft'
-    }
-    Test 'recreated window rejects old identity' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Recreate later')[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
-      Start-Sleep -Milliseconds 3300
-      $response=Request $script:helper 'focus' @{ windowId=$script:windowId }
-      Check (-not $response.ok -and $response.error.code -eq 'stale-window') 'Recreated window accepted old identity'
-      $inventory=Call 'windows' @{}
-      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
-      $script:windowId=$target.windowId
-      Call 'focus' @{ windowId=$script:windowId } | Out-Null
-    }
-    Test 'native popup menu has an actionable window identity' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Context menu')[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$button.elementId; button='left'; count=1 } | Out-Null
-      Start-Sleep -Milliseconds 200
-      $inventory=Call 'windows' @{}
-      $menu=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.className -eq '#32768' })[0]
-      $parent=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
-      Check ($null -ne $menu) 'Native menu omitted from window inventory'
-      $script:windowId=$menu.windowId
-      Call 'focus' @{ windowId=$script:windowId } | Out-Null
-      $observation=Observe; $item=@($observation.elements | Where-Object name -eq 'Choose test action')[0]
-      Call 'click' @{ windowId=$script:windowId; observationId=$observation.observationId; elementId=$item.elementId; button='left'; count=1 } | Out-Null
-      $script:windowId=$parent.windowId
-      Check ((Fixture-State).menuPicks -eq 1) 'Context menu action not delivered'
-    }
-    if ($TestClipboard) {
-      Test 'clipboard Unicode round trip' {
-        $original=Request $script:helper 'clipboard' @{ windowId=$script:windowId; action='read' }
-        try {
-          $value='Clipboard '+[char]0x17C+[char]::ConvertFromUtf32(0x1F600)
-          Call 'clipboard' @{ windowId=$script:windowId; action='write'; text=$value } | Out-Null
-          Check ((Call 'clipboard' @{ windowId=$script:windowId; action='read' }).text -ceq $value) 'Clipboard mismatch'
-        } finally {
-          if ($original.ok) { Call 'clipboard' @{ windowId=$script:windowId; action='write'; text=$original.result.text } | Out-Null }
-        }
-      }
-    } else { Record 'clipboard round trip' 'not-tested' 'Run with -TestClipboard only when clipboard content is disposable.' }
-    Test 'changed control value rejects stale observation without overwriting user data' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Value later')[0]
-      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$button.elementId;button='left';count=1} | Out-Null
-      $before=Observe
-      $field=@($before.elements | Where-Object { $_.controlType -eq 50004 -and -not $_.protected })[0]
-      Start-Sleep -Milliseconds 3300
-      $response=Request $script:helper 'set_value' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$field.elementId;text='Must not overwrite'}
-      Check (-not $response.ok -and $response.error.code -eq 'stale-element') 'Changed value did not invalidate the element'
-      Check ((Fixture-State).text -eq 'Changed by application') 'Stale operation overwrote application data'
-    }
-    Test 'minimized windows retain identity and require explicit restore' {
-      $observation=Observe; $button=@($observation.elements | Where-Object name -eq 'Minimize')[0]
-      Call 'click' @{windowId=$script:windowId;observationId=$observation.observationId;elementId=$button.elementId;button='left';count=1} | Out-Null
-      Start-Sleep -Milliseconds 250
-      $inventory=Call 'windows' @{}
-      $target=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0]
-      Check ($target.windowId -eq $script:windowId -and $target.state -eq 'minimized' -and $null -eq $target.bounds) 'Minimized window was exposed as a clickable offscreen target'
-      Check (-not (Request $script:helper 'observe' @{windowId=$script:windowId;maxNodes=128}).ok) 'Minimized window accepted input preparation'
-      Call 'restore' @{windowId=$script:windowId} | Out-Null
-      Check ((Observe).elements.Count -gt 2) 'Restored window is not usable'
-    }
-    Test 'hard worker termination during drag releases only its held input' {
-      Call 'focus' @{windowId=$script:windowId} | Out-Null
-      $capture=Screenshot; $from=Canvas-Point $capture 60 60; $to=Canvas-Point $capture 200 90
-      $frame=@{version=4;id=[guid]::NewGuid().ToString();method='drag';params=@{windowId=$script:windowId;captureId=$capture.captureId;from=$from;to=$to;durationMs=2000}} | ConvertTo-Json -Compress -Depth 20
-      $script:helper.StandardInput.WriteLine($frame); $script:helper.StandardInput.Flush()
+    Test 'killing the helper during a drag releases only its held input' {
+      $canvas = Find (Look) 'Canvas'
+      $from = Middle $canvas -150 -30; $to = Middle $canvas 120 20
+      Send $script:helper 'act' @{ app=$script:app; allowed=@($script:app); action=@{ action='drag'; path=@(@($from.x,$from.y), @($to.x,$to.y)); duration_ms=3000; mouse_button='left' } } | Out-Null
+      Start-Sleep -Milliseconds 700
       Check ((Fixture-State).leftDown) 'Crash test never reached held mouse input'
       $script:helper.Kill(); Check ($script:helper.WaitForExit(3000)) 'Worker did not terminate'
       Start-Sleep -Milliseconds 500
       Check (-not (Fixture-State).leftDown) 'Hard worker termination left injected mouse button held'
     }
-    Test 'changed control meaning invalidates its old reference without activation' {
-      $script:helper=Start-Peer
-      $inventory=Call 'windows' @{}
-      $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
-      try {
-        Call 'focus' @{windowId=$script:windowId} | Out-Null
-        Await-Action (Accessible-Action 'Rename later' 'invoke')
-        $before=Observe
-        $save=@($before.elements | Where-Object name -eq 'Save')[0]
-        Check ($null -ne $save) 'Rename test missed its original control'
-        $saves=(Fixture-State).saves
-        Start-Sleep -Milliseconds 3300
-        $stale=Request $script:helper 'action' @{windowId=$script:windowId;observationId=$before.observationId;elementId=$save.elementId;action='invoke'}
-        Check (-not $stale.ok -and $stale.error.code -eq 'stale-element') 'Renamed button retained an actionable old reference'
-        Check ((Fixture-State).saves -eq $saves) 'Stale semantic action was executed'
-      } finally { $script:helper.StandardInput.Close(); $script:helper.WaitForExit(3000) | Out-Null }
-    }
     Test 'guardian panel exposes working accessible pause resume and stop buttons' {
-      $script:helper=Start-Peer
-      $inventory=Call 'windows' @{}
-      $script:windowId=@($inventory | Where-Object { $_.pid -eq $fixture.Id -and $_.title -eq 'Moxxy Computer Use Test' })[0].windowId
-      Call 'focus' @{windowId=$script:windowId} | Out-Null
+      Attach | Out-Null
       $workerId=$script:helper.Id
       $children=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$workerId" | Where-Object Name -eq 'moxxy-computer.exe')
       Check ($children.Count -eq 1) 'Expected one independent guardian'
@@ -775,56 +570,43 @@ try {
         Check ($script:helper.ExitCode -eq 20) 'Panel Stop was reported as a crash rather than an explicit user stop'
       } finally {
         if (-not $probe.HasExited) { $probe.Kill() }; $probe.Dispose()
-        if (-not $script:helper.HasExited) {
-          $script:helper.StandardInput.Close()
-          if (-not $script:helper.WaitForExit(3000)) { $script:helper.Kill(); $script:helper.WaitForExit() }
-        }
+        Close-Peer $script:helper
       }
     }
+    Test 'the stop command ends the helper as a user stop' {
+      Attach | Out-Null
+      Control $script:helper 'stop'
+      Check ($script:helper.WaitForExit(3000)) 'Stop left the helper running'
+      Check ($script:helper.ExitCode -eq 20) 'Stop was reported as a crash rather than an explicit user stop'
+    }
     if ($TestInstalledApps) {
-      Test 'catalog launches a named installed application without desktop activation or shell text' {
+      Test 'an installed app is found by name, started on request and typed into' {
+        if ($script:helper) { Close-Peer $script:helper }
         $script:helper=Start-Peer
-        $catalog=Call 'app_catalog' @{query='';maxResults=64}
-        Check ($catalog.unavailableSources.Count -eq 0 -and @($catalog.apps | Where-Object source -eq 'windows-shell').Count -gt 0) 'Windows installed-app catalog source unavailable'
-        $apps=Call 'app_catalog' @{query='notepad';maxResults=64}
-        Check ($apps.apps.Count -gt 0) 'Notepad absent from installed catalog'
-        $app=@($apps.apps | Where-Object source -eq 'system')[0]
-        if (-not $app) { $app=$apps.apps[0] }
-        $before=@((Call 'windows' @{}).windowId)
+        $apps=(Call 'list_apps' @{ query='notepad'; limit=20 }).apps
+        # Windows shows Notepad under a translated name ("Notatnik" in Polish); its file name is the same everywhere.
+        $notepad=@($apps | Where-Object { $_.id -like '*\notepad.exe' })[0]
+        Check ($null -ne $notepad) ('Notepad is not in the app list: ' + ($apps | ConvertTo-Json -Compress -Depth 4))
+        $named=(Call 'resolve_apps' @{ names=@($notepad.name) }).apps[0]
+        Check ($named.status -eq 'resolved' -and $named.id -eq $notepad.id) 'The display name did not resolve to the listed app'
+        $unknown = Request $script:helper 'get_app_state' @{ app='notepad.exe & echo unexpected'; screenshot=$false }
+        Check (-not $unknown.ok -and $unknown.error.code -eq 'app_not_found') ('Unresolved command text was accepted: ' + ($unknown | ConvertTo-Json -Compress -Depth 4))
         $oldPids=@(Get-Process -Name notepad -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
-        $opened=Call 'open' @{appId=$app.appId;instance='new';timeoutMs=8000}
-        Check ($opened.status -eq 'opened' -and $opened.windows.Count -eq 1) 'Application launch did not resolve one window'
-        $window=$opened.windows[0]
-        Check ($before -notcontains $window.windowId -and $oldPids -notcontains $window.pid) 'New-instance request silently reused an old window'
-        $process=Get-Process -Id $window.pid
         try {
-          Check ($process.ProcessName -eq 'notepad') 'Catalog launched the wrong application'
-          Write-Host 'Real Notepad: observe newly opened editor'
-          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
-          $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
-          Check ($null -ne $field) 'Notepad editor was not discovered'
-          Write-Host 'Real Notepad: focus editor window'
-          Call 'focus' @{windowId=$window.windowId} | Out-Null
-          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
-          $field=@($observation.elements | Where-Object { $_.controlType -in @(50004,50030) -and -not $_.protected -and $_.enabled })[0]
-          Write-Host 'Real Notepad: click editor control'
-          Call 'click' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;button='left';count=1} | Out-Null
-          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
-          $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
-          Check ($null -ne $field) 'Notepad editor focus could not be observed'
+          Write-Host 'Real Notepad: start and observe'
+          $state=Call 'get_app_state' @{ app=$notepad.id; screenshot=$true }
+          $editor=@($state.tree.elements | Where-Object { $_.role -in @('Edit','Document') -and -not ($_.PSObject.Properties['states'] -and $_.states -contains 'disabled') })[0]
+          Check ($null -ne $editor) ('Notepad editor was not discovered: ' + ($state.tree | ConvertTo-Json -Compress -Depth 4))
           $expected='Za'+[char]0x17C+[char]0xF3+[char]0x142+[char]0x107+' g'+[char]0x119+[char]0x15B+'l'+[char]0x105+' ja'+[char]0x17A+[char]0x144+".`nTo jest test Moxxy na Windowsie.`nTrzecia linia: "+[char]0x2705
           Write-Host 'Real Notepad: type three lines'
-          Call 'type' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;text=$expected} | Out-Null
-          $observation=Call 'observe' @{windowId=$window.windowId;maxNodes=128}
-          $field=@($observation.elements | Where-Object elementId -eq $observation.focusedElementId)[0]
-          $read=Call 'read_text' @{windowId=$window.windowId;observationId=$observation.observationId;elementId=$field.elementId;maxChars=4000}
-          Check ($read.text.Replace("`r",'') -ceq $expected) ('Real Notepad text mismatch: '+($read.text|ConvertTo-Json -Compress))
-          $invalid=Request $script:helper 'open' @{appId='notepad.exe & echo unexpected';instance='new';timeoutMs=500}
-          Check (-not $invalid.ok -and $invalid.error.code -eq 'unknown-app') 'Unresolved command text was accepted'
+          $typed=Call 'act' @{ app=$notepad.id; allowed=@($notepad.id); action=@{ action='type_text'; element_index=$editor.index; text=$expected } }
+          Check ($typed.result.outcome -eq 'delivered') ('Typing into Notepad was not delivered: ' + ($typed.result | ConvertTo-Json -Compress))
+          $after=@($typed.state.tree.elements | Where-Object index -eq $editor.index)[0]
+          Check ($null -ne $after -and $after.value.Replace("`r",'') -ceq $expected) ('Real Notepad text mismatch: ' + ($after | ConvertTo-Json -Compress))
         } finally {
-          # This verified new test process owns only our unsaved document.
-          if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit(3000) | Out-Null }
-          $process.Dispose()
+          # Only the Notepad this test started holds our unsaved text.
+          Get-Process -Name notepad -ErrorAction SilentlyContinue | Where-Object { $oldPids -notcontains $_.Id } | ForEach-Object { $_.Kill(); $_.WaitForExit(3000) | Out-Null }
+          Close-Peer $script:helper
         }
       }
     } else { Record 'installed application launch' 'not-tested' 'Explicitly opt in with -TestInstalledApps; opens a new Notepad window.' }
@@ -832,10 +614,7 @@ try {
   }
 } catch { Record 'test infrastructure/preflight' 'failed' $_.Exception.Message }
 finally {
-  foreach ($peer in $peers) {
-    try { if (-not $peer.HasExited) { $peer.StandardInput.Close(); if (-not $peer.WaitForExit(3000)) { $peer.Kill(); $peer.WaitForExit() } } } catch {}
-    $peer.Dispose()
-  }
+  foreach ($peer in $peers) { Close-Peer $peer; $peer.Dispose() }
   foreach ($fixture in $fixtures) {
     try { if (-not $fixture.HasExited) { $fixture.CloseMainWindow() | Out-Null; if (-not $fixture.WaitForExit(3000)) { $fixture.Kill() } } } catch {}
     $fixture.Dispose()

@@ -16,6 +16,7 @@
 import { useState } from 'react';
 import type { ProviderInfo } from './types';
 import { useLiveProviderModels } from './useLiveProviderModels';
+import { CustomModelForm } from './CustomModelForm';
 
 export function ProviderModelGrid({
   providers,
@@ -26,7 +27,7 @@ export function ProviderModelGrid({
   readonly providers: ReadonlyArray<ProviderInfo>;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
-  readonly onPick: (provider: string, model: string | null) => void;
+  readonly onPick: (provider: string, model: string | null, contextWindow?: number) => void;
 }): JSX.Element {
   // The provider highlighted in the left column. Defaults to the
   // workspace's active provider so the grid opens showing the current
@@ -35,6 +36,7 @@ export function ProviderModelGrid({
   const [hoveredProvider, setHoveredProvider] = useState<string>(
     activeProvider ?? providers[0]?.name ?? '',
   );
+  const [customModelOpen, setCustomModelOpen] = useState(false);
   const liveModels = useLiveProviderModels(providers, hoveredProvider);
   const currentModels = liveModels.models.map((id) => ({ id }));
 
@@ -182,18 +184,27 @@ export function ProviderModelGrid({
             </span>
           )}
         </header>
-        <ul
-          role="listbox"
-          aria-label="Models"
-          style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 6,
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-          }}
-        >
+        {customModelOpen ? (
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            <CustomModelForm
+              provider={hoveredProvider}
+              onCancel={() => setCustomModelOpen(false)}
+              onSubmit={(model, contextWindow) => onPick(hoveredProvider, model, contextWindow)}
+            />
+          </div>
+        ) : (
+          <ul
+            role="listbox"
+            aria-label="Models"
+            style={{
+              listStyle: 'none',
+              margin: 0,
+              padding: 6,
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+            }}
+          >
           {!liveModels.canFetchLive && (
             <li>
               <button
@@ -275,9 +286,19 @@ export function ProviderModelGrid({
                 }}
               >
                 {liveModels.error}
-              </li>
-            )}
-        </ul>
+            </li>
+          )}
+            <li>
+              <button
+                type="button"
+                onClick={() => setCustomModelOpen(true)}
+                style={modelRowStyle(false)}
+              >
+                Custom model…
+              </button>
+            </li>
+          </ul>
+        )}
       </div>
     </div>
   );

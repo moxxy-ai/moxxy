@@ -238,6 +238,9 @@ function planSegment(
     if (to < from) return null;
   }
 
+  to = beforeSplitToolCall(events, from, to, covered);
+  if (to < from) return null;
+
   const windowEvents = events.filter((e) => e.seq >= from && e.seq <= to && !covered(e.seq));
   if (!windowEvents.some(isProjected)) return null;
 
@@ -250,6 +253,36 @@ function planSegment(
     originalChars: windowEvents.reduce((n, e) => n + contextChars(e), 0),
     events: windowEvents,
   };
+}
+
+/**
+ * Pull `to` back so the window never holds a tool call whose result lies past
+ * it. A long-running call can be answered after later turns began; summarizing
+ * the call alone would leave that result with nothing to answer, which
+ * providers reject. A call with no result at all is safe to summarize.
+ */
+function beforeSplitToolCall(
+  events: ReadonlyArray<MoxxyEvent>,
+  from: number,
+  to: number,
+  covered: (seq: number) => boolean,
+): number {
+  const resultSeq = new Map<string, number>();
+  for (const e of events) {
+    if (e.type === 'tool_result' && !covered(e.seq)) resultSeq.set(e.callId, e.seq);
+  }
+  // Shrinking the window can split an earlier pair that fit before, so repeat
+  // until it holds no split call.
+  let end = to;
+  for (;;) {
+    const split = events.find((e) => {
+      if (e.type !== 'tool_call_requested' || e.seq < from || e.seq > end || covered(e.seq)) return false;
+      const answeredAt = resultSeq.get(e.callId);
+      return answeredAt !== undefined && answeredAt > end;
+    });
+    if (!split) return end;
+    end = split.seq - 1;
+  }
 }
 
 /** Ordinals are derived from history (including summaries later superseded by a

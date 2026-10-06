@@ -12,6 +12,7 @@ import { resolveProviderTools } from '@moxxy/sdk';
 type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
 type MessageCountTokensParams = Anthropic.Messages.MessageCountTokensParams;
 import { toFriendlyError } from '@moxxy/sdk';
+import { anthropicEffort } from './effort.js';
 import type { AnthropicContentBlock } from './translate.js';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
@@ -65,21 +66,21 @@ export interface AnthropicProviderConfig {
 
 // Hardcoded model catalog. Deriving it from the Models API is a larger change
 // (auth + caching), so the built-in catalog remains explicit.
-// Values verified against the current Anthropic model catalog (2026-07): fable-5,
-// opus-5 and sonnet-5 carry a 1M context window with a 128k streaming ceiling;
+// Values verified against the current Anthropic model catalog (2026-09): fable-5-1,
+// opus-5-5 and sonnet-5-5 carry a 1M context window with a 128k streaming ceiling;
 // haiku-4-5 is 200k/64k and is listed under its alias, matching the Claude Code
-// catalog. The previous generation (opus-4-7/4-6, sonnet-4-6) is still served by
+// catalog. The previous generation (fable-5, opus-5, sonnet-5) is still served by
 // the API but no longer offered here, so the picker matches what Anthropic
 // currently recommends; a config can still pin any id the API accepts.
-// fable-5 is Anthropic's most capable model (always-on reasoning); the loop never
-// sets `temperature`, which fable-5/opus-5/sonnet-5 reject, so they stream cleanly.
+// fable-5-1 is Anthropic's most capable model (always-on reasoning); the loop never
+// sets `temperature`, which the 5.x models reject, so they stream cleanly.
 // `supportsReasoning` marks models that accept adaptive thinking (`thinking:
-// {type:'adaptive', display:'summarized'}`) — fable-5, opus-5 and sonnet-5 do;
+// {type:'adaptive', display:'summarized'}`) — fable-5-1, opus-5-5 and sonnet-5-5 do;
 // haiku-4-5 does not (effort/adaptive-thinking error there), so it stays off.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
-  { id: 'claude-sonnet-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-fable-5-1', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-opus-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-sonnet-5-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   { id: 'claude-haiku-4-5', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, hostedTools: ['web_search'] },
 ];
 
@@ -108,7 +109,7 @@ export class AnthropicProvider implements LLMProvider {
   constructor(config: AnthropicProviderConfig = {}) {
     this.name = config.name ?? 'anthropic';
     this.models = config.models ?? anthropicModels;
-    this.defaultModel = config.defaultModel ?? 'claude-sonnet-5';
+    this.defaultModel = config.defaultModel ?? 'claude-sonnet-5-5';
     if (config.baseURL) this.baseURL = config.baseURL;
 
     if (config.oauthToken) {
@@ -294,7 +295,7 @@ export class AnthropicProvider implements LLMProvider {
       const effort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
       const body = requestBody as unknown as Record<string, unknown>;
       body.thinking = { type: 'adaptive', display: 'summarized' };
-      if (effort) body.output_config = { effort };
+      if (effort) body.output_config = { effort: anthropicEffort(effort) };
     }
 
     const fallbackRequestBody: MessageStreamParams | null = hostedTools.length > 0

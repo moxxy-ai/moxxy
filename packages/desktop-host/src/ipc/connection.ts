@@ -9,16 +9,23 @@
  * RPCs are for cold-start priming and the manual Retry button.
  */
 
+import type { DeskStore } from '../desks';
 import { type RunnerPool } from '../runner-pool';
 import { handle, resolveSupervisor } from './shared';
 
-export function registerConnectionHandlers(pool: RunnerPool): void {
+export function registerConnectionHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Connection ----------------------------------------------------------
 
   handle('connection.snapshotAll', async () =>
     pool.list().map((e) => ({ workspaceId: e.id, ...e.supervisor.snapshot() })),
   );
-  handle('connection.activeWorkspace', async () => pool.activeWorkspaceId());
+  // The saved active session is the answer until its runner is foregrounded.
+  // Answering null while the first runner is still starting left the renderer
+  // with no active workspace — stuck on "Waiting for workspace information…".
+  handle(
+    'connection.activeWorkspace',
+    async () => pool.activeWorkspaceId() ?? (await desks.getActive())?.activeSessionId ?? null,
+  );
   handle('connection.retry', async (args) => {
     // Route the active-workspace fallback through the shared resolver rather
     // than re-implementing `?? activeWorkspaceId()` inline.

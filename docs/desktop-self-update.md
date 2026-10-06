@@ -80,6 +80,69 @@ State files live under `<userData>/app/`: `active.json` (which bundle to load),
 `last-attempt.json` (boot breadcrumb), `boot-log.json` (decision log), and one
 `<version>/` dir per staged bundle.
 
+### A bundle must carry everything its main imports
+
+A staged bundle is only `dist/` + `dist-electron/` under
+`<userData>/app/<version>/` — there is no `node_modules` above it. A main that
+imports a package it doesn't carry fails at boot ("Cannot find package
+'zod'"), the boot probe poisons it and the app falls back to the floor. So:
+
+- Workspace packages (`BUNDLED_WORKSPACE_DEPS`) and the third-party packages
+  the main imports (`BUNDLED_THIRD_PARTY_DEPS`: `zod`, `openai`,
+  `electron-updater`) are bundled into the main in
+  `apps/desktop/electron.vite.config.ts`.
+- `buildAppBundle` refuses a bundle whose main or preload imports a package it
+  doesn't carry (`unbundledImports`), naming it — only Node built-ins,
+  `electron` and the guarded optional natives may stay external. A new
+  external dependency fails the release build, not people's updates.
+- A version that already failed to start on a machine (`bad.json`) is not
+  offered there again (`poisonedVersions` in `checkForUpdate`), so a broken
+  release can't loop: Update → relaunch → revert → Update.
+
+### The one "Update": runner and extensions too
+
+The Tier-1 bundle carries only the app's own JavaScript. The runner
+(`@moxxy/cli`) and the `@moxxy` extensions in `~/.moxxy/plugins` update from
+npm, in the same click: the banner's **Update** (and Settings → Update) first
+brings the runner and extensions to the latest published CLI version — the
+release publishes every `@moxxy` package at that one version — then stages the
+app bundle, then relaunches onto all of it. Nobody is asked anything.
+
+- Each part is installed and verified next to the live copy (`<dir>.update-*`,
+  a copy-on-write clone for the plugins dir) — the runner must start, each
+  updated extension must load — and only then swapped in; the previous copy is
+  kept as `<dir>.previous`. A failure leaves the live copy untouched and the
+  banner says Moxxy works as before, with **Try again**. A crash mid-swap is
+  finished or undone at the next start (`recoverComponentUpdates`).
+- Only registry-installed `@moxxy/*` packages move. Extensions linked to local
+  source or installed from a local file, and anything else in the plugins dir,
+  are left alone. The profile's data (vault, desks, sessions, config) lives
+  outside these directories and is never touched.
+- An OpenAI connection updated this way is recorded as a managed install, and
+  the installer never offers to replace a newer installed extension with the
+  older copy it ships, so no question follows an update.
+- Without npm (no Node.js) the app still updates; the runner and extensions
+  stay as they are. Development builds never update them (they'd replace the
+  extensions a developer is testing in the real `~/.moxxy`).
+- Code: `packages/desktop-host/src/component-update.ts`, IPC
+  `app.checkComponents` / `app.updateComponents`, renderer `useAppUpdate`.
+
+### Bundled extensions (OpenAI connections, Computer Use)
+
+The packaged app also carries newer copies of a few extensions in
+`plugins-seed` and installs them into `~/.moxxy/plugins` itself, keeping the
+previous copy as a backup. An update that needs no approval (the installed copy
+is an unchanged managed install) installs before the first runner starts. One
+that needs the user's approval — the installed copy has local changes, has no
+update record, or is newer than the bundled one — never holds up a runner: the
+app starts on the installed copy, the question appears attached to the main
+window once it is up, and an approved update installs and restarts the running
+conversations onto it. "Later" asks again at the next launch. A failed update
+keeps the previous version and says so in a notice attached to the window.
+(`DeferredPackageUpdates` in `@moxxy/desktop-host`.) Before, the question was
+asked before the first runner and could sit hidden behind the window, leaving
+the app on "Waiting for workspace information…".
+
 ### Security model
 
 - **Ed25519 signature** over the manifest (public key baked into the bootstrap)

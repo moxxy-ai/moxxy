@@ -62,7 +62,12 @@ export function fakeSkill(info: SkillInfo): Skill {
     id: asSkillId(info.id),
     path: '',
     scope: 'plugin',
-    frontmatter: { name: info.name, description: '' },
+    frontmatter: {
+      name: info.name,
+      description: info.description ?? '',
+      ...(info.label ? { label: info.label } : {}),
+      ...(info.aliases ? { aliases: info.aliases } : {}),
+    },
     body: '',
   };
 }

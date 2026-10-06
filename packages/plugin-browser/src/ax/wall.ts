@@ -23,6 +23,16 @@ const CAPTCHA =
   /(recaptcha|hcaptcha|turnstile|captcha|not a robot|nie jestem robotem|jestem człowiekiem|i am human)/i;
 
 /**
+ * Where a CAPTCHA actually lives: its frame, its checkbox, its answer field.
+ *
+ * Text does not count. Coolify's catalogue of deployable services lists "Cap
+ * Captcha — The self-hosted CAPTCHA for the modern web", and while any node
+ * could name one, that sentence made the whole page a wall the agent stopped
+ * at and the user could not clear.
+ */
+const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ...FILLABLE]);
+
+/**
  * A control belongs to a consent banner if it says so, or if it uses a phrase
  * that appears nowhere else.
  *
@@ -39,7 +49,22 @@ const CAPTCHA =
 const CONSENT_WORD = /(cookie|ciasteczk)/i;
 const CONSENT_PHRASE =
   /(accept all|reject all|i agree|agree and continue|only necessary|zaakceptuj wszystk|odrzuć wszystk|odrzuc wszystk|zgadzam się|zgadzam sie|tylko niezbędne|tylko niezbedne)/i;
-const isConsent = (name: string): boolean => CONSENT_WORD.test(name) || CONSENT_PHRASE.test(name);
+/**
+ * A link that names cookies leads to a policy — Wikipedia's footer carries one
+ * on every page — so a link counts only when it uses a banner's own phrase.
+ */
+const isConsent = (role: string, name: string): boolean =>
+  CONSENT_PHRASE.test(name) || (role !== 'link' && CONSENT_WORD.test(name));
+
+/** What a control that signs you in is called. */
+const SIGNIN = /(sign in|sign-in|log in|log-in|login|zaloguj|logowanie|continue with|kontynuuj z|anmelden|iniciar sesi)/i;
+
+/**
+ * More fields than a sign-in asks for. A sign-in wants an identifier and the
+ * credential, perhaps a code; a form with more than that besides the password
+ * is a form, and the rest of it is the agent's to fill.
+ */
+const SIGNIN_FIELDS = 2;
 
 /** Walk the tree once, shallow-first is irrelevant — every node gets looked at. */
 function walk(node: AxNode, visit: (n: AxNode) => void): void {
@@ -71,19 +96,25 @@ export interface Wall {
 export function detectWall(tree: AxNode | null): Wall | null {
   if (!tree) return null;
   let captcha: string | null = null;
-  let signin: string | null = null;
+  let secret: string | null = null;
   let consent: string | null = null;
+  let otherFields = 0;
+  let saysSignIn = false;
 
   walk(tree, (n) => {
     const name = n.name ?? '';
     if (!name) return;
-    if (captcha === null && CAPTCHA.test(name)) captcha = n.uid;
-    if (signin === null && FILLABLE.has(n.role) && SECRET_LABEL.test(name)) signin = n.uid;
-    if (consent === null && PRESSABLE.has(n.role) && isConsent(name)) consent = n.uid;
+    if (captcha === null && CAPTCHA_WIDGET.has(n.role) && CAPTCHA.test(name)) captcha = n.uid;
+    if (FILLABLE.has(n.role)) {
+      if (SECRET_LABEL.test(name)) secret ??= n.uid;
+      else otherFields++;
+    }
+    if (PRESSABLE.has(n.role) && SIGNIN.test(name)) saysSignIn = true;
+    if (consent === null && PRESSABLE.has(n.role) && isConsent(n.role, name)) consent = n.uid;
   });
 
   if (captcha !== null) return { kind: 'captcha', uid: captcha };
-  if (signin !== null) return { kind: 'signin', uid: signin };
+  if (secret !== null && (saysSignIn || otherFields <= SIGNIN_FIELDS)) return { kind: 'signin', uid: secret };
   if (consent !== null) return { kind: 'consent', uid: consent };
   return null;
 }

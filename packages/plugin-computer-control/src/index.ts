@@ -1,64 +1,47 @@
-import { definePlugin, defineTool, z, type Plugin, type ToolDef } from '@moxxy/sdk';
-import { WindowsBackend } from './windows/backend.js';
-import { IS_DARWIN } from './shell.js';
-import { applescriptTool } from './tools/applescript.js';
-import { clickTool } from './tools/click.js';
-import { clipboardTool } from './tools/clipboard.js';
-import { keyTool } from './tools/key.js';
-import { openTool } from './tools/open.js';
-import { screenshotTool } from './tools/screenshot.js';
-import { typeTool } from './tools/type.js';
+import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
+import { ComputerBackend, type PlatformProfile } from './backend/backend.js';
+import { helperProblem } from './helper/artifact.js';
+import { linuxProfile } from './linux/profile.js';
+import { macosProfile } from './macos/profile.js';
+import { windowsProfile } from './windows/profile.js';
 
-export {
-  applescriptTool,
-  clickTool,
-  clipboardTool,
-  keyTool,
-  openTool,
-  screenshotTool,
-  typeTool,
-};
+const name = '@moxxy/plugin-computer-control';
 
-export const computerControlTools: ReadonlyArray<ToolDef> = [
-  screenshotTool,
-  clickTool,
-  typeTool,
-  keyTool,
-  openTool,
-  clipboardTool,
-  applescriptTool,
-];
-
-/**
- * `@moxxy/plugin-computer-control` — programmatic control of the host
- * computer (mouse, keyboard, screenshot, clipboard, app launching,
- * AppleScript escape hatch).
- *
- * macOS retains its system-binary backend; Windows x64 uses our bundled
- * native helper. Unsupported hosts expose status only.
- *
- * Every tool is `permission: 'prompt'`. There is intentionally no
- * "allow always" shortcut for these — granting blanket permission to
- * drive the user's screen + keyboard is exactly the wrong default.
- */
-export function createComputerControlPlugin(platform: NodeJS.Platform = process.platform, arch: string = process.arch): Plugin {
-  const backend = platform === 'win32' && arch === 'x64' ? new WindowsBackend() : undefined;
+/** The only tool of a host that cannot run Computer Use: it says why. */
+function statusOnly(platform: NodeJS.Platform, architecture: string, limitation: string): Plugin {
   const status = defineTool({
     name: 'computer_status', description: 'Report Computer Use platform capabilities and limitations.',
     inputSchema: z.object({}).strict(), permission: { action: 'prompt' },
-    handler: () => ({ platform, architecture: arch, ready: platform === 'darwin',
-      limitations: platform === 'darwin' ? ['Requires Screen Recording and Accessibility permissions'] : ['Unsupported platform or architecture'] }),
+    handler: () => ({ platform, architecture, ready: false, limitations: [limitation] }),
   });
-  return definePlugin({
-    name: '@moxxy/plugin-computer-control', version: '0.0.0',
-    tools: backend ? backend.tools() : platform === 'darwin' ? [...computerControlTools, status] : [status],
-    ...(backend ? { hooks: backend.hooks } : {}),
-  });
+  return definePlugin({ name, version: '0.0.0', tools: [status] });
+}
+
+function profileFor(platform: NodeJS.Platform, arch: string): PlatformProfile | undefined {
+  if (platform === 'darwin') return macosProfile;
+  if (platform === 'linux') return arch === 'x64' || arch === 'arm64' ? linuxProfile(arch) : undefined;
+  return platform === 'win32' && arch === 'x64' ? windowsProfile : undefined;
+}
+
+/**
+ * `@moxxy/plugin-computer-control` — operates the user's desktop applications
+ * through a bundled native helper: macOS (universal), Windows x64 and Linux
+ * (x64, arm64; X11 sessions). Other
+ * hosts, and a host whose helper is missing, expose `computer_status` only.
+ *
+ * Every tool is `permission: 'prompt'`; which apps may be controlled, and how
+ * far, is a separate grant recorded in the session log.
+ */
+export function createComputerControlPlugin(
+  platform: NodeJS.Platform = process.platform, arch: string = process.arch, profile: PlatformProfile | undefined = profileFor(platform, arch),
+): Plugin {
+  if (!profile) return statusOnly(platform, arch, 'Unsupported platform or architecture');
+  const problem = helperProblem(profile.helperPath, profile.protocolVersion);
+  if (problem) return statusOnly(platform, arch, `${problem} ${profile.unavailableMessage}`);
+  const backend = new ComputerBackend(profile);
+  return definePlugin({ name, version: '0.0.0', tools: backend.tools(), hooks: backend.hooks, surfaces: backend.surfaces() });
 }
 
 export const computerControlPlugin = createComputerControlPlugin();
 
 export default computerControlPlugin;
-
-// Re-export for callers that want a runtime gate.
-export { IS_DARWIN };

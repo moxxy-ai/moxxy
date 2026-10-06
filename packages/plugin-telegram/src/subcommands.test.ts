@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import type { ChannelDef } from '@moxxy/sdk';
 import { buildTelegramPlugin } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -37,7 +38,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   process.stdout.write = origStdoutWrite;
   process.stderr.write = origStderrWrite;
 });

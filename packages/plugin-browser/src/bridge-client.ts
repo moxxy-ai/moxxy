@@ -1,4 +1,5 @@
 import { connect, type Socket } from 'node:net';
+import { HANDOFF_LIMIT_MS } from './handoff-limit.js';
 
 /**
  * Client for the desktop's browser bridge.
@@ -19,6 +20,8 @@ export const BRIDGE_TOKEN_ENV = 'MOXXY_BROWSER_BRIDGE_TOKEN';
 
 /** Per-call ceiling, mirroring the sidecar's — a wedged page must not hang a turn. */
 const CALL_TIMEOUT_MS = 150_000;
+/** A hand-off waits on the user, not the page: as long as the pane gives them, and a moment to answer. */
+const HANDOFF_TIMEOUT_MS = HANDOFF_LIMIT_MS + 30_000;
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -116,10 +119,11 @@ export class BridgeClient {
     if (!socket || socket.destroyed) return Promise.reject(new Error('browser bridge is not connected'));
     const id = `c${++this.seq}`;
     return new Promise<unknown>((resolve, reject) => {
+      const limit = method === 'await_human' ? HANDOFF_TIMEOUT_MS : CALL_TIMEOUT_MS;
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`browser bridge call timed out after ${CALL_TIMEOUT_MS}ms: ${method}`));
-      }, CALL_TIMEOUT_MS);
+        reject(new Error(`browser bridge call timed out after ${limit}ms: ${method}`));
+      }, limit);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
 

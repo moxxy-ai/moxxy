@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { forceReleaseCollabLock, readActiveCollab, releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 beforeEach(() => {
@@ -11,7 +12,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.MOXXY_COLLAB_LOCK;
-  rmSync(dir, { recursive: true, force: true });
+  removeDirSync(dir);
 });
 
 describe('collab single-flight lock', () => {

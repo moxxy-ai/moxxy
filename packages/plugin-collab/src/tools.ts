@@ -1,6 +1,7 @@
 /**
- * The peer-side collab_* tools. Registered globally (inert outside a
- * collaboration), enabled + auto-approved inside the architect/peer modes.
+ * The peer-side collab_* tools. Registered globally but offered only in the
+ * architect/peer modes (`modes`), where they are auto-approved; outside a
+ * collaboration they do nothing, and collab_inbox was a detour in plain tasks.
  * Each is a thin wrapper over the process hub client; identity (`from`/`self`)
  * is the hub's job, so these tools never carry an agent id.
  */
@@ -8,6 +9,11 @@
 import { defineTool, type ToolDef, type ToolIsolationSpec } from '@moxxy/sdk';
 import { z } from 'zod';
 import { getProcessHubClient } from './process-client.js';
+
+/** The modes a collaboration's own agents run in (set via MOXXY_MODE by the coordinator). */
+export const COLLAB_ARCHITECT_MODE_NAME = 'collab-architect';
+export const COLLAB_PEER_MODE_NAME = 'collab-peer';
+const COLLAB_AGENT_MODES = [COLLAB_ARCHITECT_MODE_NAME, COLLAB_PEER_MODE_NAME];
 
 const NOT_IN_COLLAB = {
   error: 'Not in a collaboration. The collab_* tools only work for an agent running inside an agentic-collaborative team.',
@@ -65,6 +71,7 @@ const collabSend = defineTool({
   }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ to, body, subject }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -78,6 +85,7 @@ const collabBroadcast = defineTool({
   inputSchema: z.object({ body: z.string().min(1), subject: z.string().optional() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ body, subject }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -91,6 +99,7 @@ const collabInbox = defineTool({
   inputSchema: z.object({}),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -105,6 +114,7 @@ const collabRoster = defineTool({
   inputSchema: z.object({}),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -118,6 +128,7 @@ const collabBoard = defineTool({
   inputSchema: z.object({}),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -135,6 +146,7 @@ const collabAddTask = defineTool({
   }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_WORKSPACE_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ title, detail, paths }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -152,6 +164,7 @@ const collabClaim = defineTool({
   }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_WORKSPACE_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ paths, id }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -173,6 +186,7 @@ const collabRelease = defineTool({
   inputSchema: z.object({ id: z.string().optional(), paths: z.array(z.string()).optional() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_WORKSPACE_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ id, paths }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -190,6 +204,7 @@ const collabUpdate = defineTool({
   }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ id, status, detail }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -203,6 +218,7 @@ const collabDone = defineTool({
   inputSchema: z.object({ summary: z.string().min(1), artifacts: z.array(z.string()).optional() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ summary, artifacts }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -216,6 +232,7 @@ const collabContracts = defineTool({
   inputSchema: z.object({}),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -236,6 +253,7 @@ const collabContractPublish = defineTool({
   }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_WORKSPACE_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async (input) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -250,6 +268,7 @@ const collabContractProposeChange = defineTool({
   inputSchema: z.object({ id: z.string(), newSpec: z.string().min(1), reason: z.string().min(1) }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ id, newSpec, reason }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -263,6 +282,7 @@ const collabContractAck = defineTool({
   inputSchema: z.object({ id: z.string() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ id }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -276,6 +296,7 @@ const collabPeerFiles = defineTool({
   inputSchema: z.object({ agentId: z.string() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_PEER_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ agentId }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -289,6 +310,7 @@ const collabPeerRead = defineTool({
   inputSchema: z.object({ agentId: z.string(), path: z.string() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_PEER_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ agentId, path }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -302,6 +324,7 @@ const collabPeerDiff = defineTool({
   inputSchema: z.object({ agentId: z.string() }),
   permission: { action: 'allow' },
   isolation: HUB_RPC_PEER_ISOLATION,
+  modes: COLLAB_AGENT_MODES,
   handler: async ({ agentId }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;

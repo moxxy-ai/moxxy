@@ -6,7 +6,7 @@ import type { ServiceRegistry } from './services.js';
 import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
-import type { LLMProvider } from './provider.js';
+import type { LLMProvider, ReasoningEffort } from './provider.js';
 import type { LoopGuardSettings } from './mode/stuck-loop.js';
 import type { Skill } from './skill.js';
 import type { SubagentSpawner } from './subagent.js';
@@ -84,6 +84,8 @@ export interface ModeContext {
   readonly cwd: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly model: string;
+  /** User-supplied context-window estimate for a custom model, if known. */
+  readonly contextWindowOverride?: number;
   readonly systemPrompt?: string;
   readonly provider: LLMProvider;
   readonly tools: ToolRegistry;
@@ -94,7 +96,10 @@ export interface ModeContext {
   readonly cacheStrategy: CacheStrategyDef | null;
   /** Elision (context-on-demand) settings; undefined → defaults apply. */
   readonly elision?: ElisionSettings;
-  /** When true, send only always-on + loaded tool schemas; index the rest. */
+  /**
+   * Send only always-on + loaded tool schemas and index the rest. Unset means
+   * automatic: on once the registry holds more than `LAZY_TOOLS_AUTO_THRESHOLD` tools.
+   */
   readonly lazyTools?: boolean;
   /**
    * Per-provider reasoning/thinking preference, resolved from the active
@@ -102,7 +107,9 @@ export interface ModeContext {
    * `ProviderRequest.reasoning` by {@link collectProviderStream}, gated on the
    * active model's `supportsReasoning`. Absent/false → reasoning off.
    */
-  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  /** Ask for the provider's faster tier; forwarded only to a model with `supportsFast`. */
+  readonly fast?: boolean;
   readonly permissions: PermissionResolver;
   /**
    * Optional generic "ask the user a question" gate. Any loop strategy can

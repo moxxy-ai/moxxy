@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import {
   createFileAuthStorage,
   createWhatsAppAuthState,
@@ -10,6 +11,7 @@ import {
   type BaileysAuthBridge,
   type WhatsAppAuthStorage,
 } from './auth-state.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // A trivial bridge: identity JSON (no Buffer categories), fresh creds counter.
 function fakeBridge(): BaileysAuthBridge {
@@ -83,7 +85,7 @@ describe('createFileAuthStorage', () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wa-auth-'));
   });
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('writes 0600 files and clears the whole dir', async () => {
@@ -94,7 +96,7 @@ describe('createFileAuthStorage', () => {
 
     const file = path.join(dir, 'auth', 'creds.json');
     const mode = (await fs.stat(file)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (posixFileModes) expect(mode).toBe(0o600);
 
     await storage.clear();
     expect(await storage.read('creds')).toBeNull();

@@ -53,6 +53,7 @@
     }
   },
   "dependencies": {
+    "@moxxy/jev": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "undici": "^6.28.1"
   },
@@ -68,6 +69,7 @@
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
+    "playwright": "^1.60.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server } from 'node:net';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { BridgeClient, bridgeAddressFromEnv, BRIDGE_SOCKET_ENV, BRIDGE_TOKEN_ENV } from './bridge-client.js';
+
+/** Windows can only listen on a named pipe, never on a path in a directory. */
+const socketIn = (dir: string): string =>
+  process.platform === 'win32' ? `\\\\.\\pipe\\${basename(dir)}` : join(dir, 'b.sock');
 
 /**
  * Client half of the desktop bridge. Driven against a real socket serving the
@@ -15,14 +19,15 @@ const servers: Server[] = [];
 const clients: BridgeClient[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const c of clients.splice(0)) c.close();
   for (const s of servers.splice(0)) await new Promise<void>((r) => s.close(() => r()));
 });
 
 /** A stand-in bridge: checks the token, then answers from `handler`. */
-function fakeBridge(opts: { token: string; handler?: (method: string) => unknown; dropAfterHello?: boolean }) {
+function fakeBridge(opts: { token: string; handler?: (method: string) => unknown; dropAfterHello?: boolean; hold?: string }) {
   const dir = mkdtempSync(join(tmpdir(), 'moxxy-bridge-test-'));
-  const socketPath = join(dir, 'b.sock');
+  const socketPath = socketIn(dir);
   const server = createServer((socket) => {
     socket.setEncoding('utf8');
     let buf = '';
@@ -47,6 +52,7 @@ function fakeBridge(opts: { token: string; handler?: (method: string) => unknown
           if (opts.dropAfterHello) socket.destroy();
           continue;
         }
+        if (req.method === opts.hold) continue;
         socket.write(JSON.stringify({ id: req.id, ok: true, result: opts.handler?.(req.method) ?? {} }) + '\n');
       }
     });
@@ -101,6 +107,25 @@ describe('BridgeClient', () => {
     const client = makeClient(join(tmpdir(), 'moxxy-nie-ma-takiego.sock'), 't');
 
     await expect(client.call('snapshot')).rejects.toThrow();
+  });
+
+  it('waits for a hand-off as long as the pane gives the user, not the ceiling of an ordinary call', async () => {
+    const path = await fakeBridge({ token: 'sekret', hold: 'await_human' });
+    const client = makeClient(path, 'sekret');
+    await client.call('warmup');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    // Seen live on the desktop: the user was asked to choose on a cookie banner,
+    // and 150 s later the agent read "browser bridge call timed out" — while the
+    // pane would have waited ten minutes for them to sign in or choose.
+    let settled = false;
+    const handoff = client.call('await_human', { reason: 'Zaloguj się' });
+    handoff.then(() => (settled = true), () => (settled = true));
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await expect(handoff).rejects.toThrow(/await_human/);
   });
 
   it('drops one call on abort without disturbing the next', async () => {

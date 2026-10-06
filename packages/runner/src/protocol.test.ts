@@ -3,7 +3,9 @@ import {
   surfaceInputParamsSchema,
   transcribeParamsSchema,
   synthesizeParamsSchema,
+  cancelSynthesizeParamsSchema,
   commandRunParamsSchema,
+  runTurnParamsSchema,
   MAX_TRANSCRIBE_AUDIO_B64_BYTES,
   MAX_SYNTHESIZE_TEXT_BYTES,
 } from './protocol.js';
@@ -100,6 +102,16 @@ describe('surfaceInputParamsSchema size guard (byte-identical to JSON.stringify 
 // uncapped strings; assert the worst case is rejected at the wire boundary
 // rather than ballooning memory inside the handler.
 describe('media + command param size caps (hostile-input rejection)', () => {
+  it('accepts a bounded per-turn custom model context window', () => {
+    expect(runTurnParamsSchema.safeParse({
+      prompt: 'hello',
+      model: 'vendor/model-v2',
+      contextWindow: 200_000,
+    }).success).toBe(true);
+    expect(runTurnParamsSchema.safeParse({ prompt: 'hello', contextWindow: 10_000_001 }).success)
+      .toBe(false);
+  });
+
   it('accepts a normal transcribe payload', () => {
     expect(
       transcribeParamsSchema.safeParse({
@@ -134,6 +146,12 @@ describe('media + command param size caps (hostile-input rejection)', () => {
     expect(
       synthesizeParamsSchema.safeParse({ text: 'x'.repeat(MAX_SYNTHESIZE_TEXT_BYTES) }).success,
     ).toBe(true);
+  });
+
+  it('validates bounded synthesis cancellation ids', () => {
+    expect(cancelSynthesizeParamsSchema.safeParse({ requestId: 'speech-id-1' }).success).toBe(true);
+    expect(cancelSynthesizeParamsSchema.safeParse({ requestId: 'id with spaces' }).success).toBe(false);
+    expect(synthesizeParamsSchema.safeParse({ requestId: 'speech-id-1', text: 'sentence' }).success).toBe(true);
   });
 
   it('rejects an empty or over-long command name/channel', () => {

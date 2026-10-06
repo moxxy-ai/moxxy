@@ -1,9 +1,10 @@
 import { isRunnerUp } from '@moxxy/runner';
 import type { ChannelDef } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
-import { argvToSetupOptions, hasBoolFlag } from '../argv-helpers.js';
+import { argvToSetupOptions } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { probeSession, type SetupResult } from '../setup.js';
+import { wantsInteractiveSetup, wizardHandoffArgv } from './channel-wizard-routing.js';
 import { runTuiWithBootstrap } from './run-tui.js';
 import { startRegisteredChannel, type DedicatedRunnerOpts } from './start-registered-channel.js';
 
@@ -60,19 +61,11 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
       };
 
       // A channel may declare an interactive setup subcommand shown by default
-      // for TTY users. Bypass on:
-      //   - non-TTY (cron / systemd / piped)
-      //   - `--no-wizard` / `__skipWizard` (explicit opt-out / wizard hand-off,
-      //     so the recursive call doesn't trampoline back into the menu)
-      //   - `--standalone` (the user explicitly opts out of attaching)
-      //   - a runner already being up: the user wants to attach/run, not
-      //     configure, so go straight to the headless runner.
+      // for TTY users (bypass rules: `wantsInteractiveSetup`). A runner already
+      // being up means the user wants to attach/run, not configure.
       if (
         def.interactiveCommand &&
-        process.stdin.isTTY === true &&
-        argv.flags['no-wizard'] !== true &&
-        argv.flags['__skipWizard'] !== true &&
-        !hasBoolFlag(argv, 'standalone') &&
+        wantsInteractiveSetup(def, argv, process.stdin.isTTY === true) &&
         !(await isRunnerUp())
       ) {
         // The wizard uses this (daemon-less) probe session directly; its
@@ -170,12 +163,7 @@ export async function runChannelSubcommand(
           );
         }
       }
-      const merged: ParsedArgv = {
-        command: argv.command,
-        flags: { ...argv.flags, ...extraFlags },
-        positional: [],
-      };
-      return runChannelByName(def.name, merged);
+      return runChannelByName(def.name, wizardHandoffArgv(argv, extraFlags));
     },
   });
 }

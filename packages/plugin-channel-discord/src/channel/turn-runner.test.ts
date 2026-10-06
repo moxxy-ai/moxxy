@@ -178,3 +178,131 @@ describe('runDiscordTurn — send-once-then-edit streaming', () => {
     expect(sends.join(' ')).toMatch(/Turn failed: provider exploded/);
   });
 });
+
+describe('runDiscordTurn — what the model is told about Discord', () => {
+  it('tells the model local file links cannot be opened here and to attach files with discord_send_message', async () => {
+    const { channel } = recordedChannel();
+    let systemPrompt: string | undefined;
+    const session = {
+      log: { subscribe: () => () => undefined },
+      runTurn: (_prompt: string, opts: { systemPrompt?: string }) => {
+        systemPrompt = opts.systemPrompt;
+        return (async function* () {})();
+      },
+    } as unknown as Session;
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200 },
+      { text: 'send me the photo', controller: new AbortController(), turnId: asTurnId('t-files') },
+    );
+
+    expect(systemPrompt).toMatch(/Discord/);
+    expect(systemPrompt).toMatch(/file:\/\//);
+    expect(systemPrompt).toMatch(/discord_send_message/);
+    expect(systemPrompt).toMatch(/files/);
+  });
+});
+
+describe('runDiscordTurn — a turn answered out loud in a call', () => {
+  it('asks the model for a short, speakable reply', async () => {
+    const { channel } = recordedChannel();
+    const prompts: Array<string | undefined> = [];
+    const session = {
+      log: { subscribe: () => () => undefined },
+      runTurn: (_prompt: string, opts: { systemPrompt?: string }) => {
+        prompts.push(opts.systemPrompt);
+        return (async function* () {})();
+      },
+    } as unknown as Session;
+    const deps = { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200 };
+
+    await runDiscordTurn(deps, { text: 'hej', spoken: true, controller: new AbortController(), turnId: asTurnId('t-call') });
+    await runDiscordTurn(deps, { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-text') });
+
+    expect(prompts[0]).toMatch(/voice call/i);
+    expect(prompts[0]).toMatch(/discord_send_message/);
+    expect(prompts[0]).toMatch(/before .*tools?.* say .*what you are about to do/i);
+    expect(prompts[1]).not.toMatch(/voice call/i);
+    // Discord shows neither the browser nor the terminal: a choice a page asks
+    // of the user is asked in the chat, not left waiting in a pane.
+    for (const prompt of prompts) {
+      expect(prompt).toMatch(/cannot see your browser or terminal/i);
+      expect(prompt).toMatch(/cookie/i);
+      expect(prompt).toMatch(/Channels → Discord/);
+    }
+  });
+});
+
+/** What a call hears of the turn: the reply text and the steps it takes. */
+function heardTurn() {
+  const heard: unknown[] = [];
+  const spoken: string[] = [];
+  return {
+    heard,
+    spoken,
+    listener: {
+      text: (delta: string) => spoken.push(delta),
+      messageEnded: () => spoken.push('<end of message>'),
+      toolStarted: (callId: string, name: string, input: unknown) => heard.push(['started', callId, name, input]),
+      toolFinished: (callId: string, ok: boolean) => heard.push(['finished', callId, ok]),
+    },
+  };
+}
+
+describe('runDiscordTurn — the reply as it is written, for a call to speak', () => {
+  it('passes each streamed piece on, and marks where one message ends', async () => {
+    const { channel } = recordedChannel();
+    const { spoken, listener } = heardTurn();
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'assistant_chunk', delta: 'Już ' });
+      await emit({ type: 'assistant_chunk', delta: 'sprawdzam.' });
+      await emit({ type: 'assistant_message', content: 'Już sprawdzam.' });
+      await emit({ type: 'assistant_chunk', delta: 'Gotowe' });
+      await emit({ type: 'assistant_message', content: 'Gotowe' });
+    });
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200, spokenTurn: listener },
+      { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-stream') },
+    );
+
+    expect(spoken).toEqual(['Już ', 'sprawdzam.', '<end of message>', 'Gotowe', '<end of message>']);
+  });
+
+  it('passes a whole message on when the model did not stream it', async () => {
+    const { channel } = recordedChannel();
+    const { spoken, listener } = heardTurn();
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'assistant_message', content: 'Cała odpowiedź.' });
+    });
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200, spokenTurn: listener },
+      { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-whole') },
+    );
+
+    expect(spoken).toEqual(['Cała odpowiedź.', '<end of message>']);
+  });
+
+  it('tells the call when an approved step starts and when it ends', async () => {
+    const { channel } = recordedChannel();
+    const { heard, listener } = heardTurn();
+    const session = fakeSession(async (emit) => {
+      await emit({ type: 'tool_call_requested', callId: 'c1', name: 'Bash', input: { command: 'pnpm test' } });
+      await emit({ type: 'tool_call_approved', callId: 'c1', decidedBy: 'policy', mode: 'allow' });
+      await emit({ type: 'tool_result', callId: 'c1', ok: true, output: 'ok' });
+      await emit({ type: 'tool_call_requested', callId: 'c2', name: 'Write', input: {} });
+      await emit({ type: 'tool_call_denied', callId: 'c2', decidedBy: 'resolver', reason: 'no' });
+    });
+
+    await runDiscordTurn(
+      { session, channel, typing: new TypingIndicator(), editFrameMs: 1_200, spokenTurn: listener },
+      { text: 'hej', controller: new AbortController(), turnId: asTurnId('t-steps') },
+    );
+
+    expect(heard).toEqual([
+      ['started', 'c1', 'Bash', { command: 'pnpm test' }],
+      ['finished', 'c1', true],
+    ]);
+  });
+});

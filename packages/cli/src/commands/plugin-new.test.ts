@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runPluginNewCommand } from './plugin-new.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmpHome: string;
 let origHome: string | undefined;
@@ -16,7 +17,7 @@ beforeEach(async () => {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-pnew-'));
   origHome = process.env.HOME;
   // os.homedir() honors $HOME on POSIX; sufficient to mock the user home.
-  process.env.HOME = tmpHome;
+  process.env.HOME = process.env.USERPROFILE = tmpHome;
   origCwd = process.cwd();
   process.chdir(tmpHome);
 
@@ -39,8 +40,8 @@ afterEach(async () => {
   process.stderr.write = origStderrWrite;
   process.chdir(origCwd);
   if (origHome === undefined) delete process.env.HOME;
-  else process.env.HOME = origHome;
-  await fs.rm(tmpHome, { recursive: true, force: true });
+  else process.env.HOME = process.env.USERPROFILE = origHome;
+  await removeDir(tmpHome);
 });
 
 function makeArgv(positional: string[], flags: Record<string, string | boolean> = {}) {

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getModelPreference, setModelPreference } from './modelPreferences';
+import {
+  getModelContextWindowPreference,
+  getModelPreference,
+  setModelPreference,
+} from './modelPreferences';
 
 afterEach(() => {
   localStorage.clear();
@@ -28,5 +32,14 @@ describe('model preferences', () => {
 
     localStorage.setItem('moxxy.model-preferences.v1', '{broken');
     expect(getModelPreference('workspace-a', 'openai-codex')).toBeNull();
+  });
+
+  it('persists the selected custom model context window per workspace and provider', () => {
+    setModelPreference('workspace-a', 'openai', 'vendor/model-v2', 200_000);
+    setModelPreference('workspace-b', 'openai', 'vendor/model-v2', 64_000);
+
+    expect(getModelPreference('workspace-a', 'openai')).toBe('vendor/model-v2');
+    expect(getModelContextWindowPreference('workspace-a', 'openai')).toBe(200_000);
+    expect(getModelContextWindowPreference('workspace-b', 'openai')).toBe(64_000);
   });
 });

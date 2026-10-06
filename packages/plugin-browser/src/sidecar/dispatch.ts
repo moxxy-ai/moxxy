@@ -5,18 +5,16 @@
 
 import { assertPublicUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
-import { opAct, opSnapshot, opTabs } from './agent-ops.js';
-// SidecarState lives in a leaf module so `agent-ops` can import it without
-// closing a cycle back through this file. Re-exported for existing importers.
+import type { HostReply } from '../page/host.js';
+import { SidecarBrowser } from './sidecar-browser.js';
 import type { SidecarState } from './state.js';
-export type { SidecarState, TabSnapshot } from './state.js';
-import { TabRegistry } from './tabs.js';
+export type { SidecarState } from './state.js';
 import {
   badParams,
   errMsg,
   SidecarError,
   type BrowserKind,
-  type PageHandle,
+  type ErrorKind,
   type PlaywrightHandle,
   type Reply,
   type Req,
@@ -37,27 +35,26 @@ const MAX_DIMENSION = 16_384;
 
 
 /**
- * Make sure the tab registry exists and knows about every page the context
- * already owns. Called after `ensurePlaywright` so the launch page is always
- * tab 1, and hooked to `context.on('page')` so a popup or a `target="_blank"`
- * link becomes an addressable tab instead of a document nobody can reach.
+ * Methods the agent's tools share with the desktop, answered by the same
+ * browser host the desktop's pane runs on (`dispatchToHost`). The rest of the
+ * table serves the live-view surface and `browser_session`.
  */
-function ensureTabs(state: SidecarState, handle: PlaywrightHandle): TabRegistry {
-  if (state.tabs) return state.tabs;
-  const registry = new TabRegistry();
-  registry.add(handle.page);
+const AGENT_METHODS = new Set([
+  'snapshot', 'find', 'tree', 'act', 'dialog', 'select', 'wait', 'point', 'upload', 'tabs', 'await_human', 'box',
+  'key', 'back', 'forward', 'reload',
+]);
 
-  // Pages the context opened before we looked (rare, but a `newPage` during
-  // launch would qualify) plus everything it opens from here on.
-  for (const page of handle.context.pages?.() ?? []) {
-    if (page !== handle.page) registry.add(page);
-  }
-  handle.context.on?.('page', (page: PageHandle) => {
-    registry.add(page);
-  });
+async function agentBrowser(state: SidecarState): Promise<SidecarBrowser> {
+  const h = await ensurePlaywright(state, {});
+  // The request queue is serial, so no second call can start one alongside.
+  state.browser ??= await SidecarBrowser.start(h.context as never, h.page);
+  return state.browser;
+}
 
-  state.tabs = registry;
-  return registry;
+function replyOf(id: string, reply: HostReply, kind: ErrorKind = 'runtime'): Reply {
+  return reply.ok
+    ? { id, ok: true, ...(reply.result !== undefined ? { result: reply.result } : {}) }
+    : { id, ok: false, error: { message: reply.error?.message ?? 'failed', kind } };
 }
 
 async function ensurePlaywright(
@@ -68,7 +65,7 @@ async function ensurePlaywright(
   const pw = await importPlaywright();
   const which = opts.browser ?? 'chromium';
   const browserType = pw[which];
-  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true);
+  const { handle, installNotice } = await launchWithAutoInstall(browserType, which, opts.headless ?? true, state.profile);
   state.handle = handle;
   if (installNotice) state.pendingInstallNotice = installNotice;
   return state.handle;
@@ -83,6 +80,7 @@ export async function teardown(state: SidecarState): Promise<void> {
     /* ignore */
   }
   state.handle = null;
+  delete state.browser;
 }
 
 export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
@@ -98,39 +96,24 @@ export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
 }
 
 async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
+  const params = req.params ?? {};
+  // The surface's region capture and wheel share a name with the agent's
+  // picture and scroll; their parameters tell them apart.
+  const surfaceCall =
+    (req.method === 'capture' && typeof params.x === 'number') || (req.method === 'scroll' && typeof params.dy === 'number');
+  if (AGENT_METHODS.has(req.method) || (req.method === 'capture' && !surfaceCall) || (req.method === 'scroll' && !surfaceCall)) {
+    const browser = await agentBrowser(state);
+    return replyOf(req.id, await browser.call(req.method, params));
+  }
   switch (req.method) {
     case 'init': {
       const opts = (req.params ?? {}) as { browser?: BrowserKind; headless?: boolean };
       await ensurePlaywright(state, opts);
       return { id: req.id, ok: true, result: { ready: true } };
     }
-    // ── Agent-facing perception + action, addressed by tab and uid. ──
-    // These own their error replies (each has several distinct refusal
-    // reasons worth telling the model apart), so they are not wrapped by the
-    // generic catch in `dispatch`.
-    case 'snapshot': {
-      const h = await ensurePlaywright(state, {});
-      ensureTabs(state, h);
-      return opSnapshot(state, h, req);
-    }
-    case 'act': {
-      const h = await ensurePlaywright(state, {});
-      ensureTabs(state, h);
-      return opAct(state, h, req);
-    }
-    case 'tabs': {
-      const h = await ensurePlaywright(state, {});
-      ensureTabs(state, h);
-      return opTabs(state, h, req);
-    }
     case 'goto': {
-      const { url, waitUntil, timeoutMs, tab_id } = (req.params ?? {}) as {
-        url: string;
-        waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
-        timeoutMs?: number;
-        tab_id?: string;
-      };
-      if (!url) throw badParams('url is required');
+      const url = params.url;
+      if (typeof url !== 'string' || !url) throw badParams('url is required');
       // Defence-in-depth: the parent already runs the full SSRF guard before
       // sending this RPC, but the sidecar is a distinct process driven over
       // JSON-RPC, so re-check here rather than trust the caller to have
@@ -145,22 +128,8 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
-      const h = await ensurePlaywright(state, {});
-      // Named tabs: an explicit tab_id targets that tab, omitting it keeps the
-      // historical behaviour of navigating whatever is active.
-      const registry = ensureTabs(state, h);
-      const target = registry.get(tab_id);
-      try {
-        await target.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
-      } catch (err) {
-        return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
-      }
-      // Every uid from the previous snapshot belonged to the previous document.
-      // Dropping them here means the next `act` fails with "take a fresh
-      // snapshot" instead of resolving a handle onto whatever now sits at that
-      // position.
-      state.snapshots?.delete(target.id);
-      return { id: req.id, ok: true, result: { url: target.page.url(), tabId: target.id } };
+      const browser = await agentBrowser(state);
+      return replyOf(req.id, await browser.call('goto', { ...params, url }), 'navigation');
     }
     case 'click': {
       const h = await ensurePlaywright(state, {});
@@ -268,29 +237,6 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       }
       const h = await ensurePlaywright(state, {});
       await h.page.setViewportSize({ width: Math.round(width), height: Math.round(height) });
-      return { id: req.id, ok: true };
-    }
-    case 'back':
-    case 'forward':
-    case 'reload': {
-      const h = await ensurePlaywright(state, {});
-      try {
-        if (req.method === 'back') await h.page.goBack();
-        else if (req.method === 'forward') await h.page.goForward();
-        else await h.page.reload();
-      } catch (err) {
-        // No history to go to is not an error worth failing the surface over.
-        return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
-      }
-      return { id: req.id, ok: true, result: { url: h.page.url() } };
-    }
-    case 'key': {
-      const h = await ensurePlaywright(state, {});
-      const { key } = (req.params ?? {}) as { key: string };
-      if (!key) throw badParams('key is required');
-      // A single printable char is typed (inserts it); a named key is pressed.
-      if (key.length === 1) await h.page.keyboard.type(key);
-      else await h.page.keyboard.press(key);
       return { id: req.id, ok: true };
     }
     case 'scroll': {

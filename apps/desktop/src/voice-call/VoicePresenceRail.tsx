@@ -6,6 +6,7 @@ import type { VoiceModeStatus } from './useVoiceModePresentation';
 import type { VoiceRailView } from './voice-rail';
 import { VoiceRadioWaves } from './VoiceRadioWaves';
 import { useVoicePulse } from './useVoicePulse';
+import type { VoiceAgentWork } from './voice-agent-work';
 import './voice-rail.css';
 
 /** Size of the mark in the rail, in CSS pixels. */
@@ -51,6 +52,7 @@ export function VoicePresenceRail({
   onUnmuteMicrophone,
   onToggleWaitingSound,
   onClose,
+  agentWork = null,
 }: {
   readonly phase: VoiceCallPhase;
   readonly status: VoiceModeStatus;
@@ -69,6 +71,8 @@ export function VoicePresenceRail({
   readonly onUnmuteMicrophone: () => void;
   readonly onToggleWaitingSound: () => void;
   readonly onClose: () => void;
+  /** What the agent is doing while no tool runs; null when it is idle. */
+  readonly agentWork?: VoiceAgentWork | null;
 }): JSX.Element {
   const pulseRef = useVoicePulse({ phase, inputAnalyser, outputAnalyser });
   const [showInstallDetails, setShowInstallDetails] = useState(false);
@@ -173,7 +177,16 @@ export function VoicePresenceRail({
             <span className="voice-rail-operation-icon" aria-hidden="true">
               <Icon name="spark" size={15} />
             </span>
-            <span className="voice-rail-operation-label">No tools running</span>
+            <span className="voice-rail-operation-label">
+              {agentWork
+                ? `${agentWork.label}${agentWork.elapsed ? ` · ${agentWork.elapsed}` : ''}`
+                : 'No tools running'}
+            </span>
+            {agentWork && (
+              <span className="voice-rail-operation-dots" aria-hidden="true">
+                <i /><i /><i /><i />
+              </span>
+            )}
           </span>
         )}
       </div>

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Moxxy edge cases</title>
+    <style>
+      body { font: 15px -apple-system, sans-serif; margin: 24px; }
+      section { margin: 18px 0; }
+      .menu { position: relative; display: inline-block; }
+      .menu .items { display: none; position: absolute; top: 100%; left: 0; background: #fff; border: 1px solid #999; padding: 6px; }
+      .menu:hover .items { display: block; }
+      #promo { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; background: #335; color: #fff; display: flex; align-items: center; justify-content: center; gap: 16px; }
+      #save-row { position: fixed; left: 24px; bottom: 40px; }
+      #result { font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>Moxxy edge cases</h1>
+    <section>
+      <label>Imię <input id="name" value="Jan" oninput="update()" /></label>
+    </section>
+    <section>
+      <label>Miasto
+        <select id="city" onchange="update()">
+          <option value="">— wybierz —</option>
+          <option>Warszawa</option>
+          <option>Kraków</option>
+          <option>Gdańsk</option>
+        </select>
+      </label>
+    </section>
+    <section>
+      <div class="menu">
+        <button type="button">Menu</button>
+        <div class="items"><button type="button" onclick="state.menu = 'ok'; update()">Ustawienia</button></div>
+      </div>
+    </section>
+    <section>
+      <button type="button" onclick="alert('Uwaga z testu'); state.alert = 'ok'; update()">Pokaż alert</button>
+    </section>
+    <section>
+      <a href="https://example.org/" target="_blank">Regulamin (nowa karta)</a>
+    </section>
+    <section>
+      <p>Ramka z innej domeny:</p>
+      <iframe src="https://example.com/" width="520" height="180" title="Ramka testowa"></iframe>
+    </section>
+    <section style="height: 900px">
+      <p>Dłuższa strona — przycisk zapisu jest na dole, pod banerem.</p>
+    </section>
+    <div id="save-row"><button type="button" onclick="state.saved = 'ok'; update()">Zapisz</button></div>
+    <div id="promo">Promocja! <button type="button" onclick="document.getElementById('promo').remove()">Zamknij promocję</button></div>
+    <p>Wynik: <span id="result"></span></p>
+    <script>
+      const state = { menu: 'nie', saved: 'nie', alert: 'nie' };
+      function update() {
+        const name = document.getElementById('name').value;
+        const city = document.getElementById('city').value || 'brak';
+        document.getElementById('result').textContent =
+          `imię=${name}; miasto=${city}; menu=${state.menu}; zapis=${state.saved}; alert=${state.alert}`;
+      }
+      update();
+    </script>
+  </body>
+</html>

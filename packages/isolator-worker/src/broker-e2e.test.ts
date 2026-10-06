@@ -11,6 +11,7 @@
  * rather than the upstream pre-flight catching everything.
  */
 import { describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -104,7 +105,7 @@ describe('worker broker: extended fs ops', () => {
 });
 
 describe('worker broker: exec', () => {
-  it('runs allowed commands via the broker', async () => {
+  it.skipIf(!posixShell)('runs allowed commands via the broker', async () => {
     const iso = createWorkerIsolator();
     const out = (await iso.run(
       // Use a real cwd that exists on the test host. The broker spawns
@@ -138,7 +139,7 @@ describe('worker broker: bounded concurrency', () => {
   // sockets / exec children. Excess requests are rejected back to the
   // worker with the cap error; the parent degrades (some ops capped) but
   // never crashes, and every request is accounted for.
-  it('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
+  it.skipIf(!posixShell)('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
     const iso = createWorkerIsolator({ maxInflightBrokerOps: 4 });
     const out = (await iso.run(
       { ...baseCall('floodBrokerOps', { count: 48, sleepSec: 0.3 }), cwd: os.tmpdir() },
@@ -157,7 +158,7 @@ describe('worker broker: bounded concurrency', () => {
 
   // A handler whose parallelism stays under the ceiling must NOT see any
   // ops capped — the bound is a flood guard, not a throttle on normal use.
-  it('does not cap brokered ops that stay under the ceiling', async () => {
+  it.skipIf(!posixShell)('does not cap brokered ops that stay under the ceiling', async () => {
     const iso = createWorkerIsolator({ maxInflightBrokerOps: 8 });
     const out = (await iso.run(
       { ...baseCall('floodBrokerOps', { count: 4, sleepSec: 0.1 }), cwd: os.tmpdir() },

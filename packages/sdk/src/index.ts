@@ -46,9 +46,11 @@ export {
   computerControlStateSchema, computerControlOwnerSchema,
   computerControlCommandSchema, computerControlSnapshotSchema,
   computerApprovalFocusSchema, type ComputerApprovalFocus,
+  computerCursorPhaseSchema, computerCursorSchema, computerTargetSchema,
 } from './computer-control.js';
 export type {
   ComputerControlState, ComputerControlCommand, ComputerControlSnapshot, ComputerControlService,
+  ComputerCursor, ComputerTarget,
 } from './computer-control.js';
 
 // Identity. The type + pure helpers ride the main barrel; the OS resolver needs
@@ -131,6 +133,13 @@ export type {
   ClientChromeItem,
 } from './client-chrome.js';
 
+export {
+  AUTO_APPROVE_PLUGIN_ID,
+  AUTO_APPROVE_SUBTYPE,
+  autoApproveFromEvents,
+  autoApproveSwitch,
+} from './auto-approve.js';
+
 export type {
   ClientSession,
   ProvidersClientView,
@@ -196,6 +205,7 @@ export type {
   ContentBlock,
   ProviderMessage,
   ProviderRequest,
+  ReasoningEffort,
   ProviderEvent,
   CacheHint,
   TokenUsage,
@@ -294,6 +304,7 @@ export type {
 export type { ChannelRunStatus } from './channel-status.js';
 export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';
 export { createMutex, type Mutex } from './mutex.js';
+export { waitFor, wakeAfter, type WaitForOptions, type WaitOutcome, type WakeSource } from './wait-for.js';
 export {
   createJsonFileStore,
   type JsonFileStore,
@@ -334,6 +345,7 @@ export {
   projectMessagesFromLog,
   projectMessages,
   buildSystemPromptWithSkills,
+  skillsWithinReach,
   createStuckLoopDetector,
   stableHash,
   runReactLoop,
@@ -398,13 +410,26 @@ export {
   conversationalStub,
   toolResultBytes,
   toolResultStubbed,
+  toolResultStubText,
   conversationalStubbed,
   TINY_TURN_CHARS,
   type ElisionState,
 } from './elision-state.js';
+export { supersedeOf, supersededCallIds, supersededStub, type Supersede } from './supersede.js';
+export {
+  progressOf,
+  unfinishedWork,
+  unfinishedWorkCheckpoint,
+  unfinishedWorkNudge,
+  type Progress,
+} from './progress.js';
+export { AGENT_CONDUCT, SELF_REFERENCE_NOTE, withAgentConduct } from './conduct.js';
 export {
   applyLazyTools,
   buildToolIndex,
+  matchLoadableTools,
+  shouldGateTools,
+  LAZY_TOOLS_AUTO_THRESHOLD,
   loadedToolNames,
   ALWAYS_ON_TOOLS,
   type GatedTools,
@@ -421,6 +446,18 @@ export {
 } from './token-accounting.js';
 
 export type { Skill, SkillDef, SkillFrontmatter, SkillScope, SkillSchedule } from './skill.js';
+export {
+  insertMention,
+  mentionedSkills,
+  mentionOptions,
+  mentionQueryAt,
+  skillAttachment,
+  toolPatternMatches,
+  withoutTools,
+  type MentionOption,
+  type MentionQuery,
+} from './skill-mentions.js';
+export { toolsForMode } from './tool-modes.js';
 
 export type {
   Workflow,
@@ -491,7 +528,7 @@ export type {
   ResolvedPluginManifest,
 } from './plugin.js';
 
-export { startChannelWith, EXIT_AFTER_PAIR_FLAG, exitAfterPairRequested } from './channel.js';
+export { startChannelWith, EXIT_AFTER_PAIR_FLAG, exitAfterPairRequested, finishPairing } from './channel.js';
 export type {
   Channel,
   ChannelHandle,

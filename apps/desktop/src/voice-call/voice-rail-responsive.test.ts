@@ -21,4 +21,16 @@ describe('voice rail responsive contract', () => {
       /@container voice-rail \(max-width: 520px\)[\s\S]*?\.voice-rail-presence\s*\{[^}]*min-width:[^}]+\}[\s\S]*?\.voice-rail-operation--idle\s*\{[^}]*display:\s*none;/,
     );
   });
+
+  it('cuts a long work title short instead of painting it over the button beside it', () => {
+    expect(stylesheet).toMatch(
+      /\.voice-rail-work-copy strong\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s,
+    );
+  });
+
+  it('moves the work onto its own row when the rail is as narrow as the floating composer', () => {
+    expect(stylesheet).toMatch(
+      /@container voice-rail \(max-width: 520px\)[\s\S]*?\.voice-rail\s*\{[^}]*grid-template-areas:[^}]*'work work work'/,
+    );
+  });
 });

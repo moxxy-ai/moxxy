@@ -43,6 +43,31 @@ describe('IPC payload validation', () => {
     )).toThrow();
   });
 
+  it('pins the GPT-Live voice commands to host-owned, bounded payloads', () => {
+    const offer = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
+    expect(() => validateIpcInput('voice.live.preflight', undefined)).not.toThrow();
+    expect(() => validateIpcInput('voice.live.preflight', { force: true })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: offer })).not.toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: 'nope' })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { workspaceId: 'w1', sdp: offer, instructions: 'x' })).toThrow();
+    expect(() => validateIpcInput('voice.live.start', { sdp: offer })).toThrow();
+  });
+
+  it('bounds a recorded voice exchange and requires its workspace', () => {
+    const command = 'session.recordVoiceExchange';
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'hi', assistantText: 'hello' })).not.toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', assistantText: 'hello' })).not.toThrow();
+    expect(() => validateIpcInput(command, { userText: 'hi' })).toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'x'.repeat(100_001) })).toThrow();
+    expect(() => validateIpcInput(command, { workspaceId: 'w1', userText: 'hi', turnId: 'smuggled' })).toThrow();
+  });
+
+  it('accepts only the known voice engines in prefs', () => {
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'gpt-live' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'local' })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { voiceEngine: 'cloud' })).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();
@@ -114,6 +139,23 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('validates speech cancellation IDs and selected Gemini voice IDs', () => {
+    expect(() => validateIpcInput('session.cancelSynthesis', {
+      workspaceId: 'workspace-1',
+      requestId: 'request-123',
+    })).not.toThrow();
+    expect(() => validateIpcInput('session.cancelSynthesis', {
+      requestId: '../cancel-all',
+    })).toThrow();
+    expect(() => validateIpcInput('voice.useGeminiTts', { voiceId: 'voice_abc123' })).not.toThrow();
+    expect(() => validateIpcInput('voice.useGeminiTts', { voiceId: '../bad' })).toThrow();
+    expect(() => validateIpcInput('session.synthesize', {
+      text: 'Hello.',
+      requestId: 'request-123',
+      voice: 'Fola',
+    })).not.toThrow();
+  });
+
   it('whitelists prefs.update fields (rejects unknown keys)', () => {
     expect(() => validateIpcInput('prefs.update', { onboardingComplete: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { version: 99 })).toThrow();
@@ -121,7 +163,7 @@ describe('IPC payload validation', () => {
   });
 
   it('pins settings.setReasoning effort to the known enum', () => {
-    for (const effort of ['off', 'low', 'medium', 'high'] as const) {
+    for (const effort of ['off', 'low', 'medium', 'high', 'xhigh'] as const) {
       expect(() => validateIpcInput('settings.setReasoning', { effort })).not.toThrow();
     }
     expect(() =>
@@ -133,6 +175,13 @@ describe('IPC payload validation', () => {
     expect(() =>
       validateIpcInput('settings.setReasoning', { workspaceId: '', effort: 'low' }),
     ).toThrow();
+  });
+
+  it('takes only a yes or no for settings.setFast', () => {
+    expect(() => validateIpcInput('settings.setFast', { enabled: true })).not.toThrow();
+    expect(() => validateIpcInput('settings.setFast', { workspaceId: 'ws', enabled: false })).not.toThrow();
+    expect(() => validateIpcInput('settings.setFast', { enabled: 'yes' })).toThrow();
+    expect(() => validateIpcInput('settings.setFast', {})).toThrow();
   });
 
   it('bounds session.runTurn prompt + attachments', () => {
@@ -458,6 +507,34 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('accepts channels.setModel only as provider::model or null (reset to default)', () => {
+    const ok = (model: unknown) => () => validateIpcInput('channels.setModel', { channelId: 'discord', model });
+    expect(ok('openai-codex::gpt-5.6-luna')).not.toThrow();
+    expect(ok(null)).not.toThrow();
+    expect(ok('gpt-5.6-luna')).toThrow();
+    expect(ok('::m')).toThrow();
+    expect(ok('p::')).toThrow();
+    expect(ok(`p::${'m'.repeat(300)}`)).toThrow();
+    expect(() =>
+      validateIpcInput('channels.setModel', { channelId: '../x', model: 'p::m' }),
+    ).toThrow();
+  });
+
+  it('pins channels.openChat to a channel slug (it picks the socket the host attaches to)', () => {
+    const open = (args: unknown) => () => validateIpcInput('channels.openChat', args);
+    expect(open({ channelId: 'discord' })).not.toThrow();
+    expect(open({ channelId: '../x' })).toThrow();
+    expect(open({ channelId: 'discord', socketPath: '/tmp/x.sock' })).toThrow();
+  });
+
+  it('accepts channels.setRunMode only for the three known modes', () => {
+    for (const mode of ['manual', 'app', 'background']) {
+      expect(() => validateIpcInput('channels.setRunMode', { channelId: 'discord', mode })).not.toThrow();
+    }
+    expect(() => validateIpcInput('channels.setRunMode', { channelId: 'discord', mode: 'forever' })).toThrow();
+    expect(() => validateIpcInput('channels.setRunMode', { channelId: '../x', mode: 'app' })).toThrow();
+  });
+
   it('bounds anonymizer.parseDocument path + pins pickDocument to no payload', () => {
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '/a/b.txt' })).not.toThrow();
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '' })).toThrow();
@@ -553,6 +630,16 @@ describe('IPC payload validation', () => {
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: null }),
     ).not.toThrow();
     expect(() =>
+      validateIpcInput('session.setModel', {
+        workspaceId: 'workspace-1', model: 'vendor/model-v2', contextWindow: 200_000,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.setModel', {
+        workspaceId: 'workspace-1', model: 'vendor/model-v2', contextWindow: 10_000_001,
+      }),
+    ).toThrow();
+    expect(() =>
       validateIpcInput('session.setModel', { workspaceId: 'workspace-1', model: '' }),
     ).toThrow();
   });
@@ -586,6 +673,16 @@ describe('IPC payload validation', () => {
     ).toThrow();
     expect(() =>
       validateIpcInput('scheduler.delete' as never, { id: 's'.repeat(257) }),
+    ).toThrow();
+  });
+  it('bounds what the pane may tell main about the agent’s browser pointer and control', () => {
+    expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: 'cur1' })).not.toThrow();
+    expect(() => validateIpcInput('browser.confirmCursor' as IpcCommandName, { requestId: '' })).toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'takeover' })).not.toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'resume' })).not.toThrow();
+    expect(() => validateIpcInput('browser.control' as IpcCommandName, { command: 'stop' })).toThrow();
+    expect(() =>
+      validateIpcInput('browser.control' as IpcCommandName, { command: 'resume', driver: 'agent' }),
     ).toThrow();
   });
 });

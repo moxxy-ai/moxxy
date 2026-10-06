@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import crypto from 'node:crypto';
-import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -11,6 +12,7 @@ import {
   isTrustedLoopbackCert,
   isTrustedLoopbackCertByHost,
 } from './self-signed-cert';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PORTS = [51789, 51790, 51791, 51792] as const;
 
@@ -96,7 +98,7 @@ describe('loadOrCreateSelfSignedCert', () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-cert-'));
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('mints + persists on first run, then returns the cached cert', async () => {
@@ -107,7 +109,7 @@ describe('loadOrCreateSelfSignedCert', () => {
     expect(await readFile(path.join(dir, 'loopback-cert.pem'), 'utf8')).toBe(first.cert);
   });
 
-  it('writes the private key 0600', async () => {
+  it.skipIf(!posixFileModes)('writes the private key 0600', async () => {
     await loadOrCreateSelfSignedCert(dir);
     const mode = (await stat(path.join(dir, 'loopback-key.pem'))).mode & 0o777;
     expect(mode).toBe(0o600);

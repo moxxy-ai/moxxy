@@ -31,6 +31,11 @@ Full workflow: **`.claude/agents/channel-author.md`**. Repo-specific rules:
 - `/new` must call `SessionLike.reset?.()` and surface failure — a
   mirror-only clear desyncs seq-contiguous ingest (A10).
 
+- **Messenger bots** reuse `@moxxy/channel-kit` (mirror, per-bot model,
+  shared auto-approve, session actions, turn context, file sends) — see the
+  table in channel-author.md; `plugin-telegram` and `plugin-channel-discord`
+  are the reference adapters.
+
 Reference impls: `plugin-channel-http` (auth + allow-list),
 `plugin-channel-mobile` (WS bridge + QR pairing), `plugin-telegram` (TOFU
 pairing). Register in `builtins.ts`; gate + changeset.

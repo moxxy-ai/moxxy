@@ -1,9 +1,11 @@
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
 import {
   asSessionId,
+  asSkillId,
   asToolCallId,
   defineMode,
   definePlugin,
@@ -18,6 +20,7 @@ import {
   releaseRetainedChild,
   type RetainedChildSession,
 } from './subagents/registry.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('Session', () => {
   it('boots with sensible defaults', () => {
@@ -266,7 +269,7 @@ describe('Session', () => {
     expect(prompted).toBe(1);
   });
 
-  it('auto-allows scoped reads only for real paths inside the workspace', async () => {
+  it.skipIf(!canSymlink)('auto-allows scoped reads only for real paths inside the workspace', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'moxxy-workspace-'));
     const outside = await mkdtemp(join(tmpdir(), 'moxxy-outside-'));
     const insideFile = join(workspace, 'inside.txt');
@@ -327,8 +330,8 @@ describe('Session', () => {
       expect(prompted).toHaveBeenCalledTimes(2);
     } finally {
       await s.close();
-      await rm(workspace, { recursive: true, force: true });
-      await rm(outside, { recursive: true, force: true });
+      await removeDir(workspace);
+      await removeDir(outside);
     }
   });
 
@@ -356,5 +359,41 @@ describe('Session', () => {
     expect(abortAll).toHaveBeenCalledWith('bye');
     // `this` is bound through the proxy so a method reading sibling state works.
     expect(wrapped.reasonViaThis()).toBe('shutting down');
+  });
+});
+
+describe('Session info for the chat @ menu', () => {
+  it('tells clients how each skill is shown and mentioned', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    s.skills.register({
+      id: asSkillId('plugin/computer-control'),
+      path: '/skills/computer-control.md',
+      scope: 'plugin',
+      frontmatter: { name: 'computer-control', description: 'Operate desktop apps', label: 'Computer Use', aliases: ['computer_use'] },
+      body: '',
+    });
+
+    expect(s.getInfo().skills).toEqual([
+      { id: 'plugin/computer-control', name: 'computer-control', description: 'Operate desktop apps', label: 'Computer Use', aliases: ['computer_use'] },
+    ]);
+  });
+});
+
+describe('Session info for the model panel', () => {
+  it('reports how deeply the model thinks, telling "on at the provider\'s default" from off', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    expect(s.getInfo().reasoningEffort).toBeNull();
+
+    s.reasoning = true;
+    expect(s.getInfo().reasoningEffort).toBe('default');
+
+    s.reasoning = {};
+    expect(s.getInfo().reasoningEffort).toBe('default');
+
+    s.reasoning = { effort: 'high' };
+    expect(s.getInfo().reasoningEffort).toBe('high');
+
+    s.reasoning = false;
+    expect(s.getInfo().reasoningEffort).toBeNull();
   });
 });

@@ -547,7 +547,11 @@ describe('projectMessages compaction-range lookup (golden: binary cursor == line
     const emitted = new Set<Range>();
     const msgs: ProviderMessage[] = [];
     const resolved = new Set<string>();
-    for (const e of events) if (e.type === 'tool_result' || e.type === 'tool_call_denied') resolved.add(e.callId);
+    for (const e of events) {
+      if (linearLookup(e.seq, ranges)) continue;
+      if (e.type === 'tool_result' || e.type === 'tool_call_denied') resolved.add(e.callId);
+    }
+    const projected = new Set<string>();
     let pending: ProviderMessage | null = null;
     const flush = () => {
       if (!pending) return;
@@ -586,9 +590,11 @@ describe('projectMessages compaction-range lookup (golden: binary cursor == line
           break;
         case 'tool_call_requested':
           if (!pending) pending = { role: 'assistant', content: [] };
+          projected.add(e.callId);
           (pending.content as Array<ProviderMessage['content'][number]>).push({ type: 'tool_use', id: e.callId, name: e.name, input: e.input });
           break;
         case 'tool_result': {
+          if (!projected.has(e.callId)) break;
           flush();
           const text = e.error ? `[error:${e.error.kind}] ${e.error.message}` : typeof e.output === 'string' ? e.output : JSON.stringify(e.output ?? '');
           msgs.push({ role: 'tool_result', content: [{ type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok }] });

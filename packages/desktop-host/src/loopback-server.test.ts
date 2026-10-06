@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startLoopbackServer, type LoopbackServer } from './loopback-server';
 import { DESKTOP_APP_HOST, generateSelfSignedCert } from './self-signed-cert';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 interface Res {
   status: number;
@@ -71,7 +72,7 @@ describe('loopback static server', () => {
 
   afterAll(async () => {
     await server.close();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
     await rm(path.join(path.dirname(dir), 'outside-secret.txt'), { force: true });
   });
 

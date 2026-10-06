@@ -69,6 +69,8 @@ import {
   type RunTurnResult,
   type SessionLoadHistoryParams,
   type SessionLoadHistoryResult,
+  type SessionRecordExchangeParams,
+  type SessionRecordExchangeResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
   type TurnCompleteNotification,
@@ -221,6 +223,8 @@ export class RemoteSession implements ClientSession {
   private info: SessionInfo | null = null;
   /** Subscribers to `info.changed` pushes (see {@link onInfoChanged}). */
   private readonly infoListeners = new Set<(info: SessionInfo) => void>();
+  /** Subscribers to `session.reset` pushes (see {@link onReset}). */
+  private readonly resetListeners = new Set<() => void>();
   /** Subscribers to `surface.data` frames (see {@link onSurfaceData}). */
   private readonly surfaceDataListeners = new Set<(data: SurfaceDataMessage) => void>();
   /**
@@ -288,6 +292,13 @@ export class RemoteSession implements ClientSession {
       // accepted exactly when the mirror is empty again. The mirror's own
       // clear listeners fire, letting channel UIs observe the wipe.
       this.mirror.clear();
+      for (const fn of this.resetListeners) {
+        try {
+          fn();
+        } catch {
+          /* a bad subscriber must not break the mirror */
+        }
+      }
     });
 
     // Server->client requests (the runner asks us to decide).
@@ -321,6 +332,7 @@ export class RemoteSession implements ClientSession {
       requireInfo: () => this.requireInfo(),
       requireServerProtocol: (minVersion, feature) =>
         this.requireServerProtocol(minVersion, feature),
+      serverProtocolVersion: () => this.serverProtocolVersion,
     };
     this.providers = makeProvidersView(view);
     this.modes = makeModesView(view);
@@ -486,6 +498,34 @@ export class RemoteSession implements ClientSession {
     } satisfies SessionLoadHistoryParams);
   }
 
+  /**
+   * Record a conversation exchange that happened outside the agent loop (v20),
+   * e.g. a GPT-Live voice turn. The runner appends it as one ordinary turn:
+   * every mirror renders it and later agent turns see it as context. Runs no
+   * model and no tools; an exchange spoken during a running turn is appended
+   * after that turn. GATED on protocol v20 so an older runner reports an
+   * actionable "update the CLI" error instead of a raw method-not-found.
+   */
+  async recordExchange(
+    exchange: SessionRecordExchangeParams,
+  ): Promise<SessionRecordExchangeResult> {
+    this.requireServerProtocol(20, 'Recording a voice conversation');
+    return this.peer.request<SessionRecordExchangeResult>(
+      RunnerMethod.SessionRecordExchange,
+      exchange,
+    );
+  }
+
+  /**
+   * Switch the conversation's auto-approve for every client of this runner
+   * (v21). The new state arrives with the next `info.changed`. GATED so an
+   * older runner reports an actionable "update the CLI" error.
+   */
+  async setAutoApprove(enabled: boolean): Promise<void> {
+    this.requireServerProtocol(21, 'Sharing auto-approve with the runner');
+    await this.peer.request(RunnerMethod.SessionSetAutoApprove, { enabled });
+  }
+
   getInfo(): SessionInfo {
     return this.requireInfo();
   }
@@ -496,6 +536,19 @@ export class RemoteSession implements ClientSession {
    * a turn). Fires after the local `getInfo()` mirror has been updated, so a
    * listener can re-read it synchronously. Returns an unsubscribe fn.
    */
+  /** The runner started a new conversation (`/new` from any client, such as
+   *  a channel bot). Fires after the local mirror was cleared. */
+  onReset(fn: () => void): () => void {
+    this.resetListeners.add(fn);
+    return () => this.resetListeners.delete(fn);
+  }
+
+  /** Stop a running turn, also one another client or the runner itself
+   *  started (a channel bot). A finished or unknown turn is ignored. */
+  async abortTurn(turnId: string): Promise<void> {
+    await this.peer.request(RunnerMethod.Abort, { turnId });
+  }
+
   onInfoChanged(fn: (info: SessionInfo) => void): () => void {
     this.infoListeners.add(fn);
     return () => this.infoListeners.delete(fn);
@@ -546,9 +599,13 @@ export class RemoteSession implements ClientSession {
   }
 
   async *runTurn(prompt: string, opts: RunTurnOptions = {}): AsyncIterable<MoxxyEvent> {
+    if (opts.contextWindow !== undefined) {
+      this.requireServerProtocol(19, 'Custom model context windows');
+    }
     const result = await this.peer.request<RunTurnResult>(RunnerMethod.RunTurn, {
       prompt,
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.contextWindow !== undefined ? { contextWindow: opts.contextWindow } : {}),
       ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.maxIterations ? { maxIterations: opts.maxIterations } : {}),
       ...(opts.attachments && opts.attachments.length > 0 ? { attachments: opts.attachments } : {}),

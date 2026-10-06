@@ -17,15 +17,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
+import { platformSocket } from '@moxxy/runner';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
   asPluginId,
+  asTurnId,
   assertDefined,
   defineMode,
   definePlugin,
   defineProvider,
   defineTool,
   z,
+  type ComputerControlSnapshot,
   type ModeContext,
   type MoxxyEvent,
   type UserPromptAttachment,
@@ -104,7 +107,8 @@ const gateModePlugin = definePlugin({
 });
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-driver-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-driver-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 /** Minimal stand-in for an Electron BrowserWindow — SessionDriver only
@@ -245,7 +249,7 @@ describe('SessionDriver approval-gate survival', () => {
     const req = askFrame.payload as AskRequest;
     answerAsk(req.requestId, { mode: 'allow_session' } as never);
 
-    await expect(decision).resolves.toEqual({ mode: 'allow_session' });
+    await expect(decision).resolves.toEqual({ mode: 'allow_session', decidedNow: true });
     expect(sent).toContainEqual({
       channel: 'ask.resolved',
       payload: { workspaceId: 'ws-ask', requestId: req.requestId },
@@ -363,6 +367,9 @@ function fakeRemote(options: {
       return () => infoListeners.delete(fn);
     },
     onSurfaceData: () => () => undefined,
+    onReset: () => () => undefined,
+    // A runner that predates the shared auto-approve switch reports none.
+    getInfo: () => ({}),
   };
   return {
     remote: remote as unknown as RemoteSession,
@@ -383,8 +390,24 @@ describe('SessionDriver auto-approve', () => {
     assertDefined(captured.permission, 'captured permission resolver');
     const res = await captured.permission.check({ name: 'Write', input: {} }, {});
 
-    expect(res).toEqual({ mode: 'allow' });
+    expect(res).toEqual({ mode: 'allow', decidedNow: true });
     expect(sent.some((f) => f.channel === 'ask.request')).toBe(false);
+    driver.dispose();
+  });
+
+  it('marks an answered ask as decided now, and a cancelled one as a plain deny', async () => {
+    const { remote, captured } = fakeRemote();
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws');
+
+    assertDefined(captured.permission, 'captured permission resolver');
+    const pending = captured.permission.check({ name: 'computer_run', input: { app: 'Notes' } }, {});
+    await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
+    const ask = sent.find((f) => f.channel === 'ask.request');
+    assertDefined(ask, 'ask request');
+    answerAsk((ask.payload as { requestId: string }).requestId, { mode: 'allow_session' });
+
+    expect(await pending).toEqual({ mode: 'allow_session', decidedNow: true });
     driver.dispose();
   });
 
@@ -403,6 +426,150 @@ describe('SessionDriver auto-approve', () => {
     driver.dispose();
     const res = await p;
     expect(res.mode).toBe('deny');
+  });
+});
+
+describe('SessionDriver shared auto-approve', () => {
+  async function serveConversation(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('ok')] }));
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  async function attachDriver(socketPath: string) {
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+    const autoApproveFrames = () =>
+      sent.filter((f) => f.channel === 'session.autoApprove.changed').map((f) => f.payload);
+    return { driver, autoApproveFrames };
+  }
+
+  it('shows auto-approve switched on by another client of the conversation (a channel bot)', async () => {
+    const { session, socketPath } = await serveConversation();
+    const { driver, autoApproveFrames } = await attachDriver(socketPath);
+
+    await session.setAutoApprove(true);
+
+    await waitFor(() => autoApproveFrames().length > 0);
+    expect(autoApproveFrames()).toEqual([{ workspaceId: 'ws-chat', enabled: true }]);
+    driver.dispose();
+  });
+
+  it('switching it in the app switches it for the whole conversation', async () => {
+    const { session, socketPath } = await serveConversation();
+    const { driver } = await attachDriver(socketPath);
+
+    await driver.setAutoApprove(true);
+
+    expect(session.getInfo().autoApprove).toBe(true);
+    driver.dispose();
+  });
+
+  it('clears the chat when another client starts a new conversation (a channel bot’s /new)', async () => {
+    const { session, socketPath } = await serveConversation();
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+
+    await session.reset();
+
+    await waitFor(() => sent.some((f) => f.channel === 'chat.cleared'));
+    expect(sent.filter((f) => f.channel === 'chat.cleared').map((f) => f.payload)).toEqual([{ workspaceId: 'ws-chat' }]);
+    driver.dispose();
+  });
+
+  it('opens a conversation that already has it on with it shown on', async () => {
+    const { session, socketPath } = await serveConversation();
+    await session.setAutoApprove(true);
+
+    const { driver, autoApproveFrames } = await attachDriver(socketPath);
+
+    expect(autoApproveFrames()).toEqual([{ workspaceId: 'ws-chat', enabled: true }]);
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver, a turn another client runs', () => {
+  /** A conversation whose turns block until aborted — the Discord bot hosts it. */
+  async function serveBlocking(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'driver-test-blocking',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+            description: 'blocks until aborted',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              await new Promise<void>((resolve) => {
+                if (ctx.signal.aborted) return resolve();
+                ctx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  it('shows the bot’s turn as running, can stop it, and shows it done', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-chat');
+    const frames = (channel: string) => sent.filter((f) => f.channel === channel).map((f) => f.payload);
+
+    const turn = (async () => {
+      for await (const _event of session.runTurn('from discord', { turnId: asTurnId('bot-turn') })) void _event;
+    })();
+    await waitFor(() => frames('runner.turn.started').length > 0);
+    expect(frames('runner.turn.started')).toEqual([
+      { workspaceId: 'ws-chat', turnId: 'bot-turn', visibility: 'foreground' },
+    ]);
+    expect(driver.activeForegroundTurnId()).toBe('bot-turn');
+
+    driver.abortTurn('bot-turn');
+    await turn;
+    await waitFor(() => frames('runner.turn.complete').length > 0);
+    expect(frames('runner.turn.complete')).toEqual([{ workspaceId: 'ws-chat', turnId: 'bot-turn', error: null }]);
+    expect(driver.activeForegroundTurnId()).toBeNull();
+    driver.dispose();
+  });
+});
+
+describe('SessionDriver Computer Use status', () => {
+  it('forwards every Computer Use change to the window as it happens, and stops after dispose', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('ok')] }));
+    let push: (turns: ReadonlyArray<ComputerControlSnapshot>) => void = () => undefined;
+    session.services.register('computerControl', {
+      snapshot: async () => [],
+      control: async () => undefined,
+      subscribe: (listener: typeof push) => { push = listener; return () => { push = () => undefined; }; },
+    });
+    servers.push(await startRunnerServer(session, { socketPath }));
+    const remote = await connectRemoteSession({ socketPath, role: 'driver-test' });
+    remotes.push(remote);
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-cu');
+    const frames = () => sent.filter((f) => f.channel === 'computer.changed').map((f) => f.payload);
+    const turns = [{ sessionId: session.id, turnId: 't', state: 'paused_by_user', windowId: null }] as const;
+    push(turns);
+    await waitFor(() => frames().length > 0);
+    expect(frames()).toEqual([{ workspaceId: 'ws-cu', turns }]);
+    driver.dispose();
+    push([]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(frames()).toHaveLength(1);
   });
 });
 

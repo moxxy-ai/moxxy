@@ -62,7 +62,7 @@ export interface CodexProviderConfig {
    * moxxy.config.ts (e.g. `{ reasoningEffort: 'high' }`); the CLI's
    * credential resolution merges that config through to `createClient`.
    */
-  readonly reasoningEffort?: 'low' | 'medium' | 'high';
+  readonly reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   /** Test seam — when omitted we use the global `fetch`. */
   readonly fetch?: typeof fetch;
   /** Test seam — when omitted we use crypto.randomUUID for the per-request session id. */
@@ -96,7 +96,7 @@ export class CodexProvider implements LLMProvider {
   private readonly onTokensRefreshed?: (next: CodexTokens) => void | Promise<void>;
   private readonly reloadTokens?: () => Promise<CodexTokens | null>;
   private readonly defaultModel: string;
-  private readonly reasoningEffort?: 'low' | 'medium' | 'high';
+  private readonly reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   private readonly fetchImpl: typeof fetch;
   private readonly sessionIdProvider: () => string;
   private readonly idleTimeoutMs: number;

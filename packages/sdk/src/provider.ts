@@ -53,6 +53,9 @@ export interface CacheHint {
   readonly target: 'tools' | 'system' | { readonly messageIndex: number };
 }
 
+/** How deeply a reasoning model should think; `xhigh` is the deepest. */
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
 export interface ProviderRequest {
   readonly model: string;
   /**
@@ -81,7 +84,13 @@ export interface ProviderRequest {
    * each provider's native knob (Anthropic thinking budget, OpenAI/Codex
    * `reasoning.effort`).
    */
-  readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean;
+  readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean;
+  /**
+   * Serve this request on the provider's faster, pricier tier (OpenAI
+   * `service_tier: "priority"`). Set by the loop only for a model whose
+   * descriptor has `supportsFast`.
+   */
+  readonly fast?: boolean;
 }
 
 export type ProviderEvent =
@@ -148,6 +157,8 @@ export interface ModelDescriptor {
    * for this model. When false, `ProviderRequest.reasoning` is ignored.
    */
   readonly supportsReasoning?: boolean;
+  /** Whether the provider can serve this model on a faster tier (see `ProviderRequest.fast`). */
+  readonly supportsFast?: boolean;
   /**
    * Tools executed by the provider on behalf of this model (for example
    * OpenAI Responses or Anthropic server tools). A matching client ToolDef

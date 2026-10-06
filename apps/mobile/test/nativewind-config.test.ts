@@ -107,7 +107,8 @@ describe('mobile StyleSheet configuration', () => {
     expect(code).toContain('React.createElement');
     expect(code).not.toContain('__self');
     expect(code).not.toContain('__source');
-  });
+    // A cold load of babel-preset-expo outlasts the 5 s default on a busy Windows runner.
+  }, 30_000);
 
   it('loads the Expo Router entrypoint without a web style interop shim', async () => {
     const entry = await readFile(join(mobileRoot, 'index.ts'), 'utf8');

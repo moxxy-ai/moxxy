@@ -198,3 +198,92 @@ describe('buildAxTree — uids that survive the page changing', () => {
     expect(uidOf(b, 'Kup')).toBe('3');
   });
 });
+
+describe('buildAxTree — nodes read from a frame', () => {
+  /**
+   * A frame from another site is a separate document with its own DOM, read
+   * through its own session. Its nodes carry that session so an action on one
+   * of them goes to the frame, not to the page around it.
+   */
+  it('keeps the frame a node came from', () => {
+    const tree = buildAxTree([
+      { nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Strona' }, childIds: ['f:1'] },
+      { nodeId: 'f:1', role: { value: 'link' }, name: { value: 'Learn more' }, backendDOMNodeId: 5, frame: 'S1' },
+    ]);
+
+    const link = tree?.children[0];
+    expect(link).toMatchObject({ role: 'link', name: 'Learn more', backendNodeId: 5, frame: 'S1' });
+    expect(tree).not.toHaveProperty('frame');
+  });
+});
+
+describe('buildAxTree — work the page says is still under way', () => {
+  const root = { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] };
+
+  it('marks what the page declares busy', () => {
+    // Chromium reports aria-busy="true" as the number 1.
+    const tree = buildAxTree([
+      root,
+      { nodeId: '2', role: { value: 'region' }, name: { value: 'Logs' }, properties: [{ name: 'busy', value: { value: 1 } }] },
+    ]);
+
+    expect(tree?.children[0]?.inProgress).toBe(true);
+  });
+
+  it('leaves a document that is still loading alone: that is the page, not work it reports', () => {
+    // n8n's sign-in page never finished loading; its root stayed busy, and the
+    // agent was told to wait for "[1] RootWebArea [in progress]".
+    const busy = [{ name: 'busy', value: { value: 1 } }];
+    const tree = buildAxTree([
+      { ...root, properties: busy, childIds: ['2'] },
+      { nodeId: '2', role: { value: 'Iframe' }, childIds: ['3'] },
+      { nodeId: '3', role: { value: 'WebArea' }, properties: busy },
+    ]);
+
+    expect(tree?.inProgress).toBeUndefined();
+    expect(tree?.children[0]?.children[0]?.inProgress).toBeUndefined();
+  });
+
+  it('marks a progress bar that shows no amount — the spinner kind', () => {
+    const tree = buildAxTree([root, { nodeId: '2', role: { value: 'progressbar' }, name: { value: 'Deploying' } }]);
+
+    expect(tree?.children[0]?.inProgress).toBe(true);
+  });
+
+  it('leaves a progress bar showing an amount alone: it is as likely a gauge as a task', () => {
+    const tree = buildAxTree([
+      root,
+      {
+        nodeId: '2',
+        role: { value: 'progressbar' },
+        name: { value: 'Disk usage' },
+        // Chromium carries the amount as the node's value, not as a property.
+        value: { value: 40 },
+      },
+    ]);
+
+    expect(tree?.children[0]?.inProgress).toBeUndefined();
+  });
+});
+
+describe('buildAxTree — a control the page gives no name', () => {
+  const root = { nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2', '3'] };
+
+  it('carries what its markup says, and leaves a named control as it is', () => {
+    const tree = buildAxTree(
+      [
+        root,
+        { nodeId: '2', role: { value: 'button' }, name: { value: '' }, backendDOMNodeId: 20 },
+        { nodeId: '3', role: { value: 'button' }, name: { value: 'Restart' }, backendDOMNodeId: 30 },
+      ],
+      undefined,
+      new Map([
+        [20, '@click="modalOpen=false"'],
+        [30, 'wire:click="restart"'],
+      ]),
+    );
+
+    expect(tree?.children[0]?.hint).toBe('@click="modalOpen=false"');
+    expect(tree?.children[1]?.hint).toBeUndefined();
+  });
+});

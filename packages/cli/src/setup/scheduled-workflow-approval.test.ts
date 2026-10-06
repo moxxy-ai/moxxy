@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -11,6 +11,7 @@ import { buildWorkflowApprovalExecution } from './workflow-approval-scope.js';
 import { buildSchedulerRunner } from './scheduler-runner.js';
 import { ScheduleStore } from '@moxxy/plugin-scheduler';
 import { runSchedule } from '@moxxy/plugin-scheduler';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('cancels a resumed checkpoint before invoking a child and removes its resumable state', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-resume-stop-'));
@@ -38,7 +39,7 @@ it('cancels a resumed checkpoint before invoking a child and removes its resumab
     expect(events).not.toContain('workflow_step_failed');
     expect(await store.load(runId)).toBeNull();
     expect(session.log.ofType('provider_request')).toHaveLength(0);
-  } finally { await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { await session.close(); await removeDir(dir); }
 });
 
 it.each(['stop', 'deny'] as const)('reports %s distinctly while preserving the denied file and not starting downstream steps', async decision => {
@@ -77,7 +78,7 @@ it.each(['stop', 'deny'] as const)('reports %s distinctly while preserving the d
     const summary = await command.handler({ channel: 'tui', sessionId: session.id, session: {}, args: 'inspect stoppable' });
     if (summary.kind !== 'text') throw new Error('Missing summary');
     if (decision === 'stop') expect(summary.text).toContain('stopped');
-  } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { session.abort(); await task; await session.close(); await removeDir(dir); }
 });
 
 it('persists a stopped cron as cancelled across restart, not success or error', async () => {
@@ -108,7 +109,7 @@ it('persists a stopped cron as cancelled across restart, not success or error', 
     if (!result.inboxPath) throw new Error('Missing inbox record');
     expect(await readFile(result.inboxPath, 'utf8')).toContain('outcome: cancelled');
     await expect(readFile(join(dir, 'result.txt'))).rejects.toThrow();
-  } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { session.abort(); await task; await session.close(); await removeDir(dir); }
 });
 
 it('runs the scheduled DAG without an extra model turn, but still waits before the real file write', async () => {
@@ -137,7 +138,7 @@ it('runs the scheduled DAG without an extra model turn, but still waits before t
     expect(await readFile(join(dir, 'result.txt'), 'utf8')).toBe('approved');
     expect(session.log.ofType('provider_request')).toHaveLength(0);
     expect(session.log.ofType('tool_call_approved')).toHaveLength(1);
-  } finally { session.abort(); await result; await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { session.abort(); await result; await session.close(); await removeDir(dir); }
 });
 
 it.each(['edited', 'deleted'])('invalidates an outstanding approval when the workflow file is %s outside the app', async change => {
@@ -158,7 +159,7 @@ it.each(['edited', 'deleted'])('invalidates an outstanding approval when the wor
     else await writeFile(entry.path, yaml.replace('Original prompt', 'Changed prompt'));
     const result = await Promise.race([task, delay(750).then(() => null)]);
     expect(result).toMatchObject({ mode: 'deny' });
-  } finally { session.abort(); await task; await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { session.abort(); await task; await session.close(); await removeDir(dir); }
 });
 
 it('propagates workflow Stop to a nested execution even when its caller passes the original signal', async () => {
@@ -176,7 +177,7 @@ it('propagates workflow Stop to a nested execution even when its caller passes t
     });
     expect(nestedSignal?.aborted).toBe(true);
     expect(original.signal.aborted).toBe(false);
-  } finally { original.abort(); await rm(dir, { recursive: true, force: true }); }
+  } finally { original.abort(); await removeDir(dir); }
 });
 
 it('rejects a cached or resumed definition instead of authorizing it under the updated definition revision', async () => {
@@ -192,5 +193,5 @@ it('rejects a cached or resumed definition instead of authorizing it under the u
     await expect(execution.run('cached', 'run', new AbortController().signal,
       async () => { ran = true; }, parsed.workflow)).rejects.toThrow(/definition changed/i);
     expect(ran).toBe(false);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await removeDir(dir); }
 });

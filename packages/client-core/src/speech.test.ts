@@ -42,6 +42,24 @@ describe('toSpeakableText', () => {
     expect(toSpeakableText('visit www.example.com today')).toBe('visit today.');
   });
 
+  it('drops URL-like link labels while keeping descriptive link text', () => {
+    expect(toSpeakableText(
+      'The [blog.google](https://blog.google) announcement is live. Read [the details](https://example.com/news).',
+    )).toBe('The announcement is live. Read the details.');
+  });
+
+  it('omits local and repository file paths', () => {
+    expect(toSpeakableText(
+      'Open `/Users/kamil/project/src/main.ts:12` and `packages/app/src/main.ts` now.',
+    )).toBe('Open and now.');
+    expect(toSpeakableText('The file is /Users/kamil/My Folder/report.pdf. It is ready.'))
+      .toBe('The file is. It is ready.');
+  });
+
+  it('keeps product names that look like a file extension', () => {
+    expect(toSpeakableText('Node.js handles this.')).toBe('Node.js handles this.');
+  });
+
   it('omits emoji and dangling Markdown stars from spoken output', () => {
     expect(toSpeakableText('Gotowe ✅ 😊 👋🏽 **')).toBe('Gotowe.');
     expect(toSpeakableText('Tryb polski 🇵🇱 1️⃣')).toBe('Tryb polski.');
@@ -85,5 +103,11 @@ describe('toVoiceConversationText', () => {
       'Jasne — zrobię to.',
     );
     expect(toVoiceConversationText('👋😊✨')).toBe('');
+  });
+
+  it('does not speak URL labels or paths in Voice Mode', () => {
+    expect(toVoiceConversationText(
+      '[blog.google](https://blog.google/news) Dalsze szczegóły są w pliku `packages/app/src/main.ts`.',
+    )).toBe('Dalsze szczegóły są w pliku.');
   });
 });

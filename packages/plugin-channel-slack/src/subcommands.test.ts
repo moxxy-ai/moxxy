@@ -10,6 +10,7 @@ import {
   SLACK_BOT_TOKEN_KEY,
   SLACK_SIGNING_SECRET_KEY,
 } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -42,7 +43,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   process.stdout.write = origStdoutWrite;
   process.stderr.write = origStderrWrite;
   delete process.env.MOXXY_SLACK_BOT_TOKEN;

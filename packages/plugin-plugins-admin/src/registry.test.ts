@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign as cryptoSign, type KeyObject } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,7 @@ import {
 } from './registry.js';
 import { installPluginPackagePinned } from './install.js';
 import { INSTALLABLE_PLUGIN_CATALOG } from './catalog.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 // ---------------------------------------------------------------------------
 // Test signing rig: an ephemeral Ed25519 keypair per suite. The production
@@ -83,7 +84,7 @@ beforeEach(() => {
   cacheDir = mkdtempSync(path.join(os.tmpdir(), 'mox-registry-'));
 });
 afterEach(() => {
-  rmSync(cacheDir, { recursive: true, force: true });
+  removeDirSync(cacheDir);
   vi.unstubAllEnvs();
 });
 
@@ -603,7 +604,7 @@ describe('authenticated registry mirror', () => {
     // would make the header assertions silently stop exercising anything.
     cacheDir = mkdtempSync(path.join(os.tmpdir(), 'mox-reg-auth-'));
   });
-  afterEach(() => rmSync(cacheDir, { recursive: true, force: true }));
+  afterEach(() => removeDirSync(cacheDir));
 
   const INDEX = JSON.stringify({ version: 1, generatedAt: '2026-01-01T00:00:00Z', entries: [] });
 

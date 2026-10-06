@@ -6,8 +6,9 @@
  */
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
+import { platformSocket } from './socket-path.js';
 import {
   Session,
   SessionPersistence,
@@ -23,6 +24,7 @@ import {
   definePlugin,
   defineProvider,
   defineSurface,
+  defineSynthesizer,
   defineTool,
   defineTranscriber,
   z,
@@ -45,6 +47,7 @@ import {
   type SessionLoadHistoryResult,
 } from './protocol.js';
 import type { ProviderEvent } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Session {
   const session = new Session({
@@ -79,7 +82,8 @@ function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Se
 }
 
 function tmpSocket(): string {
-  return path.join(os.tmpdir(), `moxxy-runner-${Math.random().toString(36).slice(2, 10)}.sock`);
+  const name = `moxxy-runner-${Math.random().toString(36).slice(2, 10)}`;
+  return platformSocket(name, path.join(os.tmpdir(), `${name}.sock`));
 }
 
 /**
@@ -467,11 +471,51 @@ describe('runner end-to-end', () => {
     for await (const _event of remote.runTurn('think')) void _event;
     expect(provider.received.at(-1)?.reasoning).toEqual({ effort: 'high' });
 
+    await remote.providerAdmin.setReasoning('xhigh');
+    await waitFor(() => typeof session.reasoning === 'object' && session.reasoning.effort === 'xhigh');
+    expect(session.reasoning).toEqual({ effort: 'xhigh' });
+
     // 'off' clears it — the next turn's request carries no reasoning param.
     await remote.providerAdmin.setReasoning('off');
     await waitFor(() => session.reasoning === undefined);
     for await (const _event of remote.runTurn('think less')) void _event;
     expect(provider.received.at(-1)?.reasoning).toBeUndefined();
+  });
+
+  it('switches the session to fast mode, which every client sees and the provider receives (v24)', async () => {
+    const descriptor = { contextWindow: 200_000, maxOutputTokens: 8000, supportsTools: true, supportsStreaming: true };
+    const provider = new FakeProvider({
+      models: [{ id: 'quick', ...descriptor, supportsFast: true }, { id: 'plain', ...descriptor }],
+      script: [textReply('fast'), textReply('plain'), textReply('standard')],
+    });
+    const { session, socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+    const other = await attach(socketPath);
+    expect(remote.getInfo().fast).toBe(false);
+
+    await remote.providerAdmin.setFast(true);
+    await waitFor(() => other.getInfo().fast === true);
+    expect(session.fast).toBe(true);
+    for await (const _event of remote.runTurn('go', { model: 'quick' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBe(true);
+
+    // A model without the faster tier is never asked for it.
+    for await (const _event of remote.runTurn('go', { model: 'plain' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBeUndefined();
+
+    await remote.providerAdmin.setFast(false);
+    await waitFor(() => other.getInfo().fast === false);
+    for await (const _event of remote.runTurn('go', { model: 'quick' })) void _event;
+    expect(provider.received.at(-1)?.fast).toBeUndefined();
+  });
+
+  it('reports the reasoning effort to every client', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [] }));
+    const remote = await attach(socketPath);
+    const other = await attach(socketPath);
+    expect(remote.getInfo().reasoningEffort).toBeNull();
+    await remote.providerAdmin.setReasoning('high');
+    await waitFor(() => other.getInfo().reasoningEffort === 'high');
   });
 
   it('persists the picked provider to preferences so the next runner inherits it', async () => {
@@ -518,7 +562,7 @@ describe('runner end-to-end', () => {
       else process.env.HOME = prevHome;
       if (prevUserProfile === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = prevUserProfile;
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   });
 
@@ -817,6 +861,80 @@ describe('runner end-to-end', () => {
     expect(result.text).toBe('transcribed on the runner');
   });
 
+  it('propagates speech cancellation from a client to the runner synthesizer', async () => {
+    const socketPath = tmpSocket();
+    let runnerSignal: AbortSignal | undefined;
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'runner-test-tts',
+      synthesizers: [defineSynthesizer({
+        name: 'blocking-tts',
+        create: () => ({
+          name: 'blocking-tts',
+          synthesize: async (_text, options) => {
+            runnerSignal = options?.signal;
+            return new Promise((resolve) => {
+              options?.signal?.addEventListener('abort', () => resolve({
+                audio: new Uint8Array([1, 2, 3]), mimeType: 'audio/wav',
+              }), { once: true });
+              setTimeout(() => resolve({ audio: new Uint8Array([4]), mimeType: 'audio/wav' }), 100);
+            });
+          },
+        }),
+      })],
+    }));
+    session.synthesizers.setActive('blocking-tts');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const synthesizer = remote.synthesizers.tryGetActive();
+    expect(synthesizer).not.toBeNull();
+    if (!synthesizer) throw new Error('blocking synthesizer was not registered');
+    const controller = new AbortController();
+    const result = synthesizer.synthesize('Krótka kwestia.', { signal: controller.signal })
+      .then(() => null, (error: unknown) => error);
+    const deadline = Date.now() + 1_000;
+    while (!runnerSignal && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runnerSignal).toBeDefined();
+    controller.abort(new Error('interrupted'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runnerSignal?.aborted).toBe(true);
+    const settled = await result;
+    expect(settled).toBeInstanceOf(Error);
+  });
+
+  it('carries only audio and its MIME type across the runner protocol', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    session.pluginHost.registerStatic(definePlugin({
+      name: 'runner-test-tts-usage',
+      synthesizers: [defineSynthesizer({
+        name: 'usage-tts',
+        create: () => ({
+          name: 'usage-tts',
+          synthesize: async () => ({
+            audio: new Uint8Array([1, 2, 3]),
+            mimeType: 'audio/wav',
+            usage: { inputTextTokens: 9, outputAudioTokens: 75 },
+          }),
+        }),
+      })],
+    }));
+    session.synthesizers.setActive('usage-tts');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+    const synthesizer = remote.synthesizers.tryGetActive();
+    expect(synthesizer).not.toBeNull();
+    if (!synthesizer) throw new Error('usage synthesizer was not registered');
+
+    await expect(synthesizer.synthesize('Short speech.')).resolves.toEqual({
+      audio: new Uint8Array([1, 2, 3]),
+      mimeType: 'audio/wav',
+    });
+  });
+
   it('session.reset clears the runner, every mirror, and the persisted JSONL', async () => {
     // Regression for A10: /new on an attached client used to clear only the
     // local mirror — the runner kept the full context (resurrecting it on the
@@ -878,7 +996,7 @@ describe('runner end-to-end', () => {
 
       detach();
     } finally {
-      await rm(sessionsDir, { recursive: true, force: true });
+      await removeDir(sessionsDir);
     }
   });
 
@@ -1018,7 +1136,7 @@ describe('provider management (protocol v7)', () => {
       else process.env.HOME = prevHome;
       if (prevUserProfile === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = prevUserProfile;
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   }
 
@@ -1622,5 +1740,240 @@ describe('principal attribution over the wire (v11)', () => {
       }),
     ).rejects.toThrow();
     transport.close();
+  });
+});
+
+describe('session.recordExchange (protocol v20)', () => {
+  it('appends a spoken exchange as one turn that every client sees without running the agent', async () => {
+    const provider = new FakeProvider({ script: [textReply('unused')] });
+    const { session, socketPath } = await serve(provider);
+    const speaker = await attach(socketPath, 'speaker');
+    const observer = await attach(socketPath, 'observer');
+
+    const { turnId } = await speaker.recordExchange({
+      userText: 'Jaka jest stolica Francji?',
+      assistantText: 'Stolicą Francji jest Paryż.',
+    });
+
+    const recorded = session.log.byTurn(asTurnId(turnId));
+    expect(recorded.map((event) => event.type)).toEqual(['user_prompt', 'assistant_message']);
+    expect(recorded[0]).toMatchObject({ source: 'user', text: 'Jaka jest stolica Francji?' });
+    expect(recorded[1]).toMatchObject({
+      source: 'model',
+      content: 'Stolicą Francji jest Paryż.',
+      stopReason: 'end_turn',
+    });
+    await waitFor(() => observer.log.byTurn(asTurnId(turnId)).length === 2);
+    expect(provider.received).toHaveLength(0);
+  });
+
+  it('records an assistant-only utterance without inventing a user prompt', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const remote = await attach(socketPath);
+
+    const { turnId } = await remote.recordExchange({ assistantText: 'Cześć, słucham.' });
+
+    expect(session.log.byTurn(asTurnId(turnId)).map((event) => event.type)).toEqual([
+      'assistant_message',
+    ]);
+  });
+
+  it('rejects an exchange with no spoken text', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const remote = await attach(socketPath);
+
+    await expect(remote.recordExchange({ userText: '   ', assistantText: '' })).rejects.toThrow();
+    expect(session.log.length).toBe(0);
+  });
+
+  it('holds an exchange spoken while a turn runs until that turn is over, out of its context', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const seenByRunningTurn: string[] = [];
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-voice-gate',
+        modes: [
+          defineMode({
+            name: 'gated-mode',
+            run: async function* (modeCtx) {
+              await gate;
+              for (const event of modeCtx.log.slice()) {
+                if (event.type === 'user_prompt') seenByRunningTurn.push(event.text);
+              }
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('gated-mode');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    const remote = await attach(socketPath);
+
+    const running = (async () => {
+      for await (const _event of remote.runTurn('Sprawdź skrzynkę.')) void _event;
+    })();
+    await waitFor(() => session.log.length > 0);
+
+    const { turnId } = await remote.recordExchange({
+      userText: 'Dobra, masz chwilę?',
+      assistantText: 'Jeszcze sprawdzam.',
+    });
+    const second = await remote.recordExchange({
+      userText: 'Jak idzie praca?',
+      assistantText: 'Agent wciąż sprawdza skrzynkę.',
+    });
+    expect(second.turnId).toBe(turnId);
+    expect(session.log.byTurn(asTurnId(turnId))).toEqual([]);
+
+    release();
+    await running;
+
+    expect(seenByRunningTurn).toEqual(['Sprawdź skrzynkę.']);
+    const events = session.log.slice();
+    const voice = events.filter((event) => event.turnId === turnId);
+    expect(voice).toHaveLength(1);
+    expect(voice[0]).toMatchObject({
+      type: 'user_prompt',
+      origin: { kind: 'voice', name: '2 exchanges while the agent worked' },
+    });
+    const text = voice[0]?.type === 'user_prompt' ? voice[0].text : '';
+    expect(text).toMatch(/not a request/i);
+    expect(text).toContain('User: Dobra, masz chwilę?\nMoxxy Voice: Jeszcze sprawdzam.');
+    expect(text).toContain('User: Jak idzie praca?\nMoxxy Voice: Agent wciąż sprawdza skrzynkę.');
+    const lastOfRunningTurn = Math.max(
+      ...events.filter((event) => event.turnId !== turnId).map((event) => event.seq),
+    );
+    expect(voice[0]?.seq).toBeGreaterThan(lastOfRunningTurn);
+  });
+
+  it('feeds the recorded exchange into the next agent turn as conversation context', async () => {
+    const provider = new FakeProvider({ script: [textReply('Masz rację.')] });
+    const { socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+
+    await remote.recordExchange({
+      userText: 'Moje sekretne słowo to pomarańcza.',
+      assistantText: 'Zapamiętam: pomarańcza.',
+    });
+    for await (const _event of remote.runTurn('Jakie było sekretne słowo?')) void _event;
+
+    const request = JSON.stringify(provider.received[0]?.messages ?? []);
+    expect(request).toContain('Moje sekretne słowo to pomarańcza.');
+    expect(request).toContain('Zapamiętam: pomarańcza.');
+  });
+});
+
+describe('conversation auto-approve (protocol v21)', () => {
+  it('a client switches it on and every attached client sees it', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+    const bot = await attach(socketPath, 'discord');
+
+    await desktop.setAutoApprove(true);
+
+    expect(session.getInfo().autoApprove).toBe(true);
+    await waitFor(() => bot.getInfo().autoApprove === true);
+  });
+
+  it('a switch made inside the runner (a channel bot hosting it) reaches attached clients', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+
+    await session.setAutoApprove(true);
+
+    await waitFor(() => desktop.getInfo().autoApprove === true);
+  });
+
+  it('a new conversation turns it off for every client', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const desktop = await attach(socketPath, 'desktop');
+    await session.setAutoApprove(true);
+    await waitFor(() => desktop.getInfo().autoApprove === true);
+
+    await session.reset();
+
+    await waitFor(() => desktop.getInfo().autoApprove === false);
+  });
+
+  it("a client's turn runs its tools without asking that client while it is on", async () => {
+    const { socketPath } = await serve(
+      new FakeProvider({ script: [toolUseReply('echo', { text: 'yo' }), textReply('done')] }),
+    );
+    const remote = await attach(socketPath);
+    const asked: string[] = [];
+    remote.setPermissionResolver({
+      name: 'test-resolver',
+      check: async (call) => {
+        asked.push(call.name);
+        return { mode: 'deny', reason: 'would have asked' };
+      },
+    });
+    await remote.setAutoApprove(true);
+
+    for await (const _event of remote.runTurn('use echo')) void _event;
+
+    expect(asked).toEqual([]);
+    expect(remote.log.ofType('tool_result').length).toBeGreaterThan(0);
+  });
+});
+
+describe('running turns (protocol v22)', () => {
+  /** A conversation whose turns block until they are aborted. */
+  async function serveBlocking(): Promise<{ session: Session; socketPath: string }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-running',
+        modes: [
+          defineMode({
+            name: 'wait-mode',
+            run: async function* (modeCtx) {
+              await new Promise<void>((resolve) => {
+                if (modeCtx.signal.aborted) return resolve();
+                modeCtx.signal.addEventListener('abort', () => resolve(), { once: true });
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('wait-mode');
+    servers.push(await startRunnerServer(session, { socketPath }));
+    return { session, socketPath };
+  }
+
+  /** A channel bot hosting the runner runs a turn in-process. */
+  function botTurn(session: Session, id: string): Promise<void> {
+    return (async () => {
+      for await (const _event of session.runTurn('from discord', { turnId: asTurnId(id) })) void _event;
+    })();
+  }
+
+  it('a turn the hosting bot runs shows as running to attached clients until it ends', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const desktop = await attach(socketPath, 'desktop');
+
+    const turn = botTurn(session, 'bot-turn');
+    await waitFor(() => desktop.getInfo().runningTurns?.includes('bot-turn') === true);
+
+    await desktop.abortTurn('bot-turn');
+    await turn;
+    await waitFor(() => desktop.getInfo().runningTurns?.length === 0);
+  });
+
+  it('a client attaching in the middle of a turn sees it running', async () => {
+    const { session, socketPath } = await serveBlocking();
+    const turn = botTurn(session, 'bot-turn');
+
+    const desktop = await attach(socketPath, 'desktop');
+
+    expect(desktop.getInfo().runningTurns).toEqual(['bot-turn']);
+    await desktop.abortTurn('bot-turn');
+    await turn;
   });
 });

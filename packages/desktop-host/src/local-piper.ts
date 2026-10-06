@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { access, open } from 'node:fs/promises';
 import path from 'node:path';
 
+import { loadCategoryDefault, setCategoryDefault, type UserConfigOptions } from '@moxxy/config';
 import { z } from '@moxxy/sdk';
 import { moxxyHome } from '@moxxy/sdk/server';
 
@@ -29,6 +30,7 @@ export type LocalPiperCliRunner = (args: ReadonlyArray<string>) => Promise<void>
 export interface LocalPiperInstallerOptions {
   readonly runCommand?: LocalPiperCliRunner;
   readonly repairManifest?: () => Promise<unknown>;
+  readonly isInstalled?: () => Promise<boolean>;
 }
 
 /**
@@ -75,10 +77,11 @@ export function createLocalPiperInstaller(
   const repairManifest = options.repairManifest ?? (() => (
     repairSeededPluginManifest(path.join(moxxyHome(), 'plugins'))
   ));
+  const isInstalled = options.isInstalled ?? (() => isLocalPiperInstalled());
   let inFlight: Promise<void> | null = null;
   return (): Promise<void> => {
     if (inFlight) return inFlight;
-    const started = installLocalPiper(runCommand, repairManifest);
+    const started = installLocalPiper(runCommand, repairManifest, isInstalled);
     const tracked = started.finally(() => {
       if (inFlight === tracked) inFlight = null;
     });
@@ -90,9 +93,13 @@ export function createLocalPiperInstaller(
 async function installLocalPiper(
   runCommand: LocalPiperCliRunner,
   repairManifest: () => Promise<unknown>,
+  isInstalled: () => Promise<boolean>,
 ): Promise<void> {
-  await repairManifest();
-  await runCommand(['plugins', 'install', LOCAL_PIPER_PACKAGE]);
+  // The installer ships Piper, so the usual case needs neither npm nor network.
+  if (!(await isInstalled())) {
+    await repairManifest();
+    await runCommand(['plugins', 'install', LOCAL_PIPER_PACKAGE]);
+  }
   await runCommand(['plugins', 'enable', LOCAL_PIPER_PACKAGE]);
   await runCommand([
     'plugins',
@@ -100,6 +107,21 @@ async function installLocalPiper(
     'synthesizer',
     LOCAL_PIPER_SYNTHESIZER,
   ]);
+}
+
+/**
+ * Make the Piper the installer just copied the voice, unless the user already
+ * chose one. `copied` is what this launch seeded, so a later launch — or a
+ * user who switched to another voice — is never overridden.
+ */
+export async function adoptSeededLocalPiper(
+  copied: ReadonlyArray<string>,
+  opts: UserConfigOptions = {},
+): Promise<boolean> {
+  if (!copied.includes(LOCAL_PIPER_PACKAGE)) return false;
+  if ((await loadCategoryDefault('synthesizer', opts)) !== null) return false;
+  await setCategoryDefault('synthesizer', LOCAL_PIPER_SYNTHESIZER, opts);
+  return true;
 }
 
 async function runLocalPiperCliCommand(args: ReadonlyArray<string>): Promise<void> {

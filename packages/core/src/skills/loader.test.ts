@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { discoverSkills } from './loader.js';
 import { silentLogger } from '../logger.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -11,7 +13,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-skills-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const writeSkill = async (dir: string, name: string, body = '...') => {
@@ -64,7 +66,7 @@ describe('discoverSkills', () => {
     expect(skills).toHaveLength(0);
   });
 
-  it('skips a single unreadable .md but still loads the rest of the tree (u46-5)', async () => {
+  it.skipIf(!posixFileModes)('skips a single unreadable .md but still loads the rest of the tree (u46-5)', async () => {
     // A permission-denied read used to throw out of loadDir and abort discovery
     // of every remaining skill in every source. It must now degrade to skipping
     // just the bad file. (chmod 000 has no teeth as root, so skip there.)

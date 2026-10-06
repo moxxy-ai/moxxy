@@ -1,5 +1,5 @@
 import { confirm, isCancel, log, outro, spinner } from '@clack/prompts';
-import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
+import { finishPairing, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { SlackChannel, type PairCandidate } from './channel.js';
 
@@ -16,7 +16,7 @@ const dim = (s: string): string => (ANSI ? `\x1b[2m${s}\x1b[22m` : s);
  *   3. Start in `pair` mode (opens the tunnel; prints the Request URL).
  *   4. Wait (with spinner) for the first verified inbound event.
  *   5. Ask the operator to confirm the team/channel; on yes, persist it.
- *   6. Hand off the running bot until Ctrl+C.
+ *   6. Restart the bot for real with the configured model (`finishPairing`).
  *
  * Uses the default `proxyTunnel` provider (the channel imports it directly), so
  * the public Request URL is available once the channel starts.
@@ -91,29 +91,7 @@ export async function runSlackPairFlow(ctx: ChannelSubcommandContext): Promise<n
   await channel.confirmPairing(candidate);
   log.success(`Paired ✓ — team ${candidate.teamId} is authorized.`);
 
-  if (exitAfterPairRequested(ctx)) {
-    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
-    // starts the bot under its own service afterwards.
-    await stopBot();
-    return 0;
-  }
-
-  log.info('Bot is running. Press Ctrl+C to stop.');
-
-  const shutdown = async (): Promise<void> => {
-    await stopBot();
-    await session.close('SIGINT').catch(() => undefined);
-    process.exit(0);
-  };
-  const onSignal = (): void => void shutdown();
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
-
-  try {
-    await handle.running;
-    return 0;
-  } finally {
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-  }
+  // The pairing bot ran on the provider-less probe session: restart it for real
+  // with the configured model (or hand back to an orchestrator).
+  return finishPairing(ctx, stopBot);
 }

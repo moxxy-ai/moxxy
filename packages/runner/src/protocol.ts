@@ -3,6 +3,7 @@ import type {
   ApprovalDecision,
   ApprovalRequest,
   CommandOutput,
+  ComputerControlSnapshot,
   MoxxyEvent,
   PendingToolCall,
   PermissionContext,
@@ -162,7 +163,16 @@ import type {
 /** v13: durable workflow approvals and scoped Computer Use approval-focus handshake (additive). */
 /** v14: workflow run results distinguish cancellation from failures (additive; ok remains false). */
 /** v15: explicit workflow deletion, including schedule retirement. */
-export const RUNNER_PROTOCOL_VERSION = 15;
+/** v16: synthesis requests can be cancelled while the runner is generating audio. */
+/** v17: synthesis results may include the provider's token usage totals (field since removed; results carry audio only). */
+/** v18: synthesis usage may identify counts estimated from text and audio duration (removed with v17's field). */
+/** v19: runTurn accepts an optional custom-model context window for compaction. */
+/** v20: `session.recordExchange` appends a spoken exchange produced outside the agent loop (additive). */
+/** v21: `session.setAutoApprove` switches the conversation's auto-approve; `SessionInfo.autoApprove` reports it (additive). */
+/** v22: `SessionInfo.runningTurns` lists every running turn, including one a channel bot runs inside the runner, and `abort` reaches such a turn (additive). */
+/** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
+/** v24: `session.setFast` switches the provider's faster tier; `SessionInfo` reports `fast` and `reasoningEffort` (additive). */
+export const RUNNER_PROTOCOL_VERSION = 24;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -200,12 +210,28 @@ export const RunnerMethod = {
    * reported version and falls back to its NDJSON store against an older runner.
    */
   SessionLoadHistory: 'session.loadHistory',
+  /**
+   * client->server: append a conversation exchange that happened outside the
+   * agent loop (v20) — e.g. a GPT-Live voice turn — as one ordinary turn, so
+   * every mirror renders it and later agent turns see it as context.
+   * `{ userText?, assistantText? }` → `{ turnId }`. Runs no model and no tools.
+   * Spoken while a turn runs, it is appended once that turn is over (before its
+   * `turn.complete`), so it never lands inside the running turn's context.
+   */
+  SessionRecordExchange: 'session.recordExchange',
+  /**
+   * client->server: switch the conversation's auto-approve (v21). Shared by
+   * every client of the session; the change arrives as an `info.changed`.
+   */
+  SessionSetAutoApprove: 'session.setAutoApprove',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
   ModeSetActive: 'mode.setActive',
   /** client->server: set the session's reasoning/thinking effort (v9). */
   SessionSetReasoning: 'session.setReasoning',
+  /** client->server: switch the provider's faster tier for the session (v24). */
+  SessionSetFast: 'session.setFast',
   /** client->server: switch the active provider (server resolves credentials). */
   ProviderSetActive: 'provider.setActive',
   /** client->server: enable/disable a provider (v7; persists to the config manifest). */
@@ -222,6 +248,8 @@ export const RunnerMethod = {
   Transcribe: 'transcribe',
   /** client->server: synthesize text to audio using the runner's active synthesizer. */
   Synthesize: 'synthesize',
+  /** client->server: cancel an in-flight synthesizer request (v16). */
+  CancelSynthesize: 'synthesize.cancel',
   /** client->server: list every MCP server the runner knows about. */
   McpListServers: 'mcp.listServers',
   /** client->server: enable an MCP server + attach its tools. */
@@ -295,6 +323,11 @@ export const RunnerNotification = {
    * opened that surface simply ignores frames it has no pane for (v8).
    */
   SurfaceData: 'surface.data',
+  /**
+   * The session's Computer Use turns changed (state, cursor, target). Carries
+   * every turn of the session, so a client replaces what it showed (v23).
+   */
+  ComputerChanged: 'computer.changed',
 } as const;
 export type RunnerNotification = (typeof RunnerNotification)[keyof typeof RunnerNotification];
 
@@ -344,6 +377,8 @@ export interface AttachResult {
 export interface RunTurnParams {
   readonly prompt: string;
   readonly model?: string;
+  /** User-supplied context-window estimate for a custom model. */
+  readonly contextWindow?: number;
   readonly systemPrompt?: string;
   readonly maxIterations?: number;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
@@ -377,9 +412,14 @@ export interface ModeSetActiveParams {
  *  the preference (no reasoning requested); the others map to
  *  `session.reasoning = { effort }`, the CLI's proven `config.context.reasoning`
  *  shape. */
-export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high';
+export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
 export interface SessionSetReasoningParams {
   readonly effort: ReasoningEffortLevel;
+}
+
+/** Params for `session.setFast` (v24). */
+export interface SessionSetFastParams {
+  readonly enabled: boolean;
 }
 
 /**
@@ -408,6 +448,20 @@ export interface SessionLoadHistoryParams {
 export interface SessionLoadHistoryResult {
   readonly events: ReadonlyArray<MoxxyEvent>;
   readonly prevCursor: number | null;
+}
+
+/** Params for `session.recordExchange` (v20). At least one side carries text. */
+export interface SessionRecordExchangeParams {
+  readonly userText?: string;
+  readonly assistantText?: string;
+}
+export interface SessionRecordExchangeResult {
+  readonly turnId: string;
+}
+
+/** Params for `session.setAutoApprove` (v21). */
+export interface SessionSetAutoApproveParams {
+  readonly enabled: boolean;
 }
 
 export interface ProviderSetActiveParams {
@@ -540,6 +594,9 @@ export interface TurnCompleteNotification {
 export interface InfoChangedNotification {
   readonly info: SessionInfo;
 }
+export interface ComputerChangedNotification {
+  readonly turns: ReadonlyArray<ComputerControlSnapshot>;
+}
 export interface ReplayStartNotification {
   /** First seq this connection replays/streams; the mirror rebases to it. */
   readonly fromSeq: number;
@@ -592,6 +649,7 @@ export const attachParamsSchema = z.object({
 export const runTurnParamsSchema = z.object({
   prompt: z.string(),
   model: z.string().optional(),
+  contextWindow: z.number().int().positive().max(10_000_000).optional(),
   systemPrompt: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
   attachments: z.array(attachmentSchema).optional(),
@@ -610,8 +668,10 @@ export const setResolverParamsSchema = z.object({
 export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 
 export const sessionSetReasoningParamsSchema = z.object({
-  effort: z.enum(['off', 'low', 'medium', 'high']),
+  effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
 });
+
+export const sessionSetFastParamsSchema = z.object({ enabled: z.boolean() });
 
 /**
  * Params for `session.loadHistory` (v10). `before` is a non-negative seq cursor
@@ -624,6 +684,19 @@ export const sessionLoadHistoryParamsSchema = z.object({
   before: z.number().int().nonnegative().nullable(),
   limit: z.number().int().positive().max(MAX_HISTORY_PAGE_LIMIT),
 });
+
+/** Bounds one recorded side to the transcript size a single spoken turn can reach. */
+export const MAX_RECORDED_EXCHANGE_CHARS = 100_000;
+const recordedText = z.string().max(MAX_RECORDED_EXCHANGE_CHARS).optional();
+export const sessionRecordExchangeParamsSchema = z
+  .object({ userText: recordedText, assistantText: recordedText })
+  .strict()
+  .refine(
+    ({ userText, assistantText }) => Boolean(userText?.trim() || assistantText?.trim()),
+    { message: 'An exchange needs user or assistant text' },
+  );
+
+export const sessionSetAutoApproveParamsSchema = z.object({ enabled: z.boolean() }).strict();
 
 export const providerSetActiveParamsSchema = z.object({
   name: z.string(),
@@ -696,10 +769,15 @@ export const transcribeParamsSchema = z.object({
 });
 
 export const synthesizeParamsSchema = z.object({
+  requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9-]+$/).optional(),
   text: z.string().max(MAX_SYNTHESIZE_TEXT_BYTES),
   voice: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
   language: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
   rate: z.number().optional(),
+});
+
+export const cancelSynthesizeParamsSchema = z.object({
+  requestId: z.string().min(1).max(128).regex(/^[A-Za-z0-9-]+$/),
 });
 
 /** Wire result for `synthesize`: base64-encoded audio + its MIME type. */

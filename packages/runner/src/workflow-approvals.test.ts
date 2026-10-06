@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { Session, WorkflowApprovals } from '@moxxy/core';
 import { asToolCallId } from '@moxxy/sdk';
 import { startRunnerServer } from './server.js';
 import { connectRemoteSession } from './remote-session.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('serves durable background approvals across a real runner connection and reconnect', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'wf-rpc-'));
@@ -35,5 +36,5 @@ it('serves durable background approvals across a real runner connection and reco
     await view.decide(first.id, 'allow_once');
     await expect(pending).resolves.toMatchObject({ mode: 'allow' });
     await expect(view.decide(first.id, 'deny')).rejects.toThrow();
-  } finally { abort.abort(); await pending; await remote.close(); await server.close(); await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { abort.abort(); await pending; await remote.close(); await server.close(); await session.close(); await removeDir(dir); }
 });

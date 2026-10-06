@@ -25,61 +25,20 @@ std::pair<HWND,std::wstring> standard_edit(IUIAutomationElement* node, HWND wind
   require(length<=64000,"observation-limit","Native EDIT text exceeds safe selection index limit");
   return {hwnd,length ? std::wstring(text.value,length) : std::wstring()};
 }
-std::wstring range_text(IUIAutomationTextRange* range, int limit, bool& truncated) {
-  OwnedString text;
-  check_hresult(range->GetText(limit+1,&text.value));
-  auto size=SysStringLen(text.value);
-  auto length=std::min<UINT>(size,limit);
-  // Never return half of a UTF-16 surrogate pair when applying an output cap.
-  if (length && text.value[length-1]>=0xD800 && text.value[length-1]<=0xDBFF) --length;
-  truncated=truncated || size>length;
-  return length ? std::wstring(text.value,length) : std::wstring();
 }
-}
-Json read_control_text(IUIAutomationElement* node, HWND window, int limit) {
+std::wstring control_text(IUIAutomationElement* node, HWND window) {
   auto pattern=text_pattern(node);
-  if (!pattern) {
-    auto [hwnd,text]=standard_edit(node,window);
-    DWORD_PTR selected=0;
-    require(SendMessageTimeoutW(hwnd,EM_GETSEL,0,0,SMTO_ABORTIFHUNG|SMTO_BLOCK,1000,&selected)!=0,
-      "target-unavailable","Native EDIT selection read timed out");
-    size_t begin=LOWORD(selected),end=HIWORD(selected);
-    require(begin<=end && end<=text.size(),"stale-element","Native text changed while reading selection");
-    auto cap=[&](std::wstring value) {
-      if (value.size()>static_cast<size_t>(limit)) value.resize(limit);
-      if (!value.empty() && value.back()>=0xD800 && value.back()<=0xDBFF) value.pop_back();
-      return value;
-    };
-    auto visible=cap(text),selection=cap(text.substr(begin,end-begin));
-    JsonArray ranges; if (!selection.empty()) ranges.Append(string_value(selection));
-    Json result; result.Insert(L"text",string_value(visible)); result.Insert(L"selectedText",ranges);
-    result.Insert(L"truncated",boolean(visible.size()<text.size() || selection.size()<end-begin)); return result;
-  }
+  if (!pattern) return standard_edit(node,window).second;
   com_ptr<IUIAutomationTextRange> document;
   check_hresult(pattern->get_DocumentRange(document.put()));
   require(document!=nullptr,"unsupported","Control has no document range");
-  bool truncated=false;
-  auto text=range_text(document.get(),limit,truncated);
-  JsonArray selected;
-  com_ptr<IUIAutomationTextRangeArray> ranges;
-  check_hresult(pattern->GetSelection(ranges.put()));
-  if (ranges) {
-    int count=0; check_hresult(ranges->get_Length(&count));
-    truncated=truncated || count>16;
-    int remaining=limit;
-    for (int i=0;i<std::min(count,16);++i) {
-      com_ptr<IUIAutomationTextRange> range;
-      check_hresult(ranges->GetElement(i,range.put()));
-      require(range!=nullptr,"native-error","Invalid selected text range");
-      auto part=range_text(range.get(),remaining,truncated);
-      remaining-=static_cast<int>(part.size());
-      if (!part.empty()) selected.Append(string_value(part));
-    }
-  }
-  Json result; result.Insert(L"text",string_value(text)); result.Insert(L"selectedText",selected);
-  result.Insert(L"truncated",boolean(truncated)); return result;
+  OwnedString text;
+  check_hresult(document->GetText(64001,&text.value));
+  auto size=SysStringLen(text.value);
+  require(size<=64000,"unsupported","The text is too long to search safely");
+  return size ? std::wstring(text.value,size) : std::wstring();
 }
-void select_control_text(IUIAutomationElement* node, HWND window, const std::wstring& text, int occurrence) {
+void select_control_text(IUIAutomationElement* node, HWND window, const std::wstring& text, int occurrence, TextPlacement placement) {
   auto pattern=text_pattern(node);
   if (!pattern) {
     auto [hwnd,value]=standard_edit(node,window);
@@ -91,7 +50,9 @@ void select_control_text(IUIAutomationElement* node, HWND window, const std::wst
     }
     check_focus(window); input_may_have_run=true;
     DWORD_PTR result=0;
-    require(SendMessageTimeoutW(hwnd,EM_SETSEL,found,start,SMTO_ABORTIFHUNG|SMTO_BLOCK,1000,&result)!=0,
+    const auto from=placement==TextPlacement::cursor_after ? start : found;
+    const auto to=placement==TextPlacement::cursor_before ? found : start;
+    require(SendMessageTimeoutW(hwnd,EM_SETSEL,from,to,SMTO_ABORTIFHUNG|SMTO_BLOCK,1000,&result)!=0,
       "uncertain-result","Native selection request timed out; observe before another action");
     return;
   }
@@ -111,6 +72,16 @@ void select_control_text(IUIAutomationElement* node, HWND window, const std::wst
   }
   check_focus(window);
   input_may_have_run=true;
+  if (placement!=TextPlacement::text) {
+    // An empty range at one end of the match is the caret position.
+    const auto moved=placement==TextPlacement::cursor_before ? TextPatternRangeEndpoint_End : TextPatternRangeEndpoint_Start;
+    const auto anchor=placement==TextPlacement::cursor_before ? TextPatternRangeEndpoint_Start : TextPatternRangeEndpoint_End;
+    com_ptr<IUIAutomationTextRange> caret;
+    check_hresult(found->Clone(caret.put()));
+    check_hresult(caret->MoveEndpointByRange(moved,found.get(),anchor));
+    check_hresult(caret->Select());
+    return;
+  }
   check_hresult(found->Select());
 }
 }

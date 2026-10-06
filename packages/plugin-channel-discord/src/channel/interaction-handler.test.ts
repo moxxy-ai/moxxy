@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
+import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import type { PendingToolCall, PermissionContext } from '@moxxy/sdk';
 import { DISCORD_AUTHORIZED_USER_KEY } from '../keys.js';
 import { DiscordApprovalResolver } from '../approval.js';
@@ -10,6 +11,7 @@ import { DiscordPermissionResolver } from '../permission.js';
 import { AllowListStore } from './allow-list-store.js';
 import { PairingHandler } from './pairing-handler.js';
 import { handleInteraction, type InteractionLike } from './interaction-handler.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PAIRED = '111111111111';
 const STRANGER = '222222222222';
@@ -38,7 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 interface FakeInteraction extends InteractionLike {
@@ -70,7 +72,12 @@ function buttonInteraction(customId: string, userId = PAIRED): FakeInteraction {
 
 function slashInteraction(
   commandName: string,
-  opts: { userId?: string; guildId?: string | null; channelId?: string | null } = {},
+  opts: {
+    userId?: string;
+    guildId?: string | null;
+    channelId?: string | null;
+    stringOptions?: Record<string, string>;
+  } = {},
 ): FakeInteraction {
   const replies: Array<{ content: string; ephemeral?: boolean }> = [];
   return {
@@ -82,10 +89,34 @@ function slashInteraction(
     user: { id: opts.userId ?? PAIRED },
     guildId: opts.guildId ?? null,
     channelId: opts.channelId ?? null,
+    options: { getString: (name: string) => opts.stringOptions?.[name] ?? null },
     reply: async (p) => {
       replies.push(p);
     },
   };
+}
+
+function autocompleteInteraction(
+  commandName: string,
+  focused: string,
+  opts: { userId?: string; guildId?: string | null; channelId?: string | null } = {},
+) {
+  const responses: Array<ReadonlyArray<{ name: string; value: string }>> = [];
+  const interaction: InteractionLike = {
+    isButton: () => false,
+    isChatInputCommand: () => false,
+    isAutocomplete: () => true,
+    commandName,
+    user: { id: opts.userId ?? PAIRED },
+    guildId: opts.guildId ?? null,
+    channelId: opts.channelId ?? null,
+    options: { getString: () => null, getFocused: () => focused },
+    reply: async () => undefined,
+    respond: async (choices) => {
+      responses.push(choices);
+    },
+  };
+  return { interaction, responses };
 }
 
 function deps() {
@@ -95,7 +126,12 @@ function deps() {
 function callbacks() {
   return {
     setAwaitingApprovalText: vi.fn(),
-    toggleYolo: vi.fn(() => true),
+    toggleYolo: vi.fn(async () => true),
+    voice: vi.fn(async () => ''),
+    model: vi.fn(async () => ''),
+    modelSuggestions: vi.fn(async () => [] as Array<{ name: string; value: string }>),
+    call: vi.fn(async () => '📞 calling'),
+    hangup: vi.fn(() => '📴 ended'),
     performSessionAction: vi.fn(async () => '✓ done'),
   };
 }
@@ -208,5 +244,111 @@ describe('handleInteraction — slash commands', () => {
     await handleInteraction(interaction, { session: null, turnController: controller }, deps(), callbacks());
     expect(controller.signal.aborted).toBe(true);
     expect(interaction.replies[0]?.content).toMatch(/cancelling/);
+  });
+});
+
+describe('handleInteraction — command arguments', () => {
+  it('passes the /model "name" option through to the model command', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const model = vi.fn(async (arg: string) => `model:${arg}`);
+    const interaction = slashInteraction('model', { stringOptions: { name: 'beta::b-fast' } });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), model });
+
+    expect(model).toHaveBeenCalledWith('beta::b-fast');
+    expect(interaction.replies[0]?.content).toBe('model:beta::b-fast');
+  });
+});
+
+describe('handleInteraction — /auto-approve', () => {
+  it('turns auto-approve on and says so', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const toggleYolo = vi.fn(async () => true);
+    const interaction = slashInteraction('auto-approve');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), toggleYolo });
+
+    expect(toggleYolo).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toMatch(/auto-approve ON/);
+  });
+
+  it('turns it back off', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const interaction = slashInteraction('auto-approve');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      toggleYolo: async () => false,
+    });
+
+    expect(interaction.replies[0]?.content).toMatch(/auto-approve OFF/);
+  });
+});
+
+describe('handleInteraction — /model suggestions', () => {
+  it('answers what is being typed in the "name" option with matching models', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async (q: string) => [{ name: `${q}-model`, value: `p::${q}-model` }]);
+    const { interaction, responses } = autocompleteInteraction('model', 'gpt');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).toHaveBeenCalledWith('gpt');
+    expect(responses).toEqual([[{ name: 'gpt-model', value: 'p::gpt-model' }]]);
+  });
+
+  it('suggests nothing to an unpaired user', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async () => [{ name: 'x', value: 'x' }]);
+    const { interaction, responses } = autocompleteInteraction('model', '', { userId: STRANGER });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).not.toHaveBeenCalled();
+    expect(responses).toEqual([[]]);
+  });
+
+  it('suggests nothing in a guild channel that is not allow-listed', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const modelSuggestions = vi.fn(async () => [{ name: 'x', value: 'x' }]);
+    const { interaction, responses } = autocompleteInteraction('model', '', { guildId: GUILD, channelId: CHAN });
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), {
+      ...callbacks(),
+      modelSuggestions,
+    });
+
+    expect(modelSuggestions).not.toHaveBeenCalled();
+    expect(responses).toEqual([[]]);
+  });
+});
+
+describe('handleInteraction — voice calls', () => {
+  it('/call starts a call and says where', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const call = vi.fn(async () => '📞 On a call in <#lobby>');
+    const interaction = slashInteraction('call');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), call });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toBe('📞 On a call in <#lobby>');
+  });
+
+  it('/hangup ends it', async () => {
+    const session = new Session({ cwd: tmp, logger: silentLogger, permissionResolver: autoAllowResolver });
+    const hangup = vi.fn(() => '📴 Call ended.');
+    const interaction = slashInteraction('hangup');
+
+    await handleInteraction(interaction, { session, turnController: null }, deps(), { ...callbacks(), hangup });
+
+    expect(hangup).toHaveBeenCalledOnce();
+    expect(interaction.replies[0]?.content).toBe('📴 Call ended.');
   });
 });

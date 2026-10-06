@@ -8,6 +8,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import { loadVoiceReplies, saveVoiceReplies, TELEGRAM_VOICE_REPLIES_KEY } from '../keys.js';
 import { runSlash } from './slash-handler.js';
 import { runUserTurn } from './turn-runner.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('telegram voice-replies vault flag round-trip', () => {
   let tmp: string;
@@ -21,7 +22,7 @@ describe('telegram voice-replies vault flag round-trip', () => {
     });
   });
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('defaults to off, persists on, then off', async () => {
@@ -52,7 +53,8 @@ function slashCtx(): { ctx: any; replies: string[] } {
 
 describe('/voice slash command', () => {
   const cbBase = {
-    toggleYolo: () => false,
+    toggleYolo: async () => false,
+    model: { run: async () => '', choices: async () => ({ current: null, options: [] }) },
     performSessionAction: async () => undefined,
   };
 
@@ -62,7 +64,7 @@ describe('/voice slash command', () => {
     await runSlash(
       ctx,
       '/voice on',
-      { session: slashSession({ synth: { name: 'fake' } }), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: false },
+      { session: slashSession({ synth: { name: 'fake' } }), voiceReplies: false },
       { ...cbBase, setVoiceReplies: async (on: boolean) => void persisted.push(on) },
     );
     expect(persisted).toEqual([true]);
@@ -76,7 +78,7 @@ describe('/voice slash command', () => {
     await runSlash(
       ctx,
       '/voice on',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: false },
+      { session: slashSession(), voiceReplies: false },
       { ...cbBase, setVoiceReplies: async (on: boolean) => void persisted.push(on) },
     );
     expect(persisted).toEqual([true]);
@@ -91,7 +93,7 @@ describe('/voice slash command', () => {
     await runSlash(
       off.ctx,
       '/voice',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: true },
+      { session: slashSession(), voiceReplies: true },
       { ...cbBase, setVoiceReplies },
     );
     expect(persisted).toEqual([false]);
@@ -101,7 +103,7 @@ describe('/voice slash command', () => {
     await runSlash(
       status.ctx,
       '/voice status',
-      { session: slashSession(), model: undefined, activeModelOverride: null, yolo: false, voiceReplies: true },
+      { session: slashSession(), voiceReplies: true },
       { ...cbBase, setVoiceReplies },
     );
     // status did NOT persist anything new.
@@ -161,8 +163,8 @@ function fakeFramePump(): { framePump: any; flushedFinal: boolean[] } {
 
 const typingNoop = { start: () => {}, stop: () => {} } as any;
 
-describe('turn-runner onFinalReply seam (final assistant text)', () => {
-  it('calls onFinalReply with the final assistant body AFTER flushing the text', async () => {
+describe('turn-runner speakReply seam (final assistant text, voice replies on)', () => {
+  it('calls speakReply with the final assistant body AFTER flushing the text', async () => {
     const { framePump, flushedFinal } = fakeFramePump();
     const seen: string[] = [];
     const session = turnSession((emit) => {
@@ -176,9 +178,9 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
         bot: null,
         framePump,
         typing: typingNoop,
-        onFinalReply: async (t) => void seen.push(t),
+        speakReply: async (t) => void seen.push(t),
       },
-      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t1') },
+      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t1'), spoken: true },
     );
     expect(flushedFinal).toContain(true);
     expect(seen).toEqual(['Hello there.']);
@@ -192,8 +194,8 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
     });
     await runUserTurn(
       { reply: async () => {} } as any,
-      { session, bot: null, framePump, typing: typingNoop, onFinalReply: async (t) => void seen.push(t) },
-      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t2') },
+      { session, bot: null, framePump, typing: typingNoop, speakReply: async (t) => void seen.push(t) },
+      { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t2'), spoken: true },
     );
     expect(seen).toEqual([]);
   });
@@ -210,11 +212,11 @@ describe('turn-runner onFinalReply seam (final assistant text)', () => {
           bot: null,
           framePump,
           typing: typingNoop,
-          onFinalReply: async () => {
+          speakReply: async () => {
             throw new Error('tts exploded');
           },
         },
-        { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t3') },
+        { chatId: 1, text: 'hi', model: undefined, controller: new AbortController(), turnId: asTurnId('t3'), spoken: true },
       ),
     ).resolves.toBeUndefined();
     // No "Turn failed" reply — the hook failure was swallowed.

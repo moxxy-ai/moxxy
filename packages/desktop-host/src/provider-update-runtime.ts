@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { compareSemver, z } from '@moxxy/sdk';
+import { z } from '@moxxy/sdk';
 import {
-  activateComputerUpdate, discardComputerUpdate, isBundledComputerCurrent,
+  activateComputerUpdate, discardComputerUpdate, isBundledComputerCurrent, isInstalledNewerThanBundled,
   prepareComputerUpdate, recoverComputerUpdates, type PreparedComputerUpdate,
 } from './computer-update.js';
 
@@ -13,7 +13,6 @@ export interface ProviderUpdateOffer {
   plugin: z.infer<typeof providerPackage>;
   backupPath: string;
   localChanges: PreparedComputerUpdate['localChanges'];
-  downgrade: boolean;
 }
 
 // Import only: never create a client, access the vault or perform OAuth here.
@@ -60,13 +59,12 @@ export async function offerBundledProviderUpdate(options: {
   const plugin = providerPackage.parse(options.plugin);
   await recoverComputerUpdates(options.moxxyHome, plugin);
   if (await isBundledComputerCurrent(options)) return 'current';
+  if (await isInstalledNewerThanBundled(options)) return 'current';
   const update = await prepareComputerUpdate(options);
   try {
-    const staged = versionSchema.parse(JSON.parse(await readFile(join(update.stagedPath, 'package.json'), 'utf8')));
-    const installed = update.installedHash ? versionSchema.safeParse(JSON.parse(await readFile(join(update.targetPath, 'package.json'), 'utf8'))) : null;
-    const downgrade = !!installed?.success && compareSemver(staged.version, installed.data.version) < 0;
-    const needsApproval = downgrade || (update.installedHash !== null && !options.freshInstall && update.localChanges !== 'unchanged');
-    if (needsApproval && !await options.confirm({ plugin, backupPath: update.backupPath, localChanges: update.localChanges, downgrade })) return 'declined';
+    versionSchema.parse(JSON.parse(await readFile(join(update.stagedPath, 'package.json'), 'utf8')));
+    const needsApproval = update.installedHash !== null && !options.freshInstall && update.localChanges !== 'unchanged';
+    if (needsApproval && !await options.confirm({ plugin, backupPath: update.backupPath, localChanges: update.localChanges })) return 'declined';
     await activateComputerUpdate(update, update.installedHash, directory => verifyProvider(directory, plugin));
     return 'updated';
   } finally { await discardComputerUpdate(update); }

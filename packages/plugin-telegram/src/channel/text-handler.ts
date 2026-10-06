@@ -4,15 +4,14 @@ import type { TelegramApprovalResolver } from '../approval.js';
 import type { TelegramPermissionResolver } from '../permission.js';
 import type { ChannelHandle } from '@moxxy/sdk';
 import type { FramePump } from './frame-pump.js';
+import { applySessionAction } from '@moxxy/channel-kit';
 import { runSlash } from './slash-handler.js';
+import type { TelegramModel } from './model.js';
 import type { AwaitingApprovalText } from './callback-handler.js';
 import type { PairingHandler } from './pairing-handler.js';
 
 export interface TextHandlerState {
   readonly session: Session | null;
-  readonly model: string | undefined;
-  readonly activeModelOverride: string | null;
-  readonly yolo: boolean;
   readonly voiceReplies: boolean;
   readonly busy: boolean;
   readonly turnController: AbortController | null;
@@ -29,9 +28,13 @@ export interface TextHandlerDeps {
 
 export interface TextHandlerCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
-  readonly toggleYolo: () => boolean;
+  /** `/auto-approve` — switch the conversation's shared auto-approve. */
+  readonly toggleYolo: () => Promise<boolean>;
+  /** Drop the bot-local auto-approve flag (a `/new` conversation starts with it off). */
   readonly setYolo: (value: boolean) => void;
   readonly setVoiceReplies: (on: boolean) => Promise<void>;
+  /** This bot's own model (`/model`). */
+  readonly model: Pick<TelegramModel, 'run' | 'choices'>;
   readonly runUserTurn: (ctx: Context, chatId: number, text: string) => Promise<void>;
   /** Host-issued pairing fallback: try to pair an unauthorized chat whose message
    *  is the 6-digit code. Returns true when handled (so we skip the generic
@@ -95,16 +98,11 @@ export async function handleTextMessage(
     await runSlash(
       ctx,
       text,
-      {
-        session: state.session,
-        model: state.model,
-        activeModelOverride: state.activeModelOverride,
-        yolo: state.yolo,
-        voiceReplies: state.voiceReplies,
-      },
+      { session: state.session, voiceReplies: state.voiceReplies },
       {
         toggleYolo: cb.toggleYolo,
         setVoiceReplies: cb.setVoiceReplies,
+        model: cb.model,
         performSessionAction: (c, action, notice) =>
           performSessionAction(c, action, notice, state, deps, cb),
       },
@@ -121,10 +119,8 @@ export async function handleTextMessage(
 }
 
 /**
- * Channel-side handler for `session-action` outputs from registered
- * commands. The TUI does the same thing; both channels translate the
- * action into their own UI semantics (Telegram = reply text, Ink =
- * setState + exit).
+ * Channel-side handler for `session-action` outputs from registered commands
+ * (`applySessionAction` in @moxxy/channel-kit, shared with the other bots).
  */
 async function performSessionAction(
   ctx: Context,
@@ -134,41 +130,21 @@ async function performSessionAction(
   deps: TextHandlerDeps,
   cb: TextHandlerCallbacks,
 ): Promise<void> {
-  if (!state.session) return;
-  if (action === 'exit') {
-    await ctx.reply(notice ?? 'closing Telegram channel');
-    if (state.handle) await state.handle.stop('user /exit');
-    return;
-  }
-  if (action === 'clear') {
-    deps.framePump.resetRenderer();
-    if (notice) await ctx.reply(`✓ ${notice}`);
-    return;
-  }
-  if (action === 'new') {
-    if (state.turnController && !state.turnController.signal.aborted) {
-      state.turnController.abort('user reset');
-    }
-    deps.framePump.resetRenderer();
-    cb.setYolo(false);
-    cb.setAwaitingApprovalText(null);
-    deps.approvalResolver.abortAll('session reset');
-    deps.permissionResolver.abortAll('session reset');
-    // Wipe the history at its source. On a RemoteSession `reset()` asks the
-    // runner to clear its authoritative log (and persisted JSONL) and
-    // re-sync every attached mirror; on a local Session it clears the
-    // EventLog + truncates the sidecar. A mirror-only `log.clear()` would
-    // be cosmetic AND desync this client, so only claim success when the
-    // reset actually happened.
-    try {
-      if (typeof state.session.reset === 'function') await state.session.reset();
-      else state.session.log.clear();
-    } catch (err) {
-      await ctx.reply(
-        `⚠ /new failed: ${err instanceof Error ? err.message : String(err)} — history NOT cleared`,
-      );
-      return;
-    }
-    await ctx.reply(`✓ ${notice ?? 'new session — conversation history cleared'}`);
-  }
+  const reply = await applySessionAction(action, notice, {
+    session: state.session,
+    turnController: state.turnController,
+    handle: state.handle,
+    channelName: 'Telegram',
+    abortPending: (reason) => {
+      deps.approvalResolver.abortAll(reason);
+      deps.permissionResolver.abortAll(reason);
+    },
+    onReset: (kind) => {
+      deps.framePump.resetRenderer();
+      if (kind !== 'new') return;
+      cb.setYolo(false);
+      cb.setAwaitingApprovalText(null);
+    },
+  });
+  await ctx.reply(reply);
 }

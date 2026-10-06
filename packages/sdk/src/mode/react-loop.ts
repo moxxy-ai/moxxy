@@ -16,7 +16,7 @@ import {
 import { nextBackoffMs, sleepWithAbort } from './abort-backoff.js';
 import type { CheckpointResult, TurnCheckpoint } from './checkpoint.js';
 import { collectProviderStream, type CollectedToolUse } from './collect-stream.js';
-import { buildSystemPromptWithSkills, projectMessages } from './project-messages.js';
+import { buildSystemPromptWithSkills, projectMessages, skillsWithinReach } from './project-messages.js';
 import { createStuckLoopDetector } from './stuck-loop.js';
 
 /**
@@ -269,7 +269,9 @@ export async function* runReactLoop(
     // conservative capability fallback.
     const projectionStarted=performance.now();
     const descriptor = ctx.provider.models.find((candidate) => candidate.id === ctx.model);
-    const availableSkills = descriptor?.supportsTools === false ? [] : ctx.skills.list();
+    const availableSkills = descriptor?.supportsTools === false
+      ? []
+      : skillsWithinReach(ctx.skills.list(), ctx.tools.list().map((tool) => tool.name));
     const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, availableSkills);
     const { messages, stablePrefixIndex } = projectMessages(ctx, {
       ...(systemPrompt ? { systemPrompt } : {}),
@@ -518,7 +520,8 @@ async function* runCheckpointGate(
   // only face the idle-tolerant ones — reviewing a half-sentence as if it
   // were a completion claim wastes a checker run and confuses the model.
   const eligible = checkpoints.filter(
-    (cp) => round.stopReason === 'end_turn' || (cp.gateOn ?? 'end_turn') === 'idle',
+    (cp) =>
+      (round.stopReason === 'end_turn' || (cp.gateOn ?? 'end_turn') === 'idle') && (cp.applies?.(ctx) ?? true),
   );
   if (eligible.length === 0) return { kind: 'end' };
 

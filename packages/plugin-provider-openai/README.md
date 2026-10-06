@@ -28,7 +28,7 @@ session.pluginHost.registerStatic(openaiPlugin);
 
 session.providers.setActive('openai', {
   apiKey: process.env.OPENAI_API_KEY,
-  // model: 'gpt-5.2',          // optional — defaults to the built-in catalog
+  // model: 'gpt-6-sol',        // optional — defaults to gpt-5.6-luna
 });
 
 console.log((await collectTurn(session, 'Hello!')).findLast((e) => e.type === 'assistant_message')?.content);

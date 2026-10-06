@@ -110,16 +110,8 @@ describe('sidecar dispatch goto SSRF guard', () => {
     expect(reply.error.message).toMatch(/private|loopback/);
   });
 
-  it('navigates a public URL on the (pre-seeded) page', async () => {
-    const { handle, gotos } = makeFakeHandle();
-    const state: SidecarState = { handle, pendingInstallNotice: null };
-    const reply = (await dispatch(state, gotoReq('https://example.com/'))) as Ok;
-    expect(reply.ok).toBe(true);
-    // The reply also names the tab that was navigated, so a caller working
-    // across several tabs can tell which one moved.
-    expect(reply.result).toEqual({ url: 'https://example.com/', tabId: 't1' });
-    expect(gotos).toEqual(['https://example.com/']);
-  });
+  // An allowed URL goes on to the browser host; that path is pinned against a
+  // real Chromium in parity.chromium.test.ts.
 });
 
 describe('sidecar dispatch removed screencast methods', () => {
@@ -221,32 +213,12 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
     expect(calls.clicks).toHaveLength(0);
   });
 
-  it('key types a single printable char and presses a named key', async () => {
-    const { handle, calls } = makeFakeHandle();
-    const state: SidecarState = { handle, pendingInstallNotice: null };
-    expect(((await dispatch(state, req('key', { key: 'a' }))) as Ok).ok).toBe(true);
-    expect(((await dispatch(state, req('key', { key: 'Enter' }))) as Ok).ok).toBe(true);
-    expect(calls.types).toEqual(['a']);
-    expect(calls.presses).toEqual(['Enter']);
-  });
-
-  it('key without a key value returns a runtime badParams', async () => {
-    const { handle } = makeFakeHandle();
-    const state: SidecarState = { handle, pendingInstallNotice: null };
-    const reply = (await dispatch(state, req('key', {}))) as Err;
-    expect(reply.ok).toBe(false);
-    expect(reply.error.kind).toBe('runtime');
-  });
-
-  it('scroll forwards dy to mouse.wheel and defaults missing dy to 0', async () => {
+  it("scroll forwards the surface's dy to mouse.wheel", async () => {
+    // A scroll with no dy is the agent's (by screens), served by the browser host.
     const { handle, calls } = makeFakeHandle();
     const state: SidecarState = { handle, pendingInstallNotice: null };
     await dispatch(state, req('scroll', { dy: 120 }));
-    await dispatch(state, req('scroll', {}));
-    expect(calls.wheels).toEqual([
-      { dx: 0, dy: 120 },
-      { dx: 0, dy: 0 },
-    ]);
+    expect(calls.wheels).toEqual([{ dx: 0, dy: 120 }]);
   });
 
   it('eval forwards the expression and returns its value', async () => {

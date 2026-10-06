@@ -90,6 +90,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
       shell: shellInfo(),
       cliRunnerProtocol,
       manifestUrlOverride,
+      poisonedVersions: readBadVersions(app.getPath('userData')),
     });
 
   handle('app.updateInfo', async () => ({

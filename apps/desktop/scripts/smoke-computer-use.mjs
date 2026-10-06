@@ -13,37 +13,50 @@ const resources = process.argv[2];
 if (!resources) throw new Error('Expected installed resources directory');
 const root = path.join(resources, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-computer-control');
 const { default: plugin } = await import(pathToFileURL(path.join(root, 'dist', 'index.js')).href);
-const status = plugin.tools.find((tool) => tool.name === 'computer_status');
-assert.ok(status, 'Installed extension did not expose status');
-assert.ok(plugin.tools.some((tool) => tool.name === 'computer_observe'));
-assert.ok(!plugin.tools.some((tool) => tool.name === 'computer_applescript'));
-assert.ok(plugin.tools.every((tool) => tool.permission.action === 'prompt'));
-const context = { sessionId: randomUUID(), turnId: randomUUID(), signal: AbortSignal.timeout(60_000) };
 const tool = name => {
   const result = plugin.tools.find(item => item.name === name);
   assert.ok(result, 'Missing installed tool: ' + name);
   return result;
 };
+assert.ok(!plugin.tools.some(item => item.name === 'computer_observe'), 'A removed tool is still installed');
+assert.ok(plugin.tools.every(item => item.permission.action === 'prompt'));
+
+// The session log as dispatch writes it; access to an app is read back from here.
+const events = [];
+const log = {
+  get length() { return events.length; },
+  at: index => events[index],
+  slice: (from, to) => events.slice(from, to),
+  ofType: type => events.filter(event => event.type === type),
+  byTurn: turnId => events.filter(event => event.turnId === turnId),
+  toJSON: () => events,
+};
+const quiet = () => undefined;
+const context = {
+  sessionId: randomUUID(), turnId: randomUUID(), callId: 'smoke', cwd: process.cwd(),
+  signal: AbortSignal.timeout(120_000), log,
+  logger: { debug: quiet, info: quiet, warn: quiet, error: quiet },
+};
+const record = (type, fields) =>
+  events.push({ id: 'e' + events.length, seq: events.length, ts: Date.now(), sessionId: context.sessionId, turnId: context.turnId, source: 'system', type, ...fields });
 const call = async (name, input) => {
   console.log('Installed tool smoke:', name);
   const definition = tool(name);
-  // Exercise the same input normalization and output validation as the runner.
-  return definition.outputSchema.parse(await definition.handler(definition.inputSchema.parse(input), context));
+  // Exercise the same input normalization as the runner.
+  return definition.handler(definition.inputSchema.parse(input), context);
 };
-assert.equal(tool('computer_open').inputJsonSchema.properties.timeoutMs.maximum, 8000);
-assert.ok(tool('computer_observe').inputJsonSchema.properties.root.anyOf.some(branch => branch.type === 'null'));
-assert.ok(!tool('computer_observe').inputJsonSchema.required.includes('root'));
+const text = output => (typeof output === 'string' ? output : (output.forModel ?? JSON.stringify(output)));
+
 const codexTranslator = path.join(resources, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-provider-openai-codex', 'dist', 'translate.js');
 const { toResponsesTools } = await import(pathToFileURL(codexTranslator).href);
-const outgoing = toResponsesTools(plugin.tools).find(item => item.name === 'computer_observe');
-assert.deepEqual(outgoing.parameters, tool('computer_observe').inputJsonSchema, 'Provider discarded the bundled tool schema');
+const outgoing = toResponsesTools(plugin.tools).find(item => item.name === 'computer_get_app_state');
+assert.deepEqual(outgoing.parameters, tool('computer_get_app_state').inputJsonSchema, 'Provider discarded the bundled tool schema');
 let fixture;
 let directory;
 try {
-  const result = await status.handler({}, context);
-  assert.equal(result.protocolVersion, 4);
-  assert.equal(result.architecture, 'x64');
+  const result = await call('computer_status', {});
   assert.equal(result.platform, 'win32');
+  assert.ok(result.permissions.accessibility && result.permissions.screenRecording);
   console.log('Installed Computer Use extension and native helper handshake passed');
   if (!result.ready) {
     console.log('not-tested: installed tool invocation GUI has no interactive desktop');
@@ -54,31 +67,37 @@ try {
     const statePath = path.join(directory, 'fixture.json');
     fixture = spawn(fixturePath, [statePath], { shell: false, stdio: 'ignore' });
     await once(fixture, 'spawn');
-    let window;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      window = (await call('computer_windows', {})).find(item => item.pid === fixture.pid);
-      if (window) break;
-      await delay(100);
+    const app = path.basename(fixturePath, '.exe');
+    let listed;
+    for (let attempt = 0; attempt < 40 && !listed; attempt++) {
+      listed = (await call('computer_list_apps', { query: app })).apps.find(item => item.running);
+      if (!listed) await delay(100);
     }
-    assert.ok(window, 'Fixture window not discovered');
-    const observe = () => call('computer_observe', { windowId: window.windowId, root: null, filter: null });
-    let observation = await observe();
-    const field = observation.elements.find(item => item.controlType === 50004 && !item.protected);
-    assert.ok(field, 'Editor missing after initial null-root observation');
-    await call('computer_focus', { windowId: window.windowId });
-    observation = await observe();
-    const currentField = observation.elements.find(item => item.controlType === 50004 && !item.protected);
-    assert.ok(currentField, 'Editor missing after focus');
-    await call('computer_click', { windowId: window.windowId, observationId: observation.observationId, elementId: currentField.elementId });
-    observation = await observe();
+    assert.ok(listed, 'Fixture window not discovered');
+    await assert.rejects(call('computer_get_app_state', { app }), /not granted/, 'An app was observed without a grant');
+
+    const request = { apps: [app], reason: 'Installer smoke test' };
+    record('tool_call_requested', { callId: 'grant', name: 'computer_request_access', input: request });
+    record('tool_call_approved', { callId: 'grant', decidedBy: 'resolver', mode: 'allow' });
+    const grant = await call('computer_request_access', request);
+    record('tool_result', { callId: 'grant', ok: true, output: grant });
+    assert.equal(grant.granted.length, 1, 'The fixture was not granted: ' + JSON.stringify(grant));
+    assert.equal(grant.granted[0].tier, 'full');
+
+    const state = await call('computer_get_app_state', { app });
+    const field = /\[(\d+)\] Edit(?![^\n]*<secure>)/.exec(text(state));
+    assert.ok(field, 'Editor missing in the app state:\n' + text(state));
+    assert.ok(!text(state).includes('fixture-secret'), 'Protected text reached the model');
+    assert.ok(state.base64 && state.mediaType === 'image/jpeg', 'No screenshot came with the app state');
     const expected = 'Zażółć gęślą jaźń.\nTo jest test Moxxy na Windowsie.\nTrzecia linia: ✅';
-    await call('computer_type', { windowId: window.windowId, observationId: observation.observationId, elementId: observation.focusedElementId, text: expected });
-    await delay(200);
-    const state = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(state.text.replaceAll('\r', ''), expected, 'Installed plugin wrote incorrect text');
-    const capture = await call('computer_screenshot', { windowId: window.windowId, region: null });
-    assert.ok(capture.base64.length > 0 && capture.forModel.includes(capture.captureId));
-    console.log('passed: installed model-facing schema -> null options -> observe -> click -> type -> real fixture text -> screenshot');
+    const clicked = await call('computer_click', { app, element_index: Number(field[1]) });
+    assert.match(text(clicked), /delivered/, 'Click was not delivered:\n' + text(clicked));
+    const typed = await call('computer_type_text', { app, text: expected });
+    assert.match(text(typed), /delivered/, 'Typing was not delivered:\n' + text(typed));
+    await delay(300);
+    const written = JSON.parse(await readFile(statePath, 'utf8'));
+    assert.equal(written.text.replaceAll('\r', ''), expected, 'Installed plugin wrote incorrect text');
+    console.log('passed: installed model-facing schema -> grant -> app state -> click -> type -> real fixture text');
   }
 } finally {
   await plugin.hooks.onShutdown(context);

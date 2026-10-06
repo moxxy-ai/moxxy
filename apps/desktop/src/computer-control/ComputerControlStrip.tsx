@@ -1,17 +1,24 @@
-import type { ComputerPanelView } from './panel-model';
+import { Icon } from '@moxxy/desktop-ui';
+import type { ComputerPanelCommand, ComputerPanelView } from './panel-model';
 import './computer-control.css';
 
 interface Props {
   view:ComputerPanelView;
   busy:boolean;
   error:string|null;
-  onCommand(command:'pause'|'resume'|'stop'):void;
+  onCommand(command:ComputerPanelCommand):void;
+  /** Set when the user hid the live view; the strip then offers it again. */
+  previewHidden?:boolean;
+  onShowPreview?():void;
 }
-export function ComputerControlStrip({view,busy,error,onCommand}:Props):JSX.Element {
+export function ComputerControlStrip({view,busy,error,onCommand,previewHidden,onShowPreview}:Props):JSX.Element {
   return <section className="computer-control-strip" aria-label="Computer Use controls">
+    <Icon name={view.icon} size={14} aria-hidden="true" />
     <span role="status" aria-live="polite">{view.label}</span>
+    {view.target && <span className="computer-control-strip__target">{view.target}</span>}
     <div className="computer-control-strip__buttons">
-      {view.canPause && <button type="button" aria-label="Pause Computer Use" disabled={busy} onClick={()=>onCommand('pause')}>Pause</button>}
+      {previewHidden && onShowPreview && view.canStop && <button type="button" aria-label="Show the live view" onClick={onShowPreview}>Show view</button>}
+      {view.canTakeOver && <button type="button" aria-label="Take over from Computer Use" disabled={busy} onClick={()=>onCommand('takeover')}>Take over</button>}
       {view.canResume && <button type="button" aria-label="Resume Computer Use" disabled={busy} onClick={()=>onCommand('resume')}>Resume</button>}
       {view.canStop && <button type="button" aria-label="Stop Computer Use" onClick={()=>onCommand('stop')}>Stop</button>}
     </div>

@@ -254,6 +254,28 @@ describe('runCompactionIfNeeded', () => {
     expect(observedWindow).toBe(800_000);
   });
 
+  it('uses a user-supplied context window for a custom model before provider fallback', async () => {
+    let observedWindow = -1;
+    const compactor: CompactorDef = {
+      name: 'inspect-custom-window',
+      shouldCompact: (_log, budget) => {
+        observedWindow = budget.contextWindow;
+        return false;
+      },
+      compact: async () => { throw new Error('should not run'); },
+    };
+    const ctx = makeCtx({
+      compactor,
+      contextWindow: 128_000,
+      ctxModelId: 'vendor/model-v2',
+      contextWindowOverride: 200_000,
+    });
+
+    await runCompactionIfNeeded(ctx);
+
+    expect(observedWindow).toBe(200_000);
+  });
+
   it('force-compacts even when the provider exposes no usable context window', async () => {
     // Reactive overflow recovery: the provider already said the prompt is too
     // big, so a missing/zero window must NOT block the forced compaction.
@@ -525,6 +547,7 @@ interface MakeCtxOpts {
   readonly compactor: CompactorDef | null;
   readonly model?: string;
   readonly contextWindow?: number;
+  readonly contextWindowOverride?: number;
   readonly events?: ReadonlyArray<MoxxyEvent>;
   /** Set ctx.model to an id the provider's descriptor list does NOT contain,
    *  so `models.find(...)` misses and the models[0] fallback must kick in. */
@@ -561,6 +584,9 @@ function makeCtx(opts: MakeCtxOpts): ModeContext & { emitted: EmittedEvent[] } {
     // ctx.model may intentionally differ from the descriptor id to exercise the
     // unlisted-model fallback.
     model: opts.ctxModelId ?? opts.model ?? 'fake-model',
+    ...(opts.contextWindowOverride !== undefined
+      ? { contextWindowOverride: opts.contextWindowOverride }
+      : {}),
     provider,
     tools: { list: () => [], get: () => undefined, execute: async () => undefined },
     skills: { list: () => [], get: () => undefined, byName: () => undefined, filterByTriggers: () => [] },

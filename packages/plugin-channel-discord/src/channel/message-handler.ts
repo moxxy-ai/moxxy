@@ -1,4 +1,5 @@
 import { assertDefined, type ChannelHandle, type ClientSession as Session } from '@moxxy/sdk';
+import { applySessionAction } from '@moxxy/channel-kit';
 import { gateInbound } from '../allow-list.js';
 import type { InboundMessage } from '../schema.js';
 import type { DiscordApprovalResolver } from '../approval.js';
@@ -40,10 +41,15 @@ export interface MessageHandlerDeps {
 
 export interface MessageHandlerCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
-  readonly toggleYolo: () => boolean;
+  readonly toggleYolo: () => Promise<boolean>;
   readonly setYolo: (value: boolean) => void;
   /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
   readonly voice: (arg: string) => Promise<string>;
+  /** Handle `/model [name|default]` — show / switch / reset this bot's model. */
+  readonly model: (arg: string) => Promise<string>;
+  /** `/call` and `/hangup` — voice calls with the bot. */
+  readonly call: () => Promise<string>;
+  readonly hangup: () => string;
   readonly runUserTurn: (ctx: InboundContext, text: string) => Promise<void>;
   /** Handle audio attachments (voice messages). Returns true when it consumed
    *  the message (so the text path is skipped). */
@@ -134,6 +140,9 @@ export async function handleInboundMessage(
     const reply = await runSlash(head.slice(1), rest.join(' '), state.session, {
       toggleYolo: cb.toggleYolo,
       voice: cb.voice,
+      model: cb.model,
+      call: cb.call,
+      hangup: cb.hangup,
       performSessionAction: (action, notice) =>
         performSessionAction(action, notice, state, deps, cb),
     });
@@ -154,43 +163,30 @@ export async function handleInboundMessage(
 }
 
 /**
- * Channel-side handler for `session-action` outputs from registered commands.
- * Mirrors the Telegram channel's semantics; returns the reply text. Shared by
- * the plain-text slash path (above) and the interaction (slash-command) path
- * in the channel.
+ * Channel-side handler for `session-action` outputs from registered commands
+ * (`applySessionAction` in @moxxy/channel-kit); returns the reply text. Shared
+ * by the plain-text slash path (above) and the interaction (slash-command) path.
  */
-export async function performSessionAction(
+export function performSessionAction(
   action: 'new' | 'clear' | 'exit',
   notice: string | undefined,
   state: Pick<MessageHandlerState, 'session' | 'turnController' | 'handle'>,
   deps: Pick<MessageHandlerDeps, 'approvalResolver' | 'permissionResolver'>,
   cb: Pick<MessageHandlerCallbacks, 'setAwaitingApprovalText' | 'setYolo'>,
 ): Promise<string> {
-  if (!state.session) return 'session is not ready yet.';
-  if (action === 'exit') {
-    // Fire the stop AFTER we return so the reply can still be delivered.
-    setTimeout(() => void state.handle?.stop('user /exit'), 250);
-    return notice ?? 'closing Discord channel';
-  }
-  if (action === 'clear') {
-    return `✓ ${notice ?? 'cleared'}`;
-  }
-  // action === 'new'
-  if (state.turnController && !state.turnController.signal.aborted) {
-    state.turnController.abort('user reset');
-  }
-  cb.setYolo(false);
-  cb.setAwaitingApprovalText(null);
-  deps.approvalResolver.abortAll('session reset');
-  deps.permissionResolver.abortAll('session reset');
-  // Wipe the history at its source (RemoteSession.reset() asks the runner; a
-  // mirror-only log.clear() would desync) and only claim success when the
-  // reset actually happened (AGENTS.md A10).
-  try {
-    if (typeof state.session.reset === 'function') await state.session.reset();
-    else state.session.log.clear();
-  } catch (err) {
-    return `⚠ /new failed: ${err instanceof Error ? err.message : String(err)} — history NOT cleared`;
-  }
-  return `✓ ${notice ?? 'new session — conversation history cleared'}`;
+  return applySessionAction(action, notice, {
+    session: state.session,
+    turnController: state.turnController,
+    handle: state.handle,
+    channelName: 'Discord',
+    abortPending: (reason) => {
+      deps.approvalResolver.abortAll(reason);
+      deps.permissionResolver.abortAll(reason);
+    },
+    onReset: (kind) => {
+      if (kind !== 'new') return;
+      cb.setYolo(false);
+      cb.setAwaitingApprovalText(null);
+    },
+  });
 }

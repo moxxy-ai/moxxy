@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { ensureModel } from './ensure-model.js';
 import type { FetchLike } from './fetch-asset.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function have(cmd: string): boolean {
   try {
@@ -34,7 +35,7 @@ beforeAll(async () => {
   execFileSync('tar', ['-cjf', archive, '-C', base, 'vits-piper-en_US-amy-medium']);
   fixtureBytes = new Uint8Array(await readFile(archive));
   fixtureHash = createHash('sha256').update(fixtureBytes).digest('hex');
-  await rm(base, { recursive: true, force: true });
+  await removeDir(base);
 });
 
 /** A `fetch` serving the fixture archive bytes; counts invocations. */
@@ -55,7 +56,7 @@ beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'ensure-'));
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 afterAll(() => {});
 

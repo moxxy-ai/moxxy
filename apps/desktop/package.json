@@ -62,6 +62,7 @@
   "devDependencies": {
     "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
@@ -72,7 +73,7 @@
     "@types/ws": "catalog:",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.11",
-    "electron": "^43.4.0",
+    "electron": "^43.5.0",
     "electron-builder": "^26.15.3",
     "electron-builder-squirrel-windows": "^26.15.3",
     "electron-vite": "^5.0.0",
@@ -106,7 +107,8 @@
     ],
     "files": [
       "dist-electron/**",
-      "dist/**"
+      "dist/**",
+      "!**/node_modules/@moxxy/plugin-computer-control/native/**"
     ],
     "extraResources": [
       {
@@ -114,7 +116,9 @@
         "to": ".",
         "filter": [
           "moxxy-cli/**/*",
-          "plugins-seed/**/*"
+          "plugins-seed/**/*",
+          "models-seed/**/*",
+          "runtimes-seed/**/*"
         ]
       }
     ],
@@ -136,7 +140,7 @@
           ]
         }
       ],
-      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3}",
+      "x64ArchFiles": "{*.node,*.dylib,*.bare,spawn-helper,python3,moxxy-computer}",
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

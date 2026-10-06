@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
-import { acquireComputerMaintenance, COMPUTER_PROTOCOL_VERSION } from '@moxxy/plugin-computer-control/maintenance';
+import { acquireComputerMaintenance } from '@moxxy/plugin-computer-control/maintenance';
 import {
   activateComputerUpdate, discardComputerUpdate, prepareComputerUpdate, recoverComputerUpdates,
   isBundledComputerCurrent,
+  isInstalledNewerThanBundled,
   type PreparedComputerUpdate,
 } from './computer-update.js';
 
@@ -12,11 +13,12 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 const {default:plugin}=await import(pathToFileURL(path.join(process.argv[1],'dist','index.js')).href);
 const status=plugin.tools.find(t=>t.name==='computer_status');
-if(!status || !plugin.tools.some(t=>t.name==='computer_open')) throw Error('Computer Use tools missing');
+// Without a helper that speaks the current protocol the plugin offers status only.
+if(!status || !plugin.tools.some(t=>t.name==='computer_get_app_state')) throw Error('Computer Use tools missing');
 const context={sessionId:randomUUID(),turnId:randomUUID(),signal:new AbortController().signal};
 try {
   const result=await status.handler({},context);
-  if(result.protocolVersion!==${COMPUTER_PROTOCOL_VERSION} || result.platform!=='win32' || result.architecture!=='x64') throw Error('Computer Use helper mismatch');
+  if(result.platform!=='win32' || !result.permissions) throw Error('Computer Use helper mismatch');
   console.log('MOXXY_COMPUTER_UPDATE_VERIFIED');
 } finally { await plugin.hooks.onShutdown(context); }
 `;
@@ -60,6 +62,7 @@ export async function offerBundledComputerUpdate(options:{
   log?:(message:string)=>void;
 }):Promise<'current'|'declined'|'updated'> {
   if (await isBundledComputerCurrent(options)) return 'current';
+  if (await isInstalledNewerThanBundled(options)) return 'current';
   const executable=path.join(options.resourcesPath,'plugins-seed','node_modules','@moxxy','plugin-computer-control','bin','win32-x64','moxxy-computer.exe');
   const lease=await acquireComputerMaintenance(executable);
   let update:PreparedComputerUpdate|undefined;

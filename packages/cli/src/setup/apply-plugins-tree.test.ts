@@ -99,6 +99,32 @@ describe('applyPluginsTree — synthesizer default', () => {
     expect(session.synthesizers.getActiveName()).toBe('local-piper');
     expect(warns).toEqual([]);
   });
+
+  it('passes persisted per-synthesizer settings into the active instance', async () => {
+    const session = makeSession();
+    let configuredVoice: string | undefined;
+    session.synthesizers.register({
+      name: 'gemini-tts',
+      create: ({ config }) => {
+        configuredVoice = typeof config.voice === 'string' ? config.voice : undefined;
+        return {
+          name: 'gemini-tts',
+          synthesize: async () => ({ audio: new Uint8Array([1]), mimeType: 'audio/wav' }),
+        };
+      },
+    });
+    const { logger, warns } = warnCollector();
+    applyPluginsTree(session, {
+      plugins: {
+        synthesizer: { default: 'gemini-tts', items: { 'gemini-tts': { voice: 'Fola' } } },
+      },
+    } as unknown as MoxxyConfig, logger);
+
+    expect(session.synthesizers.getActiveName()).toBe('gemini-tts');
+    expect(session.synthesizers.getActive().name).toBe('gemini-tts');
+    expect(configuredVoice).toBe('Fola');
+    expect(warns).toEqual([]);
+  });
 });
 
 describe('applyPluginsTree: compactor default and floor', () => {

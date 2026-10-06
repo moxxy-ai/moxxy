@@ -4,9 +4,13 @@ import {
   modeSetActiveParamsSchema,
   permissionAddAllowParamsSchema,
   sessionLoadHistoryParamsSchema,
+  sessionRecordExchangeParamsSchema,
+  sessionSetAutoApproveParamsSchema,
   sessionSetReasoningParamsSchema,
+  sessionSetFastParamsSchema,
   type CommandRunResult,
   type SessionLoadHistoryResult,
+  type SessionRecordExchangeResult,
 } from '../protocol.js';
 import type { HandlerContext } from './context.js';
 
@@ -32,6 +36,13 @@ export function handleSessionSetReasoning(
 ): Record<string, never> {
   const { effort } = sessionSetReasoningParamsSchema.parse(raw);
   ctx.session.reasoning = effort === 'off' ? undefined : { effort };
+  ctx.broadcastInfo();
+  return {};
+}
+
+/** Switch the provider's faster tier (v24); `run-turn` forwards it to models with `supportsFast`. */
+export function handleSessionSetFast(ctx: HandlerContext, raw: unknown): Record<string, never> {
+  ctx.session.fast = sessionSetFastParamsSchema.parse(raw).enabled;
   ctx.broadcastInfo();
   return {};
 }
@@ -67,6 +78,30 @@ export async function handleSessionLoadHistory(
   // Tail-seeded / partial in-memory log: read one page off disk instead so the
   // oldest history (below the in-memory base) is still reachable.
   return readSessionEventPage(String(ctx.session.id), { before, limit }, ctx.sessionsDir);
+}
+
+/**
+ * Append an exchange that was produced outside the agent loop (v20). A realtime
+ * voice model answers the user itself; recording both sides as one ordinary
+ * turn keeps the runner log the complete authoritative history — every mirror
+ * renders it, and the next agent turn projects it as conversation context.
+ */
+export async function handleSessionRecordExchange(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<SessionRecordExchangeResult> {
+  const exchange = sessionRecordExchangeParamsSchema.parse(raw);
+  return { turnId: await ctx.spokenExchanges.record(exchange) };
+}
+
+/** Switch the conversation's auto-approve (v21); the log records it for every client. */
+export async function handleSessionSetAutoApprove(
+  ctx: HandlerContext,
+  raw: unknown,
+): Promise<Record<string, never>> {
+  const { enabled } = sessionSetAutoApproveParamsSchema.parse(raw);
+  await ctx.session.setAutoApprove(enabled);
+  return {};
 }
 
 export async function handlePermissionAddAllow(

@@ -35,6 +35,7 @@ import type {
   ToolRegistry,
   TurnId,
 } from '@moxxy/sdk';
+import { toolsForMode } from '@moxxy/sdk';
 import { EventLog } from '../events/log.js';
 import { newSessionId, newTurnId } from '../events/factory.js';
 import type { SessionRuntime } from '../session-runtime.js';
@@ -58,6 +59,8 @@ export interface SubagentRuntime {
   readonly parentTurnId: TurnId;
   readonly parentSignal: AbortSignal;
   readonly parentModel: string;
+  /** The tools the parent turn may use, when it may not use all of the session's (an @ mention withheld some). */
+  readonly parentTools?: ToolRegistry;
 }
 
 type ResolvedStrategy =
@@ -71,6 +74,7 @@ export async function runChildTurn(args: {
 }): Promise<SubagentResult> {
   const { rt, spec, retainSession } = args;
   const { parentSession, parentTurnId } = rt;
+  const parentTools = rt.parentTools ?? parentSession.tools;
   const childSessionId = newSessionId();
   const childTurnId = newTurnId();
   const label = spec.label ?? `subagent-${String(childSessionId).slice(-6)}`;
@@ -90,10 +94,13 @@ export async function runChildTurn(args: {
   // `undefined` means "inherit the full parent registry"; a present-but-empty
   // array means "deny all" (least-privilege). Collapsing the two would turn an
   // explicit [] into full tool inheritance — the opposite of the caller's intent.
-  const toolRegistry: ToolRegistry =
+  // The child's own mode decides its mode-only tools, not the parent's.
+  const toolRegistry: ToolRegistry = toolsForMode(
     spec.allowedTools === undefined
-      ? parentSession.tools
-      : buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools));
+      ? parentTools
+      : buildFilteredToolRegistry(parentTools, new Set(spec.allowedTools)),
+    strategyName,
+  );
 
   const childModel = await resolveChildModel(rt, spec, label, childSessionId);
 
@@ -457,7 +464,7 @@ function buildChildContext(
     compactor: parentSession.compactors.getActive(),
     cacheStrategy: parentSession.cacheStrategies.getActive(),
     ...(parentSession.elisionSettings ? { elision: parentSession.elisionSettings } : {}),
-    ...(parentSession.lazyTools ? { lazyTools: true } : {}),
+    ...(parentSession.lazyTools !== undefined ? { lazyTools: parentSession.lazyTools } : {}),
     ...(parentSession.loopGuard ? { loopGuard: parentSession.loopGuard } : {}),
     permissions: parentSession.resolver,
     // Intentionally no `approval` — fanning approval gates out to N

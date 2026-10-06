@@ -5,6 +5,7 @@ import {
   assertSafeProviderName,
   isSafeExternalUrl,
   assertSafeExternalUrl,
+  opensInBrowser,
   redactSecrets,
   clerkFrontendApiHost,
   clerkCspHostSources,
@@ -214,6 +215,23 @@ describe('external-url validation', () => {
       expect(isSafeExternalUrl(bad)).toBe(false);
       expect(() => assertSafeExternalUrl(bad)).toThrow();
     }
+  });
+});
+
+describe('which window.open targets go to the default browser', () => {
+  const app = 'http://localhost:5173/index.html';
+
+  it('opens web links', () => {
+    expect(opensInBrowser('https://example.com/a', app)).toBe(true);
+  });
+
+  it("never hands the app's own pages to the OS browser (an emptied link resolves there)", () => {
+    expect(opensInBrowser('http://localhost:5173/', app)).toBe(false);
+    expect(opensInBrowser('http://localhost:5173/Users/me/clip.mp4', app)).toBe(false);
+  });
+
+  it('refuses unsafe schemes', () => {
+    expect(opensInBrowser('file:///Users/me/clip.mp4', app)).toBe(false);
   });
 });
 

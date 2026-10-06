@@ -1,10 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { posixShell } from '@moxxy/vitest-preset/platform';
 import { z } from 'zod';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import {
@@ -14,6 +15,7 @@ import {
   createClaudeCodeClient,
   __setClaudeCommandRunner,
 } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 class ControlledProviderChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -37,7 +39,7 @@ class ControlledProviderChild extends EventEmitter {
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 describe('claude-code provider definition', () => {
@@ -54,13 +56,13 @@ describe('claude-code provider definition', () => {
   it('registers the exact Claude Code catalog and its native web-search capability', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
-    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-5');
+    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-5-5');
     expect(claudeCodeProviderDef.models).toBe(claudeCodeModels);
-    expect(claudeCodeProviderDef.models.map((model) => model.id)).toEqual([
-      'claude-fable-5',
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-haiku-4-5',
+    expect(claudeCodeProviderDef.models.map((model) => [model.id, model.contextWindow, model.maxOutputTokens])).toEqual([
+      ['claude-fable-5-1', 1_000_000, 128_000],
+      ['claude-opus-5-5', 1_000_000, 128_000],
+      ['claude-sonnet-5-5', 1_000_000, 128_000],
+      ['claude-haiku-4-5', 200_000, 64_000],
     ]);
     for (const model of claudeCodeProviderDef.models) {
       expect(model).toMatchObject({
@@ -75,7 +77,7 @@ describe('claude-code provider definition', () => {
     }
   });
 
-  it('streams text through a fake Claude executable with structured non-interactive arguments', async () => {
+  it.skipIf(!posixShell)('streams text through a fake Claude executable with structured non-interactive arguments', async () => {
     const dir = await makeFakeClaude([
       { type: 'system', subtype: 'init' },
       { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } },
@@ -92,7 +94,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(client.stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'text_delta', delta: 'Hello ' },
       { type: 'text_delta', delta: 'world' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 8, outputTokens: 2 } },
@@ -110,7 +112,7 @@ describe('claude-code provider definition', () => {
     expect(input).not.toContain('oauth-secret');
   });
 
-  it('can disable native WebSearch without enabling any other Claude tools', async () => {
+  it.skipIf(!posixShell)('can disable native WebSearch without enabling any other Claude tools', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -125,7 +127,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('--allowedTools');
   });
 
-  it('consumes streamed thinking blocks without exposing their deltas', async () => {
+  it.skipIf(!posixShell)('consumes streamed thinking blocks without exposing their deltas', async () => {
     const dir = await makeFakeClaude([
       { type: 'stream_event', event: { type: 'message_start', message: {} } },
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking', thinking: '' } } },
@@ -140,7 +142,7 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'text_delta', delta: 'Visible answer' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
@@ -148,7 +150,7 @@ describe('claude-code provider definition', () => {
     expect(JSON.stringify(events)).not.toContain('private-signature');
   });
 
-  it('accepts complete assistant records containing thinking blocks without exposing them', async () => {
+  it.skipIf(!posixShell)('accepts complete assistant records containing thinking blocks without exposing them', async () => {
     const dir = await makeFakeClaude([
       { type: 'assistant', message: { content: [
         { type: 'thinking', thinking: 'private chain of thought', signature: 'private-signature' },
@@ -159,14 +161,14 @@ describe('claude-code provider definition', () => {
     const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
 
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
     ]);
     expect(JSON.stringify(events)).not.toContain('private chain of thought');
     expect(JSON.stringify(events)).not.toContain('private-signature');
   });
 
-  it('reconstructs two turns for each stateless CLI invocation without a session id', async () => {
+  it.skipIf(!posixShell)('reconstructs two turns for each stateless CLI invocation without a session id', async () => {
     const dir = await makeFakeClaude([
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
       { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'first answer' } } },
@@ -196,7 +198,7 @@ describe('claude-code provider definition', () => {
     expect(args.some((arg) => /session|resume/i.test(arg))).toBe(false);
   });
 
-  it('projects prior moxxy tools and unsafe content deterministically as inert text', async () => {
+  it.skipIf(!posixShell)('projects prior moxxy tools and unsafe content deterministically as inert text', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -236,7 +238,7 @@ describe('claude-code provider definition', () => {
     expect(first).not.toContain(rawBase64);
   });
 
-  it('runs native tools in the configured workspace without emitting dispatcher tool events', async () => {
+  it.skipIf(!posixShell)('runs native tools in the configured workspace without emitting dispatcher tool events', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'moxxy-claude-workspace-'));
     tempDirs.push(workspace);
     const dir = await makeFakeClaude([
@@ -271,7 +273,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toEqual(expect.arrayContaining(['--tools', '']));
   });
 
-  it('leaves the safe permission default to Claude and uses a valid no-tools invocation for an empty native allow-list', async () => {
+  it.skipIf(!posixShell)('leaves the safe permission default to Claude and uses a valid no-tools invocation for an empty native allow-list', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -288,7 +290,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('bypassPermissions');
   });
 
-  it.each(['claude-fable-5', 'claude-opus-5'])('passes the selected %s model as an exact structured argument', async (model) => {
+  it.skipIf(!posixShell).each(['claude-fable-5-1', 'claude-opus-5-5'])('passes the selected %s model as an exact structured argument', async (model) => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -300,18 +302,18 @@ describe('claude-code provider definition', () => {
     expect(args.filter((arg) => arg === '--model')).toHaveLength(1);
   });
 
-  it('uses the persisted provider-item model as its default selection', async () => {
+  it.skipIf(!posixShell)('uses the persisted provider-item model as its default selection', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
-    const client = claudeCodeProviderDef.createClient({ model: 'claude-fable-5', executable: join(dir, 'claude') });
+    const client = claudeCodeProviderDef.createClient({ model: 'claude-fable-5-1', executable: join(dir, 'claude') });
     await collect(client.stream({ ...textRequest(), model: '' }));
 
     const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
-    expect(args.slice(-2)).toEqual(['--model', 'claude-fable-5']);
+    expect(args.slice(-2)).toEqual(['--model', 'claude-fable-5-1']);
   });
 
-  it('returns actionable errors for locally unsupported and CLI-rejected models', async () => {
+  it.skipIf(!posixShell)('returns actionable errors for locally unsupported and CLI-rejected models', async () => {
     const supported = claudeCodeModels.map((model) => model.id);
     const unsupported = await collect(createClaudeCodeClient({
       spawn: () => { throw new Error('should not spawn'); },
@@ -328,17 +330,17 @@ describe('claude-code provider definition', () => {
     ]);
     const rejected = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream({
       ...textRequest(),
-      model: 'claude-fable-5',
+      model: 'claude-fable-5-1',
     }));
     expect(rejected[1]).toMatchObject({
       type: 'error',
-      message: expect.stringMatching(/Claude Code rejected model "claude-fable-5".*Model is unavailable/),
+      message: expect.stringMatching(/Claude Code rejected model "claude-fable-5-1".*Model is unavailable/),
       retryable: false,
     });
     for (const model of supported) expect((rejected[1] as { message: string }).message).toContain(model);
   });
 
-  it.each([
+  it.skipIf(!posixShell).each([
     ['Not logged in. Authentication required', /signed out|authentication/i, false],
     ['Rate limit exceeded (429)', /service failure.*rate limit/i, true],
     ['Service temporarily unavailable', /service failure.*unavailable/i, true],
@@ -368,7 +370,7 @@ describe('claude-code provider definition', () => {
     expect(child.kills).toEqual(['SIGTERM']);
   });
 
-  it('reports a missing executable and an unexpected exit as actionable non-retryable errors', async () => {
+  it.skipIf(!posixShell)('reports a missing executable and an unexpected exit as actionable non-retryable errors', async () => {
     const missing = Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' });
     const missingEvents = await collect(createClaudeCodeClient({
       executable: '/missing/claude',
@@ -390,7 +392,7 @@ describe('claude-code provider definition', () => {
     expect(exitEvents.filter((event) => event.type === 'error')).toHaveLength(1);
   });
 
-  it('surfaces a permission denial as a clear non-retryable error', async () => {
+  it.skipIf(!posixShell)('surfaces a permission denial as a clear non-retryable error', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Permission denied for Edit' },
     ]);
@@ -430,7 +432,7 @@ describe('claude-code provider definition', () => {
     }
   });
 
-  it('orders the identity, message-derived system text, and extra system text', async () => {
+  it.skipIf(!posixShell)('orders the identity, message-derived system text, and extra system text', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -449,7 +451,7 @@ describe('claude-code provider definition', () => {
     expect(input.indexOf('message system')).toBeLessThan(input.indexOf('system instructions'));
   });
 
-  it('turns a streamed moxxy tool-call block into tool_use events and stops at it', async () => {
+  it.skipIf(!posixShell)('turns a streamed moxxy tool-call block into tool_use events and stops at it', async () => {
     const delta = (text: string) => ({
       type: 'stream_event',
       event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
@@ -483,7 +485,7 @@ describe('claude-code provider definition', () => {
     expect(ids).toHaveLength(2);
     expect(new Set(ids).size).toBe(2);
     expect(events).toEqual([
-      { type: 'message_start', model: 'claude-sonnet-5' },
+      { type: 'message_start', model: 'claude-sonnet-5-5' },
       { type: 'text_delta', delta: "I'll read it.\n" },
       { type: 'tool_use_start', id: ids[0], name: 'Read' },
       { type: 'tool_use_end', id: ids[0], input: { file_path: 'x.yaml' } },
@@ -503,7 +505,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('Read');
   });
 
-  it('continues past an internal CLI tool round trip to the moxxy tool-call block', async () => {
+  it.skipIf(!posixShell)('continues past an internal CLI tool round trip to the moxxy tool-call block', async () => {
     // Shape captured from the live CLI: the model first tries a native Read,
     // the CLI rejects it, then the model uses the moxxy protocol.
     const dir = await makeFakeClaude([
@@ -527,7 +529,7 @@ describe('claude-code provider definition', () => {
     expect(events.at(-1)).toEqual({ type: 'message_end', stopReason: 'tool_use' });
   });
 
-  it('keeps call-shaped text as plain output when no tools were offered or the block never closes', async () => {
+  it.skipIf(!posixShell)('keeps call-shaped text as plain output when no tools were offered or the block never closes', async () => {
     const records = [
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
       { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'a <moxxy_tool_calls><call name="Read">{}' } } },
@@ -602,7 +604,7 @@ describe('claude-code provider definition', () => {
 
 function textRequest(): ProviderRequest {
   return {
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     system: 'system instructions',
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'prior user' }] },

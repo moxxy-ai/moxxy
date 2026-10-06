@@ -22,7 +22,9 @@ const DEFAULTS: DesktopPrefs = {
   signedInAt: null,
   mobileGatewayEnabled: false,
   theme: 'system',
+  voiceEngine: 'local',
   focusMiniTextSize: null,
+  channelRunModes: {},
   version: 1,
 };
 

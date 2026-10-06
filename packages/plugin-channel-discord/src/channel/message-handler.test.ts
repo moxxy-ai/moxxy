@@ -17,6 +17,7 @@ import {
   type MessageHandlerCallbacks,
   type MessageHandlerState,
 } from './message-handler.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PAIRED = '111111111111';
 const STRANGER = '222222222222';
@@ -44,7 +45,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function pairAs(userId: string): Promise<void> {
@@ -104,7 +105,7 @@ function makeCallbacks(overrides: Partial<MessageHandlerCallbacks> = {}): Messag
   const runVoiceMessage = vi.fn(async () => false);
   return {
     setAwaitingApprovalText: () => undefined,
-    toggleYolo: () => false,
+    toggleYolo: async () => false,
     setYolo: () => undefined,
     runUserTurn,
     runVoiceMessage,

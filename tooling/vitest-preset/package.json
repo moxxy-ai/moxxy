@@ -5,7 +5,15 @@
   "type": "module",
   "main": "./index.js",
   "exports": {
-    ".": "./index.js"
+    ".": "./index.js",
+    "./platform": {
+      "types": "./platform.d.ts",
+      "default": "./platform.js"
+    },
+    "./fs": {
+      "types": "./fs.d.ts",
+      "default": "./fs.js"
+    }
   },
   "peerDependencies": {
     "vitest": "^4.1.11"

@@ -37,7 +37,7 @@ export function createAllowListResolver(toolNames: ReadonlyArray<string>): Permi
   return {
     name: 'allow-list',
     async check(call) {
-      if (allowed.has(call.name)) return { mode: 'allow_session', reason: 'allow-list' };
+      if (allowed.has(call.name)) return { mode: 'allow_session', reason: 'allow-list', decidedNow: true };
       return { mode: 'deny', reason: `Tool '${call.name}' not in allow-list` };
     },
   };
@@ -123,7 +123,7 @@ export function createDeferredPermissionResolver(
       } else if (decision.mode === 'allow_session' || decision.mode === 'allow_always') {
         sessionAllows.add(call.name);
       }
-      return decision;
+      return decision.mode === 'deny' ? decision : { ...decision, decidedNow: true };
     },
     abortAll(reason = 'channel closed') {
       for (const r of pending) r({ mode: 'deny', reason });

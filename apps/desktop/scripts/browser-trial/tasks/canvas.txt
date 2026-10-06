@@ -1,0 +1,1 @@
+@moxxy_browser W otwartej karcie przeglądarki Moxxy (excalidraw.com) narysuj na płótnie prostokąt i wpisz w nim tekst „Moxxy”. Potwierdź, co jest na płótnie.

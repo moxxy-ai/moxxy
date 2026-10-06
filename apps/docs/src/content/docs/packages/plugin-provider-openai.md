@@ -32,7 +32,7 @@ Or via vault placeholder:
 ```ts
 provider: {
   name: 'openai',
-  model: 'gpt-4o',
+  model: 'gpt-5.6-luna',
   config: { apiKey: '${vault:OPENAI_API_KEY}' },
 }
 ```

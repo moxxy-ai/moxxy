@@ -3,7 +3,7 @@ import {
   conversationalStub,
   conversationalStubbed,
   toolResultBytes,
-  toolResultStub,
+  toolResultStubText,
   toolResultStubbed,
   type ElisionState,
 } from './elision-state.js';
@@ -58,8 +58,7 @@ export function estimateContextTokens(
   for (const e of events) {
     if (isCompacted(e.seq)) continue;
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {
-      const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
-      chars += toolResultStub(e.callId, toolResultBytes(e.output), recalled).length;
+      chars += toolResultStubText(e, el).length;
       continue;
     }
     if ((e.type === 'user_prompt' || e.type === 'assistant_message') && conversationalStubbed(e, el)) {
@@ -116,7 +115,7 @@ function safeJsonLen(v: unknown): number {
  *
  * `config.model` is a free-form, unvalidated string, and providers happily
  * serve ids that aren't in their fixed descriptor list — a newer release
- * (`claude-opus-5`), a dated id, or a model registered at runtime via
+ * (`claude-opus-5-5`), a dated id, or a model registered at runtime via
  * provider-admin. So an exact `models.find(m => m.id === ctx.model)` often
  * MISSES, and both auto-compaction and auto-elision used to silently turn into
  * permanent no-ops for the whole session (the context then grows unbounded and
@@ -139,6 +138,19 @@ export function resolveModelContext(
     ? ctx.provider.models.find((model) => model.id === baseId)
     : undefined;
   const descriptor = exact ?? variant ?? ctx.provider.models[0];
+  const override = ctx.contextWindowOverride;
+  if (
+    override !== undefined && Number.isSafeInteger(override)
+    && override > 0 && override <= 10_000_000
+  ) {
+    const matchingDescriptor = exact ?? variant;
+    const reserveForOutput = matchingDescriptor?.maxOutputTokens
+      ?? Math.floor(override * 0.1);
+    return {
+      contextWindow: override,
+      reserveForOutput: Math.min(reserveForOutput, Math.floor(override * 0.5)),
+    };
+  }
   const contextWindow = descriptor?.contextWindow;
   if (!contextWindow || contextWindow <= 0) return null;
   // Signal (once) when the exact-id lookup missed and we fell back to the first

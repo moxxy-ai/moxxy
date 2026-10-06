@@ -34,6 +34,8 @@ export interface BrowserType {
   launch(opts: {
     headless: boolean;
   }): Promise<{ close(): Promise<void>; newContext(opts?: unknown): Promise<unknown> }>;
+  /** A browser on a profile kept on disk; its context is the only one, and closing it closes the browser. */
+  launchPersistentContext?(dir: string, opts: Record<string, unknown>): Promise<unknown>;
 }
 
 export interface PageHandle {

@@ -67,7 +67,7 @@ describe('moxxy sessions delete', () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'moxxy-sessions-delete-'));
     const oldHome = process.env.HOME;
     const oldMoxxyHome = process.env.MOXXY_HOME;
-    process.env.HOME = root;
+    process.env.HOME = process.env.USERPROFILE = root;
     process.env.MOXXY_HOME = path.join(root, '.moxxy');
     try {
       const sessionId = 'session-delete';
@@ -106,7 +106,7 @@ describe('moxxy sessions delete', () => {
       expect(await registry.deskForSession(sessionId)).toBeNull();
     } finally {
       if (oldHome === undefined) delete process.env.HOME;
-      else process.env.HOME = oldHome;
+      else process.env.HOME = process.env.USERPROFILE = oldHome;
       if (oldMoxxyHome === undefined) delete process.env.MOXXY_HOME;
       else process.env.MOXXY_HOME = oldMoxxyHome;
     }

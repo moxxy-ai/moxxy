@@ -98,3 +98,6 @@ export async function saveVoiceReplies(
   if (on) await vault.set(DISCORD_VOICE_REPLIES_KEY, '1');
   else await vault.delete(DISCORD_VOICE_REPLIES_KEY);
 }
+
+/** Vault key for this channel's model (`provider::model`); absent = the default model. */
+export const DISCORD_MODEL_KEY = 'discord_model';

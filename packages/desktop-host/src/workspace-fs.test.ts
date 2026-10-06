@@ -7,11 +7,13 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, symlink, realpath } from 'node:fs/promises';
+import { canSymlink } from '@moxxy/vitest-preset/platform';
+import { mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { listDir, readFile } from './workspace-fs';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let root = '';
 let outside = '';
@@ -26,7 +28,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (root) await rm(path.dirname(root), { recursive: true, force: true });
+  if (root) await removeDir(path.dirname(root));
 });
 
 describe('resolveInside guard (via listDir/readFile)', () => {
@@ -38,7 +40,7 @@ describe('resolveInside guard (via listDir/readFile)', () => {
     await expect(listDir(root, outside)).rejects.toThrow(/escapes the workspace root/);
   });
 
-  it('rejects a symlink that points outside the root', async () => {
+  it.skipIf(!canSymlink)('rejects a symlink that points outside the root', async () => {
     await writeFile(path.join(outside, 'secret.txt'), 'shh');
     await symlink(path.join(outside, 'secret.txt'), path.join(root, 'link.txt'));
     await expect(readFile(root, 'link.txt')).rejects.toThrow(/escapes the workspace root via a symlink/);
@@ -161,7 +163,7 @@ describe('listDir filtering + ordering', () => {
     ]);
   });
 
-  it('omits a symlink pointing outside the root but keeps in-tree symlinks (no out-of-sandbox disclosure)', async () => {
+  it.skipIf(!canSymlink)('omits a symlink pointing outside the root but keeps in-tree symlinks (no out-of-sandbox disclosure)', async () => {
     // An out-of-tree dir + file the listing must NOT disclose by name/kind.
     await mkdir(path.join(outside, 'secretdir'));
     await writeFile(path.join(outside, 'secret.txt'), 'shh');

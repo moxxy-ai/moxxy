@@ -153,3 +153,79 @@ describe('shipped builtin skills', () => {
     expect(bad, bad.join('\n')).toEqual([]);
   });
 });
+
+describe('the browser skill in the chat @ menu', () => {
+  it('shows as the Moxxy Browser, answers @moxxy_browser and keeps Computer Use out of that request', async () => {
+    const raw = await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8');
+    const frontmatter = skillFrontmatterSchema.parse(parseFrontmatterFile(raw).frontmatter);
+
+    expect(frontmatter.label).toBe('Moxxy Browser');
+    expect(frontmatter.aliases?.[0]).toBe('moxxy_browser');
+    expect(frontmatter['disallowed-tools']).toEqual(['computer_*']);
+  });
+});
+
+describe('the browser skill', () => {
+  const body = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8')).body;
+
+  it('offers runs of steps only where they exist, and says to carry on from the page they return', async () => {
+    const text = await body();
+    expect(text).toMatch(/When `browser_run` is among your tools/);
+    expect(text).toMatch(/When `browser_run` is not among your tools, do\s+not look for it/);
+    expect(text).toMatch(/do not read it again/);
+  });
+
+  it('keeps the agent from the slow habits the trials showed: guessing URLs again, reopening the page, looking twice', async () => {
+    const text = await body();
+    expect(text).toMatch(/guess once/);
+    expect(text).toMatch(/Never open the page you are already on/);
+    expect(text).toMatch(/Trust one clear signal/);
+  });
+
+  it('tells it to stop, not work around, when the user takes the browser', async () => {
+    const text = await body();
+    expect(text).toMatch(/taken over the browser/);
+    expect(text).toMatch(/Do not retry, and do not reach the page another way/);
+  });
+
+  it('carries a task to its end instead of handing the next click to the user', async () => {
+    const text = await body();
+    expect(text).toMatch(/Finish the task yourself/);
+    expect(text).toMatch(/never ask the\s+user to click/i);
+  });
+
+  it('does what a page says is still needed, by the control that does it under its own name', async () => {
+    // A page said "Please redeploy to apply the new configuration." and offered
+    // only Restart; the agent looked for a Redeploy button, found none, and
+    // handed a change it had made back to the user, unapplied.
+    const text = await body();
+    expect(text).toMatch(/A change the page says is not applied yet is not done/);
+    expect(text).toMatch(/the control that does it under another name/);
+    expect(text).toMatch(/only to what you\s+set up or changed in this task/);
+  });
+
+  it('looks at the closest matches before deciding a control is not there', async () => {
+    const text = await body();
+    expect(text).toMatch(/names the closest/);
+    expect(text).toMatch(/before you decide it is not there/);
+  });
+
+  it('answers a question about a list from the whole list', async () => {
+    const text = await body();
+    expect(text).toMatch(/every item/);
+  });
+
+  it('treats allowing a site as a step it takes, not a reason to stop', async () => {
+    // In a fresh conversation no site was allowed yet; the agent read "ask" as
+    // "I have no permission" and gave the task up instead of calling the tool.
+    const text = await body();
+    expect(text).toMatch(/`browser_allow_site` is how you ask/);
+    expect(text).toMatch(/never a\s+reason to stop/);
+  });
+
+  it('teaches the picture tools for what has no name', async () => {
+    const text = await body();
+    expect(text).toMatch(/browser_point/);
+    expect(text).toMatch(/newest one/);
+  });
+});

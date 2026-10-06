@@ -88,5 +88,20 @@ export {
   readStoredTokens,
   readStoredTokens as readCodexStoredTokens,
 } from './login.js';
+export {
+  DEFAULT_GPT_LIVE_BASE_URL,
+  GPT_LIVE_DEFAULT_VOICE,
+  GPT_LIVE_MODEL,
+  GptLiveCallClient,
+  buildGptLiveCallsUrl,
+} from './live/gpt-live-call.js';
+export type {
+  GptLiveCallAnswer,
+  GptLiveCallClientOptions,
+  GptLiveCallStart,
+  GptLiveCredentials,
+} from './live/gpt-live-call.js';
+export { buildGptLiveHistory } from './live/gpt-live-history.js';
+export type { GptLiveHistoryItem } from './live/gpt-live-history.js';
 export type { CodexProviderConfig } from './provider.js';
 export type { CodexTokens, PkceCodes, OAuthTokenResponse } from './types.js';

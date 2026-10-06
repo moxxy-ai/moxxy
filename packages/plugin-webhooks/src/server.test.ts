@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import { RateLimiter } from './rate-limit.js';
 import { WebhookDispatcher, type WebhookFireOutcome } from './runner.js';
 import { WebhookServer } from './server.js';
 import { WebhookStore, type WebhookTrigger } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 interface FiredCall {
   readonly trigger: WebhookTrigger;
@@ -70,7 +71,7 @@ describe('WebhookServer', () => {
 
   afterEach(async () => {
     await server.stop();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   // Note: server.start() with port=0 picks an OS-assigned port. The
