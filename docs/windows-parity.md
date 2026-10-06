@@ -11,9 +11,9 @@ The short version is in the `windows-parity` skill (`.ai/skills/windows-parity`)
 
 | Job | Runs on | When | What it proves |
 |---|---|---|---|
-| `Build + test` | Ubuntu, Node 20/22/24 | every PR | the whole test suite passes on **Linux** |
-| `Windows test` | Windows, Node 22 | every PR | the whole test suite passes on **Windows**, except the tests that declare a capability Windows lacks (see "Tests" below) |
-| `Windows runtime tests` | Windows, Node 20/22/24 | only when the changed paths match `desktop-package-scope` | **four** suites pass: process invocation (SDK), `moxxy update` (CLI), CLI resolver / runner pool / provider login (desktop-host), plugin install (plugins-admin) |
+| `Build + test` | Ubuntu, Node 22/24 | every PR | the whole test suite passes on **Linux** |
+| `Windows test` | Windows, Node 24 | every PR | the whole test suite passes on **Windows**, except the tests that declare a capability Windows lacks (see "Tests" below) |
+| `Windows runtime tests` | Windows, Node 22/24 | only when the changed paths match `desktop-package-scope` | **four** suites pass: process invocation (SDK), `moxxy update` (CLI), CLI resolver / runner pool / provider login (desktop-host), plugin install (plugins-admin) |
 | `Packaged desktop smoke (windows-2022)` | Windows | same condition | the native helper compiles, the NSIS installer builds, installs and boots, and its resources are complete |
 
 `Windows test` was added on 2026-10-02. Before it, a change outside the
@@ -162,7 +162,7 @@ You cannot run Windows. These steps are the substitute, in order of value.
 
 ## Building the installer on a Windows machine
 
-Mirrors the CI job. Needs Node 22, pnpm 10.30.0 (`corepack pnpm`), Python (for
+Mirrors the CI job. Needs Node 24, pnpm 10.30.0 (`corepack pnpm`), Python (for
 `node-gyp`) and Visual Studio Build Tools with the C++ workload and CMake.
 
 ```sh

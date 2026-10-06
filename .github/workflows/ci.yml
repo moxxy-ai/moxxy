@@ -124,7 +124,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Setup Python (node-gyp needs distutils)
@@ -217,7 +217,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20.19.0', '22.x', '24.x']
+        node: ['22.19.0', '24.x']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -276,7 +276,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Install dependencies
@@ -309,8 +309,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Cover the declared engines floor (>=20.19), current LTS, and latest.
-        node: ['20.x', '22.x', '24.x']
+        # Cover the declared engines floor (>=22.19, Node 22 LTS) and the default, Node 24 LTS.
+        node: ['22.x', '24.x']
     env:
       MOXXY_FIXTURES: replay
 
@@ -347,20 +347,10 @@ jobs:
       # turbo's graph-aware ordering AND caching — the whole repo is built
       # around it; `pnpm -r` ignored the cache entirely.
       - name: Build
-        run: |
-          if [ "${{ matrix.node }}" = "20.x" ]; then
-            pnpm exec turbo run build --filter='!docs'
-          else
-            pnpm build
-          fi
+        run: pnpm build
 
       - name: Typecheck
-        run: |
-          if [ "${{ matrix.node }}" = "20.x" ]; then
-            pnpm exec turbo run typecheck --filter='!docs'
-          else
-            pnpm typecheck
-          fi
+        run: pnpm typecheck
 
       - name: Lint
         run: pnpm lint
@@ -374,10 +364,6 @@ jobs:
         run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
 
       - name: Dependency invariants
-        # dependency-cruiser 18 is a development-only analyzer and requires
-        # Node >=22.12. The Node 20 leg still verifies the shipped CLI/runtime;
-        # the invariant itself is checked independently on Node 22 and 24.
-        if: matrix.node != '20.x'
         run: pnpm check:deps
 
       - name: Smoke — CLI help loads
@@ -401,7 +387,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Install dependencies
@@ -436,7 +422,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           cache: pnpm
 
       - name: Install dependencies
