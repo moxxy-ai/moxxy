@@ -223,7 +223,7 @@ describe('WhisperTranscriber.run() error translation', () => {
   });
 
   it('maps HTTP 401 to AUTH_INVALID', async () => {
-    const err = new APIError(401, { error: { message: 'bad key' } }, 'Unauthorized', {});
+    const err = new APIError(401, { error: { message: 'bad key' } }, 'Unauthorized', new Headers());
     const t = new WhisperTranscriber({ client: throwingOpenAI(err) });
     await expect(t.transcribe(audio, { mimeType: 'audio/ogg' })).rejects.toMatchObject({
       code: 'AUTH_INVALID',
@@ -231,7 +231,7 @@ describe('WhisperTranscriber.run() error translation', () => {
   });
 
   it('maps HTTP 500 to PROVIDER_SERVER_ERROR', async () => {
-    const err = new APIError(500, undefined, 'boom', {});
+    const err = new APIError(500, undefined, 'boom', new Headers());
     const t = new WhisperTranscriber({ client: throwingOpenAI(err) });
     await expect(t.transcribe(audio, { mimeType: 'audio/ogg' })).rejects.toMatchObject({
       code: 'PROVIDER_SERVER_ERROR',
@@ -239,7 +239,7 @@ describe('WhisperTranscriber.run() error translation', () => {
   });
 
   it('falls back to PROVIDER_BAD_REQUEST for an unmapped status', async () => {
-    const err = new APIError(418, undefined, 'teapot', {});
+    const err = new APIError(418, undefined, 'teapot', new Headers());
     const t = new WhisperTranscriber({ client: throwingOpenAI(err) });
     await expect(t.transcribe(audio, { mimeType: 'audio/ogg' })).rejects.toMatchObject({
       code: 'PROVIDER_BAD_REQUEST',
