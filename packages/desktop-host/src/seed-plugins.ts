@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
@@ -21,6 +22,8 @@ import { writeFileAtomic } from '@moxxy/sdk/server';
  *   and a later launch leaves it alone.
  * - A package installed newer than the seed (updated from npm since) is kept,
  *   and so is one another updater manages (`managedElsewhere`).
+ * - The replaced copies, with the npm ledger as it was, go to
+ *   `<moxxyHome>/plugins-backup/<time>`; only the latest such backup is kept.
  * - Later `npm install --save` runs in the target keep working: the seed's
  *   dependency entries are merged into the target package.json, and a
  *   replaced package's ledger and lock entries move to the seed's.
@@ -56,6 +59,9 @@ const FINGERPRINTS_FILE = 'seed-fingerprints.json';
 const STATE_FILE = '.moxxy-seed-state.json';
 /** Swap space beside node_modules, so plugin discovery never sees a half-swapped copy. */
 const STAGING_DIR = '.seed-staging';
+const BACKUP_DIR = 'plugins-backup';
+/** Marks a backup the seeder made: only those are ever pruned. */
+const BACKUP_MARKER = '.moxxy-seed-backup';
 const fingerprintsSchema = z.object({
   schemaVersion: z.literal(1),
   packages: z.record(z.string(), z.string().min(1)),
@@ -101,6 +107,7 @@ export async function seedPluginsFromResources(
   const copied: string[] = [];
   const replaced: string[] = [];
   const skipped: string[] = [];
+  let backup: string | null = null;
   for (const entry of await listModuleEntries(seedModules)) {
     const from = path.join(seedModules, entry);
     const to = path.join(targetModules, entry);
@@ -117,7 +124,8 @@ export async function seedPluginsFromResources(
       continue;
     }
     try {
-      await replaceEntry(from, to, staging);
+      backup ??= await createBackup(opts.moxxyHome, targetDir);
+      await replaceEntry(from, to, staging, path.join(backup, entry));
     } catch (error) {
       // A file another process holds open (Windows) keeps the installed copy;
       // it is not recorded, so the next launch tries again.
@@ -129,6 +137,7 @@ export async function seedPluginsFromResources(
     applied[entry] = fingerprint;
   }
   await fs.rm(staging, { recursive: true, force: true });
+  if (backup) await pruneBackups(path.dirname(backup), backup);
 
   if (fingerprints) {
     await writeFileAtomic(
@@ -144,21 +153,56 @@ export async function seedPluginsFromResources(
   return { copied, replaced, skipped };
 }
 
-/** Copy beside the target, then swap: a crash leaves either copy whole, never half of one. */
-async function replaceEntry(from: string, to: string, staging: string): Promise<void> {
+/** Copy beside the target, then swap, moving the old copy to `backupPath`:
+ *  a crash leaves either copy whole, never half of one. */
+async function replaceEntry(from: string, to: string, staging: string, backupPath: string): Promise<void> {
   await fs.mkdir(staging, { recursive: true });
   const work = await fs.mkdtemp(path.join(staging, 'swap-'));
   const fresh = path.join(work, 'new');
-  const previous = path.join(work, 'previous');
   await fs.cp(from, fresh, { recursive: true, force: false, errorOnExist: true });
-  await fs.rename(to, previous);
+  await fs.mkdir(path.dirname(backupPath), { recursive: true });
+  await moveDir(to, backupPath);
   try {
     await fs.rename(fresh, to);
   } catch (error) {
-    await fs.rename(previous, to);
+    await moveDir(backupPath, to);
     throw error;
   }
   await fs.rm(work, { recursive: true, force: true });
+}
+
+/** A rename, or a copy when the backup sits on another volume than the plugins. */
+async function moveDir(from: string, to: string): Promise<void> {
+  try {
+    await fs.rename(from, to);
+  } catch (error) {
+    if (!isJsonObject(error) || error.code !== 'EXDEV') throw error;
+    await fs.cp(from, to, { recursive: true, errorOnExist: true, force: false });
+    await fs.rm(from, { recursive: true, force: true });
+  }
+}
+
+/** A new marked backup folder holding the npm ledger as it is before any change. */
+async function createBackup(moxxyHome: string, pluginsDir: string): Promise<string> {
+  const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
+  const dir = path.join(moxxyHome, BACKUP_DIR, stamp);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, BACKUP_MARKER), 'Plugins replaced by a Moxxy installer. Safe to delete.\n');
+  for (const file of ['package.json', 'package-lock.json']) {
+    await fs.copyFile(path.join(pluginsDir, file), path.join(dir, file)).catch((error: unknown) => {
+      if (!isMissingFileError(error)) throw error;
+    });
+  }
+  return dir;
+}
+
+/** Remove earlier backups the seeder made; anything else in the folder stays. */
+async function pruneBackups(root: string, keep: string): Promise<void> {
+  for (const name of await fs.readdir(root)) {
+    const dir = path.join(root, name);
+    if (dir === keep || !(await exists(path.join(dir, BACKUP_MARKER)))) continue;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
 
 /** The installed copy carries a higher version than the seed's (npm updated it). */

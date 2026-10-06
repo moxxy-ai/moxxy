@@ -246,6 +246,18 @@ const installedCode = (name: string) => fs.readFile(path.join(installedDir(name)
 const seedOnce = (managedElsewhere?: ReadonlyArray<string>) =>
   seedPluginsFromResources({ resourcesPath: resources, moxxyHome: home, ...(managedElsewhere ? { managedElsewhere } : {}) });
 
+/** Backups the seeder made (it marks each one), oldest first. */
+async function seedBackups(): Promise<string[]> {
+  const root = path.join(home, 'plugins-backup');
+  const names = await fs.readdir(root).catch(() => [] as string[]);
+  const marked: string[] = [];
+  for (const name of names.sort()) {
+    const dir = path.join(root, name);
+    if (await fs.access(path.join(dir, '.moxxy-seed-backup')).then(() => true, () => false)) marked.push(dir);
+  }
+  return marked;
+}
+
 describe('seedPluginsFromResources over an earlier install', () => {
   it('replaces a package an earlier installer left, even at the same version number', async () => {
     await install('@moxxy/plugin-browser', '1.0.0', 'OLD BUILD');
@@ -359,6 +371,52 @@ describe('seedPluginsFromResources over an earlier install', () => {
     await seedOnce();
 
     await expect(fs.access(path.join(pluginsDir(), '.seed-staging', 'interrupted'))).rejects.toThrow();
+  });
+
+  it('keeps the replaced copy and the npm ledger in plugins-backup', async () => {
+    await install('@moxxy/plugin-browser', '1.0.0', 'HAND EDIT');
+    await fs.writeFile(path.join(pluginsDir(), 'package.json'), JSON.stringify({ name: 'moxxy-user-plugins', dependencies: {} }));
+    await makeSeed({ '@moxxy/plugin-browser': { version: '1.0.0', extra: 'NEW BUILD' } });
+
+    await seedOnce();
+
+    const [backup, ...more] = await seedBackups();
+    expect(more).toEqual([]);
+    expect(await fs.readFile(path.join(backup, '@moxxy', 'plugin-browser', 'dist', 'index.js'), 'utf8')).toBe('HAND EDIT');
+    expect(JSON.parse(await fs.readFile(path.join(backup, 'package.json'), 'utf8')).dependencies).toEqual({});
+  });
+
+  it('keeps only the backup of the latest replacement', async () => {
+    await install('@moxxy/mode-goal', '1.0.0', 'ORIGINAL');
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0', extra: 'FIRST' } });
+    await seedOnce();
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0', extra: 'SECOND' } });
+
+    await seedOnce();
+
+    const backups = await seedBackups();
+    expect(backups).toHaveLength(1);
+    expect(await fs.readFile(path.join(backups[0] ?? '', '@moxxy', 'mode-goal', 'dist', 'index.js'), 'utf8')).toBe('FIRST');
+  });
+
+  it('never removes a folder in plugins-backup that it did not make', async () => {
+    const own = path.join(home, 'plugins-backup', '2026-10-03');
+    await fs.mkdir(own, { recursive: true });
+    await fs.writeFile(path.join(own, 'notes.txt'), 'mine');
+    await install('@moxxy/mode-goal', '1.0.0', 'OLD');
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0', extra: 'NEW' } });
+
+    await seedOnce();
+
+    expect(await fs.readFile(path.join(own, 'notes.txt'), 'utf8')).toBe('mine');
+  });
+
+  it('makes no backup when nothing is replaced', async () => {
+    await makeSeed({ '@moxxy/mode-goal': { version: '1.0.0' } });
+
+    await seedOnce();
+
+    expect(await seedBackups()).toEqual([]);
   });
 
   it('keeps every installed package when the seed carries no fingerprints', async () => {

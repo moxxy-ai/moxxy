@@ -134,6 +134,10 @@ its first launch, with no manual step:
   `package.json` and `package-lock.json` entries moved to the seed's, so a
   later `npm install` keeps it. A package the seed adds (for example a new
   dependency) is copied in.
+- The replaced copies, with `package.json` and `package-lock.json` as they
+  were, are kept in `~/.moxxy/plugins-backup/<time>/`. Only the latest such
+  backup is kept; each carries a `.moxxy-seed-backup` marker, and a folder
+  without it is never removed.
 - One installer replaces a package once. On a later launch of the same
   installer the package is left alone, whatever was done to it since.
 - Kept as installed: a package newer than the installer's (updated from npm
