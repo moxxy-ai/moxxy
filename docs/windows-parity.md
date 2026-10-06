@@ -56,13 +56,14 @@ Each row is a real fault, with the commit that fixed it.
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |
 | Disabling a provider (or any other setting) was sometimes not saved | the atomic write renames over `config.yaml`; Windows refuses that with `EPERM` while any reader has the file open, and the caller swallowed the error | `writeFileAtomic` in `packages/sdk/src/fs-utils.ts` retries the rename briefly |
 | `Windows test` failed at random, in a different package almost every PR (`core`, `mode-collaborative`, `isolator-subprocess`) | a test removed its temp folder while something still used it: a write the test had not waited for (`ENOTEMPTY`), a child process with the folder as its cwd (`EBUSY`), the virus scanner reading a new file (`EPERM`). Linux removes such a folder; Windows refuses for a moment | every test removes what it made with `removeDir` / `removeDirSync` from `@moxxy/vitest-preset/fs`, and lint rejects a bare recursive `rm` in tests; tests also wait for their own writes and children to end |
+| The agent waited with `Sleep` on Windows where it waits with `Wait` everywhere else, and `StopJob` left a stopped dev server running | the `Bash` tool spawned `/bin/sh`, so every command and background job failed with `spawn /bin/sh ENOENT` and the model fell back to the terminal plugin and fixed pauses; its tests were skipped on Windows, so CI stayed green. Stopping a job signalled only the shell, never its children | `Bash` runs Git Bash on Windows, or Windows PowerShell where Git is not installed (`systemShell` in `packages/tools-builtin/src/shell.ts`, and the tool description names the shell); a job is stopped with `taskkill /T /F`. The job and `Bash` tests now run on Windows wherever the shell speaks sh |
 
 Still open, and worth knowing before building on top of them:
 
-- The `Bash` tool and its background jobs spawn `/bin/sh` and are POSIX-only
-  (`packages/tools-builtin/src/shell.ts`). On Windows a job reports
-  `failed to start: spawn /bin/sh ENOENT`. The desktop uses the terminal plugin
-  instead; a feature that depends on `Bash` does not work on Windows.
+- On a Windows machine without Git for Windows, `Bash` runs Windows PowerShell:
+  the desktop installer carries MinGit, which has no bash. The model is told
+  to write PowerShell there; set `MOXXY_GIT_BASH` to a `bash.exe` to use one
+  that is not where the Git installer puts it.
 - The `.claude/skills`, `.claude/agents`, `.codex/*` symlinks into `.ai/` check
   out as small text files on Windows (symlinks need extra rights), so skills
   are found only under `.ai/` there.
@@ -88,7 +89,7 @@ it.skipIf(!canSymlink)('does not follow a link out of the workspace', …);
 
 | Capability | False on Windows because | What is therefore not tested there |
 |---|---|---|
-| `posixShell` | there is no `/bin/sh`, `echo`, `yes`, `sleep`, and a `#!` script is not a program | the `Bash` tool and background jobs; `exec` through the isolation brokers (subprocess, worker, wasm, inproc); the Claude Code provider and the TUI voice capture, whose tests run a fake CLI written as a `#!` script |
+| `posixShell` | there is no `/bin/sh`, `echo`, `yes`, `sleep`, and a `#!` script is not a program | `exec` through the isolation brokers (subprocess, worker, wasm, inproc); the Claude Code provider and the TUI voice capture, whose tests run a fake CLI written as a `#!` script. The `Bash` tool and background jobs are tested with `systemShell().kind !== 'powershell'` instead: on Windows they run in Git Bash |
 | `posixFileModes` | `chmod` is a no-op and `stat` reports no real mode | that secret files are written `0600`, and the "disk write fails" rollbacks, which use a read-only directory to make the write fail |
 | `canSymlink` | creating a symlink needs Developer Mode or an elevated shell | every "a link must not lead out of the workspace" guard. GitHub's Windows runners can create symlinks, so these do run in CI |
 
@@ -113,7 +114,7 @@ directory. Skip only when the behaviour itself does not exist on Windows.
 |---|---|
 | listen on a file path (`/tmp/x.sock`) | only a named pipe, `\\.\pipe\name`; it has no parent directory and is not a file — no `mkdir`, `unlink`, `chmod`, `existsSync` |
 | `spawn('npm', args)` | `npm`, `pnpm`, `npx`, `moxxy` are `.cmd` shims; resolve them with `findExecutable` / `spawnExecutableTarget` from `@moxxy/sdk`, never `shell: true` |
-| run `/bin/sh -c`, `bash`, `sleep`, `kill`, `chmod`, `ln -s` | none exist; there are no process groups or negative-pid kills, and `SIGTERM` ends the process at once without a handler |
+| run `/bin/sh -c`, `bash`, `sleep`, `kill`, `chmod`, `ln -s` | none exist; there are no process groups or negative-pid kills, and `SIGTERM` ends the process at once without a handler. `spawnShell` and `killTree` in `packages/tools-builtin/src/shell.ts` show the Windows way: Git Bash or PowerShell, and `taskkill /T /F` for a process tree |
 | rely on `0600` / `0700` and the executable bit | mode bits are ignored; `chmod` is a no-op, so a test asserting a mode fails and a check relying on one protects nothing |
 | create a symlink | needs administrator rights or Developer Mode (`EPERM`) |
 | build a path with `/` and compare strings | separators are `\`; use `node:path`, and normalise before comparing or showing a path |

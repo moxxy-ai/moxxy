@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { posixShell } from '@moxxy/vitest-preset/platform';
 import * as os from 'node:os';
 import { asSessionId, asToolCallId, asTurnId, invariant } from '@moxxy/sdk';
 import type { AppContext, ToolContext } from '@moxxy/sdk';
@@ -7,6 +6,19 @@ import { bashTool } from './bash.js';
 import { stopJobTool } from './stop-job.js';
 import { waitTool } from './wait.js';
 import { builtinToolsPlugin } from './index.js';
+import { systemShell } from './shell.js';
+
+// These commands are sh; they run wherever the Bash tool's shell speaks it (Git Bash on Windows).
+const shCommands = systemShell().kind !== 'powershell';
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const ctx = (sessionId = 'jobs-session', signal = new AbortController().signal): ToolContext => ({
   sessionId: asSessionId(sessionId),
@@ -46,7 +58,7 @@ describe('background jobs', () => {
     expect(out).toContain('Wait');
   });
 
-  it.skipIf(!posixShell)('Wait wakes the moment the job exits instead of sleeping out its timeout', async () => {
+  it.skipIf(!shCommands)('Wait wakes the moment the job exits instead of sleeping out its timeout', async () => {
     const id = await startJob('sleep 0.3; echo built');
     const startedAt = Date.now();
 
@@ -57,7 +69,7 @@ describe('background jobs', () => {
     expect(out).toContain('built');
   });
 
-  it.skipIf(!posixShell)('Wait with until returns as soon as the job prints the expected line', async () => {
+  it.skipIf(!shCommands)('Wait with until returns as soon as the job prints the expected line', async () => {
     const id = await startJob('echo booting; sleep 0.2; echo "server ready on 3000"; sleep 30');
     const startedAt = Date.now();
 
@@ -68,7 +80,7 @@ describe('background jobs', () => {
     expect(out).toContain('server ready on 3000');
   });
 
-  it.skipIf(!posixShell)('a deadline reports the job as still running, not as an error', async () => {
+  it.skipIf(!shCommands)('a deadline reports the job as still running, not as an error', async () => {
     const id = await startJob('sleep 30');
 
     const out = await wait({ jobId: id, timeoutSeconds: 0.2 });
@@ -76,7 +88,7 @@ describe('background jobs', () => {
     expect(out).toContain(`job ${id} is still running`);
   });
 
-  it.skipIf(!posixShell)('each Wait shows only the output printed since the previous one', async () => {
+  it.skipIf(!shCommands)('each Wait shows only the output printed since the previous one', async () => {
     const id = await startJob('echo first; sleep 0.3; echo second; sleep 30');
     await wait({ jobId: id, until: 'first' });
 
@@ -86,7 +98,7 @@ describe('background jobs', () => {
     expect(out).not.toContain('first');
   });
 
-  it.skipIf(!posixShell)('Wait without a job id wakes on whichever running job finishes first', async () => {
+  it.skipIf(!shCommands)('Wait without a job id wakes on whichever running job finishes first', async () => {
     const slow = await startJob('sleep 30');
     const fast = await startJob('sleep 0.2; echo quick');
 
@@ -98,7 +110,7 @@ describe('background jobs', () => {
 
   // Real models fill optional fields with placeholders (`until: ".*"`,
   // `jobId: " "`); those must mean "not given", not "wake at once".
-  it.skipIf(!posixShell)('treats an until pattern that matches empty output as not given', async () => {
+  it.skipIf(!shCommands)('treats an until pattern that matches empty output as not given', async () => {
     const id = await startJob('sleep 0.3; echo built');
 
     const out = await wait({ jobId: id, until: '.*' });
@@ -107,13 +119,13 @@ describe('background jobs', () => {
     expect(out).toContain('built');
   });
 
-  it.skipIf(!posixShell)('treats a blank until as not given', async () => {
+  it.skipIf(!shCommands)('treats a blank until as not given', async () => {
     const id = await startJob('echo "first line"; sleep 0.3; echo built');
 
     await expect(wait({ jobId: id, until: ' ' })).resolves.toContain(`job ${id} exited with code 0`);
   });
 
-  it.skipIf(!posixShell)('treats a blank job id as "any running job"', async () => {
+  it.skipIf(!shCommands)('treats a blank job id as "any running job"', async () => {
     const id = await startJob('sleep 0.2; echo quick');
 
     await expect(wait({ jobId: ' ' })).resolves.toContain(`job ${id} exited with code 0`);
@@ -129,7 +141,7 @@ describe('background jobs', () => {
     await expect(wait({ jobId: id })).rejects.toThrow(/No background job/u);
   });
 
-  it.skipIf(!posixShell)('stopping the turn ends the Wait but leaves the job running', async () => {
+  it.skipIf(!shCommands)('stopping the turn ends the Wait but leaves the job running', async () => {
     const id = await startJob('sleep 30');
     const turn = new AbortController();
     const waiting = wait({ jobId: id }, ctx('jobs-session', turn.signal));
@@ -140,7 +152,7 @@ describe('background jobs', () => {
     await expect(wait({ jobId: id, timeoutSeconds: 0.1 })).resolves.toContain('is still running');
   });
 
-  it.skipIf(!posixShell)('StopJob ends the job and reports its last output', async () => {
+  it.skipIf(!shCommands)('StopJob ends the job and reports its last output', async () => {
     const id = await startJob('echo working; sleep 30');
     await wait({ jobId: id, until: 'working' });
 
@@ -148,6 +160,19 @@ describe('background jobs', () => {
 
     expect(out).toContain(`job ${id} stopped`);
     await expect(wait({ jobId: id })).resolves.toContain(`job ${id} stopped`);
+  });
+
+  // sh, Git Bash and PowerShell all read this line the same way (no double quotes:
+  // Windows PowerShell drops them on the way to a program). `echo after` keeps the
+  // shell from replacing itself with node, so node is a grandchild of the job.
+  it('StopJob ends every process the job started, not only its shell', async () => {
+    const id = await startJob("node -e 'console.log(`pid ${process.pid}`); setInterval(() => {}, 1000)'; echo after");
+    const pid = Number(/pid (\d+)/u.exec(await wait({ jobId: id, until: 'pid \\d+' }))?.[1]);
+    expect(isAlive(pid)).toBe(true);
+
+    await stopJobTool.handler({ jobId: id }, ctx());
+
+    expect(isAlive(pid)).toBe(false);
   });
 
   it('closing the session stops the jobs it started', async () => {
