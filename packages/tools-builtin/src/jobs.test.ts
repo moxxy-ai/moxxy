@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import * as os from 'node:os';
 import { asSessionId, asToolCallId, asTurnId, invariant } from '@moxxy/sdk';
 import type { AppContext, ToolContext } from '@moxxy/sdk';
@@ -11,13 +12,16 @@ import { systemShell } from './shell.js';
 // These commands are sh; they run wherever the Bash tool's shell speaks it (Git Bash on Windows).
 const shCommands = systemShell().kind !== 'powershell';
 
-function isAlive(pid: number): boolean {
+/** A process that ended can linger a moment as a zombie until its new parent reaps it; it has ended all the same. */
+function hasEnded(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
-    return false;
+    return true;
   }
+  if (process.platform === 'win32') return false;
+  const state = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+  return state === '' || state.startsWith('Z');
 }
 
 const ctx = (sessionId = 'jobs-session', signal = new AbortController().signal): ToolContext => ({
@@ -168,11 +172,11 @@ describe('background jobs', () => {
   it('StopJob ends every process the job started, not only its shell', async () => {
     const id = await startJob("node -e 'console.log(`pid ${process.pid}`); setInterval(() => {}, 1000)'; echo after");
     const pid = Number(/pid (\d+)/u.exec(await wait({ jobId: id, until: 'pid \\d+' }))?.[1]);
-    expect(isAlive(pid)).toBe(true);
+    expect(hasEnded(pid)).toBe(false);
 
     await stopJobTool.handler({ jobId: id }, ctx());
 
-    expect(isAlive(pid)).toBe(false);
+    expect(hasEnded(pid)).toBe(true);
   });
 
   it('closing the session stops the jobs it started', async () => {
