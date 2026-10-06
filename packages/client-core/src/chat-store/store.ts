@@ -538,8 +538,9 @@ class ChatStore {
 
     // compaction summarizes old turns and shrinks the live context. It's not a
     // rendered event either, so: drop the context meter by the freed tokens,
-    // and surface a visible notice in the transcript so the user sees it kick
-    // in (whether triggered manually or by the 75% auto-compactor).
+    // and surface a visible notice in the transcript when the context forced
+    // it. A routine record (the default compactor writes one per finished
+    // turn) only moves the meter, or nearly every reply would carry a notice.
     if (action.type === 'event' && action.event.type === 'compaction') {
       const saved = action.event.tokensSaved ?? 0;
       if (saved > 0) {
@@ -549,19 +550,21 @@ class ChatStore {
             latestPrompt: Math.max(0, slot.usage.latestPrompt - saved),
           };
         }
-        slot.rt.extensions = [
-          ...slot.rt.extensions,
-          {
-            kind: 'notice',
-            id: action.event.id,
-            afterCount: slot.rt.log.length,
-            tone: 'info',
-            text: `Context compacted — freed ~${formatTokensShort(saved)} tokens`,
-          },
-        ];
-        slot.rt.rev += 1;
-        slot.snap = null;
-        this.unreadDirty = true;
+        if (!action.event.routine) {
+          slot.rt.extensions = [
+            ...slot.rt.extensions,
+            {
+              kind: 'notice',
+              id: action.event.id,
+              afterCount: slot.rt.log.length,
+              tone: 'info',
+              text: `Context compacted — freed ~${formatTokensShort(saved)} tokens`,
+            },
+          ];
+          slot.rt.rev += 1;
+          slot.snap = null;
+          this.unreadDirty = true;
+        }
         this.emit();
       }
       return;

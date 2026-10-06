@@ -19,11 +19,14 @@ export const sleepTool = defineTool({
   name: 'Sleep',
   icon: 'settings',
   description:
-    'Pause for a set duration before continuing — for a real delay, or to re-check something that ' +
-    'cannot tell you when it is ready (a UI settling, an external service with no status stream). ' +
-    'For a command you started yourself, run it with Bash `background: true` and use Wait instead: ' +
-    'it returns the moment the job finishes. Give `seconds` and/or `ms` (they sum); capped at 5 minutes ' +
-    'per call. Interruptible.',
+    'Pause for a set duration before continuing — for a real delay the user asked for, or to re-check ' +
+    'something outside your control that cannot tell you when it is ready (an external service with no ' +
+    'status stream). Not for an app or page you acted on: computer_* and browser_* actions already wait ' +
+    'for it to settle and return its fresh state, so read that state again instead. For a command you ' +
+    'started yourself, run it with Bash `background: true` and use Wait: it returns the moment the job ' +
+    'finishes. Never sleep to retry something that reported a lasting condition (not ready, unsupported ' +
+    'session, missing permission); a pause does not change it, so report it. Give `seconds` and/or `ms` ' +
+    '(they sum); capped at 5 minutes per call. Interruptible.',
   inputSchema: z
     .object({
       seconds: z

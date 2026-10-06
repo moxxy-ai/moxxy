@@ -20,6 +20,7 @@ vi.mock('electron', () => ({
 }));
 
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
+import { SELF_REFERENCE_NOTE } from '@moxxy/sdk';
 import { persistCodexTokens } from '@moxxy/plugin-provider-openai-codex';
 import {
   createStaticKeySource,
@@ -183,6 +184,10 @@ describe('GPT-Live voice handlers', () => {
     expect(instructions).toMatch(/progress.*answer.*yourself.*never delegate/i);
     expect(instructions).toMatch(/one task at a time.*must finish/i);
     expect(instructions).not.toMatch(/queued/i);
+    // The seeded chat says "Zapamiętałem"; the voice still speaks in the one
+    // form the agent uses too.
+    expect(instructions).toContain(SELF_REFERENCE_NOTE);
+    expect(instructions).toMatch(/cannot check live facts.*never state them as current/i);
   });
 
   it('records a spoken exchange into the workspace session as one ordinary turn', async () => {

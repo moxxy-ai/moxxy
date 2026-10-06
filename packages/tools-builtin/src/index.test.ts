@@ -389,6 +389,17 @@ describe('path resolution helpers', () => {
 });
 
 describe('sleepTool', () => {
+  // A live run slept 2 s after Computer Use reported a Wayland session, which
+  // no pause changes, and the old wording offered "a UI settling" as a reason.
+  it('steers away from waiting on an app or page the agent itself acted on', () => {
+    expect(sleepTool.description).not.toMatch(/a UI settling/);
+    expect(sleepTool.description).toMatch(/computer_\* and browser_\* actions already wait/);
+  });
+
+  it('says a pause does not change a lasting condition', () => {
+    expect(sleepTool.description).toMatch(/Never sleep to retry something that reported a lasting condition/);
+  });
+
   describe('resolveSleepMs', () => {
     it('converts seconds to ms', () => {
       expect(resolveSleepMs({ seconds: 2 })).toBe(2000);
