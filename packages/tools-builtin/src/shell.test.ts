@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { spawnShell, withPathFirst } from './shell.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 function output(command: string, env: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -33,7 +34,7 @@ describe.skipIf(process.platform === 'win32')('spawnShell', () => {
       const shown = await output('printf %s "$PATH"', { MOXXY_PATH_FIRST: dir, PATH: `${dir}:/usr/bin:/bin` });
       expect(shown.split(':')[0]).toBe(dir);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      removeDirSync(dir);
     }
   });
 

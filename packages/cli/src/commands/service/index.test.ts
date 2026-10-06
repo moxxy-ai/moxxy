@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { readServiceLog } from './index.js';
 import { serviceLogPath } from './common.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('readServiceLog (bounded tail)', () => {
   let home: string;
@@ -17,7 +18,7 @@ describe('readServiceLog (bounded tail)', () => {
   afterEach(async () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    await rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   async function writeLog(id: string, content: string): Promise<void> {

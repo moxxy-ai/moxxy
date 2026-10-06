@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { TELEGRAM_AUTHORIZED_CHAT_KEY } from '../keys.js';
 import { PairingHandler } from './pairing-handler.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -16,7 +17,7 @@ beforeEach(async () => {
   });
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('PairingHandler.authorizedChatId (where the bot reaches its owner)', () => {

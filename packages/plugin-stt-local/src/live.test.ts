@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createLocalWhisperTranscriber } from './local-stt.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // vitest runs the TypeScript SOURCE, so `import.meta.url` here is src/. The
 // sidecar must be the COMPILED entry, so point at dist/sidecar.js (build first:
@@ -59,7 +60,7 @@ beforeAll(async () => {
   modelsDir = await mkdtemp(path.join(tmpdir(), 'stt-local-live-'));
 });
 afterAll(async () => {
-  if (modelsDir) await rm(modelsDir, { recursive: true, force: true });
+  if (modelsDir) await removeDir(modelsDir);
 });
 
 describe.skipIf(!LIVE)('local STT (live, real download + native sidecar)', () => {

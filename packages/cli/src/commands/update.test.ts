@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -8,6 +8,7 @@ import { runUpdateCommand, runUpdateProcess, type UpdateDeps } from './update.js
 import type { ParsedArgv } from '../argv.js';
 import type { InstallInfo } from '../update/detect-install.js';
 import type { CliUpdateCheck } from '../update/check.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 function argv(flags: Record<string, string | boolean> = {}): ParsedArgv {
   return { command: 'update', flags, positional: [] };
@@ -157,7 +158,7 @@ describe('runUpdateProcess', () => {
       expect(code).toBe(0);
       expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual(args.slice(1));
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeDirSync(root);
     }
   });
 
@@ -188,7 +189,7 @@ describe('runUpdateProcess', () => {
         expect(code).toBe(0);
         expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual(args.slice(1));
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeDirSync(root);
       }
     },
   );
@@ -207,7 +208,7 @@ describe('runUpdateProcess', () => {
       expect(code).toBe(127);
       expect(errors.join('\n')).toMatch(/refusing to execute unknown Windows command shim.*custom\.cmd/i);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeDirSync(root);
     }
   });
 });

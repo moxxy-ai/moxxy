@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildAttachments, parseFileToText, persistImageBlob } from './attachments';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Temp files persistImageBlob writes; cleaned up after each test. */
 const written: string[] = [];
@@ -13,7 +14,7 @@ const tmpDirs: string[] = [];
 afterEach(async () => {
   await Promise.all(written.map((p) => unlink(p).catch(() => {})));
   written.length = 0;
-  await Promise.all(tmpDirs.map((d) => rm(d, { recursive: true, force: true }).catch(() => {})));
+  await Promise.all(tmpDirs.map((d) => removeDir(d).catch(() => {})));
   tmpDirs.length = 0;
 });
 

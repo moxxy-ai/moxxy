@@ -7,6 +7,7 @@ import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@mox
 import type { ToolContext } from '@moxxy/sdk';
 import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY } from '../keys.js';
 import { buildTelegramSendMessageTool, type TelegramSendApi } from './send-message.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -22,7 +23,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 type Call =

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventLog } from '../events/log.js';
 import { SessionPersistence, type SessionMeta } from './persistence.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
@@ -30,7 +31,7 @@ afterEach(async () => {
     await persistence.settleWrites();
     await persistence.flush();
   }
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 async function readMeta(dir: string, id: string): Promise<SessionMeta> {

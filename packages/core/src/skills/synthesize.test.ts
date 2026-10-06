@@ -6,6 +6,7 @@ import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { Session } from '../session.js';
 import { asSkillId, asTurnId, defineProvider, definePlugin } from '@moxxy/sdk';
 import { synthesizeSkill, buildSynthesizeSkillPlugin } from './synthesize.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const DRAFT_DELTA =
   '---\nname: refactor-component\ndescription: Split a large React component.\ntriggers: ["refactor", "split"]\nallowed-tools: [Read, Edit]\n---\n# Steps\n\n1. Read the file.\n2. Identify boundaries.\n3. Edit into pieces.\n';
@@ -48,7 +49,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-synth-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('synthesizeSkill', () => {
@@ -264,7 +265,7 @@ describe('reload_skills and the skills plugins ship', () => {
 
       expect(session.skills.byName('computer-control')).toMatchObject({ scope: 'plugin', frontmatter: { label: 'Computer Use' } });
     } finally {
-      await fs.rm(root, { recursive: true, force: true });
+      await removeDir(root);
     }
   });
 });

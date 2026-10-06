@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventLog } from '../events/log.js';
 import { SessionPersistence, restoreEvents } from './persistence.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
@@ -38,7 +39,7 @@ afterEach(async () => {
     await persistence.flush();
   }
   vi.restoreAllMocks();
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 describe('SessionPersistence one-time setup (no per-flush open/close)', () => {

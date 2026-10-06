@@ -19,6 +19,7 @@ import {
   verifyAuditDay,
 } from './jsonl-audit-sink.js';
 import { attachAuditSink } from './attach.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const base = (over: Partial<UnchainedAuditRecord> = {}): UnchainedAuditRecord => ({
   ts: 1_700_000_000_000,
@@ -193,7 +194,7 @@ describe('local audit sink', () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
     resetAuditHeadForTests();
-    await fs.rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   const today = (): string => new Date().toISOString().slice(0, 10);
@@ -271,7 +272,7 @@ describe('attachAuditSink', () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
     resetAuditHeadForTests();
-    await fs.rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   it('records auditable events and ignores conversation', async () => {

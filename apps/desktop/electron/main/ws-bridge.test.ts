@@ -23,6 +23,7 @@ import {
   wsBridgeTokenFile,
   type BridgeRuntime,
 } from './ws-bridge.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const ENV_KEYS = [
   'MOXXY_WS_BRIDGE',
@@ -48,7 +49,7 @@ afterEach(() => {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
   }
-  fs.rmSync(userData, { recursive: true, force: true });
+  removeDirSync(userData);
 });
 
 describe('resolveWsBridgeConfig', () => {

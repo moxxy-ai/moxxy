@@ -1,10 +1,11 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { posixShell } from '@moxxy/vitest-preset/platform';
 import type { ProviderAuthContext } from '@moxxy/sdk';
 import { claudeLogin } from './login.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // A stand-in for the installed `claude` binary, speaking the same non-TTY login
 // dialogue: it prints the sign-in URL and a paste prompt, then either finishes
@@ -41,7 +42,7 @@ const dirs: string[] = [];
 
 afterEach(async () => {
   delete process.env.FAKE_CLAUDE_CALLBACK;
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(dirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 async function fakeClaude(): Promise<string> {

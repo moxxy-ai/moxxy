@@ -7,6 +7,7 @@ import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
 import { buildProviderAdminPluginWithApi, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig, upsertStoredProvider } from './store.js';
 import type { StoredProvider } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 class FakeRegistry implements ProviderRegistryLike {
   defs = new Map<string, ProviderDef>();
@@ -48,7 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 function build(reg: ProviderRegistryLike = registry) {

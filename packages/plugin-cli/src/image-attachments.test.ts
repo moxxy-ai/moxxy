@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import {
   extractImagePlaceholders,
   loadImageAttachment,
 } from './image-attachments.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('detectPastedImagePath', () => {
   it('matches a plain absolute path to a PNG', () => {
@@ -79,7 +80,7 @@ describe('loadImageAttachment', () => {
     );
   });
   afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('reads the file and returns a base64 attachment', async () => {

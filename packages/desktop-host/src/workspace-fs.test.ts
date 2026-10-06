@@ -8,11 +8,12 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { canSymlink } from '@moxxy/vitest-preset/platform';
-import { mkdtemp, mkdir, rm, writeFile, symlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { listDir, readFile } from './workspace-fs';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let root = '';
 let outside = '';
@@ -27,7 +28,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (root) await rm(path.dirname(root), { recursive: true, force: true });
+  if (root) await removeDir(path.dirname(root));
 });
 
 describe('resolveInside guard (via listDir/readFile)', () => {

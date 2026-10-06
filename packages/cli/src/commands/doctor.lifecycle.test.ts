@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { definePlugin, defineProvider } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * Regression: `moxxy doctor` boots a full session for diagnostics and must
@@ -24,7 +25,7 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 const core = await vi.importActual<typeof import('@moxxy/core')>('@moxxy/core');

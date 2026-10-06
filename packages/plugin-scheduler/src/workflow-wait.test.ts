@@ -1,6 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -8,6 +8,7 @@ import { expect, it } from 'vitest';
 import { ScheduleStore } from './store.js';
 import { SchedulerPoller, isDue } from './poller.js';
 import { runSchedule } from './runner.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('does not block other workflows behind an HTTP operation awaiting the operator', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-poller-'));
@@ -38,7 +39,7 @@ it('does not block other workflows behind an HTTP operation awaiting the operato
   } finally {
     held?.end('released'); server.closeAllConnections(); await tick; await poller.stop();
     await new Promise<void>((resolve, reject) => { server.close(error => error ? reject(error) : resolve()); server.closeAllConnections(); });
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 });
 
@@ -65,5 +66,5 @@ it('cancels the waiting workflow when another store disables its schedule', asyn
     const stopped = Date.now() + 3000;
     while (!received?.aborted && Date.now() < stopped) await delay(10);
     expect(received?.aborted).toBe(true);
-  } finally { release?.(); await run; await rm(dir, { recursive: true, force: true }); }
+  } finally { release?.(); await run; await removeDir(dir); }
 });

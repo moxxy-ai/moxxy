@@ -1,9 +1,10 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { WebhookStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('WebhookStore', () => {
   let dir: string;
@@ -15,7 +16,7 @@ describe('WebhookStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('returns an empty list when the file is missing', async () => {

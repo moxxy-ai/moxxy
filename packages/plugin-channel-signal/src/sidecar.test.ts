@@ -14,6 +14,7 @@ import {
   startLinkProcess,
   type SpawnedProcess,
 } from './sidecar.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 class FakeChild extends EventEmitter {
   pid = 4242;
@@ -249,7 +250,7 @@ describe('findSignalCliOnPath', () => {
       expect(findSignalCliOnPath({ PATH: undefined as unknown as string })).toBeNull();
       expect(findSignalCliOnPath({})).toBeNull();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      removeDirSync(tmp);
     }
   });
 
@@ -260,7 +261,7 @@ describe('findSignalCliOnPath', () => {
       fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
       expect(findSignalCliOnPath({ PATH: `/nonexistent${path.delimiter}${tmp}` })).toBe(bin);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      removeDirSync(tmp);
     }
   });
 });

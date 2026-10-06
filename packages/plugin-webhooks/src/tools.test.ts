@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ToolContext, ToolDef } from '@moxxy/sdk';
@@ -11,6 +11,7 @@ import { WebhookStore } from './store.js';
 import { buildWebhookTools } from './tools.js';
 import { verifyDelivery } from './verify.js';
 import { createHmac } from 'node:crypto';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const ctx = {} as ToolContext;
 
@@ -50,7 +51,7 @@ describe('webhook tools', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   describe('webhook_create secret handling', () => {
@@ -350,7 +351,7 @@ describe('webhook target session (ownerSessionId routing)', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('stamps ownerSessionId from an explicit targetSessionId', async () => {

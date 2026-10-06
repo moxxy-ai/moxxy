@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runPluginNewCommand } from './plugin-new.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmpHome: string;
 let origHome: string | undefined;
@@ -40,7 +41,7 @@ afterEach(async () => {
   process.chdir(origCwd);
   if (origHome === undefined) delete process.env.HOME;
   else process.env.HOME = process.env.USERPROFILE = origHome;
-  await fs.rm(tmpHome, { recursive: true, force: true });
+  await removeDir(tmpHome);
 });
 
 function makeArgv(positional: string[], flags: Record<string, string | boolean> = {}) {

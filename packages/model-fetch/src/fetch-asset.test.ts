@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -12,6 +12,7 @@ import {
   isAllowedAssetUrl,
   type FetchLike,
 } from './fetch-asset.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const HOST_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/asset.bin';
 
@@ -65,7 +66,7 @@ beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'model-fetch-'));
 });
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 
 describe('isAllowedAssetUrl', () => {

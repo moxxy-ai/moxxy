@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, type AppContext, type ComputerControlService, type MoxxyEvent, type ToolDef, type ToolImageResult } from '@moxxy/sdk';
@@ -11,6 +11,7 @@ import type { PreviewMessage } from '../preview/controller.js';
 import { CONTRACT_PROTOCOL_VERSION } from './rpc.js';
 import type { AskJev, JevAnswers } from '@moxxy/jev';
 import { RunMemory } from '../jev/memory.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let directory: string;
 let requestsFile: string;
@@ -65,7 +66,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await Promise.all(backends.map((instance) => instance.release('session')));
-  rmSync(directory, { recursive: true, force: true });
+  removeDirSync(directory);
 });
 
 describe('computer_request_access', () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   trustConfig,
   untrustConfig,
 } from './config-trust.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('config trust store', () => {
   let home: string;
@@ -29,8 +30,8 @@ describe('config trust store', () => {
   afterEach(async () => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    await rm(home, { recursive: true, force: true });
-    await rm(project, { recursive: true, force: true });
+    await removeDir(home);
+    await removeDir(project);
   });
 
   it('starts untrusted', async () => {

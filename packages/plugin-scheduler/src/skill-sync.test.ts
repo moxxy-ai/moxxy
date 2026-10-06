@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import type { Skill, SkillRegistry } from '@moxxy/sdk';
 import { asSkillId, assertDefined } from '@moxxy/sdk';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function fakeRegistry(skills: ReadonlyArray<Skill>): SkillRegistry {
   const map = new Map(skills.map((s) => [s.frontmatter.name, s] as const));
@@ -40,7 +41,7 @@ describe('syncSkillSchedules', () => {
     store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('creates a schedule for a skill with a schedule block', async () => {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { writeChannelStatus } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { runChannelsCommand } from './channels.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 // These verbs are status-file-only (no session boot), so they're cheap to drive
 // end-to-end against a temp MOXXY_HOME.
@@ -28,7 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  fs.rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
   vi.restoreAllMocks();
 });
 

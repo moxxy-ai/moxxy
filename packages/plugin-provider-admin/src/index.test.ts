@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import type { ProviderDef, ToolContext, ToolDef } from '@moxxy/sdk';
 import { buildProviderAdminPlugin, buildProviderAdminPluginWithApi, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // Stub ONLY the network probe; buildProviderDef stays real. Lets the
 // provider_test tests assert what key the validator received without ever
@@ -64,7 +65,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 function call(name: string, input: Record<string, unknown>): Promise<unknown> {

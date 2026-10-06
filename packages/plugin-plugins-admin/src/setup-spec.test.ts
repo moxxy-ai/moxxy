@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { listPluginSetups, readPluginSetup, setupFieldVaultKey } from './setup-spec.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -16,7 +17,7 @@ beforeEach(async () => {
 afterEach(async () => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function installFake(name: string, moxxy: unknown) {

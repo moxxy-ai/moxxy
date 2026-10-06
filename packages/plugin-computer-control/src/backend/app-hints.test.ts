@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseFrontmatterFile, skillFrontmatterSchema } from '@moxxy/sdk';
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { appHintsDirectory, hintFor, loadAppHints } from './app-hints.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('app hints', () => {
   it('reads each hint file as the apps it is for and the text to show', () => {
@@ -21,7 +22,7 @@ describe('app hints', () => {
       expect(hintFor(hints, { id: 'x', name: 'Notes 2026' })).toBe('Use the search field.');
       expect(hintFor(hints, { id: 'com.apple.NotesHelper', name: 'Notesy' })).toBeUndefined();
       expect(hintFor(hints, { id: 'com.apple.TextEdit', name: 'TextEdit' })).toBeUndefined();
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { removeDirSync(directory); }
   });
 
   it('returns no hints for a directory that does not exist', () => {

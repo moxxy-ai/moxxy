@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadPolicyBundles, PolicyLoadError } from './policy-source.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const URL_A = 'https://policy.example/corp.json';
 
@@ -50,7 +51,7 @@ describe('loadPolicyBundles', () => {
     cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-policy-'));
   });
   afterEach(async () => {
-    await fs.rm(cacheDir, { recursive: true, force: true });
+    await removeDir(cacheDir);
   });
 
   it('returns nothing when no bundle is configured, without touching the network', async () => {

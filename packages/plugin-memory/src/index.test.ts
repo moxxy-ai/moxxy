@@ -5,13 +5,14 @@ import * as path from 'node:path';
 import type { ToolDef } from '@moxxy/sdk';
 import { buildMemoryPlugin } from './index.js';
 import { MemoryStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-idx-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const toolByName = (name: string): ToolDef => {

@@ -24,6 +24,7 @@ import { TranscriberRegistry } from '../registries/transcribers.js';
 import { HookDispatcherImpl } from './lifecycle.js';
 import { PluginHost } from './host.js';
 import { RequirementRegistry } from '../requirements.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const makeHost = () => {
   const tools = new ToolRegistryImpl({ logger: silentLogger, cwd: '/tmp' });
@@ -353,7 +354,7 @@ describe('PluginHost', () => {
   describe('reload with userPaths', () => {
     const tempDirs: string[] = [];
     afterEach(async () => {
-      await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+      await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
     });
 
     const makeHostWithUserPaths = (
@@ -424,7 +425,7 @@ describe('PluginHost', () => {
       expect(tools.has('userplug_tool')).toBe(true); // user-path discovered
 
       // Remove the user plugin from disk → reload unloads it, keeps the builtin.
-      await fs.rm(path.join(root, 'userplug'), { recursive: true, force: true });
+      await removeDir(path.join(root, 'userplug'));
       await host.reload();
       expect(tools.has('userplug_tool')).toBe(false);
       expect(tools.has('builtin_tool')).toBe(true);

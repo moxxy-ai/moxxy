@@ -14,6 +14,7 @@ import {
   USER_MODEL_OPEN,
   type UserModel,
 } from './user-model.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 const newStore = () => new UserModelStore(tmp);
@@ -36,7 +37,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const req = (system?: string): ProviderRequest => ({

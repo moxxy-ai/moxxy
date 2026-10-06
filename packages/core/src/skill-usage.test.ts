@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { loadSkillUsage, mergeSkillUsage } from './skill-usage.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmpDir: string;
 let usagePath: string;
@@ -13,7 +14,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await removeDir(tmpDir);
 });
 
 describe('skill-usage store', () => {

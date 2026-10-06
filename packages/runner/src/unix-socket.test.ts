@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { platformSocket } from './socket-path.js';
 import { createUnixSocketServer, connectUnixSocket, type SocketLogger } from './unix-socket.js';
 import type { Transport, TransportServer } from './transport.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 function tmpSocket(): string {
   const name = `moxxy-sock-${Math.random().toString(36).slice(2, 10)}`;
@@ -238,7 +239,7 @@ describe('unix-socket transport (NDJSON framing)', () => {
         // Belt-and-braces: the socket node itself is tightened too.
         expect(fs.statSync(socketPath).mode & 0o777).toBe(0o600);
       } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
+        removeDirSync(dir);
       }
     },
   );
@@ -254,7 +255,7 @@ describe('unix-socket transport (NDJSON framing)', () => {
         servers.push(server);
         expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
       } finally {
-        fs.rmSync(dir, { recursive: true, force: true });
+        removeDirSync(dir);
       }
     },
   );

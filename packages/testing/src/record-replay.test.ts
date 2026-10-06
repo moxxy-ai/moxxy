@@ -6,13 +6,14 @@ import type { LLMProvider } from '@moxxy/sdk';
 import { FakeProvider, textReply } from './fake-provider.js';
 import { RecordedProvider, fixtureMode } from './record-replay.js';
 import { hashRequest } from './hash.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-fixtures-'));
 });
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await removeDir(dir);
 });
 
 const req = () => ({

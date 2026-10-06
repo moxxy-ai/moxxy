@@ -14,6 +14,7 @@ import {
   restoreEvents,
   type SessionMeta,
 } from './persistence.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 interface CapturedLine {
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -58,7 +59,7 @@ afterEach(async () => {
     await persistence.settleWrites();
     await persistence.flush();
   }
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 function meta(id: string, eventCount = 0): SessionMeta {

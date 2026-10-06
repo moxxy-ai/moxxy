@@ -10,7 +10,7 @@ import path from 'node:path';
 import { once } from 'node:events';
 import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
@@ -42,6 +42,7 @@ import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSessionHandlers } from './session';
 import { registerVoiceHandlers } from './voice';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -55,7 +56,7 @@ afterEach(async () => {
 
 async function makeVault(withLogin: boolean): Promise<VaultStore> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-gpt-live-'));
-  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeDir(dir));
   const vault = new VaultStore({
     filePath: path.join(dir, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('test-passphrase', generateSalt())),

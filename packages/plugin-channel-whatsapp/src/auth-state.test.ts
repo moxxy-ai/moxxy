@@ -11,6 +11,7 @@ import {
   type BaileysAuthBridge,
   type WhatsAppAuthStorage,
 } from './auth-state.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // A trivial bridge: identity JSON (no Buffer categories), fresh creds counter.
 function fakeBridge(): BaileysAuthBridge {
@@ -84,7 +85,7 @@ describe('createFileAuthStorage', () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wa-auth-'));
   });
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('writes 0600 files and clears the whole dir', async () => {

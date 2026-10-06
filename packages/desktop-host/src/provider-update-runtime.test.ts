@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -9,11 +9,12 @@ import {
   providerFixture as fixture,
   removeProviderFixtures,
 } from './provider-update.fixture.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const roots: string[] = [];
 afterEach(async () => {
   await removeProviderFixtures();
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeDir(root);
 });
 
 it('requires confirmation for an untracked provider, then updates verified unchanged copies automatically', async () => {

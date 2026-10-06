@@ -7,10 +7,11 @@ import { asSessionId, asTurnId, type ToolContext, type ToolDef } from '@moxxy/sd
 import { buildSelfUpdatePlugin, type SelfUpdateDeps, type SkipInfo } from './index.js';
 import { readJournal } from './transaction.js';
 import { writeCoreJournal } from './core-update.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
 });
 
 /**

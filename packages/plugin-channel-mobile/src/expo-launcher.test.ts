@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import {
   resolveMobileExpoAppDir,
   resolveMobileExpoOptions,
 } from './expo-launcher.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('mobile Expo launcher', () => {
   it('starts the bundled full mobile Expo app by default', () => {
@@ -73,7 +74,7 @@ describe('mobile Expo launcher', () => {
       await handle?.stop();
       expect(readFileSync(marker, 'utf8')).toBe('--host lan --port 8081');
     } finally {
-      rmSync(appDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeDirSync(appDir);
     }
   }, 30_000);
 });

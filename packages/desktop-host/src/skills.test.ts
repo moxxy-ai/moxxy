@@ -10,10 +10,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { deleteSkill, listSkills, readSkill, writeSkill } from './skills';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let tmpHome: string;
 let savedHome: string | undefined;
@@ -33,7 +34,7 @@ afterEach(() => {
   process.env.HOME = process.env.USERPROFILE = savedHome;
   if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = savedMoxxyHome;
-  rmSync(tmpHome, { recursive: true, force: true });
+  removeDirSync(tmpHome);
 });
 
 describe('skills', () => {
@@ -59,7 +60,7 @@ describe('skills', () => {
       expect((await listSkills()).map((s) => s.name)).toEqual(['relocated.md']);
       expect(await readSkill('relocated.md')).toBe('# moved');
     } finally {
-      rmSync(relocated, { recursive: true, force: true });
+      removeDirSync(relocated);
     }
   });
 

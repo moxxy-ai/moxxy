@@ -6,6 +6,7 @@ import {
   repairSeededPluginManifest,
   seedPluginsFromResources,
 } from './seed-plugins.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let resources: string;
@@ -18,7 +19,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function makeSeed(

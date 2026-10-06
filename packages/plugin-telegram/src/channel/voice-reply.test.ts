@@ -8,6 +8,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import { loadVoiceReplies, saveVoiceReplies, TELEGRAM_VOICE_REPLIES_KEY } from '../keys.js';
 import { runSlash } from './slash-handler.js';
 import { runUserTurn } from './turn-runner.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('telegram voice-replies vault flag round-trip', () => {
   let tmp: string;
@@ -21,7 +22,7 @@ describe('telegram voice-replies vault flag round-trip', () => {
     });
   });
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('defaults to off, persists on, then off', async () => {

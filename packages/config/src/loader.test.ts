@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { loadConfig } from './loader.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // These cases exercise the EXECUTABLE-config loading machinery itself (jiti,
 // the ESM module-registry cache-buster, per-cwd resolution), so they stand in
@@ -16,7 +17,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-config-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('loadConfig', () => {
@@ -120,8 +121,8 @@ describe('loadConfig', () => {
       expect(a.config.plugins?.provider?.items?.x?.model).toBe('from-A');
       expect(b.config.plugins?.provider?.items?.x?.model).toBe('from-B');
     } finally {
-      await fs.rm(dirA, { recursive: true, force: true });
-      await fs.rm(dirB, { recursive: true, force: true });
+      await removeDir(dirA);
+      await removeDir(dirB);
     }
   });
 });
@@ -147,7 +148,7 @@ describe('system scope, locked keys, and executable-config consent', () => {
       else process.env[k] = saved[k];
     }
     await Promise.all(
-      [home, project, sysDir].map((d) => fs.rm(d, { recursive: true, force: true })),
+      [home, project, sysDir].map((d) => removeDir(d)),
     );
   });
 

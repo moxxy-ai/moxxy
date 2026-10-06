@@ -7,6 +7,7 @@ import { createMutex, assertDefined } from '@moxxy/sdk';
 import { rankByKeywords, recallVector } from './search.js';
 import { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry, MemoryType } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function entry(
   name: string,
@@ -89,7 +90,7 @@ describe('recallVector dimension-drift hardening', () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-search-'));
   });
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('degrades (no crash) when a misbehaving embedder under-returns vectors — no-cache path', async () => {

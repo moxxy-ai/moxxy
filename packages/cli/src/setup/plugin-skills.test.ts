@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setupSession } from '../setup.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 /** A plugin installed under ~/.moxxy/plugins that ships a skill, the way Computer Use does. */
 function installPlugin(home: string): void {
@@ -32,7 +33,7 @@ describe('setupSession with a plugin that ships skills', () => {
   afterEach(() => {
     if (saved === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = saved;
-    rmSync(home, { recursive: true, force: true });
+    removeDirSync(home);
   });
 
   it('loads the skill, so the chat @ menu and an @ mention find it', async () => {

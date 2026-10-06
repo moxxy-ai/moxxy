@@ -55,6 +55,7 @@ Each row is a real fault, with the commit that fixed it.
 | Running the tests wrote fixtures into the developer's real `~/.moxxy` and rewrote the vault key | tests moved `HOME`; Windows resolves the home from `USERPROFILE` | `tooling/vitest-preset/isolate.js` |
 | A security patch was rejected only on Windows checkouts | the audit hashed a patch file; `core.autocrlf` rewrote its line endings | removed with `650c2640` |
 | Disabling a provider (or any other setting) was sometimes not saved | the atomic write renames over `config.yaml`; Windows refuses that with `EPERM` while any reader has the file open, and the caller swallowed the error | `writeFileAtomic` in `packages/sdk/src/fs-utils.ts` retries the rename briefly |
+| `Windows test` failed at random, in a different package almost every PR (`core`, `mode-collaborative`, `isolator-subprocess`) | a test removed its temp folder while something still used it: a write the test had not waited for (`ENOTEMPTY`), a child process with the folder as its cwd (`EBUSY`), the virus scanner reading a new file (`EPERM`). Linux removes such a folder; Windows refuses for a moment | every test removes what it made with `removeDir` / `removeDirSync` from `@moxxy/vitest-preset/fs`, and lint rejects a bare recursive `rm` in tests; tests also wait for their own writes and children to end |
 
 Still open, and worth knowing before building on top of them:
 
@@ -90,6 +91,16 @@ it.skipIf(!canSymlink)('does not follow a link out of the workspace', …);
 | `posixShell` | there is no `/bin/sh`, `echo`, `yes`, `sleep`, and a `#!` script is not a program | the `Bash` tool and background jobs; `exec` through the isolation brokers (subprocess, worker, wasm, inproc); the Claude Code provider and the TUI voice capture, whose tests run a fake CLI written as a `#!` script |
 | `posixFileModes` | `chmod` is a no-op and `stat` reports no real mode | that secret files are written `0600`, and the "disk write fails" rollbacks, which use a read-only directory to make the write fail |
 | `canSymlink` | creating a symlink needs Developer Mode or an elevated shell | every "a link must not lead out of the workspace" guard. GitHub's Windows runners can create symlinks, so these do run in CI |
+
+A test removes what it made with `removeDir` / `removeDirSync` from
+`@moxxy/vitest-preset/fs`, never a bare `rm(dir, { recursive: true })`; lint
+rejects that in `*.test.*` and `*.fixture.*` files. Windows refuses to remove
+a file or folder while something still has it open or is adding to it, and
+the helper waits that out (about 5.5 s). It does not replace waiting for the
+test's own work: a write the test started is awaited first (for a session,
+`settleWrites()` then `flush()`), a child process is awaited until it exits,
+and a child that outlives the test is not started in a folder the test
+removes — Windows will not remove a live process's cwd at all.
 
 Prefer a portable fixture over a skip: `process.execPath` instead of `sh`,
 `platformSocket` instead of a `.sock` path, `path.join` in the expected

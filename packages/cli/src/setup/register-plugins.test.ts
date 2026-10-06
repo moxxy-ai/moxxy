@@ -6,11 +6,12 @@ import { Session, silentLogger } from '@moxxy/core';
 import { definePlugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import { registerPlugins } from './register-plugins.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 async function stageFakePackage(

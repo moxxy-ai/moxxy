@@ -26,10 +26,11 @@ import {
   type CoreInstallInfo,
   type CoreJournal,
 } from './core-update.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
 });
 
 async function tmp(): Promise<string> {

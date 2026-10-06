@@ -10,6 +10,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { readBoundedFile } from './bounded-read.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const dirs: string[] = [];
 
@@ -20,7 +21,7 @@ async function tmp(): Promise<string> {
 }
 
 afterEach(async () => {
-  for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) await removeDir(dir);
 });
 
 describe('readBoundedFile', () => {

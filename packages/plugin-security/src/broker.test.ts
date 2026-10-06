@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { buildBrokerEnv, handleBrokerRequest, type BrokerRequest } from './broker.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const req = (op: string, args: unknown[], id = 1): BrokerRequest =>
   ({ type: 'broker-request', id, op: op as BrokerRequest['op'], args });
@@ -174,7 +175,7 @@ describe('broker: fs.readdir', () => {
       expect(res.ok).toBe(true);
       if (res.ok) expect(res.value).toContain('a.txt');
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeDir(tmp);
     }
   });
 
@@ -292,7 +293,7 @@ describe('broker: exec', () => {
         expect(res.errorMessage).toMatch(/resolves to 'cat'.*outside the tool's declared commands allowlist/);
       }
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeDir(dir);
     }
   });
 
@@ -320,7 +321,7 @@ describe('broker: exec', () => {
         expect(v.stdout).toContain('linked-ok');
       }
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeDir(dir);
     }
   });
 
@@ -651,8 +652,8 @@ describe.skipIf(!canSymlink)('broker: fs symlink escape (u105-4)', () => {
   });
 
   afterAll(async () => {
-    await fs.rm(scope, { recursive: true, force: true });
-    await fs.rm(outside, { recursive: true, force: true });
+    await removeDir(scope);
+    await removeDir(outside);
   });
 
   it('blocks reading a symlink that escapes the declared scope', async () => {

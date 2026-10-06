@@ -1,10 +1,11 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 
 import { isRepo, status, diff } from './git';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -24,7 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true });
+  removeDirSync(tmp);
 });
 
 describe('isRepo', () => {

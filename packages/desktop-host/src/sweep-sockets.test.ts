@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { sweepStaleSockets } from './sweep-sockets';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let root = '';
 let previousMoxxyHome: string | undefined;
@@ -16,7 +17,7 @@ beforeEach(() => {
 afterEach(() => {
   if (previousMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = previousMoxxyHome;
-  rmSync(root, { recursive: true, force: true });
+  removeDirSync(root);
 });
 
 describe('sweepStaleSockets', () => {

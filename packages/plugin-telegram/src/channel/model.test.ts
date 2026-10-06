@@ -20,6 +20,7 @@ import { TELEGRAM_MODEL_KEY } from '../keys.js';
 import { telegramModel } from './model.js';
 import { runSlash } from './slash-handler.js';
 import { handleCallback } from './callback-handler.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -58,7 +59,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 interface Keyboard {

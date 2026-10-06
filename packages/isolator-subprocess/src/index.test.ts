@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { IsolatedToolCall } from '@moxxy/sdk';
 import { createSubprocessIsolator } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const fixtureUrl = new URL('./__fixtures__/broker-handler.mjs', import.meta.url).href;
 
@@ -161,7 +162,7 @@ describe('subprocessIsolator', () => {
       // Sanity: the child's cwd is NOT the parent runner's cwd.
       expect(out.cwd).not.toBe(process.cwd());
     } finally {
-      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await removeDir(dir);
     }
   });
 
@@ -215,7 +216,7 @@ describe('subprocessIsolator', () => {
       }
       expect(dead).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await removeDir(dir);
     }
   }, 15_000);
 
@@ -404,8 +405,9 @@ describe('subprocess hardening', () => {
       const iso = createSubprocessIsolator({ abortGraceMs: 5_000 });
       const ctrl = new AbortController();
       const p = iso.run(
+        // Not run in `dir`: the child outlives the call by the grace window,
+        // and Windows will not remove a folder a live process has as its cwd.
         baseCall('flushOnAbort', { marker }, {
-          cwd: dir,
           moduleRef: { url: fixtureUrl, export: 'flushOnAbort' },
         }),
         async () => 'unused',
@@ -428,7 +430,7 @@ describe('subprocess hardening', () => {
       }
       expect(wrote).toBe(true);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await removeDir(dir);
     }
   }, 15_000);
 });

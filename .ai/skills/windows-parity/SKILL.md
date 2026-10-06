@@ -34,6 +34,10 @@ Checklist:
    together. One that needs a POSIX shell, real mode bits or symlinks says so
    with `it.skipIf(!posixShell | !posixFileModes | !canSymlink)` from
    `@moxxy/vitest-preset/platform` — and prefer a portable fixture to a skip.
+   A test removes its files with `removeDir` / `removeDirSync` from
+   `@moxxy/vitest-preset/fs` (lint rejects a bare recursive `rm`), after its
+   own writes have settled and its child processes have exited; a child that
+   outlives the test does not run with the test's folder as its cwd.
 9. Read the Windows jobs: `Windows test` must be green; *skipped* is not
    *passed*. For installed-app changes have someone install the
    `moxxy-windows-test-installer` artifact.

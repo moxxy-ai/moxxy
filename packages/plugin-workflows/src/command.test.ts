@@ -1,9 +1,10 @@
 import { asSessionId, type CommandContext, type Workflow, type WorkflowRunResult } from '@moxxy/sdk';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildWorkflowsCommand, type WorkflowCommandDeps } from './command.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function wf(name: string, steps: Array<Record<string, unknown>> = [{ id: 'a', prompt: 'go' }]): Workflow {
   return {
@@ -57,7 +58,7 @@ describe('/workflows inspect — last run resolution', () => {
     const lastRunSection = text.slice(text.indexOf('— last run —'));
     expect(lastRunSection).toContain('✓');
     expect(lastRunSection).not.toContain('✗');
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 });
 

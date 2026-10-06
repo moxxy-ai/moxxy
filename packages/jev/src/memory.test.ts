@@ -1,13 +1,14 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AppElement, AppTree } from './tree.js';
 import { RunMemory, describeRoutes, guess, labelOf, promote, recall, sameWords, targetOf } from './memory.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let directory: string;
 beforeEach(() => { directory = mkdtempSync(join(tmpdir(), 'moxxy-run-memory-')); });
-afterEach(() => { rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { removeDirSync(directory); });
 
 const element = (index: number, key: string, title: string, role = 'button'): AppElement => ({ key, index, depth: 1, role, title });
 const tree = (...elements: AppElement[]): AppTree => ({ app: 'Editor', elements: [{ key: 'w', index: 0, depth: 0, role: 'window' }, ...elements] });

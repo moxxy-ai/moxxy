@@ -6,12 +6,13 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTerminalProcess, type TerminalProcess } from './pty.js';
 import { runCommand } from './terminal.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const zsh = spawnSync('zsh', ['-c', 'command -v zsh'], { encoding: 'utf8' });
 const zshPath = zsh.status === 0 ? zsh.stdout.trim() : null;
@@ -47,7 +48,7 @@ describe.skipIf(zshPath === null)('runCommand in a zsh set up like Oh My Zsh', (
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    rmSync(dotdir, { recursive: true, force: true });
+    removeDirSync(dotdir);
   });
 
   it('finishes as soon as the command does instead of waiting out the timeout', async () => {

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { definePlugin } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * Regression: `moxxy -p` must drain persistence + close the session before it
@@ -27,7 +28,7 @@ const realIsTTY = process.stdin.isTTY;
 afterEach(async () => {
   vi.restoreAllMocks();
   process.stdin.isTTY = realIsTTY;
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 const core = await vi.importActual<typeof import('@moxxy/core')>('@moxxy/core');

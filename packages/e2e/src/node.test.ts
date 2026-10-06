@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { loadOrCreateIdentity } from './node.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('loadOrCreateIdentity', () => {
   let dir: string;
@@ -11,7 +12,7 @@ describe('loadOrCreateIdentity', () => {
     dir = await mkdtemp(join(tmpdir(), 'proxy-id-'));
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('creates a fresh identity, persists it 0600, and reloads the same one', async () => {

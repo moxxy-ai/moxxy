@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { delimiter } from 'node:path';
 import {
@@ -10,6 +10,7 @@ import {
   isAllowedDownloadHost,
   psSingleQuote,
 } from './node-manager';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('nodeArchive', () => {
   it('builds the macOS arm64 tar.gz url', () => {
@@ -48,7 +49,7 @@ describe('managedNodeBinDir / activateManagedNode', () => {
 
   afterEach(() => {
     process.env.PATH = origPath;
-    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+    for (const d of dirs.splice(0)) removeDirSync(d);
   });
 
   function makeManagedNode(platform: 'darwin' | 'win32'): { userData: string; binDir: string } {

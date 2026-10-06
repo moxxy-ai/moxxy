@@ -1,12 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +11,7 @@ import {
   truncateNpmError,
   userPluginsDir,
 } from './install.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const noopDeps = {
   reload: async (): Promise<void> => undefined,
@@ -140,7 +133,7 @@ describe('installPluginPackage / removePluginPackage honor a pre-aborted signal'
   afterEach(() => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    rmSync(home, { recursive: true, force: true });
+    removeDirSync(home);
   });
 
   it('rejects an already-aborted install without spawning npm', async () => {
@@ -241,8 +234,8 @@ describe('installPluginPackage does not execute lifecycle scripts', () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    rmSync(home, { recursive: true, force: true });
-    rmSync(fixture, { recursive: true, force: true });
+    removeDirSync(home);
+    removeDirSync(fixture);
   });
 
   it('leaves a hostile postinstall unexecuted', async () => {
@@ -278,7 +271,7 @@ describe('installPluginPackage enforces the install policy', () => {
   afterEach(() => {
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    rmSync(home, { recursive: true, force: true });
+    removeDirSync(home);
   });
 
   it('refuses under `denied` without ever spawning npm', async () => {

@@ -1,10 +1,11 @@
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { asToolCallId } from '@moxxy/sdk';
 import { WorkflowApprovals } from './workflow-approvals.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Requests = Awaited<ReturnType<WorkflowApprovals['list']>>;
 const isPending = (items: Requests) => items.some((item) => item.status === 'pending');
@@ -62,7 +63,7 @@ it('persists scoped approvals, arbitrates two clients, supports revoke, deny and
     await writeFile(corrupt, '{broken');
     await expect(other.list()).rejects.toThrow();
     expect(await readFile(corrupt, 'utf8')).toBe('{broken');
-  } finally { controller.abort(); await request; await rm(dir, { recursive: true, force: true }); }
+  } finally { controller.abort(); await request; await removeDir(dir); }
 });
 
 it('stops a pending execution and prevents a late decision from granting access', async () => {
@@ -78,7 +79,7 @@ it('stops a pending execution and prevents a late decision from granting access'
     await expect(pending).resolves.toMatchObject({ mode: 'deny' });
     await expect(broker.decide(request.id, 'allow_always')).rejects.toThrow();
     expect(await broker.isCancelled(scope)).toBe(true);
-  } finally { controller.abort(); await pending; await rm(dir, { recursive: true, force: true }); }
+  } finally { controller.abort(); await pending; await removeDir(dir); }
 });
 
 it('reuses only acknowledged exact grants and immediately honors revocation on the same call', async () => {
@@ -101,5 +102,5 @@ it('reuses only acknowledged exact grants and immediately honors revocation on t
     const changed = broker.check({ ...scope, runId: 'third' }, { ...call, input: { ...call.input, path: 'other.txt' } }, controller.signal);
     expect(await requestsWhen(broker, (items) => items.length >= 2, 'Changed input did not request approval')).toHaveLength(2);
     controller.abort(); await expect(changed).resolves.toMatchObject({ mode: 'deny' });
-  } finally { controller.abort(); await pending; await rm(dir, { recursive: true, force: true }); }
+  } finally { controller.abort(); await pending; await removeDir(dir); }
 });

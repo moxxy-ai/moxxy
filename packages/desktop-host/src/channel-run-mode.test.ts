@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   type ChannelProcessPort,
   type ChannelServicePort,
 } from './channel-run-mode';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 /**
  * Real prefs file (temp MOXXY_HOME). The two ports are the external boundaries
@@ -60,7 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 describe('channel run mode', () => {

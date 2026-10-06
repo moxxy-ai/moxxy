@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { normalizeTunnelName, readTunnelSetting, readWebSettings, writeTunnelSetting } from './tunnel-settings.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let dir: string;
 let file: string;
@@ -10,7 +11,7 @@ beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'mox-web-'));
   file = path.join(dir, 'web.json');
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => removeDirSync(dir));
 
 describe('tunnel-settings', () => {
   it('normalizes "none"/local aliases to localhost', () => {

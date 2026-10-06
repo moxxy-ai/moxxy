@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -23,6 +23,7 @@ import {
   mergeDiscoveredLocalModels,
   requireAvailableLocalModel,
 } from './provider-discovery';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 /** Emit the unified-tree YAML (`plugins.provider.items`) the CLI's
  *  provider-admin now writes — the store that replaced providers.json.
@@ -74,7 +75,7 @@ afterEach(() => {
   else process.env.MOXXY_HOME = savedMoxxyHome;
   if (savedLocalModelBaseURL === undefined) delete process.env.LOCAL_MODEL_BASE_URL;
   else process.env.LOCAL_MODEL_BASE_URL = savedLocalModelBaseURL;
-  rmSync(tmp, { recursive: true, force: true });
+  removeDirSync(tmp);
 });
 
 describe('builtinProviderKeyName', () => {
@@ -130,7 +131,7 @@ describe('readAdminProviderNames', () => {
       );
       await expect(readAdminProviderNames()).resolves.toEqual(['relocated']);
     } finally {
-      rmSync(relocated, { recursive: true, force: true });
+      removeDirSync(relocated);
     }
   });
 });

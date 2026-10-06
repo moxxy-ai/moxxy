@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { makeExecutable, resolveNodePtyModule, TerminalProcessImpl } from './pty.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const MAX_SCROLLBACK = 200_000;
 
@@ -65,7 +66,7 @@ describe('resolveNodePtyModule (degrade on a malformed optional dep)', () => {
 describe('makeExecutable (node-pty spawn-helper repair)', () => {
   let dir: string | null = null;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) removeDirSync(dir);
     dir = null;
   });
 

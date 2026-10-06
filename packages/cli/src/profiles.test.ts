@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '@moxxy/config';
 import { findProfile, PROFILES } from './profiles.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('deployment profiles', () => {
   let home: string;
@@ -26,7 +27,7 @@ describe('deployment profiles', () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
-    await Promise.all([home, project].map((d) => fs.rm(d, { recursive: true, force: true })));
+    await Promise.all([home, project].map((d) => removeDir(d)));
   });
 
   it('every profile names a target and a description', () => {
@@ -149,7 +150,7 @@ describe('enterprise profile: mobile bind', () => {
       else process.env.MOXXY_HOME = prevHome;
       if (prevSys === undefined) delete process.env.MOXXY_SYSTEM_CONFIG;
       else process.env.MOXXY_SYSTEM_CONFIG = prevSys;
-      await Promise.all([home, project, sysDir].map((d) => fs.rm(d, { recursive: true, force: true })));
+      await Promise.all([home, project, sysDir].map((d) => removeDir(d)));
     }
   });
 });

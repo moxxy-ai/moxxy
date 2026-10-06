@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { MoxxyError } from '@moxxy/sdk';
 import { buildOauthGetTokenTool } from './tools.js';
 import { storeTokenSet, readStoredCreds, type OAuthVault } from './storage.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // oauth_get_token's refresh path takes the same cross-process lockfile under
 // `<moxxy home>/locks` that ensure-fresh.ts uses; point MOXXY_HOME at a temp
@@ -18,7 +19,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = priorMoxxyHome;
-  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+  await removeDir(moxxyHomeTmp);
 });
 afterEach(() => {
   vi.unstubAllGlobals();

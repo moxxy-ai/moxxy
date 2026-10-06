@@ -19,6 +19,7 @@ import {
   stopDedicatedChannel,
 } from './channel-control.js';
 import { channelStatusPath, writeChannelStatus } from './channel-status.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 // A pid that is essentially never alive (above the platform max) → ESRCH.
 const DEAD_PID = 2_000_000_000;
@@ -36,7 +37,7 @@ beforeEach(() => {
 afterEach(() => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  fs.rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
   vi.restoreAllMocks();
 });
 

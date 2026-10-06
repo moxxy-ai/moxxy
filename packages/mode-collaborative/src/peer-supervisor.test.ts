@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PeerSupervisor, type PeerSupervisorOptions } from './peer-supervisor.js';
 import type { RosterEntry } from '@moxxy/plugin-collab';
 import { COLLAB_MAX_ITERATIONS_ENV } from './constants.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -52,7 +53,7 @@ describe('PeerSupervisor', () => {
     // Spawn a trivial node script (as the "CLI entry") that records the env var
     // the supervisor set, proving config.peerMaxIterations actually reaches a peer.
     const dir = mkdtempSync(join(tmpdir(), 'mc-sup-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const out = join(dir, 'env.txt');
     const script = join(dir, 'probe.js');
     writeFileSync(
@@ -76,7 +77,7 @@ describe('PeerSupervisor', () => {
 
   it('tells listeners the moment a peer process exits', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-sup-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const script = join(dir, 'quit.js');
     writeFileSync(script, 'process.exit(0);');
     const sup = new PeerSupervisor(baseOpts({ cliEntry: script }));

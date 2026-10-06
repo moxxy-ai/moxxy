@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { channelOfChat, syncChannelChatModel, watchChannelModels } from './channel-chat-model';
 import { getSessionModel, setSessionModel } from './session-models';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -18,7 +19,7 @@ beforeEach(async () => {
   setSessionModel('moxxy-channel-telegram', null, { force: true });
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function deps() {

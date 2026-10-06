@@ -5,11 +5,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { defineProvider, definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
 import { buildSessionConfigApplier } from './config-applier.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
 afterAll(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 /**

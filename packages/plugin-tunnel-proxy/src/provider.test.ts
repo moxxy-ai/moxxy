@@ -1,6 +1,6 @@
 import { once } from 'node:events';
 import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -14,6 +14,7 @@ import {
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createProxyTunnel } from './provider.js';
 import { encodeJson, PROXY_PROTOCOL_VERSION } from './protocol.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /**
  * A minimal in-process stand-in for the relay: a `ws` server that runs the
@@ -128,7 +129,7 @@ describe('proxy provider', () => {
   afterEach(async () => {
     await relay?.stop();
     await echo.close();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('registers via key proof-of-possession and returns the derived url', async () => {

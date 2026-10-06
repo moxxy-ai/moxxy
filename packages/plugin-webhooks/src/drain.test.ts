@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import { WebhookDrainPoller } from './drain.js';
 import { WebhookDeliveryQueue } from './queue.js';
 import { WebhookDispatcher } from './runner.js';
 import { WebhookStore, type WebhookTrigger } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('WebhookDrainPoller', () => {
   let dir: string;
@@ -39,7 +40,7 @@ describe('WebhookDrainPoller', () => {
     });
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('fires only the records addressed to this runner, and removes them', async () => {

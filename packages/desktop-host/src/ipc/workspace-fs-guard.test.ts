@@ -9,7 +9,7 @@
  * "simplification" of resolveInside can't silently reopen arbitrary read.
  */
 
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -19,6 +19,7 @@ import { canSymlink } from '@moxxy/vitest-preset/platform';
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import { listDir, readFile } from '../workspace-fs';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('workspace-fs confinement guard', () => {
   let root: string;
@@ -33,8 +34,8 @@ describe('workspace-fs confinement guard', () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
+    removeDirSync(root);
+    removeDirSync(outside);
   });
 
   describe('readFile', () => {

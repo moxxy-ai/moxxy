@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 import { createCollaborationHub, type CollaborationHub } from './hub.js';
 import { CollabHubClient } from './client.js';
 import type { CollabEvent, RosterEntry } from './hub-types.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const roster: RosterEntry[] = [
   { id: 'architect', name: 'Architect', role: 'architect', subtask: 'design' },
@@ -33,7 +34,7 @@ async function startHub(): Promise<{ hub: CollaborationHub; socketPath: string }
   });
   cleanups.push(() => {
     void hub.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeDirSync(dir);
   });
   return { hub, socketPath };
 }
