@@ -188,8 +188,14 @@ export function systemShell(): Shell {
  * Windows command line, where Windows PowerShell drops them. Prints UTF-8 and
  * exits like sh: with the last program's exit code, or 1 when the last command
  * failed. (-EncodedCommand would carry it too, but writes errors as CLIXML.)
+ *
+ * Its own cmdlet modules are loaded from $PSHOME first: otherwise the first
+ * Remove-Item or Write-Output is looked up through every module on PSModulePath
+ * before them, which takes seconds on a machine with many modules and lets one
+ * that exports the same name take the cmdlet over.
  */
 const POWERSHELL_LAUNCHER = [
+  "Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Management'), ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility')",
   '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
   "$ProgressPreference = 'SilentlyContinue'",
   '$moxxyCommand = $env:MOXXY_COMMAND',

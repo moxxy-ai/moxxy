@@ -153,4 +153,23 @@ describe.runIf(process.platform === 'win32')('spawnShell under Windows PowerShel
     expect(result.out.split(/\r?\n/u).filter(Boolean)).toEqual(['a"b', 'zażółć']);
     expect(result.code).toBe(0);
   });
+
+  // Windows PowerShell looks a cmdlet up through every module on PSModulePath before
+  // its own: on the GitHub runner image, with its thousands of modules, one
+  // Remove-Item took over 10 s, and a module that exports the same name takes it over.
+  it('runs its own cmdlets without searching the other modules on the machine for them', async () => {
+    const root = tree(['Modules/Shadow/Shadow.psm1']);
+    writeFileSync(
+      path.join(root, 'Modules', 'Shadow', 'Shadow.psm1'),
+      "function Write-Output { 'shadow' }\nfunction Remove-Item { 'shadow' }",
+    );
+    // Overridden under the spelling the env already has, or Windows reads the old one.
+    const key = Object.keys(process.env).find((name) => name.toUpperCase() === 'PSMODULEPATH') ?? 'PSModulePath';
+    const env = { [key]: `${path.join(root, 'Modules')};${process.env[key] ?? ''}` };
+
+    const result = await run("Write-Output 'real'", env, powershell);
+
+    expect(result.out.trim()).toBe('real');
+    expect(result.code).toBe(0);
+  });
 });
