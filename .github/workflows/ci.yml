@@ -306,6 +306,8 @@ jobs:
   build-and-test:
     name: Build + test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    # A normal run takes a few minutes; a hung test fails fast instead of holding the runner for hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
