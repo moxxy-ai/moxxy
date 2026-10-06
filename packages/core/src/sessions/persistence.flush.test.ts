@@ -13,7 +13,23 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+const opened: SessionPersistence[] = [];
+
+/** A persistence the cleanup waits for before it removes the test's folder. */
+function openPersistence(...args: ConstructorParameters<typeof SessionPersistence>): SessionPersistence {
+  const persistence = new SessionPersistence(...args);
+  opened.push(persistence);
+  return persistence;
+}
+
 afterEach(async () => {
+  // Appends run in the background and a detach only schedules the last index
+  // write; one that lands while the folder is being removed fails the removal
+  // on Windows (ENOTEMPTY), so every write finishes first.
+  for (const persistence of opened.splice(0)) {
+    await persistence.settleWrites();
+    await persistence.flush();
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -27,7 +43,7 @@ describe('SessionPersistence final-write on detach (async-error-3)', () => {
     const dir = await makeTempDir();
     const id = '01FLUSHBYPASS0000000000000';
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(log);
 
     // An append schedules a debounced index write but does NOT flush it.
@@ -53,7 +69,7 @@ describe('SessionPersistence final-write on detach (async-error-3)', () => {
     const dir = await makeTempDir();
     const id = '01DETACHFINAL00000000000000';
     const log = new EventLog();
-    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const persistence = openPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(log);
 
     await log.append({
