@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolDef } from '@moxxy/sdk';
@@ -9,9 +9,10 @@ import { createComputerControlPlugin } from './index.js';
 import { linuxProfile } from './linux/profile.js';
 import { macosProfile } from './macos/profile.js';
 import { windowsProfile } from './windows/profile.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const directories: string[] = [];
-afterEach(() => { for (const made of directories.splice(0)) rmSync(made, { recursive: true, force: true }); });
+afterEach(() => { for (const made of directories.splice(0)) removeDirSync(made); });
 
 /** A profile whose helper files exist (or not) in a scratch directory; the helper is never started. */
 function profile(manifest?: Record<string, unknown>, base: PlatformProfile = macosProfile): PlatformProfile {

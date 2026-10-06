@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -16,6 +16,7 @@ import { DeskStore } from '../desks';
 import type { RunnerPool } from '../runner-pool';
 import { registerConnectionHandlers } from './connection';
 import { setActiveBus } from './shared';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -40,7 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   if (originalHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalHome;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 const invoke = (channel: string): Promise<unknown> => {

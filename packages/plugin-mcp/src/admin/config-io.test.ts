@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,6 +12,7 @@ import {
   writeMcpConfig,
 } from './config-io.js';
 import type { McpStoredConfig } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // config-io derives every path from moxxyPath(), which honors $MOXXY_HOME.
 // Point it at a fresh tmp dir per test so we never touch the real ~/.moxxy.
@@ -27,7 +28,7 @@ describe('admin/config-io', () => {
   afterEach(async () => {
     if (original === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = original;
-    await rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   it('writeMcpConfig -> readMcpConfig is a faithful atomic round-trip', async () => {

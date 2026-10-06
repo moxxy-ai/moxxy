@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { Session, silentLogger } from '@moxxy/core';
 import { buildVaultPlugin, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { BUILTIN_REQUIREMENT_DECISIONS, buildBuiltinsCore } from './builtins.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -13,7 +14,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('builtin plugin requirement inventory', () => {

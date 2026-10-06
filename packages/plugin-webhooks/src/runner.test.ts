@@ -1,10 +1,11 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { WebhookDispatcher } from './runner.js';
 import { WebhookStore, type WebhookTrigger } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** A store that records nothing — fire() only needs `recordFire` to not throw. */
 function noopStore(file: string): WebhookStore {
@@ -31,7 +32,7 @@ describe('WebhookDispatcher inbox filenames (burst uniqueness)', () => {
 
   afterEach(async () => {
     vi.useRealTimers();
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('two same-millisecond fires of one trigger produce distinct inbox files (no overwrite)', async () => {
@@ -103,7 +104,7 @@ describe('WebhookDispatcher.route (multi-runner hand-off)', () => {
     store = noopStore(path.join(dir, 'webhooks.json'));
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   function ownedTrigger(owner: string | undefined): Promise<WebhookTrigger> {

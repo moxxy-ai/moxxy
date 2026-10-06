@@ -312,6 +312,36 @@ the one prompt: the user sees the site and the agent's reason.
   carries them (`sites`), folded from the log by `sitesFromLog`. A policy rule
   in `~/.moxxy/permissions.json` still wins.
 
+## The pane on screen (desktop)
+
+The Browser pane sits in the workbench beside the chat. Drag the seam between
+them to give the browser more room: it goes as far as the chat can spare, and
+the chat always keeps at least 320 px to read and type in (`CHAT_MIN_WIDTH`,
+`benchWidthLimit` in `apps/desktop/src/lib/useRailWidth.ts`). A window too
+narrow for the project column, the chat and the pane hides the project column
+instead of squeezing the chat.
+
+**Full view** (the ⤢ button at the right of the workbench tabs, or ⇧⌘F) works
+like Codex's: the pane fills the window, the project column steps aside, and
+the chat floats in the bottom-right corner as a composer. A question the agent
+is waiting on shows above that composer, so a turn never blocks unseen. The
+conversation stays loaded behind it; ⇧⌘F or the ⤡ button brings it back.
+Closing the workbench ends full view. Full view is a layout of this window
+only — it is not stored in the session.
+
+When the floating composer covers part of the page, the ⌄ button on its corner
+tucks it into a small moxxy button in the same corner; click that to bring it
+back. A half-typed message and a running voice call carry on while it is
+tucked away, and the button pulses while the agent works. A question the agent
+is waiting on opens the composer by itself and tucks it away again once it is
+answered. Each new full view starts with the composer shown. On a composer this
+narrow, Voice Mode puts what it is working on (or why it stopped, with Try
+again) on a second row instead of squeezing it between the controls.
+
+The address bar names the site (`google.com`) and shows the full address,
+selected, when you click it. Like the rest of the app's shortcuts, ⇧⌘F does not
+fire while the keyboard is inside the page itself.
+
 ## Taking the browser back (desktop)
 
 While a turn is working in the browser, the pane shows a bar: **Take over**

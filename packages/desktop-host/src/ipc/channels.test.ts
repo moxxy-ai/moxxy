@@ -13,6 +13,7 @@ import { autostartConfiguredChannels, registerChannelsHandlers } from './channel
 import type { ChannelProcessPort, ChannelServicePort } from '../channel-run-mode';
 import { channelRunnerSocket } from '@moxxy/runner';
 import { getSessionModel, setSessionModel } from '../session-models';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** OS service manager + bot subprocess — the external boundaries, recorded in memory. */
 function fakeServices(): ChannelServicePort & { installed: Set<string> } {
@@ -62,7 +63,7 @@ beforeEach(async () => {
 afterEach(async () => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function call<T>(name: string, args?: unknown): Promise<T> {

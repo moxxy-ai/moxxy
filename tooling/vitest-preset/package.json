@@ -9,6 +9,10 @@
     "./platform": {
       "types": "./platform.d.ts",
       "default": "./platform.js"
+    },
+    "./fs": {
+      "types": "./fs.d.ts",
+      "default": "./fs.js"
     }
   },
   "peerDependencies": {

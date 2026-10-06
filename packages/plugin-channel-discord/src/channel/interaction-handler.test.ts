@@ -11,6 +11,7 @@ import { DiscordPermissionResolver } from '../permission.js';
 import { AllowListStore } from './allow-list-store.js';
 import { PairingHandler } from './pairing-handler.js';
 import { handleInteraction, type InteractionLike } from './interaction-handler.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PAIRED = '111111111111';
 const STRANGER = '222222222222';
@@ -39,7 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 interface FakeInteraction extends InteractionLike {

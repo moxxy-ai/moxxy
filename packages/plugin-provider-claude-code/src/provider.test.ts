@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ import {
   createClaudeCodeClient,
   __setClaudeCommandRunner,
 } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 class ControlledProviderChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -38,7 +39,7 @@ class ControlledProviderChild extends EventEmitter {
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 describe('claude-code provider definition', () => {

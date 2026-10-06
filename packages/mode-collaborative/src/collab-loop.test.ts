@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -11,6 +11,7 @@ import { listRunRecords } from './archive.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
@@ -28,8 +29,8 @@ beforeEach(() => {
     delete process.env.MOXXY_COLLAB_LOCK;
     if (prevHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = prevHome;
-    rmSync(lockDir, { recursive: true, force: true });
-    rmSync(homeDir, { recursive: true, force: true });
+    removeDirSync(lockDir);
+    removeDirSync(homeDir);
   });
 });
 
@@ -39,7 +40,7 @@ afterEach(() => {
 
 async function initRepo(): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'mc-loop-'));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  cleanups.push(() => removeDirSync(dir));
   await git(dir, ['init', '-b', 'main']);
   writeFileSync(join(dir, 'README.md'), '# base\n');
   await git(dir, ['add', '-A']);
@@ -343,7 +344,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('GIT-FIRST: auto-inits a plain folder and runs git-parallel (worktrees + merge)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-plain-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -365,7 +366,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('NO GIT: runs cwd-parallel (all agents in the shared workspace, lock-coordinated)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -394,7 +395,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('SEQUENTIAL (explicit): one agent at a time in the shared workspace', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-seq-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -416,7 +417,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('uses the coordinator-selected model as the default peer model', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-model-default-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx } = fakeCtx();
     let seenDefaultModel: string | undefined;
     const deps: CollabDeps = {
@@ -435,7 +436,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('canonicalizes shorthand peer model ids from the architect roster', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-model-roster-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx } = fakeCtx();
     const spawnedModels: Array<string | undefined> = [];
     const deps: CollabDeps = {
@@ -522,7 +523,7 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
   it('cwd-parallel pre-seeds ownedPaths as locks and surfaces an overlap', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mc-overlap-'));
-    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    cleanups.push(() => removeDirSync(dir));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
       cwd: dir,
@@ -576,7 +577,7 @@ describe('waiting on agents', () => {
     });
     cleanups.push(() => {
       void hub.close();
-      rmSync(dir, { recursive: true, force: true });
+      removeDirSync(dir);
     });
     return hub;
   }

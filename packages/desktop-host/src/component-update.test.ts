@@ -5,7 +5,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import {
 } from './component-update.js';
 import { offerBundledProviderUpdate } from './provider-update-runtime.js';
 import { fixtureProviderCode } from './provider-update.fixture.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const NPM_TIMEOUT = 120_000;
 const root = mkdtempSync(path.join(tmpdir(), 'component-update-'));
@@ -64,7 +65,7 @@ beforeAll(() => {
   packFixture('@moxxy/plugin-provider-openai-codex', '0.2.0', { 'dist/index.js': fixtureProviderCode }, { main: 'dist/index.js' });
 }, NPM_TIMEOUT);
 
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(() => removeDirSync(root));
 
 /** A profile as a user has it: registry-installed `@moxxy` plugins, a plugin
  *  linked to local source, a hand-made plugin dir, and their data. */

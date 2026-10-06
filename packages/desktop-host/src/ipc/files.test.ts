@@ -9,6 +9,7 @@ import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import { setActiveBus } from './shared';
 import { registerFilesHandlers } from './files';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -39,7 +40,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function file(name: string): Promise<string> {

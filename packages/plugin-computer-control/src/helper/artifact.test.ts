@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { helperDigest, helperProblem, validateHelperArtifact, verifyHelperArtifact, writeHelperManifest } from './artifact.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 // Synthetic file headers test the parser, not native execution.
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -89,7 +90,7 @@ describe('Linux helper artifact', () => {
 describe('helper artifact on disk', () => {
   const directories: string[] = [];
   const directory = () => { const made = mkdtempSync(join(tmpdir(), 'moxxy-artifact-')); directories.push(made); return made; };
-  afterEach(() => { for (const made of directories.splice(0)) rmSync(made, { recursive: true, force: true }); });
+  afterEach(() => { for (const made of directories.splice(0)) removeDirSync(made); });
 
   it('writes a manifest the verifier accepts, and reports a missing or mismatched helper before launch', async () => {
     const helper = join(directory(), 'moxxy-computer');

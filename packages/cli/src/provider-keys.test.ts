@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { resolveProviderApiKey } from './provider-keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let vault: VaultStore;
@@ -16,7 +17,7 @@ beforeEach(async () => {
   });
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.GOOGLE_API_KEY;

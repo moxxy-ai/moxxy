@@ -251,13 +251,19 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         <input
           aria-label="Address"
           className="browser__address"
-          value={chrome.address}
-          placeholder={HOME_URL}
+          value={chrome.shown}
+          placeholder="Search or enter an address"
           onChange={(e) => chrome.setAddress(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') chrome.submitAddress();
+            if (e.key === 'Enter') e.currentTarget.blur();
           }}
-          onBlur={() => chrome.editing && chrome.submitAddress()}
+          onFocus={(e) => {
+            chrome.focusAddress();
+            // Select once the full address has replaced the site name.
+            const field = e.currentTarget;
+            requestAnimationFrame(() => field.select());
+          }}
+          onBlur={chrome.blurAddress}
           spellCheck={false}
         />
         <div className="browser__shot">

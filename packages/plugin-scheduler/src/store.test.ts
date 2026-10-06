@@ -1,9 +1,10 @@
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { ScheduleStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('ScheduleStore', () => {
   let dir: string;
@@ -15,7 +16,7 @@ describe('ScheduleStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('returns empty list when the file is missing', async () => {

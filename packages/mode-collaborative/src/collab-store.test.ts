@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,7 @@ import {
   parseCollabLock,
   readCollabLock,
 } from './collab-store.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('parseCollabLock', () => {
   it('parses a well-formed lock record (incl. the runner socket a UI attaches to)', () => {
@@ -104,7 +105,7 @@ describe('paths + readCollabLock', () => {
     else process.env.MOXXY_HOME = prevHome;
     if (prevLock === undefined) delete process.env.MOXXY_COLLAB_LOCK;
     else process.env.MOXXY_COLLAB_LOCK = prevLock;
-    rmSync(home, { recursive: true, force: true });
+    removeDirSync(home);
   });
 
   it('derives the lock + runs paths under MOXXY_HOME', () => {

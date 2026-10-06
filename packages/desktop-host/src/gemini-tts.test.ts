@@ -7,6 +7,7 @@ import {
   GEMINI_TTS_PACKAGE,
   isGeminiTtsInstalled,
 } from './gemini-tts';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const temporaryDirectories: string[] = [];
 
@@ -19,7 +20,7 @@ async function temporaryMoxxyHome(): Promise<string> {
 afterEach(async () => {
   const { rm } = await import('node:fs/promises');
   await Promise.all(temporaryDirectories.splice(0).map((directory) => (
-    rm(directory, { recursive: true, force: true })
+    removeDir(directory)
   )));
 });
 

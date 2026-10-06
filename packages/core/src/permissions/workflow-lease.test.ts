@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { claimWorkflowLease } from './workflow-lease.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('allows exactly one concurrent execution and releases the identity for the next run', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-lease-'));
@@ -16,7 +17,7 @@ it('allows exactly one concurrent execution and releases the identity for the ne
     await winner.value();
     const release = await claimWorkflowLease(dir, 'same-workflow', new AbortController().signal);
     await release();
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await removeDir(dir); }
 });
 
 it('excludes real competing processes and recovers after the owning process dies', async () => {
@@ -51,6 +52,6 @@ it('excludes real competing processes and recovers after the owning process dies
       if (child.exitCode !== null || child.signalCode !== null) return;
       const exited = once(child, 'exit'); child.kill(); await exited;
     }));
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 }, 15_000);

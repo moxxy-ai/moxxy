@@ -16,6 +16,7 @@ vi.mock('@clack/prompts', () => ({
 
 import { confirm, password } from '@clack/prompts';
 import { runPluginSetupSteps } from './plugin-setup-steps.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let prevHome: string | undefined;
@@ -29,7 +30,7 @@ beforeEach(async () => {
 afterEach(async () => {
   if (prevHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prevHome;
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   vi.clearAllMocks();
 });
 

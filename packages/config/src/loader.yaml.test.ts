@@ -3,13 +3,14 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { loadConfig } from './loader.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-yaml-cfg-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('YAML config loading', () => {

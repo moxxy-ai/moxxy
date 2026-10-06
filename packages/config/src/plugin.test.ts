@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { asSessionId, asToolCallId, asTurnId, type ToolContext } from '@moxxy/sdk';
 import { buildConfigPlugin, type ConfigApplier, type ConfigApplyResult } from './plugin.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -21,7 +22,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-cfg-plug-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function tool(name: string) {

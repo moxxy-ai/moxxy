@@ -26,6 +26,7 @@ export type IconName =
   | 'speaker'
   | 'more'
   | 'chevron-right'
+  | 'chevron-down'
   | 'spark'
   | 'edit'
   | 'rotate'
@@ -49,7 +50,9 @@ export type IconName =
   | 'file'
   | 'diff'
   | 'grid'
-  | 'broadcast';
+  | 'broadcast'
+  | 'maximize'
+  | 'minimize';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -182,6 +185,7 @@ const paths: Record<IconName, JSX.Element> = {
     </>
   ),
   'chevron-right': <path d="m9 6 6 6-6 6" />,
+  'chevron-down': <path d="m6 9 6 6 6-6" />,
   spark: (
     <>
       <path d="M12 3v3" />
@@ -299,6 +303,23 @@ const paths: Record<IconName, JSX.Element> = {
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="m7 9 3 3-3 3" />
       <path d="M13 15h4" />
+    </>
+  ),
+  // Lucide's maximize-2 / minimize-2: arrows out to the corners, and back in.
+  maximize: (
+    <>
+      <path d="M15 3h6v6" />
+      <path d="M9 21H3v-6" />
+      <path d="M21 3l-7 7" />
+      <path d="M3 21l7-7" />
+    </>
+  ),
+  minimize: (
+    <>
+      <path d="M4 14h6v6" />
+      <path d="M20 10h-6V4" />
+      <path d="M14 10l7-7" />
+      <path d="M3 21l7-7" />
     </>
   ),
   globe: (

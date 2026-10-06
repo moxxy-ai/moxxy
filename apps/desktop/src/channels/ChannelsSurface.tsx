@@ -312,7 +312,7 @@ function ChannelChatSurface({
 }): JSX.Element {
   const phase = useConnection(workspaceId).snapshot?.phase ?? NOT_ATTACHED;
   const infoReady = useSessionInfoReady(workspaceId, phase);
-  const [benchTab, setBenchTab] = useWorkbench(workspaceId);
+  const bench = useWorkbench(workspaceId);
   const online = phase.phase === 'connected';
   return (
     <>
@@ -322,6 +322,7 @@ function ChannelChatSurface({
         sessionLoading={online && !infoReady}
         title={{ context: 'Channels', subject: name }}
         {...(modelOwner ? { modelOwner } : {})}
+        docked={bench.full}
         notice={
           online ? null : (
             <p
@@ -337,7 +338,14 @@ function ChannelChatSurface({
           )
         }
       />
-      <Workbench tab={benchTab} onPick={setBenchTab} onClose={() => setBenchTab(null)} workspaceId={workspaceId} />
+      <Workbench
+        tab={bench.tab}
+        onPick={bench.setTab}
+        onClose={() => bench.setTab(null)}
+        workspaceId={workspaceId}
+        full={bench.full}
+        onToggleFull={bench.toggleFull}
+      />
     </>
   );
 }

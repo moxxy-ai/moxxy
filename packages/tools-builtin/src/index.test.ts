@@ -13,6 +13,7 @@ import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
 import { sleepTool, resolveSleepMs, MAX_SLEEP_MS } from './sleep.js';
 import { resolvePath, resolveWithinCwd } from './util.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 
@@ -31,7 +32,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('readTool', () => {
@@ -320,7 +321,7 @@ describe('globTool symlinks', () => {
       const out = (await globTool.handler({ pattern: '**/*.txt' }, baseCtx())) as string;
       expect(out).not.toContain('private.txt');
     } finally {
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(outside);
     }
   });
 });

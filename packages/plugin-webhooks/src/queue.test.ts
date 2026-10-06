@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { WebhookDeliveryQueue } from './queue.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('WebhookDeliveryQueue', () => {
   let dir: string;
@@ -14,7 +15,7 @@ describe('WebhookDeliveryQueue', () => {
     queue = new WebhookDeliveryQueue(dir);
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   const rec = (over: Partial<Parameters<WebhookDeliveryQueue['enqueue']>[0]> = {}) => ({

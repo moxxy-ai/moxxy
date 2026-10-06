@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { isWindows } from '@moxxy/vitest-preset/platform';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ParsedArgv } from '../argv.js';
 import { findSpec, runServiceCommand } from './service.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // HOME + MOXXY_HOME point at a temp dir so the unit/log paths never touch the
 // real ~/Library/LaunchAgents; nothing here installs anything.
@@ -30,7 +31,7 @@ afterEach(async () => {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
-  await rm(home, { recursive: true, force: true });
+  await removeDir(home);
 });
 
 const argv = (positional: string[], flags: ParsedArgv['flags'] = {}): ParsedArgv => ({

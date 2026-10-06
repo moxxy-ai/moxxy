@@ -1,12 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -19,6 +12,7 @@ import {
   resolveExecutableTarget,
   spawnExecutableTarget,
 } from './process-invocation.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let root: string;
 
@@ -27,7 +21,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  removeDirSync(root);
 });
 
 function put(relative: string, body = ''): string {

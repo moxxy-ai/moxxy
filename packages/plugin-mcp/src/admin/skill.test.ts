@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertDefined } from '@moxxy/sdk';
@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { McpServerConfig, McpToolDescriptor } from '../types.js';
 import { createMcpUsageSkillWriter } from './skill.js';
 import type { AdminSkillRegistryLike } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // Minimal block-scalar / sequence frontmatter parser — independent of the
 // unit under test — so "well-formed YAML" is actually parsed and checked,
@@ -73,7 +74,7 @@ describe('admin/skill (createMcpUsageSkillWriter)', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('writes a well-formed-YAML frontmatter file with the expected fields + body', async () => {

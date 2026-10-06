@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -10,6 +10,7 @@ import {
   WorkspaceRegistry,
   type WorkspaceSessionSource,
 } from './index';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let home: string;
 let sessionsDir: string;
@@ -26,7 +27,7 @@ beforeEach(() => {
 afterEach(() => {
   if (originalHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalHome;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 /** Write a session's single metadata file (`<id>.json`) + its event log. */

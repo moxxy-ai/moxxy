@@ -1,4 +1,4 @@
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -20,6 +20,7 @@ import {
   releaseRetainedChild,
   type RetainedChildSession,
 } from './subagents/registry.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('Session', () => {
   it('boots with sensible defaults', () => {
@@ -329,8 +330,8 @@ describe('Session', () => {
       expect(prompted).toHaveBeenCalledTimes(2);
     } finally {
       await s.close();
-      await rm(workspace, { recursive: true, force: true });
-      await rm(outside, { recursive: true, force: true });
+      await removeDir(workspace);
+      await removeDir(outside);
     }
   });
 

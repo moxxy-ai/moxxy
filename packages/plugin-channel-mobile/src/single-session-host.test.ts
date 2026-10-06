@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { assertDefined, denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { mkdtempSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { MobileSessionHost } from './single-session-host.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 /** Seed a session's single metadata file (`<id>.json`) + event log under the
  *  isolated MOXXY_HOME — the single-source replacement for the old
@@ -52,7 +53,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (originalMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = originalMoxxyHome;
-  await rm(isolatedMoxxyHome, { recursive: true, force: true });
+  await removeDir(isolatedMoxxyHome);
 });
 
 /** A bus that records handler registrations + broadcasts and can invoke handlers. */

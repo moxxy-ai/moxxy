@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { providerApiKeyName, storedProviderApiKeyName } from './key-name.js';
 import { upsertStoredProvider } from './store.js';
 import type { StoredProvider } from './types.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('providerApiKeyName', () => {
   it('upper-snakes the slug and appends _API_KEY', () => {
@@ -33,7 +34,7 @@ describe('storedProviderApiKeyName', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeDir(tmpDir);
   });
 
   const entry = (over: Partial<StoredProvider> = {}): StoredProvider => ({

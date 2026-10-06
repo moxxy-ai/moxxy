@@ -4,10 +4,11 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { verifyPluginBuild, verifySkillFile } from './verify.js';
 import { resolveTarget } from './transaction.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
 });
 
 async function tempPluginDir(): Promise<string> {

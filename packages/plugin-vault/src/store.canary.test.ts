@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { VaultStore, VaultPassphraseError } from './store.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, encrypt, generateSalt } from './crypto.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let filePath: string;
@@ -17,7 +18,7 @@ beforeEach(async () => {
   filePath = path.join(tmp, 'vault.json');
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const storeWith = (key: Buffer) =>

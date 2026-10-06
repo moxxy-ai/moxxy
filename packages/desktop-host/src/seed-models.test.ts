@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { seedModelsFromResources } from './seed-models.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let resources: string;
@@ -15,7 +16,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function makeModel(root: string, kind: string, id: string, marker: string | null) {

@@ -33,6 +33,7 @@ import { Icon, type IconName } from '@moxxy/desktop-ui';
 import {
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
+  benchWidthLimit,
   setRailWidth,
   useRailWidth,
 } from '../lib/useRailWidth';
@@ -86,6 +87,8 @@ export function Workbench({
   onClose,
   workspaceId,
   changedCount,
+  full = false,
+  onToggleFull,
 }: {
   /** Active tab, or null when the workbench is collapsed. */
   readonly tab: WorkbenchTab | null;
@@ -95,22 +98,43 @@ export function Workbench({
   /** Badge on the Diff tab. Undefined while unknown (not a git repo, not
    *  loaded yet) so an unknown count never renders as a confident zero. */
   readonly changedCount?: number;
+  /** Full view: the pane fills the window and the chat floats over it as a
+   *  composer. Ignored while collapsed. */
+  readonly full?: boolean;
+  /** Offered as a button on an open workbench when given. */
+  readonly onToggleFull?: () => void;
 }): JSX.Element {
   const desks = useDesks();
   const active = deskForWorkspace(desks.desks, workspaceId);
   const width = useRailWidth();
   const ref = useRef<HTMLElement | null>(null);
   const open = tab !== null;
+  const isFull = open && full;
   const [browserStarted, setBrowserStarted] = useState(false);
+  // The widest the last drag could go; the separator reports it as its maximum.
+  const [limit, setLimit] = useState<number | null>(null);
   if (tab === 'browser' && !browserStarted) setBrowserStarted(true);
 
+  // The widest the workbench can be: its own width plus what the chat beside it
+  // (the element before it) can spare. Measured, because that depends on the
+  // window and on whatever else is open, not on a constant.
+  const measureLimit = (): number => {
+    const own = ref.current?.getBoundingClientRect().width ?? width;
+    const chat = ref.current?.previousElementSibling?.getBoundingClientRect().width ?? 0;
+    const next = benchWidthLimit(own, chat);
+    setLimit(next);
+    return next;
+  };
+
   // Drag the left edge to resize. The workbench is pinned to the window's right
-  // edge, so width = (its right edge) − pointer x. Capture the right edge at
-  // pointer-down so the maths survives the panel itself resizing mid-drag.
+  // edge, so width = (its right edge) − pointer x. Capture the right edge and
+  // the limit at pointer-down so the maths survives the panel itself resizing
+  // mid-drag.
   const startDrag = (e: React.PointerEvent): void => {
     e.preventDefault();
     const right = ref.current?.getBoundingClientRect().right ?? window.innerWidth;
-    const onMove = (ev: PointerEvent): void => setRailWidth(right - ev.clientX);
+    const max = measureLimit();
+    const onMove = (ev: PointerEvent): void => setRailWidth(Math.min(max, right - ev.clientX));
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -147,21 +171,22 @@ export function Workbench({
   return (
     <aside
       ref={ref}
-      className={open ? 'bench' : 'bench bench--closed'}
+      className={!open ? 'bench bench--closed' : isFull ? 'bench bench--full' : 'bench'}
       aria-label="Workbench"
-      style={open ? { width } : undefined}
+      style={open && !isFull ? { width } : undefined}
     >
       {open ? (
         <>
-          <div
+          {!isFull && <div
             role="separator"
             aria-label="Resize workbench"
             aria-orientation="vertical"
             aria-valuemin={RAIL_MIN_WIDTH}
-            aria-valuemax={RAIL_MAX_WIDTH}
+            aria-valuemax={limit ?? RAIL_MAX_WIDTH}
             aria-valuenow={width}
             tabIndex={0}
             onPointerDown={startDrag}
+            onFocus={measureLimit}
             // The separator advertises slider semantics, so it must be operable
             // without a pointer. The panel grows leftward: ArrowLeft widens,
             // ArrowRight narrows, Home/End jump to the clamped extremes.
@@ -169,13 +194,13 @@ export function Workbench({
               const step = e.shiftKey ? 40 : 16;
               if (e.key === 'ArrowLeft') {
                 e.preventDefault();
-                setRailWidth(width + step);
+                setRailWidth(Math.min(measureLimit(), width + step));
               } else if (e.key === 'ArrowRight') {
                 e.preventDefault();
                 setRailWidth(width - step);
               } else if (e.key === 'Home') {
                 e.preventDefault();
-                setRailWidth(RAIL_MAX_WIDTH);
+                setRailWidth(measureLimit());
               } else if (e.key === 'End') {
                 e.preventDefault();
                 setRailWidth(RAIL_MIN_WIDTH);
@@ -183,7 +208,7 @@ export function Workbench({
             }}
             title="Drag to resize"
             className="bench__grip"
-          />
+          />}
 
           <div className="bench__tabs">
             {/* The tab row scrolls; the collapse cell after it never shrinks. Four
@@ -214,6 +239,20 @@ export function Workbench({
               ))}
             </div>
             <span className="bench__tabs-end">
+              {onToggleFull && (
+                <button
+                  type="button"
+                  className="btn-quiet tip"
+                  aria-label={isFull ? 'Exit full view' : 'Full view'}
+                  aria-pressed={isFull}
+                  data-testid="bench-full"
+                  data-tip={isFull ? 'Exit full view  ⇧⌘F' : 'Full view  ⇧⌘F'}
+                  data-tip-side="left"
+                  onClick={onToggleFull}
+                >
+                  <Icon name={isFull ? 'minimize' : 'maximize'} size={13} />
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-quiet tip"

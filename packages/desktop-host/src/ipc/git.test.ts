@@ -5,7 +5,7 @@
  * reopen arbitrary-file-read through the diff viewer.
  */
 
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -17,6 +17,7 @@ import { canSymlink } from '@moxxy/vitest-preset/platform';
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
 
 import { confineDiffPath } from './git';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 describe('confineDiffPath', () => {
   let root: string;
@@ -31,8 +32,8 @@ describe('confineDiffPath', () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
+    removeDirSync(root);
+    removeDirSync(outside);
   });
 
   it('returns a repo-relative path for a file inside the workspace', async () => {

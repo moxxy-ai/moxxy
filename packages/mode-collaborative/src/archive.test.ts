@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,6 +10,7 @@ import {
   writeRunRecord,
   type CollabRunRecord,
 } from './archive.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 let home: string;
 const prev = process.env.MOXXY_HOME;
@@ -21,7 +22,7 @@ beforeEach(() => {
 afterEach(() => {
   if (prev === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = prev;
-  rmSync(home, { recursive: true, force: true });
+  removeDirSync(home);
 });
 
 function rec(over: Partial<CollabRunRecord>): CollabRunRecord {

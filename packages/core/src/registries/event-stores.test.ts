@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import type { EventStoreDef } from '@moxxy/sdk';
 import { Session, autoAllowResolver, silentLogger } from '../index.js';
 import { jsonlEventStore } from '../sessions/jsonl-event-store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function makeSession(): Session {
   return new Session({ cwd: '/tmp', logger: silentLogger, permissionResolver: autoAllowResolver });
@@ -49,7 +50,7 @@ describe('jsonlEventStore round-trip (behaviour-identical to SessionPersistence)
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-evstore-'));
   });
   afterEach(async () => {
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('open().attach() persists log events that restore() reads back', async () => {

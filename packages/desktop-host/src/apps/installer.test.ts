@@ -16,6 +16,7 @@ import {
   type FetchLike,
 } from './installer';
 import type { AppInstallProgress } from '@moxxy/desktop-ipc-contract';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let root: string;
 
@@ -23,7 +24,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-apps-test-'));
 });
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
+  await removeDir(root);
 });
 
 /** A `fetch` stub backed by an in-memory `url → bytes` map. Each call returns a
@@ -366,7 +367,7 @@ describe('per-app egress allow-list (manifest install.allowedHosts)', () => {
       expect(status.error).toMatch(/not on an allowed host/);
       expect(fetched).toBe(false);
     } finally {
-      await rm(root2, { recursive: true, force: true });
+      await removeDir(root2);
     }
   });
 
@@ -382,7 +383,7 @@ describe('per-app egress allow-list (manifest install.allowedHosts)', () => {
       const fetchImpl = fakeFetch({ 'https://huggingface.co/a.bin': 'OK' });
       expect((await installApp(spec, root2, () => {}, fetchImpl)).state).toBe('installed');
     } finally {
-      await rm(root2, { recursive: true, force: true });
+      await removeDir(root2);
     }
   });
 });

@@ -6,6 +6,7 @@ import { ensureFreshTokens } from './ensure-fresh.js';
 import { withCredentialLock } from './credential-lock.js';
 import { storeTokenSet, type OAuthVault } from './storage.js';
 import type { OAuthProviderProfile } from './profile.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
 // point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
@@ -18,7 +19,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = priorMoxxyHome;
-  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+  await removeDir(moxxyHomeTmp);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -196,7 +197,7 @@ describe('withCredentialLock', () => {
     );
     expect(seenDuring).toEqual(['lock-test-file.lock']);
     expect(await fs.readdir(dir)).toEqual([]);
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('takes over a stale lockfile left behind by a crashed holder', async () => {
@@ -216,7 +217,7 @@ describe('withCredentialLock', () => {
     );
     expect(ran).toBe(true);
     expect(await fs.readdir(dir)).toEqual([]);
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('proceeds without the lock (best effort) when a live holder outlasts waitMs', async () => {
@@ -234,7 +235,7 @@ describe('withCredentialLock', () => {
     expect(ran).toBe(true);
     // The foreign lockfile must be left alone (we never owned it).
     expect(await fs.readdir(dir)).toEqual(['lock-test-held.lock']);
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('stale takeover leaves no `.stale-*` temp litter (rename target is cleaned up)', async () => {
@@ -257,7 +258,7 @@ describe('withCredentialLock', () => {
     const left = await fs.readdir(dir);
     expect(left.filter((f) => f.includes('.stale-'))).toEqual([]);
     expect(left).toEqual([]); // own lock released too
-    await fs.rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 });
 

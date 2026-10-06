@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import { Session } from './session.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { createWorkflowToolRunner } from './workflow-tool-runner.js';
 import { withPermissionScope } from './permissions/scope.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('gates real workflow tool execution with policy, hooks and paired events', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'moxxy-workflow-policy-'));
@@ -46,7 +47,7 @@ it('gates real workflow tool execution with policy, hooks and paired events', as
     const abort = new AbortController(); abort.abort();
     await expect(runner.execute('append', { text: 'aborted' }, abort.signal)).rejects.toThrow(/abort/i);
     expect(effects).toEqual(['rewritten']);
-  } finally { await session.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { await session.close(); await removeDir(dir); }
 });
 
 it('does not execute after a pending approval is cancelled or policy changes', async () => {

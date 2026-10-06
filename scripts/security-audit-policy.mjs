@@ -32,6 +32,19 @@ export const ACCEPTED_ADVISORIES = [
       'the glob patterns of its own and the project config while it runs on a developer machine; ' +
       'it takes no outside patterns and never ships.',
   },
+  {
+    id: 'GHSA-hp3w-g68c-fv3c',
+    module: 'sprintf-js',
+    paths: [
+      'apps__mobile>react-native>@react-native/community-cli-plugin>@react-native-community/cli>@react-native-community/cli-config>cosmiconfig>js-yaml>argparse>sprintf-js',
+      'apps__desktop>electron-builder>app-builder-lib>@electron/get>global-agent>roarr>sprintf-js',
+    ],
+    reason:
+      'Denial of service through a huge precision in a format string. Both users format only their ' +
+      'own fixed strings (argparse its help text in the React Native CLI, roarr its log lines while ' +
+      '@electron/get downloads Electron on the build machine); neither takes a format string from ' +
+      'outside, and neither ships.',
+  },
 ];
 
 function isAccepted(advisory, accepted) {

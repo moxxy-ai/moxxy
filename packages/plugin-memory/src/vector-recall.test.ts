@@ -5,13 +5,14 @@ import * as path from 'node:path';
 import type { EmbeddingProvider } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
 import { MemoryStore } from './store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-vec-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const sampleCorpus = async (store: MemoryStore): Promise<void> => {

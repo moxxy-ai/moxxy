@@ -83,7 +83,7 @@ export function App(): JSX.Element {
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
-  const [benchTab, setBenchTab] = useWorkbench(activeWorkspaceId);
+  const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
   const [automationsKind, setAutomationsKind] = useAutomationsKind();
@@ -208,8 +208,9 @@ export function App(): JSX.Element {
   useHotkeyDispatcher();
   useAppHotkeys({
     setView: onView,
-    benchTab,
-    setBenchTab,
+    benchTab: bench.tab,
+    setBenchTab: bench.setTab,
+    toggleBenchFull: bench.toggleFull,
     onShowShortcuts: () => setShortcutsOpen(true),
   });
 
@@ -354,12 +355,15 @@ export function App(): JSX.Element {
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
             sessionLoading={shell.sessionLoading}
+            docked={bench.full}
           />
           <Workbench
-            tab={benchTab}
-            onPick={setBenchTab}
-            onClose={() => setBenchTab(null)}
+            tab={bench.tab}
+            onPick={bench.setTab}
+            onClose={() => bench.setTab(null)}
             workspaceId={activeWorkspaceId}
+            full={bench.full}
+            onToggleFull={bench.toggleFull}
           />
         </>
       )}

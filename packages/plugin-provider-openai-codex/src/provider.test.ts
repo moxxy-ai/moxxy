@@ -7,6 +7,7 @@ import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { assertDefined, defineTool, z } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
 // point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
@@ -19,7 +20,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (priorMoxxyHome === undefined) delete process.env.MOXXY_HOME;
   else process.env.MOXXY_HOME = priorMoxxyHome;
-  await fs.rm(moxxyHomeTmp, { recursive: true, force: true });
+  await removeDir(moxxyHomeTmp);
 });
 
 function makeTokens(overrides: Partial<CodexTokens> = {}): CodexTokens {

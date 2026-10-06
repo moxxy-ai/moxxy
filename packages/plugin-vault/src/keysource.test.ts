@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createCombinedKeySource, createStaticKeySource } from './keysource.js';
 import { generateSalt } from './crypto.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // ---------------------------------------------------------------------------
 // Fake @napi-rs/keyring.
@@ -61,7 +62,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
   delete process.env[ENV_VAR];
   delete process.env.MOXXY_VAULT_PASSPHRASE;
   vi.clearAllMocks();

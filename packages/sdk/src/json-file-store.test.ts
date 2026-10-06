@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import { z } from 'zod';
 import { createJsonFileStore } from './json-file-store.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 interface Item {
   id: string;
@@ -35,7 +36,7 @@ describe('createJsonFileStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   function store() {

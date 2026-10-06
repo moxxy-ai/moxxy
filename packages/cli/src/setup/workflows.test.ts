@@ -16,6 +16,7 @@ import {
   type AfterWorkflowNode,
   type WorkflowsIntegration,
 } from './workflows.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -298,7 +299,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
   afterAll(async () => {
     process.env.HOME = process.env.USERPROFILE = savedEnv.HOME;
     process.env.MOXXY_HOME = savedEnv.MOXXY_HOME;
-    await Promise.all(tempDirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })));
+    await Promise.all(tempDirs.splice(0).map((d) => removeDir(d)));
   });
 
   async function setup(workflowYamls: Record<string, string>): Promise<{

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,11 +8,12 @@ import {
   checkVoiceCaptureAvailable,
   startVoiceRecording,
 } from './voice-input.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 async function makeFakeFfmpeg(): Promise<string> {

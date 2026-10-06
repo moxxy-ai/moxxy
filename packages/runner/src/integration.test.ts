@@ -6,7 +6,7 @@
  */
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import { platformSocket } from './socket-path.js';
 import {
@@ -47,6 +47,7 @@ import {
   type SessionLoadHistoryResult,
 } from './protocol.js';
 import type { ProviderEvent } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Session {
   const session = new Session({
@@ -561,7 +562,7 @@ describe('runner end-to-end', () => {
       else process.env.HOME = prevHome;
       if (prevUserProfile === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = prevUserProfile;
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   });
 
@@ -995,7 +996,7 @@ describe('runner end-to-end', () => {
 
       detach();
     } finally {
-      await rm(sessionsDir, { recursive: true, force: true });
+      await removeDir(sessionsDir);
     }
   });
 
@@ -1135,7 +1136,7 @@ describe('provider management (protocol v7)', () => {
       else process.env.HOME = prevHome;
       if (prevUserProfile === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = prevUserProfile;
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   }
 

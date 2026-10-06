@@ -24,6 +24,7 @@ import {
 import { defineProvider, definePlugin, defineTool } from '@moxxy/sdk';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { AnthropicProvider } from './provider.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,7 +59,7 @@ beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-realapi-'));
 });
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 describe('real-API smoke: tool-use turn replayed end-to-end', () => {

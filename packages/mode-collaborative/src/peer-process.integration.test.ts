@@ -15,12 +15,13 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 import { fileURLToPath } from 'node:url';
 import { createCollaborationHub, type CollaborationHub } from '@moxxy/plugin-collab';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_BIN = resolve(HERE, '../../cli/dist/bin.js');
@@ -61,7 +62,7 @@ describe('real moxxy agent peer process', () => {
       const cwd = mkdtempSync(join(tmpdir(), 'mc-peerproc-wt-'));
       cleanups.push(() => {
         // The peer may still be letting go of its cwd on Windows.
-        for (const d of [runDir, home, cwd]) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        for (const d of [runDir, home, cwd]) removeDirSync(d);
       });
 
       const hub = await createCollaborationHub({

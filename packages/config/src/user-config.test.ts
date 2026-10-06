@@ -14,6 +14,7 @@ import {
   setProviderEnabled,
 } from './user-config.js';
 import { moxxyConfigSchema } from './schema.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let configPath: string;
@@ -24,7 +25,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 async function readParsed(): Promise<Record<string, unknown>> {

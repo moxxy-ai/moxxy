@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes, runtimePathDirs, seedRuntimesFromResources, tarCommand } from './seed-runtimes.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 let tmp: string;
 let resources: string;
@@ -16,7 +17,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const seedDir = (target = 'darwin-arm64') => path.join(resources, 'runtimes-seed', target);

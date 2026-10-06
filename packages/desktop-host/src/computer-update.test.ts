@@ -1,12 +1,13 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, rename, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rename, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, expect, it } from 'vitest';
 import { prepareComputerUpdate, activateComputerUpdate, computerTreeHash, recoverComputerUpdates, isBundledComputerCurrent } from './computer-update.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, {recursive:true,force:true}))); });
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => removeDir(root))); });
 async function fixture(code = 'export const ready = true;', plugin = '@moxxy/plugin-computer-control') {
   const root = await mkdtemp(join(tmpdir(), 'moxxy-computer-update-')); roots.push(root);
   const resources = join(root, 'resources'); const home = join(root, 'home');

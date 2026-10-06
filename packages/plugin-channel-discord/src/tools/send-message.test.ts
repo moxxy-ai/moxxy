@@ -16,6 +16,7 @@ import { buildDiscordPlugin } from '../index.js';
 import { DISCORD_AUTHORIZED_USER_KEY, DISCORD_TOKEN_ENV, DISCORD_TOKEN_KEY } from '../keys.js';
 import { DISCORD_MESSAGE_LIMIT } from '../render.js';
 import { buildDiscordSendMessageTool } from './send-message.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const OWNER_ID = '123456789012345678';
 const DM_CHANNEL_ID = '987654321098765432';
@@ -101,7 +102,7 @@ beforeEach(async () => {
 afterEach(async () => {
   if (savedEnvToken === undefined) delete process.env[DISCORD_TOKEN_ENV];
   else process.env[DISCORD_TOKEN_ENV] = savedEnvToken;
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 function toolWith(api: ReturnType<typeof fakeDiscordApi>): ToolDef {

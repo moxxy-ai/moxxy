@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
 import { setActiveBus } from './shared';
 import { registerSettingsHandlers } from './settings';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -31,7 +32,7 @@ describe('settings.providerCatalog', () => {
   afterEach(async () => {
     if (previousHome === undefined) delete process.env.MOXXY_HOME;
     else process.env.MOXXY_HOME = previousHome;
-    await rm(home, { recursive: true, force: true });
+    await removeDir(home);
   });
 
   it('offers every provider the desktop ships, including the Claude Pro/Max sign-in', async () => {

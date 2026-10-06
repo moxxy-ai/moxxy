@@ -61,6 +61,7 @@ import type { SessionDriver } from '../session-driver';
 import { desktopEventBus } from '../event-bus';
 import { __resetPickedAttachments } from '../attachment-authz';
 import { assertDefined } from '@moxxy/sdk';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -368,7 +369,7 @@ describe('session.runTurn handler', () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
-      await rm(home, { recursive: true, force: true });
+      await removeDir(home);
     }
   });
 });
@@ -712,7 +713,7 @@ describe('session.* attachment provenance', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     __resetPickedAttachments();
-    await rm(CWD, { recursive: true, force: true });
+    await removeDir(CWD);
     await mkdir(CWD, { recursive: true });
     const { bus, handlers } = fakeBus();
     provenanceHandlers = handlers;
@@ -731,7 +732,7 @@ describe('session.* attachment provenance', () => {
 
   afterEach(async () => {
     unpublishDriver(WS);
-    await rm(CWD, { recursive: true, force: true });
+    await removeDir(CWD);
   });
 
   const invoke = (channel: string, args?: unknown): Promise<unknown> => {

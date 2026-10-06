@@ -1,6 +1,7 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 export const fixturePlugin = '@moxxy/plugin-provider-openai-codex' as const;
 export const fixtureProviderCode = `export default {name:'${fixturePlugin}', providers:[{name:'openai-codex',models:[{id:'gpt-6-astra'}],createClient(){throw Error('Must not authenticate during import')}}]};`;
@@ -8,7 +9,7 @@ export const fixtureProviderCode = `export default {name:'${fixturePlugin}', pro
 const roots: string[] = [];
 
 export async function removeProviderFixtures(): Promise<void> {
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeDir(root);
 }
 
 /** A packaged installer's bundled provider next to an older, locally installed copy. */

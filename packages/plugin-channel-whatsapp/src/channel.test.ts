@@ -18,6 +18,7 @@ import type {
 } from './socket.js';
 import { createFileAuthStorage } from './auth-state.js';
 import { WHATSAPP_CONSENT_ENV } from './keys.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const OWNER = '15550000000@s.whatsapp.net';
 const FRIEND = '15551111111@s.whatsapp.net';
@@ -115,7 +116,7 @@ afterEach(async () => {
   // a single rm can race it (ENOTEMPTY). Retry briefly, then give up.
   for (let i = 0; i < 5; i++) {
     try {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeDir(tmp);
       break;
     } catch {
       await new Promise((r) => setTimeout(r, 20));

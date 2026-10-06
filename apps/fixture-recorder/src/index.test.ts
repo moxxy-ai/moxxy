@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeProvider, textReply } from '@moxxy/testing';
 import { parseFlags, record } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 describe('fixture-recorder argv parsing', () => {
   it('importable smoke test', () => {
@@ -111,7 +112,7 @@ describe('fixture-recorder record() orchestration', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
+    await removeDir(tmp);
   });
 
   it('records via an injected fake upstream (no network) and returns exactly the files written this run', async () => {

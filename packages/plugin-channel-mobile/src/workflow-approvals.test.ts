@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -9,6 +9,7 @@ import { Session, WorkflowApprovals } from '@moxxy/core';
 import { asToolCallId } from '@moxxy/sdk';
 import { startWsBridge, WebSocketCommandBus } from '@moxxy/ipc-server-ws';
 import { MobileSessionHost } from './single-session-host.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 it('serves scoped workflow decisions through the authenticated mobile bridge and rejects another workspace', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mobile-workflow-'));
@@ -48,6 +49,6 @@ it('serves scoped workflow decisions through the authenticated mobile bridge and
     await expect(pending).resolves.toMatchObject({ mode: 'allow' });
   } finally {
     abort.abort(); await pending; socket.terminate(); await server.close(); host.dispose();
-    await session.close(); await rm(dir, { recursive: true, force: true });
+    await session.close(); await removeDir(dir);
   }
 });

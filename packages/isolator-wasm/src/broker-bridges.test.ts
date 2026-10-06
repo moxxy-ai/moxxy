@@ -20,6 +20,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { CapabilitySpec } from '@moxxy/sdk';
 import { buildWasmHostImports, _resetScratch } from './index.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 function makeMemory(): WebAssembly.Memory {
   return new WebAssembly.Memory({ initial: 2 });
@@ -106,8 +107,8 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       await fs.symlink(secret, link);
     } catch {
       // Some CI filesystems disallow symlink creation; skip rather than fail.
-      await fs.rm(scope, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(scope);
+      await removeDir(outside);
       return;
     }
     try {
@@ -130,8 +131,8 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       expect(message).toMatch(/via symlink|fs\.read capability/);
       expect(message).not.toContain('TOP-SECRET');
     } finally {
-      await fs.rm(scope, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeDir(scope);
+      await removeDir(outside);
     }
   });
 
@@ -143,7 +144,7 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
     try {
       await fs.symlink(real, link);
     } catch {
-      await fs.rm(scope, { recursive: true, force: true });
+      await removeDir(scope);
       return;
     }
     try {
@@ -162,7 +163,7 @@ describe('wasm broker: symlink escape (realpath re-validation)', () => {
       expect(rc).toBe(0);
       expect(readResult(memory, outPtrOut, outLenOut)).toBe('in-scope-data');
     } finally {
-      await fs.rm(scope, { recursive: true, force: true });
+      await removeDir(scope);
     }
   });
 });
@@ -294,7 +295,7 @@ describe('wasm broker: broker_fs_readdir', () => {
       const entries = readResult(memory, outPtrOut, outLenOut).split('\n').sort();
       expect(entries).toEqual(['a.txt', 'b.txt']);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeDir(dir);
     }
   });
 

@@ -1,10 +1,11 @@
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fitSocketPath, isNamedPipe, isRunnerUp, maxSocketPathBytes, platformSocket, runnerSocketPath } from './socket-path.js';
 import { createUnixSocketServer } from './unix-socket.js';
 import type { TransportServer } from './transport.js';
+import { removeDirSync } from '@moxxy/vitest-preset/fs';
 
 const servers: TransportServer[] = [];
 let savedEnv: string | undefined;
@@ -102,7 +103,7 @@ describe.skipIf(process.platform === 'win32')('a socket path too long to bind wh
   afterEach(() => {
     if (savedRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
     else process.env.XDG_RUNTIME_DIR = savedRuntime;
-    rmSync(runtime, { recursive: true, force: true });
+    removeDirSync(runtime);
   });
 
   it('moves to a short private folder, a different socket for each long path', () => {
@@ -136,7 +137,7 @@ describe.skipIf(process.platform === 'win32')('a socket path too long to bind wh
     const shared = mkdtempSync(path.join(os.tmpdir(), 'shared-'));
     chmodSync(shared, 0o777);
     expect(() => fitSocketPath(path.join(deep, 'serve.sock'), process.platform, [shared])).toThrow(/MOXXY_HOME/);
-    rmSync(shared, { recursive: true, force: true });
+    removeDirSync(shared);
   });
 
   it('lets two runners listen side by side and reach each its own', async () => {

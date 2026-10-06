@@ -7,6 +7,7 @@ import { FakeProvider } from '@moxxy/testing';
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { modelSuggestions, resolveChannelModel, runModelCommand, savedChannelModel } from './channel-model.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const MODEL_KEY = 'test_bot_model';
 
@@ -45,7 +46,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(tmp, { recursive: true, force: true });
+  await removeDir(tmp);
 });
 
 const deps = () => ({ session, vault, vaultKey: MODEL_KEY });

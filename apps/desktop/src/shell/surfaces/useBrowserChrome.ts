@@ -14,8 +14,14 @@ import type { Rect } from './useRegionSelect';
  * Electron `<webview>`, which is not a thing a test can create.
  */
 export interface BrowserChrome {
-  /** What the address bar shows. */
+  /** The full address: the page's, or what the user is typing. */
   readonly address: string;
+  /** What the bar displays: the site at rest, the full address while focused. */
+  readonly shown: string;
+  /** The bar took focus: show the full address to edit. */
+  readonly focusAddress: () => void;
+  /** The bar lost focus: back to the site, going wherever the user typed. */
+  readonly blurAddress: () => void;
   /** The user typed: stop echoing the page until they submit or blur away. */
   readonly setAddress: (value: string) => void;
   /** True while the user's text owns the bar. */
@@ -40,6 +46,21 @@ export interface BrowserChrome {
 }
 
 /**
+ * The site an address is on — `google.com` for `https://www.google.com/search`
+ * — which is what the bar shows at rest. Anything that is not a web address
+ * (`about:blank`, half-typed text) is shown as it is.
+ */
+export function shortAddress(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return url;
+    return parsed.host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/**
  * A filename that says which page it is a picture of.
  *
  * The chip in the composer shows this, and a draft can hold several — "image
@@ -61,6 +82,7 @@ export function useBrowserChrome(opts: {
   const { activeTabId, navigate } = opts;
   const [address, setAddressState] = useState('');
   const [editing, setEditing] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   /** The view currently in front, as it last reported itself. */
@@ -129,8 +151,16 @@ export function useBrowserChrome(opts: {
     }
   }, [targetTab]);
 
+  const blurAddress = useCallback((): void => {
+    setFocused(false);
+    if (editing) submitAddress();
+  }, [editing, submitAddress]);
+
   return {
     address,
+    shown: focused || editing ? address : shortAddress(address),
+    focusAddress: () => setFocused(true),
+    blurAddress,
     setAddress,
     editing,
     submitAddress,

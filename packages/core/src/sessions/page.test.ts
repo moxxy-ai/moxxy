@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { pageEvents, readEventPage } from './persistence.js';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const tempDirs: string[] = [];
 
@@ -14,7 +15,7 @@ async function makeTempDir(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.splice(0).map((dir) => removeDir(dir)));
 });
 
 /** A contiguous 0..n-1 log of user_prompt events with predictable text. */

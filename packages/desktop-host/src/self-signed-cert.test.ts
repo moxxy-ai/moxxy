@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { posixFileModes } from '@moxxy/vitest-preset/platform';
 import crypto from 'node:crypto';
-import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -12,6 +12,7 @@ import {
   isTrustedLoopbackCert,
   isTrustedLoopbackCertByHost,
 } from './self-signed-cert';
+import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const PORTS = [51789, 51790, 51791, 51792] as const;
 
@@ -97,7 +98,7 @@ describe('loadOrCreateSelfSignedCert', () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'moxxy-cert-'));
   });
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   });
 
   it('mints + persists on first run, then returns the cached cert', async () => {
