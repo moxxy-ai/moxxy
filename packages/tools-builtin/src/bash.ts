@@ -1,7 +1,7 @@
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { clampString, dropDanglingSurrogate } from './util.js';
 import { backgroundJobs } from './jobs.js';
-import { SIGKILL_GRACE_MS, boundedSink, killTree, spawnShell } from './shell.js';
+import { SIGKILL_GRACE_MS, boundedSink, killTree, spawnShell, systemShell, type Shell } from './shell.js';
 
 /** Max chars of combined output returned to the model (post-exit clamp). */
 const OUTPUT_LIMIT = 200_000;
@@ -16,11 +16,26 @@ const OUTPUT_LIMIT = 200_000;
  */
 const STREAM_RETAIN_CAP = OUTPUT_LIMIT + 4_096;
 
+/** Tells the model which shell reads its command, so it writes one that shell understands. */
+export function shellNote(shell: Shell): string {
+  switch (shell.kind) {
+    case 'sh':
+      return 'Run a shell command via /bin/sh.';
+    case 'git-bash':
+      return 'Run a shell command in Git Bash on Windows: bash and its POSIX tools, with Windows drives as /c/..., /d/....';
+    case 'powershell':
+      return (
+        'Run a command in Windows PowerShell: this Windows machine has no Git Bash, so write PowerShell, not sh ' +
+        '(Get-ChildItem, $env:NAME, `;` between commands).'
+      );
+  }
+}
+
 export const bashTool = defineTool({
   name: 'Bash',
   icon: 'terminal',
   description:
-    'Run a shell command via /bin/sh. Respects the abort signal. Returns combined stdout/stderr with exit code. ' +
+    `${shellNote(systemShell())} Respects the abort signal. Returns combined stdout/stderr with exit code. ` +
     'Set `background: true` for a command that runs long or never ends (a dev server, a watcher, a slow build): ' +
     'it returns a job id at once and keeps running; then use Wait to block until it finishes or prints what you ' +
     'expect, and StopJob to end it.',

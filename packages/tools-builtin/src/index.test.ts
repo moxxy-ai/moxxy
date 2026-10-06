@@ -13,7 +13,13 @@ import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
 import { sleepTool, resolveSleepMs, MAX_SLEEP_MS } from './sleep.js';
 import { resolvePath, resolveWithinCwd } from './util.js';
+import { systemShell } from './shell.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
+
+// The Bash commands below are sh; Git Bash runs them on Windows. The process-group tests read
+// PIDs through `$!`, which Git Bash numbers differently from Windows, so they stay POSIX-only.
+const shCommands = systemShell().kind !== 'powershell';
+const posixGroups = posixShell;
 
 let tmp: string;
 
@@ -115,24 +121,24 @@ describe('editTool', () => {
 });
 
 describe('bashTool', () => {
-  it.skipIf(!posixShell)('runs a command and captures stdout', async () => {
+  it.skipIf(!shCommands)('runs a command and captures stdout', async () => {
     const out = (await bashTool.handler({ command: 'echo hi', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('hi');
     expect(out).toContain('[exit 0]');
   });
 
-  it.skipIf(!posixShell)('captures non-zero exit', async () => {
+  it.skipIf(!shCommands)('captures non-zero exit', async () => {
     const out = (await bashTool.handler({ command: 'exit 3', timeoutMs: 5000 }, baseCtx())) as string;
     expect(out).toContain('[exit 3]');
   });
 
-  it.skipIf(!posixShell)('times out long commands', async () => {
+  it.skipIf(!shCommands)('times out long commands', async () => {
     await expect(
       bashTool.handler({ command: 'sleep 1', timeoutMs: 50 }, baseCtx()),
     ).rejects.toThrow(/timed out/);
   });
 
-  it.skipIf(!posixShell)('respects abort signal', async () => {
+  it.skipIf(!shCommands)('respects abort signal', async () => {
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
     const p = bashTool.handler({ command: 'sleep 2', timeoutMs: 5000 }, ctx) as Promise<string>;
@@ -188,7 +194,7 @@ describe('bashTool', () => {
     return !isAlive(pid);
   };
 
-  it.skipIf(!posixShell)('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
+  it.skipIf(!posixGroups)('kills the whole process group (incl. SIGTERM-ignoring children) on timeout', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const p = bashTool.handler({ command: stubbornChildCommand(pidFile), timeoutMs: 300 }, baseCtx());
     const rejection = expect(p).rejects.toThrow(/timed out/);
@@ -199,7 +205,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it.skipIf(!posixShell)('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
+  it.skipIf(!posixGroups)('kills the whole process group (incl. SIGTERM-ignoring children) on abort', async () => {
     const pidFile = path.join(tmp, 'child.pid');
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
@@ -213,7 +219,7 @@ describe('bashTool', () => {
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
 
-  it.skipIf(!posixShell)('scrubs secret-looking parent env vars before spawning the shell', async () => {
+  it.skipIf(!shCommands)('scrubs secret-looking parent env vars before spawning the shell', async () => {
     // A secret the runner holds in process.env must not reach the child shell;
     // a benign var must still pass through (usability preserved).
     process.env.MOX_TEST_SECRET_TOKEN = 'leak-me';
@@ -231,7 +237,7 @@ describe('bashTool', () => {
     }
   });
 
-  it.skipIf(!posixShell)('lets the model re-supply a needed var via the env input', async () => {
+  it.skipIf(!shCommands)('lets the model re-supply a needed var via the env input', async () => {
     process.env.MOX_TEST_API_KEY = 'inherited-secret';
     try {
       const out = (await bashTool.handler(
@@ -246,7 +252,7 @@ describe('bashTool', () => {
     }
   });
 
-  it.skipIf(!posixShell)('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
+  it.skipIf(!shCommands)('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
     // Emit a run of 4-byte emoji; if the sink decoded per-chunk, a sequence
     // split across two data events would yield replacement chars.
     const out = (await bashTool.handler(
@@ -257,7 +263,7 @@ describe('bashTool', () => {
     expect(out).toContain('🚀');
   }, 30_000);
 
-  it.skipIf(!posixShell)('bounds output retention during streaming and reports full truncated size', async () => {
+  it.skipIf(!shCommands)('bounds output retention during streaming and reports full truncated size', async () => {
     const total = 2_097_152; // 2 MiB of 'x' — far beyond the 200k clamp
     const out = (await bashTool.handler(
       { command: `head -c ${total} /dev/zero | tr '\\0' x`, timeoutMs: 30_000 },

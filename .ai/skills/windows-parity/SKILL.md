@@ -43,5 +43,8 @@ Checklist:
    `moxxy-windows-test-installer` artifact.
 10. In the PR, state what was not run on Windows and which tests stand in.
 
-Known POSIX-only today: the `Bash` tool and its background jobs
-(`packages/tools-builtin/src/shell.ts` spawns `/bin/sh`).
+The `Bash` tool and its background jobs run Git Bash on Windows, or Windows
+PowerShell where Git is not installed (`systemShell` in
+`packages/tools-builtin/src/shell.ts`). A test of a Bash command skips only
+where that shell is PowerShell: `it.skipIf(systemShell().kind === 'powershell')`,
+not `!posixShell`.
