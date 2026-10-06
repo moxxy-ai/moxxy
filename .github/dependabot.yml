@@ -24,7 +24,31 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: 'react-native'
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
-      # Tracks the minimum supported Node (engines >=20.19), not the latest release.
+      # The Expo SDK pins these native libraries to the versions it was built and
+      # tested with; a newer minor breaks the native build or the app at runtime.
+      # They move only with an Expo SDK upgrade (npx expo install --fix).
+      - dependency-name: 'babel-preset-expo'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'react-native-gesture-handler'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'react-native-reanimated'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'react-native-worklets'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'react-native-screens'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'react-native-safe-area-context'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'react-native-svg'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      # vite 8 is not supported by the stable electron-vite 5 (vite 5-7 only), which
+      # builds the desktop app; @vitejs/plugin-react 6 needs vite 8. Remove both
+      # entries once a stable electron-vite supports vite 8 (6.0 is in beta).
+      - dependency-name: 'vite'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitejs/plugin-react'
+        update-types: ['version-update:semver-major']
+      # Tracks the minimum supported Node (engines >=22.19), not the latest release.
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
       # ink >=6 needs React 19; waits for the React 19 migration.
