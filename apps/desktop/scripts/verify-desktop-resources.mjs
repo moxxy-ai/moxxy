@@ -7,6 +7,7 @@ import { verifyHelperArtifact } from '../../../packages/plugin-computer-control/
 import { CONTRACT_PROTOCOL_VERSION } from '../../../packages/plugin-computer-control/dist/backend/rpc.js';
 import { VOICE_CATALOG } from '../../../packages/plugin-tts-local/dist/voices.js';
 import { NODE_VERSION, PYTHON_VERSION, gitVersion, runtimeTargets } from './runtimes-catalog.mjs';
+import { SEED_FINGERPRINTS_FILE, seedFingerprints } from './seed-fingerprints.mjs';
 
 /** The native Computer Use helper each desktop platform must ship: [label, path under the plugin, protocol]. */
 const COMPUTER_HELPERS = {
@@ -61,6 +62,7 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
       throw new Error(`plugins-seed package lock does not include ${dependency}`);
     }
   }
+  await verifySeedFingerprints(seedDir, options.fingerprintContent !== false);
   let providerManifest;
   for (const dependency of seedDependencies) {
     const manifestPath = path.join(seedDir, 'node_modules', dependency, 'package.json');
@@ -109,6 +111,30 @@ export async function verifyDesktopResources(resourcesPath, options = {}) {
     seedPackageCount: seedDependencies.length,
     voiceCount: VOICE_CATALOG.length,
   };
+}
+
+/** Without current fingerprints the desktop cannot tell an earlier install's
+ *  packages from this seed's, and keeps the old ones. A packaged app is only
+ *  checked for coverage: signing rewrites its binaries after fingerprinting. */
+async function verifySeedFingerprints(seedDir, checkContent) {
+  let recorded;
+  try {
+    recorded = JSON.parse(await readFile(path.join(seedDir, SEED_FINGERPRINTS_FILE), 'utf8'));
+  } catch (error) {
+    throw new Error(`Cannot read plugins-seed fingerprints (${SEED_FINGERPRINTS_FILE})`, { cause: error });
+  }
+  if (recorded?.schemaVersion !== 1 || typeof recorded.packages !== 'object' || recorded.packages === null) {
+    throw new Error(`Invalid plugins-seed fingerprints (${SEED_FINGERPRINTS_FILE})`);
+  }
+  const actual = await seedFingerprints(seedDir);
+  for (const [name, fingerprint] of Object.entries(actual)) {
+    if (typeof recorded.packages[name] !== 'string') {
+      throw new Error(`plugins-seed fingerprints do not cover ${name}; re-run bundle-plugins-seed.mjs`);
+    }
+    if (checkContent && recorded.packages[name] !== fingerprint) {
+      throw new Error(`plugins-seed fingerprints do not match ${name}; re-run bundle-plugins-seed.mjs`);
+    }
+  }
 }
 
 /** Every voice the plugin offers is there, and is the archive the plugin pins —

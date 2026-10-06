@@ -238,6 +238,12 @@ export interface CompactionEvent extends EventBase {
   readonly replacedRange: readonly [number, number];
   readonly summary: string;
   readonly tokensSaved: number;
+  /**
+   * A step of the compactor's regular bookkeeping (recording a finished turn,
+   * folding old records) rather than a response to a nearly full context.
+   * Surfaces may leave it out of the transcript; it still frees context.
+   */
+  readonly routine?: true;
 }
 
 /**

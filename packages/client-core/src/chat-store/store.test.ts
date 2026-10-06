@@ -35,8 +35,8 @@ const assistant = (content: string, turnId = 'T1'): MoxxyEvent =>
   evt('assistant_message', { content, stopReason: 'end_turn', turnId });
 const providerResponse = (usage: Record<string, unknown>, turnId = 'T1'): MoxxyEvent =>
   evt('provider_response', { provider: 'p', model: 'm', turnId, ...usage });
-const compaction = (tokensSaved: number, turnId = 'T1'): MoxxyEvent =>
-  evt('compaction', { tokensSaved, turnId });
+const compaction = (tokensSaved: number, turnId = 'T1', routine?: true): MoxxyEvent =>
+  evt('compaction', { tokensSaved, turnId, ...(routine ? { routine } : {}) });
 
 describe('chatStore slot isolation', () => {
   it('keeps each workspace transcript independent', () => {
@@ -293,6 +293,18 @@ describe('chatStore compaction side-channel', () => {
     assertDefined(ext, 'compaction appended a notice extension');
     expect(ext.kind).toBe('notice');
     expect(ext.text).toContain('Context compacted');
+  });
+
+  it('frees the context of a routine record without announcing it in the transcript', () => {
+    // The default compactor records every finished turn; a notice for each
+    // one read as "context compacted" after nearly every reply.
+    const id = ws();
+    chatStore.dispatch(id, { type: 'event', event: providerResponse({ inputTokens: 1000 }) });
+
+    chatStore.dispatch(id, { type: 'event', event: compaction(300, 'T1', true) });
+
+    expect(chatStore.getUsage(id).latestPrompt).toBe(700);
+    expect(chatStore.getChat(id).extensions).toHaveLength(0);
   });
 
   it('ignores a zero-tokensSaved compaction', () => {

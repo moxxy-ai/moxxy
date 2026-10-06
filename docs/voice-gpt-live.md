@@ -145,6 +145,11 @@ undocumented preview contract. Verified against the live service on
 - Whether a request counts as a task is GPT-Live's call, steered by the host
   instructions in `packages/desktop-host/src/ipc/voice.ts`. What runs is always
   the user's own transcript, never the model's paraphrase.
+- The instructions also say GPT-Live cannot check live facts (prices,
+  timetables, news) and must not state them as current, and they carry the
+  agent's own self-reference rule (`SELF_REFERENCE_NOTE` from `@moxxy/sdk`):
+  both speak of Moxxy in the feminine form, because both write into the same
+  chat and each copies the form it finds there.
 - Sometimes a call is accepted (`201` with an SDP answer) but its media server
   never answers ICE checks, so the call cannot open; a call a few minutes later
   works (seen 2026-09-29). Voice Mode then stops with "Couldn't reach the

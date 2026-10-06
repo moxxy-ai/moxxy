@@ -25,6 +25,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { nativePnpm } from './pnpm-command.mjs';
+import { writeSeedFingerprints } from './seed-fingerprints.mjs';
 
 import {
   execExecutableTargetSync,
@@ -148,6 +149,9 @@ for (const [name, spec] of Object.entries(seedManifest.dependencies ?? {})) {
 writeFileAtomicSync(seedManifestPath, `${JSON.stringify(seedManifest, null, 2)}\n`);
 
 rmSync(tarDir, { recursive: true, force: true });
+// Last, after every change to the tree: the desktop replaces an installed
+// package whose fingerprint differs from the one it copied before.
+await writeSeedFingerprints(seedDir);
 console.log(`plugins-seed assembled at ${seedDir} (${SEED_PLUGINS.length} plugins + closure)`);
 
 // npm only installs optional platform packages for the host arch, but the

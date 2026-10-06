@@ -423,6 +423,7 @@ export {
   unfinishedWorkNudge,
   type Progress,
 } from './progress.js';
+export { AGENT_CONDUCT, SELF_REFERENCE_NOTE, withAgentConduct } from './conduct.js';
 export {
   applyLazyTools,
   buildToolIndex,

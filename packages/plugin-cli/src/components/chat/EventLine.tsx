@@ -106,6 +106,9 @@ export const EventLine: React.FC<{
         </Box>
       );
     case 'compaction':
+      // The default compactor records every finished turn; only a compaction
+      // the context forced is worth a line.
+      if (event.routine) return null;
       return (
         <Box marginTop={blockGap()}>
           <Text dimColor>⤺ </Text>

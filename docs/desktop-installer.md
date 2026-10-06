@@ -121,16 +121,38 @@ Installing a new version replaces the application only. Everything the user
 owns stays where it is, under `~/.moxxy` (`%USERPROFILE%\.moxxy` on Windows):
 chats and sessions, `config.yaml`, the vault, memory, skills, workflows.
 
-Plugins already in `~/.moxxy/plugins` are **kept, not replaced** — first launch
-copies only what is missing. Two connections (OpenAI API, ChatGPT sign-in) and,
-on Windows, Computer Use are updated from the installer, with a backup. To move
-every other plugin to the versions the installer carries:
+Plugins in `~/.moxxy/plugins` move to the versions the installer carries on
+its first launch, with no manual step:
 
-1. Quit moxxy completely (also from the tray / menu bar).
-2. Rename `~/.moxxy/plugins` to `~/.moxxy/plugins.before-update`.
-3. Install the new version and start it. The first launch fills
-   `~/.moxxy/plugins` from the installer.
-4. Plugins the user had added by hand are listed in
-   `plugins.before-update/package.json`; reinstall those from Settings.
+- `plugins-seed/seed-fingerprints.json` (written last by
+  `bundle-plugins-seed.mjs`, checked by `verify:resources`) names the content
+  of every package in the seed. A packaged or installed app is checked only
+  for covering every package: electron-builder leaves out `.gitkeep` files and
+  a release build signs the seed's `.exe` files, so their content no longer
+  hashes the same. `~/.moxxy/plugins/.moxxy-seed-state.json`
+  records the content the desktop last copied.
+- A package whose content differs from the seed's is replaced, even at the
+  same version number: a local build ships new code under an unchanged
+  version. Each one is copied beside the old copy and swapped in, with npm's
+  `package.json` and `package-lock.json` entries moved to the seed's, so a
+  later `npm install` keeps it. A package the seed adds (for example a new
+  dependency) is copied in.
+- The replaced copies, with `package.json` and `package-lock.json` as they
+  were, are kept in `~/.moxxy/plugins-backup/<time>/`. Only the latest such
+  backup is kept; each carries a `.moxxy-seed-backup` marker, and a folder
+  without it is never removed.
+- One installer replaces a package once. On a later launch of the same
+  installer the package is left alone, whatever was done to it since.
+- Kept as installed: a package newer than the installer's (updated from npm
+  since), a plugin the user added that the installer does not carry, and the
+  two connections (OpenAI API, ChatGPT sign-in) and, on Windows x64, Computer
+  Use, which the installer updates through their own path with a backup and,
+  when they were changed locally, a question first.
+- A package another process holds open (Windows) keeps its old copy for that
+  launch and is replaced on the next.
+
+The CLI the desktop runs is the one inside the app, unless an in-app "Update
+CLI" installed a newer version. The agent's Node, Python and Git are unpacked
+again when the installer carries a different build of them.
 
 Voices already downloaded to `~/.moxxy/models/tts` are recognised and left alone.

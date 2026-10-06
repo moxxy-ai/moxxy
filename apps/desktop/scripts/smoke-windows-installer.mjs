@@ -31,7 +31,12 @@ try {
   // The installer carries the voices and every plugin: unpacking takes minutes on a CI disk.
   run(resolvedInstaller, ['/S', `/D=${resolvedInstallDir}`], 300_000);
 
-  await verifyDesktopResources(resourcesPath, { runtimePath });
+  await verifyDesktopResources(resourcesPath, {
+    runtimePath,
+    // Content was checked before packaging; electron-builder leaves out .gitkeep
+    // files and a release build signs the seed's .exe files since.
+    fingerprintContent: false,
+  });
   // The agent's Python, pip, Node and npm come from the installer: run them as a first launch would unpack them.
   await smokeRuntimes(resourcesPath);
 

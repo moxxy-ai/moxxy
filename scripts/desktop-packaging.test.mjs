@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { nativePnpm, pnpmCommand } from '../apps/desktop/scripts/pnpm-command.mjs';
 import { verifyDesktopResources } from '../apps/desktop/scripts/verify-desktop-resources.mjs';
+import { SEED_FINGERPRINTS_FILE, seedFingerprints, writeSeedFingerprints } from '../apps/desktop/scripts/seed-fingerprints.mjs';
 import { CONTRACT_PROTOCOL_VERSION } from '../packages/plugin-computer-control/dist/backend/rpc.js';
 import { writeHelperManifest } from '../packages/plugin-computer-control/dist/helper/artifact.js';
 import { findDarwinArchGaps, findPackagedApps } from '../apps/desktop/scripts/verify-packaged-desktop.mjs';
@@ -257,6 +258,85 @@ test('desktop resource verifier rejects a plugin seed without its package lock',
   }
 });
 
+test('a seed fingerprint names each top-level package by its content, and only that', async () => {
+  const seed = await mkdtemp(path.join(tmpdir(), 'moxxy-seed-fingerprints-'));
+  try {
+    const modules = path.join(seed, 'node_modules');
+    await writePackage(path.join(modules, '@moxxy', 'plugin-browser'), '@moxxy/plugin-browser');
+    await writePackage(path.join(modules, 'zod'), 'zod');
+    await mkdir(path.join(modules, '.bin'), { recursive: true });
+    await writeFile(path.join(modules, '.package-lock.json'), '{}');
+
+    const first = await seedFingerprints(seed);
+    assert.deepEqual(Object.keys(first).sort(), ['@moxxy/plugin-browser', 'zod']);
+    assert.deepEqual(await seedFingerprints(seed), first);
+
+    await writeFile(path.join(modules, '@moxxy', 'plugin-browser', 'dist', 'index.js'), 'export const changed = 1;\n');
+    const edited = await seedFingerprints(seed);
+    assert.notEqual(edited['@moxxy/plugin-browser'], first['@moxxy/plugin-browser']);
+    assert.equal(edited.zod, first.zod);
+
+    // Restoring a lost executable permission is a change the installed copy needs.
+    if (process.platform !== 'win32') {
+      await chmod(path.join(modules, 'zod', 'dist', 'index.js'), 0o755);
+      assert.notEqual((await seedFingerprints(seed)).zod, first.zod);
+    }
+  } finally {
+    await rm(seed, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects a plugin seed without fingerprints, which could not replace an old install', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-unfingerprinted-resources-'));
+  try {
+    await writeValidResources(root);
+    await rm(path.join(root, 'plugins-seed', SEED_FINGERPRINTS_FILE));
+
+    await assert.rejects(verifyDesktopResources(root, { runCli: false }), /plugins-seed fingerprints/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('desktop resource verifier rejects fingerprints that no longer match the seed', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-stale-fingerprints-'));
+  try {
+    await writeValidResources(root);
+    await writeFile(
+      path.join(root, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-tts-gemini', 'dist', 'index.js'),
+      'export const rebuilt = true;\n',
+    );
+
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false }),
+      /plugins-seed fingerprints do not match @moxxy\/plugin-tts-gemini/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a packaged app, whose binaries signing rewrote, still needs a fingerprint for every package', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'moxxy-signed-resources-'));
+  try {
+    await writeValidResources(root);
+    const gemini = path.join(root, 'plugins-seed', 'node_modules', '@moxxy', 'plugin-tts-gemini');
+    await writeFile(path.join(gemini, 'dist', 'index.js'), 'export const signed = true;\n');
+    await verifyDesktopResources(root, { runCli: false, fingerprintContent: false });
+
+    const file = path.join(root, 'plugins-seed', SEED_FINGERPRINTS_FILE);
+    const recorded = JSON.parse(await readFile(file, 'utf8'));
+    delete recorded.packages['@moxxy/plugin-tts-gemini'];
+    await writeJson(file, recorded);
+    await assert.rejects(
+      verifyDesktopResources(root, { runCli: false, fingerprintContent: false }),
+      /plugins-seed fingerprints do not cover @moxxy\/plugin-tts-gemini/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('desktop resources reject a computer extension without the native component', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'moxxy-native-resource-test-'));
   try {
@@ -274,6 +354,8 @@ test('desktop resources reject a computer extension without the native component
     await mkdir(path.join(plugin, 'dist'), { recursive: true });
     await writeJson(path.join(plugin, 'package.json'), { name, version: '1.2.3', moxxy: { plugin: { entry: './dist/index.js' } } });
     await writeFile(path.join(plugin, 'dist/index.js'), 'export {};');
+    // The build fingerprints the seed last, after every change to it.
+    await writeSeedFingerprints(seed);
     await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'win32' }), /Windows Computer Use/);
     await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use/);
     await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'linux' }), /Linux Computer Use/);
@@ -288,10 +370,12 @@ test('desktop resources reject a computer extension without the native component
     header.writeUInt32BE(0x0100000c, 28);
     await writeFile(helper, header);
     await writeHelperManifest(helper, { protocolVersion: CONTRACT_PROTOCOL_VERSION, architecture: 'universal' });
+    await writeSeedFingerprints(seed);
     // Packing a plugin drops the permission to run its files; Windows has no such permission.
     if (process.platform !== 'win32') {
       await assert.rejects(verifyDesktopResources(root, { runCli: false, platform: 'darwin' }), /macOS Computer Use component cannot be run/);
       await chmod(helper, 0o755);
+      await writeSeedFingerprints(seed);
     }
     await verifyDesktopResources(root, { runCli: false, platform: 'darwin' });
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -402,6 +486,7 @@ async function writeValidResources(
       moxxy: { plugin: { entry: './dist/index.js', kind: 'provider' } },
     });
   }
+  await writeSeedFingerprints(seedDir);
   for (const target of Object.keys(RUNTIME_TARGETS)) {
     const dir = path.join(root, 'runtimes-seed', target);
     await mkdir(dir, { recursive: true });

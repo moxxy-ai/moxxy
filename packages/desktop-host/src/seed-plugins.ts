@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { z } from '@moxxy/sdk';
+import { compareSemver, z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
@@ -13,23 +14,36 @@ import { writeFileAtomic } from '@moxxy/sdk/server';
  *
  * - The seed's own `package.json#dependencies` is the manifest (an npm
  *   prefix tree always has one) — no second list to drift.
- * - Existing directories are NEVER overwritten: a user-updated install of a
- *   plugin (possibly newer than the seed) survives app updates.
+ * - A package an earlier installer left is replaced by the one this installer
+ *   carries, even at the same version number: a local build ships new code
+ *   under an unchanged version. `seed-fingerprints.json` (written by the build)
+ *   names each package's content, and `.moxxy-seed-state.json` in the target
+ *   records the content last copied, so one installer replaces a package once
+ *   and a later launch leaves it alone.
+ * - A package installed newer than the seed (updated from npm since) is kept,
+ *   and so is one another updater manages (`managedElsewhere`).
+ * - The replaced copies, with the npm ledger as it was, go to
+ *   `<moxxyHome>/plugins-backup/<time>`; only the latest such backup is kept.
  * - Later `npm install --save` runs in the target keep working: the seed's
- *   dependency entries are merged into the target package.json.
+ *   dependency entries are merged into the target package.json, and a
+ *   replaced package's ledger and lock entries move to the seed's.
  */
 export interface SeedPluginsOptions {
   /** `process.resourcesPath` of the packaged app (contains `plugins-seed`). */
   readonly resourcesPath: string;
   /** The moxxy home dir (usually `~/.moxxy`; respect MOXXY_HOME upstream). */
   readonly moxxyHome: string;
+  /** Packages another updater replaces (with its own approval and backup). */
+  readonly managedElsewhere?: ReadonlyArray<string>;
   readonly log?: (msg: string) => void;
 }
 
 export interface SeedPluginsResult {
-  /** Top-level node_modules entries copied from the seed. */
+  /** Top-level node_modules entries the target did not have, copied from the seed. */
   readonly copied: ReadonlyArray<string>;
-  /** Seed entries skipped because the target already has them. */
+  /** Entries an earlier install left, replaced by the seed's. */
+  readonly replaced: ReadonlyArray<string>;
+  /** Entries kept as installed: current, newer, or managed elsewhere. */
   readonly skipped: ReadonlyArray<string>;
 }
 
@@ -40,7 +54,19 @@ export interface SeedManifestRepairResult {
   readonly removed: ReadonlyArray<string>;
 }
 
-const NOOP: SeedPluginsResult = { copied: [], skipped: [] };
+const NOOP: SeedPluginsResult = { copied: [], replaced: [], skipped: [] };
+const FINGERPRINTS_FILE = 'seed-fingerprints.json';
+const STATE_FILE = '.moxxy-seed-state.json';
+/** Swap space beside node_modules, so plugin discovery never sees a half-swapped copy. */
+const STAGING_DIR = '.seed-staging';
+const BACKUP_DIR = 'plugins-backup';
+/** Marks a backup the seeder made: only those are ever pruned. */
+const BACKUP_MARKER = '.moxxy-seed-backup';
+const fingerprintsSchema = z.object({
+  schemaVersion: z.literal(1),
+  packages: z.record(z.string(), z.string().min(1)),
+});
+const stateSchema = fingerprintsSchema;
 const NO_REPAIR: SeedManifestRepairResult = { replaced: [], removed: [] };
 const MOXXY_PACKAGE_NAME = /^@moxxy\/[a-z0-9][a-z0-9._-]*$/i;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$/i;
@@ -66,31 +92,146 @@ export async function seedPluginsFromResources(
   const targetDir = path.join(opts.moxxyHome, 'plugins');
   const targetModules = path.join(targetDir, 'node_modules');
   await fs.mkdir(targetModules, { recursive: true });
+  const staging = path.join(targetDir, STAGING_DIR);
+  await fs.rm(staging, { recursive: true, force: true });
 
-  // Copy every top-level entry (scoped dirs one level deeper) that the
-  // target doesn't already have. npm hoists flat, so top-level coverage
-  // carries the transitive closure; skip npm's internal `.bin`/`.package-lock`
-  // bookkeeping — the target tree manages its own.
+  // A seed without fingerprints cannot tell an old copy from a current one,
+  // so it only fills in what is missing.
+  const fingerprints = await readFingerprints(path.join(seedDir, FINGERPRINTS_FILE));
+  const applied = fingerprints ? await readFingerprints(path.join(targetDir, STATE_FILE), stateSchema) ?? {} : {};
+  const managed = new Set(opts.managedElsewhere ?? []);
+
+  // Every top-level entry (scoped dirs one level deeper): npm hoists flat, so
+  // top-level coverage carries the transitive closure; skip npm's internal
+  // `.bin`/`.package-lock` bookkeeping — the target tree manages its own.
   const copied: string[] = [];
+  const replaced: string[] = [];
   const skipped: string[] = [];
+  let backup: string | null = null;
   for (const entry of await listModuleEntries(seedModules)) {
     const from = path.join(seedModules, entry);
     const to = path.join(targetModules, entry);
-    if (await exists(to)) {
+    const fingerprint = fingerprints?.[entry];
+    if (!(await exists(to))) {
+      await fs.mkdir(path.dirname(to), { recursive: true });
+      await fs.cp(from, to, { recursive: true, force: false, errorOnExist: false });
+      copied.push(entry);
+      if (fingerprint) applied[entry] = fingerprint;
+      continue;
+    }
+    if (!fingerprint || managed.has(entry) || applied[entry] === fingerprint || (await isNewerThanSeed(to, from))) {
       skipped.push(entry);
       continue;
     }
-    await fs.mkdir(path.dirname(to), { recursive: true });
-    await fs.cp(from, to, { recursive: true, force: false, errorOnExist: false });
-    copied.push(entry);
+    try {
+      backup ??= await createBackup(opts.moxxyHome, targetDir);
+      await replaceEntry(from, to, staging, path.join(backup, entry));
+    } catch (error) {
+      // A file another process holds open (Windows) keeps the installed copy;
+      // it is not recorded, so the next launch tries again.
+      opts.log?.(`plugins-seed: kept the installed ${entry}: ${error instanceof Error ? error.message : String(error)}`);
+      skipped.push(entry);
+      continue;
+    }
+    replaced.push(entry);
+    applied[entry] = fingerprint;
   }
+  await fs.rm(staging, { recursive: true, force: true });
+  if (backup) await pruneBackups(path.dirname(backup), backup);
 
-  await mergeManifest(seedDir, targetDir);
+  if (fingerprints) {
+    await writeFileAtomic(
+      path.join(targetDir, STATE_FILE),
+      `${JSON.stringify({ schemaVersion: 1, packages: applied }, null, 2)}\n`,
+    );
+  }
+  await mergeManifest(seedDir, targetDir, replaced);
   opts.log?.(
-    `plugins-seed: copied ${copied.length} package(s) into ${targetDir}` +
-      (skipped.length > 0 ? ` (${skipped.length} already present)` : ''),
+    `plugins-seed: copied ${copied.length} and replaced ${replaced.length} package(s) in ${targetDir}` +
+      (skipped.length > 0 ? ` (${skipped.length} kept as installed)` : ''),
   );
-  return { copied, skipped };
+  return { copied, replaced, skipped };
+}
+
+/** Copy beside the target, then swap, moving the old copy to `backupPath`:
+ *  a crash leaves either copy whole, never half of one. */
+async function replaceEntry(from: string, to: string, staging: string, backupPath: string): Promise<void> {
+  await fs.mkdir(staging, { recursive: true });
+  const work = await fs.mkdtemp(path.join(staging, 'swap-'));
+  const fresh = path.join(work, 'new');
+  await fs.cp(from, fresh, { recursive: true, force: false, errorOnExist: true });
+  await fs.mkdir(path.dirname(backupPath), { recursive: true });
+  await moveDir(to, backupPath);
+  try {
+    await fs.rename(fresh, to);
+  } catch (error) {
+    await moveDir(backupPath, to);
+    throw error;
+  }
+  await fs.rm(work, { recursive: true, force: true });
+}
+
+/** A rename, or a copy when the backup sits on another volume than the plugins. */
+async function moveDir(from: string, to: string): Promise<void> {
+  try {
+    await fs.rename(from, to);
+  } catch (error) {
+    if (!isJsonObject(error) || error.code !== 'EXDEV') throw error;
+    await fs.cp(from, to, { recursive: true, errorOnExist: true, force: false });
+    await fs.rm(from, { recursive: true, force: true });
+  }
+}
+
+/** A new marked backup folder holding the npm ledger as it is before any change. */
+async function createBackup(moxxyHome: string, pluginsDir: string): Promise<string> {
+  const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}`;
+  const dir = path.join(moxxyHome, BACKUP_DIR, stamp);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, BACKUP_MARKER), 'Plugins replaced by a Moxxy installer. Safe to delete.\n');
+  for (const file of ['package.json', 'package-lock.json']) {
+    await fs.copyFile(path.join(pluginsDir, file), path.join(dir, file)).catch((error: unknown) => {
+      if (!isMissingFileError(error)) throw error;
+    });
+  }
+  return dir;
+}
+
+/** Remove earlier backups the seeder made; anything else in the folder stays. */
+async function pruneBackups(root: string, keep: string): Promise<void> {
+  for (const name of await fs.readdir(root)) {
+    const dir = path.join(root, name);
+    if (dir === keep || !(await exists(path.join(dir, BACKUP_MARKER)))) continue;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** The installed copy carries a higher version than the seed's (npm updated it). */
+async function isNewerThanSeed(installed: string, seed: string): Promise<boolean> {
+  const installedVersion = await readVersion(installed);
+  const seedVersion = await readVersion(seed);
+  return installedVersion !== null && seedVersion !== null && compareSemver(installedVersion, seedVersion) > 0;
+}
+
+async function readVersion(packageDir: string): Promise<string | null> {
+  try {
+    const manifest = await readJson(path.join(packageDir, 'package.json'));
+    return typeof manifest?.version === 'string' && EXACT_VERSION.test(manifest.version) ? manifest.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Package → content fingerprint, or null when the file is absent or unreadable. */
+async function readFingerprints(
+  file: string,
+  schema: typeof fingerprintsSchema = fingerprintsSchema,
+): Promise<Record<string, string> | null> {
+  try {
+    const parsed = schema.safeParse(await readJson(file));
+    return parsed.success ? { ...parsed.data.packages } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Top-level module names, descending one level into @scopes. */
@@ -112,7 +253,7 @@ async function listModuleEntries(modulesDir: string): Promise<string[]> {
 /** Merge the seed's dependency ledger into the target package.json (creating
  *  the standard user-plugins stub when absent) so future `npm install --save`
  *  runs in the target tree keep every seeded package on their ledger. */
-async function mergeManifest(seedDir: string, targetDir: string): Promise<void> {
+async function mergeManifest(seedDir: string, targetDir: string, replaced: ReadonlyArray<string>): Promise<void> {
   await serializeManifestMutation(async () => {
     const seedPkg = await readJson(path.join(seedDir, 'package.json'));
     const seedDeps = await normalizeGeneratedSeedSpecs(
@@ -132,13 +273,57 @@ async function mergeManifest(seedDir: string, targetDir: string): Promise<void> 
       path.join(targetDir, 'node_modules'),
       seedDeps.dependencies,
     );
+    // A replaced package takes the seed's spec: an older pinned one would make
+    // the next `npm install` put the old version back.
+    const adopted = Object.fromEntries(
+      replaced.flatMap((name) => {
+        const spec = seedDeps.dependencies[name];
+        return spec === undefined ? [] : [[name, spec]];
+      }),
+    );
     targetPkg.dependencies = {
       ...seedDeps.dependencies,
       ...targetDeps.dependencies,
+      ...adopted,
     };
     await writeFileAtomic(targetPath, `${JSON.stringify(targetPkg, null, 2)}\n`);
     await initializePackageLock(seedDir, targetDir, targetPkg);
+    if (replaced.length > 0) {
+      await adoptSeedLockEntries(seedDir, targetDir, targetPkg, replaced);
+      // npm's hidden lockfile describes the tree before the swap.
+      await fs.rm(path.join(targetDir, 'node_modules', '.package-lock.json'), { force: true });
+    }
   });
+}
+
+/**
+ * Point the target lock's entries for each replaced package (and the
+ * dependencies nested under it) at the seed's, so npm sees the tree that is
+ * on disk. Entries of everything else stay as the user's npm left them.
+ */
+async function adoptSeedLockEntries(
+  seedDir: string,
+  targetDir: string,
+  targetManifest: JsonObject,
+  replaced: ReadonlyArray<string>,
+): Promise<void> {
+  const targetPath = path.join(targetDir, 'package-lock.json');
+  const target = packageLockSchema.safeParse(await readJson(targetPath));
+  if (!target.success || !packageLockRootSchema.safeParse(target.data.packages['']).success) return;
+  const seed = packageLockSchema.safeParse(await readJson(path.join(seedDir, 'package-lock.json')));
+  const seedPackages = seed.success ? seed.data.packages : {};
+  const packages = { ...target.data.packages };
+  for (const name of replaced) {
+    const key = `node_modules/${name}`;
+    const owned = (lockPath: string) => lockPath === key || lockPath.startsWith(`${key}/`);
+    for (const lockPath of Object.keys(packages)) if (owned(lockPath)) delete packages[lockPath];
+    for (const [lockPath, value] of Object.entries(seedPackages)) if (owned(lockPath)) packages[lockPath] = value;
+  }
+  const normalized = normalizePackageLock({ ...target.data, packages }, targetManifest);
+  await writeFileAtomic(
+    targetPath,
+    `${JSON.stringify({ ...target.data, packages: normalized.packages }, null, 2)}\n`,
+  );
 }
 
 /**

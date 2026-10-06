@@ -106,6 +106,8 @@ if (isMain()) {
       for (const app of apps) {
         const report = await verifyDesktopResources(app.resourcesPath, {
           runtimePath: app.runtimePath,
+          // Content was checked before packaging; signing has rewritten binaries since.
+          fingerprintContent: false,
         });
         if (app.mac && process.platform === 'darwin' && isUniversalMacApp(app.runtimePath)) {
           const gaps = await findDarwinArchGaps(app.resourcesPath);
