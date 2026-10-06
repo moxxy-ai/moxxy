@@ -245,6 +245,12 @@ async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<stri
   }
 }
 
+/** Connections the installer updates through their own managed path (backup,
+ *  approval when changed locally); the plugin seed leaves them to it. */
+const BUNDLED_PROVIDER_UPDATES = ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const;
+/** Computer Use goes the same way on Windows x64, where its helper is replaced in place. */
+const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch === 'x64';
+
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
@@ -260,11 +266,15 @@ async function prepareRunnerEnvironment(): Promise<void> {
       const seed = await seedPluginsFromResources({
         resourcesPath: process.resourcesPath,
         moxxyHome,
+        managedElsewhere: [
+          ...BUNDLED_PROVIDER_UPDATES,
+          ...(MANAGED_COMPUTER_UPDATE ? ['@moxxy/plugin-computer-control'] : []),
+        ],
         log: (msg) => console.log(`[moxxy] ${msg}`),
       });
       await prepareOfflineVoice(moxxyHome, seed.copied);
       await bundledUpdates.prepare<ProviderUpdateOffer>(
-        (['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const).map((plugin) => ({
+        BUNDLED_PROVIDER_UPDATES.map((plugin) => ({
           plugin,
           run: (confirm) => offerBundledProviderUpdate({
             resourcesPath: process.resourcesPath, moxxyHome, plugin,
@@ -282,7 +292,7 @@ async function prepareRunnerEnvironment(): Promise<void> {
           },
         })),
       );
-      if (process.platform === 'win32' && process.arch === 'x64') {
+      if (MANAGED_COMPUTER_UPDATE) {
         await bundledUpdates.prepare<ComputerUpdateOffer>([{
           plugin: '@moxxy/plugin-computer-control',
           run: (confirm) => offerBundledComputerUpdate({
