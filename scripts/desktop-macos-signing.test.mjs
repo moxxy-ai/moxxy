@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -55,8 +55,8 @@ function runtimeTree(t) {
 }
 
 // codesign describes a file on stderr and fails for one that is not signed.
-const describe = (file) => execFileSync('/bin/sh', ['-c', 'codesign -dv --verbose=4 "$1" 2>&1 || true', 'sh', file], { encoding: 'utf8' });
-const entitlementsOf = (file) => execFileSync('/bin/sh', ['-c', 'codesign -d --entitlements - "$1" 2>/dev/null || true', 'sh', file], { encoding: 'utf8' });
+const describe = (file) => spawnSync('codesign', ['-dv', '--verbose=4', file], { encoding: 'utf8' }).stderr;
+const entitlementsOf = (file) => spawnSync('codesign', ['-d', '--entitlements', '-', file], { encoding: 'utf8' }).stdout;
 
 test('a signature Apple notarizes names a Developer ID, a timestamp and the hardened runtime', () => {
   assert.deepEqual(parseSignature(DEVELOPER_ID_SIGNED), { developerId: true, timestamp: true, hardenedRuntime: true });
