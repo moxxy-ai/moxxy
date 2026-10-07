@@ -13,10 +13,19 @@ beforeEach(() => {
 });
 afterEach(() => __setApiOverride(null));
 
-function Harness({ toggleBenchFull }: { readonly toggleBenchFull: () => void }): null {
+function Harness({
+  toggleBenchFull,
+  setView = vi.fn(),
+  onOpenPalette = vi.fn(),
+}: {
+  readonly toggleBenchFull: () => void;
+  readonly setView?: (view: string) => void;
+  readonly onOpenPalette?: () => void;
+}): null {
   useHotkeyDispatcher();
   useAppHotkeys({
-    setView: vi.fn(),
+    setView,
+    onOpenPalette,
     benchTab: 'browser',
     setBenchTab: vi.fn(),
     toggleBenchFull,
@@ -39,5 +48,18 @@ describe('useAppHotkeys, full view', () => {
     render(<Harness toggleBenchFull={toggle} />);
     fireEvent.keyDown(window, { key: 'f', metaKey: true });
     expect(toggle).not.toHaveBeenCalled();
+  });
+});
+
+/** The palette is the fast way to every place, so it opens over whatever is on
+ *  screen instead of first dragging the user back to the conversation. */
+describe('useAppHotkeys, palette', () => {
+  it('opens the palette on ⌘K without leaving the current view', () => {
+    const setView = vi.fn();
+    const onOpenPalette = vi.fn();
+    render(<Harness toggleBenchFull={vi.fn()} setView={setView} onOpenPalette={onOpenPalette} />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(onOpenPalette).toHaveBeenCalledOnce();
+    expect(setView).not.toHaveBeenCalled();
   });
 });

@@ -1,20 +1,20 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * Width (px) of the index column — the same tiny module store as
- * {@link ./useRailWidth}, so the column and its drag handle share one source of
- * truth. Renderer-only UI state: persisted in localStorage so the chosen width
- * survives restarts, never round-tripped through prefs/IPC.
+ * Width (px) of the sidebar: a tiny module store, so the column and its drag
+ * handle share one source of truth. Renderer-only UI state: persisted in
+ * localStorage so the chosen width survives restarts, never round-tripped
+ * through prefs/IPC.
  *
- * The floor is set by CONTENT, not taste: a session row is an LED, a name and a
- * time reading, and below roughly 200px the name has no room left to be a name.
- * The ceiling stops the column from eating the field it is an index for.
+ * The floor is set by content: a run row is an avatar, a name and a time, and
+ * below roughly 220px the name has no room left to be a name. The ceiling stops
+ * the sidebar from eating the conversation it leads to.
  */
 
 const STORAGE_KEY = 'moxxy.indexWidth';
-export const INDEX_MIN_WIDTH = 200;
-export const INDEX_MAX_WIDTH = 460;
-export const INDEX_DEFAULT_WIDTH = 244;
+export const INDEX_MIN_WIDTH = 220;
+export const INDEX_MAX_WIDTH = 400;
+export const INDEX_DEFAULT_WIDTH = 280;
 
 function clamp(n: number): number {
   return Math.max(INDEX_MIN_WIDTH, Math.min(INDEX_MAX_WIDTH, Math.round(n)));

@@ -53,18 +53,20 @@ describe('chat Header focus mode action', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^toggle focus mode$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
+    fireEvent.click(screen.getByRole('menuitem', { name: /^focus mode$/i }));
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('focus.toggle');
     });
   });
 
-  it('labels the header icon buttons with hover tooltips', () => {
+  it('keeps the bar quiet: search, focus mode and rename sit behind one control', () => {
     __setApiOverride({
       invoke: vi.fn(async () => undefined),
       subscribe: () => () => undefined,
     } as unknown as MoxxyApi);
+    const onRename = vi.fn();
 
     render(
       <Header
@@ -78,22 +80,76 @@ describe('chat Header focus mode action', () => {
         searchQuery={null}
         onSearchChange={vi.fn()}
         canRename
-        onRename={vi.fn()}
+        onRename={onRename}
       />,
     );
 
-    expect(screen.getByRole('button', { name: /^search transcript$/i })).toHaveAttribute(
-      'title',
-      'Search transcript',
-    );
-    expect(screen.getByRole('button', { name: /^toggle focus mode$/i })).toHaveAttribute(
-      'title',
-      'Toggle focus mode',
-    );
-    expect(screen.getByRole('button', { name: /^rename workspace$/i })).toHaveAttribute(
-      'title',
-      'Rename workspace',
-    );
+    // Not on the bar…
+    expect(screen.queryByRole('button', { name: /search transcript/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /focus mode/i })).toBeNull();
+    // …one control away.
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
+    expect(screen.getByRole('menuitem', { name: /^search this run/i })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /^focus mode$/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: /^rename workspace$/i }));
+    expect(onRename).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('opens the search field from the menu and from the shortcut', () => {
+    __setApiOverride({
+      invoke: vi.fn(async () => undefined),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    const props = {
+      phase: connectedPhase,
+      deskName: 'blocky',
+      sessionName: 'a run',
+      runState: 'idle' as const,
+      agent: AGENT_FIXTURE,
+      agentDisabled: false,
+      workspaceId: 'ws-test',
+      onSearchChange: vi.fn(),
+      canRename: true,
+      onRename: vi.fn(),
+    };
+    const { rerender } = render(<Header {...props} searchQuery={null} />);
+    expect(screen.queryByPlaceholderText('Search this run…')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
+    fireEvent.click(screen.getByRole('menuitem', { name: /^search this run/i }));
+    expect(screen.getByPlaceholderText('Search this run…')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close search' }));
+    expect(screen.queryByPlaceholderText('Search this run…')).toBeNull();
+
+    // ⌘F sets the query from outside; a live query opens the field.
+    rerender(<Header {...props} searchQuery="" />);
+    expect(screen.getByPlaceholderText('Search this run…')).toBeTruthy();
+  });
+
+  it('says nothing about a run that needs nothing: idle and done have no badge', () => {
+    __setApiOverride({
+      invoke: vi.fn(async () => undefined),
+      subscribe: () => () => undefined,
+    } as unknown as MoxxyApi);
+    const props = {
+      phase: connectedPhase,
+      deskName: 'blocky',
+      sessionName: 'a run',
+      agent: AGENT_FIXTURE,
+      agentDisabled: false,
+      workspaceId: 'ws-test',
+      searchQuery: null,
+      onSearchChange: vi.fn(),
+      canRename: true,
+      onRename: vi.fn(),
+    };
+    const { rerender } = render(<Header {...props} runState="idle" />);
+    expect(screen.queryByRole('img', { name: /^Run / })).toBeNull();
+    rerender(<Header {...props} runState="done" />);
+    expect(screen.queryByRole('img', { name: /^Run / })).toBeNull();
+    rerender(<Header {...props} runState="failed" />);
+    expect(screen.getByRole('img', { name: 'Run failed' })).toBeTruthy();
   });
 
   it('identifies the run in the bar: workspace, session, and its state', () => {
@@ -125,7 +181,7 @@ describe('chat Header focus mode action', () => {
     expect(screen.getByText('awaiting you')).toBeInTheDocument();
   });
 
-  it('uses an eye-in-focus-frame glyph for the focus mode button', () => {
+  it('uses an eye-in-focus-frame glyph for focus mode', () => {
     __setApiOverride({
       invoke: vi.fn(async () => undefined),
       subscribe: () => () => undefined,
@@ -147,9 +203,8 @@ describe('chat Header focus mode action', () => {
       />,
     );
 
-    const focusIcon = screen
-      .getByRole('button', { name: /^toggle focus mode$/i })
-      .querySelector('svg');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
+    const focusIcon = screen.getByRole('menuitem', { name: /^focus mode$/i }).querySelector('svg');
     const pathData = Array.from(focusIcon?.querySelectorAll('path') ?? []).map((path) =>
       path.getAttribute('d'),
     );

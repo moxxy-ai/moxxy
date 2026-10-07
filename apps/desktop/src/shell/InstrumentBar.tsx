@@ -4,30 +4,30 @@ import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 
 /**
- * The instrument bar: the 44px band at the top of the active pane.
+ * The bar at the top of the active pane.
  *
- * It replaces a header whose leading element was an anonymous segmented pill
- * (Chat / Collaborate / Apps) and which therefore never said WHERE you were —
- * the workspace path had been pushed out into a right-hand drawer. Navigation
- * now lives in the app rail, so this bar gets its real job back: identify the
- * thing on screen, state what it is doing, and carry its telemetry.
+ * It says what is on screen and carries that pane's few actions. Navigation is
+ * not its job: that is the sidebar's account row and the palette.
  *
- *   ┌ crumbs ──────────────── state ─┬─ trailing (telemetry, actions) ─┐
+ *   ┌ lead · crumbs · state ──────────── trailing (actions) ─┐
  *
- * Its height and bottom seam match `IndexHead` so the two form one horizontal
- * strap running under the app rail.
+ * It is as tall as the sidebar's head, so the two read as one line across the
+ * window, and it has no rule under it: the content below starts where it ends.
  */
 export function InstrumentBar({
+  lead,
   crumbs,
   state,
   children,
 }: {
+  /** Drawn before the crumbs, e.g. the run's avatar. */
+  readonly lead?: ReactNode;
   /** Path to the thing on screen. The LAST entry is the subject and is
    *  emphasised; the ones before it are context. */
   readonly crumbs: ReadonlyArray<string>;
   /** Run/activity state, rendered right after the crumbs (see {@link StatePill}). */
   readonly state?: ReactNode;
-  /** Trailing cluster, right-aligned: telemetry readouts and pane actions. */
+  /** Trailing cluster, right-aligned: the pane's actions. */
   readonly children?: ReactNode;
 }): JSX.Element {
   const sidebarCollapsed = useSidebarCollapsed();
@@ -44,13 +44,15 @@ export function InstrumentBar({
           type="button"
           aria-label="Expand sidebar"
           data-testid="sidebar-expand"
-          title="Expand sidebar (⌘B / Ctrl+B)"
           onClick={() => setSidebarCollapsed(false)}
-          className="btn-quiet"
+          className="btn-quiet tip"
+          data-tip="Show sidebar"
+          data-tip-side="bottom"
         >
           <PanelLeftIcon size={15} />
         </button>
       )}
+      {lead}
       <div className="crumbs">
         {context.map((c) => (
           <span key={c} className="crumbs__ctx">
@@ -126,11 +128,9 @@ const STATE_LABEL: Record<RunState, string> = {
 };
 
 /**
- * The run-state pill. State is encoded twice on purpose — in the hue AND in the
- * word — so it survives both a colour-blind reader and a greyscale screenshot.
- * On a narrow bar the word drops and the LED stays (see the container queries).
- * The LED is the one place a full pill radius is allowed, because there the
- * shape itself is the information.
+ * The run-state badge. State is encoded twice on purpose, in the hue and in the
+ * word, so it survives both a colour-blind reader and a greyscale screenshot.
+ * On a narrow bar the word drops and the dot stays (see the container queries).
  */
 export function StatePill({ state }: { readonly state: RunState }): JSX.Element {
   return (

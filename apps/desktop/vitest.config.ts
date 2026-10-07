@@ -28,6 +28,10 @@ export default defineConfig({
           name: 'renderer',
           globals: false,
           environment: 'jsdom',
+          // Renderer tests run as a build without a Clerk key unless a test
+          // stubs one, so a developer's local `.env` cannot change which
+          // account branch they exercise.
+          env: { VITE_CLERK_PUBLISHABLE_KEY: '' },
           setupFiles: [isolateSetupFile, './src/test-setup.ts'],
           include: ['src/**/*.test.{ts,tsx}'],
           exclude,

@@ -83,12 +83,12 @@
   --type-section: 18px;
   --type-display: 24px;
   --frame-titlebar: 30px;
-  --frame-bar: 44px;
+  --frame-bar: 40px;
   --frame-row: 30px;
   --frame-tool: 26px;
-  --frame-control: 26px;
+  --frame-control: 28px;
   --frame-rail: 52px;
-  --frame-index: 244px;
+  --frame-index: 280px;
   --frame-bench: 372px;
   --motion-press: 120ms;
   --motion-shift: 160ms;
@@ -124,6 +124,8 @@
    * The CSS keywords are too weak to read as intentional. Entrances and
    * presses use --ease-out, things that move across the screen --ease-in-out,
    * panels that slide --ease-drawer. Colour and hover changes keep `ease`. */
+  --frame-chat-row: 54px;
+  --frame-avatar: 36px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -586,220 +588,44 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
-/* --- The Harness frame ------------------------------------------
- * app-rail | index-col | field (instrument + content) | bench
+/* --- The shell --------------------------------------------------
+ * sidebar | pane (bar + content) | workbench
  *
- * The rail is the vertical strap; `.index-col__head` and `.instrument` are both
- * --frame-bar tall and share one bottom seam, forming the horizontal strap. The
- * rail paints OVER that band (z-index), and the head paints over the rail's
- * commanded strap, so the crossing is a true over/under weave rather than two
- * stacked rectangles.
+ * The conversation is the main thing on screen. The sidebar lists the runs and
+ * ends in the account row, which is the way to every other place; there is no
+ * rail. The sidebar's head and the pane's bar are both --frame-bar tall, so
+ * they read as one line across the window. Neither has a rule under it.
  */
-
-.app-rail {
-  width: var(--frame-rail);
-  flex-shrink: 0;
-  background: var(--color-sidebar-bg);
-  border-right: 1px solid var(--color-sidebar-border);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-8) 0 var(--space-12);
-  /* Above the horizontal strap: the rail passes over it. */
-  position: relative;
-  z-index: 2;
-}
-
-.app-rail__mark {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  align-self: stretch;
-  /* The INK strand. Not the accent: the mark's second strand is already the
-   * commanded accent, and matching them collapses the weave into a rosette. */
-  color: var(--color-sidebar-text);
-  margin: var(--space-4) 0 var(--space-12);
-}
-.app-rail__mark-glyph { display: inline-flex; flex-shrink: 0; }
-
-/* The wordmark is the single typographic exception to the machine chrome: the
- * warmer humanist face makes the brand read as a name, not another readout. */
-.app-rail__word {
-  flex: 1;
-  min-width: 0;
-  display: block;
-  line-height: 1;
-  overflow: hidden;
-}
-.app-rail__word b {
-  font-family: var(--font-prose);
-  font-size: var(--type-ui);
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--color-sidebar-text);
-  white-space: nowrap;
-}
-
-/* Collapsed the rail is 52px wide and the toggle would not fit beside the mark,
- * so it sits UNDER it — one column, both centred. */
-.rail-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--frame-control);
-  height: var(--frame-control);
-  border-radius: var(--radius-chip);
-  color: var(--color-sidebar-text-dim);
-}
-.rail-toggle:hover { filter: none; color: var(--color-sidebar-text); background: var(--color-sidebar-bg-hover); }
-.app-rail:not([data-expanded='true']) .app-rail__mark {
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.app-rail__spacer { flex: 1; }
-
-/* ONE layout model for both states: a flex row that centres its glyph when
- * there is no label and left-aligns when there is. The earlier version switched
- * `display: grid` to `display: flex` between states and then reset the result
- * with `place-items: unset` — a shorthand that also owns `align-items`, so it
- * silently undid the `align-items: center` two lines above it and the toggle's
- * glyph and label ended up on separate rows. */
-.rail-item {
-  width: 34px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-chip);
-  color: var(--color-sidebar-text-dim);
-  position: relative;
-  flex-shrink: 0;
-}
-
-.rail-item__glyph { display: inline-flex; flex-shrink: 0; }
-.rail-item__label { display: none; }
-
-/* The toggle's chevron points the way the rail will move. */
-.rail-toggle .rail-item__glyph {
-  transition: transform var(--motion-shift) ease;
-}
-.rail-toggle .rail-item__glyph[data-flip='true'] { transform: rotate(180deg); }
-
-/* --- Expanded rail: the same items, with their names -------------
- * The width IS animated here, unlike the workbench's. Only the field reflows off
- * it (the workbench keeps its own explicit width), so xterm never re-measures
- * mid-animation — which is the one thing that made the workbench snap instead. */
-.app-rail {
-  transition: width var(--motion-shift) ease;
-}
-.app-rail[data-expanded='true'] {
-  width: 186px;
-  align-items: stretch;
-  padding-left: var(--space-8);
-  padding-right: var(--space-8);
-}
-.app-rail[data-expanded='true'] .app-rail__mark {
-  padding-left: 7px;
-}
-.app-rail[data-expanded='true'] .rail-item {
-  width: 100%;
-  justify-content: flex-start;
-  gap: var(--space-8);
-  padding: 0 var(--space-8);
-}
-.app-rail[data-expanded='true'] .rail-item__label {
-  display: block;
-  font-size: var(--type-row);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* The names arrive just behind the width so they are not briefly clipped by a
-   * rail that has not finished opening. */
-  animation: moxxy-fade-in var(--motion-shift) var(--ease-out) both;
-  animation-delay: 60ms;
-}
-.app-rail[data-expanded='true'] .rail-item[data-active='true'] { font-weight: 600; }
-/* The strap follows the rail's padding out to its real LEFT edge. */
-.app-rail[data-expanded='true'] .rail-item[data-active='true']::before {
-  left: calc(-1 * var(--space-8));
-}
-.app-rail[data-expanded='true'] .rail-avatar { margin-left: 7px; }
-.rail-item:hover:not(:disabled) {
-  filter: none;
-  color: var(--color-sidebar-text);
-  background: var(--color-sidebar-bg-hover);
-}
-.rail-item[data-active='true'] {
-  color: var(--color-sidebar-text);
-  background: var(--color-main-bg);
-}
-/* The commanded strap, on the rail's LEFT edge. It sat in the seam on the right,
- * where it competed with the index column's own border for the same hairline of
- * space; on the left it is unambiguous and matches the convention every other
- * icon rail uses for its active item.
- *
- * ::before, NOT ::after. Rail items also carry `.tip`, whose bubble is an
- * ::after — two rule sets on one pseudo-element merge, and they did: the strap
- * inherited the bubble's `opacity: 0` (so it vanished) while the bubble
- * inherited the strap's magenta fill (so hovering produced a pink box with
- * unreadable text). One pseudo-element per job. */
-.rail-item[data-active='true']::before {
-  content: '';
-  position: absolute;
-  left: -9px;
-  top: calc(-1 * var(--space-4));
-  bottom: calc(-1 * var(--space-4));
-  width: 2px;
-  background: var(--color-primary);
-}
-.rail-item:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .index-col {
   /* The default; the drag store overrides it inline once the user has a
-   * preference. `position: relative` anchors the resize grip to this column's own
-   * right edge — without it the handle resolves against a far ancestor and lands
-   * off-screen, looking draggable and grabbing nothing. */
+   * preference. `position: relative` anchors the resize grip to this column's
+   * own right edge. */
   position: relative;
   width: var(--frame-index);
   flex-shrink: 0;
-  background: var(--color-main-bg);
+  background: var(--color-sidebar-bg);
   color: var(--color-sidebar-text);
   border-right: 1px solid var(--color-sidebar-border);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* Clip while the width animates, or the content spills over the field.
-   * `clip`, not `hidden`: a hidden overflow still scrolls when something
+  /* `clip`, not `hidden`: a hidden overflow still scrolls when something
    * inside is scrolled into view, and slid the whole column sideways. */
   overflow: clip;
-  transition:
-    width var(--motion-shift) ease,
-    border-right-color var(--motion-shift) ease,
-    visibility 0s linear 0s;
 }
 
-/* Collapsed. `visibility` is what actually takes it out of the accessibility tree
- * and the tab order — zero width alone leaves its buttons focusable — and it flips
- * only AFTER the width has finished (hence the delay), while on the way back it
- * flips at once so the content is present as the column opens. */
+/* Collapsed. Immediate: it is mostly done from the keyboard, and an easing
+ * width would reflow the conversation on every frame. `visibility` is what
+ * takes it out of the accessibility tree and the tab order; zero width alone
+ * leaves its buttons focusable. */
 .index-col[data-collapsed='true'] {
   width: 0;
   visibility: hidden;
-  border-right-color: transparent;
+  border-right-width: 0;
   /* Nothing inside needs laying out while it is closed. */
   content-visibility: hidden;
-  transition:
-    width var(--motion-shift) ease,
-    border-right-color var(--motion-shift) ease,
-    visibility 0s linear var(--motion-shift);
 }
-
-/* No easing WHILE dragging: a width animating toward the pointer lags behind it,
- * which feels like the handle has come loose from the edge. */
-.index-col[data-dragging] { transition: none; }
 
 .index-col__grip {
   position: absolute;
@@ -815,65 +641,501 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   outline-offset: -2px;
 }
 
-/* Reduced motion collapses the durations globally, and a visibility delay tied to
- * one would then outlast the width change; pin it to zero here. */
-@media (prefers-reduced-motion: reduce) {
-  .index-col[data-collapsed='true'] { transition-delay: 0s; }
-}
-
 .index-col__head {
   height: var(--frame-bar);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  gap: var(--space-4);
   padding: 0 var(--space-8) 0 var(--space-12);
-  border-bottom: 1px solid var(--color-sidebar-border);
-  background: var(--color-main-bg);
-  /* Over the rail's strap: the strap passes under this seam. */
-  position: relative;
-  z-index: 3;
+}
+
+/* The INK strand takes the text colour. Not the accent: the mark's second
+ * strand is already the accent, and matching them collapses the weave. */
+.index-col__mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-right: var(--space-4);
+  color: var(--color-sidebar-text);
 }
 
 .index-col__title {
   flex: 1;
   min-width: 0;
-  font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
+  font-size: var(--type-prose);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: capitalize;
+  color: var(--color-sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.index-col__toolbar {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-8) var(--space-8);
 }
 
 .index-col__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-8) var(--space-8) var(--space-12);
-}
-
-.index-col__foot {
-  flex-shrink: 0;
-  border-top: 1px solid var(--color-sidebar-border);
-  padding: var(--space-8) var(--space-12);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
+  padding: var(--space-2) var(--space-8) var(--space-12);
 }
 
 .index-group {
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: var(--space-6);
-  margin-top: var(--space-6);
-  font-size: var(--type-micro);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  padding: var(--space-6) var(--space-8);
+  margin-top: var(--space-8);
+  font-size: var(--type-label);
+  font-weight: 600;
   color: var(--color-text-dim);
 }
 .index-group:first-child { margin-top: 0; }
 .index-group__label { flex: 1; min-width: 0; }
-.index-group__count { flex-shrink: 0; }
+.index-group__label::first-letter { text-transform: uppercase; }
+.index-group__count { flex-shrink: 0; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.icon-flip { transform: rotate(180deg); }
+
+/* The sidebar's search field: a filled well, like a messenger's. */
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 32px;
+  padding: 0 var(--space-8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-block);
+  background: var(--color-sidebar-bg-hover);
+  color: var(--color-text-dim);
+  transition: border-color var(--motion-press) ease, background-color var(--motion-press) ease;
+}
+.sidebar-search:focus-within {
+  border-color: var(--color-card-border-strong);
+  background: var(--color-main-bg);
+}
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--type-row);
+}
+.sidebar-search input::placeholder { color: var(--color-text-dim); }
+.sidebar-search input::-webkit-search-cancel-button { display: none; }
+
+/* A quiet "add" row under a list. */
+.sidebar-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: 32px;
+  margin-top: var(--space-8);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
+  color: var(--color-text-dim);
+  font-size: var(--type-row);
+  text-align: left;
+}
+.sidebar-add:disabled { opacity: 0.6; }
+
+/* --- The run list -----------------------------------------------
+ * One section per workspace; a run is a row that reads like a conversation.
+ * `--row-bg` is the row's current fill, so the things laid over it (the action
+ * cluster's fade, the ring round an avatar badge) can match it exactly.
+ */
+
+.run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+.run-list__loading { padding: var(--space-8) 0; }
+.run-list__empty {
+  margin: 0;
+  padding: var(--space-12) var(--space-8);
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+}
+
+.run-section__rows {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.run-section__head {
+  --row-bg: var(--color-sidebar-bg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 28px;
+  padding: 0 var(--space-8) 0 var(--space-4);
+  border-radius: var(--radius-chip);
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+.run-section__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: inherit;
+  transition: transform var(--motion-press) var(--ease-out);
+}
+.run-section__chevron[data-open='true'] { transform: rotate(90deg); }
+/* The chevron turns; it does not also shrink when pressed. */
+.run-section__chevron:active:not(:disabled) { filter: none; }
+.run-section__chevron[data-open='true']:active:not(:disabled) { transform: rotate(90deg); }
+.run-section__chip {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+.run-section__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.run-section__count {
+  flex-shrink: 0;
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+}
+.run-section__unread {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-primary);
+}
+
+.run-row {
+  --row-bg: var(--color-sidebar-bg);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--frame-chat-row);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-card);
+  color: var(--color-sidebar-text);
+  cursor: pointer;
+  transition: background-color var(--motion-press) ease;
+}
+.run-row[data-active='true'] {
+  --row-bg: var(--color-sidebar-bg-active);
+  background: var(--color-sidebar-bg-active);
+}
+.run-row:focus-visible,
+.run-section__head:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.run-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.run-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+}
+.run-row__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-row);
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.run-row[data-unread] .run-row__name { font-weight: 650; }
+.run-row__time {
+  flex-shrink: 0;
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-dim);
+}
+.run-row[data-unread] .run-row__time { color: var(--color-primary); }
+.run-row__preview {
+  font-size: var(--type-label);
+  line-height: 16px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row actions lie over the row's right edge instead of reserving width, so a
+ * name gets the whole row until the pointer arrives. The fade stops the text
+ * under them from being cut off hard. */
+.row-actions {
+  position: absolute;
+  right: var(--space-6);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 18px;
+  border-radius: var(--radius-chip);
+  background: linear-gradient(to right, transparent, var(--row-bg) 16px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-press) ease;
+}
+[data-menu-open='true'] > .row-actions,
+.run-row:has(:focus-visible) > .row-actions,
+.run-section__head:has(:focus-visible) > .row-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.row-actions__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-chip);
+  color: var(--color-text-dim);
+}
+.row-actions__btn:disabled { opacity: 0.5; }
+.row-actions__btn[aria-expanded='true'] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .run-section__head:hover {
+    --row-bg: var(--color-sidebar-bg-hover);
+    background: var(--color-sidebar-bg-hover);
+  }
+  .run-row:hover:not([data-active='true']) {
+    --row-bg: var(--color-sidebar-bg-hover);
+    background: var(--color-sidebar-bg-hover);
+  }
+  .run-row:hover > .row-actions,
+  .run-section__head:hover > .row-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .row-actions__btn:hover:not(:disabled) {
+    filter: none;
+    color: var(--color-text);
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+  .sidebar-add:hover:not(:disabled) {
+    filter: none;
+    color: var(--color-text);
+    background: var(--color-sidebar-bg-hover);
+  }
+}
+
+/* Channel bots under the run list: the same section heading, lighter rows. */
+.sidebar-channels { margin-top: var(--space-12); }
+.sidebar-channels__head { width: 100%; text-align: left; }
+.sidebar-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
+  color: var(--color-sidebar-text);
+  font-size: var(--type-row);
+  text-align: left;
+}
+.sidebar-channel__icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-sidebar-bg-hover);
+  color: var(--color-text-muted);
+}
+.sidebar-channel__name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-channel:hover:not(:disabled) { filter: none; background: var(--color-sidebar-bg-hover); }
+}
+
+/* --- Avatars ----------------------------------------------------
+ * A run's avatar is a tinted disc with a letter. The hue comes from the run
+ * (`--avatar-hue`, set inline); how light and how strong it is belongs to the
+ * theme, so the same run is the same colour family in both. */
+
+.avatar {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: var(--frame-avatar);
+  height: var(--frame-avatar);
+  border-radius: 50%;
+  background: hsl(var(--avatar-hue) 62% 90%);
+  color: hsl(var(--avatar-hue) 48% 30%);
+  font-size: var(--type-prose);
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+[data-theme='dark'] .avatar {
+  background: hsl(var(--avatar-hue) 30% 24%);
+  color: hsl(var(--avatar-hue) 58% 80%);
+}
+.avatar[data-size='bar'] {
+  width: 24px;
+  height: 24px;
+  font-size: var(--type-micro);
+}
+
+/* The run's state, on the corner of its avatar. The ring is the row's own
+ * fill, so the badge reads as cut out of the avatar. */
+.avatar__badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--row-bg, var(--color-sidebar-bg));
+}
+.avatar__badge[data-state='working'] {
+  animation: moxxy-badge-breathe 1.6s var(--ease-in-out) infinite;
+}
+@keyframes moxxy-badge-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar__badge[data-state='working'] { animation: none; }
+}
+
+/* --- The account row --------------------------------------------
+ * The foot of the sidebar: who is signed in, and the menu to everywhere else. */
+
+.sidebar-foot {
+  flex-shrink: 0;
+  padding: var(--space-6) var(--space-8) var(--space-8);
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 48px;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-card);
+  color: var(--color-sidebar-text);
+  text-align: left;
+}
+.account-row[aria-expanded='true'] { background: var(--color-sidebar-bg-hover); }
+@media (hover: hover) and (pointer: fine) {
+  .account-row:hover:not(:disabled) { filter: none; background: var(--color-sidebar-bg-hover); }
+}
+.account-row__avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
+  font-size: var(--type-label);
+  font-weight: 600;
+}
+.account-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.account-row__name {
+  font-size: var(--type-row);
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-row__meta {
+  font-size: var(--type-micro);
+  line-height: 14px;
+  color: var(--color-text-dim);
+}
+.account-row__more { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
+
+.account-panel { display: flex; flex-direction: column; gap: var(--space-16); }
+.account-panel__value { font-size: var(--type-ui); }
+.account-panel__hint { margin: 0; }
+
+/* --- Popover menus ----------------------------------------------
+ * A menu grows out of the control that opened it: the hook sets the transform
+ * origin to the corner nearest its anchor. Opened from the keyboard it simply
+ * appears, because an animation on something done many times a day is a delay.
+ * Rows are the shared `.menu__row`. */
+
+.popover {
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  animation: moxxy-pop-in var(--motion-shift) var(--ease-out) both;
+}
+.popover[data-instant='true'] { animation: none; }
+.popover .menu__row { min-height: 30px; }
+.popover__sep {
+  height: 1px;
+  flex-shrink: 0;
+  margin: var(--space-4) var(--space-6);
+  background: var(--color-card-border);
+}
 
 /* --- The field: instrument bar + content ----------------------- */
 
@@ -892,9 +1154,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--space-12);
-  padding: 0 var(--space-12);
-  border-bottom: 1px solid var(--color-card-border);
+  gap: 10px;
+  padding: 0 var(--space-12) 0 var(--space-16);
   background: var(--color-main-bg);
   position: relative;
   z-index: 1;
@@ -906,7 +1167,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--space-12);
+  gap: var(--space-6);
   min-width: 0;
 }
 
@@ -927,8 +1188,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-size: var(--type-row);
 }
 .crumbs__ctx { display: inline-flex; align-items: center; gap: var(--space-6); flex-shrink: 0; }
-.crumbs__seg { color: var(--color-text-muted); }
-.crumbs__sep { color: var(--color-text-dim); }
+.crumbs__seg { color: var(--color-text-dim); }
+.crumbs__sep { color: var(--color-card-border-strong); }
 .crumbs__subject {
   color: var(--color-text);
   font-weight: 600;
@@ -939,30 +1200,33 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 /* State is encoded in the hue AND the word, so it survives a greyscale
- * screenshot and a colour-blind reader. */
+ * screenshot and a colour-blind reader. It is only drawn for a state worth
+ * acting on, so it can afford a filled badge. */
 .state-pill {
   display: inline-flex;
   align-items: center;
   gap: var(--space-6);
   flex-shrink: 0;
   padding: 2px var(--space-8) 2px var(--space-6);
-  border: 1px solid var(--color-card-border-strong);
   border-radius: var(--radius-pill);
+  background: var(--color-input-soft);
   font-size: var(--type-label);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--color-text-muted);
   white-space: nowrap;
 }
 .state-pill[data-state='running'] {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  color: var(--color-primary-strong);
   background: var(--color-primary-soft);
 }
-.state-pill[data-state='awaiting'] { color: var(--color-amber-text); border-color: var(--color-amber); }
-.state-pill[data-state='failed']   { color: var(--color-red-text); border-color: var(--color-red); }
+.state-pill[data-state='awaiting'] {
+  color: var(--color-amber-text);
+  background: color-mix(in srgb, var(--color-amber) 16%, transparent);
+}
+.state-pill[data-state='failed'] {
+  color: var(--color-red-text);
+  background: color-mix(in srgb, var(--color-red) 14%, transparent);
+}
 
-/* The one place a full pill radius is allowed: here the shape IS the data. */
 .led {
   width: 6px;
   height: 6px;
@@ -2068,28 +2332,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   content: none;
 }
 
-/* The rail's account tile — the icon-only form of the profile row. */
-.rail-avatar {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  margin-top: var(--space-6);
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-chip);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  font-size: var(--type-label);
-  font-weight: 600;
-}
-.rail-avatar:hover:not(:disabled) {
-  filter: none;
-  background: var(--color-action);
-  color: var(--color-on-action);
-  border-color: var(--color-action);
-}
-
 /* --- Tooltips ---------------------------------------------------
  * The native `title` tooltip is unusable for icon-only chrome: the OS delay is
  * around 1.2s, and nothing about it can be styled, so an icon rail with `title`
@@ -2156,9 +2398,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   animation: moxxy-fade-in 90ms ease 140ms both;
 }
 
-/* An expanded rail already shows its labels; a bubble repeating them is noise. */
-.app-rail[data-expanded='true'] .tip::after { content: none; }
-
 @media (prefers-reduced-motion: reduce) {
   .tip:hover::after,
   .tip:focus-visible::after { animation: none; }
@@ -2173,12 +2412,17 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tele {
   display: flex;
   align-items: center;
-  gap: var(--space-16);
+  gap: var(--space-8);
   min-width: 0;
+  height: var(--frame-control);
   padding: 0 var(--space-8);
+  border-radius: var(--radius-chip);
 }
 .tele:hover:not(:disabled) { filter: none; background: var(--color-input-soft); }
 .tele:disabled { opacity: 0.55; }
+/* The token count is in the panel this opens; the bar keeps the model and the
+ * context gauge, the two readings worth a glance. */
+.tele__cell[data-cell='tokens'] { display: none; }
 
 /* One line, like the crumbs beside them. Stacking a label over a value inside a
  * 44px bar reads as two crowded rows rather than as one instrument. */
@@ -2201,8 +2445,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .tele__v {
-  font-size: var(--type-row);
-  color: var(--color-text);
+  font-size: var(--type-label);
+  color: var(--color-text-muted);
   line-height: 1;
   letter-spacing: -0.01em;
 }
@@ -2645,6 +2889,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .menu__value { flex-shrink: 0; color: var(--color-text); }
 .menu__mark { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
 .menu__row[data-active='true'] .menu__mark { color: var(--color-primary); }
+.menu__hint { flex-shrink: 0; font-size: var(--type-micro); color: var(--color-text-dim); }
+.menu__row[data-danger='true'],
+.menu__row[data-danger='true'] .menu__mark { color: var(--color-red-text); }
 
 /* An outlined square icon button — the design's head control. `.btn-quiet` is
  * borderless and reads as a hint; these are the column's real actions, so they
@@ -2668,31 +2915,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .btn-box:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-box[data-active='true'] { color: var(--color-primary); border-color: var(--color-primary); }
-
-/* The head's inline filter field. Takes the title's place rather than pushing it
- * aside, so the head keeps one row and one height. */
-.index-col__search {
-  flex: 1;
-  min-width: 0;
-  height: var(--frame-control);
-  padding: 0 var(--space-6);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-chip);
-  background: var(--color-input-soft);
-  color: var(--color-text);
-  font-family: inherit;
-  font-size: var(--type-meta);
-  outline: none;
-}
-.index-col__search::placeholder { color: var(--color-text-dim); }
-
-/* The active session row is distinguished by its raised background and its
- * weight, and by nothing else. It has carried, in turn, a magenta wash, a
- * hairline outline and a commanded strap — each of which drew a BOX in a list of
- * rows, so the row read as an object floating in the list rather than as the
- * list's own current row. The lift is enough.
- */
-.session-row { position: relative; }
 
 /* --- The docked approval ----------------------------------------
  * A blocking ask is docked directly above the command bar, not floated over the
@@ -2791,38 +3013,92 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
  * shadow; everything inside it follows the frame's geometry.
  */
 
+.palette { display: flex; flex-direction: column; gap: var(--space-8); }
+
 .palette__input {
-  padding: var(--space-8) var(--space-12);
+  height: 36px;
+  padding: 0 var(--space-12);
   font-family: inherit;
-  font-size: var(--type-ui);
+  font-size: var(--type-prose);
   color: var(--color-text);
   background: var(--color-input-soft);
-  border: 1px solid var(--color-card-border);
-  border-radius: var(--radius-chip);
+  border: 1px solid transparent;
+  border-radius: var(--radius-block);
   outline: none;
 }
-.palette__input:focus { border-color: var(--color-primary); }
+.palette__input:focus { border-color: var(--color-card-border-strong); }
 .palette__input::placeholder { color: var(--color-text-dim); }
+
+.palette__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.palette__empty {
+  padding: var(--space-12);
+  font-size: var(--type-row);
+  color: var(--color-text-dim);
+}
 
 .palette__row {
   display: flex;
   width: 100%;
+  min-height: 34px;
   text-align: left;
-  align-items: baseline;
-  gap: var(--space-12);
-  padding: var(--space-6) var(--space-8);
-  border-radius: var(--radius-chip);
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
   color: var(--color-text-muted);
 }
-/* The selected row wears the commanded strap, the same marker the rail and the
- * index column use for "this is the one" — so the idea looks identical wherever
- * it appears rather than being a different highlight per surface. */
+/* The row the keyboard is on. A fill, like the current run in the sidebar. */
 .palette__row[data-active='true'] {
-  background: var(--color-primary-soft);
-  box-shadow: inset 2px 0 0 var(--color-primary);
+  background: var(--color-input-soft);
+  color: var(--color-text);
 }
-.palette__row:hover:not(:disabled) { filter: none; background: var(--color-input-soft); }
+.palette__row:hover:not(:disabled) { filter: none; }
 .palette__row:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Choosing a row closes the palette; shrinking it first would only delay that. */
+.palette__row:active:not(:disabled) { transform: none; filter: none; }
+.palette__icon { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
+.palette__name {
+  flex-shrink: 0;
+  font-size: var(--type-ui);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.palette__desc {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette__hint { flex-shrink: 0; font-size: var(--type-micro); color: var(--color-text-dim); }
+.palette__keys { margin: 0; font-size: var(--type-micro); color: var(--color-text-dim); }
+
+/* The run header's search field, which takes the place of its actions. */
+.chat-search { display: flex; align-items: center; gap: var(--space-6); }
+.chat-search input {
+  width: 220px;
+  height: var(--frame-control);
+  padding: 0 var(--space-8);
+  border: 1px solid transparent;
+  border-radius: var(--radius-block);
+  background: var(--color-input-soft);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--type-row);
+  outline: none;
+}
+.chat-search input:focus { border-color: var(--color-card-border-strong); }
 
 /* --- The data table ----------------------------------------------
  * One row per thing, on the same grid as every other list in the frame:

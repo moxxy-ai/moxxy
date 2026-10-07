@@ -2,7 +2,6 @@ import { useActiveWorkspaceId, useDesks } from '@moxxy/client-core';
 import { toggleSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import {
   abortTurnPulse,
-  commandPalettePulse,
   focusComposerPulse,
   transcriptSearchPulse,
 } from '@/lib/chatPulses';
@@ -13,6 +12,8 @@ import type { HotkeyBinding } from './registry';
 
 export interface AppHotkeysOptions {
   readonly setView: (view: View) => void;
+  /** Opens the command palette over whatever view is on screen. */
+  readonly onOpenPalette: () => void;
   readonly benchTab: WorkbenchTab | null;
   readonly setBenchTab: (tab: WorkbenchTab | null) => void;
   /** Into or out of full view (opens the browser in it when nothing is open). */
@@ -20,7 +21,7 @@ export interface AppHotkeysOptions {
   readonly onShowShortcuts: () => void;
 }
 
-/** Primary rail destinations in rail order. Optional capabilities stay in More. */
+/** The places with a number. Every other place is in the account menu and the palette. */
 const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
   { view: 'chat', label: 'Runs' },
   { view: 'extensions', label: 'Extensions' },
@@ -30,12 +31,12 @@ const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
 /**
  * The app's keymap, in one place.
  *
- * Actions that live inside the chat surface (palette, search, abort, composer
- * focus) are reached through pulses rather than by lifting their state up. See
+ * Actions that live inside the chat surface (search, abort, composer focus) are reached through pulses rather than by lifting their state up. See
  * `lib/pulse`.
  */
 export function useAppHotkeys(opts: AppHotkeysOptions): void {
-  const { setView, benchTab, setBenchTab, toggleBenchFull, onShowShortcuts } = opts;
+  const { setView, onOpenPalette, benchTab, setBenchTab, toggleBenchFull, onShowShortcuts } =
+    opts;
   const desks = useDesks();
   const activeSessionId = useActiveWorkspaceId();
 
@@ -52,14 +53,11 @@ export function useAppHotkeys(opts: AppHotkeysOptions): void {
 
   const bindings: HotkeyBinding[] = [
     {
-      id: 'chat.palette',
+      id: 'view.palette',
       chord: 'mod+k',
       label: 'Open the command palette',
-      group: 'Chat',
-      run: () => {
-        setView('chat');
-        commandPalettePulse.request();
-      },
+      group: 'Navigation',
+      run: onOpenPalette,
     },
     {
       id: 'chat.focusComposer',

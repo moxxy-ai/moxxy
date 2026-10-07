@@ -105,3 +105,23 @@ describe('generateThemeCss for the desktop palettes', () => {
     expect(dark).not.toContain('--radius-card');
   });
 });
+
+describe('desktop frame', () => {
+  it('gives the conversation a messenger frame: a wider sidebar and a lower bar', () => {
+    for (const t of [desktopTokens, desktopDarkTokens]) {
+      expect(t.frame.index).toBe(280);
+      expect(t.frame.bar).toBe(40);
+      expect(t.frame.control).toBe(28);
+    }
+  });
+
+  it('keeps a control inside the bar with room to spare', () => {
+    expect(desktopTokens.frame.bar - desktopTokens.frame.control).toBeGreaterThanOrEqual(8);
+  });
+
+  it('leaves the shared frame, which the mobile app reads, as it was', () => {
+    expect(tokens.frame.index).toBe(244);
+    expect(tokens.frame.bar).toBe(44);
+  });
+});
+

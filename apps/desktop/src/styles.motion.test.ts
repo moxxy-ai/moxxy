@@ -84,3 +84,25 @@ describe('styles.css — durations', () => {
     }
   });
 });
+
+describe('styles.css — what moves', () => {
+  it('never animates layout: no width, height, margin or padding in a transition', () => {
+    // Multi-line `transition:` lists are one declaration, so read up to the `;`.
+    const transitions = css.match(/transition(-property)?:[^;]+;/g) ?? [];
+    expect(transitions.length).toBeGreaterThan(0);
+    for (const t of transitions) {
+      expect(t, t).not.toMatch(/\b(width|height|margin|padding)\b/);
+    }
+  });
+
+  it('grows a menu from its trigger, and skips that for the keyboard', () => {
+    const popover = block('.popover {');
+    expect(popover).toMatch(/animation:\s*moxxy-pop-in var\(--motion-shift\) var\(--ease-out\)/);
+    expect(block(".popover[data-instant='true']")).toMatch(/animation:\s*none/);
+  });
+
+  it('has no rail left to animate', () => {
+    expect(css).not.toMatch(/\.app-rail|\.rail-item|\.rail-toggle/);
+  });
+});
+

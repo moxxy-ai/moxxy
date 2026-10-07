@@ -5,9 +5,6 @@ import { createPulse } from './pulse';
  * to the chat surface rather than to `App`. See {@link createPulse}.
  */
 
-/** ⌘K opens the command palette over the composer. */
-export const commandPalettePulse = createPulse();
-
 /** ⌘F opens transcript search and focuses its field. */
 export const transcriptSearchPulse = createPulse();
 

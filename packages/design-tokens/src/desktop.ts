@@ -38,6 +38,9 @@ const type = {
   display: 24,
 };
 
+/* A messenger frame: the sidebar is wide enough for a name, a time and a line of
+ * preview; the bar over the conversation is low, because it only names the run. */
+const frame = { ...tokens.frame, bar: 40, control: 28, index: 280 };
 const motion = { press: '120ms', shift: '160ms', overlay: '240ms', markTurn: '3400ms' };
 
 export const desktopTokens: ThemeTokens = {
@@ -70,7 +73,7 @@ export const desktopTokens: ThemeTokens = {
   radius,
   space: { ...tokens.space },
   type,
-  frame: { ...tokens.frame },
+  frame,
   motion,
 };
 
@@ -105,6 +108,6 @@ export const desktopDarkTokens: ThemeTokens = {
   radius,
   space: { ...tokens.space },
   type,
-  frame: { ...tokens.frame },
+  frame,
   motion,
 };

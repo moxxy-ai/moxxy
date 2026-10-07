@@ -1,13 +1,13 @@
 /**
  * Sidebar collapse/expand:
- *   1. The rail's collapse button hides the whole sidebar and surfaces
- *      the expand affordance in the instrument bar (`InstrumentBar`).
- *   2. The expand button restores the rail and disappears again.
+ *   1. The sidebar's collapse button hides it and surfaces the expand
+ *      affordance in the pane's bar (`InstrumentBar`).
+ *   2. The expand button restores the sidebar and disappears again.
  *   3. State persists via localStorage (`moxxy.sidebarCollapsed`) — a
  *      "restart" (store re-read) comes back collapsed.
  *
- * WorkspaceSidebar's data hooks (client-core) and ProfilePill's Clerk
- * hooks are mocked — this suite only cares about the shell chrome.
+ * WorkspaceSidebar's data hooks (client-core) are mocked — this suite only
+ * cares about the shell chrome.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,6 +44,7 @@ vi.mock('@moxxy/client-core', () => ({
     remove: vi.fn(),
   }),
   useUnreadWorkspaces: () => [],
+  chatStore: { subscribe: () => () => undefined, getChat: () => ({ events: [], sending: false, activeTurnId: null }) },
   usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
 }));
 
@@ -85,10 +86,9 @@ describe('sidebar collapse', () => {
   it('collapse hides the sidebar, shows the header expand button, persists', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('sidebar-collapse'));
-    // The column stays MOUNTED so its width can animate (a thing that is not in
-    // the DOM cannot ease), so "collapsed" is no longer "absent from the DOM" —
-    // it is "zero width and out of reach". Both halves matter: zero width alone
-    // would leave its buttons focusable.
+    // The column stays mounted, so its list keeps its scroll position and its
+    // open groups. "Collapsed" is therefore "out of reach", not "absent": hidden
+    // from the accessibility tree and the tab order.
     expect(screen.getByTestId('index-column')).toHaveAttribute('data-collapsed', 'true');
     expect(screen.getByTestId('index-column')).toHaveAttribute('aria-hidden', 'true');
     // …and the main-pane header now carries the way back.

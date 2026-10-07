@@ -78,9 +78,10 @@ The CLI leads with `moxxy`, `moxxy resume`, `moxxy doctor`, and `moxxy
 extensions`. Connecting a model is part of first start; explicit onboarding,
 runtime, and channel commands remain available but do not dominate help.
 
-The desktop leads with Runs, Extensions, and Settings. Collaboration,
-automation, channels, voice, and mobile are optional capabilities, not primary
-navigation.
+The desktop leads with the conversation: a list of runs grouped by workspace,
+and the run you are in. Extensions, Settings, and the optional capabilities
+(collaboration, automation, apps, channels, voice, mobile) are reached from the
+account menu and the command palette, not from permanent navigation.
 
 Documentation has three paths:
 
