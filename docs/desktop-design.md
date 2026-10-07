@@ -77,6 +77,37 @@ Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
 control that opened it. A menu opened from the keyboard appears at once.
 
+## The conversation
+
+A run reads as a messenger conversation, on a 760 px measure centred in the
+pane.
+
+| Entry | How it is drawn |
+|---|---|
+| What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
+| What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble. |
+| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. |
+| Triggers, stops, errors | A note with a short label. |
+
+Under a message sit its time and, for an answer, copy, read aloud and feedback.
+That line always takes its height and is shown for the message under the
+pointer or holding focus, so revealing it moves nothing. On a touch screen it
+is always shown.
+
+`chat/trace/TraceEntry.tsx` maps an entry's kind to its side and owns the row.
+The bubble is drawn by the block inside it (`UserBlock`, `AssistantBlock`).
+
+The composer is one card on the same measure: a round add button, the field, a
+dictation button, and a round button that sends. While a turn runs the send
+button is Stop, and the field says a new message will queue. Attach, actions,
+goal, auto-approve, voice conversation and mode are in the add menu. The
+composer says what the next turn will do only when it is not the default:
+auto-approve on, or a goal waiting for its objective. The mode and the model
+are read in the header.
+
+`apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
+be checked in the stylesheet.
+
 ## Where the values live
 
 The desktop has its own palette pair, `desktopTokens` and `desktopDarkTokens`,
@@ -104,7 +135,8 @@ above are reimplemented here in Moxxy's own components.
    menu and the palette lead everywhere else, and the header is lower.
    `PRODUCT.md` changed in the same step, because it names the desktop's
    primary navigation.
-3. **Conversation**: bubbles and the compact composer.
+3. **Conversation** (done): bubbles, quiet work lines and the one-card
+   composer.
 4. **Right panel**: the workbench closed by default, opened from the header.
 5. **Other views**: Settings, Extensions, Automations, Apps, Channels, Mobile and
    onboarding, then the focus window.

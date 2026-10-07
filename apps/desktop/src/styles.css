@@ -119,6 +119,10 @@
   --color-amber-border:  #ead5a8;
   --color-amber-text:    #8a5707;
   --color-code-bg:       #f0f0f0;
+  /* The agent's bubble, the code and tables set into it, and its hairlines. */
+  --color-bubble:        #f2f2f2;
+  --color-bubble-inset:  #e7e7e7;
+  --color-bubble-rule:   #dadada;
 
   /* --- Desktop-only motion curves (not generated) ----------------------
    * The CSS keywords are too weak to read as intentional. Entrances and
@@ -126,6 +130,8 @@
    * panels that slide --ease-drawer. Colour and hover changes keep `ease`. */
   --frame-chat-row: 54px;
   --frame-avatar: 36px;
+  --frame-measure: 760px;
+  --radius-bubble: 18px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -217,6 +223,9 @@
   --color-amber-text:    #e8a33d;
   /* Inline code pops a step LIGHTER than the card it sits on. */
   --color-code-bg:       #2a2a2a;
+  --color-bubble:        #262626;
+  --color-bubble-inset:  #1c1c1c;
+  --color-bubble-rule:   #3a3a3a;
 
   /* Legacy literal aliases — see the note above the alias block. */
   --color-bg-card-hover:   #262626;
@@ -1852,25 +1861,22 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 /* Docked, these genuinely float above the pane, so here they get the card's
  * radius and shadow that permanent chrome does not. */
-.col-main--docked .cmdbar,
 .col-main--docked .ask-dock,
 .col-main--docked .voice-rail {
   border: 1px solid var(--color-card-border-strong);
   border-radius: var(--radius-card);
   box-shadow: var(--color-card-shadow);
 }
+/* The composer is already a card; docked, it fills the dock and takes the
+ * shadow. It is not clipped, so its + menu can open past its top edge. */
+.col-main--docked .cmdbar {
+  max-width: none;
+  padding: 0;
+}
+.col-main--docked .cmdbar__card { box-shadow: var(--color-card-shadow); }
 .col-main--docked .ask-dock,
 .col-main--docked .voice-rail {
   overflow: hidden;
-}
-/* The composer is NOT clipped to its card: its + menu and mode submenu open
- * upward past its edge. Its banded top row takes the corner radius instead. */
-.col-main--docked .cmdbar > :first-child {
-  border-top-left-radius: calc(var(--radius-card) - 1px);
-  border-top-right-radius: calc(var(--radius-card) - 1px);
-}
-.col-main--docked .cmdbar__keys {
-  display: none;
 }
 
 /* Tucks the floating composer away: a small round button on the corner of the
@@ -2093,7 +2099,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .activity-shimmer,
 .activity-row__label.activity-shimmer,
 .activity-detail-row__label.activity-shimmer,
-.tr__hd b.activity-shimmer {
+.tr__hd b.activity-shimmer,
+.disclosure__label.activity-shimmer,
+.reasoning__label.activity-shimmer {
   color: transparent;
   background: linear-gradient(
     100deg,
@@ -2520,212 +2528,567 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   .crumbs__ctx { display: none; }
 }
 
-/* --- The trace ---------------------------------------------------
- * Every entry hangs off ONE continuous hairline in a fixed gutter.
- *
- * What this replaces: three competing left edges at three different x positions
- * (a 34px avatar, the commanded block's own accent border, a blockquote's border)
- * plus activity rows that started at a fourth. Nothing established a line, so a
- * long run read as rubble. The gutter is the spine; the glyph at each crossing
- * says what kind of entry it is, which is the job the repeated avatars were
- * failing to do while being the widest thing on the left.
+/* --- The conversation --------------------------------------------
+ * A messenger: what the person said is a bubble on the right, what the agent
+ * said is a bubble on the left, and the work between them runs down the left
+ * as quiet lines. The column has a reading measure and sits centred in the
+ * pane, so a wide window does not stretch a sentence across it.
  */
 
-.tr {
-  display: grid;
-  grid-template-columns: var(--frame-rail) minmax(0, 1fr);
-  align-self: stretch;
-}
-
-.tr__gutter {
+.transcript {
   position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  justify-content: center;
-  padding-top: 3px;
+  flex-direction: column;
 }
+.transcript__scroller { flex: 1; }
+.transcript__lead { height: var(--space-16); }
+.transcript__row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--frame-measure);
+  margin: 0 auto;
+  padding: 0 var(--space-20);
+}
+.transcript__tail { padding-bottom: var(--space-12); }
 
-/* The line itself. It runs past the entry in both directions and is clipped by
- * the scroller, so consecutive entries join into one unbroken spine without any
- * one of them having to know its neighbours. */
-.tr__gutter::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: -40px;
-  bottom: -40px;
-  width: 1px;
-  background: var(--color-card-border);
-}
+/* A tool group is drawn straight into the row, without an entry around it. */
+.transcript__row > .activity-block { padding-bottom: var(--space-8); }
 
-.tr__glyph {
-  position: relative;
-  z-index: 1;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  border-radius: var(--radius-chip);
-  border: 1px solid var(--color-card-border);
-  background: var(--color-main-bg);
-  color: var(--color-text-dim);
-}
-
-/* The one entry the accent belongs to: what the human ordered. */
-.tr[data-kind='commanded'] .tr__glyph {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-}
-.tr[data-kind='agent'] .tr__glyph { color: var(--color-text); }
-.tr[data-kind='error'] .tr__glyph {
-  border-color: var(--color-red);
-  color: var(--color-red-text);
-}
-
-.tr__body {
+.tr {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
-  padding: 0 var(--space-24) var(--space-20) 0;
+  padding-bottom: var(--space-12);
 }
+.tr[data-role='user'] { align-items: flex-end; }
+/* The line under a message is its own spacing. */
+.tr:has(> .tr__foot) { padding-bottom: var(--space-2); }
+.tr[data-role='activity'] {
+  align-items: stretch;
+  padding-bottom: var(--space-8);
+}
+/* Work lines keep to the width of a bubble, so a count at their far end stays
+ * beside the line it counts. */
+.tr[data-role='activity'],
+.transcript__row > .activity-block { max-width: min(100%, 640px); }
+.tr[data-role='note'] { align-items: stretch; }
 
-/* The kicker: who this entry is, and when. Uppercase and dim, because it is
- * metadata — the entry's content is what should draw the eye. */
+/* What an entry is, for the entries whose body does not say it. */
 .tr__hd {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-8);
   min-height: 18px;
   font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
-.tr__hd b { font-weight: 600; color: var(--color-text-muted); letter-spacing: 0.12em; }
-.tr__meta { margin-left: auto; flex-shrink: 0; }
+.tr__hd b { font-weight: 600; color: var(--color-text-muted); }
+.tr[data-kind='error'] .tr__hd b { color: var(--color-red-text); }
+.tr__meta { flex-shrink: 0; font-size: var(--type-micro); color: var(--color-text-dim); }
 
-/* A system note keeps the spine but drops the kicker and the measure. */
-.tr[data-kind='system'] .tr__body,
-.tr[data-kind='error'] .tr__body { padding-bottom: var(--space-12); }
+/* Under a message: its actions and its time. The line always takes its height,
+ * so showing it moves nothing; it is only revealed for the message in hand. */
+.tr__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 24px;
+  padding: 0 var(--space-6);
+  opacity: 0;
+  transition: opacity var(--motion-shift) ease;
+}
+.tr:focus-within > .tr__foot { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  .tr:hover > .tr__foot { opacity: 1; }
+}
+@media (hover: none) {
+  .tr__foot { opacity: 1; }
+}
 
-/* --- The command bar --------------------------------------------
- * The composer, docked at the foot of the field. Not a floating rounded card
- * with a shadow: it is permanent chrome, and in this language a flat surface
- * does not cast a shadow — that is reserved for things genuinely above the panel.
- *
- * The division of labour with the instrument bar is deliberate. The bar at the
- * top reports what the run HAS done (context, tokens, state). The strip here
- * reports what the NEXT turn WILL do (mode, model, auto-approve, queue). Those
- * are two different questions and they were both crammed into the composer.
+/* --- Bubbles ----------------------------------------------------- */
+
+.bubble {
+  min-width: 0;
+  max-width: min(100%, 640px);
+  padding: var(--space-8) 14px;
+  border-radius: var(--radius-bubble);
+  font-family: var(--font-prose);
+  font-size: var(--type-prose);
+  line-height: 1.62;
+  font-variant-numeric: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The accent is the person's: it marks what they asked for. The corner nearest
+ * the edge is tighter, which is what makes a bubble point at its speaker. */
+.bubble--user {
+  max-width: min(82%, 560px);
+  white-space: pre-wrap;
+  color: var(--color-on-action);
+  background: var(--color-action);
+  border-bottom-right-radius: var(--radius-chip);
+}
+.bubble--user::selection { background: rgba(255, 255, 255, 0.32); }
+.bubble--user[data-clamped='true'] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 12;
+  overflow: hidden;
+}
+
+/* Code, tables and quotes set into the agent's bubble read against the bubble,
+ * not against the page, so the bubble re-points the tints they are drawn in. */
+.bubble--agent {
+  --color-input-soft: var(--color-bubble-inset);
+  --color-code-bg: var(--color-bubble-inset);
+  --color-card-border: var(--color-bubble-rule);
+  --color-card-border-strong: var(--color-bubble-rule);
+  color: var(--color-text);
+  background: var(--color-bubble);
+  border-bottom-left-radius: var(--radius-chip);
+}
+.bubble--agent > .markdown-body > :last-child { margin-bottom: 0; }
+.bubble__note {
+  margin: var(--space-6) 0 0;
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+
+.bubble-expand {
+  margin-top: var(--space-4);
+  padding: 2px var(--space-6);
+  border-radius: var(--radius-chip);
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+@media (hover: hover) and (pointer: fine) {
+  .bubble-expand:hover { color: var(--color-text); }
+}
+
+/* Full width, so the bubble's share of the row is measured against the row. */
+.user-turn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-6);
+  width: 100%;
+  min-width: 0;
+}
+
+/* Waiting on the first chunk: the agent's bubble with three dots in it. */
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 14px;
+}
+.thinking-dot:nth-child(2) { animation-delay: 160ms; }
+.thinking-dot:nth-child(3) { animation-delay: 320ms; }
+
+/* --- Attachments on a sent message ------------------------------- */
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-6);
+}
+.attachment-thumb {
+  padding: 0;
+  border-radius: var(--radius-card);
+  line-height: 0;
+  cursor: default;
+}
+.attachment-thumb[data-zoomable='true'] { cursor: zoom-in; }
+.attachment-thumb img {
+  max-width: 180px;
+  max-height: 180px;
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  object-fit: cover;
+}
+.attachment-file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  max-width: 320px;
+  padding: var(--space-4) var(--space-8);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-meta);
+  color: var(--color-text-muted);
+  background: var(--color-input-soft);
+}
+.attachment-file svg { flex-shrink: 0; }
+.attachment-file__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.attachment-file__size { flex-shrink: 0; white-space: nowrap; color: var(--color-text-dim); }
+
+/* --- Under an answer: copy, read aloud, feedback ----------------- */
+
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.msg-actions__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-chip);
+  color: var(--color-text-dim);
+  transition: color var(--motion-shift) ease, background-color var(--motion-shift) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+.msg-actions__btn:active { transform: scale(0.94); }
+.msg-actions__btn[aria-pressed='true'][data-tone='good'] { color: var(--color-green); }
+.msg-actions__btn[aria-pressed='true'][data-tone='bad'] { color: var(--color-red); }
+.msg-actions__btn[aria-pressed='true'][data-tone='accent'] { color: var(--color-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .msg-actions__btn:hover:not([aria-pressed='true']) {
+    color: var(--color-text);
+    background: var(--color-input-soft);
+  }
+}
+.msg-actions__error {
+  margin-left: var(--space-6);
+  font-size: var(--type-meta);
+  color: var(--color-red-text);
+}
+
+/* --- Reasoning, notes, triggers ---------------------------------- */
+
+.reasoning {
+  min-width: 0;
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+}
+.reasoning--withheld { font-style: italic; color: var(--color-text-dim); }
+.reasoning__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-height: var(--frame-tool);
+  color: var(--color-text-muted);
+}
+.reasoning__label { font-weight: 500; }
+.reasoning__body {
+  margin-top: var(--space-4);
+  padding-left: var(--space-12);
+  border-left: 2px solid var(--color-card-border);
+  color: var(--color-text-muted);
+}
+.reasoning__chevron,
+.disclosure__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-text-dim);
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+.reasoning__chevron[data-open='true'],
+.disclosure__chevron[data-open='true'] { transform: rotate(90deg); }
+
+.note {
+  font-size: var(--type-row);
+  color: var(--color-text-dim);
+  overflow-wrap: anywhere;
+}
+.note[data-tone='error'] { color: var(--color-red-text); }
+
+.trigger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-6);
+  max-width: min(100%, 640px);
+}
+.trigger__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-row);
+  font-weight: 500;
+  color: var(--color-text-dim);
+  background: var(--color-surface);
+}
+.trigger__chip b { font-weight: 600; color: var(--color-text); }
+.trigger__payload {
+  max-height: 360px;
+  overflow: auto;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-dim);
+  background: var(--color-surface);
+}
+
+/* --- Work with a body to open ------------------------------------ */
+
+.disclosure {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--frame-tool);
+  text-align: left;
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+}
+.disclosure__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.disclosure__detail { flex-shrink: 0; font-size: var(--type-meta); color: var(--color-text-dim); }
+.disclosure__meta {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+.disclosure__meta + .disclosure__chevron { margin-left: 0; }
+.disclosure__label + .disclosure__chevron,
+.disclosure__detail + .disclosure__chevron { margin-left: auto; }
+@media (hover: hover) and (pointer: fine) {
+  .disclosure:hover,
+  .reasoning__toggle:hover { color: var(--color-text); }
+}
+.disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+}
+.disclosure-body--tight { gap: var(--space-2); }
+.disclosure-body__meta { font-size: var(--type-meta); color: var(--color-text-dim); }
+
+/* --- The composer ------------------------------------------------
+ * One card at the foot of the conversation, on the conversation's measure:
+ * a round add button, the field, and a round button that sends. It lifts off
+ * the page by its fill and a hairline, and takes the accent on its edge while
+ * it has the keyboard.
  */
 
 .cmdbar {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--color-main-bg);
-  border-top: 1px solid var(--color-card-border);
+  gap: var(--space-6);
+  width: 100%;
+  max-width: var(--frame-measure);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-20) var(--space-16);
 }
 
-.cmdbar__strip {
+.cmdbar__card {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-bubble);
+  background: var(--color-surface);
+  transition: border-color var(--motion-shift) ease, box-shadow var(--motion-shift) ease;
+}
+.cmdbar__card:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+/* What the next turn will do, when it is not the default. */
+.cmdbar__status {
+  display: flex;
   flex-wrap: wrap;
   gap: var(--space-6);
-  /* Room ABOVE and BELOW the tags. At 27px with no vertical padding the outlined
-   * tags nearly touched both seams, which read as clipping rather than as a row. */
-  padding: var(--space-8) var(--space-16);
-  border-bottom: 1px solid var(--color-card-border);
-  background: var(--color-input-soft);
+  padding: var(--space-8) var(--space-12) 0;
 }
-
-.cmdbar__hint {
-  margin-left: auto;
-  flex-shrink: 0;
-  padding-left: var(--space-12);
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 2px var(--space-8);
+  border-radius: var(--radius-pill);
   font-size: var(--type-label);
-  letter-spacing: 0.06em;
-  color: var(--color-text-dim);
+  font-weight: 500;
   white-space: nowrap;
 }
+/* Tool calls running unreviewed is a caution, so it is the chip with a hue. */
+.status-chip[data-tone='warn'] { color: var(--color-amber-text); background: var(--color-amber-soft); }
+.status-chip[data-tone='accent'] { color: var(--color-primary-strong); background: var(--color-primary-soft); }
 
-/* Staged attachments and queued turns belong to the same content grid as the
- * input row. Without this inset their pills touched the field separator while
- * every control below started one spacing unit inward. */
+/* Staged attachments and queued turns, on the field's own inset. */
 .cmdbar__pending {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-6);
   min-width: 0;
-  padding: var(--space-8) var(--space-16) var(--space-4);
+  padding: var(--space-8) var(--space-12) 0;
 }
 
-/* One row: leading controls, the growing input, trailing actions. Aligned to
- * flex-END rather than flex-start so Send stays beside the last line you typed
- * as the input grows, instead of being pinned to the top of a tall box. */
+.cmdbar__notice,
+.mode-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-8) var(--space-8) 0;
+  padding: var(--space-6) var(--space-8);
+  border-radius: var(--radius-block);
+  font-size: var(--type-row);
+}
+.cmdbar__notice {
+  font-weight: 500;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
+.mode-banner { color: var(--color-text); background: var(--color-amber-soft); }
+.mode-banner[data-tone='info'] { background: var(--color-primary-soft); }
+.mode-banner__badge {
+  flex-shrink: 0;
+  padding: 1px var(--space-8);
+  border-radius: var(--radius-pill);
+  font-size: var(--type-label);
+  font-weight: 600;
+  color: var(--color-amber-text);
+  background: var(--color-surface);
+}
+.mode-banner[data-tone='info'] .mode-banner__badge { color: var(--color-primary-strong); }
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 2px solid var(--color-primary-soft);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: moxxy-spin 0.8s linear infinite;
+}
+
+/* The row: add, the growing field, the trailing actions. Aligned to the END so
+ * Send stays beside the last line typed as the field grows. */
 .cmdbar__in {
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: var(--space-8);
-  padding: var(--space-16);
+  gap: var(--space-6);
+  padding: var(--space-6);
 }
 
 /* The @ menu: as wide as the field it completes, rising out of it. */
-.mention-menu { left: var(--space-16); right: var(--space-16); bottom: calc(100% - var(--space-8)); }
+.mention-menu { left: var(--space-6); right: var(--space-6); bottom: calc(100% + var(--space-4)); }
 .mention-menu__row { cursor: pointer; }
 .mention-menu__row[data-active='true'] { color: var(--color-text); background: var(--color-input-soft); }
 .mention-menu__label { flex-shrink: 0; font-weight: 600; color: var(--color-text); }
 .mention-menu__hint { color: var(--color-text-dim); }
 
-/* The CHROME face, not prose — and this is a correction. The argument for prose
- * was that you are writing something a person reads, but the trace renders your
- * turn as a COMMAND in the chrome face (see UserBlock), so typing it in a
- * proportional face meant the text changed shape the moment you pressed send.
- * What you type and what you see it become are now the same lettering. */
+/* The same face and size the sent bubble is drawn in, so what is typed does
+ * not change shape when it is sent. */
 .cmdbar__ta {
   flex: 1;
   min-width: 0;
+  max-height: 190px;
   resize: none;
   overflow-y: auto;
-  padding: var(--space-4) 0;
-  font-family: var(--font-chrome);
-  font-size: var(--type-ui);
-  line-height: 1.55;
+  /* Centres one line in the 32px row the buttons set. */
+  padding: 5px var(--space-4);
+  font-family: var(--font-prose);
+  font-size: var(--type-prose);
+  line-height: 22px;
   color: var(--color-text);
   background: transparent;
   border: none;
   outline: none;
 }
 .cmdbar__ta::placeholder { color: var(--color-text-dim); }
-/* The focus ring belongs to the bar, not to a borderless textarea inside it. */
-.cmdbar:focus-within { box-shadow: inset 0 2px 0 var(--color-primary); }
 
 .cmdbar__acts {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  gap: var(--space-4);
   flex-shrink: 0;
 }
 
 .cmdbar__error {
   margin: 0;
-  padding: 0 var(--space-16) var(--space-8);
+  padding: 0 var(--space-12);
   font-size: var(--type-meta);
   color: var(--color-red-text);
 }
 
-/* The shortcut line. Quiet, permanent, and it changes with the state: while a
- * turn is in flight Enter QUEUES rather than sends, and saying so is cheaper
- * than letting someone discover it by surprise. */
-.cmdbar__keys {
-  margin: 0;
-  padding: 0 var(--space-16) var(--space-12);
-  /* The row above already carries the bar's bottom inset when this line is
-   * absent, so it only tightens the gap it sits in. */
-  margin-top: calc(-1 * var(--space-4));
-  font-size: var(--type-label);
-  letter-spacing: 0.04em;
+/* A round control in the composer's row. Quiet until it is pointed at; the
+ * filled one beside it is the only thing in the row asking to be pressed. */
+.composer-tools { position: relative; display: inline-flex; }
+.composer-tools__sub { position: relative; }
+.composer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  min-width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-meta);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition: color var(--motion-shift) ease, background-color var(--motion-shift) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+.composer-btn[data-wide='true'] { padding: 0 var(--space-12) 0 var(--space-8); }
+.composer-btn:active:not(:disabled) { transform: scale(0.94); }
+.composer-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.composer-btn[data-armed='true'],
+.composer-btn[data-tone='busy'] { color: var(--color-primary-strong); background: var(--color-primary-soft); }
+.composer-btn[data-tone='recording'] { color: var(--color-red-text); background: var(--color-red-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .composer-btn:hover:not(:disabled):not([data-tone='recording']):not([data-armed='true']) {
+    color: var(--color-text);
+    background: var(--color-input-soft);
+  }
+}
+
+.composer-send {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  color: var(--color-on-action);
+  background: var(--color-action);
+  transition: background-color var(--motion-shift) ease, color var(--motion-shift) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+.composer-send:active:not(:disabled) { transform: scale(0.94); }
+/* Nothing to send is not a muted accent: it is no accent at all. */
+.composer-send:disabled {
   color: var(--color-text-dim);
+  background: var(--color-input-soft);
+  cursor: default;
+}
+.composer-send[data-kind='stop'] { color: var(--color-main-bg); background: var(--color-text); }
+@media (hover: hover) and (pointer: fine) {
+  .composer-send[data-kind='send']:hover:not(:disabled) { background: var(--color-action-hover); }
+  .composer-send[data-kind='stop']:hover { background: var(--color-text-muted); }
 }
 
 /* --- Forms -----------------------------------------------------
@@ -2792,8 +3155,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .section-head__acts { margin-left: auto; display: flex; align-items: center; gap: var(--space-6); }
 
 /* --- Tags ------------------------------------------------------
- * The small state markers shared by the command strip. Sharp, outlined, and
- * uppercase — they are readouts, not buttons. */
+ * Small state markers: outlined and uppercase. They are readouts, not buttons. */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -2807,19 +3169,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   text-transform: uppercase;
   color: var(--color-text-muted);
   white-space: nowrap;
-}
-.tag--cmd { color: var(--color-primary); border-color: var(--color-primary); }
-/* Auto-approve means tool calls run unreviewed, which is a caution state, not a
- * neutral setting — it is the one tag that gets a hue for what it IS. */
-.tag--warn { color: var(--color-amber-text); border-color: var(--color-amber); }
-
-/* Every control in the action row is the same size and shape, whatever component
- * renders it — the row previously mixed a 38px circle, four 10px-radius pills and
- * an icon tile. */
-.cmdbar__in > button,
-.cmdbar__acts > button {
-  height: var(--frame-control);
-  flex-shrink: 0;
 }
 
 /* The step row's two columns. `name` is a fixed-width cell so the arguments line

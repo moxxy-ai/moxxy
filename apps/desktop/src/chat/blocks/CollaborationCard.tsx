@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { CollaborationBlock } from '@moxxy/chat-model';
-import { Icon } from '@moxxy/desktop-ui';
 import { ledState } from '@/collaborate/collab-view';
 import { TraceEntry } from '../trace/TraceEntry';
+import { DisclosureRow } from './DisclosureRow';
 
 /**
  * Inline chat-transcript summary of a collaborative run. Compact by default;
@@ -17,36 +17,21 @@ export function CollaborationCard({ block }: { readonly block: CollaborationBloc
   const state = running ? 'running' : block.conflicts.length > 0 ? 'awaiting' : 'done';
 
   return (
-    <TraceEntry
-      kind="subagent"
-      meta={
-        <>
-          {doneCount}/{block.agents.length} done · {block.messages.length} msg
-          {block.control?.paused ? ' · paused' : ''}
-        </>
-      }
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)', width: '100%', textAlign: 'left' }}
-      >
-        <span className="led" data-state={state} aria-hidden />
-        <span className={running ? 'activity-shimmer' : undefined} style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>
-          Team
-        </span>
-        <span style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
-          {block.agents.length} agent{block.agents.length === 1 ? '' : 's'}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span
-          aria-hidden
-          style={{ color: 'var(--color-text-dim)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform var(--motion-shift) ease', display: 'inline-flex' }}
-        >
-          <Icon name="chevron-right" size={12} />
-        </span>
-      </button>
+    <TraceEntry kind="subagent">
+      <DisclosureRow
+        state={state}
+        label="Team"
+        detail={`${block.agents.length} agent${block.agents.length === 1 ? '' : 's'}`}
+        meta={
+          <>
+            {doneCount}/{block.agents.length} done · {block.messages.length} msg
+            {block.control?.paused ? ' · paused' : ''}
+          </>
+        }
+        live={running}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {block.fallbackReason && (
         <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-amber-text)', marginTop: 2 }}>
           {block.fallbackReason}

@@ -1,6 +1,7 @@
 import { MarkdownBody } from '../MarkdownBody';
-import { ActionRow } from './ActionRow';
 
+/** What the agent said, as its bubble. The time and the actions that go with
+ *  an answer belong to the entry around it. */
 export function AssistantBlock({
   text,
   streaming,
@@ -10,30 +11,11 @@ export function AssistantBlock({
   readonly streaming: boolean;
   readonly stopReason?: string;
 }): JSX.Element {
+  const cutShort = stopReason !== undefined && stopReason !== '' && stopReason !== 'end_turn';
   return (
-    <div data-testid="block-assistant" data-streaming={streaming}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ marginTop: 2 }}>
-          <MarkdownBody text={text} streaming={streaming} />
-        </div>
-        {stopReason && stopReason !== 'end_turn' && (
-          <div
-            className="mono"
-            style={{
-              marginTop: 6,
-              fontSize: 'var(--type-label)',
-              color: 'var(--color-text-dim)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            stop: {stopReason.replace(/_/g, ' ')}
-          </div>
-        )}
-        {!streaming && <ActionRow text={text} />}
-      </div>
+    <div className="bubble bubble--agent" data-testid="block-assistant" data-streaming={streaming}>
+      <MarkdownBody text={text} streaming={streaming} />
+      {cutShort && <p className="bubble__note">Stopped: {stopReason.replace(/_/g, ' ')}</p>}
     </div>
   );
 }
-
-

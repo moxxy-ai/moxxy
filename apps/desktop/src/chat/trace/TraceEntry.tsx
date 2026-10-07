@@ -1,23 +1,17 @@
 import type { ReactNode } from 'react';
-import { Icon, type IconName } from '@moxxy/desktop-ui';
 
 /**
- * One entry in the trace.
+ * One entry in the conversation.
  *
- * The transcript used to be a bag of shapes: some entries were cards, some were
- * bare rows, some carried a 34px avatar, some were centre-aligned, and each one
- * set its own margins. Nothing established a line for the eye to follow, so a
- * long run read as rubble.
+ * The kind decides the side: what the person said sits on the right, what the
+ * agent said on the left, and the work in between (tools, reasoning,
+ * sub-agents) runs down the left as quiet lines. A note is something neither of
+ * them said: a trigger, a stop, an error.
  *
- * Every entry now hangs off ONE continuous hairline in a fixed gutter, with a
- * small typed glyph where it meets the line. That single device does the work the
- * avatars were failing to do: it says what kind of thing this is, it gives the
- * column a spine, and it makes a forty-minute run scannable by shape rather than
- * by reading. Avatars are gone; a repeated 34px portrait of the same two
- * participants is decoration, and it was the widest thing on the left edge.
+ * The entry owns the row and what hangs under a message. The bubble is drawn
+ * by the block inside it.
  */
 
-/** The entry kinds, and the glyph each one hangs on the timeline. */
 export type TraceKind =
   | 'commanded'
   | 'agent'
@@ -30,61 +24,61 @@ export type TraceKind =
   | 'system'
   | 'error';
 
-const GLYPH: Record<TraceKind, IconName> = {
-  commanded: 'send',
-  // Not the mark: the full weave stops resolving below 20px (brand rule), and
-  // this glyph is 11px. One strand of it reads at that size; the whole thing
-  // collapses into a rosette.
-  agent: 'spark',
-  reasoning: 'context',
-  tool: 'wrench',
-  diff: 'diff',
-  terminal: 'terminal',
-  subagent: 'agent',
-  trigger: 'workflow',
-  system: 'context',
-  error: 'x',
+type TraceRole = 'user' | 'agent' | 'activity' | 'note';
+
+const ROLE: Record<TraceKind, TraceRole> = {
+  commanded: 'user',
+  agent: 'agent',
+  reasoning: 'activity',
+  tool: 'activity',
+  diff: 'activity',
+  terminal: 'activity',
+  subagent: 'activity',
+  trigger: 'note',
+  system: 'note',
+  error: 'note',
 };
 
 export function TraceEntry({
   kind,
   label,
   meta,
+  actions,
   live = false,
   children,
   testId,
 }: {
   readonly kind: TraceKind;
-  /** Uppercase kicker: who or what this entry is. Omit for entries whose body
-   *  already says it (a bare tool row). */
+  /** What this entry is, for the entries whose body does not already say it. */
   readonly label?: string;
-  /** Right-aligned trailing detail — a timestamp, a duration, a count. */
+  /** A trailing detail: the time of a message, the count of an activity. */
   readonly meta?: ReactNode;
-  /** Work is in flight. The kicker takes the same moving luminance band the
-   *  activity rows use, so "this is running" is ONE idiom across the trace
-   *  rather than a shimmer here and a spinner there. */
+  /** Controls that act on a message; they sit under it with its time. */
+  readonly actions?: ReactNode;
+  /** Work is in flight: the label takes the moving band the activity rows use. */
   readonly live?: boolean;
   readonly children: ReactNode;
   readonly testId?: string;
 }): JSX.Element {
+  const role = ROLE[kind];
+  const isMessage = role === 'user' || role === 'agent';
+  const hasFoot = isMessage && (meta !== undefined || actions !== undefined);
+  const hasHead = label !== undefined || (!isMessage && meta !== undefined);
   return (
-    <div className="tr" data-kind={kind} data-testid={testId}>
-      <div className="tr__gutter" aria-hidden>
-        <span className="tr__glyph">
-          <Icon name={GLYPH[kind]} size={11} />
-        </span>
-      </div>
-      <div className="tr__body">
-        {(label !== undefined || meta !== undefined) && (
-          <div className="tr__hd">
-            {label !== undefined && (
-              <b className={live ? 'activity-shimmer' : undefined}>{label}</b>
-            )}
-            {meta !== undefined && <span className="tr__meta">{meta}</span>}
-          </div>
-        )}
-        {children}
-      </div>
+    <div className="tr" data-kind={kind} data-role={role} data-testid={testId}>
+      {hasHead && (
+        <div className="tr__hd">
+          {label !== undefined && <b className={live ? 'activity-shimmer' : undefined}>{label}</b>}
+          {!isMessage && meta !== undefined && <span className="tr__meta">{meta}</span>}
+        </div>
+      )}
+      {children}
+      {hasFoot && (
+        <div className="tr__foot">
+          {actions}
+          {meta !== undefined && <span className="tr__meta">{meta}</span>}
+        </div>
+      )}
     </div>
   );
 }

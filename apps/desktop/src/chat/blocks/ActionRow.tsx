@@ -33,43 +33,40 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
   );
 
   return (
-    <div style={{ marginTop: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, color: 'var(--color-text-dim)' }}>
-        <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} activeColor="var(--color-green)" onClick={() => void onCopy()}>
-          <Icon name={copied ? 'check' : 'copy'} size={15} />
-        </ActBtn>
-        {isSpeechSupported() && (
-          <ActBtn
-            label={readAloud.active ? 'Stop' : 'Read aloud'}
-            active={readAloud.active}
-            activeColor="var(--color-primary)"
-            onClick={readAloud.toggle}
-          >
-            <Icon name={readAloud.active ? 'stop' : 'speaker'} size={15} />
-          </ActBtn>
-        )}
-        <span aria-hidden style={{ width: 1, height: 14, background: 'var(--color-card-border)', margin: '0 5px' }} />
+    <div className="msg-actions">
+      <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} tone="good" onClick={() => void onCopy()}>
+        <Icon name={copied ? 'check' : 'copy'} size={14} />
+      </ActBtn>
+      {isSpeechSupported() && (
         <ActBtn
-          label="Good response"
-          active={feedback === 'up'}
-          activeColor="var(--color-green)"
-          onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+          label={readAloud.active ? 'Stop' : 'Read aloud'}
+          active={readAloud.active}
+          tone="accent"
+          onClick={readAloud.toggle}
         >
-          <Icon name="thumbs-up" size={15} />
+          <Icon name={readAloud.active ? 'stop' : 'speaker'} size={14} />
         </ActBtn>
-        <ActBtn
-          label="Bad response"
-          active={feedback === 'down'}
-          activeColor="var(--color-red)"
-          onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-        >
-          <Icon name="thumbs-down" size={15} />
-        </ActBtn>
-      </div>
+      )}
+      <ActBtn
+        label="Good response"
+        active={feedback === 'up'}
+        tone="good"
+        onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+      >
+        <Icon name="thumbs-up" size={14} />
+      </ActBtn>
+      <ActBtn
+        label="Bad response"
+        active={feedback === 'down'}
+        tone="bad"
+        onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+      >
+        <Icon name="thumbs-down" size={14} />
+      </ActBtn>
       {readAloud.errorReason && (
-        <p role="alert" style={{ margin: '4px 0 0', fontSize: 'var(--type-meta)', color: 'var(--color-red)' }}>
+        <span className="msg-actions__error" role="alert">
           TTS failed: {readAloud.errorReason}
-        </p>
+        </span>
       )}
     </div>
   );
@@ -78,33 +75,26 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
 function ActBtn({
   label,
   active,
-  activeColor,
+  tone,
   onClick,
   children,
 }: {
   readonly label: string;
   readonly active: boolean;
-  readonly activeColor: string;
+  /** The hue the control takes while it is on. */
+  readonly tone: 'good' | 'bad' | 'accent';
   readonly onClick: () => void;
   readonly children: React.ReactNode;
 }): JSX.Element {
   return (
     <button
       type="button"
-      className="btn-icon"
+      className="msg-actions__btn"
+      data-tone={tone}
       aria-label={label}
       title={label}
       aria-pressed={active}
       onClick={onClick}
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: 'var(--radius-block)',
-        color: active ? activeColor : 'var(--color-text-dim)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
     >
       {children}
     </button>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatTokensK, type SubagentBlock, type SubagentGroupBlock } from '@moxxy/chat-model';
-import { Icon } from '@moxxy/desktop-ui';
+import { DisclosureRow } from './DisclosureRow';
 import { SubagentDetail } from './SubagentView';
 import { TraceEntry } from '../trace/TraceEntry';
 
@@ -29,37 +29,15 @@ export function SubagentGroupView({
 
   return (
     <TraceEntry kind="subagent" testId="block-subagent-group">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-6)',
-          width: '100%',
-          textAlign: 'left',
-        }}
-      >
-        <span className="led" data-state={ledState(running, failed)} aria-hidden />
-        <span className={running > 0 ? 'activity-shimmer' : undefined} style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>
-          {headerLabel(block, running, failed)}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span
-          aria-hidden
-          style={{
-            color: 'var(--color-text-dim)',
-            transform: open ? 'rotate(90deg)' : 'none',
-            transition: 'transform var(--motion-shift) ease',
-            display: 'inline-flex',
-          }}
-        >
-          <Icon name="chevron-right" size={12} />
-        </span>
-      </button>
+      <DisclosureRow
+        state={ledState(running, failed)}
+        label={headerLabel(block, running, failed)}
+        live={running > 0}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && (
-        <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div className="disclosure-body disclosure-body--tight">
           {block.agents.map((agent) => (
             <AgentTreeRow key={agent.id} agent={agent} />
           ))}

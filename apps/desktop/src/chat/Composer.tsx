@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,7 +9,6 @@ import {
 import { Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
 import { useQueuedTurns } from '@moxxy/client-core';
-import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
@@ -19,14 +17,16 @@ import { usePalettePlaces } from '../shell/navigation/usePalettePlaces';
 import type { AgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
 import { CommandPalette } from './CommandPalette';
-import { ToolChip } from './composer/ToolChip';
-import { VoiceModeButton } from './composer/VoiceModeButton';
+import { ComposerButton } from './composer/ComposerButton';
+import { ComposerStatus } from './composer/ComposerStatus';
+import { SendButton } from './composer/SendButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { MentionMenu } from './composer/MentionMenu';
 import { useComposerMentions } from './composer/useComposerMentions';
-import { sendBtn } from './composer/composer-styles';
+import { useAutoGrow } from './composer/useAutoGrow';
+import { useDictation } from './composer/useDictation';
 import {
   useComposerAttachments,
   type ComposerAttachment,
@@ -50,8 +50,8 @@ interface ComposerProps {
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
   /** While a voice conversation is open the rail owns the microphone, so the
-   *  composer hides its one-shot dictation chip and the button that would
-   *  start a second conversation. Typing, attachments and Send stay. */
+   *  composer hides its dictation button and the menu entry that would start a
+   *  second conversation. Typing, attachments and Send stay. */
   readonly voiceModeActive?: boolean;
   readonly onOpenVoiceCall: () => void;
   readonly onSend: (
@@ -63,26 +63,21 @@ interface ComposerProps {
 }
 
 /**
- * The command bar: a panel docked at the foot of the field, not a floating card.
+ * The composer: one card at the foot of the conversation.
  *
- *   Enter         send — or QUEUE, while a turn is in flight
+ *   [+]  the field                         [mic] [send]
+ *
+ *   Enter         send, or queue while a turn is in flight
  *   Shift+Enter   newline
  *   ⌘↵ / Ctrl+↵   send (kept for terminal muscle memory)
  *   Esc           stand down an armed goal, else clear the draft
  *
- * Its status strip reports what the NEXT turn will do (mode, model,
- * auto-approve, queue depth); what the run HAS done is the instrument bar's job
- * at the top of the field. Both used to be crammed in here, which is why neither
- * was legible.
+ * Everything that is not typing or sending lives in the "+" menu. What the
+ * next turn will do is said above the field only when it is not the default
+ * (auto-approve, an armed goal); the mode and the model are read in the header.
  *
- * The action row is icon-only apart from the states that must be readable
- * without hovering ("Listening…", and the Send label, which says "Queue"
- * mid-turn because that is what pressing it does). Attach and the mode/goal
- * controls live in the "+" menu.
- *
- * Pasting an image (e.g. a screenshot) attaches it: the bytes are persisted to a
- * temp file by the main process and added as a regular attachment chip. The
- * textarea auto-grows to fit the draft.
+ * Pasting an image attaches it: the main process writes the bytes to a temp
+ * file and it joins the staged attachments. The field grows with the draft.
  */
 export function Composer({
   agent,
@@ -98,32 +93,17 @@ export function Composer({
   onPreviewImage,
 }: ComposerProps): JSX.Element {
   const [draft, setDraft] = useState('');
-  const [hasTranscriber, setHasTranscriber] = useState(false);
-  const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
-  const voice = useVoiceRecorder({
+  const dictation = useDictation({
     workspaceId,
+    ready,
+    suspended: voiceModeActive,
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
-  // Goal is a STATE of the command bar, not a modal. A dialog to type one line
-  // that then goes through the same send path was a second composer stacked on
-  // top of the first — same textarea, same Enter-to-submit, same draft, plus a
-  // backdrop and a focus trap. Arming it here reuses the draft you already typed.
+  // A goal is a state of the composer, not a dialog: arming it reuses the draft
+  // already typed and the same send path.
   const [goalArmed, setGoalArmed] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  // The "no transcriber" toast auto-clears after a delay; track the timer so
-  // repeated voice clicks don't stack timers and so it can't fire setState
-  // after the composer unmounts (workspace switch).
-  const noTranscriberTimer = useRef<number | undefined>(undefined);
-
-  // Voice Mode takes the microphone for the whole conversation, so a one-shot
-  // dictation that happens to be running has to let go first — two capture
-  // leases on one device is how you get a recording that never resolves.
-  const cancelDictation = voice.cancel;
-  const dictating = voice.phase === 'recording' || voice.phase === 'transcribing';
-  useEffect(() => {
-    if (voiceModeActive && dictating) cancelDictation();
-  }, [voiceModeActive, dictating, cancelDictation]);
 
   /** Stable callback for the attachment hooks to refocus the textarea. */
   const focusInput = useCallback(() => taRef.current?.focus(), []);
@@ -154,9 +134,6 @@ export function Composer({
   const closeGoal = useCallback(() => setGoalArmed(false), []);
 
   const inFlight = activeTurnId !== null || sending;
-  const info = agent.info;
-  // Model name only, matching the instrument bar's agent cell.
-  const modelLabel = agent.selectedModel ?? info?.activeProvider ?? null;
   // The user can type / submit even while a turn is running — the
   // send() call queues it; the drainer ships it the moment the
   // current turn completes. A compaction is the one exception: the
@@ -174,7 +151,6 @@ export function Composer({
   // knows an autonomous mode is driving the session.
   const modeBadge = useActiveModeBadge(workspaceId);
 
-
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
   const { submit, setAutoApprove, startGoal } = useComposerSubmit({
@@ -188,23 +164,6 @@ export function Composer({
     clearAttachments,
     closeGoal,
   });
-
-  // Probe transcriber availability when the connection comes up.
-  useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
-    void api()
-      .invoke('session.hasTranscriber')
-      .then((has) => {
-        if (!cancelled) setHasTranscriber(has);
-      })
-      .catch(() => {
-        if (!cancelled) setHasTranscriber(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [ready]);
 
   // The auto-approve flag lives on the per-workspace driver, which is
   // recreated when the runner reconnects (resetting to off). Re-apply our
@@ -223,7 +182,7 @@ export function Composer({
   // this workspace via composerDraftStore; drain it into the composer for the
   // user to review and send. APPEND to an in-progress draft rather than clobber
   // it (the user may have started typing), then focus + put the caret at the end
-  // so Enter sends immediately. The auto-grow effect below resizes for free.
+  // so Enter sends immediately.
   const pendingDraft = usePendingComposerDraft(workspaceId);
   useEffect(() => {
     if (pendingDraft == null) return;
@@ -237,17 +196,7 @@ export function Composer({
     });
   }, [pendingDraft, workspaceId]);
 
-  // Auto-grow: size the textarea to its content so the composer
-  // expands as the draft gains lines — whether from a Shift+Enter
-  // newline or a long line soft-wrapping. Reset to 'auto' before
-  // measuring so it also shrinks back when the draft is cleared or
-  // trimmed. Capped at MAX_TEXTAREA_HEIGHT, past which it scrolls.
-  useLayoutEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.min(MAX_TEXTAREA_HEIGHT, ta.scrollHeight)}px`;
-  }, [draft]);
+  useAutoGrow(taRef, draft, MAX_TEXTAREA_HEIGHT);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // The open @ menu has the arrows, Enter/Tab and Escape before anything else.
@@ -283,38 +232,11 @@ export function Composer({
     submit();
   };
 
-  const onVoiceClick = useCallback(() => {
-    if (voice.phase === 'recording') {
-      voice.toggle();
-      return;
-    }
-    if (!hasTranscriber) {
-      setNoTranscriberMsg('No transcriber configured on the runner.');
-      if (noTranscriberTimer.current !== undefined) {
-        window.clearTimeout(noTranscriberTimer.current);
-      }
-      noTranscriberTimer.current = window.setTimeout(() => setNoTranscriberMsg(null), 2500);
-      return;
-    }
-    voice.toggle();
-  }, [hasTranscriber, voice]);
-
-  // Clear the pending "no transcriber" toast timer on unmount.
-  useEffect(
-    () => () => {
-      if (noTranscriberTimer.current !== undefined) {
-        window.clearTimeout(noTranscriberTimer.current);
-      }
-    },
-    [],
-  );
-
-  // "+" overflow tools. Mode joins as a disclosure submenu once session.info is
-  // ready (collaboration modes filtered out by the hook); it's locked while a
-  // turn is in flight, matching the old chip.
+  // The "+" menu. Mode joins as a submenu once session.info is ready
+  // (collaboration modes are filtered out by the hook) and locks while a turn
+  // is in flight.
   const overflowItems: OverflowMenuItem[] = [
-    // Attach leads: it is the thing reached for most often, and it used to sit
-    // outside as its own button in a row that already had too many.
+    // Attach leads: it is the one reached for most often.
     { icon: 'attach', label: 'Attach file', onClick: () => void onAttach() },
     { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
     {
@@ -335,6 +257,14 @@ export function Composer({
       active: autoApprove,
     },
   ];
+  if (!voiceModeActive) {
+    overflowItems.push({
+      icon: 'speaker',
+      label: 'Voice conversation',
+      disabled: !ready || compacting || inFlight,
+      onClick: onOpenVoiceCall,
+    });
+  }
   if (agent.info) {
     overflowItems.push({
       icon: 'sliders',
@@ -349,205 +279,116 @@ export function Composer({
     });
   }
 
+  const notice = dictation.notice ?? attachError;
+  const sendAction = goalArmed ? 'Start goal' : queued.length > 0 ? 'Queue' : 'Send';
+
   return (
     <form
       data-testid="composer"
+      className="cmdbar"
       onSubmit={(e) => {
         e.preventDefault();
         send();
       }}
-      // A docked panel with a top seam, not a floating rounded card with a
-      // shadow. It is permanent chrome at the foot of the field, and in this
-      // language a flat surface does not cast a shadow — that is reserved for
-      // things that genuinely float above the panel (menus, modals).
-      className="cmdbar"
     >
-      {modeBadge && <ModeBanner badge={modeBadge} />}
-      {/* The status strip: what the NEXT turn will do. The instrument bar above
-          reports what the run HAS done; these are the settings in force when you
-          press send, which is why they belong to the composer and the telemetry
-          does not. */}
-      <div className="cmdbar__strip">
-        {info?.activeMode && <span className="tag tag--cmd">{info.activeMode}</span>}
-        {modelLabel && <span className="tag">{modelLabel}</span>}
-        {autoApprove && (
-          <span className="tag tag--warn" data-testid="composer-auto-approve">
-            auto-approve on
-          </span>
+      <div className="cmdbar__card">
+        {modeBadge && <ModeBanner badge={modeBadge} />}
+        <ComposerStatus
+          autoApprove={autoApprove}
+          goalArmed={goalArmed}
+          onStandDownGoal={closeGoal}
+        />
+        {(attachments.length > 0 || queued.length > 0) && (
+          <div className="cmdbar__pending">
+            {attachments.map((a) => (
+              <AttachmentChip
+                key={a.path}
+                name={a.name}
+                path={a.path}
+                preview={attachmentPreviews.get(a.path)}
+                onPreview={onPreviewImage}
+                onRemove={() => removeAttachment(a.path)}
+              />
+            ))}
+            {queued.map((q) => (
+              <QueuedChip
+                key={q.id}
+                text={q.prompt}
+                onRemove={() => chatStore.dropFromQueue(workspaceId, q.id)}
+              />
+            ))}
+          </div>
         )}
-        {goalArmed && (
-          <button
-            type="button"
-            className="tag tag--cmd"
-            data-testid="composer-goal-armed"
-            title="Stand down (Esc)"
-            onClick={() => setGoalArmed(false)}
-          >
-            goal <Icon name="x" size={10} />
-          </button>
+        {compacting && (
+          <div className="cmdbar__notice" role="status">
+            <span className="spinner" aria-hidden />
+            Compacting context — summarizing older turns to free up the window…
+          </div>
         )}
-        <span className="cmdbar__hint">
-          {queued.length > 0 && `${queued.length} queued · `}
-          {inFlight ? 'turn in flight' : 'ready'} · ⌘K commands
-        </span>
-      </div>
-      {(attachments.length > 0 || queued.length > 0) && (
-        <div className="cmdbar__pending">
-          {attachments.map((a) => (
-            <AttachmentChip
-              key={a.path}
-              name={a.name}
-              path={a.path}
-              preview={attachmentPreviews.get(a.path)}
-              onPreview={onPreviewImage}
-              onRemove={() => removeAttachment(a.path)}
-            />
-          ))}
-          {queued.map((q) => (
-            <QueuedChip
-              key={q.id}
-              text={q.prompt}
-              onRemove={() => chatStore.dropFromQueue(workspaceId, q.id)}
-            />
-          ))}
-        </div>
-      )}
-      {compacting && (
-        <div
-          role="status"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '7px 10px',
-            marginBottom: 6,
-            fontSize: 'var(--type-row)',
-            fontWeight: 600,
-            color: 'var(--color-primary-strong)',
-            background: 'var(--color-primary-soft)',
-            borderRadius: 'var(--radius-block)',
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 13,
-              height: 13,
-              borderRadius: '50%',
-              border: '2px solid var(--color-primary-soft)',
-              borderTopColor: 'var(--color-primary)',
-              animation: 'moxxy-spin 0.8s linear infinite',
+        <div className="cmdbar__in">
+          {mentions.open && (
+            <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
+          )}
+          <OverflowMenu highlighted={autoApprove || modeBadge != null} items={overflowItems} />
+          <textarea
+            ref={taRef}
+            data-testid="composer-input"
+            aria-label="prompt"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mentions.trackCaret(e.target);
             }}
+            onSelect={(e) => mentions.trackCaret(e.currentTarget)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            placeholder={placeholderFor({
+              ready,
+              compacting,
+              goalArmed,
+              inFlight,
+              hasAttachments: attachments.length > 0,
+            })}
+            disabled={!ready || compacting}
+            rows={1}
+            className="cmdbar__ta"
           />
-          Compacting context — summarizing older turns to free up the window…
-        </div>
-      )}
-      <div className="cmdbar__in">
-        {mentions.open && (
-          <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
-        )}
-        <OverflowMenu
-          highlighted={autoApprove || modeBadge != null}
-          items={overflowItems}
-        />
-        <textarea
-          ref={taRef}
-          data-testid="composer-input"
-          aria-label="prompt"
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            mentions.trackCaret(e.target);
-          }}
-          onSelect={(e) => mentions.trackCaret(e.currentTarget)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          placeholder={
-            compacting
-              ? 'Compacting context…'
-              : goalArmed
-                ? 'Set your goal — moxxy works until it is reached…'
-                : attachments.length > 0
-                  ? 'Ask about the attached file…'
-                  : ready
-                    ? 'Send a message to the agent…'
-                    : 'Waiting for runner…'
-          }
-          disabled={!ready || compacting}
-          rows={1}
-          className="cmdbar__ta"
-          style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
-        />
-        <div className="cmdbar__acts">
-          {!voiceModeActive && (
-          <ToolChip
-            label={voice.phase === 'recording' ? 'Stop recording' : 'Voice input'}
-            showLabel={voice.phase !== 'idle'}
-            onClick={onVoiceClick}
-            tone={
-              voice.phase === 'recording'
-                ? 'recording'
-                : voice.phase === 'transcribing'
-                  ? 'busy'
-                  : 'idle'
-            }
-          >
-            <Icon name="mic" size={15} />
-            {/* The word appears only while recording or transcribing: those are
-                states you must be able to read WITHOUT hovering. Idle voice is
-                just an icon. */}
-            {voice.phase !== 'idle' && (
-              <span>{voice.phase === 'recording' ? 'Listening…' : 'Transcribing…'}</span>
+          <div className="cmdbar__acts">
+            {!voiceModeActive && (
+              <ComposerButton
+                label={dictation.phase === 'recording' ? 'Stop recording' : 'Voice input'}
+                wide={dictation.phase !== 'idle'}
+                onClick={dictation.press}
+                tone={
+                  dictation.phase === 'recording'
+                    ? 'recording'
+                    : dictation.phase === 'transcribing'
+                      ? 'busy'
+                      : 'idle'
+                }
+              >
+                <Icon name="mic" size={16} />
+                {/* The word shows only while recording or transcribing: states
+                    that have to be readable without hovering. */}
+                {dictation.phase !== 'idle' && (
+                  <span>{dictation.phase === 'recording' ? 'Listening…' : 'Transcribing…'}</span>
+                )}
+              </ComposerButton>
             )}
-          </ToolChip>
-          )}
-          {!voiceModeActive && (
-            <VoiceModeButton
-              disabled={!ready || compacting || inFlight}
-              onOpen={onOpenVoiceCall}
-            />
-          )}
-          {inFlight ? (
-            <button
-              type="button"
-              className="btn-cta"
-              data-testid="composer-abort"
-              onClick={onAbort}
-              style={sendBtn('var(--color-red)', true, 'var(--color-on-primary)')}
-              aria-label="Abort"
-            >
-              <Icon name="stop" size={14} />
-              <span>Stop</span>
-            </button>
-          ) : (
-            <button
-              type="submit"
-              className="btn-cta"
-              data-testid="composer-send"
+            <SendButton
+              running={inFlight}
+              action={sendAction}
               disabled={!canSubmit}
-              style={sendBtn('var(--color-action)', canSubmit)}
-              aria-label={inFlight ? 'Queue' : 'Send'}
-            >
-              {/* Says what it will actually DO: mid-turn a submit queues behind the
-                  running turn rather than sending, and the button is the only place
-                  someone would look before pressing it. */}
-              <span>
-                {goalArmed ? 'Start goal' : queued.length > 0 || inFlight ? 'Queue' : 'Send'}
-              </span>
-              <Icon name="send" size={14} />
-            </button>
-          )}
+              onStop={onAbort}
+            />
+          </div>
         </div>
       </div>
-      {(voice.errorReason ?? noTranscriberMsg ?? attachError) && (
+      {notice && (
         <p className="cmdbar__error" role="status">
-          {voice.errorReason ?? noTranscriberMsg ?? attachError}
+          {notice}
         </p>
       )}
-      <p className="cmdbar__keys">
-        {inFlight ? 'Enter queues behind the running turn' : 'Enter sends'} · Shift+Enter
-        newline · Esc clears · ⌘/ shortcuts
-      </p>
       {actionsOpen && (
         <CommandPalette
           workspaceId={workspaceId}
@@ -556,7 +397,23 @@ export function Composer({
           onClose={() => setActionsOpen(false)}
         />
       )}
-
     </form>
   );
+}
+
+/** What the empty field says. It names the one thing that differs from an
+ *  ordinary message: a lock, a goal, a queue. */
+function placeholderFor(state: {
+  readonly ready: boolean;
+  readonly compacting: boolean;
+  readonly goalArmed: boolean;
+  readonly inFlight: boolean;
+  readonly hasAttachments: boolean;
+}): string {
+  if (state.compacting) return 'Compacting context…';
+  if (!state.ready) return 'Waiting for runner…';
+  if (state.goalArmed) return 'Set your goal — Moxxy works until it is reached…';
+  if (state.inFlight) return 'Queue a follow-up…';
+  if (state.hasAttachments) return 'Ask about the attached file…';
+  return 'Message Moxxy…';
 }

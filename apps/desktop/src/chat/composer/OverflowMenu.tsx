@@ -30,9 +30,9 @@ interface OverflowMenuProps {
 }
 
 /**
- * The composer's "+" overflow button. Collapses the less-frequent tools
- * (Actions / Goal / Auto-approve / Mode) into a single left-aligned trigger
- * that opens a small popover above it, keeping the toolbar compact. A `submenu`
+ * The composer's "+" button. Holds everything that is not typing or sending
+ * (attach, actions, goal, auto-approve, voice, mode) in a menu that opens
+ * above it. A `submenu`
  * item (Mode) discloses its options as a flyout to the side. Closes on
  * outside-click, Escape, or item selection.
  */
@@ -72,12 +72,12 @@ export function OverflowMenu({
     };
   }, [open, openSub]);
 
-  const armed = highlighted || open;
   return (
-    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
+    <div ref={rootRef} className="composer-tools">
       <button
         type="button"
-        className="btn-chip"
+        className="composer-btn"
+        data-armed={highlighted || open ? 'true' : undefined}
         aria-label="More tools"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -85,20 +85,6 @@ export function OverflowMenu({
         onClick={() => {
           setOpen((o) => !o);
           setOpenSub(null);
-        }}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minWidth: 'var(--frame-control)',
-          height: 'var(--frame-control)',
-          padding: 0,
-          lineHeight: 1,
-          border: `1px solid ${armed ? 'var(--color-primary)' : 'var(--color-card-border)'}`,
-          borderRadius: 'var(--radius-block)',
-          background: armed ? 'var(--color-primary-soft)' : 'var(--color-surface)',
-          color: armed ? 'var(--color-primary-strong)' : 'var(--color-text-muted)',
-          cursor: disabled ? 'default' : 'pointer',
         }}
       >
         <Icon name="plus" size={16} />
@@ -181,7 +167,7 @@ function SubmenuRow({
   readonly onSelect: (value: string) => void;
 }): JSX.Element {
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="composer-tools__sub">
       <button
         type="button"
         role="menuitem"
@@ -197,14 +183,7 @@ function SubmenuRow({
         {/* The current value reads as the row's right-hand column, the same shape
             the telemetry cells use: label on the left, reading on the right. */}
         <span className="menu__value">{submenu.value || '—'}</span>
-        <span
-          aria-hidden
-          className="menu__mark"
-          style={{
-            transform: open ? 'rotate(90deg)' : undefined,
-            transition: 'transform var(--motion-shift) ease',
-          }}
-        >
+        <span className="menu__mark disclosure__chevron" data-open={open} aria-hidden>
           <Icon name="chevron-right" size={13} />
         </span>
       </button>
