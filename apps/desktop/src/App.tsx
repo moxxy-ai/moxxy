@@ -28,6 +28,7 @@ import { useShellNavigation } from './shell/navigation/useShellNavigation';
 import { usePalettePlaces } from './shell/navigation/usePalettePlaces';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
+import { showsRuns } from './shell/views';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
@@ -311,9 +312,10 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      {/* One sidebar; its list changes with the view. Its account row is the
-          way to every other place. */}
-      {view === 'chat' && (
+      {/* One sidebar; its list changes with the view, and a view with no list
+          of its own keeps the runs. Its account row is the way to every other
+          place. */}
+      {showsRuns(view) && (
         <WorkspaceSidebar
           onOpenRun={() => go('chat')}
           onOpenChannel={(id) => {

@@ -62,7 +62,6 @@ export function Shell({
               fontFamily: 'var(--font-chrome)',
               fontSize: 'var(--type-row)',
               fontWeight: 600,
-              letterSpacing: '0.04em',
             }}
           >
             moxxy

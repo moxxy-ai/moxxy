@@ -8,6 +8,7 @@
 import { useScheduler } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
+import { StateToggle } from '../components/StateToggle';
 import { TargetSessionPicker } from './TargetSessionPicker';
 import { InstrumentBar } from '../shell/InstrumentBar';
 import { ScheduleHistory } from './ScheduleHistory';
@@ -26,7 +27,7 @@ function nextFireSummary(list: ReadonlyArray<ScheduleSummary>): string {
     .map((s) => s.nextFireAt as number)
     .sort((a, b) => a - b);
   const soonest = times[0];
-  if (soonest === undefined) return 'none pending';
+  if (soonest === undefined) return 'None pending';
   const mins = Math.round((soonest - Date.now()) / 60_000);
   if (mins <= 0) return 'due now';
   if (mins < 60) return `in ${mins}m`;
@@ -99,11 +100,11 @@ export function SchedulesPanel(): JSX.Element {
                 so these tiles are measured rather than omitted. */}
             <div className="kpi" style={{ marginBottom: 'var(--space-16)' }}>
               <div className="kpi__c">
-                <span className="kpi__k">scheduled</span>
+                <span className="kpi__k">Scheduled</span>
                 <span className="kpi__v">{sched.list.length}</span>
               </div>
               <div className="kpi__c">
-                <span className="kpi__k">paused</span>
+                <span className="kpi__k">Paused</span>
                 <span
                   className="kpi__v"
                   data-tone={sched.list.some((s) => !s.enabled) ? 'caution' : undefined}
@@ -112,7 +113,7 @@ export function SchedulesPanel(): JSX.Element {
                 </span>
               </div>
               <div className="kpi__c">
-                <span className="kpi__k">failing</span>
+                <span className="kpi__k">Failing</span>
                 <span
                   className="kpi__v"
                   data-tone={
@@ -123,17 +124,17 @@ export function SchedulesPanel(): JSX.Element {
                 </span>
               </div>
               <div className="kpi__c">
-                <span className="kpi__k">next fire</span>
+                <span className="kpi__k">Next fire</span>
                 <span className="kpi__v kpi__v--text">{nextFireSummary(sched.list)}</span>
               </div>
             </div>
             <div className="data-table data-table--sched" role="table" aria-label="Schedules">
               <div className="data-row data-row--head" role="row">
                 <span />
-                <span role="columnheader">schedule</span>
-                <span role="columnheader">when</span>
-                <span role="columnheader">runs in</span>
-                <span role="columnheader">state</span>
+                <span role="columnheader">Schedule</span>
+                <span role="columnheader">When</span>
+                <span role="columnheader">Runs in</span>
+                <span role="columnheader">State</span>
               </div>
               {sched.list.map((s) => (
                 <div
@@ -160,6 +161,7 @@ export function SchedulesPanel(): JSX.Element {
                   <span role="cell">
                     {s.source === 'manual' ? (
                       <TargetSessionPicker
+                        label=""
                         value={s.targetSessionId ?? null}
                         valueName={s.targetSessionName ?? null}
                         onChange={(sid) => void sched.setTargetSession(s.id, sid)}
@@ -169,25 +171,16 @@ export function SchedulesPanel(): JSX.Element {
                       // every sync from their source, so reassigning here would not
                       // stick — read-only, pointing at where it IS changed.
                       <span className="data-row__meta">
-                        {s.targetSessionName ?? 'any session'}
+                        {s.targetSessionName ?? 'Any session'}
                       </span>
                     )}
                   </span>
                   <span role="cell">
-                    <button
-                      type="button"
-                      className="tag"
-                      aria-pressed={s.enabled}
-                      aria-label={`${s.enabled ? 'Disable' : 'Enable'} ${s.name}`}
-                      onClick={() => void sched.setEnabled(s.id, !s.enabled)}
-                      style={
-                        s.enabled
-                          ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
-                          : undefined
-                      }
-                    >
-                      {s.enabled ? 'on' : 'paused'}
-                    </button>
+                    <StateToggle
+                      enabled={s.enabled}
+                      name={s.name}
+                      onToggle={(next) => void sched.setEnabled(s.id, next)}
+                    />
                   </span>
                 </div>
               ))}

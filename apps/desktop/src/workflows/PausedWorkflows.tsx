@@ -58,7 +58,7 @@ function PausedCard(props: {
         gap: 'var(--space-8)',
       }}
     >
-      <div className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)', textTransform: 'uppercase' }}>
+      <div className="mono" style={{ fontSize: 'var(--type-label)', color: 'var(--color-text-dim)' }}>
         Workflow <strong>{run.workflow}</strong> is waiting · {run.label}
       </div>
       {run.prompt && (

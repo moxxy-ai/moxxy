@@ -42,8 +42,6 @@ export function QueuedChip({
             color: 'var(--focus-muted, var(--color-text-muted))',
             fontSize: 'var(--type-label)',
             fontWeight: 750,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
             flexShrink: 0,
           }}
         >

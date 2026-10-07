@@ -30,7 +30,6 @@ export function ExtensionCard({
           fontSize: 'var(--type-meta)',
           padding: '4px 10px',
           color: accent,
-          letterSpacing: '0.04em',
           opacity: 0.9,
           display: 'inline-flex',
           gap: 8,
@@ -88,8 +87,6 @@ export function ExtensionCard({
             fontSize: 'var(--type-row)',
             fontWeight: 700,
             color: accent,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
           }}
         >
           Action · {ext.commandName}

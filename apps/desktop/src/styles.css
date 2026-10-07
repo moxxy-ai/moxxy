@@ -467,8 +467,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text-dim);
   font-size: var(--type-label);
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -706,7 +704,77 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .index-group:first-child { margin-top: 0; }
 .index-group__label { flex: 1; min-width: 0; }
 .index-group__label::first-letter { text-transform: uppercase; }
+.index-group__label[data-current] { color: var(--color-text-muted); }
 .index-group__count { flex-shrink: 0; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* A group that folds is itself a row to press. */
+.index-group--fold {
+  border-radius: var(--radius-block);
+  cursor: pointer;
+  transition: background-color var(--motion-press) ease;
+}
+.index-group--fold:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.index-group__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+.index-group__chevron[data-open='true'] { transform: rotate(90deg); }
+
+/* A row that is not a run: a settings section, an automation, a channel. It is
+ * the run row's quieter sibling: the same fill when open, the same hover. */
+.index-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--frame-control);
+  padding: 0 var(--space-8);
+  border: 0;
+  border-radius: var(--radius-block);
+  background: transparent;
+  color: var(--color-sidebar-text);
+  font-size: var(--type-row);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-press) ease;
+}
+.index-row[data-nested] { padding-left: var(--space-24); }
+.index-row[data-active='true'] {
+  background: var(--color-sidebar-bg-active);
+  font-weight: 600;
+}
+.index-row:hover:not(:disabled) { filter: none; }
+.index-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.index-row__note {
+  flex-shrink: 0;
+  font-size: var(--type-label);
+  font-weight: 400;
+  color: var(--color-text-dim);
+}
+.index-row__note[data-tone='bad'] { color: var(--color-red-text); }
+.index-empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-8) var(--space-6) var(--space-24);
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .index-group--fold:hover,
+  .index-row:hover:not([data-active='true']) {
+    background: var(--color-sidebar-bg-hover);
+  }
+}
 
 .icon-flip { transform: rotate(180deg); }
 
@@ -2416,8 +2484,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .tele__k {
   flex-shrink: 0;
   font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
   line-height: 1;
 }
@@ -2523,6 +2589,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   padding: 0 var(--space-20);
 }
 .transcript__tail { padding-bottom: var(--space-12); }
+
+/* The Mini Chat is a few hundred pixels wide and already padded by its panel:
+ * the rows give up their gutter and a bubble may use nearly the whole line. */
+.focus-transcript .transcript__row { padding: 0 var(--space-2); }
+.focus-transcript .bubble--user { max-width: 92%; }
 
 /* A tool group is drawn straight into the row, without an entry around it. */
 .transcript__row > .activity-block { padding-bottom: var(--space-8); }
@@ -3083,8 +3154,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .form__label {
   font-size: var(--type-micro);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
 /* The optional marker must not read as loudly as the name it qualifies. */
@@ -3118,28 +3187,33 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   padding-bottom: var(--space-6);
   border-bottom: 1px solid var(--color-card-border);
   font-size: var(--type-label);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
 .section-head__acts { margin-left: auto; display: flex; align-items: center; gap: var(--space-6); }
 
-/* --- Tags ------------------------------------------------------
- * Small state markers: outlined and uppercase. They are readouts, not buttons. */
+/* --- State chips -------------------------------------------------
+ * A state said as a word in a pill: on, paused, valid. The fill carries the
+ * tone, so the chip reads the same on a card, a table row or the bar. */
 .tag {
   display: inline-flex;
   align-items: center;
   gap: var(--space-4);
   flex-shrink: 0;
-  padding: 1px var(--space-6);
-  border: 1px solid var(--color-card-border-strong);
-  border-radius: var(--radius-tag);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  padding: 2px var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--color-input-soft);
+  font-size: var(--type-micro);
+  font-weight: 500;
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+.tag[data-tone='good'] { color: var(--color-green); background: var(--color-green-soft); }
+.tag[data-tone='bad'] { color: var(--color-red-text); background: var(--color-red-soft); }
+.tag[data-tone='warn'] { color: var(--color-amber-text); background: var(--color-amber-soft); }
+
+/* A chip that switches what it names. */
+.tag--press { border: 0; cursor: pointer; }
+.tag--press:active:not(:disabled) { transform: scale(0.96); }
 
 /* The step row's two columns. `name` is a fixed-width cell so the arguments line
  * up down the whole group and the eye reads one ragged-left column of paths
@@ -3178,8 +3252,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .menu__label {
   padding: var(--space-4) var(--space-8) var(--space-6);
   font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
 
@@ -3263,8 +3335,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   align-items: center;
   gap: var(--space-8);
   font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--ask-accent, var(--color-amber));
 }
 
@@ -3296,7 +3366,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   margin-left: auto;
   flex-shrink: 0;
   font-size: var(--type-label);
-  letter-spacing: 0.06em;
   color: var(--color-text-dim);
 }
 
@@ -3435,7 +3504,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .data-row {
   display: grid;
   /* Panels set their own column template; this is the workflows shape. */
-  grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 0.8fr) auto auto auto;
+  grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 0.8fr) 200px 68px 104px;
   align-items: center;
   gap: var(--space-12);
   padding: var(--space-8) var(--space-12);
@@ -3445,10 +3514,9 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .data-row:last-child { border-bottom: 0; }
 
 .data-row--head {
-  background: var(--color-input-soft);
+  padding-block: var(--space-6);
   font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 500;
   color: var(--color-text-dim);
 }
 
@@ -3512,8 +3580,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .kpi__k {
   font-size: var(--type-micro);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
 .kpi__v {
@@ -3536,11 +3602,35 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .data-section { display: flex; align-items: center; gap: var(--space-8); }
 .data-section__t {
   font-size: var(--type-label);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--color-text-dim);
 }
 
 /* Schedules and webhooks carry fewer columns than workflows. */
-.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 1fr) auto auto; }
-.data-table--hooks .data-row { grid-template-columns: 10px minmax(0, 1.2fr) minmax(0, 1.4fr) auto auto; }
+.data-table--sched .data-row { grid-template-columns: 10px minmax(0, 1.4fr) minmax(0, 1fr) 200px 68px; }
+.data-table--hooks .data-row { grid-template-columns: 10px minmax(0, 1.2fr) minmax(0, 1.4fr) 200px 68px; }
+
+/* --- Approvals ---------------------------------------------------
+ * A workflow waiting on the person. It stands above the list it belongs to and
+ * is gone when nothing waits. */
+.approvals { display: flex; flex-direction: column; gap: var(--space-8); }
+.approvals__title { margin: 0; font-size: var(--type-row); font-weight: 600; color: var(--color-text); }
+.approval-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--color-amber-border);
+  border-radius: var(--radius-card);
+  background: var(--color-amber-wash);
+  font-size: var(--type-row);
+}
+.approval-card h3 { margin: 0; font-size: var(--type-row); font-weight: 600; }
+.approval-card p { margin: 0; color: var(--color-text-muted); }
+.approval-card__input {
+  max-height: 240px;
+  margin: var(--space-6) 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-card__acts { display: flex; flex-wrap: wrap; gap: var(--space-8); }

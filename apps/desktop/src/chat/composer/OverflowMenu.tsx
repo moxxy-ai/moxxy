@@ -91,7 +91,6 @@ export function OverflowMenu({
       </button>
       {open && (
         <div role="menu" className="menu menu--up">
-          <div className="menu__label">Turn</div>
           {items.map((item) =>
             item.submenu ? (
               <SubmenuRow

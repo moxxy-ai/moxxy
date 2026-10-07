@@ -55,7 +55,7 @@ describe('AutomationsIndex', () => {
   it('says a group is empty rather than rendering nothing under it', () => {
     // An open group with no rows and no message reads as a rendering failure.
     render(<AutomationsIndex kind="workflows" onPick={vi.fn()} />);
-    expect(screen.getAllByText('none yet').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('None yet').length).toBeGreaterThan(0);
   });
 });
 
@@ -72,7 +72,7 @@ describe('ChannelsIndex', () => {
     // Only AFTER the fetch settles: while it is in flight the column is loading,
     // not empty, and claiming "none available" then would be a lie with a race.
     render(<ChannelsIndex selected={null} onSelect={vi.fn()} />);
-    expect(await screen.findByText('none available')).toBeTruthy();
+    expect(await screen.findByText('None available')).toBeTruthy();
   });
 });
 

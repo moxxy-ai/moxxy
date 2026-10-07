@@ -128,8 +128,6 @@ export function Telemetry({
                 style={{
                   margin: 0,
                   fontSize: 'var(--type-label)',
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
                   color: 'var(--color-text-dim)',
                 }}
               >

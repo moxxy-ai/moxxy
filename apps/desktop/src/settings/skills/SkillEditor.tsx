@@ -81,8 +81,6 @@ export function SkillEditor({
               background: 'var(--color-primary-soft)',
               color: 'var(--color-primary-strong)',
               fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
             }}
           >
             Unsaved
@@ -171,8 +169,6 @@ function SegmentedToggle({
             color: value === m ? 'var(--color-text)' : 'var(--color-text-dim)',
             background: value === m ? 'var(--color-surface)' : 'transparent',
             boxShadow: value === m ? '0 1px 2px rgba(15,23,42,0.06)' : 'none',
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
           }}
         >
           {m}

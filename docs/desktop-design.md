@@ -69,9 +69,13 @@ Every other place is reached two ways, and both read one list,
 | Account menu | The row at the foot of the sidebar. It lists every place, the command palette and the keyboard shortcuts. |
 | Command palette | ⌘K / Ctrl+K, from any view. It lists the same places and the current run's actions. |
 
-In any view other than the runs, the sidebar's head carries a back control. A
-place that needs a loaded session (Collaborate, Automations, Apps) is shown
-disabled, with the reason, while the session loads.
+No view stands without the sidebar. A view with sections of its own
+(Automations, Channels, Extensions, Settings) lists them there; a view with
+none (Apps, Collaborate, Mobile) keeps the runs beside it, and picking a run
+goes back to the conversation. `shell/views.ts` holds that rule. In any view
+other than the runs, the sidebar's head carries a back control. A place that
+needs a loaded session (Collaborate, Automations, Apps) is shown disabled, with
+the reason, while the session loads.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
@@ -121,6 +125,23 @@ Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
 because the browser parked inside it has to keep painting to keep its pages.
 
+## The other views
+
+Every view outside the conversation is built from one small kit, so they read
+as the same app.
+
+| Piece | Where | Rule |
+|---|---|---|
+| Labels | everywhere | Sentence case. No label is set in capitals or tracked out; `styles.type.test.ts` holds that for the stylesheet and for inline styles. |
+| Sidebar row | `IndexRow` in `shell/IndexColumn.tsx` | One row for a settings section, an automation or a channel: the run row's fill when open, an optional state light and note. |
+| State chip | `.tag`, `components/StateToggle.tsx` | A state is a word in a filled pill, toned good, bad or warn. The chip that switches a workflow, schedule or webhook on is the same chip. |
+| Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
+| Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
+
+The focus window is its own document with its own surface tokens
+(`focus/focus-styles.ts`). They carry the desktop palette's values, and the
+Mini Chat draws the same conversation with a narrower gutter.
+
 ## Where the values live
 
 The desktop has its own palette pair, `desktopTokens` and `desktopDarkTokens`,
@@ -152,5 +173,6 @@ above are reimplemented here in Moxxy's own components.
    composer.
 4. **Right panel** (done): the work panel is gone while closed and opens from
    the run's header.
-5. **Other views**: Settings, Extensions, Automations, Apps, Channels, Mobile and
-   onboarding, then the focus window.
+5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels,
+   Mobile, Collaborate and onboarding share one kit, and the focus window wears
+   the desktop palette.

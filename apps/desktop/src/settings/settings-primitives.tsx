@@ -279,8 +279,6 @@ export function Badge({ children }: { readonly children: React.ReactNode }): JSX
         gap: 5,
         fontSize: 'var(--type-label)',
         fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.04em',
         padding: '3px 9px',
         borderRadius: 'var(--radius-pill)',
         background: 'color-mix(in srgb, var(--color-text-dim) 16%, transparent)',

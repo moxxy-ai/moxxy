@@ -172,8 +172,6 @@ const components: Components = {
         whiteSpace: 'nowrap',
         color: 'var(--color-text-muted)',
         fontSize: 'var(--type-label)',
-        letterSpacing: '0.08em',
-        textTransform: 'uppercase',
       }}
     />
   ),

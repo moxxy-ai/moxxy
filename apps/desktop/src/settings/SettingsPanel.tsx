@@ -11,7 +11,7 @@ import { VoiceTab } from './VoiceTab';
 import { JevTab } from './JevTab';
 import { SearchBox } from './settings-primitives';
 import { InstrumentBar } from '../shell/InstrumentBar';
-import { IndexColumn } from '../shell/IndexColumn';
+import { IndexColumn, IndexRow } from '../shell/IndexColumn';
 
 type SettingsSlice = ReturnType<typeof useSettings>;
 
@@ -145,32 +145,13 @@ export function SettingsIndex({
             const label = TABS.find((t) => t.id === id)?.label ?? id;
             const active = id === tab;
             return (
-              <button
+              <IndexRow
                 key={id}
-                type="button"
-                className={active ? 'session-row' : 'session-row row-button'}
-                data-testid={`settings-tab-${id}`}
-                data-active={active}
-                aria-current={active ? 'true' : undefined}
-                onClick={() => onPick(id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  width: '100%',
-                  minHeight: 'var(--frame-row)',
-                  padding: '2px var(--space-6) 2px var(--space-8)',
-                  borderRadius: 'var(--radius-block)',
-                  background: active ? 'var(--color-card-bg)' : 'transparent',
-                  color: active
-                    ? 'var(--color-sidebar-text)'
-                    : 'var(--color-sidebar-text-dim)',
-                  fontWeight: active ? 600 : 400,
-                  fontSize: 'var(--type-row)',
-                  textAlign: 'left',
-                }}
-              >
-                {label}
-              </button>
+                label={label}
+                active={active}
+                testId={`settings-tab-${id}`}
+                onPick={() => onPick(id)}
+              />
             );
           })}
         </div>

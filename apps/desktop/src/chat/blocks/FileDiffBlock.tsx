@@ -148,8 +148,6 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
                   textAlign: 'left',
                   padding: '3px var(--space-8)',
                   fontSize: 'var(--type-label)',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
                   color: 'var(--color-text-dim)',
                   background: 'var(--color-card-bg)',
                   borderTop: '1px solid var(--color-card-border)',

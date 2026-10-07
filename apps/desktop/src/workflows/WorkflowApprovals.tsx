@@ -31,11 +31,13 @@ export function WorkflowApprovals({ modal = false }: { modal?: boolean }): JSX.E
       </Modal>
     );
   }
+  // Nothing waiting is not news: the section appears with its first request.
+  if (state.items.length === 0 && !state.error) return null;
   return (
-    <section aria-label="Workflow approvals">
-      <h2>Approvals</h2>
+    <section className="approvals" aria-label="Workflow approvals">
+      <h2 className="approvals__title">Approvals</h2>
       {state.error && <p role="alert">{state.error}</p>}
-      {state.items.length === 0 ? <p>No workflow approvals.</p> : state.items.map(render)}
+      {state.items.map(render)}
     </section>
   );
 }

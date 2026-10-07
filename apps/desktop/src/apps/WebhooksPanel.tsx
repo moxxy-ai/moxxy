@@ -11,6 +11,7 @@
 import { useWebhooks } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { WebhookSummary } from '@moxxy/desktop-ipc-contract';
+import { StateToggle } from '../components/StateToggle';
 import { TargetSessionPicker } from './TargetSessionPicker';
 import { InstrumentBar } from '../shell/InstrumentBar';
 
@@ -80,10 +81,10 @@ export function WebhooksPanel(): JSX.Element {
           <div className="data-table data-table--hooks" role="table" aria-label="Webhooks">
             <div className="data-row data-row--head" role="row">
               <span />
-              <span role="columnheader">webhook</span>
-              <span role="columnheader">endpoint</span>
-              <span role="columnheader">runs in</span>
-              <span role="columnheader">state</span>
+              <span role="columnheader">Webhook</span>
+              <span role="columnheader">Endpoint</span>
+              <span role="columnheader">Runs in</span>
+              <span role="columnheader">State</span>
             </div>
             {hooks.list.map((w) => (
               <div
@@ -105,26 +106,18 @@ export function WebhooksPanel(): JSX.Element {
                 </span>
                 <span role="cell">
                   <TargetSessionPicker
+                    label=""
                     value={w.targetSessionId ?? null}
                     valueName={w.targetSessionName ?? null}
                     onChange={(sid) => void hooks.setTargetSession(w.id, sid)}
                   />
                 </span>
                 <span role="cell">
-                  <button
-                    type="button"
-                    className="tag"
-                    aria-pressed={w.enabled}
-                    aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
-                    onClick={() => void hooks.setEnabled(w.id, !w.enabled)}
-                    style={
-                      w.enabled
-                        ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
-                        : undefined
-                    }
-                  >
-                    {w.enabled ? 'on' : 'paused'}
-                  </button>
+                  <StateToggle
+                    enabled={w.enabled}
+                    name={w.name}
+                    onToggle={(next) => void hooks.setEnabled(w.id, next)}
+                  />
                 </span>
               </div>
             ))}

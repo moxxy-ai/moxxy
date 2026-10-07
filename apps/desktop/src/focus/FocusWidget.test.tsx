@@ -1039,8 +1039,23 @@ describe('FocusWidget theme', () => {
     render(<FocusWidget />);
 
     expect(focusCss()).toContain('[data-theme="dark"]');
-    expect(focusCss()).toContain('--focus-panel-bg: #151b20');
-    expect(focusCss()).toContain('--focus-preview-bg: rgba(21, 27, 32, 0.96)');
+    expect(focusCss()).toContain('--focus-panel-bg: #212121');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(33, 33, 33, 0.96)');
+  });
+
+  it('wears the desktop palette: neutral ink, and the conversation\'s own bubble tones', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const css = focusCss();
+    const light = css.slice(css.indexOf(':root {'), css.indexOf('[data-theme="dark"]'));
+    const dark = css.slice(css.indexOf('[data-theme="dark"]'), css.indexOf('@media (prefers-color-scheme: dark)'));
+
+    expect(light).toContain('--color-text: #141414');
+    expect(light).toContain('--color-bubble: #f2f2f2');
+    expect(dark).toContain('--color-text: #f5f5f5');
+    expect(dark).toContain('--color-bubble: #262626');
+    // The old panel ink was blue-green; none of it may survive in either theme.
+    expect(css).not.toMatch(/11, 15, 18|147, 162, 171|#0b0f12|#151b20/);
   });
 
   it('resolves system-dark to exactly the same palette as an explicit dark theme', () => {

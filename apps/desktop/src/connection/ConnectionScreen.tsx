@@ -369,8 +369,6 @@ function TechnicalDetails({
           cursor: 'pointer',
           fontSize: 'var(--type-label)',
           color: 'var(--color-text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
         }}
       >
         Technical details
@@ -463,8 +461,6 @@ function DetailRow({
         className="mono"
         style={{
           color: 'var(--color-text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
         }}
       >
         {label}

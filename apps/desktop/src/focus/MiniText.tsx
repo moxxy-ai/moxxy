@@ -53,6 +53,7 @@ export function MiniText({
         />
         <div
           data-testid="focus-transcript"
+          className="focus-transcript"
           style={style.panelBody}
         >
           {ask && <FocusAskCard prompt={ask} variant="panel" />}

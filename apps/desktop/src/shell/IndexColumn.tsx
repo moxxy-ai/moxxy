@@ -171,3 +171,55 @@ export function IndexGroup({
     </div>
   );
 }
+
+export type IndexLed = 'off' | 'running' | 'awaiting' | 'done' | 'failed';
+
+/** A row in a list that is not a run: a settings section, an automation, a
+ *  channel. Its light and its note are for rows that have a state to report. */
+export function IndexRow({
+  label,
+  active,
+  onPick,
+  led,
+  note,
+  noteTone,
+  nested = false,
+  testId,
+}: {
+  readonly label: string;
+  readonly active: boolean;
+  readonly onPick: () => void;
+  readonly led?: IndexLed;
+  readonly note?: string;
+  readonly noteTone?: 'bad';
+  /** The row sits under a group that folds, so it is indented past the chevron. */
+  readonly nested?: boolean;
+  readonly testId?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="index-row"
+      data-testid={testId}
+      data-active={active}
+      data-nested={nested || undefined}
+      aria-current={active ? 'true' : undefined}
+      onClick={onPick}
+    >
+      {led !== undefined && (
+        <span className="led" data-state={led === 'off' ? undefined : led} aria-hidden />
+      )}
+      <span className="index-row__label">{label}</span>
+      {note !== undefined && (
+        <span className="index-row__note" data-tone={noteTone}>
+          {note}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** What a group says when it holds nothing. */
+export function IndexEmpty({ children }: { readonly children: ReactNode }): JSX.Element {
+  return <p className="index-empty">{children}</p>;
+}

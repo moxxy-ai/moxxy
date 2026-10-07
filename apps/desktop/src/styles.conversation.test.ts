@@ -106,3 +106,10 @@ describe('styles.css — the work panel', () => {
     expect(css).not.toMatch(/\.bench__tab\[data-active='true'\]::after/);
   });
 });
+
+describe('styles.css — the conversation in a small window', () => {
+  it('gives up the row gutter and lets a bubble use the width in the Mini Chat', () => {
+    expect(ruleFor('.focus-transcript .transcript__row')).toMatch(/padding:\s*0 var\(--space-2\)/);
+    expect(ruleFor('.focus-transcript .bubble--user')).toContain('max-width: 92%');
+  });
+});

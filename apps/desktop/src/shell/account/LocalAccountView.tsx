@@ -33,11 +33,11 @@ export function LocalAccountView({
     <Modal title="Account" onClose={onClose} width={420}>
       <div className="account-panel">
         <div className="form__field">
-          <span className="form__label">signed in as</span>
+          <span className="form__label">Signed in as</span>
           <span className="account-panel__value">{name ?? 'Not signed in'}</span>
         </div>
         <div className="form__field">
-          <span className="form__label">tier</span>
+          <span className="form__label">Tier</span>
           <span className="account-panel__value">Free</span>
         </div>
         <p className="form__hint account-panel__hint">

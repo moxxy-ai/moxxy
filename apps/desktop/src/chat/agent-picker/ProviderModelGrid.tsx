@@ -144,8 +144,6 @@ export function ProviderModelGrid({
               fontSize: 'var(--type-meta)',
               fontWeight: 700,
               color: 'var(--color-text-dim)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
             }}
           >
             Models · {hoveredProvider || '—'}
@@ -177,10 +175,9 @@ export function ProviderModelGrid({
               style={{
                 fontSize: 'var(--type-label)',
                 color: 'var(--color-text-dim)',
-                letterSpacing: '0.04em',
               }}
             >
-              built-in
+              Built-in
             </span>
           )}
         </header>

@@ -42,7 +42,6 @@ export function Splash({
           margin: 0,
           fontSize: 'var(--type-row)',
           color: 'var(--color-text-muted)',
-          letterSpacing: '0.04em',
         }}
       >
         {message}

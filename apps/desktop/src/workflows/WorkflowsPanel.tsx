@@ -3,6 +3,7 @@ import { useWorkflows } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import { AgentTaskModal } from '../settings/shared/AgentTaskModal';
 import { TargetSessionPicker } from '../apps/TargetSessionPicker';
+import { StateToggle } from '../components/StateToggle';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { InstrumentBar } from '../shell/InstrumentBar';
@@ -156,38 +157,38 @@ export function WorkflowsPanel(): JSX.Element {
          * actually knows. */}
         <div className="kpi">
           <div className="kpi__c">
-            <span className="kpi__k">defined</span>
+            <span className="kpi__k">Defined</span>
             <span className="kpi__v">{wf.list.length}</span>
           </div>
           <div className="kpi__c">
-            <span className="kpi__k">paused</span>
+            <span className="kpi__k">Paused</span>
             <span className="kpi__v" data-tone={paused > 0 ? 'caution' : undefined}>
               {paused}
             </span>
           </div>
           <div className="kpi__c">
-            <span className="kpi__k">steps</span>
+            <span className="kpi__k">Steps</span>
             <span className="kpi__v">
               {wf.list.reduce((n, w) => n + w.steps, 0)}
               <small> across all</small>
             </span>
           </div>
           <div className="kpi__c">
-            <span className="kpi__k">triggers</span>
+            <span className="kpi__k">Triggers</span>
             <span className="kpi__v kpi__v--text">{triggerSummary(wf.list)}</span>
           </div>
         </div>
 
         <div className="data-section">
-          <span className="data-section__t">defined</span>
+          <span className="data-section__t">Defined</span>
         </div>
         <div className="data-table" role="table" aria-label="Workflows">
           <div className="data-row data-row--head" role="row">
             <span />
-            <span role="columnheader">workflow</span>
-            <span role="columnheader">trigger</span>
-            <span role="columnheader">runs in</span>
-            <span role="columnheader">state</span>
+            <span role="columnheader">Workflow</span>
+            <span role="columnheader">Trigger</span>
+            <span role="columnheader">Runs in</span>
+            <span role="columnheader">State</span>
             <span />
           </div>
           {wf.list.map((w) => (
@@ -212,27 +213,19 @@ export function WorkflowsPanel(): JSX.Element {
               </span>
               <span role="cell">
                 <TargetSessionPicker
+                  label=""
                   value={w.targetSessionId ?? null}
                   valueName={w.targetSessionName ?? null}
                   onChange={(sid) => void wf.setTargetSession(w.name, sid)}
                 />
               </span>
               <span role="cell">
-                <button
-                  type="button"
-                  className="tag"
-                  data-testid={`toggle-workflow-${w.name}`}
-                  aria-pressed={w.enabled}
-                  aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
-                  onClick={() => void wf.setEnabled(w.name, !w.enabled)}
-                  style={
-                    w.enabled
-                      ? { color: 'var(--color-green)', borderColor: 'var(--color-green)' }
-                      : undefined
-                  }
-                >
-                  {w.enabled ? 'on' : 'paused'}
-                </button>
+                <StateToggle
+                  enabled={w.enabled}
+                  name={w.name}
+                  testId={`toggle-workflow-${w.name}`}
+                  onToggle={(next) => void wf.setEnabled(w.name, next)}
+                />
               </span>
               <span className="data-row__acts" role="cell">
                 <button
@@ -277,7 +270,6 @@ export function WorkflowsPanel(): JSX.Element {
             style={{
               fontSize: 'var(--type-label)',
               color: 'var(--color-text-dim)',
-              textTransform: 'uppercase',
             }}
           >
             last run · {wf.lastRun.name} · <WorkflowRunStatus result={wf.lastRun.result} />
