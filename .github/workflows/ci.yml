@@ -152,7 +152,7 @@ jobs:
           pnpm --filter @moxxy/desktop exec vitest run src/settings/shared/OAuthSignIn.test.tsx
 
       - name: Test packaging contracts
-        run: node --test scripts/desktop-packaging.test.mjs
+        run: node --test "scripts/desktop-*.test.mjs"
 
       - name: Build macOS Computer Use component
         # Needs the plugin's dist/ (manifest writer) from the workspace build.
@@ -162,6 +162,11 @@ jobs:
       - name: Prepare embedded CLI and plugins
         # The native executable is a full-installer resource, not a JS hot update.
         if: runner.os != 'Windows'
+        env:
+          # A release signs the macOS Python and Git with the Developer ID and
+          # they run under the hardened runtime. An ad-hoc signature puts them
+          # under the same runtime here, so the smoke below runs what ships.
+          MOXXY_MAC_SIGN_IDENTITY: '-'
         run: pnpm --filter @moxxy/desktop run prepare:resources
 
       - name: Build Windows Computer Use component

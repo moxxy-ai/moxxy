@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platformSocket } from '@moxxy/runner';
-import { dispatchToHost, type BrowserHost, type HostReply } from '@moxxy/plugin-browser';
+import { dispatchToHost, type BrowserHost, type HostReply } from '@moxxy/plugin-browser/host';
 
 /**
  * The channel the agent's tools reach the desktop browser through.

@@ -95,6 +95,12 @@ imports a package it doesn't carry fails at boot ("Cannot find package
   doesn't carry (`unbundledImports`), naming it — only Node built-ins,
   `electron` and the guarded optional natives may stay external. A new
   external dependency fails the release build, not people's updates.
+- The same check runs on every build (`scripts/app-bundle-imports.test.mjs`,
+  part of `pnpm test:scripts`), so such a dependency fails its pull request
+  rather than the release that follows the merge.
+- The main imports the narrowest entry a package offers. The root of
+  `@moxxy/plugin-browser` builds the whole plugin, Playwright loader
+  included; the main takes `@moxxy/plugin-browser/host` (the page host only).
 - A version that already failed to start on a machine (`bad.json`) is not
   offered there again (`poisonedVersions` in `checkForUpdate`), so a broken
   release can't loop: Update → relaunch → revert → Update.

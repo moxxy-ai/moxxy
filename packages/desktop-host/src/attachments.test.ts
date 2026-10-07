@@ -340,7 +340,8 @@ describe('parseFileToText', () => {
     const text = await parseFileToText(p);
     expect(text).not.toBeNull();
     expect(text).toContain('Hello John Doe 555-1234');
-  });
+    // The first PDF of the file loads pdfjs, which takes most of the default 10 s on a busy Windows runner.
+  }, 30_000);
 
   it('detects a PDF by magic bytes even with a non-.pdf extension', async () => {
     const { path: p } = await tmpFile('scan.dat', makeTextPdf('Contact: jane@acme.com'));
