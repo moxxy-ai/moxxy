@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
@@ -17,6 +17,7 @@ import { useChatDock } from './chat-surface/useChatDock';
 import { ChatHideButton, ChatLauncher } from './chat-surface/ChatDockControls';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
+import { usePlanNext } from './modes/plan-next';
 import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
@@ -131,6 +132,14 @@ export function ChatSurface({
     if (chat.activeTurnId !== null || chat.sending) void chat.abort();
   });
   const imagePreview = useImagePreview();
+  // A finished plan offers to be carried out; never while a turn runs or one waits on the person.
+  const sendPrompt = useCallback((prompt: string): void => void chat.send(prompt), [chat.send]);
+  const planNext = usePlanNext({
+    workspaceId,
+    ready,
+    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || activeAsk !== null,
+    onSend: sendPrompt,
+  });
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
@@ -276,6 +285,7 @@ export function ChatSurface({
             onReachedTop={chat.loadOlder}
             onPreviewImage={imagePreview.open}
             compactTools={compactTools}
+            onPlanNext={searchQuery ? null : planNext}
           />
         )}
       </div>

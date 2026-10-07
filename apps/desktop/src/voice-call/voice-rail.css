@@ -1,13 +1,16 @@
 /*
- * Voice Presence rail — one instrument strip between the ask sheet and the
- * composer. Flat, hairline-separated and rectangular like the rest of the
- * panel: no card, no glass, no gradient, and no second header. It reads as a
- * row of the chat surface that happens to be listening.
+ * Voice Presence rail: one card between the ask card and the composer, on the
+ * composer's measure and of its make. It reads as part of the conversation
+ * that happens to be listening, so it has no strip, no hairlines and no
+ * second header.
  */
 
 .voice-rail-shell {
-  min-width: 0;
   flex: 0 0 auto;
+  min-width: 0;
+  width: calc(100% - var(--space-20) * 2);
+  max-width: calc(var(--frame-measure) - var(--space-20) * 2);
+  margin: 0 auto var(--space-6);
   container-type: inline-size;
   container-name: voice-rail;
 }
@@ -17,15 +20,17 @@
   position: relative;
   z-index: 3;
   width: 100%;
-  min-height: 58px;
+  min-height: 52px;
   box-sizing: border-box;
-  padding: 0 18px;
+  padding: var(--space-8) var(--space-8) var(--space-8) var(--space-12);
   display: grid;
-  grid-template-columns: minmax(150px, max-content) minmax(170px, 1fr) auto auto;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 14px;
-  border-top: 1px solid var(--color-card-border-strong);
-  background: color-mix(in srgb, var(--color-main-bg) 94%, var(--color-surface));
+  gap: var(--space-12);
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-bubble);
+  background: var(--color-surface);
+  animation: moxxy-fade-up var(--motion-overlay) var(--ease-out) both;
 }
 
 /* ---- presence ---------------------------------------------------------- */
@@ -110,16 +115,13 @@
 
 .voice-rail-work {
   min-width: 0;
-  height: 34px;
+  min-height: 32px;
   justify-self: stretch;
-  padding-left: clamp(10px, 2vw, 20px);
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: var(--space-8);
   overflow: hidden;
-  /* Hairline seams, the way the rest of the panel divides itself. */
-  border-left: 1px solid var(--color-card-border);
 }
 
 /* Four dots ticking under a running label: the one piece of motion that says
@@ -166,7 +168,6 @@
   flex: 0 0 auto;
   color: var(--color-primary-strong);
   font-size: var(--type-micro);
-  letter-spacing: 0.05em;
 }
 .voice-rail-operation-more {
   flex: 0 0 auto;
@@ -198,96 +199,95 @@
 
 .voice-rail-action {
   flex: 0 0 auto;
-  padding: 5px 11px;
-  border: 1px solid var(--color-card-border-strong);
-  border-radius: var(--radius-chip);
-  background: transparent;
+  height: var(--frame-control);
+  padding: 0 var(--space-12);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
   color: var(--color-text);
   font: inherit;
   font-size: var(--type-label);
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
 }
-.voice-rail-action:hover:not(:disabled) { background: var(--color-primary-soft); }
+.voice-rail-action:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 13%, transparent); }
+.voice-rail-action:active:not(:disabled) { transform: scale(0.97); }
 .voice-rail-action:disabled { opacity: 0.6; cursor: default; }
 
 /* ---- controls ---------------------------------------------------------- */
 
 .voice-rail-controls {
-  height: 34px;
-  padding-left: clamp(8px, 1.5vw, 16px);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   justify-self: end;
-  border-left: 1px solid var(--color-card-border);
 }
 
-/* Ending the call is the one destructive control here, so it carries a border
-   rather than sitting flat among the toggles. */
-.voice-rail-end {
-  margin-left: clamp(8px, 1.5vw, 16px);
-  padding: 6px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-red-text) 55%, transparent);
-  border-radius: var(--radius-chip);
+/* Round, like the composer's own controls. Each is an icon whose tooltip says
+   the state it is in; off, it goes quiet. */
+.voice-rail-control {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-strong);
+  cursor: pointer;
+  transition: background-color var(--motion-shift) ease, color var(--motion-shift) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+.voice-rail-control.is-off {
   background: transparent;
+  color: var(--color-text-dim);
+}
+.voice-rail-control:active { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) {
+  .voice-rail-control.is-off:hover {
+    background: var(--color-input-soft);
+    color: var(--color-text);
+  }
+}
+
+/* Ending the call is the one way out, so it is the one control with a word. */
+.voice-rail-end {
+  height: var(--frame-control);
+  padding: 0 var(--space-12);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-red-soft);
   color: var(--color-red-text);
   font: inherit;
   font-size: var(--type-label);
+  font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--motion-shift) ease;
+  transition: background-color var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
 }
-.voice-rail-end:hover { background: var(--color-red-wash); }
-.voice-rail-end:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-
-.voice-rail-control {
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--radius-chip);
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--type-label);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--motion-shift) ease;
-}
-.voice-rail-control svg { color: var(--color-primary); }
-.voice-rail-control:hover { background: var(--color-primary-soft); }
-.voice-rail-control.is-off { color: var(--color-text-muted); }
-.voice-rail-control.is-off svg { color: var(--color-text-dim); }
+.voice-rail-end:hover { background: color-mix(in srgb, var(--color-red-text) 18%, var(--color-red-soft)); }
+.voice-rail-end:active { transform: scale(0.97); }
+.voice-rail-end:focus-visible,
 .voice-rail-control:focus-visible,
-.voice-rail-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.voice-rail-action:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 /* ---- narrow windows -----------------------------------------------------
-   Supporting copy goes first, then control labels. The status, the mark, the
-   operation and every control's accessible name survive to the narrowest
-   layout — nothing becomes unreachable, only quieter. */
+   Supporting copy goes first. The status, the mark, the operation and every
+   control's accessible name survive to the narrowest layout: nothing becomes
+   unreachable, only quieter. */
 
-@container voice-rail (max-width: 1200px) {
+@container voice-rail (max-width: 640px) {
   .voice-rail-copy small,
   .voice-rail-work-copy small { display: none; }
-}
-
-@container voice-rail (max-width: 900px) {
-  .voice-rail {
-    grid-template-columns: minmax(108px, max-content) minmax(0, 1fr) auto auto;
-    gap: 10px;
-  }
-  .voice-rail-control span { display: none; }
   .voice-radio-waves { display: none; }
-}
-
-@container voice-rail (max-width: 700px) {
   .voice-rail-operation-state { display: none; }
 }
 
 /* As narrow as the composer floating over a full-view pane: four columns no
    longer fit, so the work (an operation, an error and its Try again) takes a
-   row of its own under the presence and the controls — with room again for
+   row of its own under the presence and the controls, with room again for
    the reason a call stopped. */
 @container voice-rail (max-width: 520px) {
   .voice-rail {
@@ -295,22 +295,13 @@
     grid-template-areas:
       'presence controls end'
       'work work work';
-    padding: 6px 8px;
-    gap: 6px;
+    gap: var(--space-6);
   }
 
   .voice-rail-presence { grid-area: presence; min-width: 0; }
   .voice-rail-controls { grid-area: controls; }
   .voice-rail-end { grid-area: end; }
-  .voice-rail-copy { margin-left: 6px; }
-  .voice-rail-work {
-    grid-area: work;
-    height: auto;
-    min-height: 34px;
-    padding: 6px 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--color-card-border);
-  }
+  .voice-rail-work { grid-area: work; }
   .voice-rail-work-copy { flex: 1 1 auto; }
   .voice-rail-work-copy small { display: block; }
   /* Nothing running: no empty second row. */
@@ -318,13 +309,17 @@
   .voice-rail-operation--idle { display: none; }
   .voice-rail-operation-dots,
   .voice-rail-operation-more { display: none; }
-  .voice-rail-controls { padding-left: 4px; }
-  .voice-rail-control { padding: 6px; }
-  .voice-rail-end { margin-left: 0; padding: 6px 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .voice-rail-mark svg,
   .voice-rail-halo { transform: none; transition: none; }
   .voice-rail-operation-dots i { animation: none; }
+  .voice-rail { animation: none; }
+  .voice-rail-control,
+  .voice-rail-end,
+  .voice-rail-action { transition: none; }
+  .voice-rail-control:active,
+  .voice-rail-end:active,
+  .voice-rail-action:active:not(:disabled) { transform: none; }
 }

@@ -1459,6 +1459,29 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow: hidden;
 }
 
+/* The terminal is part of the panel: it sits on the panel's own background,
+ * so there is no block of another colour and no frame around it. The canvas
+ * gets the same colour from `terminal-theme.ts`. */
+.term-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-pane__host {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-8) var(--space-4) var(--space-8) var(--space-12);
+  background: var(--color-card-bg);
+}
+/* xterm paints its own viewport colour until the theme lands. */
+.term-pane__host .xterm-viewport { background-color: transparent !important; }
+.term-pane__error {
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--type-meta);
+  color: var(--color-red-text);
+}
+
 /* The browser stays mounted once opened (its pages die with the element).
  * Hidden, it is parked off-screen rather than `display:none`, which would stop
  * Chromium painting it. */
@@ -1912,13 +1935,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .app-shell > .col-main.col-main--docked {
   gap: var(--space-8);
 }
-/* Docked, these genuinely float above the pane, so here they get the card's
- * radius and shadow that permanent chrome does not. */
+/* Docked, these genuinely float above the pane, so here they take the shadow
+ * that permanent chrome does not. */
 .col-main--docked .ask-dock,
 .col-main--docked .voice-rail {
-  border: 1px solid var(--color-card-border-strong);
-  border-radius: var(--radius-card);
   box-shadow: var(--color-card-shadow);
+}
+.col-main--docked .voice-rail-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 /* The composer is already a card; docked, it fills the dock and takes the
  * shadow. It is not clipped, so its + menu can open past its top edge. */
@@ -3015,6 +3041,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .outcome__body > .markdown-body > :first-child { margin-top: 0; }
 .outcome__body > .markdown-body > :last-child { margin-bottom: 0; }
+/* The ways on from an outcome, under what it says. */
+.outcome__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: 0 14px var(--space-12);
+}
 
 /* A step of the run that neither side said. */
 .mode-note {
@@ -3550,19 +3583,24 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .ask-dock__text strong { color: var(--color-text); }
 
-/* The exact thing being asked about, in a sunk well. It scrolls sideways rather
- * than wrapping: a shell command broken across lines is a different command to
- * read, and this is the text you are being asked to vouch for. */
+/* The exact thing being asked about, whole, in a sunk well. It scrolls rather
+ * than wrapping or being cut: a shell command broken across lines is a
+ * different command to read, and this is the text you are asked to vouch for.
+ * The cap keeps the answers in reach under a long call. */
 .ask-dock__cmd {
+  flex-shrink: 0;
   margin: 0;
+  max-height: 220px;
   padding: var(--space-8) var(--space-12);
   border-radius: var(--radius-block);
   background: var(--color-input-soft);
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--type-row);
+  line-height: 1.5;
   white-space: pre;
-  overflow-x: auto;
+  overflow: auto;
+  user-select: text;
 }
 
 .ask-dock__field {
@@ -3632,6 +3670,34 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 @media (prefers-reduced-motion: reduce) {
   .ask-btn { transition: none; }
   .ask-btn:active:not(:disabled) { transform: none; }
+}
+
+/* The same card in the focus window. Beside the mark it floats over other
+ * windows, so it has a shadow and a fixed frame its parts scroll inside; in
+ * the Mini Chat it heads the panel. Both are cut out of the window's drag
+ * region. */
+.ask-dock--toast,
+.ask-dock--panel {
+  -webkit-app-region: no-drag;
+  margin: 0;
+  max-width: none;
+  animation: none;
+}
+.ask-dock--toast {
+  width: 468px;
+  max-height: 196px;
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  overflow: hidden;
+}
+.ask-dock--toast .ask-dock__body { max-height: 64px; flex-shrink: 1; }
+.ask-dock--toast .ask-dock__cmd { max-height: 46px; flex-shrink: 1; min-height: 30px; }
+.ask-dock--toast .ask-dock__acts { flex-wrap: nowrap; flex-shrink: 0; }
+.ask-dock--toast .ask-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-dock--panel {
+  width: 100%;
+  flex-shrink: 0;
+  margin-bottom: var(--space-12);
 }
 
 /* Measured wall time, on a step header and on each of its rows. Tabular so the

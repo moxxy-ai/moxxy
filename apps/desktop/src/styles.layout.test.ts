@@ -51,3 +51,12 @@ describe('styles.css — a caption is not a row', () => {
     expect(caption).toMatch(/padding:\s*0 var\(--space-8\) var\(--space-4\)/);
   });
 });
+
+describe('styles.css — the terminal is part of the work panel', () => {
+  it('sits on the panel’s own background, with no frame of another colour', () => {
+    const host = rule('.term-pane__host');
+    expect(host).toMatch(/background:\s*var\(--color-card-bg\)/);
+    expect(rule('.bench')).toMatch(/background:\s*var\(--color-card-bg\)/);
+  });
+});
+

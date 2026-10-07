@@ -19,6 +19,7 @@ import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 import { visibleTranscriptNodes } from './transcript-nodes';
 import { ModeTranscriptContext } from './modes/ModeTranscriptContext';
+import { PlanNextContext, type PlanNext } from './modes/plan-next';
 import { readModeEvents } from './modes/mode-events';
 
 interface TranscriptProps {
@@ -38,6 +39,8 @@ interface TranscriptProps {
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
   /** Presentation metadata advertised by the live tool registry. */
   readonly compactTools?: CompactToolMap;
+  /** Carries the open plan out; null or absent where that is not on offer. */
+  readonly onPlanNext?: ((next: PlanNext) => void) | null;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
@@ -146,6 +149,7 @@ export function Transcript({
   onReachedTop,
   onPreviewImage,
   compactTools,
+  onPlanNext = null,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks). The
@@ -233,6 +237,7 @@ export function Transcript({
     // One catalog fetch for the whole transcript; every tool row reads the
     // declared icon from context rather than asking for it per row.
     <ModeTranscriptContext.Provider value={modes}>
+    <PlanNextContext.Provider value={onPlanNext}>
     <ToolIconProvider workspaceId={workspaceId}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
@@ -288,6 +293,7 @@ export function Transcript({
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
     </ToolIconProvider>
+    </PlanNextContext.Provider>
     </ModeTranscriptContext.Provider>
   );
 }

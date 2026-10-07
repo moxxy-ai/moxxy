@@ -194,7 +194,7 @@ describe('SubagentGroupView', () => {
   it('names a research agent by the question it is answering', () => {
     const titles = new Map([['c1', 'What does the documentation say about WAL mode?']]);
     render(
-      <ModeTranscriptContext.Provider value={{ outcomes: new Map(), notes: new Map(), agentTitles: titles }}>
+      <ModeTranscriptContext.Provider value={{ outcomes: new Map(), notes: new Map(), agentTitles: titles, openPlanId: null }}>
         <SubagentGroupView block={group([agent(1), agent(2)])} />
       </ModeTranscriptContext.Provider>,
     );

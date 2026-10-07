@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { terminalTheme } from './terminal-theme';
 import { useSurface } from './useSurface';
 
 /**
@@ -47,13 +48,11 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    // xterm paints to a canvas, so it cannot resolve `var()` — it needs concrete
-    // values. Reading them from the document at construction keeps the terminal
-    // on the palette AND theme-aware, instead of the two hard-coded hexes it had,
-    // which stayed a blue-black slate whichever theme was active.
+    // xterm paints to a canvas, so it cannot resolve `var()`: it is handed the
+    // palette's values, and handed them again whenever the theme changes.
     const css = getComputedStyle(document.documentElement);
-    const token = (name: string, fallback: string): string =>
-      css.getPropertyValue(name).trim() || fallback;
+    const readTheme = (): ReturnType<typeof terminalTheme> =>
+      terminalTheme((name) => getComputedStyle(document.documentElement).getPropertyValue(name));
     const term = new Terminal({
       fontFamily: css.getPropertyValue('--font-mono').trim() || 'ui-monospace, Menlo, monospace',
       // A NUMBER, not a CSS value: xterm measures glyphs itself and will not
@@ -61,12 +60,7 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
       // this once). Kept in step with --type-row by hand.
       fontSize: 12.5,
       cursorBlink: true,
-      theme: {
-        background: token('--color-input-soft', '#0a0e11'),
-        foreground: token('--color-text', '#e4ebef'),
-        cursor: token('--color-primary', '#ff4a1e'),
-        selectionBackground: token('--color-primary-soft', '#2b130d'),
-      },
+      theme: readTheme(),
       scrollback: 5000,
     });
     const fit = new FitAddon();
@@ -104,11 +98,19 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     ro.observe(host);
     scheduleFit();
 
+    // xterm paints to a canvas, so it is handed the palette again whenever the
+    // theme controller flips `<html data-theme>` (it does so for the OS scheme too).
+    const themeAttr = new MutationObserver(() => {
+      term.options.theme = readTheme();
+    });
+    themeAttr.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
       dataSub.dispose();
       resizeSub.dispose();
       ro.disconnect();
+      themeAttr.disconnect();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -135,17 +137,13 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   }, [surface.ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div className="term-pane">
       {(surface.error || degraded) && (
-        <div style={{ padding: '8px 12px', fontSize: 'var(--type-meta)', color: 'var(--color-danger, #f87171)' }}>
+        <div className="term-pane__error" role="status">
           Terminal unavailable: {surface.error ?? degraded}
         </div>
       )}
-      <div
-        ref={hostRef}
-        onMouseDown={() => termRef.current?.focus()}
-        style={{ flex: 1, minHeight: 0, padding: 8, background: '#0b0f17' }}
-      />
+      <div ref={hostRef} className="term-pane__host" onMouseDown={() => termRef.current?.focus()} />
     </div>
   );
 }

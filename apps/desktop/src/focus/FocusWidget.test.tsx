@@ -66,6 +66,8 @@ interface IpcSpy {
 }
 
 interface FakeApiOptions {
+  /** Extra fields the runner reports in `session.info` (mode, auto-approve). */
+  readonly sessionInfo?: Record<string, unknown>;
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
   readonly activeTurnId?: string | null;
   readonly hasTranscriber?: boolean;
@@ -179,7 +181,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
         return Promise.resolve(hasTranscriber);
       }
       if (channel === 'session.info') {
-        return Promise.resolve({ activeSynthesizer, skills: [], tools: [] });
+        return Promise.resolve({ activeSynthesizer, skills: [], tools: [], ...options.sessionInfo });
       }
       if (channel === 'voice.isLocalPiperInstalled') {
         return Promise.resolve(localPiperInstalled);
@@ -416,7 +418,7 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/message moxxy|no active workspace/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /^send$/i })).toBeTruthy();
   });
 
@@ -634,7 +636,7 @@ describe('FocusWidget stages', () => {
       expect(screen.queryByRole('button', { name: /end voice mode/i })).toBeNull();
 
       act(() => ipc.emit('ask.request', permissionAsk('ask-during-collapsed-voice')));
-      await screen.findByRole('group', { name: /permission required/i });
+      await screen.findByRole('group', { name: /approval required/i });
       await waitFor(() => {
         expect(ipc.invokes).toContainEqual({
           channel: 'focus.resize',
@@ -910,7 +912,7 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^back$/i }));
     expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/ask moxxy/i)).toBeNull();
+    expect(screen.queryByPlaceholderText(/message moxxy/i)).toBeNull();
   });
 
   it('active → close fires focus.close IPC', () => {
@@ -984,7 +986,7 @@ describe('FocusWidget theme', () => {
     await waitFor(() => expect(themeAttr()).toBe('dark'));
   });
 
-  it('styles the preview bubble and mini-text controls through focus theme variables', async () => {
+  it('styles the preview bubble through focus theme variables and the field through the shared sheet', async () => {
     const spy = installFakeApi({ theme: 'light' });
     render(<FocusWidget />);
 
@@ -1028,10 +1030,11 @@ describe('FocusWidget theme', () => {
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
 
     const input = await screen.findByPlaceholderText(
-      /ask moxxy|no active workspace/i,
+      /message moxxy|no active workspace/i,
     );
-    expect(input.getAttribute('style')).toContain('background: var(--focus-input-bg)');
-    expect(input.getAttribute('style')).toContain('color: var(--focus-text)');
+    // The field is the desktop composer's, themed by the stylesheet both share.
+    expect(input).toHaveClass('cmdbar__ta');
+    expect(input.getAttribute('style') ?? '').not.toContain('background');
   });
 
   it('injects a local dark-token block for the standalone focus bundle', () => {
@@ -1189,11 +1192,11 @@ describe('FocusWidget bidirectional sync', () => {
     // Wait for ConnectionBridge to push the active workspace id
     // through, which un-disables the input.
     await waitFor(() => {
-      const input = screen.getByPlaceholderText(/ask moxxy|no active workspace/i) as HTMLTextAreaElement;
+      const input = screen.getByPlaceholderText(/message moxxy|no active workspace/i) as HTMLTextAreaElement;
       expect(input.disabled).toBe(false);
     });
 
-    const input = screen.getByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(/message moxxy/i) as HTMLTextAreaElement;
     expect(input.tagName).toBe('TEXTAREA');
     fireEvent.change(input, { target: { value: 'hello from focus' } });
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
@@ -1215,7 +1218,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    const input = await screen.findByPlaceholderText(/message moxxy/i) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: 'first line' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
@@ -1238,7 +1241,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    const input = await screen.findByPlaceholderText(/message moxxy/i) as HTMLTextAreaElement;
 
     Object.defineProperty(input, 'scrollHeight', { configurable: true, value: 86 });
     fireEvent.change(input, { target: { value: 'first\nsecond\nthird' } });
@@ -1255,7 +1258,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    const input = await screen.findByPlaceholderText(/message moxxy/i) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: 'composed text' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -1270,14 +1273,15 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    const input = await screen.findByPlaceholderText(/message moxxy/i) as HTMLTextAreaElement;
 
     fireEvent.change(input, { target: { value: 'first prompt' } });
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
     await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
 
+    // While a turn runs the round button is Stop, as on the desktop; Enter queues.
     fireEvent.change(input, { target: { value: 'queued prompt' } });
-    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+    fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(spy.invokes.filter((invoke) => invoke.channel === 'session.runTurn')).toHaveLength(1);
     expect(screen.getByRole('status', { name: /1 queued message/i })).toBeTruthy();
@@ -1294,13 +1298,13 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    const input = await screen.findByPlaceholderText(/message moxxy/i);
 
     fireEvent.change(input, { target: { value: 'long running task' } });
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
     await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
 
-    fireEvent.click(screen.getByRole('button', { name: /stop current task/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^stop$/i }));
 
     await waitFor(() => {
       const abort = spy.invokes.find((invoke) => invoke.channel === 'session.abortTurn');
@@ -1315,7 +1319,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
-    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    const input = await screen.findByPlaceholderText(/message moxxy/i);
     pasteImage(input);
 
     await waitFor(() => {
@@ -1334,7 +1338,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
-    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    const input = await screen.findByPlaceholderText(/message moxxy/i);
     pasteImage(input);
     await screen.findByRole('button', { name: /preview screen\.png/i });
 
@@ -1358,7 +1362,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
-    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    const input = await screen.findByPlaceholderText(/message moxxy/i);
     pasteImage(input);
     const preview = await screen.findByRole('button', { name: /preview screen\.png/i });
 
@@ -1368,7 +1372,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /remove screen\.png/i }));
     expect(screen.queryByRole('button', { name: /preview screen\.png/i })).toBeNull();
-    expect(screen.getByPlaceholderText(/ask moxxy/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/message moxxy/i)).toBeTruthy();
   });
 
   it('uses the persisted mini-text size when opening the text panel', async () => {
@@ -1395,7 +1399,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
-    await screen.findByPlaceholderText(/ask moxxy/i);
+    await screen.findByPlaceholderText(/message moxxy/i);
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -1631,8 +1635,9 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
 
+    // The turn is still running, so the field offers to queue, as on the desktop.
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+      expect(screen.getByPlaceholderText('Queue a follow-up…')).toBeTruthy();
     });
     expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
   });
@@ -1687,7 +1692,7 @@ describe('FocusWidget bidirectional sync', () => {
     });
     fireEvent.click(previewButton);
 
-    expect(await screen.findByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    expect(await screen.findByPlaceholderText(/message moxxy|no active workspace/i)).toBeTruthy();
     expect(screen.getByText(/question behind the clickable reply/i)).toBeTruthy();
     expect(screen.getByText(/clickable preview reply/i)).toBeTruthy();
   });
@@ -1745,7 +1750,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /open latest reply/i }));
 
-    expect(await screen.findByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    expect(await screen.findByPlaceholderText(/message moxxy|no active workspace/i)).toBeTruthy();
     expect(screen.getByText(/voice question behind the reply/i)).toBeTruthy();
     expect(screen.getByText(/voice reply opens the mini chat/i)).toBeTruthy();
   });
@@ -2151,7 +2156,7 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
     act(() => spy.emit('ask.request', permissionAsk('ask-visible-over-hidden-task')));
 
-    expect(await screen.findByRole('group', { name: /permission required/i })).toBeTruthy();
+    expect(await screen.findByRole('group', { name: /approval required/i })).toBeTruthy();
     expect(screen.getByText(/pnpm build/i)).toBeTruthy();
   });
 
@@ -2161,8 +2166,8 @@ describe('FocusWidget bidirectional sync', () => {
 
     spy.emit('ask.request', permissionAsk('ask-focus-toast'));
 
-    await screen.findByRole('group', { name: /permission required/i });
-    expect(screen.getByText(/bash/i)).toBeTruthy();
+    await screen.findByRole('group', { name: /approval required/i });
+    expect(screen.getByText('Bash needs your approval')).toBeTruthy();
     expect(screen.getByText(/pnpm build/i)).toBeTruthy();
 
     await waitFor(() => {
@@ -2176,7 +2181,7 @@ describe('FocusWidget bidirectional sync', () => {
       expect((askResize.args as { height: number }).height).toBeGreaterThanOrEqual(130);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^allow$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^allow once$/i }));
 
     await waitFor(() => {
       const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
@@ -2195,7 +2200,7 @@ describe('FocusWidget bidirectional sync', () => {
 
     spy.emit('ask.request', permissionAsk('ask-focus-transparent-gutter'));
 
-    const card = await screen.findByRole('group', { name: /permission required/i });
+    const card = await screen.findByRole('group', { name: /approval required/i });
     expect(card.parentElement?.getAttribute('style')).toContain('background: transparent');
     expect(focusStyle.inactiveRootWithPreview).toMatchObject({
       background: 'transparent',
@@ -2215,7 +2220,7 @@ describe('FocusWidget bidirectional sync', () => {
       },
     });
 
-    const card = await screen.findByRole('group', { name: /permission required/i });
+    const card = await screen.findByRole('group', { name: /approval required/i });
     expect(card.textContent).not.toContain('**trusted checks**');
     expect(within(card).getByText('trusted checks').tagName.toLowerCase()).toBe('strong');
     expect(within(card).getByText('Verify build output').closest('li')).toBeTruthy();
@@ -2227,14 +2232,14 @@ describe('FocusWidget bidirectional sync', () => {
 
     spy.emit('ask.request', permissionAsk('ask-focus-mini'));
 
-    await screen.findByRole('group', { name: /permission required/i });
+    await screen.findByRole('group', { name: /approval required/i });
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+      expect(screen.getByPlaceholderText(/message moxxy|no active workspace/i)).toBeTruthy();
     });
-    expect(screen.getByRole('group', { name: /permission required/i })).toBeTruthy();
+    expect(screen.getByRole('group', { name: /approval required/i })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /always allow/i }));
 
@@ -2267,9 +2272,9 @@ describe('FocusWidget bidirectional sync', () => {
       },
     });
 
-    await screen.findByRole('group', { name: /permission required/i });
+    await screen.findByRole('group', { name: /approval required/i });
     expect(screen.getByRole('button', { name: /^deny$/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^allow$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^allow once$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /always allow/i })).toBeTruthy();
 
     await waitFor(() => {
@@ -2284,8 +2289,95 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
-  it('keeps enough markdown body space above permission details', () => {
-    expect(Number(focusStyle.focusAskBody.maxHeight)).toBeGreaterThanOrEqual(66);
-    expect(Number.parseInt(String(focusStyle.focusAskDetail.margin), 10)).toBeGreaterThanOrEqual(9);
+});
+
+describe('FocusWidget Mini Chat is the desktop composer', () => {
+  async function openMiniChat(): Promise<HTMLTextAreaElement> {
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    return (await screen.findByPlaceholderText('Message Moxxy…')) as HTMLTextAreaElement;
+  }
+
+  it('types into the same card and field as the desktop, with no look of its own', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const input = await openMiniChat();
+
+    expect(input).toHaveClass('cmdbar__ta');
+    expect(input.closest('.cmdbar__card')).not.toBeNull();
+    expect(input.style.background).toBe('');
+    expect(input.style.border).toBe('');
+  });
+
+  it('sends with the desktop send button, which is Stop while a turn runs', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const input = await openMiniChat();
+
+    const send = screen.getByTestId('composer-send');
+    expect(send).toHaveClass('composer-send');
+    expect(send).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'long running task' } });
+    fireEvent.click(send);
+    await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
+
+    expect(screen.getByTestId('composer-abort')).toHaveAccessibleName('Stop');
+    expect(screen.queryByTestId('composer-send')).toBeNull();
+    expect(input.placeholder).toBe('Queue a follow-up…');
+  });
+
+  it('says the mode and auto-approve of the session above the field', async () => {
+    installFakeApi({
+      sessionInfo: { modes: ['default', 'plan'], activeMode: 'plan', autoApprove: true },
+    });
+    render(<FocusWidget />);
+    const input = await openMiniChat();
+
+    expect(await screen.findByTestId('composer-mode')).toHaveTextContent('Plan mode · read-only');
+    expect(screen.getByTestId('composer-auto-approve')).toHaveTextContent('Auto-approve on');
+    await waitFor(() => expect(input.placeholder).toBe('Describe what to plan…'));
+  });
+
+  it('follows a switch made on another surface', async () => {
+    const info: Record<string, unknown> = { modes: ['default', 'plan'], activeMode: 'default' };
+    const spy = installFakeApi({ sessionInfo: info });
+    render(<FocusWidget />);
+    await openMiniChat();
+    expect(screen.queryByTestId('composer-auto-approve')).toBeNull();
+
+    info.autoApprove = true;
+    info.activeMode = 'plan';
+    act(() => spy.emit('session.info.changed', { workspaceId: 'ws-test' }));
+
+    expect(await screen.findByTestId('composer-auto-approve')).toBeTruthy();
+    expect(screen.getByTestId('composer-mode')).toHaveTextContent('Plan mode');
+  });
+
+  it('leaves a mode from its chip through the session', async () => {
+    const spy = installFakeApi({
+      sessionInfo: { modes: ['default', 'plan'], activeMode: 'plan' },
+    });
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to Default mode' }));
+
+    await waitFor(() => {
+      const call = spy.invokes.find((invoke) => invoke.channel === 'session.setMode');
+      expect(call?.args).toEqual({ workspaceId: 'ws-test', mode: 'default' });
+    });
+  });
+
+  it('names its header controls in tooltips, like the desktop header', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    expect(screen.getByRole('button', { name: 'Back' })).toHaveAttribute('data-tip', 'Back');
+    expect(screen.getByRole('button', { name: 'Open main window' })).toHaveAttribute(
+      'data-tip',
+      'Open main window',
+    );
   });
 });

@@ -36,6 +36,7 @@ describe('readModeEvents — the message that closes a mode', () => {
       title: 'Plan',
       tone: 'neutral',
       facts: [{ text: '3 steps' }, { text: '1 decision needed', tone: 'warn' }, { text: 'Suggests Default mode' }],
+      suggests: 'default',
     });
   });
 

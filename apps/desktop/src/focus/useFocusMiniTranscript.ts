@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useActionCatalog, type UseChat } from '@moxxy/client-core';
 import type { CompactToolMap } from '@moxxy/chat-model';
+import { usePlanNext, type PlanNext } from '@/chat/modes/plan-next';
 
 export interface FocusMiniTranscriptModel {
   readonly events: UseChat['events'];
@@ -12,6 +13,8 @@ export interface FocusMiniTranscriptModel {
   readonly hasOlder: boolean;
   readonly loadOlder: () => void;
   readonly compactTools: CompactToolMap;
+  /** Carries the open plan out, as the desktop conversation does; null while a turn runs. */
+  readonly planNext: ((next: PlanNext) => void) | null;
 }
 
 /** Headless presentation model for the shared chat transcript in Mini Chat. */
@@ -28,6 +31,14 @@ export function useFocusMiniTranscript(
     return compact;
   }, [actionCatalog.tools]);
 
+  const send = useCallback((prompt: string): void => void chat.send(prompt), [chat.send]);
+  const planNext = usePlanNext({
+    workspaceId: workspaceId ?? '',
+    ready: workspaceId !== null,
+    busy: chat.sending || chat.activeTurnId !== null || chat.compacting,
+    onSend: send,
+  });
+
   return {
     events: chat.events,
     extensions: chat.extensions,
@@ -38,5 +49,6 @@ export function useFocusMiniTranscript(
     hasOlder: chat.hasOlder,
     loadOlder: chat.loadOlder,
     compactTools,
+    planNext,
   };
 }

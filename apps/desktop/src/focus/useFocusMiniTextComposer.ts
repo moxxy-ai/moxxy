@@ -15,6 +15,9 @@ import {
 import { useAttachmentImagePreviews } from '@/chat/image-preview/useAttachmentImagePreviews';
 import { useImagePreview } from '@/chat/image-preview/useImagePreview';
 import type { ImagePreviewItem } from '@/chat/image-preview/types';
+import { composerPlaceholder } from '@/chat/composer/composer-placeholder';
+import type { SendAction } from '@/chat/composer/SendButton';
+import { useFocusSessionState, type FocusSessionState } from './useFocusSessionState';
 
 export interface FocusMiniTextComposer {
   readonly inputRef: RefObject<HTMLTextAreaElement>;
@@ -27,7 +30,12 @@ export interface FocusMiniTextComposer {
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
   readonly sending: boolean;
-  readonly canAbort: boolean;
+  /** A turn is running: the send button is Stop and a new message queues. */
+  readonly running: boolean;
+  readonly sendAction: SendAction;
+  readonly placeholder: string;
+  /** The mode and auto-approve of the session, as the desktop composer says them. */
+  readonly session: FocusSessionState;
   readonly queued: ReadonlyArray<{
     readonly key: string;
     readonly prompt: string;
@@ -65,7 +73,9 @@ export function useFocusMiniTextComposer({
   } = useComposerAttachments(focusInput);
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId ?? undefined, attachments);
   const imagePreview = useImagePreview();
+  const session = useFocusSessionState(workspaceId);
   const trimmedDraft = draft.trim();
+  const running = chat.activeTurnId !== null || chat.sending;
   const canSubmit =
     Boolean(workspaceId) &&
     !chat.compacting &&
@@ -128,7 +138,19 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     canSubmit,
     sending: chat.sending,
-    canAbort: chat.activeTurnId !== null,
+    running,
+    sendAction: queued.length > 0 ? 'Queue' : 'Send',
+    placeholder: workspaceId
+      ? composerPlaceholder({
+          ready: true,
+          compacting: chat.compacting,
+          goalArmed: false,
+          inFlight: running,
+          hasAttachments: attachments.length > 0,
+          mode: session.mode,
+        })
+      : 'No active workspace',
+    session,
     queued,
     submit,
     abort,

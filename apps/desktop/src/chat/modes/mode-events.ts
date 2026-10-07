@@ -28,6 +28,8 @@ export interface ModeOutcome {
   readonly title: string;
   readonly tone: 'neutral' | 'good' | 'warn';
   readonly facts: ReadonlyArray<OutcomeFact>;
+  /** The mode a plan recommends carrying it out in. */
+  readonly suggests?: string;
 }
 
 /** A line for a step neither side said: a round starting, a run steering itself. */
@@ -43,6 +45,8 @@ export interface ModeTranscript {
   readonly notes: ReadonlyMap<string, ModeNote>;
   /** A research agent's question, by its child session. */
   readonly agentTitles: ReadonlyMap<string, string>;
+  /** The plan nothing has followed yet: the one still waiting for a decision. */
+  readonly openPlanId: string | null;
 }
 
 /**
@@ -89,7 +93,8 @@ function outcomeFor(event: PluginEvent): ModeOutcome | null {
     if (steps !== null) facts.push({ text: plural(steps, 'step') });
     if (questions > 0) facts.push({ text: `${plural(questions, 'decision')} needed`, tone: 'warn' });
     if (mode !== undefined) facts.push({ text: `Suggests ${mode} mode` });
-    return { kind: 'plan', title: 'Plan', tone: 'neutral', facts };
+    const suggests = typeof payload.recommendedMode === 'string' ? payload.recommendedMode : undefined;
+    return { kind: 'plan', title: 'Plan', tone: 'neutral', facts, suggests };
   }
   if (event.pluginId === GOAL) {
     const iterations = count(payload.iterations);
@@ -178,11 +183,18 @@ export function readModeEvents(events: ReadonlyArray<MoxxyEvent>): ModeTranscrip
   // The heading waits for the next message of its own turn, and for no other.
   let pending: { readonly turnId: string; readonly outcome: ModeOutcome } | null = null;
   let questions: { readonly turnId: string; readonly list: ReadonlyArray<string> } | null = null;
+  let openPlanId: string | null = null;
 
   for (const event of events) {
     if (event.type === 'assistant_message') {
-      if (pending !== null && pending.turnId === event.turnId) outcomes.set(event.id, pending.outcome);
+      const outcome = pending !== null && pending.turnId === event.turnId ? pending.outcome : null;
+      if (outcome !== null) outcomes.set(event.id, outcome);
+      openPlanId = outcome !== null && outcome.kind === 'plan' ? event.id : null;
       pending = null;
+      continue;
+    }
+    if (event.type === 'user_prompt') {
+      openPlanId = null;
       continue;
     }
     if (event.type !== 'plugin_event') continue;
@@ -206,7 +218,7 @@ export function readModeEvents(events: ReadonlyArray<MoxxyEvent>): ModeTranscrip
     const note = noteFor(event);
     if (note !== null) notes.set(event.id, note);
   }
-  return { outcomes, notes, agentTitles };
+  return { outcomes, notes, agentTitles, openPlanId };
 }
 
 const OPENINGS: Partial<Record<OutcomeKind, RegExp>> = {

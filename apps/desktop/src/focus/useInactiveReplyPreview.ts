@@ -9,6 +9,7 @@ import {
 import { chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { assertDefined } from '@/lib/assert';
+import { plainLine } from '@/lib/plain-line';
 
 export interface InactiveReplyPreview {
   readonly key: string;
@@ -38,10 +39,6 @@ const snapshotCache = new Map<string, {
   readonly key: string;
   readonly snapshot: AssistantPreviewSnapshot;
 }>();
-
-function compactPreviewText(text: string): string {
-  return text.trim().replace(/\s+/g, ' ');
-}
 
 function cachedCandidate(
   workspaceId: string,
@@ -221,7 +218,7 @@ export function useInactiveReplyPreview({
 
   const preview = useMemo(() => {
     if (!candidate || !visible) return null;
-    return { key: candidate.key, text: compactPreviewText(candidate.text) };
+    return { key: candidate.key, text: plainLine(candidate.text) };
   }, [candidate, visible]);
 
   return { preview, dismissPreview, pinPreview };

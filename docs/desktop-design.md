@@ -128,6 +128,7 @@ so no mode has a look of its own.
 | Mode chip | `chat/modes/ModeChip.tsx` | In the composer's status row for every mode but the default: "Plan mode · read-only", "Goal mode · unattended", "Research mode". Its × goes back to the default mode. A mode that acts without asking takes the caution tone. |
 | Mode menu | the add menu | Each mode by name with its one-line hint under it. |
 | Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
+| Plan answers | `chat/modes/plan-next.ts` | The plan nothing has followed offers "Implement" and "Run as goal", the one it recommends filled. Each switches the session's mode first and then sends the prompt, so the prompt cannot run as another round of planning. A goal run starts from the default mode, which is where it hands back. They are not offered while a turn runs, while a question waits, or on an older plan. |
 | Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
 | Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. |
 
@@ -139,12 +140,31 @@ asks for those events with `registerModeEvents()` at start.
 
 When the runner waits on the person (a tool needs approval, a mode asks which
 way to go on, a workflow wants a reply) the question is a card directly above
-the composer, on the same measure and of the same make (`chat/AskSheet.tsx`).
-What the agent wrote is read as prose; a tool's call stays on one line in a
-monospace well, which scrolls sideways instead of wrapping. One answer is filled, the rest are quiet pills, and the one
-that throws work away is red. Asking leave to act marks the card amber; asking
-which way to go on marks it with the accent. Focus goes to the safe answer,
-Tab stays inside the card and Escape gives the safe answer.
+the composer, on the same measure and of the same make.
+
+One model says what the card holds and one component draws it, for the desktop
+and for the focus window alike: `chat/ask/ask-prompt.ts` turns the request into
+a title, the text, the call and the answers, and `chat/ask/AskCard.tsx` draws
+them. `chat/AskSheet.tsx` adds what only a dialog needs (the focus trap and
+Escape); the focus window shows the same card beside the mark or at the head
+of the Mini Chat.
+
+What the agent wrote is read as prose. A tool's call is shown whole, never
+summarised, in a monospace well that scrolls instead of wrapping
+(`chat/ask/tool-call-text.ts`): the person approves exactly what will run. One
+answer is filled, the rest are quiet pills, and the one that throws work away
+is red. Asking leave to act marks the card amber; asking which way to go on
+marks it with the accent. Focus goes to the safe answer, Tab stays inside the
+card and Escape gives the safe answer.
+
+### A voice conversation
+
+Voice mode does not change the screen. While it is on, one card sits between
+the conversation and the composer, on the composer's measure and of its make
+(`voice-call/VoicePresenceRail.tsx`): the mark and what Moxxy is doing, the
+tool at work, then the microphone and the waiting sound as round icons whose
+tooltips say the state they are in, and a pill that ends the call. A running
+tool is shown by its dots; the word is kept for a screen reader.
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
@@ -157,6 +177,10 @@ button that shows and hides it, and ⌘J / Ctrl+J does the same; both call one
 toggle (`shell/useWorkbench.ts`), which reopens the pane that was last in use.
 The panel still opens by itself the first time the agent drives its browser or
 terminal.
+
+The terminal is drawn on the panel's own background in the palette's colours
+(`shell/surfaces/terminal-theme.ts`), and repaints when the theme changes; it
+has no frame or colour of its own.
 
 Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
@@ -176,9 +200,22 @@ as the same app.
 | Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
 
-The focus window is its own document with its own surface tokens
-(`focus/focus-styles.ts`). They carry the desktop palette's values, and the
-Mini Chat draws the same conversation with a narrower gutter.
+### The focus window
+
+The focus window is the desktop continued in a small window, not a second
+design. It is its own document, so it repeats the palette
+(`focus/focus-styles.ts`), and `focus/focus-look.test.ts` fails when that copy
+and `styles.css` disagree.
+
+| Piece | Rule |
+|---|---|
+| Mini Chat | The same `Transcript`, mode cards and plan answers included (`registerModeEvents()` runs here too), in a rounded card. |
+| Composer | The desktop composer's card, field and send button (`.cmdbar__card`, `SendButton`): Stop while a turn runs, and Enter queues. The add menu and dictation are left out. |
+| What the next turn does | The mode chip and "Auto-approve on" above the field, read from the session (`focus/useFocusSessionState.ts`), so a switch made on the desktop, in the TUI or by a bot shows here. |
+| Placeholder | One rule for both composers (`chat/composer/composer-placeholder.ts`). |
+| Questions | The same card as the desktop (see "A question that blocks the run"). |
+| Reply bubble | One plain line, by the rule the run list uses (`lib/plain-line.ts`). |
+| Tooltips | The same layer, mounted in `focus/focus-main.tsx`. |
 
 ## Where the values live
 
@@ -218,3 +255,7 @@ above are reimplemented here in Moxxy's own components.
    layer that is never clipped, settings sections with icons, plan, goal and
    research drawn with the conversation's own pieces, the blocking question as
    a card, and copy on quotes, code and tables.
+7. **One app in every window** (done): the focus window uses the desktop's
+   composer, question card and tooltips; the question shows the whole tool
+   call; voice mode is a card above the composer; the terminal takes the
+   palette; a finished plan offers to be carried out.

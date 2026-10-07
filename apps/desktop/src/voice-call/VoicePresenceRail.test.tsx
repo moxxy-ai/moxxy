@@ -90,7 +90,7 @@ describe('VoicePresenceRail', () => {
 
     const operation = screen.getByTestId('voice-rail-operation');
     expect(operation).toHaveTextContent('Running commands');
-    expect(operation).toHaveTextContent('IN PROGRESS');
+    expect(operation).toHaveTextContent('In progress');
     expect(operation).toHaveTextContent('+2 active');
     expect(operation.textContent).not.toMatch(/--|\/|npm|rm /);
   });

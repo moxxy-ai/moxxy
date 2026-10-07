@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { ModeNote, ModeOutcome, ModeTranscript } from './mode-events';
 
-const NOTHING: ModeTranscript = { outcomes: new Map(), notes: new Map(), agentTitles: new Map() };
+const NOTHING: ModeTranscript = { outcomes: new Map(), notes: new Map(), agentTitles: new Map(), openPlanId: null };
 
 /** What the modes reported about the conversation on screen. Empty outside one. */
 export const ModeTranscriptContext = createContext<ModeTranscript>(NOTHING);

@@ -23,8 +23,14 @@ const OPERATION_ICON: Readonly<Record<VoiceOperationKind, IconName>> = Object.fr
   generic: 'spark',
 });
 
+/** A finished operation's state as a word; a running one reads "In progress". */
+function stateLabel(state: string): string {
+  if (state === 'running') return 'In progress';
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
 /**
- * Voice Mode as one line inside the ordinary chat surface.
+ * Voice Mode as one card inside the ordinary chat surface, above the composer.
  *
  * It replaces a full-screen stage: the header, transcript, ask sheet and text
  * composer all stay exactly where they were, so a voice conversation is the
@@ -162,8 +168,11 @@ export function VoicePresenceRail({
                 <i /><i /><i /><i />
               </span>
             )}
-            <span className="voice-rail-operation-state">
-              {rail.operation.state === 'running' ? 'IN PROGRESS' : rail.operation.state.toUpperCase()}
+            {/* Running, the dots say it; the word stays for a screen reader. */}
+            <span
+              className={`voice-rail-operation-state${rail.operation.state === 'running' ? ' sr-only' : ''}`}
+            >
+              {stateLabel(rail.operation.state)}
             </span>
             {rail.overflowCount > 0 && (
               <span className="voice-rail-operation-more">+{rail.overflowCount} active</span>
@@ -194,23 +203,26 @@ export function VoicePresenceRail({
       <div className="voice-rail-controls">
         <button
           type="button"
-          className={`voice-rail-control${microphoneMuted ? ' is-off' : ''}`}
+          className={`voice-rail-control tip${microphoneMuted ? ' is-off' : ''}`}
           aria-pressed={!microphoneMuted}
           aria-label={microphoneMuted ? 'Turn the microphone on' : 'Turn the microphone off'}
+          // The control is an icon, so its tooltip says the state it is in.
+          data-tip={microphoneMuted ? 'Microphone off' : 'Microphone on'}
+          data-tip-side="top"
           onClick={microphoneMuted ? onUnmuteMicrophone : onMuteMicrophone}
         >
           <Icon name="mic" size={16} />
-          <span>{microphoneMuted ? 'Microphone off' : 'Microphone on'}</span>
         </button>
         <button
           type="button"
-          className={`voice-rail-control${waitingSoundEnabled ? '' : ' is-off'}`}
+          className={`voice-rail-control tip${waitingSoundEnabled ? '' : ' is-off'}`}
           aria-pressed={waitingSoundEnabled}
           aria-label={waitingSoundEnabled ? 'Turn the waiting sound off' : 'Turn the waiting sound on'}
+          data-tip={waitingSoundEnabled ? 'Waiting sound on' : 'Waiting sound off'}
+          data-tip-side="top"
           onClick={onToggleWaitingSound}
         >
           <Icon name="speaker" size={16} />
-          <span>{waitingSoundEnabled ? 'Waiting sound on' : 'Waiting sound off'}</span>
         </button>
       </div>
 
@@ -220,7 +232,7 @@ export function VoicePresenceRail({
         aria-label="End voice mode"
         onClick={onClose}
       >
-        End voice
+        End
       </button>
 
       {showInstallDetails && localPiperInstallError && (

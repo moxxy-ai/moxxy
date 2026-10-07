@@ -69,4 +69,14 @@ describe('AskSheet look', () => {
     // The thing you vouch for is not reflowed or restyled as prose.
     expect(dialog.querySelector('pre.ask-dock__cmd')).toHaveTextContent('pnpm build');
   });
+
+  it('shows the whole call, not a summary of it', () => {
+    const command = `pnpm --filter @moxxy/desktop test -- --run ${'src/chat '.repeat(30)}`.trim();
+    render(
+      <AskSheet
+        ask={{ ...permission, requestId: 'r3', tool: { name: 'Bash', input: { command } } }}
+      />,
+    );
+    expect(screen.getByRole('dialog').querySelector('pre.ask-dock__cmd')?.textContent).toBe(command);
+  });
 });

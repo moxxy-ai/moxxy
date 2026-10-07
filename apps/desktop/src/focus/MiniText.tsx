@@ -6,10 +6,12 @@
 
 import { api, type VoiceCallPhase } from '@moxxy/client-core';
 import { Transcript } from '@/chat/Transcript';
+import { ComposerStatus } from '@/chat/composer/ComposerStatus';
 import { QueuedChip } from '@/chat/composer/QueuedChip';
+import { SendButton } from '@/chat/composer/SendButton';
 import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
 import { MoxxyMark } from '@/components/MoxxyMark';
-import { ChevronLeftIcon, SendIcon, StopIcon, WindowIcon } from './focus-icons';
+import { ChevronLeftIcon, WindowIcon } from './focus-icons';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusAskPrompt } from './useFocusAsk';
@@ -74,6 +76,7 @@ export function MiniText({
               onReachedTop={transcript.loadOlder}
               onPreviewImage={composer.imagePreview.open}
               compactTools={transcript.compactTools}
+              onPlanNext={transcript.planNext}
             />
           )}
         </div>
@@ -89,71 +92,63 @@ export function MiniText({
               {composer.attachError}
             </div>
           )}
-          {composer.queued.length > 0 && (
-            <div
-              role="status"
-              aria-live="polite"
-              aria-label={`${composer.queued.length} queued ${composer.queued.length === 1 ? 'message' : 'messages'}`}
-              style={style.focusQueuedTurns}
-            >
-              {composer.queued.map((queued) => (
-                <QueuedChip
-                  key={queued.key}
-                  text={queued.prompt}
-                  onRemove={queued.onRemove}
-                  compact
-                />
-              ))}
-            </div>
-          )}
+          {/* The desktop composer's own card, field and send button, so the
+              two never drift; only the add menu and dictation are left out. */}
           <form
-            style={style.composer}
+            className="cmdbar__card"
             onSubmit={(e) => {
               e.preventDefault();
               composer.submit();
             }}
           >
-            <textarea
-              ref={composer.inputRef}
-              autoFocus
-              rows={1}
-              aria-label="Ask Moxxy"
-              placeholder={
-                workspaceId
-                  ? composer.attachments.length > 0
-                    ? 'Ask about the attached image…'
-                    : 'Ask Moxxy…'
-                  : 'No active workspace'
-              }
-              value={composer.draft}
-              onChange={(e) => composer.setDraft(e.target.value)}
-              onKeyDown={composer.onKeyDown}
-              onPaste={composer.onPaste}
-              disabled={!workspaceId}
-              style={style.input}
+            <ComposerStatus
+              mode={composer.session.mode}
+              modeBusy={composer.running}
+              onLeaveMode={composer.session.leaveMode}
+              autoApprove={composer.session.autoApprove}
+              goalArmed={false}
+              onStandDownGoal={noop}
             />
-            {composer.canAbort && (
-              <button
-                type="button"
-                aria-label="Stop current task"
-                title="Stop current task"
-                onClick={composer.abort}
-                style={style.stop}
+            {composer.queued.length > 0 && (
+              <div
+                role="status"
+                aria-live="polite"
+                aria-label={`${composer.queued.length} queued ${composer.queued.length === 1 ? 'message' : 'messages'}`}
+                className="cmdbar__pending"
               >
-                <StopIcon />
-              </button>
+                {composer.queued.map((queued) => (
+                  <QueuedChip
+                    key={queued.key}
+                    text={queued.prompt}
+                    onRemove={queued.onRemove}
+                    compact
+                  />
+                ))}
+              </div>
             )}
-            <button
-              type="submit"
-              aria-label="Send"
-              disabled={!composer.canSubmit}
-              style={{
-                ...style.send,
-                ...(composer.canSubmit ? null : style.sendDisabled),
-              }}
-            >
-              <SendIcon />
-            </button>
+            <div className="cmdbar__in">
+              <textarea
+                ref={composer.inputRef}
+                className="cmdbar__ta"
+                autoFocus
+                rows={1}
+                aria-label="Message Moxxy"
+                placeholder={composer.placeholder}
+                value={composer.draft}
+                onChange={(e) => composer.setDraft(e.target.value)}
+                onKeyDown={composer.onKeyDown}
+                onPaste={composer.onPaste}
+                disabled={!workspaceId}
+              />
+              <div className="cmdbar__acts">
+                <SendButton
+                  running={composer.running}
+                  action={composer.sendAction}
+                  disabled={!composer.canSubmit}
+                  onStop={composer.abort}
+                />
+              </div>
+            </div>
           </form>
         </div>
       </div>
@@ -163,6 +158,8 @@ export function MiniText({
 }
 
 // ---- Mini-text line primitives -------------------------------------------
+
+const noop = (): void => {};
 
 function MiniHeader({
   onBack,
@@ -175,7 +172,15 @@ function MiniHeader({
 }): JSX.Element {
   return (
     <header style={style.miniHeader}>
-      <button type="button" onClick={onBack} style={style.headerButton} aria-label="Back">
+      <button
+        type="button"
+        onClick={onBack}
+        className="composer-btn tip"
+        style={style.headerButton}
+        aria-label="Back"
+        data-tip="Back"
+        data-tip-side="bottom"
+      >
         <ChevronLeftIcon />
       </button>
       {voiceModeActive
@@ -188,8 +193,11 @@ function MiniHeader({
       <button
         type="button"
         onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
+        className="composer-btn tip"
         style={style.headerButton}
         aria-label="Open main window"
+        data-tip="Open main window"
+        data-tip-side="bottom"
       >
         <WindowIcon />
       </button>

@@ -1,4 +1,5 @@
 import type { DeskSession } from '@moxxy/desktop-ipc-contract';
+import { plainLine } from '@/lib/plain-line';
 
 /** The part of a chat event a preview reads. */
 export interface PreviewEvent {
@@ -8,15 +9,6 @@ export interface PreviewEvent {
 }
 
 const EMPTY_RUN = 'No messages yet';
-
-/** One line of plain text: whitespace collapsed, Markdown marks dropped. */
-function oneLine(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[*`]|^\s*(#{1,6}|>|[-+])\s+/gm, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /** The last thing either side said. Tool activity is not a message. */
 export function lastMessageText(events: ReadonlyArray<PreviewEvent>): string | null {
@@ -29,7 +21,7 @@ export function lastMessageText(events: ReadonlyArray<PreviewEvent>): string | n
         : event.type === 'user_prompt'
           ? event.text
           : null;
-    if (typeof raw === 'string' && raw.trim().length > 0) return oneLine(raw);
+    if (typeof raw === 'string' && raw.trim().length > 0) return plainLine(raw);
   }
   return null;
 }
@@ -42,8 +34,8 @@ export function lastMessageText(events: ReadonlyArray<PreviewEvent>): string | n
  * already the name of a run nobody renamed; repeating it would say nothing.
  */
 export function sessionPreview(session: DeskSession, latest: string | null): string | null {
-  if (latest && latest.trim().length > 0) return oneLine(latest);
-  const first = session.firstPrompt ? oneLine(session.firstPrompt) : '';
+  if (latest && latest.trim().length > 0) return plainLine(latest);
+  const first = session.firstPrompt ? plainLine(session.firstPrompt) : '';
   if (first.length > 0) {
     const title = session.name.replace(/…$/, '').trim();
     if (!first.startsWith(title)) return first;

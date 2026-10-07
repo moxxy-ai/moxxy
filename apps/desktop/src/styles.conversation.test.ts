@@ -194,5 +194,19 @@ describe('styles.css — a question that blocks the run', () => {
     expect(primary).toMatch(/color:\s*var\(--color-on-action\)/);
     expect(ruleFor(".ask-btn[data-tone='danger']")).toMatch(/color:\s*var\(--color-red-text\)/);
   });
+
+  it('shows a long call in a well that scrolls, so the answers stay in reach', () => {
+    const well = ruleFor('.ask-dock__cmd');
+    expect(well).toMatch(/max-height:\s*220px/);
+    expect(well).toMatch(/overflow:\s*auto/);
+    expect(well).toMatch(/white-space:\s*pre\b/);
+  });
+
+  it('keeps the same card in the focus window, in a smaller frame', () => {
+    const toast = ruleFor('.ask-dock--toast');
+    expect(toast).toMatch(/width:\s*468px/);
+    expect(toast).toMatch(/max-height:\s*196px/);
+    expect(ruleFor('.ask-dock--panel')).toMatch(/width:\s*100%/);
+  });
 });
 

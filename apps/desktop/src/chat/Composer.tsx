@@ -17,6 +17,7 @@ import type { AgentSession } from './agent-picker/useAgentSession';
 import { CommandPalette } from './CommandPalette';
 import { ComposerButton } from './composer/ComposerButton';
 import { ComposerStatus } from './composer/ComposerStatus';
+import { composerPlaceholder } from './composer/composer-placeholder';
 import { SendButton } from './composer/SendButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
@@ -32,7 +33,7 @@ import {
 import { useComposerSubmit } from './composer/useComposerSubmit';
 import { useAttachmentImagePreviews } from './image-preview/useAttachmentImagePreviews';
 import type { ImagePreviewItem } from './image-preview/types';
-import { DEFAULT_MODE, GOAL_PLACEHOLDER, modeMeta } from './modes/mode-meta';
+import { DEFAULT_MODE, modeMeta } from './modes/mode-meta';
 import { useActiveMode } from './modes/useActiveMode';
 
 /** Past this height the composer textarea stops growing and scrolls
@@ -349,7 +350,7 @@ export function Composer({
             onSelect={(e) => mentions.trackCaret(e.currentTarget)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            placeholder={placeholderFor({
+            placeholder={composerPlaceholder({
               ready,
               compacting,
               goalArmed,
@@ -407,22 +408,4 @@ export function Composer({
       )}
     </form>
   );
-}
-
-/** What the empty field says. It names the one thing that differs from an
- *  ordinary message: a lock, a goal, a queue, what the mode works on. */
-function placeholderFor(state: {
-  readonly ready: boolean;
-  readonly compacting: boolean;
-  readonly goalArmed: boolean;
-  readonly inFlight: boolean;
-  readonly hasAttachments: boolean;
-  readonly mode: string | null;
-}): string {
-  if (state.compacting) return 'Compacting context…';
-  if (!state.ready) return 'Waiting for runner…';
-  if (state.goalArmed) return GOAL_PLACEHOLDER;
-  if (state.inFlight) return 'Queue a follow-up…';
-  if (state.hasAttachments) return 'Ask about the attached file…';
-  return (state.mode !== null && modeMeta(state.mode).placeholder) || 'Message Moxxy…';
 }
