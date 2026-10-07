@@ -6,7 +6,7 @@ import { Transcript } from './Transcript';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
-import { Header } from './chat-surface/Header';
+import { Header, type WorkPanelControl } from './chat-surface/Header';
 import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
@@ -42,6 +42,8 @@ interface ChatSurfaceProps {
   /** The workbench is in full view: the chat floats over it as a composer.
    *  The transcript stays mounted, hidden, so coming back finds it as it was. */
   readonly docked?: boolean;
+  /** The work panel beside this chat; its toggle goes in the header. */
+  readonly workPanel?: WorkPanelControl;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -103,6 +105,7 @@ export function ChatSurface({
   notice,
   modelOwner,
   docked = false,
+  workPanel,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -209,6 +212,7 @@ export function ChatSurface({
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
+          {...(workPanel ? { workPanel } : {})}
         />}
         <div
           key={workspaceId}
@@ -237,6 +241,7 @@ export function ChatSurface({
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
+        {...(workPanel ? { workPanel } : {})}
       />}
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}

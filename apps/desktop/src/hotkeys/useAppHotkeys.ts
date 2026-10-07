@@ -6,7 +6,6 @@ import {
   transcriptSearchPulse,
 } from '@/lib/chatPulses';
 import type { View } from '../shell/views';
-import type { WorkbenchTab } from '../shell/Workbench';
 import { useHotkeyList } from './useHotkeys';
 import type { HotkeyBinding } from './registry';
 
@@ -14,8 +13,7 @@ export interface AppHotkeysOptions {
   readonly setView: (view: View) => void;
   /** Opens the command palette over whatever view is on screen. */
   readonly onOpenPalette: () => void;
-  readonly benchTab: WorkbenchTab | null;
-  readonly setBenchTab: (tab: WorkbenchTab | null) => void;
+  readonly toggleBench: () => void;
   /** Into or out of full view (opens the browser in it when nothing is open). */
   readonly toggleBenchFull: () => void;
   readonly onShowShortcuts: () => void;
@@ -35,7 +33,7 @@ const NUMBERED_VIEWS: ReadonlyArray<{ view: View; label: string }> = [
  * `lib/pulse`.
  */
 export function useAppHotkeys(opts: AppHotkeysOptions): void {
-  const { setView, onOpenPalette, benchTab, setBenchTab, toggleBenchFull, onShowShortcuts } =
+  const { setView, onOpenPalette, toggleBench, toggleBenchFull, onShowShortcuts } =
     opts;
   const desks = useDesks();
   const activeSessionId = useActiveWorkspaceId();
@@ -130,14 +128,14 @@ export function useAppHotkeys(opts: AppHotkeysOptions): void {
     {
       id: 'view.workbench',
       chord: 'mod+j',
-      label: 'Show or hide the workbench pane',
+      label: 'Show or hide the work panel',
       group: 'Navigation',
-      run: () => setBenchTab(benchTab ? null : 'files'),
+      run: toggleBench,
     },
     {
       id: 'view.workbenchFull',
       chord: 'mod+shift+f',
-      label: 'Full view of the workbench pane',
+      label: 'Full view of the work panel',
       group: 'Navigation',
       run: () => {
         setView('chat');

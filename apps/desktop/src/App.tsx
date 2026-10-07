@@ -203,8 +203,7 @@ export function App(): JSX.Element {
   useAppHotkeys({
     setView: go,
     onOpenPalette: openPalette,
-    benchTab: bench.tab,
-    setBenchTab: bench.setTab,
+    toggleBench: bench.toggle,
     toggleBenchFull: bench.toggleFull,
     onShowShortcuts: showShortcuts,
   });
@@ -344,6 +343,7 @@ export function App(): JSX.Element {
             workspaceId={activeWorkspaceId}
             sessionLoading={shell.sessionLoading}
             docked={bench.full}
+            workPanel={{ open: bench.open, onToggle: bench.toggle }}
           />
           <Workbench
             tab={bench.tab}

@@ -85,3 +85,24 @@ describe('styles.css — the composer', () => {
     expect(disabled).not.toContain('--color-action');
   });
 });
+
+describe('styles.css — the work panel', () => {
+  it('takes no room and draws no strip while closed', () => {
+    const closed = ruleFor('.bench--closed');
+    expect(closed).toMatch(/width:\s*0\b/);
+    // Parked inside it, the browser has to keep painting.
+    expect(closed).not.toMatch(/display:\s*none/);
+    expect(css).not.toMatch(/\.bench__(stub|count)\b/);
+  });
+
+  it('never animates its width, which the terminal measures at mount', () => {
+    for (const body of [...rulesFor('.bench'), ...rulesFor('.bench:not(.bench--closed)')]) {
+      expect(body).not.toMatch(/transition/);
+    }
+  });
+
+  it('marks the open pane with a fill, not an underline', () => {
+    expect(ruleFor(".bench__tab[data-active='true']")).toContain('background: var(--color-input-soft)');
+    expect(css).not.toMatch(/\.bench__tab\[data-active='true'\]::after/);
+  });
+});

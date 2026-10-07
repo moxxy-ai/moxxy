@@ -15,10 +15,12 @@ afterEach(() => __setApiOverride(null));
 
 function Harness({
   toggleBenchFull,
+  toggleBench = vi.fn(),
   setView = vi.fn(),
   onOpenPalette = vi.fn(),
 }: {
   readonly toggleBenchFull: () => void;
+  readonly toggleBench?: () => void;
   readonly setView?: (view: string) => void;
   readonly onOpenPalette?: () => void;
 }): null {
@@ -26,8 +28,7 @@ function Harness({
   useAppHotkeys({
     setView,
     onOpenPalette,
-    benchTab: 'browser',
-    setBenchTab: vi.fn(),
+    toggleBench,
     toggleBenchFull,
     onShowShortcuts: vi.fn(),
   });
@@ -61,5 +62,16 @@ describe('useAppHotkeys, palette', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     expect(onOpenPalette).toHaveBeenCalledOnce();
     expect(setView).not.toHaveBeenCalled();
+  });
+});
+
+/** One toggle, the same one the header's button uses, so the shortcut and the
+ *  button cannot disagree about which pane comes back. */
+describe('useAppHotkeys, work panel', () => {
+  it('shows or hides the work panel on ⌘J', () => {
+    const toggleBench = vi.fn();
+    render(<Harness toggleBenchFull={vi.fn()} toggleBench={toggleBench} />);
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(toggleBench).toHaveBeenCalledOnce();
   });
 });

@@ -214,3 +214,42 @@ describe('chat Header focus mode action', () => {
     expect(focusIcon?.querySelector('circle[cx="12"][cy="12"][r="2.15"]')).toBeTruthy();
   });
 });
+
+describe('chat Header work panel control', () => {
+  const header = (workPanel?: { open: boolean; onToggle: () => void }) => (
+    <Header
+      phase={connectedPhase}
+      deskName="blocky"
+      sessionName="retry untyped gateway fault"
+      runState="idle"
+      agent={AGENT_FIXTURE}
+      agentDisabled={false}
+      workspaceId="ws-test"
+      searchQuery={null}
+      onSearchChange={vi.fn()}
+      canRename
+      onRename={vi.fn()}
+      {...(workPanel ? { workPanel } : {})}
+    />
+  );
+
+  it('opens the work panel from the header and says whether it is open', () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(header({ open: false, onToggle }));
+    const button = screen.getByTestId('work-panel-toggle');
+    expect(button).toHaveAccessibleName('Show work panel');
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    rerender(header({ open: true, onToggle }));
+    expect(button).toHaveAccessibleName('Hide work panel');
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('offers no work panel where the chat has none', () => {
+    render(header());
+    expect(screen.queryByTestId('work-panel-toggle')).toBeNull();
+  });
+});
+

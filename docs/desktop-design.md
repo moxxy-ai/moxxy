@@ -108,6 +108,19 @@ are read in the header.
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
 
+## The work panel
+
+The terminal, the file browser, the diff and the browser share one panel on the
+right. Closed, it draws nothing and takes no room. The run's header has the
+button that shows and hides it, and ⌘J / Ctrl+J does the same; both call one
+toggle (`shell/useWorkbench.ts`), which reopens the pane that was last in use.
+The panel still opens by itself the first time the agent drives its browser or
+terminal.
+
+Its width is never animated: the terminal measures its columns when it mounts.
+The closed panel stays in the layout at zero width instead of being removed,
+because the browser parked inside it has to keep painting to keep its pages.
+
 ## Where the values live
 
 The desktop has its own palette pair, `desktopTokens` and `desktopDarkTokens`,
@@ -137,6 +150,7 @@ above are reimplemented here in Moxxy's own components.
    primary navigation.
 3. **Conversation** (done): bubbles, quiet work lines and the one-card
    composer.
-4. **Right panel**: the workbench closed by default, opened from the header.
+4. **Right panel** (done): the work panel is gone while closed and opens from
+   the run's header.
 5. **Other views**: Settings, Extensions, Automations, Apps, Channels, Mobile and
    onboarding, then the focus window.

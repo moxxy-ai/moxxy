@@ -1,6 +1,6 @@
 import { useCallback, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { PanelLeftIcon } from './PanelLeftIcon';
+import { PanelIcon } from './PanelIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 
 /**
@@ -49,7 +49,7 @@ export function InstrumentBar({
           data-tip="Show sidebar"
           data-tip-side="bottom"
         >
-          <PanelLeftIcon size={15} />
+          <PanelIcon size={15} />
         </button>
       )}
       {lead}

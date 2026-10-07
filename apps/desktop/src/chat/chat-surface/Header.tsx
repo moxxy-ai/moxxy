@@ -3,6 +3,7 @@ import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { chordLabel } from '@/hotkeys/chordLabel';
 import { InstrumentBar, StatePill, type RunState } from '../../shell/InstrumentBar';
+import { PanelIcon } from '../../shell/PanelIcon';
 import { Telemetry } from '../../shell/instrument/Telemetry';
 import { PopoverMenu } from '../../shell/menu/PopoverMenu';
 import { usePopover } from '../../shell/menu/usePopover';
@@ -15,13 +16,20 @@ const LOUD_STATES: ReadonlySet<RunState> = new Set(['running', 'awaiting', 'fail
 
 const MENU_WIDTH = 220;
 
+/** The work panel beside this chat, for the chats that have one. */
+export interface WorkPanelControl {
+  readonly open: boolean;
+  readonly onToggle: () => void;
+}
+
 /**
  * The run's header.
  *
  * It names the run and otherwise keeps quiet, so the conversation under it is
  * the main thing on screen. The model and its usage are one click away on the
- * right; search, focus mode and rename sit behind one control. The run's state
- * shows only when it is something to act on.
+ * right, next to the button that shows and hides the work panel; search, focus
+ * mode and rename sit behind one control. The run's state shows only when it is
+ * something to act on.
  */
 export function Header({
   phase: _phase,
@@ -35,6 +43,7 @@ export function Header({
   onSearchChange,
   canRename,
   onRename,
+  workPanel,
 }: {
   readonly phase: ConnectionPhase;
   /** Workspace name: the context half of the title. */
@@ -51,6 +60,7 @@ export function Header({
   readonly onSearchChange: (q: string | null) => void;
   readonly canRename: boolean;
   readonly onRename: () => void;
+  readonly workPanel?: WorkPanelControl;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   // A live query forces the field open, so the ⌘F shortcut (which sets the
@@ -101,6 +111,19 @@ export function Header({
               disabled={agentDisabled}
               onPick={agent.onPickProviderModel}
             />
+          )}
+          {workPanel && (
+            <button
+              type="button"
+              className="btn-quiet tip"
+              data-testid="work-panel-toggle"
+              data-tip={`${workPanel.open ? 'Hide' : 'Show'} work panel  ${chordLabel('mod+j')}`}
+              aria-label={workPanel.open ? 'Hide work panel' : 'Show work panel'}
+              aria-pressed={workPanel.open}
+              onClick={workPanel.onToggle}
+            >
+              <PanelIcon side="right" size={16} />
+            </button>
           )}
           <button
             ref={menu.anchorRef}

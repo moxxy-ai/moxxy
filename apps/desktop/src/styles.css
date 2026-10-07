@@ -1273,14 +1273,12 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-left: 1px solid var(--color-card-border);
 }
 
-/* Collapsed: a vertical tab strip, so the workbench never disappears without a
- * trace the way the old drawer did. */
+/* Closed, it takes no room and draws nothing. It stays in the layout rather
+ * than `display: none`, because the browser parked inside it has to keep
+ * painting. */
 .bench--closed {
-  width: 38px;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-8) 0;
-  background: var(--color-app-bg);
+  width: 0;
+  border-left: 0;
 }
 
 /* Open, the workbench gives way before the chat does: its dragged width is
@@ -1310,35 +1308,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   }
 }
 
-.bench__stub {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--color-text-dim);
-}
-.bench__stub:hover:not(:disabled) {
-  filter: none;
-  color: var(--color-text);
-  background: var(--color-card-bg);
-}
-.bench__count {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  border-radius: var(--radius-pill);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  font-size: 9px;
-  line-height: 13px;
-  text-align: center;
-  font-weight: 600;
-}
-
 .bench__grip {
   position: absolute;
   left: 0;
@@ -1349,12 +1318,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   z-index: 2;
 }
 
+/* The same height and the same quiet as the run's header beside it: no rule
+ * under it, and the open pane is a filled chip, not an underlined cell. */
 .bench__tabs {
   display: flex;
+  align-items: center;
+  gap: var(--space-4);
   height: var(--frame-bar);
   flex-shrink: 0;
   min-width: 0;
-  border-bottom: 1px solid var(--color-card-border);
+  padding: 0 var(--space-6) 0 var(--space-8);
 }
 
 /* The tabs get the leftover room and scroll inside it. */
@@ -1362,42 +1335,39 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex: 1;
   min-width: 0;
   display: flex;
+  align-items: center;
+  gap: var(--space-2);
   overflow-x: auto;
   scrollbar-width: none;
 }
 .bench__tablist::-webkit-scrollbar { height: 0; }
 
-/* The way out. Fixed width, never shrinks, always the last cell — so a narrow
- * workbench can never push it out of reach. */
+/* The way out. Never shrinks, always the last cell, so a narrow workbench can
+ * never push it out of reach. */
 .bench__tabs-end {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-6);
-  border-left: 1px solid var(--color-card-border);
+  gap: var(--space-2);
 }
 
 .bench__tab {
   display: inline-flex;
   align-items: center;
   gap: var(--space-6);
-  padding: 0 var(--space-12);
-  border-right: 1px solid var(--color-card-border);
+  height: var(--frame-control);
+  flex-shrink: 0;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-block);
   color: var(--color-text-dim);
   font-size: var(--type-meta);
-  position: relative;
+  font-weight: 500;
   white-space: nowrap;
+  transition: color var(--motion-shift) ease, background-color var(--motion-shift) ease;
 }
-.bench__tab:hover:not(:disabled) { filter: none; color: var(--color-text); }
-.bench__tab[data-active='true'] { color: var(--color-text); background: var(--color-main-bg); }
-.bench__tab[data-active='true']::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--color-primary);
+.bench__tab[data-active='true'] { color: var(--color-text); background: var(--color-input-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .bench__tab:hover:not(:disabled) { filter: none; color: var(--color-text); }
 }
 .bench__tab b {
   font-weight: 600;

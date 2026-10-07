@@ -323,6 +323,7 @@ function ChannelChatSurface({
         title={{ context: 'Channels', subject: name }}
         {...(modelOwner ? { modelOwner } : {})}
         docked={bench.full}
+        workPanel={{ open: bench.open, onToggle: bench.toggle }}
         notice={
           online ? null : (
             <p

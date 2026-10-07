@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
-import { PanelLeftIcon } from './PanelLeftIcon';
+import { PanelIcon } from './PanelIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import {
   INDEX_MAX_WIDTH,
@@ -107,7 +107,7 @@ export function IndexColumn({
           data-tip="Hide sidebar"
           data-tip-side="bottom"
         >
-          <PanelLeftIcon size={15} />
+          <PanelIcon size={15} />
         </button>
       </div>
       {toolbar !== undefined && <div className="index-col__toolbar">{toolbar}</div>}
