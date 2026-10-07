@@ -2,9 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { tokens, darkTokens } from './index.js';
+import { desktopTokens, desktopDarkTokens } from './desktop.js';
 import {
   CSS_VAR_MAP,
   DARK_CSS_VAR_MAP,
+  cssVarPairs,
+  darkCssVarPairs,
   flattenTokens,
   generateRootCss,
   generateThemeCss,
@@ -223,8 +226,9 @@ describe('forward token→CSS-var coverage', () => {
 });
 
 /**
- * styles.css ↔ tokens parity. styles.css stays authoritative for the desktop;
- * these tests pin the two declarations of the palette together so an edit to
+ * styles.css ↔ desktop tokens parity. The desktop has its own palette pair
+ * (`./desktop.ts`); the shared `tokens` / `darkTokens` are what mobile reads.
+ * These tests pin the two declarations of the palette together so an edit to
  * either side without the other fails loudly. Crucially they also enforce the
  * dark theme's completeness: ANY literal-color custom property declared in a
  * :root block (including the legacy aliases) that lacks a re-declaration in
@@ -303,14 +307,14 @@ describe.skipIf(!stylesExists)('apps/desktop styles.css parity', () => {
     expect(darkBody).toContain('color-scheme: dark');
   });
 
-  it(':root matches the light tokens (CSS_VAR_MAP)', () => {
-    for (const [name, value] of CSS_VAR_MAP) {
+  it(':root matches the desktop light tokens', () => {
+    for (const [name, value] of cssVarPairs(desktopTokens)) {
       expect(rootDecls.get(name), `:root ${name}`).toBe(value.replace(/\s+/g, ' '));
     }
   });
 
-  it('[data-theme="dark"] matches the dark tokens (DARK_CSS_VAR_MAP)', () => {
-    for (const [name, value] of DARK_CSS_VAR_MAP) {
+  it('[data-theme="dark"] matches the desktop dark tokens', () => {
+    for (const [name, value] of darkCssVarPairs(desktopDarkTokens)) {
       expect(darkDecls.get(name), `dark ${name}`).toBe(value.replace(/\s+/g, ' '));
     }
   });

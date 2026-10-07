@@ -378,7 +378,7 @@ async function createWindow(): Promise<void> {
     // doesn't flash white-then-dark while the renderer boots. themeSource was
     // set from prefs before createWindow, so shouldUseDarkColors is correct
     // for explicit choices as well as `system`.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0c13' : '#f1f2f9',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f4f4f4',
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
