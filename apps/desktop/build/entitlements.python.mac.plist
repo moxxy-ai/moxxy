@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements of the bundled Python (runtimes-seed), which notarization
+  requires to run under the hardened runtime. That runtime only loads
+  libraries signed by Apple or by the team that signed the program — so
+  without disable-library-validation, `import numpy` fails for every package
+  the agent or the user installs with pip, none of which we signed. The other
+  three keep what a plain Python does: packages that compile code while
+  running (JIT), ctypes callbacks on Intel Macs, and scripts that set
+  DYLD_LIBRARY_PATH. Applied by scripts/bundle-runtimes-seed.mjs.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+  </dict>
+</plist>

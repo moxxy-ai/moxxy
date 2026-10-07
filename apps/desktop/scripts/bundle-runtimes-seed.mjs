@@ -14,6 +14,12 @@
  *
  * A macOS installer is universal and carries both architectures; installing
  * the packages for the other one runs that Python under Rosetta.
+ *
+ * Apple notarizes a macOS app only when the programs inside its archives are
+ * signed too, so with `MOXXY_MAC_SIGN_IDENTITY` set the macOS Python and Git
+ * are signed before they are packed: a Developer ID in a release, `-` for an
+ * ad-hoc signature that runs them under the same hardened runtime without a
+ * certificate. Node is already signed by its maker.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -23,6 +29,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { tarCommand } from '../../../packages/desktop-host/dist/seed-runtimes.js';
+import { signForNotarization } from './macos-code-signature.mjs';
 import { NODE_VERSION, PYTHON_IMPORTS, PYTHON_VERSION, RUNTIME_TARGETS, gitVersion, runtimeTargets } from './runtimes-catalog.mjs';
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,6 +40,8 @@ const requirementsPath = path.join(desktopDir, 'runtimes', 'python-requirements.
 // A checkout on Windows may hold CRLF: the id must not depend on it.
 const requirements = readFileSync(requirementsPath, 'utf8').replace(/\r\n/g, '\n');
 const tar = tarCommand();
+const signIdentity = process.env.MOXXY_MAC_SIGN_IDENTITY ?? '';
+const pythonEntitlementsPath = path.join(desktopDir, 'build', 'entitlements.python.mac.plist');
 /** `build.mac.minimumSystemVersion` of the desktop app. */
 const MACOS_MINIMUM = Number.parseInt(JSON.parse(readFileSync(path.join(desktopDir, 'package.json'), 'utf8')).build.mac.minimumSystemVersion, 10);
 
@@ -61,6 +70,7 @@ for (const target of targets) {
   mkdirSync(targetDir, { recursive: true });
   const previous = readManifest(targetDir);
   const windows = target.startsWith('win32');
+  const signed = signIdentity !== '' && target.startsWith('darwin');
 
   const nodeArchive = `node${archiveExtension(node.file)}`;
   const nodeId = `${NODE_VERSION}-${node.sha256.slice(0, 12)}`;
@@ -70,7 +80,9 @@ for (const target of targets) {
   }
 
   const pythonArchive = 'python.tar.gz';
-  const pythonId = `${PYTHON_VERSION}-${sha256Text(`${python.sha256}\n${requirements}`).slice(0, 12)}`;
+  // A runtime signed differently is a different archive: one packed without a signature is not reused for a release.
+  const pythonSigning = signed ? `\nsigned by ${signIdentity}\n${readFileSync(pythonEntitlementsPath, 'utf8')}` : '';
+  const pythonId = `${PYTHON_VERSION}-${sha256Text(`${python.sha256}\n${requirements}${pythonSigning}`).slice(0, 12)}`;
   if (!reusable(previous, targetDir, 'python', pythonId, pythonArchive)) {
     const work = path.join(stagingDir, `work-${target}`);
     rmSync(work, { recursive: true, force: true });
@@ -80,20 +92,22 @@ for (const target of targets) {
     const interpreter = windows ? path.join(root, 'python.exe') : path.join(root, 'bin', 'python3');
     try {
       run(interpreter, ['-m', 'pip', 'install', '--disable-pip-version-check', '--no-warn-script-location', '--no-compile', '--only-binary=:all:', ...oldestMacos(target, root), '-r', requirementsPath]);
+      makeRelocatable(root, windows);
+      if (signed) signForNotarization(root, { identity: signIdentity, entitlements: pythonEntitlementsPath });
+      // Checked as it is packed: a signed Python loads its packages only with its entitlements.
       run(interpreter, ['-c', `import ${PYTHON_IMPORTS.join(', ')}`]);
     } catch (error) {
       throw new Error(`Could not prepare the bundled Python for ${target}` + (target === 'darwin-x64' && process.arch === 'arm64' ? ' (it runs under Rosetta: softwareupdate --install-rosetta)' : ''), { cause: error });
     }
-    makeRelocatable(root, windows);
     rmSync(path.join(targetDir, pythonArchive), { force: true });
     // COPYFILE_DISABLE keeps macOS tar from adding `._*` attribute files.
     run(tar, ['-czf', path.join(targetDir, pythonArchive), '-C', work, 'python'], { COPYFILE_DISABLE: '1' });
     rmSync(work, { recursive: true, force: true });
-    console.log(`runtimes-seed: ${target} Python ${PYTHON_VERSION} with its packages added`);
+    console.log(`runtimes-seed: ${target} Python ${PYTHON_VERSION} with its packages added${signed ? ', signed' : ''}`);
   }
 
   const gitArchive = 'git.tar.gz';
-  const gitId = `${gitVersion(target)}-${sha256Text(`${git.sha256}\n${GIT_LAUNCHER}`).slice(0, 12)}`;
+  const gitId = `${gitVersion(target)}-${sha256Text(`${git.sha256}\n${GIT_LAUNCHER}${signed ? `\nsigned by ${signIdentity}` : ''}`).slice(0, 12)}`;
   if (!reusable(previous, targetDir, 'git', gitId, gitArchive)) {
     const work = path.join(stagingDir, `work-git-${target}`);
     const root = path.join(work, 'git');
@@ -106,6 +120,7 @@ for (const target of targets) {
       writeFileSync(path.join(root, 'cmd', 'git'), GIT_LAUNCHER);
       chmodSync(path.join(root, 'cmd', 'git'), 0o755);
     }
+    if (signed) signForNotarization(root, { identity: signIdentity });
     if (runsHere(target)) {
       const answer = execFileSync(path.join(root, 'cmd', windows ? 'git.exe' : 'git'), ['--version'], { encoding: 'utf8', windowsHide: true });
       if (!answer.includes(gitVersion(target))) throw new Error(`The bundled Git for ${target} answered "${answer.trim()}", expected ${gitVersion(target)}`);
@@ -113,7 +128,7 @@ for (const target of targets) {
     rmSync(path.join(targetDir, gitArchive), { force: true });
     run(tar, ['-czf', path.join(targetDir, gitArchive), '-C', work, 'git'], { COPYFILE_DISABLE: '1' });
     rmSync(work, { recursive: true, force: true });
-    console.log(`runtimes-seed: ${target} Git ${gitVersion(target)} added`);
+    console.log(`runtimes-seed: ${target} Git ${gitVersion(target)} added${signed ? ', signed' : ''}`);
   }
 
   await writeFile(path.join(targetDir, 'manifest.json'), `${JSON.stringify({
