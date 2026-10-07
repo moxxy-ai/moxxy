@@ -184,6 +184,11 @@ export function ChatSurface({
   });
 
   useVoiceCallRequest(voiceCall.open);
+  const voiceControl = {
+    active: voiceCall.active,
+    disabled: !ready || chat.compacting || chat.activeTurnId !== null || chat.sending,
+    onToggle: voiceCall.active ? voiceCall.close : voiceCall.open,
+  };
   const dock = useChatDock(docked, activeAsk !== null);
   const mainClass = dock.minimized
     ? 'col-main col-main--flat col-main--docked col-main--minimized'
@@ -213,6 +218,7 @@ export function ChatSurface({
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
           {...(workPanel ? { workPanel } : {})}
+          voice={voiceControl}
         />}
         <div
           key={workspaceId}
@@ -242,6 +248,7 @@ export function ChatSurface({
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
         {...(workPanel ? { workPanel } : {})}
+        voice={voiceControl}
       />}
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}

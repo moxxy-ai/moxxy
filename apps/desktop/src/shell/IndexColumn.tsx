@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Icon } from '@moxxy/desktop-ui';
+import { Icon, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { PanelIcon } from './PanelIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
@@ -180,6 +180,7 @@ export function IndexRow({
   label,
   active,
   onPick,
+  icon,
   led,
   note,
   noteTone,
@@ -189,6 +190,8 @@ export function IndexRow({
   readonly label: string;
   readonly active: boolean;
   readonly onPick: () => void;
+  /** For a row that is a place to go; a caption never has one. */
+  readonly icon?: IconName;
   readonly led?: IndexLed;
   readonly note?: string;
   readonly noteTone?: 'bad';
@@ -209,6 +212,7 @@ export function IndexRow({
       {led !== undefined && (
         <span className="led" data-state={led === 'off' ? undefined : led} aria-hidden />
       )}
+      {icon !== undefined && <Icon name={icon} size={15} className="index-row__icon" />}
       <span className="index-row__label">{label}</span>
       {note !== undefined && (
         <span className="index-row__note" data-tone={noteTone}>

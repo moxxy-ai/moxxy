@@ -1,40 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { isSpeechSupported } from '@moxxy/client-platform-web';
 import { useReadAloud } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
+import { useCopy } from '@/lib/useCopy';
 
 export function ActionRow({ text }: { readonly text: string }): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const readAloud = useReadAloud(text);
-  // Track the "Copied!" reset timer so it can be cleared on unmount — this
-  // block lives in a virtualised list and is unmounted on scroll / workspace
-  // switch, where a pending setTimeout would fire setState on a dead component.
-  const copyTimer = useRef<number | undefined>(undefined);
-
-  const onCopy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      if (copyTimer.current !== undefined) window.clearTimeout(copyTimer.current);
-      copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* swallow; rare on Electron */
-    }
-  };
-
-  // Cancel the copy-reset timer if this virtualised block unmounts. Read-aloud
-  // teardown is owned by its reusable hook.
-  useEffect(
-    () => () => {
-      if (copyTimer.current !== undefined) window.clearTimeout(copyTimer.current);
-    },
-    [],
-  );
 
   return (
     <div className="msg-actions">
-      <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} tone="good" onClick={() => void onCopy()}>
+      <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} tone="good" onClick={() => void copy(text)}>
         <Icon name={copied ? 'check' : 'copy'} size={14} />
       </ActBtn>
       {isSpeechSupported() && (

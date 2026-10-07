@@ -113,3 +113,86 @@ describe('styles.css — the conversation in a small window', () => {
     expect(ruleFor('.focus-transcript .bubble--user')).toContain('max-width: 92%');
   });
 });
+
+describe('styles.css — a plan, a goal run and a research run', () => {
+  it('draws what closes a mode as a bordered card on the bubble’s measure', () => {
+    const card = ruleFor('.outcome');
+    expect(card).toMatch(/border:\s*1px solid var\(--color-card-border\)/);
+    expect(card).toMatch(/border-radius:\s*var\(--radius-bubble\)/);
+    expect(card).toMatch(/max-width:\s*min\(100%, 640px\)/);
+    expect(ruleFor('.outcome__body')).toMatch(/font-size:\s*var\(--type-prose\)/);
+  });
+
+  it('tints the card’s mark by how the work ended', () => {
+    expect(ruleFor(".outcome[data-tone='good'] .outcome__mark")).toMatch(/background:\s*var\(--color-green-soft\)/);
+    expect(ruleFor(".outcome[data-tone='warn'] .outcome__mark")).toMatch(/background:\s*var\(--color-amber-soft\)/);
+  });
+
+  it('keeps a step of the run a quiet line with a toned dot', () => {
+    const note = ruleFor('.mode-note');
+    expect(note).toMatch(/font-size:\s*var\(--type-label\)/);
+    expect(note).toMatch(/color:\s*var\(--color-text-dim\)/);
+    expect(ruleFor(".mode-note[data-tone='warn'] .mode-note__dot")).toMatch(/background:\s*var\(--color-amber\)/);
+    expect(ruleFor(".mode-note[data-tone='good'] .mode-note__dot")).toMatch(/background:\s*var\(--color-green\)/);
+  });
+
+  it('lists the agents of a fan-out in the conversation’s own face', () => {
+    const head = ruleFor('.agent-row__head');
+    expect(head).toMatch(/font-size:\s*var\(--type-row\)/);
+    expect(head).not.toMatch(/font-family/);
+    expect(ruleFor('.agent-row__name')).toMatch(/text-overflow:\s*ellipsis/);
+    expect(ruleFor(".agent-row__state[data-tone='failed']")).toMatch(/color:\s*var\(--color-red-text\)/);
+  });
+});
+
+describe('styles.css — copying a block of a message', () => {
+  it('carries the block’s rhythm and anchors the control in its corner', () => {
+    const block = ruleFor('.md-block');
+    expect(block).toMatch(/position:\s*relative/);
+    expect(block).toMatch(/margin:\s*0 0 0\.7em/);
+    const control = ruleFor('.md-block__copy');
+    expect(control).toMatch(/position:\s*absolute/);
+    expect(control).toMatch(/opacity:\s*0/);
+  });
+
+  it('reveals the control by opacity alone: for a real pointer, for the keyboard, and always on touch', () => {
+    const control = ruleFor('.md-block__copy');
+    expect(control).toMatch(/transition:\s*opacity[^;]*,\s*transform[^;]*;/);
+    expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)\s*\{[^}]*\.md-block:hover > \.md-block__copy\s*\{\s*opacity:\s*1/);
+    expect(ruleFor('.md-block__copy:focus-visible')).toMatch(/opacity:\s*1/);
+    expect(ruleFor(".md-block__copy[data-copied='true']")).toMatch(/opacity:\s*1/);
+    expect(css).toMatch(/@media \(hover: none\)\s*\{[^}]*\.md-block__copy\s*\{\s*opacity:\s*1/);
+  });
+
+  it('answers a press', () => {
+    expect(ruleFor('.md-block__copy:active')).toMatch(/transform:\s*scale\(0\.9\d?\)/);
+  });
+});
+
+describe('styles.css — a question that blocks the run', () => {
+  it('is a card on the composer’s measure, not a strip across the window', () => {
+    const dock = ruleFor('.ask-dock');
+    expect(dock).toMatch(/max-width:\s*calc\(var\(--frame-measure\)/);
+    // The same card as the composer under it, so the two read as a pair.
+    expect(dock).toMatch(/border-radius:\s*var\(--radius-bubble\)/);
+    expect(dock).toMatch(/background:\s*var\(--color-surface\)/);
+    expect(dock).not.toMatch(/border-top:/);
+  });
+
+  it('titles it in the text colour and marks the kind with a small toned badge', () => {
+    expect(ruleFor('.ask-dock__title')).toMatch(/color:\s*var\(--color-text\)/);
+    expect(ruleFor(".ask-dock[data-tone='caution'] .ask-dock__mark")).toMatch(/background:\s*var\(--color-amber-soft\)/);
+    expect(ruleFor('.ask-dock__mark')).toMatch(/background:\s*var\(--color-primary-soft\)/);
+  });
+
+  it('draws its answers as pills that answer a press', () => {
+    const button = ruleFor('.ask-btn');
+    expect(button).toMatch(/border-radius:\s*var\(--radius-pill\)/);
+    expect(ruleFor('.ask-btn:active:not(:disabled)')).toMatch(/transform:\s*scale\(0\.97\)/);
+    const primary = ruleFor(".ask-btn[data-tone='primary']");
+    expect(primary).toMatch(/background:\s*var\(--color-action\)/);
+    expect(primary).toMatch(/color:\s*var\(--color-on-action\)/);
+    expect(ruleFor(".ask-btn[data-tone='danger']")).toMatch(/color:\s*var\(--color-red-text\)/);
+  });
+});
+

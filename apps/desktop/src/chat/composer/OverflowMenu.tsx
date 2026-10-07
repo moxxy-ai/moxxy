@@ -16,9 +16,16 @@ export interface OverflowMenuItem {
    *  commits via `onSelect` and closes the whole menu. */
   readonly submenu?: {
     readonly value: string;
-    readonly options: ReadonlyArray<string>;
+    readonly options: ReadonlyArray<SubmenuOption>;
     readonly onSelect: (value: string) => void;
   };
+}
+
+/** One choice in a submenu: what it is called, and what picking it means. */
+export interface SubmenuOption {
+  readonly value: string;
+  readonly label: string;
+  readonly hint?: string;
 }
 
 interface OverflowMenuProps {
@@ -165,6 +172,7 @@ function SubmenuRow({
   readonly onToggle: () => void;
   readonly onSelect: (value: string) => void;
 }): JSX.Element {
+  const current = submenu.options.find((opt) => opt.value === submenu.value);
   return (
     <div className="composer-tools__sub">
       <button
@@ -181,7 +189,7 @@ function SubmenuRow({
         <span className="menu__text">{item.label}</span>
         {/* The current value reads as the row's right-hand column, the same shape
             the telemetry cells use: label on the left, reading on the right. */}
-        <span className="menu__value">{submenu.value || '—'}</span>
+        <span className="menu__value">{current ? current.label : submenu.value || '—'}</span>
         <span className="menu__mark disclosure__chevron" data-open={open} aria-hidden>
           <Icon name="chevron-right" size={13} />
         </span>
@@ -189,18 +197,22 @@ function SubmenuRow({
       {open && (
         <div role="menu" aria-label={item.label} className="menu menu--side">
           {submenu.options.map((opt) => {
-            const active = opt === submenu.value;
+            const active = opt.value === submenu.value;
             return (
               <button
-                key={opt}
+                key={opt.value}
                 type="button"
                 role="menuitemradio"
                 aria-checked={active}
-                onClick={() => onSelect(opt)}
+                onClick={() => onSelect(opt.value)}
                 className="menu__row"
+                data-lines={opt.hint ? '2' : undefined}
                 data-active={active ? 'true' : undefined}
               >
-                <span className="menu__text">{opt}</span>
+                <span className="menu__text">
+                  {opt.label}
+                  {opt.hint && <span className="menu__sub">{opt.hint}</span>}
+                </span>
                 {active && (
                   <span className="menu__mark" aria-hidden>
                     <Icon name="check" size={13} />

@@ -72,6 +72,12 @@ describe('AssistantBlock', () => {
     expect(screen.getByText('Stopped: max tokens')).toBeInTheDocument();
   });
 
+  it('says nothing about an answer that paused to use a tool', () => {
+    // Every narrated step of a run ends this way; it was not cut short.
+    render(<AssistantBlock text="Fixing the path." streaming={false} stopReason="tool_use" />);
+    expect(screen.queryByText(/Stopped:/)).toBeNull();
+  });
+
   it('says nothing about an answer that ended normally', () => {
     render(<AssistantBlock text="Done." streaming={false} stopReason="end_turn" />);
     expect(screen.queryByText(/Stopped:/)).toBeNull();

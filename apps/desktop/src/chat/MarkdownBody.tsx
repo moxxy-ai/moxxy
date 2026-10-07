@@ -12,6 +12,7 @@
 import { memo, useLayoutEffect, useRef, type MutableRefObject } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from 'react-markdown';
 import { localFilePath, openLocalFile } from './local-file-link';
+import { CopyBlock } from './markdown/CopyBlock';
 import { useStreamingMarkdownText } from './useStreamingMarkdownText';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -98,21 +99,25 @@ const components: Components = {
       </code>
     );
   },
+  // A quotation, a code block and a table are what someone takes elsewhere, so
+  // each sits in a CopyBlock, which also carries the block's bottom margin.
   pre: (p) => (
-    <pre
-      {...p}
-      style={{
-        margin: '0 0 0.7em',
-        padding: 'var(--space-8) var(--space-12)',
-        background: 'var(--color-input-soft)',
-        border: '1px solid var(--color-card-border)',
-        borderRadius: 'var(--radius-block)',
-        fontSize: 'var(--type-meta)',
-        fontFamily: 'var(--font-mono)',
-        overflowX: 'auto',
-        lineHeight: 1.55,
-      }}
-    />
+    <CopyBlock what="code">
+      <pre
+        {...p}
+        style={{
+          margin: 0,
+          padding: 'var(--space-8) var(--space-12)',
+          background: 'var(--color-input-soft)',
+          border: '1px solid var(--color-card-border)',
+          borderRadius: 'var(--radius-block)',
+          fontSize: 'var(--type-meta)',
+          fontFamily: 'var(--font-mono)',
+          overflowX: 'auto',
+          lineHeight: 1.55,
+        }}
+      />
+    </CopyBlock>
   ),
   // A quotation is reference material, so it reads as a recessed well rather than
   // as faded prose. It used to be muted text on a hairline, and because quoted
@@ -121,19 +126,21 @@ const components: Components = {
   // quote. Full-strength ink in a sunk well says "not my words" without dimming
   // the words themselves.
   blockquote: (p) => (
-    <blockquote
-      {...p}
-      style={{
-        margin: '0 0 0.7em',
-        padding: '0.5em 0.85em',
-        // A seam, not the accent. The accent means "the human commanded this",
-        // and a quotation inside the agent's own prose is not that.
-        borderLeft: '2px solid var(--color-card-border-strong)',
-        borderRadius: '0 var(--radius-block) var(--radius-block) 0',
-        background: 'var(--color-input-soft)',
-        color: 'var(--color-text)',
-      }}
-    />
+    <CopyBlock what="quote">
+      <blockquote
+        {...p}
+        style={{
+          margin: 0,
+          padding: '0.5em 0.85em',
+          // A seam, not the accent. The accent means "the human commanded this",
+          // and a quotation inside the agent's own prose is not that.
+          borderLeft: '2px solid var(--color-card-border-strong)',
+          borderRadius: '0 var(--radius-block) var(--radius-block) 0',
+          background: 'var(--color-input-soft)',
+          color: 'var(--color-text)',
+        }}
+      />
+    </CopyBlock>
   ),
   hr: () => (
     <hr
@@ -149,17 +156,19 @@ const components: Components = {
   // the whole reason the chrome face exists in this language. It also scrolls
   // inside its own box: a wide table must never drag the page sideways.
   table: (p) => (
-    <div style={{ margin: '0 0 0.7em', overflowX: 'auto' }}>
-      <table
-        {...p}
-        style={{
-          borderCollapse: 'collapse',
-          fontFamily: 'var(--font-chrome)',
-          fontSize: 'var(--type-meta)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      />
-    </div>
+    <CopyBlock what="table">
+      <div style={{ overflowX: 'auto' }}>
+        <table
+          {...p}
+          style={{
+            borderCollapse: 'collapse',
+            fontFamily: 'var(--font-chrome)',
+            fontSize: 'var(--type-meta)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        />
+      </div>
+    </CopyBlock>
   ),
   th: (p) => (
     <th

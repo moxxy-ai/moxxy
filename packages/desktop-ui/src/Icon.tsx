@@ -47,6 +47,8 @@ export type IconName =
   | 'terminal'
   | 'globe'
   | 'smartphone'
+  | 'phone'
+  | 'monitor'
   | 'file'
   | 'diff'
   | 'grid'
@@ -328,6 +330,16 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M3 12h18" />
       <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
     </>
+  ),
+  monitor: (
+    <>
+      <rect x="2.5" y="3.5" width="19" height="13" rx="2" />
+      <path d="M8 20.5h8" />
+      <path d="M12 16.5v4" />
+    </>
+  ),
+  phone: (
+    <path d="M13.8 16.6a1 1 0 0 0 1.2-.3l.4-.5A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.5.4a1 1 0 0 0-.3 1.2 14 14 0 0 0 6.4 6.4" />
   ),
   smartphone: (
     <>

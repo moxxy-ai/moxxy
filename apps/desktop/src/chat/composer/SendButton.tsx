@@ -26,6 +26,7 @@ export function SendButton({
         data-kind="stop"
         data-testid="composer-abort"
         data-tip="Stop"
+        data-tip-side="top"
         aria-label="Stop"
         onClick={onStop}
       >
@@ -40,6 +41,7 @@ export function SendButton({
       data-kind="send"
       data-testid="composer-send"
       data-tip={action}
+      data-tip-side="top"
       aria-label={action}
       disabled={disabled}
     >

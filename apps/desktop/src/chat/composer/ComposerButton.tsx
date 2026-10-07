@@ -28,6 +28,7 @@ export function ComposerButton({
       data-tone={tone}
       data-wide={wide ? 'true' : undefined}
       data-tip={label}
+      data-tip-side="top"
       aria-label={label}
       disabled={disabled}
       onClick={onClick}

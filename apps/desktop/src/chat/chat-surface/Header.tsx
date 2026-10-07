@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { chordLabel } from '@/hotkeys/chordLabel';
+import { BarButton } from '../../shell/BarButton';
 import { InstrumentBar, StatePill, type RunState } from '../../shell/InstrumentBar';
 import { PanelIcon } from '../../shell/PanelIcon';
 import { Telemetry } from '../../shell/instrument/Telemetry';
@@ -16,6 +17,15 @@ const LOUD_STATES: ReadonlySet<RunState> = new Set(['running', 'awaiting', 'fail
 
 const MENU_WIDTH = 220;
 
+/** A voice conversation with this chat, for the chats that can hold one. */
+export interface VoiceControl {
+  /** A conversation is open. */
+  readonly active: boolean;
+  /** A new conversation cannot start now; one that is open can still end. */
+  readonly disabled: boolean;
+  readonly onToggle: () => void;
+}
+
 /** The work panel beside this chat, for the chats that have one. */
 export interface WorkPanelControl {
   readonly open: boolean;
@@ -26,10 +36,10 @@ export interface WorkPanelControl {
  * The run's header.
  *
  * It names the run and otherwise keeps quiet, so the conversation under it is
- * the main thing on screen. The model and its usage are one click away on the
- * right, next to the button that shows and hides the work panel; search, focus
- * mode and rename sit behind one control. The run's state shows only when it is
- * something to act on.
+ * the main thing on screen. On the right: the model and its usage, then the two
+ * ways of working with the run that change the whole window (a voice
+ * conversation, focus mode), the work panel, and one control for the rest
+ * (search, rename). The run's state shows only when it is something to act on.
  */
 export function Header({
   phase: _phase,
@@ -44,6 +54,7 @@ export function Header({
   canRename,
   onRename,
   workPanel,
+  voice,
 }: {
   readonly phase: ConnectionPhase;
   /** Workspace name: the context half of the title. */
@@ -61,6 +72,7 @@ export function Header({
   readonly canRename: boolean;
   readonly onRename: () => void;
   readonly workPanel?: WorkPanelControl;
+  readonly voice?: VoiceControl;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   // A live query forces the field open, so the ⌘F shortcut (which sets the
@@ -112,18 +124,32 @@ export function Header({
               onPick={agent.onPickProviderModel}
             />
           )}
+          {voice && (
+            <BarButton
+              label={voice.active ? 'End voice conversation' : 'Start voice conversation'}
+              tip={voice.active ? 'End voice conversation' : 'Voice conversation'}
+              pressed={voice.active}
+              live={voice.active}
+              disabled={voice.disabled && !voice.active}
+              testId="voice-toggle"
+              onClick={voice.onToggle}
+            >
+              <Icon name="phone" size={16} />
+            </BarButton>
+          )}
+          <BarButton label="Focus mode" tip="Focus mode" testId="focus-toggle" onClick={toggleFocusMode}>
+            <Icon name="focus" size={16} />
+          </BarButton>
           {workPanel && (
-            <button
-              type="button"
-              className="btn-quiet tip"
-              data-testid="work-panel-toggle"
-              data-tip={`${workPanel.open ? 'Hide' : 'Show'} work panel  ${chordLabel('mod+j')}`}
-              aria-label={workPanel.open ? 'Hide work panel' : 'Show work panel'}
-              aria-pressed={workPanel.open}
+            <BarButton
+              label={workPanel.open ? 'Hide work panel' : 'Show work panel'}
+              tip={`${workPanel.open ? 'Hide' : 'Show'} work panel  ${chordLabel('mod+j')}`}
+              pressed={workPanel.open}
+              testId="work-panel-toggle"
               onClick={workPanel.onToggle}
             >
               <PanelIcon side="right" size={16} />
-            </button>
+            </BarButton>
           )}
           <button
             ref={menu.anchorRef}
@@ -147,7 +173,6 @@ export function Header({
                 hint: chordLabel('mod+f'),
                 onSelect: () => setSearchOpen(true),
               },
-              { id: 'focus', label: 'Focus mode', icon: 'focus', onSelect: toggleFocusMode },
               {
                 id: 'rename',
                 label: 'Rename workspace',

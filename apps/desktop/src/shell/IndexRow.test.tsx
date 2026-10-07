@@ -35,6 +35,12 @@ describe('IndexRow', () => {
     expect(screen.getByRole('button')).toHaveAttribute('data-nested', 'true');
   });
 
+  it('leads with an icon when the row is a place rather than a thing with a state', () => {
+    const { container } = render(<IndexRow label="Vault" icon="lock" active={false} onPick={() => {}} />);
+    expect(container.querySelector('svg.index-row__icon')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Vault' })).toBeInTheDocument();
+  });
+
   it('trails a note, toned when it is a fault', () => {
     render(<IndexRow label="discord" active={false} onPick={() => {}} note="Error" noteTone="bad" />);
     const note = screen.getByText('Error');

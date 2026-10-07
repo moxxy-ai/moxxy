@@ -695,20 +695,26 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: var(--space-6) var(--space-8);
-  margin-top: var(--space-8);
-  font-size: var(--type-label);
-  font-weight: 600;
+  /* A caption, not a row: smaller and lighter than what it heads, and held
+   * closer to its own rows than to the group above. */
+  padding: 0 var(--space-8) var(--space-4);
+  margin-top: var(--space-16);
+  font-size: var(--type-micro);
+  font-weight: 500;
   color: var(--color-text-dim);
 }
-.index-group:first-child { margin-top: 0; }
+.index-group:first-child { margin-top: var(--space-6); }
 .index-group__label { flex: 1; min-width: 0; }
 .index-group__label::first-letter { text-transform: uppercase; }
 .index-group__label[data-current] { color: var(--color-text-muted); }
 .index-group__count { flex-shrink: 0; font-weight: 400; font-variant-numeric: tabular-nums; }
 
-/* A group that folds is itself a row to press. */
+/* A group that folds is itself a row to press, so it keeps a row's measure. */
 .index-group--fold {
+  padding: var(--space-6) var(--space-8);
+  margin-top: var(--space-8);
+  font-size: var(--type-label);
+  font-weight: 600;
   border-radius: var(--radius-block);
   cursor: pointer;
   transition: background-color var(--motion-press) ease;
@@ -748,6 +754,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 600;
 }
 .index-row:hover:not(:disabled) { filter: none; }
+.index-row__icon { flex-shrink: 0; color: var(--color-text-dim); }
+.index-row[data-active='true'] .index-row__icon { color: var(--color-text); }
 .index-row__label {
   flex: 1;
   min-width: 0;
@@ -1836,6 +1844,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-text);
   background: var(--color-input-soft);
 }
+.btn-quiet:disabled { opacity: 0.4; }
+/* What the control switches on is running now (a voice conversation). */
+.btn-quiet[data-tone='live'],
+.btn-quiet[data-tone='live']:hover:not(:disabled) {
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
 
 /* Visible to assistive tech only — the rail is icon-only, so every item still
  * carries its name in the accessibility tree. */
@@ -1915,6 +1930,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .col-main--docked .ask-dock,
 .col-main--docked .voice-rail {
   overflow: hidden;
+}
+.col-main--docked .ask-dock {
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 /* Tucks the floating composer away: a small round button on the corner of the
@@ -2381,72 +2401,54 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* --- Tooltips ---------------------------------------------------
  * The native `title` tooltip is unusable for icon-only chrome: the OS delay is
  * around 1.2s, and nothing about it can be styled, so an icon rail with `title`
- * is effectively unlabelled. This is the replacement — same information, 140ms
- * instead of 1200ms, and in the panel's own palette.
+ * is effectively unlabelled. This is the replacement.
  *
- * Usage: `class="tip" data-tip="Runs"` plus `data-tip-side="left"` for chrome on
- * the right edge (the workbench strip) so the bubble points inward.
+ * Usage: `data-tip="Runs"` on the control, plus `data-tip-side` (`right` by
+ * default, `left`, `bottom`, `top`) for the side it should open on.
  *
- * It is CSS-only (a pseudo-element on the control) rather than a portal: no
- * timers, no state, nothing to leak, and it cannot survive the control being
- * unmounted mid-hover. `aria-label` carries the accessible name, so the bubble
- * is decoration for pointer users and is hidden from assistive tech.
+ * One bubble serves the whole window (components/tip/TipLayer). It is drawn on
+ * the body with a fixed position, because a bubble inside its control is cut by
+ * every panel that clips. `aria-label` carries the accessible name, so the
+ * bubble is decoration for pointer users and is hidden from assistive tech.
  */
 
 .tip { position: relative; }
 
-.tip::after {
-  /* No box until it shows: an invisible bubble still takes room beside its
-   * control, and in the session list that room made the sidebar scroll
-   * sideways. */
-  content: none;
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 40;
-  padding: 4px var(--space-8);
-  /* `max-content` + `max-width` + WRAPPING is the combination that works: short
-   * labels stay on one line, long ones (a truncated session name) wrap inside the
-   * bubble. A max-width with `nowrap` cannot clip — it only lets the text spill
-   * outside the bubble's own border, which is what a long label did before. */
+.tip-bubble {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1200;
+  padding: 5px var(--space-8);
+  /* `max-content` + `max-width` + WRAPPING: short labels stay on one line, long
+   * ones (a truncated session name) wrap inside the bubble. */
   width: max-content;
   max-width: 260px;
-  border: 1px solid var(--color-card-border-strong);
   border-radius: var(--radius-chip);
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-bg);
   font-size: var(--type-meta);
-  letter-spacing: 0;
-  text-transform: none;
-  box-shadow: var(--color-card-shadow);
-  white-space: normal;
+  font-weight: 500;
   line-height: 1.35;
+  white-space: normal;
   pointer-events: none;
+  box-shadow: var(--color-card-shadow);
+  transform-origin: left center;
+  animation: tip-in 125ms var(--ease-out) both;
 }
+/* It grows out of the control it names. */
+.tip-bubble[data-side='left'] { transform-origin: right center; }
+.tip-bubble[data-side='bottom'] { transform-origin: center top; }
+.tip-bubble[data-side='top'] { transform-origin: center bottom; }
+/* Moving along a row of controls, or arriving by keyboard: no fade. */
+.tip-bubble[data-instant] { animation: none; }
 
-.tip[data-tip-side='left']::after {
-  left: auto;
-  right: calc(100% + 8px);
-}
-
-.tip[data-tip-side='bottom']::after {
-  left: 50%;
-  top: calc(100% + 8px);
-  transform: translateX(-50%);
-}
-
-/* Fast, but not so fast that dragging the pointer across the rail strobes;
- * leaving a control clears the bubble at once. */
-.tip:hover::after,
-.tip:focus-visible::after {
-  content: attr(data-tip);
-  animation: moxxy-fade-in 90ms ease 140ms both;
+@keyframes tip-in {
+  from { opacity: 0; transform: scale(0.97); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tip:hover::after,
-  .tip:focus-visible::after { animation: none; }
+  .tip-bubble { animation: none; }
 }
 
 /* --- Telemetry ---------------------------------------------------
@@ -2773,6 +2775,44 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 .attachment-file__size { flex-shrink: 0; white-space: nowrap; color: var(--color-text-dim); }
 
+/* --- A block of a message that copies on its own ----------------
+ * A quotation, a code block, a table. The control waits in the corner and is
+ * shown by opacity only, so revealing it moves nothing. It has its own fill:
+ * a long line of code runs under it. */
+
+.md-block {
+  position: relative;
+  margin: 0 0 0.7em;
+}
+.md-block__copy {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-chip);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  opacity: 0;
+  transition: opacity var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
+}
+.md-block__copy:active { transform: scale(0.94); }
+.md-block__copy:focus-visible { opacity: 1; }
+.md-block__copy[data-copied='true'] { opacity: 1; color: var(--color-green); }
+@media (hover: hover) and (pointer: fine) {
+  .md-block:hover > .md-block__copy { opacity: 1; }
+  .md-block__copy:hover { color: var(--color-text); }
+}
+@media (hover: none) {
+  .md-block__copy { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-block__copy { transition: none; }
+}
+
 /* --- Under an answer: copy, read aloud, feedback ----------------- */
 
 .msg-actions {
@@ -2924,6 +2964,125 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .disclosure-body--tight { gap: var(--space-2); }
 .disclosure-body__meta { font-size: var(--type-meta); color: var(--color-text-dim); }
 
+/* --- A plan, a goal run, a research run ---------------------------
+ * What closes a piece of a mode's work is a document or a result, not a line of
+ * talk: a card on the bubble's measure with a heading that says what it is. */
+
+.outcome {
+  width: 100%;
+  min-width: 0;
+  max-width: min(100%, 640px);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-bubble);
+  border-bottom-left-radius: var(--radius-chip);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.outcome__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-8) 14px;
+  border-bottom: 1px solid var(--color-card-border);
+  font-size: var(--type-label);
+}
+.outcome__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  background: var(--color-input-soft);
+}
+.outcome[data-tone='good'] .outcome__mark { color: var(--color-green); background: var(--color-green-soft); }
+.outcome[data-tone='warn'] .outcome__mark { color: var(--color-amber-text); background: var(--color-amber-soft); }
+.outcome__title {
+  margin-right: var(--space-4);
+  font-size: var(--type-row);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.outcome__body {
+  padding: var(--space-8) 14px var(--space-12);
+  font-family: var(--font-prose);
+  font-size: var(--type-prose);
+  line-height: 1.62;
+  overflow-wrap: anywhere;
+}
+.outcome__body > .markdown-body > :first-child { margin-top: 0; }
+.outcome__body > .markdown-body > :last-child { margin-bottom: 0; }
+
+/* A step of the run that neither side said. */
+.mode-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 18px;
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+}
+.mode-note__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+  opacity: 0.6;
+}
+.mode-note[data-tone='warn'] { color: var(--color-amber-text); }
+.mode-note[data-tone='warn'] .mode-note__dot { background: var(--color-amber); opacity: 1; }
+.mode-note[data-tone='good'] .mode-note__dot { background: var(--color-green); opacity: 1; }
+
+/* The agents of a fan-out, one row each. */
+.agent-row { display: flex; flex-direction: column; min-width: 0; }
+.agent-row__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  min-height: var(--frame-tool);
+  padding: 0 var(--space-8);
+  margin: 0 calc(-1 * var(--space-8));
+  box-sizing: content-box;
+  border-radius: var(--radius-chip);
+  text-align: left;
+  font-size: var(--type-row);
+  color: var(--color-text-muted);
+  transition: background-color var(--motion-press) ease;
+}
+.agent-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+.agent-row__meta,
+.agent-row__state {
+  flex-shrink: 0;
+  font-size: var(--type-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-dim);
+}
+.agent-row__state { min-width: 46px; text-align: right; }
+.agent-row__state[data-tone='running'] { color: var(--color-primary-strong); }
+.agent-row__state[data-tone='failed'] { color: var(--color-red-text); }
+.agent-row__error {
+  margin: 0 0 var(--space-4) 18px;
+  font-size: var(--type-label);
+  color: var(--color-red-text);
+  overflow-wrap: anywhere;
+}
+.agent-row > .disclosure-body { margin: 0 0 var(--space-6) 18px; }
+@media (hover: hover) and (pointer: fine) {
+  .agent-row__head:hover { background: var(--color-input-soft); }
+}
+
 /* --- The composer ------------------------------------------------
  * One card at the foot of the conversation, on the conversation's measure:
  * a round add button, the field, and a round button that sends. It lifts off
@@ -2975,6 +3134,21 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 /* Tool calls running unreviewed is a caution, so it is the chip with a hue. */
 .status-chip[data-tone='warn'] { color: var(--color-amber-text); background: var(--color-amber-soft); }
 .status-chip[data-tone='accent'] { color: var(--color-primary-strong); background: var(--color-primary-soft); }
+/* The way out of a mode, inside its chip. */
+.status-chip__x {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: calc(var(--space-4) * -1);
+  border-radius: var(--radius-pill);
+  color: inherit;
+  opacity: 0.7;
+  transition: opacity var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
+}
+.status-chip__x:hover:not(:disabled) { opacity: 1; filter: none; background: var(--color-surface); }
+.status-chip__x:active:not(:disabled) { transform: scale(0.9); }
+.status-chip__x:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Staged attachments and queued turns, on the field's own inset. */
 .cmdbar__pending {
@@ -2985,8 +3159,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   padding: var(--space-8) var(--space-12) 0;
 }
 
-.cmdbar__notice,
-.mode-banner {
+.cmdbar__notice {
   display: flex;
   align-items: center;
   gap: var(--space-8);
@@ -3000,18 +3173,6 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   color: var(--color-primary-strong);
   background: var(--color-primary-soft);
 }
-.mode-banner { color: var(--color-text); background: var(--color-amber-soft); }
-.mode-banner[data-tone='info'] { background: var(--color-primary-soft); }
-.mode-banner__badge {
-  flex-shrink: 0;
-  padding: 1px var(--space-8);
-  border-radius: var(--radius-pill);
-  font-size: var(--type-label);
-  font-weight: 600;
-  color: var(--color-amber-text);
-  background: var(--color-surface);
-}
-.mode-banner[data-tone='info'] .mode-banner__badge { color: var(--color-primary-strong); }
 
 .spinner {
   width: 13px;
@@ -3246,7 +3407,7 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   animation: moxxy-fade-in var(--motion-overlay) var(--ease-out) both;
 }
 .menu--up { bottom: calc(100% + var(--space-6)); left: 0; }
-.menu--side { left: calc(100% + var(--space-6)); bottom: 0; z-index: 31; min-width: 176px; }
+.menu--side { left: calc(100% + var(--space-6)); bottom: 0; z-index: 31; min-width: 176px; width: max-content; max-width: 300px; }
 
 /* A section kicker, in the same idiom as the trace's and the index column's. */
 .menu__label {
@@ -3281,6 +3442,16 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .menu__mark { flex-shrink: 0; display: inline-flex; color: var(--color-text-dim); }
 .menu__row[data-active='true'] .menu__mark { color: var(--color-primary); }
 .menu__hint { flex-shrink: 0; font-size: var(--type-micro); color: var(--color-text-dim); }
+/* A choice that says what picking it means: its name, then one line under it. */
+.menu__row[data-lines='2'] { padding-block: var(--space-6); }
+.menu__sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--type-micro);
+  font-weight: 400;
+  color: var(--color-text-dim);
+}
 .menu__row[data-danger='true'],
 .menu__row[data-danger='true'] .menu__mark { color: var(--color-red-text); }
 
@@ -3307,16 +3478,15 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .btn-box:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-box[data-active='true'] { color: var(--color-primary); border-color: var(--color-primary); }
 
-/* --- The docked approval ----------------------------------------
- * A blocking ask is docked directly above the command bar, not floated over the
- * trace as a card. The run is STOPPED until it is answered, so the control
- * belongs where the eye already is — beside the thing you would type into — and a
- * floating sheet meant the transcript kept scrolling underneath the one thing
- * that could not be postponed.
+/* --- A question that blocks the run -----------------------------
+ * It sits directly above the composer, as a card of the same make. The run is
+ * stopped until it is answered, so the answer belongs where the eye already
+ * is, beside the thing you would type into. A sheet floating over the
+ * conversation let it keep scrolling under the one thing that cannot wait.
  *
- * The accent is caution (amber), because "needs your attention" is precisely what
- * this is; the commanded magenta means "the human ordered this", which an ask is
- * the opposite of.
+ * Asking leave to act is a caution (amber); asking which way to go on takes
+ * the accent. The hue is only the small mark by the title: the card itself
+ * stays the composer's, so it does not shout over the conversation.
  */
 
 .ask-dock {
@@ -3324,9 +3494,13 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
+  width: calc(100% - var(--space-20) * 2);
+  max-width: calc(var(--frame-measure) - var(--space-20) * 2);
+  margin: 0 auto var(--space-6);
   padding: var(--space-12);
-  border-top: 1px solid var(--ask-accent, var(--color-amber));
-  background: color-mix(in srgb, var(--ask-accent, var(--color-amber)) 9%, var(--color-main-bg));
+  border: 1px solid var(--color-card-border-strong);
+  border-radius: var(--radius-bubble);
+  background: var(--color-surface);
   animation: moxxy-fade-up var(--motion-overlay) var(--ease-out) both;
 }
 
@@ -3334,18 +3508,55 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   display: flex;
   align-items: center;
   gap: var(--space-8);
-  font-size: var(--type-label);
-  color: var(--ask-accent, var(--color-amber));
+  min-width: 0;
 }
+.ask-dock__mark {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
+.ask-dock[data-tone='caution'] .ask-dock__mark {
+  color: var(--color-amber-text);
+  background: var(--color-amber-soft);
+}
+.ask-dock__title {
+  min-width: 0;
+  font-size: var(--type-ui);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* What the agent wrote to explain the question: the conversation's own prose,
+ * capped so a long plan never pushes the answers off the window. */
+.ask-dock__body {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: var(--type-ui);
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
+.ask-dock__body > :last-child,
+.ask-dock__body > * > :last-child { margin-bottom: 0 !important; }
+.ask-dock__text {
+  margin: 0;
+  font-size: var(--type-ui);
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
+.ask-dock__text strong { color: var(--color-text); }
 
 /* The exact thing being asked about, in a sunk well. It scrolls sideways rather
  * than wrapping: a shell command broken across lines is a different command to
  * read, and this is the text you are being asked to vouch for. */
 .ask-dock__cmd {
   margin: 0;
-  padding: var(--space-6) var(--space-8);
-  border: 1px solid var(--color-card-border-strong);
-  border-radius: var(--radius-chip);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-block);
   background: var(--color-input-soft);
   color: var(--color-text);
   font-family: var(--font-mono);
@@ -3353,6 +3564,22 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   white-space: pre;
   overflow-x: auto;
 }
+
+.ask-dock__field {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-block);
+  background: var(--color-main-bg);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--type-ui);
+  line-height: 1.5;
+  outline: none;
+  transition: border-color var(--motion-shift) ease;
+}
+.ask-dock__field:focus { border-color: var(--color-primary); }
 
 .ask-dock__acts {
   display: flex;
@@ -3367,6 +3594,44 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   flex-shrink: 0;
   font-size: var(--type-label);
   color: var(--color-text-dim);
+}
+
+/* An answer. One is filled (the way forward); the rest are quiet, and the one
+ * that throws work away is red without being loud. */
+.ask-btn {
+  height: var(--frame-control);
+  padding: 0 var(--space-12);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--type-ui);
+  font-weight: 500;
+  color: var(--color-text);
+  /* Mixed from the text colour, so it shows on the card in both themes. */
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  transition:
+    background-color var(--motion-shift) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+.ask-btn:hover:not(:disabled) {
+  filter: none;
+  background: color-mix(in srgb, var(--color-text) 13%, transparent);
+}
+.ask-btn:active:not(:disabled) { transform: scale(0.97); }
+.ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ask-btn[data-tone='primary'] {
+  font-weight: 600;
+  color: var(--color-on-action);
+  background: var(--color-action);
+}
+.ask-btn[data-tone='primary']:hover:not(:disabled) { background: var(--color-action-hover); }
+.ask-btn[data-tone='danger'] {
+  color: var(--color-red-text);
+  background: transparent;
+}
+.ask-btn[data-tone='danger']:hover:not(:disabled) { background: var(--color-red-soft); }
+@media (prefers-reduced-motion: reduce) {
+  .ask-btn { transition: none; }
+  .ask-btn:active:not(:disabled) { transform: none; }
 }
 
 /* Measured wall time, on a step header and on each of its rows. Tabular so the

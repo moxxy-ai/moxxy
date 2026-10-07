@@ -9,13 +9,11 @@ import {
 import { Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
 import { useQueuedTurns } from '@moxxy/client-core';
-import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
 import { focusComposerPulse } from '@/lib/chatPulses';
 import { usePalettePlaces } from '../shell/navigation/usePalettePlaces';
 import type { AgentSession } from './agent-picker/useAgentSession';
-import { ModeBanner } from './composer/ModeBanner';
 import { CommandPalette } from './CommandPalette';
 import { ComposerButton } from './composer/ComposerButton';
 import { ComposerStatus } from './composer/ComposerStatus';
@@ -34,6 +32,8 @@ import {
 import { useComposerSubmit } from './composer/useComposerSubmit';
 import { useAttachmentImagePreviews } from './image-preview/useAttachmentImagePreviews';
 import type { ImagePreviewItem } from './image-preview/types';
+import { DEFAULT_MODE, GOAL_PLACEHOLDER, modeMeta } from './modes/mode-meta';
+import { useActiveMode } from './modes/useActiveMode';
 
 /** Past this height the composer textarea stops growing and scrolls
  *  internally (≈ 8 lines at the composer's font/line metrics). */
@@ -74,7 +74,8 @@ interface ComposerProps {
  *
  * Everything that is not typing or sending lives in the "+" menu. What the
  * next turn will do is said above the field only when it is not the default
- * (auto-approve, an armed goal); the mode and the model are read in the header.
+ * (a mode other than the default one, auto-approve, an armed goal); the model
+ * is read in the header.
  *
  * Pasting an image attaches it: the main process writes the bytes to a temp
  * file and it joins the staged attachments. The field grows with the draft.
@@ -146,10 +147,9 @@ export function Composer({
   const autoApprove = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getAutoApprove(workspaceId),
   );
-  // Presentation badge of the active mode (goal mode advertises one). When
-  // set, the composer wears a persistent accent banner so the user always
-  // knows an autonomous mode is driving the session.
-  const modeBadge = useActiveModeBadge(workspaceId);
+  // Every mode but the default one is said above the field, the same way.
+  const mode = useActiveMode(workspaceId, agent.info);
+  const inMode = mode !== null && mode !== DEFAULT_MODE;
 
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
@@ -259,7 +259,7 @@ export function Composer({
   ];
   if (!voiceModeActive) {
     overflowItems.push({
-      icon: 'speaker',
+      icon: 'phone',
       label: 'Voice conversation',
       disabled: !ready || compacting || inFlight,
       onClick: onOpenVoiceCall,
@@ -269,11 +269,14 @@ export function Composer({
     overflowItems.push({
       icon: 'sliders',
       label: 'Mode',
-      active: modeBadge != null,
+      active: inMode,
       disabled: !ready || inFlight || agent.modes.length === 0,
       submenu: {
         value: agent.info.activeMode ?? '',
-        options: agent.modes,
+        options: agent.modes.map((m) => {
+          const meta = modeMeta(m);
+          return { value: m, label: meta.label, hint: meta.hint || undefined };
+        }),
         onSelect: (m) => agent.onMode(m),
       },
     });
@@ -292,8 +295,12 @@ export function Composer({
       }}
     >
       <div className="cmdbar__card">
-        {modeBadge && <ModeBanner badge={modeBadge} />}
         <ComposerStatus
+          mode={mode}
+          modeBusy={!ready || inFlight}
+          onLeaveMode={
+            agent.modes.includes(DEFAULT_MODE) ? () => agent.onMode(DEFAULT_MODE) : undefined
+          }
           autoApprove={autoApprove}
           goalArmed={goalArmed}
           onStandDownGoal={closeGoal}
@@ -329,7 +336,7 @@ export function Composer({
           {mentions.open && (
             <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
           )}
-          <OverflowMenu highlighted={autoApprove || modeBadge != null} items={overflowItems} />
+          <OverflowMenu highlighted={autoApprove || inMode} items={overflowItems} />
           <textarea
             ref={taRef}
             data-testid="composer-input"
@@ -348,6 +355,7 @@ export function Composer({
               goalArmed,
               inFlight,
               hasAttachments: attachments.length > 0,
+              mode,
             })}
             disabled={!ready || compacting}
             rows={1}
@@ -402,18 +410,19 @@ export function Composer({
 }
 
 /** What the empty field says. It names the one thing that differs from an
- *  ordinary message: a lock, a goal, a queue. */
+ *  ordinary message: a lock, a goal, a queue, what the mode works on. */
 function placeholderFor(state: {
   readonly ready: boolean;
   readonly compacting: boolean;
   readonly goalArmed: boolean;
   readonly inFlight: boolean;
   readonly hasAttachments: boolean;
+  readonly mode: string | null;
 }): string {
   if (state.compacting) return 'Compacting context…';
   if (!state.ready) return 'Waiting for runner…';
-  if (state.goalArmed) return 'Set your goal — Moxxy works until it is reached…';
+  if (state.goalArmed) return GOAL_PLACEHOLDER;
   if (state.inFlight) return 'Queue a follow-up…';
   if (state.hasAttachments) return 'Ask about the attached file…';
-  return 'Message Moxxy…';
+  return (state.mode !== null && modeMeta(state.mode).placeholder) || 'Message Moxxy…';
 }

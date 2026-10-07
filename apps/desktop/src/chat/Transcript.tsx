@@ -18,6 +18,8 @@ import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 import { visibleTranscriptNodes } from './transcript-nodes';
+import { ModeTranscriptContext } from './modes/ModeTranscriptContext';
+import { readModeEvents } from './modes/mode-events';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -162,11 +164,14 @@ export function Transcript({
     foldRef.current = new IncrementalFold(compactTools);
     compactRef.current = compactTools;
   }
+  // What the plan, goal and research modes reported about these turns.
+  const modes = useMemo(() => readModeEvents(events), [events]);
   const nodes = useMemo(
     () => groupToolNodes(visibleTranscriptNodes(
       buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
+      modes.notes,
     )),
-    [events, extensions, compactTools],
+    [events, extensions, compactTools, modes],
   );
   const foldVersion = foldRef.current?.version ?? events.length;
 
@@ -227,6 +232,7 @@ export function Transcript({
   return (
     // One catalog fetch for the whole transcript; every tool row reads the
     // declared icon from context rather than asking for it per row.
+    <ModeTranscriptContext.Provider value={modes}>
     <ToolIconProvider workspaceId={workspaceId}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
@@ -282,5 +288,6 @@ export function Transcript({
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
     </ToolIconProvider>
+    </ModeTranscriptContext.Provider>
   );
 }

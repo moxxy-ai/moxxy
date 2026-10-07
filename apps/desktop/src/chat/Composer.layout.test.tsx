@@ -129,3 +129,67 @@ describe('Composer layout', () => {
     expect(screen.getByRole('button', { name: 'Voice input' })).toBeInTheDocument();
   });
 });
+
+describe('Composer in a mode', () => {
+  const inMode = (activeMode: string): AgentSession => ({
+    ...agent,
+    info: { ...info, activeMode } as SessionInfo,
+    modes: ['default', 'plan', 'goal', 'research'],
+  });
+
+  it('says nothing about the default mode', () => {
+    renderComposer();
+    expect(screen.queryByTestId('composer-mode')).toBeNull();
+    expect(screen.getByTestId('composer-input')).toHaveAttribute('placeholder', 'Message Moxxy…');
+  });
+
+  it('says which mode the next turn runs in, the same way for every mode', () => {
+    const { rerender } = render(<div />);
+    for (const [mode, text] of [
+      ['plan', 'Plan mode · read-only'],
+      ['goal', 'Goal mode · unattended'],
+      ['research', 'Research mode'],
+    ] as const) {
+      rerender(
+        <Composer
+          agent={inMode(mode)}
+          ready
+          sending={false}
+          compacting={false}
+          activeTurnId={null}
+          workspaceId={WORKSPACE}
+          onOpenVoiceCall={() => {}}
+          onSend={() => {}}
+          onAbort={() => {}}
+        />,
+      );
+      expect(screen.getByTestId('composer-mode')).toHaveTextContent(text);
+    }
+    // One way of saying it: the wide banner goal mode used to get is gone.
+    expect(screen.queryByTestId('mode-banner')).toBeNull();
+  });
+
+  it('asks in the field for what the mode works on', () => {
+    renderComposer({ agent: inMode('plan') });
+    expect(screen.getByTestId('composer-input')).toHaveAttribute('placeholder', 'Describe what to plan…');
+  });
+
+  it('goes back to the default mode from the chip', () => {
+    const onMode = vi.fn();
+    renderComposer({ agent: { ...inMode('research'), onMode } });
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Default mode' }));
+    expect(onMode).toHaveBeenCalledWith('default');
+  });
+
+  it('lists the modes by name, each with what it does', () => {
+    renderComposer({ agent: inMode('plan') });
+    openTools();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mode/ }));
+    const plan = screen.getByRole('menuitemradio', { name: /Plan/ });
+    expect(plan).toHaveAttribute('aria-checked', 'true');
+    expect(plan).toHaveTextContent('Reads only, then writes a plan');
+    expect(screen.getByRole('menuitemradio', { name: /Goal/ })).toHaveTextContent('Works unattended until it is done');
+    // The raw id is not what anyone reads.
+    expect(screen.queryByRole('menuitemradio', { name: 'plan' })).toBeNull();
+  });
+});

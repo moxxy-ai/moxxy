@@ -85,7 +85,7 @@ function installHost(entry: ChannelEntry = discord()) {
         activeProvider: 'p',
         activeMode: 'default',
         providers: [{ name: 'p', models: [{ id: 'm', contextWindow: 200_000 }] }],
-        modes: [{ name: 'default' }],
+        modes: ['default'],
         skills: [],
         tools: [],
       };

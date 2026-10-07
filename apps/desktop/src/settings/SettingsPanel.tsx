@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { assertDefined } from '@/lib/assert';
 import { useSettings } from '@moxxy/client-core';
-import { Skeleton, Icon } from '@moxxy/desktop-ui';
+import { Skeleton, Icon, type IconName } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
@@ -11,7 +11,7 @@ import { VoiceTab } from './VoiceTab';
 import { JevTab } from './JevTab';
 import { SearchBox } from './settings-primitives';
 import { InstrumentBar } from '../shell/InstrumentBar';
-import { IndexColumn, IndexRow } from '../shell/IndexColumn';
+import { IndexColumn, IndexGroup, IndexRow } from '../shell/IndexColumn';
 
 type SettingsSlice = ReturnType<typeof useSettings>;
 
@@ -30,6 +30,7 @@ interface TabContext {
 interface TabDescriptor {
   readonly id: string;
   readonly label: string;
+  readonly icon: IconName;
   readonly standalone: boolean;
   readonly render: (ctx: TabContext) => JSX.Element;
 }
@@ -42,6 +43,7 @@ function filtered<T extends { name: string }>(items: ReadonlyArray<T>, query: st
 const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
   {
     id: 'providers',
+    icon: 'agent',
     label: 'Providers',
     standalone: false,
     render: ({ s, query, setQuery }) => (
@@ -58,6 +60,7 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
   },
   {
     id: 'mcp',
+    icon: 'plug',
     label: 'MCP',
     standalone: false,
     render: ({ s, query, setQuery }) => (
@@ -71,12 +74,14 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
   },
   {
     id: 'skills',
+    icon: 'spark',
     label: 'Skills',
     standalone: false,
     render: ({ s }) => <SkillsView s={s} />,
   },
   {
     id: 'vault',
+    icon: 'lock',
     label: 'Vault',
     standalone: false,
     render: ({ s, query, setQuery }) => (
@@ -88,18 +93,15 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
       />
     ),
   },
-  { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
-  { id: 'voice', label: 'Voice', standalone: true, render: () => <VoiceTab /> },
-  { id: 'jev', label: 'Jev', standalone: true, render: () => <JevTab /> },
+  { id: 'preferences', icon: 'sliders', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
+  { id: 'voice', icon: 'mic', label: 'Voice', standalone: true, render: () => <VoiceTab /> },
+  { id: 'jev', icon: 'monitor', label: 'Jev', standalone: true, render: () => <JevTab /> },
 ];
 
 export type SettingsTab = (typeof TAB_DESCRIPTORS)[number]['id'];
 export type SettingsScope = 'all' | 'extensions' | 'settings';
 
-const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
-  id,
-  label,
-}));
+const TABS: ReadonlyArray<Pick<TabDescriptor, 'id' | 'label' | 'icon'>> = TAB_DESCRIPTORS;
 
 /**
  * Settings sections, grouped by what they are ABOUT rather than listed flat.
@@ -110,12 +112,12 @@ const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.
  * answer.
  */
 const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<SettingsTab> }> = [
-  { label: 'agent', ids: ['providers'] },
-  { label: 'extend', ids: ['mcp', 'skills'] },
-  { label: 'voice', ids: ['voice'] },
-  { label: 'computer use', ids: ['jev'] },
-  { label: 'trust', ids: ['vault'] },
-  { label: 'app', ids: ['preferences'] },
+  { label: 'Agent', ids: ['providers'] },
+  { label: 'Extend', ids: ['mcp', 'skills'] },
+  { label: 'Voice', ids: ['voice'] },
+  { label: 'Computer use', ids: ['jev'] },
+  { label: 'Trust', ids: ['vault'] },
+  { label: 'App', ids: ['preferences'] },
 ];
 
 function groupsFor(scope: SettingsScope): typeof GROUPS {
@@ -124,7 +126,13 @@ function groupsFor(scope: SettingsScope): typeof GROUPS {
   return GROUPS;
 }
 
-/** The Settings index column: the sections, grouped. */
+/**
+ * The Settings index column: the sections, grouped.
+ *
+ * A caption sorts a list into groups. Where every group in view is a single
+ * row there is nothing to sort, and a caption over each row reads as a second
+ * row that cannot be pressed; that list is drawn flat.
+ */
 export function SettingsIndex({
   tab,
   onPick,
@@ -134,21 +142,22 @@ export function SettingsIndex({
   readonly onPick: (tab: SettingsTab) => void;
   readonly scope?: SettingsScope;
 }): JSX.Element | null {
+  const groups = groupsFor(scope);
+  const captioned = groups.some((group) => group.ids.length > 1);
   return (
     <IndexColumn title={scope === 'extensions' ? 'extensions' : 'settings'}>
-      {groupsFor(scope).map((group) => (
+      {groups.map((group) => (
         <div key={group.label}>
-          <div className="index-group">
-            <span className="index-group__label">{group.label}</span>
-          </div>
+          {captioned && <IndexGroup label={group.label} />}
           {group.ids.map((id) => {
-            const label = TABS.find((t) => t.id === id)?.label ?? id;
-            const active = id === tab;
+            const section = TABS.find((t) => t.id === id);
+            const label = section?.label ?? id;
             return (
               <IndexRow
                 key={id}
                 label={label}
-                active={active}
+                {...(section ? { icon: section.icon } : {})}
+                active={id === tab}
                 testId={`settings-tab-${id}`}
                 onPick={() => onPick(id)}
               />

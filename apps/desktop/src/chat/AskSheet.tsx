@@ -4,13 +4,17 @@ import { summarizeArgs, oneLine } from '@moxxy/chat-model';
 import type { AskRequest, ApprovalRequest, ApprovalOption } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { askStore } from '@moxxy/client-core';
+import { MarkdownBody } from './MarkdownBody';
 import { useFocusTrap } from './useFocusTrap';
 
 /**
- * Bottom sheet rendered above the composer when the runner needs a decision —
- * a tool-call permission gate or a loop-strategy approval (research,
- * BMAD, …). The runner blocks on the answer, so this is modal-in-spirit: the
- * user picks an option and we reply over `ask.respond`, unblocking the turn.
+ * The card above the composer when the runner needs a decision: a tool-call
+ * permission gate or a loop-strategy approval (research, BMAD, …). The runner
+ * blocks on the answer, so this is modal-in-spirit: the user picks an option
+ * and we reply over `ask.respond`, unblocking the turn.
+ *
+ * What the agent wrote is read as prose; the one exception is a tool's call,
+ * which stays monospace on one line because it is the text being vouched for.
  *
  * Operability is load-bearing here: focus is moved into the sheet on appear
  * (onto the safest default — Deny / the default option), Tab is trapped inside
@@ -33,12 +37,12 @@ function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
   const send = (): void => askStore.respond(ask.requestId, { text: reply.trim() });
 
   return (
-    <Sheet icon="spark" title={`${workflow.workflow} is waiting`} accent="var(--color-amber)">
-      <p style={bodyTextStyle}>
-        <strong style={{ color: 'var(--color-text)' }}>{workflow.label}</strong>
+    <Sheet icon="spark" title={`${workflow.workflow} is waiting`} tone="caution">
+      <p className="ask-dock__text">
+        <strong>{workflow.label}</strong>
         {workflow.stepId ? ` · ${workflow.stepId}` : ''}
       </p>
-      {workflow.prompt.trim() && <pre style={preStyle}>{workflow.prompt.trim()}</pre>}
+      <Prose text={workflow.prompt} />
       <textarea
         autoFocus
         value={reply}
@@ -46,21 +50,9 @@ function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && reply.trim()) send();
         }}
-        placeholder="Type your reply..."
+        placeholder="Type your reply…"
         rows={3}
-        style={{
-          width: '100%',
-          resize: 'vertical',
-          padding: '10px 12px',
-          fontSize: 'var(--type-ui)',
-          lineHeight: 1.5,
-          color: 'var(--color-text)',
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-card-border)',
-          borderRadius: 'var(--radius-block)',
-          outline: 'none',
-          fontFamily: 'inherit',
-        }}
+        className="ask-dock__field"
       />
       <Buttons>
         <SheetButton tone="primary" onClick={send} disabled={reply.trim().length === 0}>
@@ -85,13 +77,16 @@ function PermissionSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
   return (
     <Sheet
       icon="wrench"
-      title={`approval required · ${tool?.name ?? 'tool'}`}
-      accent="var(--color-amber)"
+      title={`${tool?.name ?? 'A tool'} needs your approval`}
+      // The label names the tool first: "which tool" is the fact a
+      // screen-reader user needs before anything else.
+      label={`approval required · ${tool?.name ?? 'tool'}`}
+      tone="caution"
       initialFocusRef={denyRef}
       onEscape={onEscape}
     >
       {summary && <pre className="ask-dock__cmd">{summary}</pre>}
-      {tool?.description && <p style={bodyTextStyle}>{tool.description}</p>}
+      {tool?.description && <p className="ask-dock__text">{tool.description}</p>}
       <div className="ask-dock__acts">
         <SheetButton tone="primary" onClick={() => decide('allow_session')}>
           Allow once
@@ -105,7 +100,7 @@ function PermissionSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
         {/* Only what is actually wired. The design's strip also promised "⏎ allow",
             which would mean Enter approving a tool call on a panel that focuses
             Deny — a safety change nobody asked for, and a lie until it is made. */}
-        <span className="ask-dock__keys">esc denies</span>
+        <span className="ask-dock__keys">Esc denies</span>
       </div>
     </Sheet>
   );
@@ -158,11 +153,11 @@ function ApprovalSheet({
     <Sheet
       icon="spark"
       title={approval.title}
-      accent="var(--color-primary)"
+      tone="accent"
       initialFocusRef={initialFocusRef}
       onEscape={onEscape}
     >
-      {approval.body.trim() && <pre style={preStyle}>{approval.body.trim()}</pre>}
+      <Prose text={approval.body} />
       {textOption ? (
         <>
           <textarea
@@ -172,19 +167,7 @@ function ApprovalSheet({
             onChange={(e) => setText(e.target.value)}
             placeholder={textOption.textPrompt ?? 'Add details…'}
             rows={3}
-            style={{
-              width: '100%',
-              resize: 'vertical',
-              padding: '10px 12px',
-              fontSize: 'var(--type-ui)',
-              lineHeight: 1.5,
-              color: 'var(--color-text)',
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-card-border)',
-              borderRadius: 'var(--radius-block)',
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
+            className="ask-dock__field"
           />
           <Buttons>
             <SheetButton tone="neutral" onClick={() => setTextOption(null)}>
@@ -216,17 +199,32 @@ function ApprovalSheet({
 
 // ---- shared chrome --------------------------------------------------------
 
+/** What the agent wrote to explain the question. */
+function Prose({ text }: { readonly text: string }): JSX.Element | null {
+  const body = text.trim();
+  if (!body) return null;
+  return (
+    <div className="ask-dock__body">
+      <MarkdownBody text={body} streaming={false} />
+    </div>
+  );
+}
+
 function Sheet({
   icon,
   title,
-  accent,
+  label,
+  tone,
   initialFocusRef,
   onEscape,
   children,
 }: {
   readonly icon: 'wrench' | 'spark';
   readonly title: string;
-  readonly accent: string;
+  /** The accessible name, when it should differ from the visible title. */
+  readonly label?: string;
+  /** A caution asks leave to act; an accent asks which way to go on. */
+  readonly tone: 'caution' | 'accent';
   readonly initialFocusRef?: React.RefObject<HTMLElement>;
   readonly onEscape?: () => void;
   readonly children: React.ReactNode;
@@ -238,14 +236,16 @@ function Sheet({
       ref={containerRef}
       role="dialog"
       aria-modal="true"
-      aria-label={title}
+      aria-label={label ?? title}
       data-testid="ask-dock"
+      data-tone={tone}
       className="ask-dock"
-      style={{ ['--ask-accent' as string]: accent }}
     >
       <div className="ask-dock__head">
-        <Icon name={icon} size={13} />
-        <span>{title}</span>
+        <span className="ask-dock__mark" aria-hidden>
+          <Icon name={icon} size={13} />
+        </span>
+        <span className="ask-dock__title">{title}</span>
       </div>
       {children}
     </div>
@@ -267,54 +267,17 @@ const SheetButton = forwardRef<
     readonly children: React.ReactNode;
   }
 >(function SheetButton({ tone, onClick, disabled, title, children }, ref): JSX.Element {
-  const palette =
-    tone === 'primary'
-      ? { bg: 'var(--color-primary-strong)', color: '#fff', border: 'transparent' }
-      : tone === 'danger'
-        ? { bg: 'var(--color-surface)', color: 'var(--color-red)', border: 'var(--color-card-border)' }
-        : { bg: 'var(--color-surface)', color: 'var(--color-text-muted)', border: 'var(--color-card-border)' };
   return (
     <button
       ref={ref}
       type="button"
+      className="ask-btn"
+      data-tone={tone}
       onClick={onClick}
       disabled={disabled}
       {...(title ? { title } : {})}
-      style={{
-        padding: '0 var(--space-12)',
-        height: 'var(--frame-control)',
-        fontSize: 'var(--type-ui)',
-        fontWeight: 600,
-        color: palette.color,
-        background: palette.bg,
-        border: `1px solid ${palette.border}`,
-        borderRadius: 'var(--radius-block)',
-        opacity: disabled ? 0.5 : 1,
-      }}
     >
       {children}
     </button>
   );
 });
-
-const bodyTextStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--type-ui)',
-  lineHeight: 1.55,
-  color: 'var(--color-text-muted)',
-};
-
-const preStyle: React.CSSProperties = {
-  margin: 0,
-  padding: 'var(--space-8) var(--space-12)',
-  background: 'var(--color-input-soft)',
-  border: '1px solid var(--color-card-border)',
-  borderRadius: 'var(--radius-block)',
-  fontSize: 'var(--type-meta)',
-  fontFamily: 'var(--font-mono)',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  maxHeight: 220,
-  overflow: 'auto',
-  color: 'var(--color-text)',
-};

@@ -24,7 +24,7 @@ only; the mobile app, the TUI and the web channel keep their own look.
 |---|---|
 | Sidebar | 280 px wide, resizable between 220 and 400 px. It collapses with ⌘B / Ctrl+B. |
 | Sidebar row | 54 px high: a 36 px avatar, the name with the time beside it, and a one-line preview. A small badge on the avatar shows the state (working, unread). |
-| Header | 40 px, no bottom line: the avatar and name on the left, the model and one menu on the right. Search, focus mode and rename sit in that menu. The run's state shows only when it needs attention. |
+| Header | 40 px, no bottom line: the avatar and name on the left; on the right the model, a voice conversation, focus mode, the work panel and one menu. Search and rename sit in that menu. The run's state shows only when it needs attention. |
 | Transcript | Bubbles. The user's are on the right in a contrasting fill, the agent's on the left in the surface fill. Tool activity stays as quiet markers between them. |
 | Composer | One rounded card, 48 px when empty: a round add button, the field, and a round voice or send button. |
 | Right panel | Closed by default. Files, terminal, browser and diff open in it from a header icon. |
@@ -81,6 +81,14 @@ Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
 control that opened it. A menu opened from the keyboard appears at once.
 
+Tooltips are one layer, `components/tip/TipLayer.tsx`, mounted once at the
+root. A control asks for one with `data-tip` (and `data-tip-side` for the side
+it prefers). The bubble is drawn over the window, not inside the control, so
+no scrolling or clipped container can cut it; it flips to the other side and
+shifts along its edge to stay inside the window (`components/tip/placeTip.ts`).
+The first one waits 140 ms; moving on to the next control, or reaching one
+with Tab, shows it at once with no fade.
+
 ## The conversation
 
 A run reads as a messenger conversation, on a 760 px measure centred in the
@@ -89,7 +97,7 @@ pane.
 | Entry | How it is drawn |
 |---|---|
 | What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
-| What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble. |
+| What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble, and each has a copy control in its corner (shown for the block under the pointer or holding focus, always on a touch screen). A table copies as tab-separated rows. |
 | Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. |
 | Triggers, stops, errors | A note with a short label. |
 
@@ -105,9 +113,38 @@ The composer is one card on the same measure: a round add button, the field, a
 dictation button, and a round button that sends. While a turn runs the send
 button is Stop, and the field says a new message will queue. Attach, actions,
 goal, auto-approve, voice conversation and mode are in the add menu. The
-composer says what the next turn will do only when it is not the default:
-auto-approve on, or a goal waiting for its objective. The mode and the model
-are read in the header.
+composer says what the next turn will do only when it is not the default: a
+mode other than the default one, auto-approve on, or a goal waiting for its
+objective. The model is read in the header.
+
+### Modes
+
+Plan, goal and research are drawn with the same pieces as the default mode,
+so no mode has a look of its own.
+
+| Piece | Where | Rule |
+|---|---|---|
+| Name and hint | `chat/modes/mode-meta.ts` | One place says what a mode is called, what it does in one line and what the empty field asks for. A mode it does not know is shown by its id, tidied, with no claim about what it does. |
+| Mode chip | `chat/modes/ModeChip.tsx` | In the composer's status row for every mode but the default: "Plan mode · read-only", "Goal mode · unattended", "Research mode". Its × goes back to the default mode. A mode that acts without asking takes the caution tone. |
+| Mode menu | the add menu | Each mode by name with its one-line hint under it. |
+| Outcome card | `chat/modes/ModeOutcomeCard.tsx` | What a mode hands back (a plan, a finished or paused goal, a research plan, a follow-up round) is a card with a title and its facts as chips, then the text. The signal tool call that precedes it is not drawn unless it failed. |
+| Step note | `chat/modes/ModeNoteLine.tsx` | A phase of the run (goal started, research round, research complete) is one quiet line with a toned dot. |
+| Agents | `chat/blocks/SubagentGroupView.tsx` | A fan-out lists its agents as rows: a state light, what the agent is working on, its tool and token counts, and its state. A research agent is named by its question. |
+
+`chat/modes/mode-events.ts` reads the modes' own events out of the run's log
+and says which message is an outcome and which event is a note. The desktop
+asks for those events with `registerModeEvents()` at start.
+
+### A question that blocks the run
+
+When the runner waits on the person (a tool needs approval, a mode asks which
+way to go on, a workflow wants a reply) the question is a card directly above
+the composer, on the same measure and of the same make (`chat/AskSheet.tsx`).
+What the agent wrote is read as prose; a tool's call stays on one line in a
+monospace well, which scrolls sideways instead of wrapping. One answer is filled, the rest are quiet pills, and the one
+that throws work away is red. Asking leave to act marks the card amber; asking
+which way to go on marks it with the accent. Focus goes to the safe answer,
+Tab stays inside the card and Escape gives the safe answer.
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
@@ -133,7 +170,8 @@ as the same app.
 | Piece | Where | Rule |
 |---|---|---|
 | Labels | everywhere | Sentence case. No label is set in capitals or tracked out; `styles.type.test.ts` holds that for the stylesheet and for inline styles. |
-| Sidebar row | `IndexRow` in `shell/IndexColumn.tsx` | One row for a settings section, an automation or a channel: the run row's fill when open, an optional state light and note. |
+| Sidebar row | `IndexRow` in `shell/IndexColumn.tsx` | One row for a settings section, an automation or a channel: the run row's fill when open, an optional icon, state light and note. A settings section always has its icon. |
+| Sidebar caption | `IndexGroup` in `shell/IndexColumn.tsx` | A caption over a group of rows is small and dim, with no icon, so it never reads as a row. A list whose groups each hold one row draws no captions. |
 | State chip | `.tag`, `components/StateToggle.tsx` | A state is a word in a filled pill, toned good, bad or warn. The chip that switches a workflow, schedule or webhook on is the same chip. |
 | Table | `.data-table`, `.data-row` | Fixed tracks for the trailing columns, so a head sits over its cells. |
 | Approvals | `workflows/WorkflowApprovals.tsx` | Shown only while a workflow waits on the person. |
@@ -176,3 +214,7 @@ above are reimplemented here in Moxxy's own components.
 5. **Other views** (done): Settings, Extensions, Automations, Apps, Channels,
    Mobile, Collaborate and onboarding share one kit, and the focus window wears
    the desktop palette.
+6. **Review pass** (done): voice and focus mode on the header, one tooltip
+   layer that is never clipped, settings sections with icons, plan, goal and
+   research drawn with the conversation's own pieces, the blocking question as
+   a card, and copy on quotes, code and tables.

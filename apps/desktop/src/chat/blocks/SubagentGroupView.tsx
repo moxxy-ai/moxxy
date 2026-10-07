@@ -3,19 +3,12 @@ import { formatTokensK, type SubagentBlock, type SubagentGroupBlock } from '@mox
 import { DisclosureRow } from './DisclosureRow';
 import { SubagentDetail } from './SubagentView';
 import { TraceEntry } from '../trace/TraceEntry';
+import { useAgentTitle } from '../modes/ModeTranscriptContext';
 
 /**
- * A fan-out of sibling subagents folded into one compact collapsible tree:
- *
- *   ● 4 Explore agents finished
- *     ├ Find file-writing tools · 45 tool uses · 65.3k tokens
- *     │  └ Done
- *     ├ Understand TUI rendering · 43 tool uses · 66.3k tokens
- *     │  └ Done
- *
- * Collapsed by default — one header row summarising the batch. Expanding
- * lists each agent as a tree row; each row is itself secondarily expandable
- * to reveal that agent's tool calls + final output (shared SubagentDetail).
+ * A fan-out of sibling subagents folded into one line: "4 Explore agents
+ * finished". Opened, it lists each agent as a row with its state, and each row
+ * opens in turn to that agent's tool calls and answer (shared SubagentDetail).
  */
 export function SubagentGroupView({
   block,
@@ -39,7 +32,7 @@ export function SubagentGroupView({
       {open && (
         <div className="disclosure-body disclosure-body--tight">
           {block.agents.map((agent) => (
-            <AgentTreeRow key={agent.id} agent={agent} />
+            <AgentRow key={agent.id} agent={agent} />
           ))}
         </div>
       )}
@@ -47,80 +40,49 @@ export function SubagentGroupView({
   );
 }
 
-/** One agent as a tree row + status sub-line, secondarily expandable to its
- *  tool-call / final-output detail. */
-function AgentTreeRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
+/** One agent of the fan-out: what it is doing, how much it has done, and how it
+ *  stands. It opens to the agent's tool calls and its answer. */
+function AgentRow({ agent }: { readonly agent: SubagentBlock }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const title = useAgentTitle(agent.childSessionId) ?? agent.label;
   const running = isRunning(agent);
+  const state = agent.error ? 'failed' : running ? 'running' : 'done';
   const tokens = formatTokensK(agent.tokensUsed);
-  const statusText = running ? 'running' : agent.error ? 'failed' : 'Done';
-  const statusColor = agent.error
-    ? 'var(--color-red)'
-    : running
-      ? 'var(--color-primary)'
-      : 'var(--color-text-muted)';
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="mono"
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 6,
-          padding: '1px 0',
-          width: '100%',
-          textAlign: 'left',
-          fontSize: 'var(--type-meta)',
-        }}
-      >
-        <span aria-hidden style={{ color: 'var(--color-text-dim)', flexShrink: 0 }}>
-          ├
-        </span>
-        <span style={{ color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {agent.label}
-        </span>
-        <span style={{ color: 'var(--color-text-dim)', flexShrink: 0 }}>
-          · {agent.toolCallCount} tool {agent.toolCallCount === 1 ? 'use' : 'uses'}
+    <div className="agent-row">
+      <button type="button" className="agent-row__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="led" data-state={state} aria-hidden />
+        <span className="agent-row__name">{title}</span>
+        <span className="agent-row__meta">
+          {agent.toolCallCount} tool {agent.toolCallCount === 1 ? 'use' : 'uses'}
           {tokens ? ` · ${tokens} tokens` : ''}
         </span>
+        <span className="agent-row__state" data-tone={state}>
+          {STATE_WORD[state]}
+        </span>
       </button>
-      <div
-        className="mono"
-        style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 'var(--type-meta)', paddingLeft: 0 }}
-      >
-        <span aria-hidden style={{ color: 'var(--color-text-dim)', flexShrink: 0 }}>
-          {'  │  └'}
-        </span>
-        <span style={{ color: statusColor }}>
-          {statusText}
-          {agent.error ? ` — ${agent.error}` : ''}
-        </span>
-      </div>
-      {open && (
-        <div style={{ paddingLeft: 16 }}>
-          <SubagentDetail block={agent} />
-        </div>
-      )}
+      {agent.error && <p className="agent-row__error">{agent.error}</p>}
+      {open && <SubagentDetail block={agent} />}
     </div>
   );
 }
+
+const STATE_WORD = { running: 'Running', done: 'Done', failed: 'Failed' } as const;
 
 function isRunning(a: SubagentBlock): boolean {
   return a.completedAtMs === null && a.error === null;
 }
 
-/** "4 Explore agents finished" / "1 Explore agent finished" / "3 agents
- *  finished" (mixed) — plus a "running" / "(M failed)" suffix when in flight
- *  or any member errored. */
+/** "4 Explore agents finished" / "3 agents running" / "3 agents finished, 1
+ *  failed". The default kind has no name worth saying, and a mixed batch has
+ *  none to say. */
 function headerLabel(block: SubagentGroupBlock, running: number, failed: number): string {
   const n = block.agents.length;
-  const typeWord = block.agentType === 'mixed' ? '' : `${block.agentType} `;
+  const named = block.agentType !== 'mixed' && block.agentType !== 'default';
+  const typeWord = named ? `${block.agentType} ` : '';
   const noun = n === 1 ? 'agent' : 'agents';
   const verb = running > 0 ? 'running' : 'finished';
-  const failSuffix = failed > 0 ? ` (${failed} failed)` : '';
+  const failSuffix = failed > 0 ? `, ${failed} failed` : '';
   return `${n} ${typeWord}${noun} ${verb}${failSuffix}`;
 }
 

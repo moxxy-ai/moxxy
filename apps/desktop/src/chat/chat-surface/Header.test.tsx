@@ -53,15 +53,14 @@ describe('chat Header focus mode action', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
-    fireEvent.click(screen.getByRole('menuitem', { name: /^focus mode$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('focus.toggle');
     });
   });
 
-  it('keeps the bar quiet: search, focus mode and rename sit behind one control', () => {
+  it('keeps the bar quiet: search and rename sit behind one control', () => {
     __setApiOverride({
       invoke: vi.fn(async () => undefined),
       subscribe: () => () => undefined,
@@ -85,12 +84,13 @@ describe('chat Header focus mode action', () => {
     );
 
     // Not on the bar…
-    expect(screen.queryByRole('button', { name: /search transcript/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /focus mode/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /search/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /rename/i })).toBeNull();
     // …one control away.
     fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
     expect(screen.getByRole('menuitem', { name: /^search this run/i })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: /^focus mode$/i })).toBeTruthy();
+    // Focus mode is on the bar, so it is not said a second time in the menu.
+    expect(screen.queryByRole('menuitem', { name: /focus mode/i })).toBeNull();
     fireEvent.click(screen.getByRole('menuitem', { name: /^rename workspace$/i }));
     expect(onRename).toHaveBeenCalledOnce();
     expect(screen.queryByRole('menu')).toBeNull();
@@ -203,8 +203,7 @@ describe('chat Header focus mode action', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'More actions' }), { detail: 1 });
-    const focusIcon = screen.getByRole('menuitem', { name: /^focus mode$/i }).querySelector('svg');
+    const focusIcon = screen.getByRole('button', { name: 'Focus mode' }).querySelector('svg');
     const pathData = Array.from(focusIcon?.querySelectorAll('path') ?? []).map((path) =>
       path.getAttribute('d'),
     );
@@ -253,3 +252,73 @@ describe('chat Header work panel control', () => {
   });
 });
 
+
+describe('chat Header voice and focus controls', () => {
+  const header = (voice?: { active: boolean; disabled: boolean; onToggle: () => void }) => (
+    <Header
+      phase={connectedPhase}
+      deskName="blocky"
+      sessionName="retry untyped gateway fault"
+      runState="idle"
+      agent={AGENT_FIXTURE}
+      agentDisabled={false}
+      workspaceId="ws-test"
+      searchQuery={null}
+      onSearchChange={vi.fn()}
+      canRename
+      onRename={vi.fn()}
+      workPanel={{ open: false, onToggle: vi.fn() }}
+      {...(voice ? { voice } : {})}
+    />
+  );
+
+  it('starts a voice conversation from the bar, in one click', () => {
+    const onToggle = vi.fn();
+    render(header({ active: false, disabled: false, onToggle }));
+    const call = screen.getByRole('button', { name: 'Start voice conversation' });
+    expect(call).toHaveAttribute('aria-pressed', 'false');
+    expect(call).toHaveAttribute('data-tip', 'Voice conversation');
+    fireEvent.click(call);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a conversation that is open, and ends it from the same control', () => {
+    const onToggle = vi.fn();
+    render(header({ active: true, disabled: false, onToggle }));
+    const call = screen.getByRole('button', { name: 'End voice conversation' });
+    expect(call).toHaveAttribute('aria-pressed', 'true');
+    expect(call).toHaveAttribute('data-tip', 'End voice conversation');
+    fireEvent.click(call);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('cannot start a conversation while the run cannot take one', () => {
+    render(header({ active: false, disabled: true, onToggle: vi.fn() }));
+    expect(screen.getByRole('button', { name: 'Start voice conversation' })).toBeDisabled();
+  });
+
+  it('can always end a conversation that is open', () => {
+    render(header({ active: true, disabled: true, onToggle: vi.fn() }));
+    expect(screen.getByRole('button', { name: 'End voice conversation' })).toBeEnabled();
+  });
+
+  it('offers no voice control where the chat has none', () => {
+    render(header());
+    expect(screen.queryByRole('button', { name: /voice conversation/i })).toBeNull();
+  });
+
+  it('orders the bar: voice, focus, work panel, then everything else', () => {
+    render(header({ active: false, disabled: false, onToggle: vi.fn() }));
+    const names = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+    expect(names).toEqual(['Start voice conversation', 'Focus mode', 'Show work panel', 'More actions']);
+  });
+
+  it('opens every tooltip downwards, into the window', () => {
+    render(header({ active: false, disabled: false, onToggle: vi.fn() }));
+    for (const name of ['Start voice conversation', 'Focus mode', 'Show work panel']) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('data-tip-side', 'bottom');
+    }
+  });
+});
