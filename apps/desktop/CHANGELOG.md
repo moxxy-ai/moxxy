@@ -1,5 +1,12 @@
 # @moxxy/desktop
 
+## 0.41.1
+
+### Patch Changes
+
+- 5a5935c: The desktop release builds its update bundle again. The app's main imported the browser plugin's package root, which since the terminal browser profile also loads Playwright, so the whole of Playwright was built into the main and the update bundle was refused for importing packages it does not carry (`chromium-bidi` and others). The main now imports only the page host (`@moxxy/plugin-browser/host`), and every build checks the main's imports, so the next one fails its pull request instead of the release.
+- ed9733b: The macOS installer is notarized again. Since it carries Python and Git for the agent, Apple refused it: the notary service also reads the programs inside the runtime archives, and 288 of them were unsigned. A signed release now signs the macOS Python and Git with the Developer ID before packing them, and checks every signature before the installer is built, so a missing one fails in a minute instead of after the upload to Apple. The bundled Python keeps loading packages installed later with `pip`.
+
 ## 0.41.0
 
 ### Minor Changes
