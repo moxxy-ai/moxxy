@@ -91,7 +91,7 @@ export {
 
 // The agent's browser: a real Chromium view this window composites, driven by
 // CDP. See @moxxy/plugin-browser's page/host.ts for why there is no frame pipeline.
-export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from '@moxxy/plugin-browser';
+export { BrowserHost, BROWSER_PARTITION, type HostWebContents, type HostReply } from '@moxxy/plugin-browser/host';
 export { BrowserBridge, type BridgeAddress } from './browser/bridge.js';
 export { routeGuestPopups } from './browser/popups.js';
 export { setRunnerExtraEnv } from './runner-env.js';

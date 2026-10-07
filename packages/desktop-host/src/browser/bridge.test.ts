@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserBridge, bridgeEndpoint, sweepAbandonedBridges } from './bridge.js';
-import { BrowserHost, type HostWebContents } from '@moxxy/plugin-browser';
+import { BrowserHost, type HostWebContents } from '@moxxy/plugin-browser/host';
 
 /**
  * The bridge is a trust boundary: it is a socket on the filesystem that hands

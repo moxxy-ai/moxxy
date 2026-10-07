@@ -26,7 +26,7 @@
  *   MOXXY_BUNDLE_OUT_DIR       output dir (default: apps/desktop/release/update)
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,23 +37,13 @@ import { buildAppBundle } from '../packages/desktop-host/dist/app-update/index.j
 // signed manifest so the bootstrap's lockstep gate can refuse a JS hot-update
 // whose client would outrun the pinned CLI's runner.
 import { RUNNER_PROTOCOL_VERSION } from '../packages/runner/dist/index.js';
+import { collectAppBundleFiles } from './app-bundle-files.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = path.join(repoRoot, 'apps', 'desktop');
 
 function readJson(p) {
   return JSON.parse(readFileSync(p, 'utf8'));
-}
-
-/** Walk a dir, returning dist-relative POSIX paths of every file under it. */
-function walk(absDir, relPrefix, out) {
-  for (const name of readdirSync(absDir)) {
-    const abs = path.join(absDir, name);
-    const rel = `${relPrefix}/${name}`;
-    if (statSync(abs).isDirectory()) walk(abs, rel, out);
-    else out.push(rel);
-  }
-  return out;
 }
 
 function main() {
@@ -85,20 +75,8 @@ function main() {
   const bundleName = `moxxy-app-bundle-${version}.json.gz`;
   const bundleUrl = `${baseUrl}/${bundleName}`;
 
-  // Collect the bundle files: dist/** + dist-electron/**, minus the floor
-  // bootstrap + sourcemaps (runtime doesn't need maps; bootstrap is the floor).
-  const rels = [];
-  walk(path.join(desktopDir, 'dist'), 'dist', rels);
-  walk(path.join(desktopDir, 'dist-electron'), 'dist-electron', rels);
-  const files = {};
-  let bytes = 0;
-  for (const rel of rels) {
-    if (rel === 'dist-electron/main/bootstrap.js') continue;
-    if (rel.endsWith('.map')) continue;
-    const buf = readFileSync(path.join(desktopDir, rel));
-    files[rel] = buf;
-    bytes += buf.length;
-  }
+  const files = collectAppBundleFiles(desktopDir);
+  const bytes = Object.values(files).reduce((sum, buf) => sum + buf.length, 0);
   if (!files['dist-electron/main/index.js'] || !files['dist/index.html']) {
     console.error('build-app-bundle: dist/ or dist-electron/ not built — run `pnpm build` first.');
     process.exit(1);
