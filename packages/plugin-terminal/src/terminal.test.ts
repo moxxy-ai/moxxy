@@ -286,6 +286,164 @@ describe('runCommand sentinel detection (tail-scan, single RegExp compile)', () 
   });
 });
 
+/** A fake terminal whose shell reports its commands and each return to its prompt. */
+function promptingTerminal(): ReturnType<typeof fakeTerminal> & {
+  /** The shell starts a command it was typed. */
+  startCommand(): void;
+  /** The shell is back at its prompt. */
+  showPrompt(exitCode: number): void;
+} {
+  const listeners = new Set<(exitCode: number, commands: number) => void>();
+  let seen = false;
+  let commands = 0;
+  return Object.assign(fakeTerminal(), {
+    prompt: {
+      get seen() {
+        return seen;
+      },
+      get commands() {
+        return commands;
+      },
+      onPrompt: (cb: (exitCode: number, commands: number) => void) => {
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+    },
+    startCommand: () => {
+      commands += 1;
+    },
+    showPrompt: (exitCode: number) => {
+      seen = true;
+      for (const cb of [...listeners]) cb(exitCode, commands);
+    },
+  });
+}
+
+describe('runCommand in a shell that reports its prompt', () => {
+  it('types the command alone and finishes when the prompt is back', async () => {
+    const term = promptingTerminal();
+    term.showPrompt(0);
+    const p = runCommand(term, 'npm test', '__MOXXY_DONE_hook_0__', 5_000);
+
+    expect(term.writes).toEqual(['npm test\n']);
+    term.startCommand();
+    term.feed('npm test\n2 failed\n');
+    term.showPrompt(1);
+
+    const res = await p;
+    expect(res).toEqual({ output: '2 failed', exitCode: 1, timedOut: false });
+  });
+
+  it('is not ended by a prompt drawn again before its command started', async () => {
+    const term = promptingTerminal();
+    term.showPrompt(0);
+    let done = false;
+    const p = runCommand(term, 'npm test', '__MOXXY_DONE_hook_4__', 5_000).then((res) => {
+      done = true;
+      return res;
+    });
+
+    // The user pressed Enter on an empty line while the command was on its way.
+    term.showPrompt(0);
+    await Promise.resolve();
+    expect(done).toBe(false);
+
+    term.startCommand();
+    term.showPrompt(2);
+    expect((await p).exitCode).toBe(2);
+  });
+
+  it('waits out a command the user is running before counting its own', async () => {
+    const term = promptingTerminal();
+    term.showPrompt(0);
+    term.startCommand(); // typed in the pane by the user, still running
+    let done = false;
+    const p = runCommand(term, 'ls', '__MOXXY_DONE_hook_5__', 5_000).then((res) => {
+      done = true;
+      return res;
+    });
+
+    term.showPrompt(9); // the user's command ends
+    await Promise.resolve();
+    expect(done).toBe(false);
+
+    term.startCommand();
+    term.showPrompt(0);
+    expect((await p).exitCode).toBe(0);
+  });
+
+  it('ends a blank command at the next prompt, since the shell starts nothing for it', async () => {
+    const term = promptingTerminal();
+    term.showPrompt(0);
+    const p = runCommand(term, '   ', '__MOXXY_DONE_hook_6__', 5_000);
+
+    term.showPrompt(0);
+    expect((await p).timedOut).toBe(false);
+  });
+
+  it('waits for a shell that is still starting before typing', async () => {
+    const term = promptingTerminal();
+    const p = runCommand(term, 'ls', '__MOXXY_DONE_hook_1__', 5_000);
+
+    expect(term.writes).toEqual([]);
+    term.showPrompt(0);
+    await waitFor(() => term.writes.length > 0);
+    expect(term.writes).toEqual(['ls\n']);
+    term.startCommand();
+    term.feed('a.txt\n');
+    term.showPrompt(0);
+
+    expect((await p).output).toBe('a.txt');
+  });
+
+  it('types its own end marker when the shell never reports a prompt', async () => {
+    vi.useFakeTimers();
+    try {
+      const term = promptingTerminal();
+      const marker = '__MOXXY_DONE_hook_2__';
+      const p = runCommand(term, 'ls', marker, 60_000);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(term.writes.join('')).toContain(`"${marker}" "$?"`);
+      term.feed(`a.txt\n${marker} 0\n`);
+
+      expect((await p).exitCode).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not wait again for a shell that showed no prompt the first time', async () => {
+    vi.useFakeTimers();
+    try {
+      const term = promptingTerminal();
+      const first = runCommand(term, 'ls', '__MOXXY_DONE_hook_7__', 60_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      term.feed('__MOXXY_DONE_hook_7__ 0\n');
+      await first;
+
+      const second = runCommand(term, 'pwd', '__MOXXY_DONE_hook_8__', 60_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(term.writes.join('')).toContain('"__MOXXY_DONE_hook_8__" "$?"');
+      term.feed('__MOXXY_DONE_hook_8__ 0\n');
+      await second;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('runs a command that ends in a backslash from a file, so the shell is not left waiting', async () => {
+    const term = promptingTerminal();
+    term.showPrompt(0);
+    const p = runCommand(term, 'echo hi \\', '__MOXXY_DONE_hook_3__', 5_000);
+
+    expect(term.writes[0]).toMatch(/^\. '[^']+'\n$/);
+    term.startCommand();
+    term.showPrompt(0);
+    await p;
+  });
+});
+
 describe.skipIf(process.platform === 'win32')('runCommand with a long or multi-line command', () => {
   it('types one short line that runs the command from a file, and removes the file when done', async () => {
     const term = fakeTerminal();
