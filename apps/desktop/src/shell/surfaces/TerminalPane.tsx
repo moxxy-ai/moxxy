@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { terminalTheme } from './terminal-theme';
+import { terminalWelcome } from './terminal-welcome';
 import { useSurface } from './useSurface';
 
 /**
@@ -66,6 +67,8 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    // Above the scrollback the snapshot replays, so it stays the top of the terminal.
+    term.write(terminalWelcome());
     termRef.current = term;
     fitRef.current = fit;
 
@@ -143,7 +146,9 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
           Terminal unavailable: {surface.error ?? degraded}
         </div>
       )}
-      <div ref={hostRef} className="term-pane__host" onMouseDown={() => termRef.current?.focus()} />
+      <div className="term-pane__host" onMouseDown={() => termRef.current?.focus()}>
+        <div ref={hostRef} className="term-pane__mount" />
+      </div>
     </div>
   );
 }

@@ -13,12 +13,11 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
 import { Icon, Modal, type IconName } from '@moxxy/desktop-ui';
 import type { DestinationId } from '../../shell/navigation/destinations';
 import { ArgsForm } from './ArgsForm';
+import { runSessionCommand } from './run-command';
 import { humanize, quote, stepsForCommand, subcommandForCommand } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 
@@ -38,6 +37,8 @@ interface Props {
   /** Places to offer above the actions. None when the palette is not in the shell. */
   readonly places?: ReadonlyArray<PalettePlace>;
   readonly onPlace?: (id: DestinationId) => void;
+  /** An action already picked elsewhere (the composer's slash menu): open on its form. */
+  readonly command?: CommandInfo;
 }
 
 type Row =
@@ -51,6 +52,7 @@ export function CommandPalette({
   onClose,
   places = NO_PLACES,
   onPlace,
+  command: picked,
 }: Props): JSX.Element {
   const [commands, setCommands] = useState<ReadonlyArray<CommandInfo>>([]);
   const [filter, setFilter] = useState('');
@@ -59,7 +61,7 @@ export function CommandPalette({
   const [argsFor, setArgsFor] = useState<{
     command: CommandInfo;
     steps: ReadonlyArray<ArgStep>;
-  } | null>(null);
+  } | null>(() => (picked ? { command: picked, steps: stepsForCommand(picked.name) } : null));
 
   useEffect(() => {
     let cancelled = false;
@@ -101,63 +103,7 @@ export function CommandPalette({
     const sub = subcommandForCommand(command.name);
     const argString = [...(sub ? [sub] : []), ...values.map(quote)].join(' ');
     try {
-      const result = await api().invoke('session.runCommand', {
-        workspaceId,
-        name: command.name,
-        args: argString,
-      });
-      // Session-action directives are side-effect-only. Wipe the transcript
-      // BEFORE dispatching the notice card below, otherwise it would land in
-      // the cleared transcript and immediately disappear.
-      if (result.kind === 'session-action' && result.action === 'clear') {
-        chatStore.clear(workspaceId);
-      } else if (result.kind === 'session-action' && result.action === 'new') {
-        // `/new`: clear the transcript AND reset the runner to a fresh, empty
-        // session — dropping the model's context and the persisted history so
-        // it doesn't resurrect on the next launch. Without the runner reset,
-        // clearing only the renderer would leave the model still primed with
-        // the old conversation (and a restart would replay it back).
-        chatStore.clear(workspaceId);
-        await api().invoke('session.newSession', { workspaceId });
-      }
-      // Don't render an action_result block for pure side-effects /
-      // noops; the empty header bar that we used to leave in the
-      // chat after a noop command was confusing.
-      const text =
-        result.kind === 'text'
-          ? result.text ?? ''
-          : result.kind === 'error'
-            ? result.message ?? 'command failed'
-            : result.kind === 'session-action'
-              ? result.notice ?? ''
-              : '';
-      const isSilent =
-        result.kind === 'noop' ||
-        (result.kind === 'session-action' && !text.trim() && !result.notice);
-      if (!isSilent) {
-        const tone =
-          result.kind === 'error'
-            ? 'error'
-            : result.kind === 'session-action'
-              ? 'notice'
-              : 'info';
-        chatStore.dispatch(workspaceId, {
-          type: 'action_result',
-          commandName: command.name,
-          argsLine: argString,
-          tone,
-          text,
-        });
-      }
-      onClose();
-    } catch (e) {
-      chatStore.dispatch(workspaceId, {
-        type: 'action_result',
-        commandName: command.name,
-        argsLine: argString,
-        tone: 'error',
-        text: toErrorMessage(e),
-      });
+      await runSessionCommand(workspaceId, command, argString);
       onClose();
     } finally {
       setRunning(false);

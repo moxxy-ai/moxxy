@@ -260,7 +260,8 @@ function Surface({
   useEffect(() => {
     const becameActive = !previousVoiceModeActive.current && voiceCall.active;
     previousVoiceModeActive.current = voiceCall.active;
-    if (becameActive) setStage('active');
+    // A call started from the Mini Chat is held there; from anywhere else it opens the controls.
+    if (becameActive) setStage((current) => (current === 'mini-text' ? current : 'active'));
   }, [voiceCall.active]);
 
   // Stopping a recording (recording → transcribing) opens the mini-text
@@ -424,8 +425,11 @@ function Surface({
     <MiniText
       workspaceId={workspaceId}
       ask={ask}
+      voiceModeAvailable={voiceModeAvailable}
       voiceModeActive={voiceCall.active}
       voiceModePhase={voiceCall.phase}
+      onStartVoiceMode={openVoiceMode}
+      onEndVoiceMode={voiceCall.close}
       remoteQueuedTurns={voiceCall.remoteQueuedTurns}
       onRemoveRemoteQueuedTurn={voiceCall.dropRemoteQueuedTurn}
       transcribing={

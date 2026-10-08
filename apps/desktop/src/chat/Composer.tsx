@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -23,6 +24,12 @@ import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { MentionMenu } from './composer/MentionMenu';
+import { SlashMenu } from './composer/slash/SlashMenu';
+import type { SlashSource } from './composer/slash/slash-commands';
+import { useSlashMenu } from './composer/slash/useSlashMenu';
+import { runSessionCommand } from './command-palette/run-command';
+import { stepsForCommand } from './command-palette/steppers';
+import type { CommandInfo } from './command-palette/types';
 import { useComposerMentions } from './composer/useComposerMentions';
 import { useAutoGrow } from './composer/useAutoGrow';
 import { useDictation } from './composer/useDictation';
@@ -72,6 +79,8 @@ interface ComposerProps {
  *   Shift+Enter   newline
  *   ⌘↵ / Ctrl+↵   send (kept for terminal muscle memory)
  *   Esc           stand down an armed goal, else clear the draft
+ *   /             the modes, the skills and the actions, picked by typing
+ *   @             a skill called by name
  *
  * Everything that is not typing or sending lives in the "+" menu. What the
  * next turn will do is said above the field only when it is not the default
@@ -101,7 +110,8 @@ export function Composer({
     suspended: voiceModeActive,
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
-  const [actionsOpen, setActionsOpen] = useState(false);
+  // The palette: closed, open on its list, or open on the form of one action.
+  const [actions, setActions] = useState<{ readonly command?: CommandInfo } | null>(null);
   // A goal is a state of the composer, not a dialog: arming it reuses the draft
   // already typed and the same send path.
   const [goalArmed, setGoalArmed] = useState(false);
@@ -154,7 +164,7 @@ export function Composer({
 
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
-  const { submit, setAutoApprove, startGoal } = useComposerSubmit({
+  const { submit, setAutoApprove, startIn, startGoal } = useComposerSubmit({
     ready,
     canSubmit,
     draft,
@@ -199,9 +209,33 @@ export function Composer({
 
   useAutoGrow(taRef, draft, MAX_TEXTAREA_HEIGHT);
 
+  const modeBusy = !ready || inFlight;
+  const slashSource = useMemo(
+    (): SlashSource => ({
+      modes: agent.modes,
+      activeMode: mode,
+      modeBusy,
+      autoApprove,
+      skills: agent.info?.skills ?? [],
+      commands: agent.info?.commands ?? [],
+    }),
+    [agent.modes, agent.info, mode, modeBusy, autoApprove],
+  );
+  const slash = useSlashMenu(slashSource, draft, setDraft, {
+    setMode: agent.onMode,
+    startIn,
+    armGoal: () => setGoalArmed(true),
+    toggleAutoApprove: () => setAutoApprove(!autoApprove),
+    // An action that takes parameters asks for them in its form, never in the prompt field.
+    runCommand: (command, args) => {
+      if (args === '' && stepsForCommand(command.name).length > 0) setActions({ command });
+      else void runSessionCommand(workspaceId, command, args);
+    },
+  });
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // The open @ menu has the arrows, Enter/Tab and Escape before anything else.
-    if (mentions.handleKey(e)) return;
+    // An open menu has the arrows, Enter/Tab and Escape before anything else.
+    if (slash.handleKey(e) || mentions.handleKey(e)) return;
     // Enter alone submits; Shift+Enter inserts a newline (the browser
     // default). ⌘↵ / Ctrl+↵ also submit so terminal-muscle-memory
     // users aren't surprised.
@@ -230,6 +264,7 @@ export function Composer({
       startGoal(objective);
       return;
     }
+    if (slash.submit()) return;
     submit();
   };
 
@@ -239,7 +274,7 @@ export function Composer({
   const overflowItems: OverflowMenuItem[] = [
     // Attach leads: it is the one reached for most often.
     { icon: 'attach', label: 'Attach file', onClick: () => void onAttach() },
-    { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
+    { icon: 'spark', label: 'Actions', onClick: () => setActions({}) },
     {
       icon: 'agent',
       label: goalArmed ? 'Stand down goal' : 'Set a goal',
@@ -298,7 +333,7 @@ export function Composer({
       <div className="cmdbar__card">
         <ComposerStatus
           mode={mode}
-          modeBusy={!ready || inFlight}
+          modeBusy={modeBusy}
           onLeaveMode={
             agent.modes.includes(DEFAULT_MODE) ? () => agent.onMode(DEFAULT_MODE) : undefined
           }
@@ -334,6 +369,7 @@ export function Composer({
           </div>
         )}
         <div className="cmdbar__in">
+          {slash.open && <SlashMenu options={slash.options} active={slash.active} onPick={slash.pick} />}
           {mentions.open && (
             <MentionMenu options={mentions.options} active={mentions.active} onPick={mentions.pick} />
           )}
@@ -398,12 +434,13 @@ export function Composer({
           {notice}
         </p>
       )}
-      {actionsOpen && (
+      {actions && (
         <CommandPalette
           workspaceId={workspaceId}
           places={palette.places}
           onPlace={palette.onPlace}
-          onClose={() => setActionsOpen(false)}
+          command={actions.command}
+          onClose={() => setActions(null)}
         />
       )}
     </form>

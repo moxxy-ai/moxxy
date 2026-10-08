@@ -5,10 +5,12 @@
  */
 
 import { api, type VoiceCallPhase } from '@moxxy/client-core';
+import { Icon } from '@moxxy/desktop-ui';
 import { Transcript } from '@/chat/Transcript';
 import { ComposerStatus } from '@/chat/composer/ComposerStatus';
 import { QueuedChip } from '@/chat/composer/QueuedChip';
 import { SendButton } from '@/chat/composer/SendButton';
+import { SlashMenu } from '@/chat/composer/slash/SlashMenu';
 import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import { ChevronLeftIcon, WindowIcon } from './focus-icons';
@@ -24,16 +26,23 @@ export function MiniText({
   ask,
   onBack,
   transcribing = false,
+  voiceModeAvailable,
   voiceModeActive,
   voiceModePhase,
+  onStartVoiceMode,
+  onEndVoiceMode,
   remoteQueuedTurns,
   onRemoveRemoteQueuedTurn,
 }: {
   readonly workspaceId: string | null;
   readonly ask: FocusAskPrompt | null;
   readonly onBack: () => void;
+  /** A voice conversation can be held with this chat, or one is open. */
+  readonly voiceModeAvailable: boolean;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
+  readonly onStartVoiceMode: () => void;
+  readonly onEndVoiceMode: () => void;
   readonly remoteQueuedTurns: ReadonlyArray<{ readonly id: string; readonly prompt: string }>;
   readonly onRemoveRemoteQueuedTurn: (id: string) => void;
   /** True while a voice clip is being transcribed (before it's sent) — so
@@ -50,8 +59,10 @@ export function MiniText({
       <div style={style.panel}>
         <MiniHeader
           onBack={onBack}
+          voiceModeAvailable={voiceModeAvailable}
           voiceModeActive={voiceModeActive}
           voiceModePhase={voiceModePhase}
+          onToggleVoiceMode={voiceModeActive ? onEndVoiceMode : onStartVoiceMode}
         />
         <div
           data-testid="focus-transcript"
@@ -92,8 +103,8 @@ export function MiniText({
               {composer.attachError}
             </div>
           )}
-          {/* The desktop composer's own card, field and send button, so the
-              two never drift; only the add menu and dictation are left out. */}
+          {/* The desktop composer's own card, field, slash menu and send button,
+              so the two never drift; only the add menu and dictation are left out. */}
           <form
             className="cmdbar__card"
             onSubmit={(e) => {
@@ -106,8 +117,8 @@ export function MiniText({
               modeBusy={composer.running}
               onLeaveMode={composer.session.leaveMode}
               autoApprove={composer.session.autoApprove}
-              goalArmed={false}
-              onStandDownGoal={noop}
+              goalArmed={composer.goalArmed}
+              onStandDownGoal={composer.standDownGoal}
             />
             {composer.queued.length > 0 && (
               <div
@@ -127,6 +138,13 @@ export function MiniText({
               </div>
             )}
             <div className="cmdbar__in">
+              {composer.slash.open && (
+                <SlashMenu
+                  options={composer.slash.options}
+                  active={composer.slash.active}
+                  onPick={composer.slash.pick}
+                />
+              )}
               <textarea
                 ref={composer.inputRef}
                 className="cmdbar__ta"
@@ -159,30 +177,38 @@ export function MiniText({
 
 // ---- Mini-text line primitives -------------------------------------------
 
-const noop = (): void => {};
-
+/**
+ * The desktop header in small: where you came from on the left, what the window
+ * can do on the right, and the brand (or the conversation's state) between them.
+ */
 function MiniHeader({
   onBack,
+  voiceModeAvailable,
   voiceModeActive,
   voiceModePhase,
+  onToggleVoiceMode,
 }: {
   readonly onBack: () => void;
+  readonly voiceModeAvailable: boolean;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
+  readonly onToggleVoiceMode: () => void;
 }): JSX.Element {
   return (
     <header style={style.miniHeader}>
-      <button
-        type="button"
-        onClick={onBack}
-        className="composer-btn tip"
-        style={style.headerButton}
-        aria-label="Back"
-        data-tip="Back"
-        data-tip-side="bottom"
-      >
-        <ChevronLeftIcon />
-      </button>
+      <div style={style.miniHeaderStart}>
+        <button
+          type="button"
+          onClick={onBack}
+          className="composer-btn tip"
+          style={style.headerButton}
+          aria-label="Back"
+          data-tip="Back"
+          data-tip-side="bottom"
+        >
+          <ChevronLeftIcon />
+        </button>
+      </div>
       {voiceModeActive
         ? <FocusMiniVoiceStatus phase={voiceModePhase} />
         : (
@@ -190,17 +216,34 @@ function MiniHeader({
             <MoxxyMark size={16} />
           </div>
         )}
-      <button
-        type="button"
-        onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
-        className="composer-btn tip"
-        style={style.headerButton}
-        aria-label="Open main window"
-        data-tip="Open main window"
-        data-tip-side="bottom"
-      >
-        <WindowIcon />
-      </button>
+      <div style={style.miniHeaderEnd}>
+        {voiceModeAvailable && (
+          <button
+            type="button"
+            onClick={onToggleVoiceMode}
+            className="composer-btn tip"
+            style={style.headerButton}
+            aria-label={voiceModeActive ? 'End voice conversation' : 'Start voice conversation'}
+            aria-pressed={voiceModeActive}
+            data-tone={voiceModeActive ? 'live' : undefined}
+            data-tip={voiceModeActive ? 'End voice conversation' : 'Voice conversation'}
+            data-tip-side="bottom"
+          >
+            <Icon name="phone" size={16} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
+          className="composer-btn tip"
+          style={style.headerButton}
+          aria-label="Open main window"
+          data-tip="Open main window"
+          data-tip-side="bottom"
+        >
+          <WindowIcon />
+        </button>
+      </div>
     </header>
   );
 }

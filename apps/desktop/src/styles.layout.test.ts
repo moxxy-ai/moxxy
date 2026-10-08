@@ -58,5 +58,15 @@ describe('styles.css — the terminal is part of the work panel', () => {
     expect(host).toMatch(/background:\s*var\(--color-card-bg\)/);
     expect(rule('.bench')).toMatch(/background:\s*var\(--color-card-bg\)/);
   });
+
+  it('pads the frame around the terminal, never the box xterm measures', () => {
+    // xterm's fit reads the height of the box it is mounted in and takes that
+    // box's padding for room: the bottom row was drawn half under the edge.
+    expect(rule('.term-pane__host')).toMatch(/padding:/);
+    const mount = rule('.term-pane__mount');
+    expect(mount).not.toMatch(/padding/);
+    expect(mount).toMatch(/flex:\s*1/);
+    expect(mount).toMatch(/min-height:\s*0/);
+  });
 });
 

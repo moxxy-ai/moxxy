@@ -165,6 +165,9 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       if (channel === 'session.runTurn') {
         return Promise.resolve({ turnId: 't-1' });
       }
+      if (channel === 'session.runCommand') {
+        return Promise.resolve({ kind: 'noop' });
+      }
       if (channel === 'session.saveImageAttachment') {
         return Promise.resolve({ path: '/tmp/moxxy-focus/screen.png', name: 'screen.png' });
       }
@@ -2379,5 +2382,236 @@ describe('FocusWidget Mini Chat is the desktop composer', () => {
       'data-tip',
       'Open main window',
     );
+  });
+});
+
+describe('FocusWidget Mini Chat voice conversation', () => {
+  async function openMiniChat(): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    await screen.findByPlaceholderText('Message Moxxy…');
+  }
+
+  /** The microphone is the machine's, so it is the one thing stood in for. */
+  function installMicrophone(): { readonly cancel: ReturnType<typeof vi.fn> } {
+    const cancel = vi.fn();
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => ({ stop: vi.fn(), cancel }),
+      },
+    });
+    return { cancel };
+  }
+
+  it('offers the conversation in its header, named as the desktop header names it', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    const call = await screen.findByRole('button', { name: 'Start voice conversation' });
+    expect(call).toHaveAttribute('data-tip', 'Voice conversation');
+    expect(call).toHaveAttribute('aria-pressed', 'false');
+    expect(call).toHaveClass('composer-btn');
+  });
+
+  it('starts the conversation without leaving the Mini Chat, and ends it from the same place', async () => {
+    const microphone = installMicrophone();
+    installFakeApi();
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }));
+
+    const end = await screen.findByRole('button', { name: 'End voice conversation' });
+    expect(end).toHaveAttribute('aria-pressed', 'true');
+    expect(end).toHaveAttribute('data-tone', 'live');
+    expect(end).toHaveAttribute('data-tip', 'End voice conversation');
+    expect(screen.getByPlaceholderText('Message Moxxy…')).toBeTruthy();
+    expect(screen.getByRole('status', { name: /^voice mode:/i })).toBeTruthy();
+
+    fireEvent.click(end);
+
+    await waitFor(() => expect(microphone.cancel).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: 'Start voice conversation' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('Message Moxxy…')).toBeTruthy();
+  });
+
+  it('keeps the brand mark in the middle, with the controls on either side of it', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    const call = await screen.findByRole('button', { name: 'Start voice conversation' });
+    const header = call.closest('header');
+    assertDefined(header, 'the Mini Chat header');
+    const [left, title, right] = Array.from(header.children);
+    expect(within(left as HTMLElement).getByRole('button', { name: 'Back' })).toBeTruthy();
+    expect((title as HTMLElement).querySelector('svg')).not.toBeNull();
+    const controls = within(right as HTMLElement).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(controls).toEqual(['Start voice conversation', 'Open main window']);
+    expect(header.style.gridTemplateColumns).toBe('1fr auto 1fr');
+  });
+
+  it('has no call button where a conversation cannot be held', async () => {
+    const spy = installFakeApi({ activeSynthesizer: 'elevenlabs', localPiperInstalled: false });
+    render(<FocusWidget />);
+    await openMiniChat();
+
+    await waitFor(() => {
+      expect(spy.invokes.some((invoke) => invoke.channel === 'voice.isLocalPiperInstalled')).toBe(true);
+    });
+    expect(screen.queryByRole('button', { name: 'Start voice conversation' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open main window' })).toBeTruthy();
+  });
+});
+
+describe('FocusWidget Mini Chat slash menu', () => {
+  const sessionInfo = {
+    modes: ['default', 'plan', 'goal', 'research'],
+    activeMode: 'default',
+    skills: [
+      { id: 'builtin/browser', name: 'browser', label: 'Moxxy Browser', aliases: ['moxxy_browser'], description: 'Drive the in-window browser' },
+    ],
+    commands: [
+      { name: 'compact', description: 'Summarize older turns' },
+      { name: 'vault', description: 'Store a secret' },
+    ],
+  };
+
+  async function openMiniChat(): Promise<{ readonly spy: IpcSpy; readonly input: HTMLTextAreaElement }> {
+    const spy = installFakeApi({ sessionInfo });
+    render(<FocusWidget />);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = (await screen.findByPlaceholderText('Message Moxxy…')) as HTMLTextAreaElement;
+    await waitFor(() => expect(spy.invokes.some((invoke) => invoke.channel === 'session.info')).toBe(true));
+    return { spy, input };
+  }
+
+  const type = (input: HTMLTextAreaElement, value: string): boolean =>
+    fireEvent.change(input, { target: { value, selectionStart: value.length, selectionEnd: value.length } });
+  const enter = (input: HTMLTextAreaElement): boolean => fireEvent.keyDown(input, { key: 'Enter' });
+  const menu = (): Promise<HTMLElement> => screen.findByRole('listbox', { name: 'Modes, skills and actions' });
+  const sent = (spy: IpcSpy, channel: string): unknown[] =>
+    spy.invokes.filter((invoke) => invoke.channel === channel).map((invoke) => invoke.args);
+
+  it('opens on a slash with the same modes, skills and actions as the desktop composer', async () => {
+    const { input } = await openMiniChat();
+
+    type(input, '/');
+
+    const text = (await menu()).textContent ?? '';
+    for (const word of ['Modes', 'Plan', 'Research', 'Skills', 'Moxxy Browser', 'Actions', 'Compact', 'Auto-approve']) {
+      expect(text).toContain(word);
+    }
+  });
+
+  it('switches the mode of the session, and says so above the field', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/pl');
+    await menu();
+    enter(input);
+
+    await waitFor(() => expect(sent(spy, 'session.setMode')).toEqual([{ workspaceId: 'ws-test', mode: 'plan' }]));
+    expect(input.value).toBe('');
+    expect(sent(spy, 'session.runTurn')).toEqual([]);
+    expect(await screen.findByTestId('composer-mode')).toHaveTextContent('Plan mode');
+  });
+
+  it('puts a skill in as its mention', async () => {
+    const { input } = await openMiniChat();
+
+    type(input, '/brow');
+    fireEvent.mouseDown(await screen.findByRole('option', { name: /Moxxy Browser/u }));
+
+    expect(input.value).toBe('@moxxy_browser ');
+  });
+
+  it('starts a prompt in the mode a typed line names, once the mode is on', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/plan move the list to SQLite');
+    enter(input);
+
+    await waitFor(() => {
+      const turn = sent(spy, 'session.runTurn')[0] as { prompt: string } | undefined;
+      expect(turn?.prompt).toBe('move the list to SQLite');
+    });
+    const order = spy.invokes.map((invoke) => invoke.channel).filter((c) => c === 'session.setMode' || c === 'session.runTurn');
+    expect(order).toEqual(['session.setMode', 'session.runTurn']);
+    expect(input.value).toBe('');
+  });
+
+  it('arms a goal, and starts the run from the objective typed next', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/goal');
+    await menu();
+    enter(input);
+    const armed = await screen.findByTestId('composer-goal-armed');
+    expect(armed).toBeTruthy();
+    expect(sent(spy, 'session.setMode')).toEqual([]);
+
+    type(input, 'ship the redesign');
+    enter(input);
+
+    await waitFor(() => {
+      const turn = sent(spy, 'session.runTurn')[0] as { prompt: string } | undefined;
+      expect(turn?.prompt).toBe('ship the redesign');
+    });
+    expect(sent(spy, 'session.setMode')).toEqual([{ workspaceId: 'ws-test', mode: 'goal' }]);
+    expect(screen.queryByTestId('composer-goal-armed')).toBeNull();
+  });
+
+  it('runs an action, and keeps one that needs words in the field to take them', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/comp');
+    await menu();
+    enter(input);
+    await waitFor(() =>
+      expect(sent(spy, 'session.runCommand')).toEqual([{ workspaceId: 'ws-test', name: 'compact', args: '' }]),
+    );
+
+    type(input, '/vault');
+    await menu();
+    enter(input);
+    expect(input.value).toBe('/vault ');
+    expect(sent(spy, 'session.runCommand')).toHaveLength(1);
+
+    type(input, '/vault set KEY');
+    enter(input);
+    await waitFor(() =>
+      expect(sent(spy, 'session.runCommand')[1]).toEqual({ workspaceId: 'ws-test', name: 'vault', args: 'set KEY' }),
+    );
+    expect(sent(spy, 'session.runTurn')).toEqual([]);
+  });
+
+  it('turns auto-approve on for the session', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/auto');
+    await menu();
+    enter(input);
+
+    await waitFor(() =>
+      expect(sent(spy, 'session.setAutoApprove')).toEqual([{ workspaceId: 'ws-test', enabled: true }]),
+    );
+    expect(await screen.findByTestId('composer-auto-approve')).toBeTruthy();
+    act(() => chatStore.setAutoApprove('ws-test', false));
+  });
+
+  it('sends a path as the prompt it is', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/Users/me/notes.md explain this');
+    enter(input);
+
+    await waitFor(() => {
+      const turn = sent(spy, 'session.runTurn')[0] as { prompt: string } | undefined;
+      expect(turn?.prompt).toBe('/Users/me/notes.md explain this');
+    });
   });
 });

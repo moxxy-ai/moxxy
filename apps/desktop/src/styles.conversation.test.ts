@@ -86,6 +86,36 @@ describe('styles.css — the composer', () => {
   });
 });
 
+describe('styles.css — what the next turn will do, above the field', () => {
+  it('says it as a dot and a line of text, the way a run says its state, not as a filled capsule', () => {
+    const status = ruleFor('.status-chip');
+    expect(status).not.toMatch(/background/);
+    expect(status).not.toMatch(/border-radius/);
+    expect(status).not.toMatch(/padding/);
+    expect(status).toMatch(/font-size:\s*var\(--type-label\)/);
+    const dot = ruleFor('.status-chip::before');
+    expect(dot).toMatch(/width:\s*6px/);
+    expect(dot).toMatch(/border-radius:\s*50%/);
+  });
+
+  it('carries the tone in the dot: amber for a caution, the accent for a mode', () => {
+    expect(ruleFor(".status-chip[data-tone='warn']::before")).toMatch(/background:\s*var\(--color-amber\)/);
+    expect(ruleFor(".status-chip[data-tone='accent']::before")).toMatch(/background:\s*var\(--color-primary\)/);
+    for (const tone of ['warn', 'accent']) {
+      expect(rulesFor(`.status-chip[data-tone='${tone}']`).join('\n')).not.toMatch(/background/);
+    }
+  });
+});
+
+describe('styles.css — a round control that is on', () => {
+  it('draws a running voice conversation as the header draws it: the accent on its soft ground', () => {
+    const live = ruleFor(".composer-btn[data-tone='live']");
+    expect(live).toContain('color: var(--color-primary-strong)');
+    expect(live).toContain('background: var(--color-primary-soft)');
+    expect(ruleFor(".btn-quiet[data-tone='live']")).toContain('background: var(--color-primary-soft)');
+  });
+});
+
 describe('styles.css — the work panel', () => {
   it('takes no room and draws no strip while closed', () => {
     const closed = ruleFor('.bench--closed');

@@ -115,7 +115,33 @@ button is Stop, and the field says a new message will queue. Attach, actions,
 goal, auto-approve, voice conversation and mode are in the add menu. The
 composer says what the next turn will do only when it is not the default: a
 mode other than the default one, auto-approve on, or a goal waiting for its
-objective. The model is read in the header.
+objective. It says it the way a run says its state, as a toned dot and a line
+of text (`.status-chip`), never as a filled capsule: amber for what runs
+without asking, the accent for a goal. The model is read in the header.
+
+### The slash menu
+
+A slash as the first character of the field opens a menu above it with three
+named groups: the modes, the skills and the run's actions. Typing narrows it,
+the arrows move, Enter or Tab picks, Escape closes it and keeps the draft. It
+opens without animation, because it is opened from the keyboard.
+
+| Pick | What it does |
+|---|---|
+| A mode | Switches the session's mode. Not offered as a change while a turn runs. |
+| Goal | Arms a goal: the next message is its objective. |
+| A skill | Puts the skill's `@mention` in the field, ready for the rest of the prompt. |
+| Auto-approve | Switches it for the session. |
+| An action | Runs it. One that needs values opens its form; in the Mini Chat, which has no room for a form, its name stays in the field and the values are typed after it. |
+
+A line typed in full does the same: `/plan <prompt>` and `/goal <objective>`
+switch the mode first and then send, `/compact <words>` hands the action its
+words. A line that starts with a slash and names none of these (a path) is
+sent as written.
+
+`chat/composer/slash/slash-commands.ts` holds what is offered (pure rules),
+`useSlashMenu.ts` what a pick does, and `SlashMenu.tsx` draws it. The desktop
+composer and the Mini Chat use the same three.
 
 ### Modes
 
@@ -180,7 +206,19 @@ terminal.
 
 The terminal is drawn on the panel's own background in the palette's colours
 (`shell/surfaces/terminal-theme.ts`), and repaints when the theme changes; it
-has no frame or colour of its own.
+has no frame or colour of its own. It opens with the Moxxy mark and one line
+that says the agent shares it (`shell/surfaces/terminal-welcome.ts`; the mark
+is the TUI's, and a test fails when the two differ).
+
+The padding around the terminal belongs to a frame (`.term-pane__host`), never
+to the box xterm is mounted in (`.term-pane__mount`): xterm works out its rows
+from that box's height, so padding on it adds a row that is cut off at the
+bottom.
+
+In zsh and bash the agent's commands appear as typed and nothing else: the
+shell reports the end of a command in a control sequence the terminal does not
+draw (`packages/plugin-terminal/src/shell-hooks.ts`). Other shells, and
+Windows, still show the tool's end marker.
 
 Its width is never animated: the terminal measures its columns when it mounts.
 The closed panel stays in the layout at zero width instead of being removed,
@@ -210,7 +248,8 @@ and `styles.css` disagree.
 | Piece | Rule |
 |---|---|
 | Mini Chat | The same `Transcript`, mode cards and plan answers included (`registerModeEvents()` runs here too), in a rounded card. |
-| Composer | The desktop composer's card, field and send button (`.cmdbar__card`, `SendButton`): Stop while a turn runs, and Enter queues. The add menu and dictation are left out. |
+| Header | Back on the left, the mark in the middle, and on the right the voice conversation and the main window, in equal columns so the mark stays centred. The voice button is the desktop header's: a phone, "Voice conversation", lit with the accent and named "End voice conversation" while a call is on. A call started here is held here; the mark then shows what Moxxy is doing. It is absent where a conversation cannot be held. |
+| Composer | The desktop composer's card, field, slash menu and send button (`.cmdbar__card`, `SlashMenu`, `SendButton`): Stop while a turn runs, and Enter queues. The add menu and dictation are left out. |
 | What the next turn does | The mode chip and "Auto-approve on" above the field, read from the session (`focus/useFocusSessionState.ts`), so a switch made on the desktop, in the TUI or by a bot shows here. |
 | Placeholder | One rule for both composers (`chat/composer/composer-placeholder.ts`). |
 | Questions | The same card as the desktop (see "A question that blocks the run"). |
@@ -259,3 +298,7 @@ above are reimplemented here in Moxxy's own components.
    composer, question card and tooltips; the question shows the whole tool
    call; voice mode is a card above the composer; the terminal takes the
    palette; a finished plan offers to be carried out.
+8. **In reach of the keyboard** (done): a slash menu for modes, skills and
+   actions in both composers; the next turn's state as a dot and a line; a
+   voice button in the Mini Chat header; the terminal greets with the mark,
+   keeps its last row in view and no longer shows the agent's end marker.

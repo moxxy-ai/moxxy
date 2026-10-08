@@ -452,14 +452,18 @@ export const style = {
     ...noDrag,
   },
   // No rule under it: like the run's header on the desktop.
+  // Equal columns either side, so the mark stays centred whatever each side holds.
   miniHeader: {
-    display: 'flex',
+    display: 'grid',
+    gridTemplateColumns: '1fr auto 1fr',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 6,
     padding: '4px 6px',
     cursor: 'grab',
     ...drag,
   },
+  miniHeaderStart: { display: 'flex', alignItems: 'center', minWidth: 0 },
+  miniHeaderEnd: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2, minWidth: 0 },
   // The round button itself is the desktop's; here it only leaves the drag region.
   headerButton: {
     flexShrink: 0,
