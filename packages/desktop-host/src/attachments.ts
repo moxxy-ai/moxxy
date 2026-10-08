@@ -458,15 +458,26 @@ export async function buildAttachments(
  */
 export async function attachmentProblem(absPath: string, name: string): Promise<string | null> {
   const ext = path.extname(absPath).toLowerCase();
+  const folder = `${name} is a folder. Attach the files inside it.`;
   let handle: FileHandle | null = null;
   try {
-    // Before opening: a folder opens on POSIX and fails to on Windows.
-    const { size, isFolder } = await stat(absPath).then((info) => ({ size: info.size, isFolder: info.isDirectory() }));
-    if (isFolder) return `${name} is a folder. Attach the files inside it.`;
+    try {
+      handle = await open(absPath, 'r');
+    } catch {
+      // Windows refuses to open a folder; POSIX opens it, and the handle says so below.
+      const isFolder = await stat(absPath).then(
+        (info) => info.isDirectory(),
+        () => false,
+      );
+      return isFolder ? folder : `${name} could not be read.`;
+    }
+    // Asked of the open handle, never of the path again: the size is that of the file then read.
+    const info = await handle.stat();
+    if (info.isDirectory()) return folder;
+    const size = info.size;
     if (IMAGE_MEDIA_TYPES[ext]) {
       return size > MAX_IMAGE_BYTES ? attachmentSizeProblem({ name, size, image: true }) : null;
     }
-    handle = await open(absPath, 'r');
     const head = await readHead(handle, HEAD_EXCERPT_BYTES);
     const document = isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext);
     if (size > MAX_READ_WHOLE_BYTES) {
