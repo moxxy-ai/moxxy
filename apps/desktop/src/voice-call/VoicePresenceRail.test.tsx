@@ -256,6 +256,47 @@ describe('VoicePresenceRail', () => {
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
   });
 
+  it('says why the call stopped once, as the alert, without repeating the state beside it', () => {
+    renderRail({
+      phase: 'error',
+      status: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
+      errorReason: 'The microphone is in use by another app.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The microphone is in use by another app.');
+    expect(screen.getAllByText('Voice mode stopped')).toHaveLength(1);
+  });
+
+  it('gives the whole reason in a tooltip when the card has to cut it', () => {
+    const reason = 'The microphone is in use by another app. Close the app that holds it, then try again.';
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32);
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(64);
+
+    renderRail({ phase: 'error', errorReason: reason });
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-tip', reason);
+    vi.restoreAllMocks();
+  });
+
+  it('adds no tooltip to a reason that is all there to read', () => {
+    renderRail({ phase: 'error', errorReason: 'Piper stopped responding.' });
+
+    expect(screen.getByRole('alert')).not.toHaveAttribute('data-tip');
+  });
+
+  it('gives the whole line about the phase in a tooltip when it is cut', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(300);
+
+    renderRail({ phase: 'paused', status: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' } });
+
+    expect(screen.getByText('Moxxy will not listen until you turn it back on')).toHaveAttribute(
+      'data-tip',
+      'Moxxy will not listen until you turn it back on',
+    );
+    vi.restoreAllMocks();
+  });
+
   it('paints no canvas — the rail is vector and CSS only', () => {
     const { container } = renderRail();
 

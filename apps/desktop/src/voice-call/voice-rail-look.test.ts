@@ -100,3 +100,16 @@ describe('voice-rail.css', () => {
     expect(rule('.voice-rail-controls')).not.toMatch(/border-left/);
   });
 });
+
+describe('voice-rail.css for the reason a call stopped', () => {
+  it('gives the reason two lines before it cuts it', () => {
+    const reason = rule('.voice-rail-reason');
+
+    expect(reason).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(reason).not.toMatch(/white-space:\s*nowrap/);
+  });
+
+  it('keeps the reason at every width: it is not supporting copy', () => {
+    expect(css).not.toMatch(/\.voice-rail-reason\s*\{[^}]*display:\s*none/);
+  });
+});

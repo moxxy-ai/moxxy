@@ -218,6 +218,7 @@ call.
 | The card is always laid out at full size and cut to the capsule with `clip-path` | Nothing is measured or reflowed while it opens, and the conversation above never moves. |
 | It stays open when the call needs the person (an error, a voice to install), on a narrow column, and where there is no hover | A control must never be reachable only by a gesture the device does not have. |
 | It closes a moment after the pointer leaves, and opens at once | A pointer that slips off on its way to End does not lose it. |
+| Why a call stopped is said once, beside the state, on up to two lines at every width; a reason longer than that, like any line of the card that is cut, gives all of itself in the tooltip (`components/tip/ClippedText.tsx`) | The reason is the one line here that has to be read, and text that is all there needs no tooltip. |
 | The phone starts a call and the phone laid down ends one, in the header, the Mini Chat, the focus pill and here | One pair of signs for one pair of actions. |
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can

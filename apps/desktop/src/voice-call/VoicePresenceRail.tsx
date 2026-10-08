@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import type { VoiceCallPhase, VoiceOperationKind } from '@moxxy/client-core';
 import { Icon, Modal, type IconName } from '@moxxy/desktop-ui';
 import { MoxxyMark } from '@/components/MoxxyMark';
+import { ClippedText } from '@/components/tip/ClippedText';
 import { useElementWidth } from '@/lib/useElementWidth';
 import type { VoiceModeStatus } from './useVoiceModePresentation';
 import type { VoiceRailView } from './voice-rail';
@@ -147,10 +148,12 @@ export function VoicePresenceRail({
             </>
           ) : failed ? (
             <>
-              <span className="voice-rail-work-copy voice-rail-work-copy--error">
-                <strong>Voice mode stopped</strong>
-                <small>{errorReason ?? 'Resolve the issue and try again.'}</small>
-              </span>
+              {/* The capsule beside it already says the call stopped; this is why. */}
+              <ClippedText
+                className="voice-rail-reason"
+                role="alert"
+                text={errorReason ?? 'Resolve the issue and try again.'}
+              />
               <button type="button" className="voice-rail-action" onClick={onRetry}>Try again</button>
             </>
           ) : rail.operation ? (
@@ -176,11 +179,12 @@ export function VoicePresenceRail({
             /* Nothing running: the slot says what the phase means, so it is
                never an empty column and never a line about tools that are not there. */
             <span className="voice-rail-operation voice-rail-operation--idle" data-testid="voice-rail-idle">
-              <span className="voice-rail-operation-label">
-                {agentWork
-                  ? `${agentWork.label}${agentWork.elapsed ? ` · ${agentWork.elapsed}` : ''}`
-                  : status.detail}
-              </span>
+              <ClippedText
+                className="voice-rail-operation-label"
+                text={
+                  agentWork ? `${agentWork.label}${agentWork.elapsed ? ` · ${agentWork.elapsed}` : ''}` : status.detail
+                }
+              />
             </span>
           )}
         </div>
