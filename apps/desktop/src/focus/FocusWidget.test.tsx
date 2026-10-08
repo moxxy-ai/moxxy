@@ -298,6 +298,61 @@ function pasteImage(input: HTMLElement): void {
   });
 }
 
+describe('FocusWidget Mini Chat with dropped files', () => {
+  /** A drag of files from outside the window, as the browser describes it. */
+  const dragOf = (files: File[]) => ({
+    dataTransfer: {
+      types: ['Files'],
+      dropEffect: 'none',
+      items: files.map((file) => ({
+        kind: 'file',
+        getAsFile: () => file,
+        webkitGetAsEntry: () => ({ isDirectory: false, name: file.name }),
+      })),
+    },
+  });
+
+  async function openMiniChat(): Promise<HTMLElement> {
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    await screen.findByPlaceholderText('Message Moxxy…');
+    return screen.getByTestId('focus-mini-chat');
+  }
+
+  it('takes a file dropped anywhere on it, the way the desktop chat does', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+    const chat = await openMiniChat();
+    const drag = dragOf([new File(['focus image'], 'screen.png', { type: 'image/png' })]);
+
+    fireEvent.dragEnter(chat, drag);
+    expect(screen.getByText('Drop files to attach')).toBeTruthy();
+    fireEvent.drop(chat, drag);
+
+    expect(screen.queryByText('Drop files to attach')).toBeNull();
+    await waitFor(() => {
+      expect(spy.invokes.some((i) => i.channel === 'session.saveImageAttachment')).toBe(true);
+      expect(screen.getByRole('button', { name: /preview screen\.png/i })).toBeTruthy();
+    });
+  });
+
+  it('raises the desktop composer’s alert for a file that is too large, until it is dismissed', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+    const chat = await openMiniChat();
+    const film = new File(['x'], 'film.mov', { type: 'video/quicktime' });
+    Object.defineProperty(film, 'size', { value: 80 * 1024 * 1024 });
+
+    fireEvent.drop(chat, dragOf([film]));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('film.mov is 80 MB. A file can be up to 32 MB.');
+    expect(alert).toHaveClass('cmdbar__alert');
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+});
+
 describe('FocusWidget stages', () => {
   it('renders the inactive Moxxy pet with a visible activate button', () => {
     installFakeApi();
@@ -522,9 +577,13 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+    const start = await screen.findByRole('button', { name: /start voice mode/i });
+    // The phone the desktop header calls with; put down, it ends the call.
+    expect(start.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone');
+    fireEvent.click(start);
 
-    await screen.findByRole('button', { name: /end voice mode/i });
+    const end = await screen.findByRole('button', { name: /end voice mode/i });
+    expect(end.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone-down');
     await waitFor(() => expect(captureStarts).toBe(1));
     expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
     expect(screen.getByRole('button', { name: /mute microphone/i })).toBeTruthy();
@@ -2418,6 +2477,7 @@ describe('FocusWidget Mini Chat voice conversation', () => {
     expect(call).toHaveAttribute('data-tip', 'Voice conversation');
     expect(call).toHaveAttribute('aria-pressed', 'false');
     expect(call).toHaveClass('composer-btn');
+    expect(call.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone');
   });
 
   it('starts the conversation without leaving the Mini Chat, and ends it from the same place', async () => {
@@ -2432,6 +2492,7 @@ describe('FocusWidget Mini Chat voice conversation', () => {
     expect(end).toHaveAttribute('aria-pressed', 'true');
     expect(end).toHaveAttribute('data-tone', 'live');
     expect(end).toHaveAttribute('data-tip', 'End voice conversation');
+    expect(end.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone-down');
     expect(screen.getByPlaceholderText('Message Moxxy…')).toBeTruthy();
     expect(screen.getByRole('status', { name: /^voice mode:/i })).toBeTruthy();
 

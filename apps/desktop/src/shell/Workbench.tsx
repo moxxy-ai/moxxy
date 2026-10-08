@@ -22,6 +22,7 @@
 import { useRef, useState } from 'react';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { chordLabel } from '@/hotkeys/chordLabel';
 import {
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
@@ -218,7 +219,8 @@ export function Workbench({
                   aria-label={isFull ? 'Exit full view' : 'Full view'}
                   aria-pressed={isFull}
                   data-testid="bench-full"
-                  data-tip={isFull ? 'Exit full view  ⇧⌘F' : 'Full view  ⇧⌘F'}
+                  data-hotkey="view.workbenchFull"
+                  data-tip={`${isFull ? 'Exit full view' : 'Full view'}  ${chordLabel('mod+shift+f')}`}
                   data-tip-side="left"
                   onClick={onToggleFull}
                 >

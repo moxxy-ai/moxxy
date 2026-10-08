@@ -19,6 +19,8 @@ import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { usePlanNext } from './modes/plan-next';
 import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
+import { DropVeil } from './DropVeil';
+import { useFileDropZone } from './useFileDropZone';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
@@ -199,6 +201,8 @@ export function ChatSurface({
     onToggle: voiceCall.active ? voiceCall.close : voiceCall.open,
   };
   const dock = useChatDock(docked, activeAsk !== null);
+  // Files dropped anywhere on the chat go to the composer, which stages them.
+  const drop = useFileDropZone();
   const mainClass = dock.minimized
     ? 'col-main col-main--flat col-main--docked col-main--minimized'
     : docked
@@ -243,7 +247,7 @@ export function ChatSurface({
   }
 
   return (
-    <main className={mainClass}>
+    <main className={mainClass} {...drop.zone}>
       {!docked && <Header
         phase={phase}
         deskName={title?.context ?? activeDesk?.name ?? null}
@@ -334,6 +338,8 @@ export function ChatSurface({
         />
       </div>
       {chat.error && <ErrorToast text={chat.error} />}
+      {/* Floating over a pane, the composer takes the drop without a veil over the pane. */}
+      {drop.over && !docked && <DropVeil />}
       <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       {renameOpen && activeDesk && (
         <RenameWorkspaceModal

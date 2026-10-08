@@ -1,17 +1,27 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { TERMINAL_MARK, terminalWelcome } from './terminal-welcome';
+import { TERMINAL_WORDMARK, terminalWelcome } from './terminal-welcome';
 
 /** What a terminal draws of a stream: its colour sequences are not text. */
 const shown = (text: string): string => text.replace(/\u001b\[[0-9;]*m/gu, '');
 
+/** The letters of a block word: runs of columns with ink, parted by an empty column. */
+function letters(rows: ReadonlyArray<string>): number {
+  const width = Math.max(...rows.map((row) => row.length));
+  const inked = Array.from({ length: width }, (_, column) => rows.some((row) => (row[column] ?? ' ') !== ' '));
+  return inked.filter((ink, column) => ink && !inked[column - 1]).length;
+}
+
 describe('terminalWelcome', () => {
-  it('greets with the Moxxy mark and says whose shell this is', () => {
+  it('greets with the name written out, not with the mark', () => {
     const lines = shown(terminalWelcome()).split('\r\n');
 
-    for (const row of TERMINAL_MARK) expect(lines).toContain(row);
-    expect(lines.some((line) => line.startsWith('Moxxy'))).toBe(true);
+    for (const row of TERMINAL_WORDMARK) expect(lines).toContain(row);
+    expect(letters(TERMINAL_WORDMARK)).toBe('Moxxy'.length);
+    // The mark was drawn in these.
+    expect(shown(terminalWelcome())).not.toMatch(/[@%*]/u);
+  });
+
+  it('says whose shell this is', () => {
     expect(shown(terminalWelcome())).toMatch(/shared with the agent/);
   });
 
@@ -27,17 +37,4 @@ describe('terminalWelcome', () => {
     // Only the 16 named colours, which the theme maps to the palette: no fixed RGB.
     expect(terminalWelcome()).not.toMatch(/\u001b\[(?:38|48);/u);
   });
-
-  it('draws the mark the TUI boots with', () => {
-    const tui = readFileSync(join(__dirname, '../../../../../packages/plugin-cli/src/logo-data.ts'), 'utf8');
-    const indent = Math.min(...tuiCompactRows(tui).map((row) => row.length - row.trimStart().length));
-
-    expect(TERMINAL_MARK).toEqual(tuiCompactRows(tui).map((row) => row.slice(indent)));
-  });
 });
-
-/** The rows of the TUI's compact mark, read from its source. */
-function tuiCompactRows(source: string): string[] {
-  const block = /COMPACT_LOGO_ART_RAW[^=]*=\s*\[([\s\S]*?)\];/u.exec(source)?.[1] ?? '';
-  return [...block.matchAll(/'([^']*)'/gu)].map((match) => match[1] ?? '');
-}

@@ -3,6 +3,11 @@
  * composer's measure and of its make. It reads as part of the conversation
  * that happens to be listening, so it has no strip, no hairlines and no
  * second header.
+ *
+ * At rest the card is cut down to a capsule around its state, the way a notch
+ * holds a call, and it is the whole card under the pointer, under the keyboard
+ * and whenever the call needs the person. The cut is a clip-path: nothing is
+ * laid out again when it opens, so nothing around it moves.
  */
 
 .voice-rail-shell {
@@ -13,42 +18,89 @@
   margin: 0 auto var(--space-6);
   container-type: inline-size;
   container-name: voice-rail;
+  /* Only what is left of the cut takes the pointer. */
+  pointer-events: none;
 }
 
 .voice-rail {
   --voice-pulse: 0;
+  /* The capsule's width: the component measures its state and says. */
+  --voice-capsule: 176px;
+  --voice-cut-x: calc(50% - var(--voice-capsule) / 2);
+  --voice-cut-y: 4px;
+  --voice-round: 22px;
+  /* Leaving, it waits: a pointer crossing a gap must not close it. */
+  --voice-linger: 160ms;
   position: relative;
   z-index: 3;
+  isolation: isolate;
   width: 100%;
+  animation: moxxy-fade-up var(--motion-overlay) var(--ease-out) both;
+}
+
+.voice-rail:is(:hover, :has(:focus-visible), [data-open='true']) {
+  --voice-cut-x: 0px;
+  --voice-cut-y: 0px;
+  --voice-round: var(--radius-bubble);
+  --voice-linger: 0ms;
+}
+
+/* The card's edge: a plate a hair wider than its face, cut the same way. */
+.voice-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(var(--color-card-border-strong), var(--color-card-border-strong)),
+    var(--color-surface);
+  clip-path: inset(var(--voice-cut-y) var(--voice-cut-x) round var(--voice-round));
+  pointer-events: auto;
+  transition: clip-path var(--motion-overlay) var(--ease-out) var(--voice-linger);
+}
+
+/* The card's face, and everything on it. A control that is cut away takes no
+   pointer and is still reached by Tab, which opens the card. */
+.voice-rail-body {
   min-height: 52px;
   box-sizing: border-box;
-  padding: var(--space-8) var(--space-8) var(--space-8) var(--space-12);
+  padding: var(--space-8);
   display: grid;
-  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-12);
-  border: 1px solid var(--color-card-border-strong);
-  border-radius: var(--radius-bubble);
+  gap: var(--space-8);
   background: var(--color-surface);
-  animation: moxxy-fade-up var(--motion-overlay) var(--ease-out) both;
+  clip-path: inset(calc(var(--voice-cut-y) + 1px) calc(var(--voice-cut-x) + 1px) round calc(var(--voice-round) - 1px));
+  pointer-events: auto;
+  transition: clip-path var(--motion-overlay) var(--ease-out) var(--voice-linger);
+}
+
+.voice-rail-side {
+  min-width: 0;
+  display: flex;
+  align-items: center;
 }
 
 /* ---- presence ---------------------------------------------------------- */
 
+/* The capsule: its width is what the card is cut to. */
 .voice-rail-presence {
   min-width: 0;
+  padding: 0 var(--space-12) 0 var(--space-4);
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
-.voice-rail-copy { margin-left: 8px; }
+.voice-rail-copy { margin-left: var(--space-6); }
+
+.voice-rail-busy { margin-left: var(--space-6); }
 
 .voice-rail-mark {
   position: relative;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   display: grid;
   place-items: center;
   color: var(--color-text);
@@ -87,10 +139,8 @@
 
 .voice-rail-copy {
   min-width: 0;
-  max-width: 30ch;
+  max-width: 24ch;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
 }
 
 .voice-rail-copy strong {
@@ -103,28 +153,18 @@
   white-space: nowrap;
 }
 
-.voice-rail-copy small {
-  overflow: hidden;
-  color: var(--color-text-dim);
-  font-size: var(--type-micro);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ---- work in flight ---------------------------------------------------- */
 
 .voice-rail-work {
-  min-width: 0;
   min-height: 32px;
   justify-self: stretch;
-  display: flex;
-  align-items: center;
   justify-content: flex-start;
   gap: var(--space-8);
+  padding-left: var(--space-6);
   overflow: hidden;
 }
 
-/* Four dots ticking under a running label: the one piece of motion that says
+/* Four dots ticking beside the state: the one piece of motion that says
    "still going" without a spinner's noise. */
 .voice-rail-operation-dots { display: inline-flex; align-items: center; gap: 4px; }
 .voice-rail-operation-dots i {
@@ -156,11 +196,7 @@
   font-size: var(--type-label);
 }
 
-.voice-rail-operation--idle {
-  color: var(--color-text-dim);
-  opacity: 0.75;
-}
-.voice-rail-operation--idle .voice-rail-operation-icon { color: var(--color-text-dim); }
+.voice-rail-operation--idle { color: var(--color-text-dim); }
 
 .voice-rail-operation-icon { display: grid; place-items: center; color: var(--color-primary); }
 .voice-rail-operation-label { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -218,8 +254,6 @@
 /* ---- controls ---------------------------------------------------------- */
 
 .voice-rail-controls {
-  display: flex;
-  align-items: center;
   gap: var(--space-4);
   justify-self: end;
 }
@@ -255,7 +289,11 @@
 /* Ending the call is the one way out, so it is the one control with a word. */
 .voice-rail-end {
   height: var(--frame-control);
-  padding: 0 var(--space-12);
+  margin-left: var(--space-4);
+  padding: 0 var(--space-12) 0 var(--space-8);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-red-soft);
@@ -279,39 +317,53 @@
    unreachable, only quieter. */
 
 @container voice-rail (max-width: 640px) {
-  .voice-rail-copy small,
   .voice-rail-work-copy small { display: none; }
   .voice-radio-waves { display: none; }
   .voice-rail-operation-state { display: none; }
 }
 
-/* As narrow as the composer floating over a full-view pane: four columns no
-   longer fit, so the work (an operation, an error and its Try again) takes a
-   row of its own under the presence and the controls, with room again for
-   the reason a call stopped. */
+/* As narrow as the composer floating over a full-view pane: there is no room
+   to either side of a capsule, so it is the whole card, and the work (an
+   operation, an error and its Try again) takes a row of its own under the
+   state and the controls, with room again for the reason a call stopped. */
 @container voice-rail (max-width: 520px) {
   .voice-rail {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    --voice-cut-x: 0px;
+    --voice-cut-y: 0px;
+    --voice-round: var(--radius-bubble);
+  }
+
+  .voice-rail-body {
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      'presence controls end'
-      'work work work';
+      'presence controls'
+      'work work';
     gap: var(--space-6);
   }
 
-  .voice-rail-presence { grid-area: presence; min-width: 0; }
+  .voice-rail-presence { grid-area: presence; min-width: 0; justify-self: start; }
   .voice-rail-controls { grid-area: controls; }
-  .voice-rail-end { grid-area: end; }
   .voice-rail-work { grid-area: work; }
   .voice-rail-work-copy { flex: 1 1 auto; }
   .voice-rail-work-copy small { display: block; }
   /* Nothing running: no empty second row. */
   .voice-rail-work:has(.voice-rail-operation--idle) { display: none; }
   .voice-rail-operation--idle { display: none; }
-  .voice-rail-operation-dots,
   .voice-rail-operation-more { display: none; }
 }
 
+/* No pointer to open it with: it is the whole card. */
+@media (hover: none) {
+  .voice-rail {
+    --voice-cut-x: 0px;
+    --voice-cut-y: 0px;
+    --voice-round: var(--radius-bubble);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .voice-rail::before,
+  .voice-rail-body { transition: none; }
   .voice-rail-mark svg,
   .voice-rail-halo { transform: none; transition: none; }
   .voice-rail-operation-dots i { animation: none; }

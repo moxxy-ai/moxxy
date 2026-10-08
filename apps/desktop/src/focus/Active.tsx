@@ -129,7 +129,7 @@ export function Active({
         )}
         {voiceModeAvailable && !voiceModeActive && (
           <ActionButton onClick={onStartVoiceMode} aria-label="Start voice mode">
-            <Icon name="spark" size={17} />
+            <Icon name="phone" size={17} />
           </ActionButton>
         )}
         {voiceModeActive && (
@@ -140,7 +140,7 @@ export function Active({
             pressed
             title="Voice mode is active"
           >
-            <Icon name="stop" size={16} />
+            <Icon name="phone-down" size={17} />
           </ActionButton>
         )}
         {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (

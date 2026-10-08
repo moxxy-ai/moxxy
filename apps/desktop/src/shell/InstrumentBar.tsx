@@ -44,6 +44,7 @@ export function InstrumentBar({
           type="button"
           aria-label="Expand sidebar"
           data-testid="sidebar-expand"
+          data-hotkey="view.sidebar"
           onClick={() => setSidebarCollapsed(false)}
           className="btn-quiet tip"
           data-tip="Show sidebar"

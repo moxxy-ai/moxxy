@@ -18,6 +18,9 @@ import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusAttachmentStrip } from './FocusAttachmentStrip';
+import { ComposerAlert } from '@/chat/composer/ComposerAlert';
+import { DropVeil } from '@/chat/DropVeil';
+import { useFileDropZone } from '@/chat/useFileDropZone';
 import { FocusMiniVoiceStatus } from './FocusMiniVoiceStatus';
 import { useFocusMiniTextModel } from './useFocusMiniTextModel';
 
@@ -49,6 +52,8 @@ export function MiniText({
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
 }): JSX.Element {
+  // Files dropped anywhere on the panel go to the composer, which stages them.
+  const drop = useFileDropZone();
   const { transcript, composer } = useFocusMiniTextModel({
     workspaceId,
     remoteQueuedTurns,
@@ -56,7 +61,8 @@ export function MiniText({
   });
   return (
     <>
-      <div style={style.panel}>
+      <div data-testid="focus-mini-chat" style={style.panel} {...drop.zone}>
+        {drop.over && <DropVeil />}
         <MiniHeader
           onBack={onBack}
           voiceModeAvailable={voiceModeAvailable}
@@ -99,9 +105,7 @@ export function MiniText({
             onRemove={composer.removeAttachment}
           />
           {composer.attachError && (
-            <div role="status" style={style.focusAttachError}>
-              {composer.attachError}
-            </div>
+            <ComposerAlert text={composer.attachError} onDismiss={composer.dismissAttachError} />
           )}
           {/* The desktop composer's own card, field, slash menu and send button,
               so the two never drift; only the add menu and dictation are left out. */}
@@ -229,7 +233,7 @@ function MiniHeader({
             data-tip={voiceModeActive ? 'End voice conversation' : 'Voice conversation'}
             data-tip-side="bottom"
           >
-            <Icon name="phone" size={16} />
+            <Icon name={voiceModeActive ? 'phone-down' : 'phone'} size={16} />
           </button>
         )}
         <button

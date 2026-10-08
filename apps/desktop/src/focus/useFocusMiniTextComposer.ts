@@ -29,6 +29,7 @@ export interface FocusMiniTextComposer {
   readonly attachments: ReadonlyArray<ComposerAttachment>;
   readonly attachmentPreviews: ReadonlyMap<string, ImagePreviewItem>;
   readonly attachError: string | null;
+  readonly dismissAttachError: () => void;
   readonly onPaste: ReturnType<typeof useComposerAttachments>['onPaste'];
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
@@ -77,6 +78,7 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     clearAttachments,
     attachError,
+    dismissAttachError,
     onPaste,
   } = useComposerAttachments(focusInput);
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId ?? undefined, attachments);
@@ -186,6 +188,7 @@ export function useFocusMiniTextComposer({
     attachments,
     attachmentPreviews,
     attachError,
+    dismissAttachError,
     onPaste,
     removeAttachment,
     canSubmit,

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
+import { ATTACHMENT_LIMITS } from './attachment-limits.js';
 
 /** Single source of truth for the runtime attachment-kind enum. It is tied to
  *  the SDK's `UserPromptAttachment.kind` union by the assertion below, so if the
@@ -344,6 +345,21 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     .object({
       workspaceId: optionalWorkspace,
       path: z.string().min(1).max(4096),
+      name: z.string().min(1).max(1024),
+    })
+    .strict(),
+  'session.checkAttachment': z
+    .object({
+      workspaceId: optionalWorkspace,
+      path: z.string().min(1).max(4096),
+      name: z.string().min(1).max(1024),
+    })
+    .strict(),
+  // The bytes of a dropped or pasted file: bounded to the base64 of the largest
+  // file allowed, so an oversized payload is refused before it is decoded.
+  'session.saveAttachment': z
+    .object({
+      dataBase64: z.string().min(1).max(Math.ceil(ATTACHMENT_LIMITS.fileBytes / 3) * 4),
       name: z.string().min(1).max(1024),
     })
     .strict(),

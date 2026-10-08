@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, truncate, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAttachments, parseFileToText, persistImageBlob } from './attachments';
+import { attachmentProblem, buildAttachments, parseFileToText, persistFileBlob, persistImageBlob } from './attachments';
 import { assertDefined } from '@moxxy/sdk';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
@@ -150,6 +150,121 @@ describe('persistImageBlob', () => {
   it('rejects blobs over the size cap', async () => {
     const tooBig = Buffer.alloc(8 * 1024 * 1024 + 1);
     await expect(persistImageBlob(b64(tooBig), 'image/png')).rejects.toThrow(/too large/i);
+  });
+});
+
+describe('persistFileBlob', () => {
+  it('writes a dropped file to a temp file that keeps its kind and its name', async () => {
+    const saved = await persistFileBlob(b64(Buffer.from('a,b\n1,2\n')), 'Q3 figures.csv');
+    written.push(saved.path);
+
+    expect(saved.name).toBe('Q3 figures.csv');
+    expect(path.extname(saved.path)).toBe('.csv');
+    expect(await readFile(saved.path, 'utf8')).toBe('a,b\n1,2\n');
+  });
+
+  it('is read by the same pipeline as a picked file', async () => {
+    const saved = await persistFileBlob(b64(Buffer.from('export const x = 1;\n')), 'main.ts');
+    written.push(saved.path);
+
+    expect(await buildAttachments([saved])).toEqual([
+      { kind: 'file', content: 'export const x = 1;\n', name: 'main.ts' },
+    ]);
+  });
+
+  it('takes nothing from the name but its extension, so a name cannot place the file', async () => {
+    const saved = await persistFileBlob(b64(Buffer.from('x')), '../../etc/cron.d/evil.sh');
+    written.push(saved.path);
+
+    expect(path.dirname(saved.path)).toBe(path.dirname((await persistFileBlob(b64(Buffer.from('y')), 'a.txt')).path));
+    expect(path.basename(saved.path)).toMatch(/^[0-9a-f-]{36}\.sh$/u);
+  });
+
+  it('gives each file a path of its own', async () => {
+    const a = await persistFileBlob(b64(Buffer.from('1')), 'same.txt');
+    const b = await persistFileBlob(b64(Buffer.from('2')), 'same.txt');
+    written.push(a.path, b.path);
+
+    expect(a.path).not.toBe(b.path);
+  });
+
+  it('refuses an empty file, an image over the image limit and any file over the file limit', async () => {
+    await expect(persistFileBlob('', 'empty.txt')).rejects.toThrow('empty.txt is empty.');
+    await expect(persistFileBlob(b64(Buffer.alloc(8 * 1024 * 1024 + 1)), 'big.png')).rejects.toThrow(
+      /^big\.png is 8\.1 MB\. An image can be up to 8 MB\.$/u,
+    );
+    await expect(persistFileBlob(b64(Buffer.alloc(32 * 1024 * 1024 + 1)), 'big.bin')).rejects.toThrow(
+      /A file can be up to 32 MB\.$/u,
+    );
+  });
+});
+
+describe('attachmentProblem', () => {
+  /** A file of `size` bytes that takes no disk: the check reads sizes, and at most a head. */
+  async function sparse(name: string, size: number, head: Buffer = Buffer.from('plain text\n')): Promise<{ path: string; name: string }> {
+    const file = await tmpFile(name, head);
+    await truncate(file.path, size);
+    return file;
+  }
+
+  it('has nothing to say about what the host reads', async () => {
+    const files = [
+      await tmpFile('pic.png', Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+      await tmpFile('report.pdf', Buffer.from('%PDF-1.4\n')),
+      await tmpFile('main.ts', 'export const x = 1;\n'),
+      await tmpFile('empty.txt', ''),
+      // Text for as far as the host looks before it reads the rest on demand.
+      await sparse('huge.log', 70 * 1024 * 1024, Buffer.alloc(8 * 1024, 0x41)),
+    ];
+
+    for (const file of files) expect(await attachmentProblem(file.path, file.name)).toBeNull();
+  });
+
+  it('refuses an image over the image limit, with its size and the limit', async () => {
+    const file = await sparse('holiday.png', 9 * 1024 * 1024);
+
+    expect(await attachmentProblem(file.path, file.name)).toBe('holiday.png is 9 MB. An image can be up to 8 MB.');
+  });
+
+  it('refuses a file that is not text and too large to read whole', async () => {
+    const file = await sparse('film.mov', 70 * 1024 * 1024, Buffer.from([0x00, 0x00, 0x00, 0x18]));
+
+    expect(await attachmentProblem(file.path, file.name)).toBe(
+      'film.mov is 70 MB. Only plain text can be attached at that size.',
+    );
+  });
+
+  it('refuses a file that is not one the host can read', async () => {
+    const file = await tmpFile('blob.bin', Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff]));
+
+    expect(await attachmentProblem(file.path, file.name)).toBe('blob.bin is not a kind of file Moxxy can read.');
+  });
+
+  it('refuses a folder and a path that is not there', async () => {
+    const folder = await tmpFile('inside.txt', 'x');
+    const dir = path.join(path.dirname(folder.path), 'assets');
+    await mkdir(dir);
+
+    expect(await attachmentProblem(dir, 'assets')).toBe('assets is a folder. Attach the files inside it.');
+    expect(await attachmentProblem('/no/such/file.txt', 'file.txt')).toBe('file.txt could not be read.');
+  });
+
+  it('refuses exactly what the prompt would be sent without', async () => {
+    const files = [
+      await tmpFile('pic.png', Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+      await tmpFile('notes.md', '# notes\n'),
+      await tmpFile('blob.bin', Buffer.from([0x00, 0x01, 0x02])),
+      await tmpFile('empty.txt', ''),
+      await sparse('huge.log', 70 * 1024 * 1024, Buffer.alloc(8 * 1024, 0x41)),
+      await sparse('holiday.png', 9 * 1024 * 1024),
+      await sparse('film.mov', 70 * 1024 * 1024, Buffer.from([0x00, 0x00, 0x00, 0x18])),
+      { path: '/no/such/file.txt', name: 'file.txt' },
+    ];
+
+    for (const file of files) {
+      const kept = (await buildAttachments([file])).length === 1;
+      expect({ name: file.name, kept }).toEqual({ name: file.name, kept: (await attachmentProblem(file.path, file.name)) === null });
+    }
   });
 });
 

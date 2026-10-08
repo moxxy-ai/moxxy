@@ -449,6 +449,8 @@ export const style = {
     borderRadius: 'var(--radius-card)',
     boxShadow: 'var(--focus-panel-shadow)',
     overflow: 'hidden',
+    // Anchors the veil drawn over the panel while files are held over it.
+    position: 'relative',
     ...noDrag,
   },
   // No rule under it: like the run's header on the desktop.
@@ -593,11 +595,6 @@ export const style = {
     justifyContent: 'center',
     flexShrink: 0,
     ...noDrag,
-  },
-  focusAttachError: {
-    fontSize: 'var(--type-meta)',
-    lineHeight: '15px',
-    color: 'var(--color-red)',
   },
 } satisfies Record<string, React.CSSProperties>;
 

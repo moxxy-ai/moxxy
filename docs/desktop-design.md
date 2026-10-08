@@ -69,6 +69,14 @@ Every other place is reached two ways, and both read one list,
 | Account menu | The row at the foot of the sidebar. It lists every place, the command palette and the keyboard shortcuts. |
 | Command palette | ⌘K / Ctrl+K, from any view. It lists the same places and the current run's actions. |
 
+Holding ⌘ (Ctrl on Windows and Linux) for a moment writes each control's
+shortcut on it, so the keymap can be learnt from the window itself
+(`hotkeys/HotkeyHints.tsx`). A control opts in with `data-hotkey="<binding
+id>"`; the chord is read from the keymap, and `hotkeys/hint-controls.test.ts`
+fails for a name the keymap does not bind. The hints go the moment a second key,
+a click or the wheel shows the hold was the start of something else
+(`hotkeys/useModifierHeld.ts`), and they do not animate.
+
 No view stands without the sidebar. A view with sections of its own
 (Automations, Channels, Extensions, Settings) lists them there; a view with
 none (Apps, Collaborate, Mobile) keeps the runs beside it, and picking a run
@@ -118,6 +126,16 @@ mode other than the default one, auto-approve on, or a goal waiting for its
 objective. It says it the way a run says its state, as a toned dot and a line
 of text (`.status-chip`), never as a filled capsule: amber for what runs
 without asking, the accent for a goal. The model is read in the header.
+
+Files reach the composer four ways: the add menu, the file browser, a paste,
+and a drop anywhere on the conversation, which says it will take them while
+they are held over it (`chat/useFileDropZone.ts`, `chat/DropVeil.tsx`). A
+dropped or pasted file crosses to the host as bytes, never as a path the
+renderer names (`session.saveAttachment`). The sizes are one table for the
+renderer and the host (`ATTACHMENT_LIMITS` in `@moxxy/desktop-ipc-contract`:
+8 MB for an image, 32 MB for another file). A file that cannot be attached is
+refused when it is staged, by name and with the reason, in an alert inside the
+composer card (`chat/composer/ComposerAlert.tsx`); the rest of the batch stays.
 
 ### The slash menu
 
@@ -188,10 +206,19 @@ card and Escape gives the safe answer.
 
 Voice mode does not change the screen. While it is on, one card sits between
 the conversation and the composer, on the composer's measure and of its make
-(`voice-call/VoicePresenceRail.tsx`): the mark and what Moxxy is doing, the
-tool at work, then the microphone and the waiting sound as round icons whose
-tooltips say the state they are in, and a pill that ends the call. A running
-tool is shown by its dots; the word is kept for a screen reader.
+(`voice-call/VoicePresenceRail.tsx`). At rest it is a capsule in the middle of
+that measure: the mark, what Moxxy is doing, and dots while a tool runs. Under
+the pointer or the keyboard's focus it opens to the full card: the tool at
+work on the left, and on the right the microphone and the waiting sound as
+round icons whose tooltips say the state they are in, and a pill that ends the
+call.
+
+| Rule | Why |
+|---|---|
+| The card is always laid out at full size and cut to the capsule with `clip-path` | Nothing is measured or reflowed while it opens, and the conversation above never moves. |
+| It stays open when the call needs the person (an error, a voice to install), on a narrow column, and where there is no hover | A control must never be reachable only by a gesture the device does not have. |
+| It closes a moment after the pointer leaves, and opens at once | A pointer that slips off on its way to End does not lose it. |
+| The phone starts a call and the phone laid down ends one, in the header, the Mini Chat, the focus pill and here | One pair of signs for one pair of actions. |
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
@@ -207,9 +234,9 @@ terminal.
 
 The terminal is drawn on the panel's own background in the palette's colours
 (`shell/surfaces/terminal-theme.ts`), and repaints when the theme changes; it
-has no frame or colour of its own. It opens with the Moxxy mark and one line
-that says the agent shares it (`shell/surfaces/terminal-welcome.ts`; the mark
-is the TUI's, and a test fails when the two differ).
+has no frame or colour of its own. It opens with the word Moxxy, set in block
+characters two rows high, and one line that says the agent shares it
+(`shell/surfaces/terminal-welcome.ts`).
 
 The padding around the terminal belongs to a frame (`.term-pane__host`), never
 to the box xterm is mounted in (`.term-pane__mount`): xterm works out its rows
@@ -249,8 +276,8 @@ and `styles.css` disagree.
 | Piece | Rule |
 |---|---|
 | Mini Chat | The same `Transcript`, mode cards and plan answers included (`registerModeEvents()` runs here too), in a rounded card. |
-| Header | Back on the left, the mark in the middle, and on the right the voice conversation and the main window, in equal columns so the mark stays centred. The voice button is the desktop header's: a phone, "Voice conversation", lit with the accent and named "End voice conversation" while a call is on. A call started here is held here; the mark then shows what Moxxy is doing. It is absent where a conversation cannot be held. |
-| Composer | The desktop composer's card, field, slash menu and send button (`.cmdbar__card`, `SlashMenu`, `SendButton`): Stop while a turn runs, and Enter queues. The add menu and dictation are left out. |
+| Header | Back on the left, the mark in the middle, and on the right the voice conversation and the main window, in equal columns so the mark stays centred. The voice button is the desktop header's: a phone, "Voice conversation", lit with the accent and named "End voice conversation" while a call is on. A call started here is held here; the mark then shows what Moxxy is doing. It is absent where a conversation cannot be held. During a call the phone is laid down, here and on the pill. |
+| Composer | The desktop composer's card, field, slash menu and send button (`.cmdbar__card`, `SlashMenu`, `SendButton`): Stop while a turn runs, and Enter queues. The add menu and dictation are left out. Files dropped on the Mini Chat are attached by the desktop's rules, with the same alert. |
 | What the next turn does | The mode chip and "Auto-approve on" above the field, read from the session (`focus/useFocusSessionState.ts`), so a switch made on the desktop, in the TUI or by a bot shows here. |
 | Placeholder | One rule for both composers (`chat/composer/composer-placeholder.ts`). |
 | Questions | The same card as the desktop (see "A question that blocks the run"). |

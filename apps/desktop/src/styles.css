@@ -1899,6 +1899,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 .col-main {
+  /* Anchors what is drawn over the whole column (the veil for dropped files). */
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -2484,6 +2486,27 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 
 @media (prefers-reduced-motion: reduce) {
   .tip-bubble { animation: none; }
+}
+
+/* A control's shortcut, hung from its lower edge while the modifier is held, so
+ * the icon above it stays readable. The hold is a keyboard act, so the hints are
+ * simply there and simply gone. */
+.hotkey-hint {
+  position: fixed;
+  z-index: 1210;
+  transform: translate(-50%, -30%);
+  padding: 1px 5px;
+  border-radius: var(--radius-chip);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-family: var(--font-chrome);
+  font-size: var(--type-meta);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--color-card-shadow);
 }
 
 /* --- Telemetry ---------------------------------------------------
@@ -3225,6 +3248,91 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   font-weight: 500;
   color: var(--color-primary-strong);
   background: var(--color-primary-soft);
+}
+
+/* A file that could not be attached: said on the composer's own card, beside
+ * the files that could, and it stays until it is dismissed. */
+.cmdbar__alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin: var(--space-8) var(--space-8) 0;
+  padding: var(--space-6) var(--space-6) var(--space-6) var(--space-12);
+  border-radius: var(--radius-block);
+  background: var(--color-red-soft);
+  color: var(--color-red-text);
+  font-size: var(--type-row);
+  line-height: 1.45;
+}
+.cmdbar__alert > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cmdbar__alert-dismiss {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color var(--motion-shift) ease, transform var(--motion-press) var(--ease-out);
+}
+.cmdbar__alert-dismiss:active { transform: scale(0.94); }
+.cmdbar__alert-dismiss:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+@media (hover: hover) and (pointer: fine) {
+  .cmdbar__alert-dismiss:hover { background: color-mix(in srgb, var(--color-red-text) 14%, transparent); }
+}
+
+/* Files held over the chat: the column says it will take them. It takes no
+ * pointer itself, so the drag still lands on the chat underneath. */
+.drop-veil {
+  position: absolute;
+  inset: var(--space-8);
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed var(--color-primary);
+  border-radius: var(--radius-bubble);
+  background: color-mix(in srgb, var(--color-main-bg) 86%, transparent);
+  pointer-events: none;
+  animation: drop-veil-in var(--motion-shift) var(--ease-out) both;
+}
+.drop-veil__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-16) var(--space-24);
+  border-radius: var(--radius-block);
+  /* A plate of its own: the words must not have to be read through the conversation. */
+  background: var(--color-surface);
+  box-shadow: var(--color-card-shadow);
+  color: var(--color-primary-strong);
+  text-align: center;
+}
+.drop-veil__card strong {
+  margin-top: var(--space-4);
+  color: var(--color-text);
+  font-size: var(--type-row);
+  font-weight: 600;
+}
+.drop-veil__card small {
+  color: var(--color-text-dim);
+  font-size: var(--type-meta);
+}
+@keyframes drop-veil-in {
+  from { opacity: 0; transform: scale(0.99); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drop-veil { animation: none; }
+  .cmdbar__alert-dismiss { transition: none; }
+  .cmdbar__alert-dismiss:active { transform: none; }
 }
 
 .spinner {

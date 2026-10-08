@@ -6,6 +6,7 @@ import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
 import { TipLayer } from './components/tip/TipLayer';
+import { HotkeyHints } from './hotkeys/HotkeyHints';
 import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
 import { registerModeEvents } from './chat/modes/register-mode-events';
@@ -114,6 +115,7 @@ ReactDOM.createRoot(root).render(
       <DeepLinkBridge />
       {Tree}
       <TipLayer />
+      <HotkeyHints />
     </ErrorBoundary>
   </React.StrictMode>,
 );

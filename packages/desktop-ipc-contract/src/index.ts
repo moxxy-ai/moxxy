@@ -45,6 +45,14 @@ export type { SessionInfo };
 export { SESSION_INFO_REFRESH_EVENT } from './ask.js';
 export type { AskRequest, AskResponse, WorkflowAsk } from './ask.js';
 
+// ---------- Attachment size limits ------------------------------------------
+export {
+  ATTACHMENT_LIMITS,
+  attachmentSizeProblem,
+  formatFileSize,
+  isImageFileName,
+} from './attachment-limits.js';
+
 // ---------- Uniform error envelope ----------------------------------------
 export { encodeIpcError, decodeIpcError } from './error-envelope.js';
 export type { MoxxyIpcErrorCode, MoxxyIpcError } from './error-envelope.js';

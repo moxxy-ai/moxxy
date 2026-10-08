@@ -115,6 +115,7 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
         <button
           type="button"
           data-testid="session-new"
+          data-hotkey="session.new"
           aria-label="New session"
           className="btn-quiet tip"
           data-tip="New session"

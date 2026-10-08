@@ -12,6 +12,7 @@ export function BarButton({
   live = false,
   disabled = false,
   testId,
+  hotkey,
   onClick,
 }: {
   readonly children: ReactNode;
@@ -23,6 +24,8 @@ export function BarButton({
   readonly live?: boolean;
   readonly disabled?: boolean;
   readonly testId?: string;
+  /** The keymap binding this press is, written on the control while the modifier is held. */
+  readonly hotkey?: string;
   readonly onClick: () => void;
 }): JSX.Element {
   return (
@@ -33,6 +36,7 @@ export function BarButton({
       data-tip-side="bottom"
       data-tone={live ? 'live' : undefined}
       data-testid={testId}
+      data-hotkey={hotkey}
       aria-label={label}
       aria-pressed={pressed}
       disabled={disabled}

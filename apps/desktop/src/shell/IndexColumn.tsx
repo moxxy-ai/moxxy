@@ -102,6 +102,7 @@ export function IndexColumn({
           type="button"
           aria-label="Collapse sidebar"
           data-testid="sidebar-collapse"
+          data-hotkey="view.sidebar"
           onClick={() => setSidebarCollapsed(true)}
           className="btn-quiet tip"
           data-tip="Hide sidebar"

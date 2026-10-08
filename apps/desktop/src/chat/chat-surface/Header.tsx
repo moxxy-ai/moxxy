@@ -134,7 +134,7 @@ export function Header({
               testId="voice-toggle"
               onClick={voice.onToggle}
             >
-              <Icon name="phone" size={16} />
+              <Icon name={voice.active ? 'phone-down' : 'phone'} size={16} />
             </BarButton>
           )}
           <BarButton label="Focus mode" tip="Focus mode" testId="focus-toggle" onClick={toggleFocusMode}>
@@ -146,6 +146,7 @@ export function Header({
               tip={`${workPanel.open ? 'Hide' : 'Show'} work panel  ${chordLabel('mod+j')}`}
               pressed={workPanel.open}
               testId="work-panel-toggle"
+              hotkey="view.workbench"
               onClick={workPanel.onToggle}
             >
               <PanelIcon side="right" size={16} />

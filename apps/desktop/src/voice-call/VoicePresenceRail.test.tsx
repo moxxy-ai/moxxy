@@ -35,17 +35,69 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
 }
 
 describe('VoicePresenceRail agent work', () => {
-  it('shows that the agent is working when no tool runs, instead of "No tools running"', () => {
+  it('shows that the agent is working when no tool runs', () => {
     renderRail({ phase: 'working', agentWork: { label: 'Agent thinking', elapsed: '1:05' } });
 
     expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Agent thinking · 1:05');
-    expect(screen.queryByText('No tools running')).toBeNull();
   });
 
-  it('keeps "No tools running" when the agent is not working', () => {
+  it('says what the phase means where the work would be, when nothing runs', () => {
     renderRail({ agentWork: null });
 
-    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('No tools running');
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Speak naturally. You can still type.');
+    // A line about tools that are not running reads like something waiting to load.
+    expect(screen.queryByText('No tools running')).toBeNull();
+  });
+});
+
+describe('VoicePresenceRail as a capsule', () => {
+  const side = (name: string): HTMLElement | null =>
+    screen.getByRole('button', { name }).closest<HTMLElement>('.voice-rail-side');
+
+  it('rests on its state alone: the work and the controls are to its sides', () => {
+    const { container } = renderRail();
+
+    const presence = container.querySelector('.voice-rail-presence');
+    expect(presence).toContainElement(screen.getByRole('status'));
+    expect(presence?.querySelector('button')).toBeNull();
+    expect(screen.getByTestId('voice-rail-idle').closest('.voice-rail-side')).not.toBeNull();
+    for (const name of ['Turn the microphone off', 'Turn the waiting sound off', 'End voice mode']) {
+      expect(side(name)).not.toBeNull();
+    }
+    expect(screen.getByRole('region', { name: 'Voice mode' })).not.toHaveAttribute('data-open');
+  });
+
+  it('shows in the capsule that work is under way, without its words', () => {
+    const { container, rerender } = renderRail({ phase: 'working', agentWork: { label: 'Agent thinking', elapsed: '0:04' } });
+
+    const presence = container.querySelector('.voice-rail-presence');
+    expect(presence?.querySelector('.voice-rail-busy')).not.toBeNull();
+    expect(presence).not.toHaveTextContent('Agent thinking');
+    rerender(<></>);
+  });
+
+  it('has nothing ticking in the capsule while nothing runs', () => {
+    const { container } = renderRail();
+
+    expect(container.querySelector('.voice-rail-presence .voice-rail-busy')).toBeNull();
+  });
+
+  it.each([
+    ['the call stopped', { phase: 'error' as const, errorReason: 'Piper stopped responding.' }],
+    ['the local voice is missing', { phase: 'error' as const, localPiperInstallRequired: true }],
+    ['the local voice is installing', { localPiperInstallRequired: true, localPiperInstalling: true }],
+  ])('stays open when %s, since it needs the person', (_name, props) => {
+    renderRail(props);
+
+    expect(screen.getByRole('region', { name: 'Voice mode' })).toHaveAttribute('data-open', 'true');
+  });
+
+  it('ends the call with a receiver put down and the word', () => {
+    renderRail();
+
+    const end = screen.getByRole('button', { name: 'End voice mode' });
+    expect(end).toHaveTextContent('End');
+    expect(end.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone-down');
   });
 });
 
@@ -98,7 +150,7 @@ describe('VoicePresenceRail', () => {
   it('keeps the work slot occupied while nothing is running', () => {
     renderRail();
 
-    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('No tools running');
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Speak naturally. You can still type.');
     expect(screen.queryByTestId('voice-rail-operation')).toBeNull();
   });
 

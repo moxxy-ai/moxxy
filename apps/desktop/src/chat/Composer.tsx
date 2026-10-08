@@ -23,6 +23,7 @@ import { SendButton } from './composer/SendButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
+import { ComposerAlert } from './composer/ComposerAlert';
 import { MentionMenu } from './composer/MentionMenu';
 import { SlashMenu } from './composer/slash/SlashMenu';
 import { useSlashMenu, type SlashSession } from './composer/slash/useSlashMenu';
@@ -135,6 +136,7 @@ export function Composer({
     removeAttachment,
     clearAttachments,
     attachError,
+    dismissAttachError,
     onAttach,
     onPaste,
   } = useComposerAttachments(focusInput);
@@ -317,7 +319,7 @@ export function Composer({
     });
   }
 
-  const notice = dictation.notice ?? attachError;
+  const notice = dictation.notice;
   const sendAction = goalArmed ? 'Start goal' : queued.length > 0 ? 'Queue' : 'Send';
 
   return (
@@ -361,6 +363,7 @@ export function Composer({
             ))}
           </div>
         )}
+        {attachError && <ComposerAlert text={attachError} onDismiss={dismissAttachError} />}
         {compacting && (
           <div className="cmdbar__notice" role="status">
             <span className="spinner" aria-hidden />
@@ -376,6 +379,7 @@ export function Composer({
           <textarea
             ref={taRef}
             data-testid="composer-input"
+            data-hotkey="chat.focusComposer"
             aria-label="prompt"
             value={draft}
             onChange={(e) => {

@@ -25,6 +25,7 @@ export function SendButton({
         className="composer-send tip"
         data-kind="stop"
         data-testid="composer-abort"
+        data-hotkey="chat.abort"
         data-tip="Stop"
         data-tip-side="top"
         aria-label="Stop"

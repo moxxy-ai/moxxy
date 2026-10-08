@@ -278,6 +278,7 @@ describe('chat Header voice and focus controls', () => {
     const call = screen.getByRole('button', { name: 'Start voice conversation' });
     expect(call).toHaveAttribute('aria-pressed', 'false');
     expect(call).toHaveAttribute('data-tip', 'Voice conversation');
+    expect(call.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone');
     fireEvent.click(call);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
@@ -288,6 +289,8 @@ describe('chat Header voice and focus controls', () => {
     const call = screen.getByRole('button', { name: 'End voice conversation' });
     expect(call).toHaveAttribute('aria-pressed', 'true');
     expect(call).toHaveAttribute('data-tip', 'End voice conversation');
+    // A receiver put down: the control that ends a call does not look like the one that starts it.
+    expect(call.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone-down');
     fireEvent.click(call);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
