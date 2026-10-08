@@ -45,6 +45,8 @@ import type {
   AppUpdateInfo,
   AppUpdateCheck,
   ComponentUpdateCheck,
+  AppUpdatePlan,
+  AppSetupState,
   AppUpdateDiagnostics,
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
@@ -140,6 +142,22 @@ export interface IpcCommands {
    *  The new versions run after a relaunch; `updated` says whether anything
    *  was installed. */
   'app.updateComponents': () => Promise<{ ok: boolean; updated: boolean; error?: string }>;
+
+  /** The one "Update": decides how the app gets to the newest release (its JS
+   *  bundle or the full installer), carries that out and restarts Moxxy,
+   *  sending `app.update.plan` as steps change. Nothing is installed from npm
+   *  here: the launch after the restart brings the runner and extensions to
+   *  the version the new app was built with (`app.setup`). `plan` is null when
+   *  the app is current. A step that fails stops the update there, without a
+   *  restart. */
+  'app.updateAll': () => Promise<{ ok: boolean; plan: AppUpdatePlan | null; error?: string }>;
+  /** The last update's plan as this launch finds it: the restart is checked
+   *  against the version now running, so an update that did not take effect
+   *  reads as failed. Null when no update has run. */
+  'app.updatePlan': () => Promise<AppUpdatePlan | null>;
+  /** What this launch sets up before the first runner starts, and how far it
+   *  is. Changes arrive as `app.setup.changed`. */
+  'app.setup': () => Promise<AppSetupState>;
 
   /** The dashboard (app bundle) the desktop is currently running. */
   'app.updateInfo': () => Promise<AppUpdateInfo>;

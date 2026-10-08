@@ -136,7 +136,17 @@ export type {
   AppUpdateProgress,
   AppBootLogEntry,
   AppUpdateDiagnostics,
+  AppUpdateRoute,
+  AppUpdateStepId,
+  AppUpdateStepStatus,
+  AppUpdateStep,
+  AppUpdatePlan,
+  AppUpdatePlanState,
+  AppSetupStepId,
+  AppSetupStep,
+  AppSetupState,
 } from './app-update.js';
+export { appUpdatePlanState } from './app-update.js';
 
 // ---------- Deep links (moxxy:// URLs) -------------------------------------
 export type { DeepLinkPayload } from './deep-link.js';

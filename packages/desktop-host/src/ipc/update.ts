@@ -11,7 +11,9 @@
  * a dev/unpackaged run) means self-update is reported as unavailable.
  */
 
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow } from 'electron';
+import type { AppSetupState, AppUpdateCheck, AppUpdatePlan } from '@moxxy/desktop-ipc-contract';
 
 import {
   type ShellInfo,
@@ -28,7 +30,11 @@ import {
 } from '../app-update/index.js';
 import { sendEvent } from '../send-event';
 import { wsEventBus } from '../event-bus';
+import { buildUpdatePlan, createUpdatePlanStore, runUpdatePlan, settleUpdatePlan, type UpdatePlanStore } from '../update-plan/index.js';
 import { handle } from './shared';
+
+/** One settle per launch, shared by every transport the handlers serve. */
+let planSettled: Promise<void> | null = null;
 
 export interface UpdateConfig {
   /** Baked Ed25519 public key (SPKI PEM). Empty ⇒ self-update disabled. */
@@ -45,19 +51,24 @@ export interface UpdateConfig {
    * skip the gate.
    */
   cliRunnerProtocol?: number;
+  /** The runner version this app was built with: where the launch after an
+   *  update brings the runner and extensions. Omit to leave them as installed. */
+  componentsVersion?: string;
+  /** What this launch is setting up before its first runner (`startup-setup`). */
+  setup?: () => AppSetupState;
   /**
    * Tier-2: download + install the FULL app installer from the given release
    * download base (`https://github.com/<repo>/releases/download/desktop-v<v>/`)
-   * and quit into it. Injected by the app main (which owns the
-   * electron-updater dependency — this package stays free of it); omitted ⇒
-   * `app.updateShell` reports unavailable and the UI falls back to the
-   * release page. Must REJECT on any failure (unsigned macOS build, missing
-   * installer asset) rather than half-installing.
+   * and return the function that quits into it. Injected by the app main
+   * (which owns the electron-updater dependency — this package stays free of
+   * it); omitted ⇒ `app.updateShell` reports unavailable and the UI falls back
+   * to the release page. Must REJECT on any failure (unsigned macOS build,
+   * missing installer asset) rather than half-installing.
    */
   installShellUpdate?: (opts: {
     feedBaseUrl: string;
     onProgress: (p: { phase: 'download' | 'install'; received?: number; total?: number; message?: string }) => void;
-  }) => Promise<void>;
+  }) => Promise<() => void>;
 }
 
 /** The GitHub repo whose `desktop-v*` releases the updater pulls from. */
@@ -99,7 +110,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     channelConfigured: enabled(),
   }));
 
-  handle('app.checkUpdate', async () => {
+  const checkUpdate = async (): Promise<AppUpdateCheck> => {
     const currentVersion = runningVersion();
     if (!enabled()) {
       return {
@@ -123,9 +134,10 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
       ...(res.releaseUrl ? { releaseUrl: res.releaseUrl } : {}),
       ...(res.error ? { error: res.error } : {}),
     };
-  });
+  };
+  handle('app.checkUpdate', checkUpdate);
 
-  handle('app.updateDashboard', async () => {
+  const stageDashboard = async (): Promise<{ ok: boolean; version: string | null; error?: string; requiresFullUpdate?: boolean }> => {
     const currentVersion = runningVersion();
     if (!enabled()) {
       return { ok: false, version: null, error: 'Automatic updates are not available.' };
@@ -187,9 +199,11 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     } catch (e) {
       return { ok: false, version: null, error: messageOf(e) };
     }
-  });
+  };
+  handle('app.updateDashboard', stageDashboard);
 
-  handle('app.updateShell', async () => {
+  /** Downloads the full installer; `install` quits into it. */
+  const downloadShell = async (): Promise<{ ok: true; install: () => void } | { ok: false; error: string }> => {
     // Tier-2: the hot-update path can't deliver this release (runner bump /
     // shell incompatibility) — fetch the FULL installer and replace the app.
     const currentVersion = runningVersion();
@@ -206,7 +220,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     }
     const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
     try {
-      await installShellUpdate({
+      const install = await installShellUpdate({
         // Pinned at the exact release the manifest named — NEVER a "latest"
         // endpoint: desktop-v* tags don't hold the repo's Latest badge, and
         // npm-package releases break latest-based discovery anyway.
@@ -216,19 +230,82 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
           wsEventBus.broadcast('app.update.progress', p);
         },
       });
-      // The installer callback quits + reinstalls on success; this reply only
-      // races the shutdown.
-      return { ok: true };
+      return { ok: true, install };
     } catch (e) {
       return { ok: false, error: messageOf(e) };
     }
+  };
+  handle('app.updateShell', async () => {
+    const shell = await downloadShell();
+    if (!shell.ok) return shell;
+    // Deferred past the IPC reply; before-quit teardown (runner reap) still runs.
+    setImmediate(shell.install);
+    return { ok: true };
   });
 
-  handle('app.relaunch', async () => {
+  const relaunch = (): void => {
     // Register a relaunch, then quit gracefully (before-quit reaps the runners).
     app.relaunch();
     app.quit();
+  };
+  const planStore = (): UpdatePlanStore => createUpdatePlanStore(app.getPath('userData'));
+  const emitPlan = (plan: AppUpdatePlan): void => {
+    const target = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (target) sendEvent(target, 'app.update.plan', plan);
+    wsEventBus.broadcast('app.update.plan', plan);
+  };
+  // Once per launch, before anything else touches the plan: settling a plan
+  // this launch is carrying out would fail its running step.
+  const settlePlan = (): Promise<void> =>
+    (planSettled ??= (async () => {
+      const store = planStore();
+      const plan = await store.read();
+      if (plan) await store.write(settleUpdatePlan(plan, runningVersion()));
+    })().catch((error: unknown) => {
+      console.warn('[moxxy] update plan could not be settled:', error);
+    }));
+
+  handle('app.updatePlan', async () => {
+    await settlePlan();
+    return planStore().read();
   });
+
+  handle('app.updateAll', async () => {
+    await settlePlan();
+    const store = planStore();
+    const plan = buildUpdatePlan({ app: await checkUpdate(), id: randomUUID(), now: Date.now() });
+    if (!plan) {
+      await store.clear();
+      return { ok: true, plan: null };
+    }
+    const must = async (step: Promise<{ ok: boolean; error?: string }>, fallback: string): Promise<void> => {
+      const result = await step;
+      if (!result.ok) throw new Error(result.error ?? fallback);
+    };
+    let restart = relaunch;
+    const result = await runUpdatePlan(plan, {
+      save: store.write,
+      onChange: emitPlan,
+      actions: {
+        app: () => must(stageDashboard(), 'The app update could not be installed.'),
+        installer: async () => {
+          const shell = await downloadShell();
+          if (!shell.ok) throw new Error(shell.error);
+          restart = shell.install;
+        },
+        // The plan is saved as restarting before this runs; deferred so the
+        // reply to the renderer can flush.
+        restart: async () => void setImmediate(() => restart()),
+      },
+    });
+    const failed = result.steps.find((step) => step.status === 'failed');
+    return failed ? { ok: false, plan: result, ...(failed.error ? { error: failed.error } : {}) } : { ok: true, plan: result };
+  });
+
+  const NOTHING_TO_SET_UP: AppSetupState = { reason: null, phase: 'done', steps: [], notes: [] };
+  handle('app.setup', async () => config.setup?.() ?? NOTHING_TO_SET_UP);
+
+  handle('app.relaunch', async () => relaunch());
 
   handle('app.appBooted', async () => {
     // The running override (if any) reached a healthy render — confirm it so the

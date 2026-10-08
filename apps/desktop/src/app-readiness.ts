@@ -21,11 +21,11 @@ const SELECTED_SESSION_LOADING_PHASE: ConnectionPhase = {
   attempt: 0,
 };
 
-// The first runner waits for the host's one-time preparation, which copies
-// the bundled extensions on a fresh install and can run for minutes.
+// The first runner waits for the host's preparation. What that takes after an
+// install or an update is shown by the installer screen (`update/`), over this.
 const FIRST_RUNNER_STARTING_PHASE: ConnectionPhase = {
   phase: 'reconnecting',
-  reason: 'starting the agent runtime — after an install or update this can take a few minutes',
+  reason: 'starting the agent runtime',
   attempt: 0,
 };
 

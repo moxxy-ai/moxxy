@@ -105,49 +105,98 @@ imports a package it doesn't carry fails at boot ("Cannot find package
   offered there again (`poisonedVersions` in `checkForUpdate`), so a broken
   release can't loop: Update → relaunch → revert → Update.
 
-### The one "Update": runner and extensions too
+### One "Update", one restart, no questions
 
-The Tier-1 bundle carries only the app's own JavaScript. The runner
-(`@moxxy/cli`) and the `@moxxy` extensions in `~/.moxxy/plugins` update from
-npm, in the same click: the banner's **Update** (and Settings → Update) first
-brings the runner and extensions to the latest published CLI version — the
-release publishes every `@moxxy` package at that one version — then stages the
-app bundle, then relaunches onto all of it. Nobody is asked anything.
+The banner's **Update** (and Settings → Update) is the only thing a person
+clicks. It downloads the new app, restarts once, and the app that comes back
+finishes the rest by itself before it starts the first runner. Nothing is asked
+along the way, and no second banner or dialog follows.
 
-- Each part is installed and verified next to the live copy (`<dir>.update-*`,
-  a copy-on-write clone for the plugins dir) — the runner must start, each
-  updated extension must load — and only then swapped in; the previous copy is
-  kept as `<dir>.previous`. A failure leaves the live copy untouched and the
-  banner says Moxxy works as before, with **Try again**. A crash mid-swap is
-  finished or undone at the next start (`recoverComponentUpdates`).
-- Only registry-installed `@moxxy/*` packages move. Extensions linked to local
-  source or installed from a local file, and anything else in the plugins dir,
-  are left alone. The profile's data (vault, desks, sessions, config) lives
-  outside these directories and is never touched.
-- An OpenAI connection updated this way is recorded as a managed install, and
-  the installer never offers to replace a newer installed extension with the
-  older copy it ships, so no question follows an update.
-- Without npm (no Node.js) the app still updates; the runner and extensions
-  stay as they are. Development builds never update them (they'd replace the
-  extensions a developer is testing in the real `~/.moxxy`).
-- Code: `packages/desktop-host/src/component-update.ts`, IPC
-  `app.checkComponents` / `app.updateComponents`, renderer `useAppUpdate`.
+The banner appears only for a new **app** release. A newer `@moxxy/cli` on npm
+with no desktop release yet shows nothing and changes nothing: the runner and
+extensions follow the version the running app was **built with**
+(`__MOXXY_COMPONENTS_VERSION__`, the `@moxxy/cli` version at build time), never
+npm `latest`, so an app never runs on a runner it was not released with.
 
-### Bundled extensions (OpenAI connections, Computer Use)
+#### The update plan (before the restart)
 
-The packaged app also carries newer copies of a few extensions in
-`plugins-seed` and installs them into `~/.moxxy/plugins` itself, keeping the
-previous copy as a backup. An update that needs no approval (the installed copy
-is an unchanged managed install) installs before the first runner starts. One
-that needs the user's approval — the installed copy has local changes, has no
-update record, or is newer than the bundled one — never holds up a runner: the
-app starts on the installed copy, the question appears attached to the main
-window once it is up, and an approved update installs and restarts the running
-conversations onto it. "Later" asks again at the next launch. A failed update
-keeps the previous version and says so in a notice attached to the window.
-(`DeferredPackageUpdates` in `@moxxy/desktop-host`.) Before, the question was
-asked before the first runner and could sit hidden behind the window, leaving
-the app on "Waiting for workspace information…".
+The host owns the click (`app.updateAll`); the renderer asks and shows what
+the host reports. Before anything is installed the host writes an **update
+plan** — the version the update ends at, the route and the steps in order:
+
+| Route | When | Steps |
+|---|---|---|
+| `hot` | a newer bundle this shell and runner can load | `app` → `restart` |
+| `installer` | the bundle needs a newer shell or runner protocol | `installer` → `restart` |
+
+- Neither route installs anything from npm before the restart.
+- The plan is saved to `<userData>/app/update-plan.json` before each step
+  starts and after it ends, and sent to the renderer as `app.update.plan`.
+- A step that fails stops the update there, with its reason and without a
+  restart. The next click plans again from what is installed.
+- The restart is only done when the next launch says so: `app.updatePlan`
+  compares the planned version with the one running. An app that came back on
+  the old version reads as a failed update and the screen says why while the
+  update is still on offer. A step the app closed in the middle of reads as
+  failed too.
+- Code: `packages/desktop-host/src/update-plan/` (`plan`, `run`, `settle`,
+  `store`), wired in `packages/desktop-host/src/ipc/update.ts`.
+
+#### Setup after the restart (before the first runner)
+
+A packaged app prepares itself in `prepareInstalledApp`
+(`packages/desktop-host/src/startup-setup/`) before any runner is spawned:
+
+| Step | What it does | Shown as |
+|---|---|---|
+| `extensions` | unpacks the bundled runtimes and copies the installer's `plugins-seed` into `~/.moxxy/plugins` | Extensions and tools |
+| `connections` | puts the app-managed packages in place (OpenAI API, ChatGPT sign-in; Computer Use on Windows x64) | Model connections |
+| `components` | brings the runner and registry-installed `@moxxy/*` extensions that are still behind to the built-with version, from npm | Agent runtime |
+
+- A **setup stamp** (`~/.moxxy/desktop/setup-stamp.json`) records the installer
+  it was done for (app version + seed fingerprints) and the components version
+  it tried. An ordinary launch matches the stamp and shows nothing; the seed
+  check still runs and takes a few milliseconds when nothing changed.
+- `connections` runs before `components`, so npm is never asked for a package
+  the installer is about to put in place.
+- The app-managed packages install without a question. The previous copy is
+  always kept as a backup; when it had been changed by hand, the screen says so
+  once, with the backup's path. A package linked to local source (a symlink or
+  junction) is a developer's and is left alone.
+- `components` is tried once per app version. Each part is installed and
+  verified next to the live copy (`<dir>.update-*`) and only then swapped in;
+  a failure leaves the live copy untouched, the screen says Moxxy works with
+  the version it has, and Settings → Update → details has **Bring it up to
+  date** to try again. A crash mid-swap is finished or undone at the next start
+  (`recoverComponentUpdates`). Without npm the step is skipped the same way.
+- Only registry-installed `@moxxy/*` packages move. The profile's data (vault,
+  desks, sessions, config) lives outside these directories and is never
+  touched. Development builds skip all of this.
+- State: `StartupSetup` → IPC `app.setup` and event `app.setup.changed`.
+
+#### The installer screen
+
+One full-window screen (`apps/desktop/src/update/`) shows both halves: the
+plan's steps while the update downloads, and the setup steps plus **Start
+Moxxy** after the restart. It leaves by itself once the runner is connected. It
+stays only when there is something to read — a step that failed, or a backup
+that was kept — and then has one button. On a first install the same setup runs
+behind the welcome screens instead of covering them.
+
+- `useUpdateActivity` (`@moxxy/client-core`) holds the plan, progress and setup
+  state; `update-screen-model.ts` turns them into what the screen shows;
+  `UpdateScreen.tsx` only renders it.
+- Motion follows `docs/desktop-design.md`: transform and opacity only, the
+  exit is shorter than the entrance, reduced motion keeps the fades.
+
+#### The runner protocol gate
+
+A bundle whose signed `runnerProtocol` is above the shell's
+`FLOOR_RUNNER_PROTOCOL` takes the installer route. The floor must equal the
+runner's `RUNNER_PROTOCOL_VERSION` in every release (a unit test and
+`scripts/build-app-bundle.mjs` both fail otherwise): an installer built with a
+floor one behind refuses the next bundle made for its own runner, and every
+update after it needs the full installer.
 
 ### Security model
 
@@ -263,7 +312,12 @@ relaunch picks up the new bundle, corrupt it and confirm rollback) uses the
   only, baked into the bootstrap).
 - `packages/desktop-host/src/ipc/update.ts` — the `app.*` update IPC handlers
   (incl. `app.updateDiagnostics`).
-- `apps/desktop/src/settings/DashboardUpdateSection.tsx`,
-  `apps/desktop/src/shell/UpdateBanner.tsx`, and the shared
-  `packages/client-core/src/useAppUpdate.ts` hook — the UI.
+- `packages/desktop-host/src/update-plan/` — the plan a click runs.
+- `packages/desktop-host/src/startup-setup/` — the setup after the restart and
+  its stamp.
+- `apps/desktop/src/update/` — the installer screen;
+  `apps/desktop/src/shell/UpdateBanner.tsx` and
+  `apps/desktop/src/settings/UpdateSection.tsx` — where an update is offered;
+  `packages/client-core/src/useAppUpdate.ts` and `useUpdateActivity.ts` — the
+  shared hooks.
 - `scripts/build-app-bundle.mjs` — the CI publisher.

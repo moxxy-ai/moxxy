@@ -7,7 +7,7 @@
  *   - the IPC wiring
  */
 
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 // Set the user-facing app name BEFORE app.whenReady so the macOS
 // menu bar / Dock and Windows taskbar pick it up. Falls through to
@@ -51,15 +51,13 @@ import {
   clerkAccountPortalHost,
   installAccountPortalRecovery,
   preferredCliEntry,
-  seedPluginsFromResources,
   seedModelsFromResources,
   adoptSeededLocalPiper,
-  offerBundledComputerUpdate,
-  offerBundledProviderUpdate,
-  DeferredPackageUpdates,
-  recoverComponentUpdates,
-  type ComputerUpdateOffer,
-  type ProviderUpdateOffer,
+  prepareInstalledApp,
+  StartupSetup,
+  findNpm,
+  npmRegistry,
+  getCliVersion,
   ensureDesktopVaultKey,
   activateManagedNode,
   activateRuntimes,
@@ -144,6 +142,8 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 // allow-list — a `pk_live_` key serves clerk-js from the instance's own
 // domain, which the static dev/test hosts don't cover. '' when unset.
 declare const __CLERK_PUBLISHABLE_KEY__: string;
+/** `@moxxy/cli`'s version at build time (electron.vite.config.ts). */
+declare const __MOXXY_COMPONENTS_VERSION__: string;
 const CLERK_PUBLISHABLE_KEY =
   typeof __CLERK_PUBLISHABLE_KEY__ === 'string' ? __CLERK_PUBLISHABLE_KEY__ : '';
 
@@ -211,23 +211,12 @@ function focusMain(): void {
 // accessors so it stays decoupled from the `mainWindow` singleton.
 const deepLinks = new DeepLinkRouter(() => mainWindow, focusMain);
 
-/** A dialog attached to the main window, so it can never sit hidden behind it. */
-function showAttachedMessageBox(options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> {
-  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
-}
-
-/** Bundled package updates that may need approval, asked outside the runner's startup path. */
-const bundledUpdates = new DeferredPackageUpdates({
-  restartRunners: async () => {
-    await Promise.all((pool?.list() ?? []).map(({ supervisor }) => supervisor.restart()));
-  },
-  warn: async (plugin, error) => {
-    console.warn(`[moxxy] ${plugin} update failed; previous version retained:`, error);
-    await showAttachedMessageBox({ type: 'warning', title: 'Extension update unavailable',
-      message: 'A bundled extension could not be updated.',
-      detail: `${plugin} kept its previous version. You can continue using Moxxy and retry by restarting it. Diagnostic details are available in the application log.`,
-    });
+/** What this launch sets up before its first runner. The window shows it as
+ *  the installer screen; nothing in it asks a question. */
+const startupSetup = new StartupSetup({
+  onChange: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) sendEvent(mainWindow, 'app.setup.changed', state);
+    wsEventBus.broadcast('app.setup.changed', state);
   },
   log: (message) => console.log(`[moxxy] ${message}`),
 });
@@ -248,8 +237,8 @@ async function prepareOfflineVoice(moxxyHome: string, seeded: ReadonlyArray<stri
   }
 }
 
-/** Connections the installer updates through their own managed path (backup,
- *  approval when changed locally); the plugin seed leaves them to it. */
+/** Connections the installer replaces through their own journal (the previous
+ *  copy is kept); the plugin seed leaves them to it. */
 const BUNDLED_PROVIDER_UPDATES = ['@moxxy/plugin-provider-openai', '@moxxy/plugin-provider-openai-codex'] as const;
 /** Computer Use goes the same way on Windows x64, where its helper is replaced in place. */
 const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch === 'x64';
@@ -257,73 +246,38 @@ const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch ===
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
-  await bundledRuntimesReady();
   if (app.isPackaged) {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
-    try {
-      // A runner or extension update a crash cut short is finished (or undone)
-      // before anything reads the plugins dir — seeding would otherwise fill a
-      // half-swapped one.
-      await recoverComponentUpdates({ moxxyHome, userDataDir: app.getPath('userData') });
-      const seed = await seedPluginsFromResources({
-        resourcesPath: process.resourcesPath,
-        moxxyHome,
-        managedElsewhere: [
-          ...BUNDLED_PROVIDER_UPDATES,
-          ...(MANAGED_COMPUTER_UPDATE ? ['@moxxy/plugin-computer-control'] : []),
-        ],
-        log: (msg) => console.log(`[moxxy] ${msg}`),
-      });
-      await prepareOfflineVoice(moxxyHome, seed.copied);
-      await bundledUpdates.prepare<ProviderUpdateOffer>(
-        BUNDLED_PROVIDER_UPDATES.map((plugin) => ({
-          plugin,
-          run: (confirm) => offerBundledProviderUpdate({
-            resourcesPath: process.resourcesPath, moxxyHome, plugin,
-            freshInstall: seed.copied.includes(plugin), confirm,
-          }),
-          ask: async ({ backupPath, localChanges }) => {
-            const result = await showAttachedMessageBox({
-              type: 'question', title: 'Update model connection',
-              message: `Install the bundled ${plugin.endsWith('-codex') ? 'ChatGPT OAuth' : 'OpenAI API'} connection update?`,
-              detail: (localChanges === 'changed' ? 'This extension contains changes since its last managed update. ' : localChanges === 'untracked' ? 'The existing extension may contain local changes. ' : '') +
-                'Only this connection extension and its private dependencies will be replaced. Your login, selected model and chats will stay unchanged. Open conversations reconnect after the update. A backup will be kept at:\n' + backupPath,
-              buttons: ['Later', 'Update connection'], defaultId: 0, cancelId: 0, noLink: true,
-            });
-            return result.response === 1;
-          },
-        })),
-      );
-      if (MANAGED_COMPUTER_UPDATE) {
-        await bundledUpdates.prepare<ComputerUpdateOffer>([{
-          plugin: '@moxxy/plugin-computer-control',
-          run: (confirm) => offerBundledComputerUpdate({
-            resourcesPath:process.resourcesPath, moxxyHome,
-            freshInstall:seed.copied.includes('@moxxy/plugin-computer-control'),
-            confirm,
-            log:(message)=>console.log(`[moxxy] ${message}`),
-          }),
-          ask: async ({backupPath,localChanges}) => {
-            const result=await showAttachedMessageBox({
-              type:'question',title:'Update Computer Use',
-              message:'Install the Computer Use package included with this Moxxy installer?',
-              detail:(localChanges==='changed' ? 'The extension has changed since a managed installation. ' : localChanges==='untracked' ? 'The existing extension has no verified update record and may contain local changes. ' : '')+
-                'Only Computer Use, its private dependencies and its npm entry will be updated. Chats, OAuth and other extensions are unchanged. A copy will be kept at:\n'+backupPath,
-              buttons:['Later','Update Computer Use'],defaultId:0,cancelId:0,noLink:true,
-            });
-            return result.response===1;
-          },
-        }]);
-      }
-      // The questions come once the window is up — never on the runner's
-      // startup path, where an unanswered (or hidden) dialog held every runner.
-      void bundledUpdates.offer().catch((err) => {
-        console.warn('[moxxy] bundled update offer failed:', err);
-      });
-    } catch (err) {
-      console.warn('[moxxy] bundled plugin preparation failed:', err);
-    }
+    const userDataDir = app.getPath('userData');
+    await prepareInstalledApp({
+      resourcesPath: process.resourcesPath,
+      moxxyHome,
+      userDataDir,
+      shellVersion: app.getVersion(),
+      componentsVersion: __MOXXY_COMPONENTS_VERSION__,
+      cliVersion: getCliVersion,
+      registry: npmRegistry(),
+      npm: findNpm,
+      providers: BUNDLED_PROVIDER_UPDATES,
+      managedComputer: MANAGED_COMPUTER_UPDATE,
+      setup: startupSetup,
+      runtimes: bundledRuntimesReady,
+      afterSeed: (copied) => prepareOfflineVoice(moxxyHome, copied),
+      onComponentsInstalled: () => {
+        // New sessions start the runner just installed, as the boot block picks it.
+        const entry = preferredCliEntry(userDataDir, process.resourcesPath);
+        if (entry) process.env.MOXXY_CLI_ENTRY = entry;
+      },
+      onProgress: (message) => {
+        if (mainWindow && !mainWindow.isDestroyed()) sendEvent(mainWindow, 'app.update.progress', { phase: 'install', message });
+        wsEventBus.broadcast('app.update.progress', { phase: 'install', message });
+      },
+      log: (message) => console.log(`[moxxy] ${message}`),
+    });
+  } else {
+    await bundledRuntimesReady();
+    startupSetup.finish();
   }
 
   try {
@@ -1034,6 +988,10 @@ app.whenReady().then(async () => {
       // ≤ the floor's (the boot gate already admitted it) — i.e. at worst the
       // stage-time gate is conservative, never permissive.
       cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
+      // Where the launch after an update brings the runner and extensions:
+      // the version this app was built with, never npm's latest.
+      componentsVersion: __MOXXY_COMPONENTS_VERSION__,
+      setup: () => startupSetup.snapshot(),
       // Tier-2: lets `app.updateShell` download + install the full installer
       // when a release can't ship as a hot-update (runner bump). Lives here —
       // not in desktop-host — because this app owns the electron-updater dep.

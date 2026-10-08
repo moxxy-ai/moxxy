@@ -71,11 +71,19 @@ async function exists(file: string): Promise<boolean> {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
 
-/** Regular files only: never follow user-scope symlinks into unrelated data. */
+/** How many files are read at once while hashing a tree. An update hashes
+ *  the same few thousand files several times over; one read at a time made
+ *  that the longest part of installing it. */
+const HASH_READS = 8;
+const TREE_BYTES_LIMIT = 512_000_000;
+
+/** Regular files only: never follow user-scope symlinks into unrelated data.
+ *  The records are in the walk's order, so the hash does not depend on which
+ *  read finishes first — it is written to journals and must not change. */
 export async function computerTreeHash(directory: string): Promise<string | null> {
   if (!await exists(directory)) return null;
-  let bytes = 0, files = 0;
   const records: Array<[string,string]> = [];
+  const unread: Array<{ readonly record: [string,string]; readonly file: string }> = [];
   async function walk(file: string, relative: string): Promise<void> {
     const stat = await fs.lstat(file);
     if (stat.isSymbolicLink()) throw new Error('Computer Use update refuses symbolic links');
@@ -84,13 +92,28 @@ export async function computerTreeHash(directory: string): Promise<string | null
       const names = (await fs.readdir(file)).sort();
       for (const name of names) await walk(path.join(file,name), relative ? relative+'/'+name : name);
     } else {
-      if (!stat.isFile() || ++files > 20000) throw new Error('Computer Use package exceeds update limits');
-      const content=await readBoundedFile(file,512_000_000-bytes,'Computer Use package exceeds update limits');
-      bytes += content.length;
-      records.push([relative,createHash('sha256').update(content).digest('hex')]);
+      if (!stat.isFile() || unread.length >= 20000) throw new Error('Computer Use package exceeds update limits');
+      const record: [string,string] = [relative,''];
+      records.push(record);
+      unread.push({record,file});
     }
   }
   await walk(directory,'');
+  let bytes = 0, next = 0, failed = false;
+  async function read(): Promise<void> {
+    while (!failed) {
+      const entry = unread[next++];
+      if (!entry) return;
+      try {
+        // The handle is what is checked and read, so a path swapped after the walk is still refused.
+        const content=await readBoundedFile(entry.file,TREE_BYTES_LIMIT-bytes,'Computer Use package exceeds update limits');
+        bytes += content.length;
+        if (bytes > TREE_BYTES_LIMIT) throw new Error('Computer Use package exceeds update limits');
+        entry.record[1]=createHash('sha256').update(content).digest('hex');
+      } catch (error) { failed = true; throw error; }
+    }
+  }
+  await Promise.all(Array.from({length:HASH_READS},read));
   return createHash('sha256').update(JSON.stringify(records)).digest('hex');
 }
 
@@ -177,6 +200,13 @@ export async function isBundledComputerCurrent(options:UpdateOptions):Promise<bo
   const installed=await computerTreeHash(targetPath(home, plugin));
   const source=await bundleFingerprint(options.resourcesPath, plugin);
   return records.some(({record})=>record.phase==='verified' && record.staged===installed && record.source===source);
+}
+
+/** The installed copy is a link to someone's own source (`npm link`, a
+ *  junction on Windows): theirs, never replaced by the installer's. */
+export async function isLinkedInstall(options:Pick<UpdateOptions,'moxxyHome'|'plugin'>):Promise<boolean> {
+  const target=targetPath(path.resolve(options.moxxyHome), options.plugin ?? pluginName);
+  return await exists(target) && (await fs.lstat(target)).isSymbolicLink();
 }
 
 /** The installed copy is newer than the installer's (the desktop updated it

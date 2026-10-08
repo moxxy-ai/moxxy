@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import {
   ConnectionBridge,
@@ -42,6 +43,8 @@ import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
+import { UpdateFlow } from './update/UpdateFlow';
+import { runnerState } from './update/update-screen-model';
 import { StartupSplash } from './connection/StartupSplash';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import {
@@ -67,6 +70,43 @@ import { useAttention } from './attention/useAttention';
  *      command palette (see `shell/navigation`).
  */
 export function App(): JSX.Element {
+  // What decides whether the first-run sign-in is behind the person lives
+  // here, above the gates, because the installer screen needs it too and must
+  // stay mounted in one place while the gates below swap.
+  const { prefs, loading: prefsLoading } = usePrefs();
+  // Local flag that flips the moment the user clicks "Open my
+  // workspaces" in the FirstRunWizard, so we don't re-render the
+  // wizard while waiting for prefs.read to round-trip.
+  const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
+  const finishOnboarding = useCallback(() => setJustFinishedOnboarding(true), []);
+  const { snapshot } = useConnection(useActiveWorkspaceId());
+  return (
+    <>
+      <AppWindow
+        prefs={prefs}
+        prefsLoading={prefsLoading}
+        justFinishedOnboarding={justFinishedOnboarding}
+        onFinishedOnboarding={finishOnboarding}
+      />
+      {/* The installer screen: over whichever gate is showing while Moxxy
+          updates, and after the restart until what the update left to set up
+          is in place. */}
+      <UpdateFlow
+        runner={runnerState(snapshot?.phase)}
+        onboarded={prefs?.onboardingComplete === true || justFinishedOnboarding}
+      />
+    </>
+  );
+}
+
+interface AppWindowProps {
+  readonly prefs: DesktopPrefs | null;
+  readonly prefsLoading: boolean;
+  readonly justFinishedOnboarding: boolean;
+  readonly onFinishedOnboarding: () => void;
+}
+
+function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnboarding }: AppWindowProps): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
   // <html data-theme> and tracks OS scheme changes. Mounted exactly once.
   useTheme();
@@ -81,7 +121,6 @@ export function App(): JSX.Element {
   const { desks, setActiveSession } = useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
-  const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const bench = useWorkbench(activeWorkspaceId);
@@ -96,10 +135,6 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
-  // Local flag that flips the moment the user clicks "Open my
-  // workspaces" in the FirstRunWizard, so we don't re-render the
-  // wizard while waiting for prefs.read to round-trip.
-  const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
   // A connected runner can exist without an active provider. Recovery still
   // offers the provider picker, but "Skip for now" must let the user reach the
   // shell and configure it later from Settings. Scope the dismissal to one
@@ -239,7 +274,7 @@ export function App(): JSX.Element {
       <>
         <ConnectionBridge />
         <ChatStoreBridge />
-        <Onboarding onComplete={() => setJustFinishedOnboarding(true)} />
+        <Onboarding onComplete={onFinishedOnboarding} />
       </>
     );
   }

@@ -177,8 +177,7 @@ describe('describeConnectionPhase', () => {
 
     const label = describeConnectionPhase(state.phase);
     expect(label).not.toMatch(/reconnect/i);
-    expect(label).toMatch(/^Starting the agent runtime/);
-    expect(label).toMatch(/install or update/);
+    expect(label).toBe('Starting the agent runtime…');
   });
 
   it('says a newly selected session is loading, not reconnecting', () => {

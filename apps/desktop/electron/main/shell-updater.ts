@@ -58,8 +58,9 @@ export function initShellUpdater(): void {
  * by the repo's npm-package releases anyway. electron-builder attaches the
  * `latest*.yml` feed files the generic provider reads to every release.
  *
- * Rejects on any failure; only a fully downloaded + verified installer
- * reaches `quitAndInstall` (deferred a tick so the IPC reply can flush).
+ * Rejects on any failure. Resolves once the installer is downloaded and
+ * verified, with the function that quits into it — the caller decides when
+ * (after its own state is saved and the IPC reply can flush).
  */
 export async function installFullAppUpdate(opts: {
   feedBaseUrl: string;
@@ -69,7 +70,7 @@ export async function installFullAppUpdate(opts: {
     total?: number;
     message?: string;
   }) => void;
-}): Promise<void> {
+}): Promise<() => void> {
   if (!app.isPackaged) throw new Error('Full app updates run only in the packaged app.');
   const mod = (await import('electron-updater')) as {
     autoUpdater?: ElectronAutoUpdater;
@@ -99,8 +100,7 @@ export async function installFullAppUpdate(opts: {
   }
   await autoUpdater.downloadUpdate();
   opts.onProgress({ phase: 'install', message: 'Restarting to install…' });
-  // Defer past the IPC reply; before-quit teardown (runner reap) still runs.
-  setImmediate(() => autoUpdater.quitAndInstall());
+  return () => autoUpdater.quitAndInstall();
 }
 
 /** The slice of electron-updater's autoUpdater we touch. */
