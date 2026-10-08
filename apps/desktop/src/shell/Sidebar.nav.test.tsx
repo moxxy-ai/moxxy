@@ -30,6 +30,7 @@ function nav(view: View, go = vi.fn()): ShellNav {
   return {
     view,
     go,
+    open: vi.fn(),
     isDisabled: () => false,
     disabledReason: 'loading',
     showShortcuts: vi.fn(),

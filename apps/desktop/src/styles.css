@@ -4101,3 +4101,377 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   overflow-wrap: anywhere;
 }
 .approval-card__acts { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+
+/* --- The update banner ---------------------------------------------
+ * The offer of a new Moxxy, at the top of the window. The update itself is
+ * shown by the installer screen below. */
+
+.update-banner {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-12);
+  max-width: 80vw;
+  padding: var(--space-8) var(--space-12);
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+  font-size: var(--type-ui);
+  color: var(--color-text);
+}
+.update-banner__error { color: var(--color-red); }
+.update-banner__action {
+  padding: 0 var(--space-12);
+  font-size: var(--type-row);
+  font-weight: 600;
+}
+.update-banner__dismiss {
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--type-row);
+  color: var(--color-text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* --- The installer screen -----------------------------------------
+ * The whole window while Moxxy updates, or sets itself up after an update.
+ * One column on the chat surface with the mark the splash shows, so it reads
+ * as the app pausing rather than another program. Seen rarely and for a
+ * while: it may take its time arriving, and only opacity and transform move. */
+
+.update-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-32);
+  overflow: auto;
+  background: var(--color-main-bg);
+  color: var(--color-text);
+  animation: moxxy-fade-in var(--motion-overlay) var(--ease-out) both;
+}
+
+/* Leaving is quicker than arriving, and the app underneath answers at once. */
+.update-screen[data-leaving='true'] {
+  pointer-events: none;
+  animation: update-screen-out var(--motion-shift) var(--ease-out) both;
+}
+
+@keyframes update-screen-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.update-screen__panel {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-24);
+  animation: moxxy-pop-in var(--motion-overlay) var(--ease-out) both;
+}
+
+.update-screen__heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  text-align: center;
+}
+
+.update-screen__title {
+  margin: 0;
+  font-size: var(--type-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.update-screen__subtitle {
+  margin: 0;
+  font-size: var(--type-row);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.update-steps {
+  width: 100%;
+  margin: 0;
+  padding: var(--space-6) var(--space-16);
+  list-style: none;
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-card);
+}
+
+.update-step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-12);
+  row-gap: var(--space-2);
+  padding: var(--space-8) 0;
+  font-size: var(--type-prose);
+  color: var(--color-text-dim);
+  transition: color var(--motion-shift) ease;
+  animation: moxxy-fade-up var(--motion-overlay) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms + 80ms);
+}
+.update-step + .update-step { border-top: 1px solid var(--color-card-border); }
+.update-step[data-status='running'] { color: var(--color-text); font-weight: 500; }
+.update-step[data-status='done']    { color: var(--color-text-muted); }
+.update-step[data-status='failed']  { color: var(--color-text); }
+
+.update-step__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-step__detail {
+  font-size: var(--type-meta);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.update-step__error {
+  grid-column: 2 / -1;
+  font-size: var(--type-meta);
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--color-red-text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* The four marks of a step sit on top of each other; the one that applies
+ * fades and grows in over the one that no longer does. */
+.update-step__glyph {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+
+.update-step__glyph > * {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity var(--motion-shift) var(--ease-out), transform var(--motion-shift) var(--ease-out);
+}
+
+.update-step[data-status='pending'] .update-step__ring,
+.update-step[data-status='running'] .update-step__spinner,
+.update-step[data-status='done'] .update-step__check,
+.update-step[data-status='failed'] .update-step__cross {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.update-step__ring::before,
+.update-step__spinner::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-card-border-strong);
+}
+
+/* A quick turn: the same wait reads as shorter behind a fast spinner. */
+.update-step__spinner::before {
+  inset: 2px;
+  border-color: var(--color-primary-soft);
+  border-top-color: var(--color-primary);
+}
+.update-step[data-status='running'] .update-step__spinner::before {
+  animation: moxxy-spin 700ms linear infinite;
+}
+
+.update-step__check,
+.update-step__cross {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.update-step__check { stroke: var(--color-green); }
+.update-step__cross { stroke: var(--color-red); }
+
+.update-progress {
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-card-border);
+}
+
+.update-progress__fill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--motion-shift) var(--ease-out);
+}
+
+.update-progress[data-indeterminate='true'] .update-progress__fill {
+  width: 35%;
+  transform: none;
+  transition: none;
+  animation: update-progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes update-progress-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(290%); }
+}
+
+.update-notes {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  font-size: var(--type-row);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.update-screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-8);
+}
+
+.update-screen__footer {
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-screen__panel,
+  .update-step {
+    animation-name: moxxy-fade-in;
+  }
+  .update-step__glyph > * { transform: none; }
+  .update-progress[data-indeterminate='true'] .update-progress__fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* --- Onboarding ------------------------------------------------
+ * One form in the middle of the window, on the sidebar's ground so the card
+ * is the only thing lit. No sidebar: there is nothing to move between yet. */
+
+.onboard {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  display: grid;
+  /* Anchored below the top, not centred: the mark and the step line stay
+   * where they are while the form under them changes height. */
+  place-items: start center;
+  padding: clamp(var(--space-32), 14vh, 140px) var(--space-16) var(--space-32);
+  background: var(--color-sidebar-bg);
+}
+
+.onboard__column {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.onboard__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  font-family: var(--font-chrome);
+  font-size: var(--type-row);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.onboard__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  padding: var(--space-24);
+  background: var(--color-card-bg);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+}
+
+.onboard__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.onboard__count {
+  font-family: var(--font-chrome);
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.onboard__marks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-4);
+}
+
+.onboard__mark {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-card-border);
+  transition: background-color var(--motion-shift) ease;
+}
+.onboard__mark[data-state='done'] { background: color-mix(in srgb, var(--color-primary) 45%, var(--color-card-border)); }
+.onboard__mark[data-state='current'] { background: var(--color-primary); }
+
+/* A step arrives from a little below. It is seen a handful of times in the
+ * life of an install, so it may move; it fades only its own card's content. */
+.onboard__step {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--motion-overlay) var(--ease-out),
+    transform var(--motion-overlay) var(--ease-out);
+}
+@starting-style {
+  .onboard__step {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard__mark,
+  .onboard__step { transition: none; }
+}

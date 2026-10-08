@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from '@moxxy/sdk';
 import {
-  activateComputerUpdate, discardComputerUpdate, isBundledComputerCurrent, isInstalledNewerThanBundled,
+  activateComputerUpdate, discardComputerUpdate, isBundledComputerCurrent, isInstalledNewerThanBundled, isLinkedInstall,
   prepareComputerUpdate, recoverComputerUpdates, type PreparedComputerUpdate,
 } from './computer-update.js';
 
@@ -57,6 +57,7 @@ export async function offerBundledProviderUpdate(options: {
   confirm: (offer: ProviderUpdateOffer) => Promise<boolean>;
 }): Promise<'current' | 'declined' | 'updated'> {
   const plugin = providerPackage.parse(options.plugin);
+  if (await isLinkedInstall(options)) return 'current';
   await recoverComputerUpdates(options.moxxyHome, plugin);
   if (await isBundledComputerCurrent(options)) return 'current';
   if (await isInstalledNewerThanBundled(options)) return 'current';

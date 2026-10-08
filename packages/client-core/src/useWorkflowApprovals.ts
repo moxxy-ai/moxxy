@@ -6,6 +6,7 @@ import {
 } from '@moxxy/sdk/workflow-approval';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
+import { useConnection } from './useConnection.js';
 
 export function useWorkflowApprovals(workspaceId: string | null) {
   const current = useRef(workspaceId);
@@ -16,8 +17,10 @@ export function useWorkflowApprovals(workspaceId: string | null) {
   }>({ workspaceId: null, items: [] });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Only a connected runner can answer; before it is up every ask fails.
+  const connected = useConnection(workspaceId).snapshot?.phase.phase === 'connected';
   const refresh = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId || !connected) return;
     try {
       const items = workflowApprovalItemsSchema.parse(
         await api().invoke('workflows.approvals', { workspaceId }),
@@ -28,8 +31,9 @@ export function useWorkflowApprovals(workspaceId: string | null) {
     } catch (e) {
       if (current.current === workspaceId) setError(toErrorMessage(e));
     }
-  }, [workspaceId]);
+  }, [workspaceId, connected]);
   useEffect(() => {
+    if (!connected) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {

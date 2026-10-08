@@ -2,7 +2,7 @@ import { defineConfig, externalizeDepsPlugin, loadEnv } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { copyFileSync, mkdirSync, existsSync, createReadStream } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync, createReadStream, readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 
 /**
@@ -233,10 +233,22 @@ export default defineConfig(({ mode }) => {
   const clerkDefine = {
     __CLERK_PUBLISHABLE_KEY__: JSON.stringify(env.VITE_CLERK_PUBLISHABLE_KEY ?? ''),
   };
+  // The runner version this app is built with. The launch after an update
+  // brings the runner and extensions to exactly it (never npm's `latest`,
+  // which moves ahead of the app between its releases). A build-time constant
+  // rather than a signed-manifest field: installed bootstraps verify the
+  // manifest's exact bytes, so a new field there would fail their check.
+  const cliManifest = JSON.parse(
+    readFileSync(path.resolve(__dirname, '../../packages/cli/package.json'), 'utf8'),
+  ) as { version: string };
+  const mainDefine = {
+    ...clerkDefine,
+    __MOXXY_COMPONENTS_VERSION__: JSON.stringify(cliManifest.version),
+  };
   return {
   main: {
     plugins: [externalizeDepsPlugin({ exclude: [...BUNDLED_WORKSPACE_DEPS, ...BUNDLED_THIRD_PARTY_DEPS] })],
-    define: clerkDefine,
+    define: mainDefine,
     build: {
       outDir: 'dist-electron/main',
       rollupOptions: {

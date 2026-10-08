@@ -32,8 +32,6 @@ export interface VoiceFeedbackClock {
 
 export interface VoiceFeedbackSchedulerOptions {
   readonly emitCue: (cue: VoiceFeedbackCue) => void;
-  readonly startWaitingTone: () => void;
-  readonly stopWaitingTone: () => void;
   readonly cancelPendingCues: () => void;
   /** Say what kind of step starts ("Przeglądam pliki.") whenever the reply
    *  has been quiet for a while — for a surface where silence is all the
@@ -47,7 +45,6 @@ interface ActiveTool {
   readonly activity: VoiceToolActivity;
 }
 
-const WAITING_TONE_DELAY_MS = 120;
 const FIRST_HEARTBEAT_MS = 10_000;
 const SECOND_HEARTBEAT_DELAY_MS = 30_000;
 const LATER_HEARTBEAT_DELAY_MS = 90_000;
@@ -151,10 +148,6 @@ export class VoiceFeedbackScheduler {
   private playbackPhase: SpeechPlaybackPhase = 'idle';
   private lastSpokenAt = Number.NEGATIVE_INFINITY;
   private heartbeatIndex = 0;
-  private waitingToneEnabled = true;
-  private waitingToneEligible = false;
-  private waitingToneActive = false;
-  private waitingToneTimer: unknown | null = null;
   private heartbeatTimer: unknown | null = null;
   private resultTimer: unknown | null = null;
   private readonly activeTools = new Map<string, ActiveTool>();
@@ -167,8 +160,6 @@ export class VoiceFeedbackScheduler {
     if (this.active) return;
     this.resetTurn();
     this.active = true;
-    this.waitingToneEligible = true;
-    this.scheduleWaitingTone();
   }
 
   attachTranscript(userText: string): void {
@@ -184,20 +175,8 @@ export class VoiceFeedbackScheduler {
 
   assistantSpeechQueued(): void {
     if (!this.active) return;
-    this.waitingToneEligible = false;
-    this.pauseWaitingTone();
     this.clearResult();
     this.options.cancelPendingCues();
-  }
-
-  setWaitingToneEnabled(enabled: boolean): void {
-    if (this.waitingToneEnabled === enabled) return;
-    this.waitingToneEnabled = enabled;
-    if (!enabled) {
-      this.pauseWaitingTone();
-      return;
-    }
-    this.scheduleWaitingTone();
   }
 
   /** `input` only picks the kind of step; it is never spoken. */
@@ -232,8 +211,6 @@ export class VoiceFeedbackScheduler {
   inputRequired(): void {
     if (!this.active || this.waitingForInput) return;
     this.waitingForInput = true;
-    this.waitingToneEligible = false;
-    this.pauseWaitingTone();
     this.clearHeartbeat();
     this.clearResult();
     this.options.cancelPendingCues();
@@ -243,23 +220,15 @@ export class VoiceFeedbackScheduler {
   inputResolved(): void {
     if (!this.active || !this.waitingForInput) return;
     this.waitingForInput = false;
-    this.waitingToneEligible = true;
-    this.scheduleWaitingTone();
     this.heartbeatIndex = 0;
     if (this.activeTools.size > 0) this.scheduleHeartbeat(FIRST_HEARTBEAT_MS);
   }
 
   setPlayback(phase: SpeechPlaybackPhase, _kind: SpeechPlaybackKind | null): void {
-    const previousPhase = this.playbackPhase;
     if (this.playbackPhase === 'speaking' && phase !== 'speaking') {
       this.lastSpokenAt = this.clock.now();
     }
     this.playbackPhase = phase;
-    if (phase !== 'idle') {
-      this.pauseWaitingTone();
-    } else if (previousPhase !== 'idle') {
-      this.scheduleWaitingTone();
-    }
   }
 
   endTurn(): void {
@@ -268,30 +237,6 @@ export class VoiceFeedbackScheduler {
 
   close(): void {
     this.resetTurn();
-  }
-
-  private scheduleWaitingTone(): void {
-    if (
-      !this.active ||
-      !this.waitingToneEnabled ||
-      !this.waitingToneEligible ||
-      this.waitingForInput ||
-      this.playbackPhase !== 'idle' ||
-      this.waitingToneActive ||
-      this.waitingToneTimer !== null
-    ) return;
-    this.waitingToneTimer = this.clock.setTimeout(() => {
-      this.waitingToneTimer = null;
-      if (
-        !this.active ||
-        !this.waitingToneEnabled ||
-        !this.waitingToneEligible ||
-        this.waitingForInput ||
-        this.playbackPhase !== 'idle'
-      ) return;
-      this.waitingToneActive = true;
-      this.options.startWaitingTone();
-    }, WAITING_TONE_DELAY_MS);
   }
 
   private scheduleHeartbeat(delayMs: number): void {
@@ -327,7 +272,6 @@ export class VoiceFeedbackScheduler {
   }
 
   private emit(kind: VoiceFeedbackCueKind, text: string): void {
-    this.pauseWaitingTone();
     this.lastSpokenAt = this.clock.now();
     this.options.emitCue({ kind, text, language: this.language });
   }
@@ -335,22 +279,11 @@ export class VoiceFeedbackScheduler {
   private resetTurn(): void {
     this.active = false;
     this.waitingForInput = false;
-    this.waitingToneEligible = false;
     this.heartbeatIndex = 0;
     this.activeTools.clear();
-    this.pauseWaitingTone();
     this.clearHeartbeat();
     this.clearResult();
     this.options.cancelPendingCues();
-  }
-
-  private pauseWaitingTone(): void {
-    if (this.waitingToneTimer !== null) {
-      this.clock.clearTimeout(this.waitingToneTimer);
-      this.waitingToneTimer = null;
-    }
-    this.waitingToneActive = false;
-    this.options.stopWaitingTone();
   }
 
   private clearHeartbeat(): void {

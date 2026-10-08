@@ -23,10 +23,11 @@ Rules (tolerant negotiation since B2, branch fix/runner-protocol-skew):
   method-not-found (see the v4 workflow-builder family or the v7
   providerAdmin view for the pattern).
 - Desktop floor lockstep: `apps/desktop/electron/main/floor-runner-protocol.ts`
-  bakes `FLOOR_RUNNER_PROTOCOL` as a literal — bump it with the version; the
-  release build asserts it matches `@moxxy/runner` (scripts/build-app-bundle.mjs),
-  and the signed app-bundle manifest carries the stamp the bootstrap's
-  skew gate checks.
+  bakes `FLOOR_RUNNER_PROTOCOL` as a literal — bump it in the same change as
+  the version. It must EQUAL `RUNNER_PROTOCOL_VERSION`: a unit test
+  (`floor-runner-protocol.test.ts`) and the release build
+  (scripts/build-app-bundle.mjs) both fail otherwise. A floor left behind makes
+  the next installer refuse JS updates stamped with its own runner's protocol.
 
 Mismatch recovery expectations (`remote-session.ts`): on a genuine "protocol
 mismatch" (client `< MIN_COMPATIBLE`) the CLIENT proactively kills the stale

@@ -13,9 +13,8 @@ import { useQueuedTurns } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
 import { focusComposerPulse } from '@/lib/chatPulses';
-import { usePalettePlaces } from '../shell/navigation/usePalettePlaces';
+import { ShellPalette } from '../shell/navigation/ShellPalette';
 import type { AgentSession } from './agent-picker/useAgentSession';
-import { CommandPalette } from './CommandPalette';
 import { ComposerButton } from './composer/ComposerButton';
 import { ComposerStatus } from './composer/ComposerStatus';
 import { composerPlaceholder } from './composer/composer-placeholder';
@@ -121,7 +120,6 @@ export function Composer({
   const focusInput = useCallback(() => taRef.current?.focus(), []);
 
   // Shell-owned shortcuts (⌘K / ⌘L) landing on the state that owns them.
-  const palette = usePalettePlaces();
   focusComposerPulse.use(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -438,11 +436,9 @@ export function Composer({
         </p>
       )}
       {actions && (
-        <CommandPalette
+        <ShellPalette
           workspaceId={workspaceId}
-          places={palette.places}
-          onPlace={palette.onPlace}
-          command={actions.command}
+          {...(actions.command ? { command: actions.command } : {})}
           onClose={() => setActions(null)}
         />
       )}

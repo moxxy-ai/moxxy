@@ -41,6 +41,72 @@ export interface ComponentUpdateCheck {
   error?: string;
 }
 
+/** How one "Update" reaches this machine: a JS bundle (`hot`) or the full
+ *  installer. */
+export type AppUpdateRoute = 'hot' | 'installer';
+export type AppUpdateStepId = 'app' | 'installer' | 'restart';
+export type AppUpdateStepStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface AppUpdateStep {
+  id: AppUpdateStepId;
+  status: AppUpdateStepStatus;
+  /** Why the step failed. */
+  error?: string;
+}
+
+/**
+ * Everything one "Update" does before the restart, decided before anything is
+ * installed and kept on disk so the launch after the restart can tell whether
+ * it took effect. What the new app then sets up is {@link AppSetupState}.
+ */
+export interface AppUpdatePlan {
+  id: string;
+  createdAt: number;
+  route: AppUpdateRoute;
+  /** The app version the update ends at. */
+  version: string;
+  /** Where the installer can be downloaded by hand — offered only when the
+   *  system refused to install it. Installer route only. */
+  releaseUrl?: string;
+  steps: ReadonlyArray<AppUpdateStep>;
+}
+
+export type AppUpdatePlanState = 'running' | 'restarting' | 'done' | 'failed';
+
+/** Where a plan stands, read from its steps. */
+export function appUpdatePlanState(plan: AppUpdatePlan): AppUpdatePlanState {
+  if (plan.steps.some((step) => step.status === 'failed')) return 'failed';
+  if (plan.steps.every((step) => step.status === 'done')) return 'done';
+  const restart = plan.steps.find((step) => step.id === 'restart');
+  return restart?.status === 'running' ? 'restarting' : 'running';
+}
+
+/** What a launch sets up before the first runner starts: `extensions` are the
+ *  ones the installer carries, `components` the runner and extensions brought
+ *  to the version this app was built with, `connections` the model
+ *  connections and Computer Use the installer replaces with a backup. */
+export type AppSetupStepId = 'extensions' | 'components' | 'connections';
+
+export interface AppSetupStep {
+  id: AppSetupStepId;
+  status: AppUpdateStepStatus;
+  /** Why the step failed; the previous version stays in use. */
+  error?: string;
+}
+
+/**
+ * The setup a launch does after an install or an update. Nobody is asked
+ * anything: it runs, and `notes` says afterwards what a person may want to
+ * know (a part that kept its previous version, where a replaced copy is).
+ */
+export interface AppSetupState {
+  /** Null when this launch has nothing to set up. */
+  reason: 'install' | 'update' | null;
+  phase: 'pending' | 'running' | 'done';
+  steps: ReadonlyArray<AppSetupStep>;
+  notes: ReadonlyArray<string>;
+}
+
 /** Streamed progress while a dashboard update downloads + installs.
  *  `install` is the Tier-2 (`app.updateShell`) installer phase. */
 export interface AppUpdateProgress {

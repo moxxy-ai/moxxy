@@ -7,5 +7,5 @@
  */
 
 export { Shell } from './chrome/Shell';
-export { StepCard, Nav, PrimaryButton, SecondaryButton, SuccessRow, Pulse } from './chrome/primitives';
+export { StepCard, Fields, Nav, PrimaryButton, SecondaryButton, SuccessRow, Pulse } from './chrome/primitives';
 export { inputStyle, pickerBtnStyle } from './chrome/styles';

@@ -7,6 +7,10 @@
  * under `<userData>/cli` (see the MOXXY_CLI_ENTRY block in the Electron main).
  * Every update goes through {@link applyComponentUpdate}: installed and
  * verified next to the live copy, swapped in only then.
+ *
+ * The version they go to is the one the running app was built with — the
+ * launch after an app update does it by itself (`startup-setup`); these
+ * handlers are the way to try again by hand when that could not be done.
  */
 
 import { app, BrowserWindow as BrowserWindowApi } from 'electron';
@@ -25,16 +29,19 @@ import {
 } from '../component-update';
 import { sendEvent } from '../send-event';
 import { wsEventBus } from '../event-bus';
+import { NO_NPM } from '../startup-setup/index.js';
 import { handle } from './shared';
 
-const NO_NPM = 'npm not found — the runner and extensions cannot be updated without Node.js.';
+/** The runner version the running app was built with; null in a build that does not say. */
+let builtWithVersion: string | null = null;
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 const focusedWindow = () => BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
 
-function planUpdate(): Promise<ComponentUpdatePlan | null> {
-  return planComponentUpdate({ cliVersion: getCliVersion(), moxxyHome: moxxyHome(), registry: npmRegistry() });
+async function planUpdate(): Promise<ComponentUpdatePlan | null> {
+  if (!builtWithVersion) return null;
+  return planComponentUpdate({ cliVersion: getCliVersion(), moxxyHome: moxxyHome(), registry: npmRegistry(), version: builtWithVersion });
 }
 
 /** One update at a time: a second request waits for the running one. */
@@ -66,33 +73,44 @@ function install(plan: ComponentUpdatePlan, onLine?: (line: string) => void): Pr
   return next;
 }
 
-export function registerAppHandlers(pool: RunnerPool): void {
+/** Whether the runner or the installed `@moxxy` extensions are behind the
+ *  version this app was built with. Never rejects: what stops the check comes
+ *  back in `error`. */
+async function checkComponentUpdate(): Promise<ComponentUpdateCheck> {
+  const none = { available: false, version: null, runner: null, extensions: [] };
+  // A dev build runs the repo's runner against the real ~/.moxxy: updating
+  // its extensions from npm would replace what the developer is testing.
+  if (!app.isPackaged) return { ...none, error: 'Updates run only in the packaged app.' };
+  if (!findNpm()) return { ...none, error: NO_NPM };
+  try {
+    const plan = await planUpdate();
+    if (!plan) return none;
+    return { available: true, version: plan.version, runner: plan.cli, extensions: plan.plugins };
+  } catch (error) {
+    return { ...none, error: errorMessage(error) };
+  }
+}
+
+export function registerAppHandlers(pool: RunnerPool, componentsVersion?: string): void {
+  builtWithVersion = componentsVersion ?? null;
+  const restartRunners = (): Promise<unknown> => Promise.all(pool.list().map((e) => e.supervisor.restart()));
+
   handle('app.cliInfo', async () => ({
     version: getCliVersion(),
     path: process.env.MOXXY_CLI_ENTRY ?? null,
   }));
 
-  handle('app.checkComponents', async (): Promise<ComponentUpdateCheck> => {
-    const none = { available: false, version: null, runner: null, extensions: [] };
-    // A dev build runs the repo's runner against the real ~/.moxxy: updating
-    // its extensions from npm would replace what the developer is testing.
-    if (!app.isPackaged) return { ...none, error: 'Updates run only in the packaged app.' };
-    if (!findNpm()) return { ...none, error: NO_NPM };
-    try {
-      const plan = await planUpdate();
-      if (!plan) return none;
-      return { available: true, version: plan.version, runner: plan.cli, extensions: plan.plugins };
-    } catch (error) {
-      return { ...none, error: errorMessage(error) };
-    }
-  });
-
+  handle('app.checkComponents', checkComponentUpdate);
+  // Brings the runner and extensions to that version and restarts the runners
+  // onto them; `updated` says whether anything was installed.
   handle('app.updateComponents', async () => {
     if (!app.isPackaged) return { ok: false, updated: false, error: 'Updates run only in the packaged app.' };
     try {
       const plan = await planUpdate();
-      if (plan) await install(plan);
-      return { ok: true, updated: plan !== null };
+      if (!plan) return { ok: true, updated: false };
+      await install(plan);
+      await restartRunners();
+      return { ok: true, updated: true };
     } catch (error) {
       return { ok: false, updated: false, error: errorMessage(error) };
     }
@@ -107,11 +125,11 @@ export function registerAppHandlers(pool: RunnerPool): void {
       wsEventBus.broadcast('onboarding.install.progress', line);
     };
     try {
-      const version = await npmRegistry().latestVersion('@moxxy/cli');
-      if (!version) throw new Error('The latest runner version could not be looked up — check the internet connection.');
+      const version = builtWithVersion ?? (await npmRegistry().latestVersion('@moxxy/cli'));
+      if (!version) throw new Error('The runner version could not be looked up — check the internet connection.');
       emit(`Installing @moxxy/cli ${version}…`);
       await install({ version, cli: { current: getCliVersion() }, plugins: [] }, emit);
-      await Promise.all(pool.list().map((e) => e.supervisor.restart()));
+      await restartRunners();
       return { code: 0, version: getCliVersion() };
     } catch (error) {
       emit(errorMessage(error));

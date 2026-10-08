@@ -2,7 +2,9 @@
  * The command palette: every place in the app and every action of the current
  * run, behind one filter field.
  *
- * Places go there at once. An action runs at once too, unless it takes
+ * It opens on the views. Typing finds what is inside them too (a settings
+ * option, a channel, an app), each row saying where it is. Places go there at
+ * once. An action runs at once too, unless it takes
  * parameters; then every field is shown together in a form, not one step at a
  * time. Results land in the transcript as a dismissible `action_result` block.
  *
@@ -14,18 +16,16 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@moxxy/client-core';
-import { Icon, Modal, type IconName } from '@moxxy/desktop-ui';
-import type { DestinationId } from '../../shell/navigation/destinations';
+import { Icon, Modal } from '@moxxy/desktop-ui';
+import type { Place } from '../../shell/navigation/places';
+import { searchPlaces } from '../../shell/navigation/search-places';
 import { ArgsForm } from './ArgsForm';
 import { runSessionCommand } from './run-command';
 import { humanize, quote, stepsForCommand, subcommandForCommand } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
 
-/** A place the palette can go to. */
-export interface PalettePlace {
-  readonly id: DestinationId;
-  readonly label: string;
-  readonly icon: IconName;
+/** A place the palette can go to, as the shell offers it right now. */
+export interface PalettePlace extends Place {
   readonly disabled: boolean;
   /** The shortcut that goes there, already formatted. */
   readonly hint?: string;
@@ -36,7 +36,7 @@ interface Props {
   readonly onClose: () => void;
   /** Places to offer above the actions. None when the palette is not in the shell. */
   readonly places?: ReadonlyArray<PalettePlace>;
-  readonly onPlace?: (id: DestinationId) => void;
+  readonly onPlace?: (place: PalettePlace) => void;
   /** An action already picked elsewhere (the composer's slash menu): open on its form. */
   readonly command?: CommandInfo;
 }
@@ -79,7 +79,7 @@ export function CommandPalette({
 
   const rows = useMemo((): ReadonlyArray<Row> => {
     const q = filter.trim().toLowerCase();
-    const matchingPlaces = q ? places.filter((p) => p.label.toLowerCase().includes(q)) : places;
+    const matchingPlaces = searchPlaces(places, filter);
     const matchingCommands = q
       ? commands.filter((c) => {
           if (c.name.toLowerCase().includes(q)) return true;
@@ -113,7 +113,7 @@ export function CommandPalette({
   const onSelect = (row: Row): void => {
     if (row.kind === 'place') {
       if (row.place.disabled) return;
-      onPlace?.(row.place.id);
+      onPlace?.(row.place);
       onClose();
       return;
     }
@@ -198,7 +198,7 @@ export function CommandPalette({
                       <Icon name={row.place.icon} size={15} />
                     </span>
                     <span className="palette__name">{row.place.label}</span>
-                    <span className="palette__desc" />
+                    <span className="palette__desc">{row.place.trail}</span>
                     {row.place.hint && <span className="palette__hint">{row.place.hint}</span>}
                   </>
                 ) : (

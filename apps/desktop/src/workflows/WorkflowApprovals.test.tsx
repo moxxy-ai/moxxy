@@ -47,7 +47,16 @@ describe('WorkflowApprovals', () => {
         status: 'pending',
       },
     ]);
-    act(() => connectionStore.setActive(WORKSPACE));
+    act(() => {
+      connectionStore.setActive(WORKSPACE);
+      // Only a connected runner is asked what is waiting.
+      connectionStore.setSnapshot(WORKSPACE, {
+        phase: { phase: 'connected', socket: '/tmp/moxxy.sock', sessionId: 's-1', activeProvider: null, activeMode: null },
+        cliPath: null,
+        attempts: 0,
+        log: [],
+      });
+    });
     render(<WorkflowApprovals />);
     expect(await screen.findByText('Daily report')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Approvals' })).toBeInTheDocument();

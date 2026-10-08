@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { useScheduler, useWebhooks, useWorkflows } from '@moxxy/client-core';
 import { IndexColumn, IndexEmpty, IndexRow } from '../shell/IndexColumn';
+import type { AutomationKind as Kind } from './kinds';
 
 /**
  * The Automations index: collapsible groups by kind, with the actual automations
@@ -17,8 +18,6 @@ import { IndexColumn, IndexEmpty, IndexRow } from '../shell/IndexColumn';
  * anything in it is disabled. Run outcomes are not in the IPC surface at all (see
  * the note in WorkflowsPanel), so no row claims to know how it last went.
  */
-
-export type Kind = 'workflows' | 'schedules' | 'webhooks';
 
 interface Item {
   readonly id: string;

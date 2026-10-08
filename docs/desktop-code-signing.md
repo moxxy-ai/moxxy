@@ -175,10 +175,11 @@ When the secrets above exist, CI does all of this — you don't edit anything:
   keychain and exports `MOXXY_MAC_SIGN_IDENTITY`; with it set,
   `apps/desktop/scripts/bundle-runtimes-seed.mjs` signs both runtimes before it
   packs them (see [Signed runtimes](#signed-runtimes-python-and-git) below).
-- Signing also unblocks macOS **Tier-2** (shell) auto-updates: Squirrel.Mac
-  refuses unsigned apps, so `apps/desktop/electron/main/shell-updater.ts`
-  currently no-ops on macOS. Once signed builds ship, remove that
-  `process.platform === 'darwin'` guard to enable it.
+- Signing also unblocks macOS **Tier-2** (shell) updates: Squirrel.Mac refuses
+  unsigned apps, so on an unsigned build the installer step of an update fails
+  and the installer screen offers the release page to download it by hand
+  (`apps/desktop/electron/main/shell-updater.ts`). A signed build installs it
+  from the same one click as everywhere else.
 
 So the only thing that changes between an unsigned and a signed release is the
 **presence of the secrets**.

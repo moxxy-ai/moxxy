@@ -10,10 +10,6 @@ import { useVoiceCall, type VoiceCallChat } from './useVoiceCall.js';
 
 type PushHandler = (payload: never) => void;
 
-const WAITING_TONE = {
-  audioUrl: '/assets/voice-waiting-loop.ogg',
-} as const;
-
 function createTransport(transcript: string | Promise<string> = 'Opowiedz mi o kawie') {
   const subscribers = new Map<string, Set<PushHandler>>();
   const invoke = vi.fn(async (channel: string) => {
@@ -75,10 +71,6 @@ function createAudioPlatform(startGate?: Promise<void>, resumeGate?: Promise<voi
   const utteranceMarks: Array<ReturnType<typeof vi.fn>> = [];
   const playback: SpeakOptions[] = [];
   const playbackStops: Array<ReturnType<typeof vi.fn>> = [];
-  const waitingTonePlayback: Array<{
-    readonly options: SpeakOptions;
-    readonly stop: ReturnType<typeof vi.fn>;
-  }> = [];
   const storage = new Map<string, string>();
   const systemSpeak = vi.fn();
   configurePlatform({
@@ -113,12 +105,6 @@ function createAudioPlatform(startGate?: Promise<void>, resumeGate?: Promise<voi
         playbackStops.push(stop);
         return { stop };
       }),
-      playUrl: vi.fn((url, options = {}) => {
-        if (url !== WAITING_TONE.audioUrl) throw new Error(`unexpected audio asset ${url}`);
-        const stop = vi.fn();
-        waitingTonePlayback.push({ options, stop });
-        return { stop };
-      }),
     },
     kv: {
       get length() {
@@ -137,7 +123,6 @@ function createAudioPlatform(startGate?: Promise<void>, resumeGate?: Promise<voi
     resumes,
     captureStops,
     utteranceMarks,
-    waitingTonePlayback,
     playback,
     playbackStops,
     storage,
@@ -171,7 +156,7 @@ afterEach(() => {
 });
 
 describe('useVoiceCall integration', () => {
-  it('starts the waiting tone while transcription is still in flight without restarting it', async () => {
+  it('holds the turn until the transcript arrives', async () => {
     const transcript = deferred<string>();
     const transport = createTransport(transcript.promise);
     const audio = createAudioPlatform();
@@ -182,7 +167,6 @@ describe('useVoiceCall integration', () => {
       ready: true,
       chat: chat({ send }),
       inputRequired: false,
-      waitingTone: WAITING_TONE,
     }));
 
     act(() => result.current.open());
@@ -195,13 +179,10 @@ describe('useVoiceCall integration', () => {
     }));
 
     await waitFor(() => expect(result.current.phase).toBe('transcribing'));
-    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(1), { timeout: 1_000 });
     expect(send).not.toHaveBeenCalled();
 
     act(() => transcript.resolve('Cześć'));
     await waitFor(() => expect(send).toHaveBeenCalledWith('Cześć'));
-    expect(audio.waitingTonePlayback).toHaveLength(1);
-    expect(audio.waitingTonePlayback[0]?.stop).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -304,7 +285,7 @@ describe('useVoiceCall integration', () => {
     expect(result.current.activeOperations).toEqual([]);
   });
 
-  it('loops the local waiting tone and persists the user sound preference', async () => {
+  it('is silent while the turn runs: it offers no waiting sound and keeps no preference for one', async () => {
     const transport = createTransport('Cześć');
     const audio = createAudioPlatform();
     __setApiOverride(transport.api);
@@ -314,7 +295,6 @@ describe('useVoiceCall integration', () => {
       ready: true,
       chat: chat({ send }),
       inputRequired: false,
-      waitingTone: WAITING_TONE,
     }));
 
     act(() => result.current.open());
@@ -325,25 +305,12 @@ describe('useVoiceCall integration', () => {
       peak: 0.4,
       sampleCount: 2,
     }));
-
     await waitFor(() => expect(send).toHaveBeenCalledWith('Cześć'));
-    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(1), { timeout: 1_000 });
-    expect(audio.waitingTonePlayback[0]?.options.loop).toBe(true);
-    expect(result.current.waitingSoundEnabled).toBe(true);
 
-    act(() => result.current.toggleWaitingSound());
-    expect(result.current.waitingSoundEnabled).toBe(false);
-    expect(audio.waitingTonePlayback[0]?.stop).toHaveBeenCalledOnce();
-    expect([...audio.storage.values()]).toContain('0');
-
-    act(() => result.current.toggleWaitingSound());
-    expect(result.current.waitingSoundEnabled).toBe(true);
-    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(2), { timeout: 1_000 });
-    expect([...audio.storage.values()]).toContain('1');
-    expect(transport.invoke).not.toHaveBeenCalledWith(
-      'session.synthesize',
-      expect.objectContaining({ text: expect.any(String) }),
-    );
+    expect(result.current).not.toHaveProperty('waitingSoundEnabled');
+    expect(result.current).not.toHaveProperty('toggleWaitingSound');
+    expect(audio.playback).toEqual([]);
+    expect(audio.storage.size).toBe(0);
   });
 
   it('runs microphone, existing transcription, same-chat turn and Piper back to listening', async () => {

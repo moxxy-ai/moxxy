@@ -81,7 +81,9 @@ runtime, and channel commands remain available but do not dominate help.
 The desktop leads with the conversation: a list of runs grouped by workspace,
 and the run you are in. Extensions, Settings, and the optional capabilities
 (collaboration, automation, apps, channels, voice, mobile) are reached from the
-account menu and the command palette, not from permanent navigation. The run's
+account menu and the command palette, not from permanent navigation. The
+palette finds an option by its own name and opens the place that holds it, so
+nobody has to know which view it lives in. The run's
 own header carries the two ways of working with that run that change the whole
 window: a voice conversation and focus mode.
 

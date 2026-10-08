@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { requestVoiceCall } from '@/lib/voiceCallRequest';
 import type { View } from '../views';
 import { RUNNER_LOCKED_REASON, isRunnerLocked, viewOf, type DestinationId } from './destinations';
+import type { PlaceTarget, SectionTarget } from './places';
 import type { ShellNav } from './ShellNav';
 
 /**
@@ -12,10 +13,13 @@ export function useShellNavigation({
   sessionLoading,
   onShowShortcuts,
   onOpenPalette,
+  onSection,
 }: {
   readonly sessionLoading: boolean;
   readonly onShowShortcuts: () => void;
   readonly onOpenPalette: () => void;
+  /** Shows a section in the view that owns it; the views keep that state. */
+  readonly onSection: (target: SectionTarget) => void;
 }): ShellNav {
   const [view, setView] = useState<View>('chat');
 
@@ -32,6 +36,14 @@ export function useShellNavigation({
     [isDisabled],
   );
 
+  const open = useCallback(
+    (target: PlaceTarget): void => {
+      if ('section' in target) onSection(target);
+      go(target.destination);
+    },
+    [go, onSection],
+  );
+
   // The session can start loading under a view that needs it.
   useEffect(() => {
     if (isDisabled(view)) setView('chat');
@@ -41,11 +53,12 @@ export function useShellNavigation({
     () => ({
       view,
       go,
+      open,
       isDisabled,
       disabledReason: RUNNER_LOCKED_REASON,
       showShortcuts: onShowShortcuts,
       openPalette: onOpenPalette,
     }),
-    [view, go, isDisabled, onShowShortcuts, onOpenPalette],
+    [view, go, open, isDisabled, onShowShortcuts, onOpenPalette],
   );
 }

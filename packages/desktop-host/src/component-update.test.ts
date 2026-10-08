@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execExecutableTargetSync, resolveExecutableTarget, type SafeExecFileSyncOptions } from '@moxxy/sdk/server';
 import {
   applyComponentUpdate,
+  componentsBehind,
   findNpm,
   planComponentUpdate,
   recoverComponentUpdates,
@@ -138,7 +139,7 @@ describe('planComponentUpdate', () => {
   it('lists the runner and the @moxxy plugins behind the latest release, skipping linked and unpublished ones', async () => {
     const { home } = profile();
 
-    const plan = await planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.2.0', ['@moxxy/plugin-a', '@moxxy/cli']) });
+    const plan = await planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.2.0', ['@moxxy/plugin-a', '@moxxy/cli']), version: '0.2.0' });
 
     expect(plan).toEqual({
       version: '0.2.0',
@@ -150,14 +151,41 @@ describe('planComponentUpdate', () => {
   it('has nothing to do when the runner and plugins are already on the latest release', async () => {
     const { home } = profile();
 
-    await expect(planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.1.0') })).resolves.toBeNull();
+    await expect(planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.1.0'), version: '0.1.0' })).resolves.toBeNull();
   }, NPM_TIMEOUT);
 
   it('has nothing to do when the release cannot be looked up (offline)', async () => {
     const { home } = profile();
     const offline: PackageRegistry = { latestVersion: async () => null, hasVersion: async () => false };
 
-    await expect(planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: offline })).resolves.toBeNull();
+    await expect(planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: offline, version: '0.2.0' })).resolves.toBeNull();
+  }, NPM_TIMEOUT);
+});
+
+describe('the version the app was built with', () => {
+  it('is where the runner and plugins go, whatever npm calls latest', async () => {
+    const { home } = profile();
+    const ahead: PackageRegistry = { latestVersion: async () => '0.9.0', hasVersion: async (_name, version) => version === '0.2.0' };
+
+    const plan = await planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: ahead, version: '0.2.0' });
+
+    expect(plan?.version).toBe('0.2.0');
+    expect(plan?.cli).toEqual({ current: '0.1.0' });
+  }, NPM_TIMEOUT);
+
+  it('is not planned for when npm does not have it', async () => {
+    const { home } = profile();
+    const unpublished: PackageRegistry = { latestVersion: async () => '0.1.0', hasVersion: async () => false };
+
+    await expect(planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: unpublished, version: '0.2.0' })).resolves.toBeNull();
+  }, NPM_TIMEOUT);
+
+  it('tells, without the network, whether the runner or a plugin is behind it', async () => {
+    const { home } = profile();
+
+    expect(await componentsBehind({ cliVersion: '0.1.0', moxxyHome: home, version: '0.2.0' })).toBe(true);
+    expect(await componentsBehind({ cliVersion: '0.2.0', moxxyHome: home, version: '0.2.0' })).toBe(true); // plugins on 0.1.0
+    expect(await componentsBehind({ cliVersion: '0.1.0', moxxyHome: home, version: '0.1.0' })).toBe(false);
   }, NPM_TIMEOUT);
 });
 
@@ -165,7 +193,7 @@ describe('applyComponentUpdate', () => {
   it('updates the plugins and the runner and leaves every piece of user data as it was', async () => {
     const { home, plugins, userData } = profile(['@moxxy/plugin-a', '@moxxy/lib-b', '@moxxy/plugin-hooks']);
     const before = dataFingerprint(home);
-    const plan = await planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.2.0') });
+    const plan = await planComponentUpdate({ cliVersion: '0.1.0', moxxyHome: home, registry: registry('0.2.0'), version: '0.2.0' });
     if (!plan) throw new Error('expected an update');
 
     await applyComponentUpdate({ plan, moxxyHome: home, userDataDir: userData, npm: npm(), spec });
