@@ -2,18 +2,21 @@
  * Composer attachment handling as a focused hook.
  *
  * Owns the list of files staged for the next send (de-duplicated by path) plus
- * every way one gets added: the rail's file-insert CustomEvent, the native file
- * picker (`session.pickAttachment`), and pasting/dropping an image blob (which
- * the main process persists to a temp file via `session.saveImageAttachment`).
- * A transient `attachError` surfaces when a pasted image can't be attached.
+ * every way one gets added: a file picked in the rail, the native file picker,
+ * and a file dropped on the chat or pasted into the field. A file named by its
+ * path is asked of the host first (`session.checkAttachment`); a file that
+ * arrives as bytes is sized here and then written to a temp file by the host.
+ * Either it is staged or `attachError` says why not: nothing is left to be
+ * dropped silently when the prompt is sent.
  *
- * Extracted verbatim from `Composer.tsx`; behavior is unchanged. The composer
- * passes a `focusInput` callback so the textarea regains focus after an attach
- * (it owns the textarea ref).
+ * The composer passes a `focusInput` callback so the textarea regains focus
+ * after an attach (it owns the textarea ref).
  */
 import { useCallback, useEffect, useState, type ClipboardEvent } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
+import { attachmentSizeProblem, isImageFileName } from '@moxxy/desktop-ipc-contract';
 import { FILE_INSERT_EVENT, type FileInsertDetail } from '@/shell/WorkspaceFiles';
+import { FILES_DROP_EVENT, type DroppedFiles } from './dropped-files';
 
 export interface ComposerAttachment {
   readonly path: string;
@@ -42,6 +45,9 @@ export function fileToBase64(file: Blob): Promise<string> {
   });
 }
 
+/** The image types the host stores as an image the model can see. */
+const STORED_AS_IMAGE = /^image\/(?:png|jpeg|gif|webp|bmp)$/u;
+
 export interface ComposerAttachments {
   /** Files staged for the next send (each ships as a `kind: 'file'` attachment). */
   readonly attachments: ReadonlyArray<ComposerAttachment>;
@@ -51,22 +57,20 @@ export interface ComposerAttachments {
   readonly removeAttachment: (path: string) => void;
   /** Drop every staged file (called after a successful send). */
   readonly clearAttachments: () => void;
-  /** Transient error shown when a pasted/dropped image can't be attached. */
+  /** Why the last files could not be attached. Stays until it is dismissed or files are added again. */
   readonly attachError: string | null;
+  readonly dismissAttachError: () => void;
   /** Open the native file picker and stage the chosen file. */
   readonly onAttach: () => Promise<void>;
-  /** Clipboard paste handler: grabs image blobs, falls through for text. */
+  /** Clipboard paste handler: stages files, falls through for text. */
   readonly onPaste: (e: ClipboardEvent<ComposerPasteTarget>) => void;
 }
 
 export function useComposerAttachments(focusInput: () => void): ComposerAttachments {
-  /** Files the user picked from the rail or the native picker. Each
-   *  one ships as a UserPromptAttachment with kind: 'file' + content:
+  /** Each one ships as a UserPromptAttachment with kind: 'file' + content:
    *  absolute path so the agent's read_file / cat tools find it. */
   const [attachments, setAttachments] = useState<ReadonlyArray<ComposerAttachment>>([]);
-  /** Transient error surfaced under the composer when a pasted image
-   *  can't be attached (too large / unreadable). */
-  const [attachError, setAttachError] = useState<string | null>(null);
+  const [problems, setProblems] = useState<ReadonlyArray<string>>([]);
 
   const addAttachment = useCallback((att: ComposerAttachment): void => {
     setAttachments((cur) => (cur.some((a) => a.path === att.path) ? cur : [...cur, att]));
@@ -76,7 +80,63 @@ export function useComposerAttachments(focusInput: () => void): ComposerAttachme
   }, []);
   const clearAttachments = useCallback((): void => {
     setAttachments([]);
+    // The prompt has gone: what was said about its files is said.
+    setProblems([]);
   }, []);
+  const dismissAttachError = useCallback((): void => setProblems([]), []);
+  const refuse = useCallback((problem: string): void => setProblems((cur) => [...cur, problem]), []);
+
+  /** A file already on disk: the host says whether a prompt would go out with it. */
+  const stagePath = useCallback(
+    async (att: ComposerAttachment): Promise<void> => {
+      setProblems([]);
+      // A host that cannot answer is not a reason to refuse the file.
+      const problem = await api()
+        .invoke('session.checkAttachment', { path: att.path, name: att.name })
+        .catch(() => null);
+      if (typeof problem === 'string') {
+        refuse(problem);
+        return;
+      }
+      addAttachment(att);
+      focusInput();
+    },
+    [addAttachment, focusInput, refuse],
+  );
+
+  /** Files that arrive as bytes: sized before they are read, then written to a
+   *  temp file by the host so they ride the same send pipeline as a picked one. */
+  const stageFiles = useCallback(
+    async (files: ReadonlyArray<File>): Promise<void> => {
+      for (const file of files) {
+        const image = STORED_AS_IMAGE.test(file.type);
+        const problem = attachmentSizeProblem({
+          name: file.name,
+          size: file.size,
+          image: image || isImageFileName(file.name),
+        });
+        if (problem) {
+          refuse(problem);
+          continue;
+        }
+        try {
+          const dataBase64 = await fileToBase64(file);
+          const att = image
+            ? await api().invoke('session.saveImageAttachment', {
+                dataBase64,
+                mediaType: file.type,
+                ...(file.name ? { name: file.name } : {}),
+              })
+            : await api().invoke('session.saveAttachment', { dataBase64, name: file.name });
+          addAttachment(att);
+          focusInput();
+        } catch (err) {
+          refuse(toErrorMessage(err));
+        }
+      }
+    },
+    [addAttachment, focusInput, refuse],
+  );
 
   // The context rail's file tree fires a CustomEvent when the user
   // clicks a file. We treat it as an attachment, not text — the
@@ -86,71 +146,58 @@ export function useComposerAttachments(focusInput: () => void): ComposerAttachme
     const handler = (ev: Event): void => {
       const detail = (ev as CustomEvent<FileInsertDetail>).detail;
       if (!detail?.absPath) return;
-      addAttachment({ path: detail.absPath, name: detail.name });
-      window.setTimeout(() => focusInput(), 0);
+      void stagePath({ path: detail.absPath, name: detail.name });
     };
     window.addEventListener(FILE_INSERT_EVENT, handler);
     return () => window.removeEventListener(FILE_INSERT_EVENT, handler);
-  }, [addAttachment, focusInput]);
+  }, [stagePath]);
 
-  /** Persist a pasted/dropped image blob to a temp file via the main
-   *  process, then add the returned path as a regular attachment so it
-   *  rides the same send pipeline as picked files. */
-  const attachImageFile = useCallback(
-    async (file: File): Promise<void> => {
-      try {
-        const dataBase64 = await fileToBase64(file);
-        const att = await api().invoke('session.saveImageAttachment', {
-          dataBase64,
-          mediaType: file.type,
-          ...(file.name ? { name: file.name } : {}),
-        });
-        addAttachment(att);
-        focusInput();
-      } catch (err) {
-        setAttachError(toErrorMessage(err));
-        window.setTimeout(() => setAttachError(null), 3000);
-      }
-    },
-    [addAttachment, focusInput],
-  );
+  useEffect(() => {
+    const handler = (ev: Event): void => {
+      const { files, folders } = (ev as CustomEvent<DroppedFiles>).detail;
+      setProblems(folders.map((name) => `${name} is a folder. Attach the files inside it.`));
+      void stageFiles(files);
+    };
+    window.addEventListener(FILES_DROP_EVENT, handler);
+    return () => window.removeEventListener(FILES_DROP_EVENT, handler);
+  }, [stageFiles]);
 
   const onPaste = useCallback(
     (e: ClipboardEvent<ComposerPasteTarget>): void => {
-      // Grab image blobs off the clipboard (screenshots, copied images).
-      // If there are none, fall through to the browser's default paste so
-      // text keeps working untouched.
-      const images = Array.from(e.clipboardData.items).filter(
-        (it) => it.kind === 'file' && it.type.startsWith('image/'),
-      );
-      if (images.length === 0) return;
+      // Files off the clipboard: a screenshot, a copied image, a file copied
+      // in the file manager. With none, the default paste goes ahead so text
+      // keeps working untouched.
+      const files = Array.from(e.clipboardData.items)
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      if (files.length === 0) return;
       e.preventDefault();
-      for (const item of images) {
-        const file = item.getAsFile();
-        if (file) void attachImageFile(file);
-      }
+      setProblems([]);
+      void stageFiles(files);
     },
-    [attachImageFile],
+    [stageFiles],
   );
 
   const onAttach = useCallback(async () => {
     try {
       const path = await api().invoke('session.pickAttachment');
       if (!path) return;
-      const name = path.split('/').pop() ?? path;
-      addAttachment({ path, name });
-      focusInput();
+      // Either separator: the picker answers with the platform's own.
+      const name = path.split(/[\\/]/u).pop() ?? path;
+      await stagePath({ path, name });
     } catch {
       /* noop — file picker errors are non-fatal */
     }
-  }, [addAttachment, focusInput]);
+  }, [stagePath]);
 
   return {
     attachments,
     addAttachment,
     removeAttachment,
     clearAttachments,
-    attachError,
+    attachError: problems.length > 0 ? problems.join(' ') : null,
+    dismissAttachError,
     onAttach,
     onPaste,
   };

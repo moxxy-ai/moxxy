@@ -24,6 +24,8 @@ import { fileToBase64, useComposerAttachments } from './useComposerAttachments';
 
 beforeEach(() => {
   invoke.mockReset();
+  // The boundary always answers with a promise; with nothing to say it resolves to nothing.
+  invoke.mockResolvedValue(undefined);
 });
 
 describe('fileToBase64', () => {
@@ -58,14 +60,14 @@ describe('useComposerAttachments', () => {
     expect(result.current.attachments).toEqual([]);
   });
 
-  it('stages a file from the rail file-insert event', () => {
+  it('stages a file from the rail file-insert event', async () => {
     const { result } = renderHook(() => useComposerAttachments(() => undefined));
     act(() => {
       window.dispatchEvent(
         new CustomEvent('moxxy:file-insert', { detail: { absPath: '/x/y.md', name: 'y.md' } }),
       );
     });
-    expect(result.current.attachments).toEqual([{ path: '/x/y.md', name: 'y.md' }]);
+    await waitFor(() => expect(result.current.attachments).toEqual([{ path: '/x/y.md', name: 'y.md' }]));
   });
 
   it('ignores a file-insert event with no absPath', () => {

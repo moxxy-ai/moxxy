@@ -15,55 +15,36 @@ export function SidebarChannels({
 }): JSX.Element | null {
   if (items.length === 0) return null;
   return (
-    <section data-testid="sidebar-channels" style={{ marginTop: 'var(--space-12)' }}>
+    <section data-testid="sidebar-channels" className="sidebar-channels">
       <button
         type="button"
+        className="run-section__head sidebar-channels__head"
         onClick={onToggle}
         aria-expanded={expanded}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          width: '100%',
-          padding: 'var(--space-4) var(--space-6)',
-          background: 'none',
-          border: 'none',
-          color: 'var(--color-text-dim)',
-          fontSize: 'var(--type-label)',
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          cursor: 'pointer',
-        }}
       >
-        <span style={{ display: 'inline-flex', transform: expanded ? 'rotate(90deg)' : 'none' }}>
+        <span className="run-section__chevron" data-open={expanded} aria-hidden>
           <Icon name="chevron-right" size={12} />
         </span>
-        Channels
+        <span className="run-section__name">Channels</span>
+        <span className="run-section__count" aria-hidden>
+          {items.length}
+        </span>
       </button>
       {expanded && (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <ul className="run-section__rows">
           {items.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
+                className="sidebar-channel"
                 onClick={() => onOpen(c.id)}
                 data-testid={`sidebar-channel-${c.id}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: 'var(--space-4) var(--space-6) var(--space-4) var(--space-20)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--color-text)',
-                  fontSize: 'var(--type-row)',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                }}
               >
+                <span className="sidebar-channel__icon" aria-hidden>
+                  <Icon name="broadcast" size={15} />
+                </span>
+                <span className="sidebar-channel__name">{c.name}</span>
                 <span className="led" data-state={c.state} aria-hidden />
-                {c.name}
               </button>
             </li>
           ))}

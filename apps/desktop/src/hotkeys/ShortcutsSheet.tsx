@@ -24,8 +24,6 @@ export function ShortcutsSheet({ onClose }: { readonly onClose: () => void }): J
               style={{
                 margin: 0,
                 fontSize: 'var(--type-ui-sm)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
                 color: 'var(--color-text-muted)',
               }}
             >

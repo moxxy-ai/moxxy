@@ -30,7 +30,7 @@ describe('voice rail responsive contract', () => {
 
   it('moves the work onto its own row when the rail is as narrow as the floating composer', () => {
     expect(stylesheet).toMatch(
-      /@container voice-rail \(max-width: 520px\)[\s\S]*?\.voice-rail\s*\{[^}]*grid-template-areas:[^}]*'work work work'/,
+      /@container voice-rail \(max-width: 520px\)[\s\S]*?\.voice-rail-body\s*\{[^}]*grid-template-areas:[^}]*'work work'/,
     );
   });
 });

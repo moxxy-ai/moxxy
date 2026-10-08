@@ -60,7 +60,7 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
           Back
         </Button>
         <label className="form__field" style={{ minWidth: 200 }}>
-          <span className="form__label">name</span>
+          <span className="form__label">Name</span>
           <TextInput
             tone="soft"
             mono
@@ -70,7 +70,7 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
           />
         </label>
         <label className="form__field" style={{ flex: 1, minWidth: 0 }}>
-          <span className="form__label">description</span>
+          <span className="form__label">Description</span>
           <TextInput
             tone="soft"
             value={state.meta.description}
@@ -79,7 +79,7 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
           />
         </label>
         <div className="form__field">
-          <span className="form__label">runs in</span>
+          <span className="form__label">Runs in</span>
           <TargetSessionPicker
             label=""
             value={state.meta.targetSessionId ?? null}
@@ -128,22 +128,18 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
   );
 }
 
-/** The draft's validation state, as the same outlined readout every other state
- *  in the app uses. It is a `.tag`, not a button: you cannot press it. */
+/** The draft's validation state, as the same chip every other state in the
+ *  app uses. It is a `.tag`, not a button: you cannot press it. */
 function ValidityBadge({ valid, validating }: { valid: boolean | null; validating: boolean }): JSX.Element {
-  const { label, color } = validating
-    ? { label: 'checking', color: 'var(--color-text-dim)' }
+  const { label, tone } = validating
+    ? { label: 'Checking', tone: undefined }
     : valid === true
-      ? { label: 'valid', color: 'var(--color-green)' }
+      ? { label: 'Valid', tone: 'good' }
       : valid === false
-        ? { label: 'invalid', color: 'var(--color-red-text)' }
-        : { label: 'unsaved', color: 'var(--color-text-dim)' };
+        ? { label: 'Invalid', tone: 'bad' }
+        : { label: 'Unsaved', tone: undefined };
   return (
-    <span
-      className="tag"
-      data-testid="validity-badge"
-      style={{ height: 'var(--frame-row)', color, borderColor: color }}
-    >
+    <span className="tag" data-testid="validity-badge" data-tone={tone}>
       {label}
     </span>
   );

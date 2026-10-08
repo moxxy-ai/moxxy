@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
@@ -6,7 +6,7 @@ import { Transcript } from './Transcript';
 import { Composer } from './Composer';
 import { AskSheet } from './AskSheet';
 import { useActiveAsk } from '@moxxy/client-core';
-import { Header } from './chat-surface/Header';
+import { Header, type WorkPanelControl } from './chat-surface/Header';
 import { useAgentSession, type ModelOwner } from './agent-picker/useAgentSession';
 import type { RunState } from '../shell/InstrumentBar';
 import { ChatLoading } from './chat-surface/ChatLoading';
@@ -17,7 +17,10 @@ import { useChatDock } from './chat-surface/useChatDock';
 import { ChatHideButton, ChatLauncher } from './chat-surface/ChatDockControls';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
+import { usePlanNext } from './modes/plan-next';
 import { VoicePresenceRail } from '../voice-call/VoicePresenceRail';
+import { DropVeil } from './DropVeil';
+import { useFileDropZone } from './useFileDropZone';
 import { useVoiceCallRequest } from '@/lib/voiceCallRequest';
 import { abortTurnPulse, transcriptSearchPulse } from '@/lib/chatPulses';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
@@ -42,6 +45,8 @@ interface ChatSurfaceProps {
   /** The workbench is in full view: the chat floats over it as a composer.
    *  The transcript stays mounted, hidden, so coming back finds it as it was. */
   readonly docked?: boolean;
+  /** The work panel beside this chat; its toggle goes in the header. */
+  readonly workPanel?: WorkPanelControl;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -103,6 +108,7 @@ export function ChatSurface({
   notice,
   modelOwner,
   docked = false,
+  workPanel,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const actionCatalog = useActionCatalog(workspaceId);
@@ -128,6 +134,14 @@ export function ChatSurface({
     if (chat.activeTurnId !== null || chat.sending) void chat.abort();
   });
   const imagePreview = useImagePreview();
+  // A finished plan offers to be carried out; never while a turn runs or one waits on the person.
+  const sendPrompt = useCallback((prompt: string): void => void chat.send(prompt), [chat.send]);
+  const planNext = usePlanNext({
+    workspaceId,
+    ready,
+    busy: chat.sending || chat.activeTurnId !== null || chat.compacting || activeAsk !== null,
+    onSend: sendPrompt,
+  });
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
@@ -181,7 +195,14 @@ export function ChatSurface({
   });
 
   useVoiceCallRequest(voiceCall.open);
+  const voiceControl = {
+    active: voiceCall.active,
+    disabled: !ready || chat.compacting || chat.activeTurnId !== null || chat.sending,
+    onToggle: voiceCall.active ? voiceCall.close : voiceCall.open,
+  };
   const dock = useChatDock(docked, activeAsk !== null);
+  // Files dropped anywhere on the chat go to the composer, which stages them.
+  const drop = useFileDropZone();
   const mainClass = dock.minimized
     ? 'col-main col-main--flat col-main--docked col-main--minimized'
     : docked
@@ -209,6 +230,8 @@ export function ChatSurface({
           onSearchChange={setSearchQuery}
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
+          {...(workPanel ? { workPanel } : {})}
+          voice={voiceControl}
         />}
         <div
           key={workspaceId}
@@ -224,7 +247,7 @@ export function ChatSurface({
   }
 
   return (
-    <main className={mainClass}>
+    <main className={mainClass} {...drop.zone}>
       {!docked && <Header
         phase={phase}
         deskName={title?.context ?? activeDesk?.name ?? null}
@@ -237,6 +260,8 @@ export function ChatSurface({
         onSearchChange={setSearchQuery}
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
+        {...(workPanel ? { workPanel } : {})}
+        voice={voiceControl}
       />}
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}
@@ -264,6 +289,7 @@ export function ChatSurface({
             onReachedTop={chat.loadOlder}
             onPreviewImage={imagePreview.open}
             compactTools={compactTools}
+            onPlanNext={searchQuery ? null : planNext}
           />
         )}
       </div>
@@ -281,7 +307,6 @@ export function ChatSurface({
               rail={voicePresentation.rail}
               agentWork={voicePresentation.agentWork}
               microphoneMuted={voiceCall.microphoneMuted}
-              waitingSoundEnabled={voiceCall.waitingSoundEnabled}
               localPiperInstallRequired={voiceCall.localPiperInstallRequired}
               localPiperInstalling={voiceCall.localPiperInstalling}
               localPiperInstallError={voiceCall.localPiperInstallError}
@@ -292,7 +317,6 @@ export function ChatSurface({
               onInstallLocalPiper={voiceCall.installLocalPiper}
               onMuteMicrophone={voiceCall.muteMicrophone}
               onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-              onToggleWaitingSound={voiceCall.toggleWaitingSound}
               onClose={voiceCall.close}
             />
           </div>
@@ -312,6 +336,8 @@ export function ChatSurface({
         />
       </div>
       {chat.error && <ErrorToast text={chat.error} />}
+      {/* Floating over a pane, the composer takes the drop without a veil over the pane. */}
+      {drop.over && !docked && <DropVeil />}
       <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       {renameOpen && activeDesk && (
         <RenameWorkspaceModal

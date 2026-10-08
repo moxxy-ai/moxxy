@@ -404,8 +404,6 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
 const badge = (updated: boolean): React.CSSProperties => ({
   fontSize: 'var(--type-label)',
   fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: 0.4,
   padding: '2px 7px',
   borderRadius: 'var(--radius-pill)',
   color: updated ? 'var(--color-green)' : 'var(--color-text-dim)',

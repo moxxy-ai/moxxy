@@ -5,6 +5,9 @@
  * shipped now but not yet consumed by the desktop (styles.css stays the source
  * of truth) — the parity test guards the mapping so a later switch is safe.
  *
+ * The desktop projects its OWN palette pair (`./desktop.ts`). The generators
+ * default to the shared pair mobile reads and take the desktop's as arguments.
+ *
  * TODO(design-tokens): cut apps/desktop over to {@link generateThemeCss} and
  * delete the duplicated `:root` / `[data-theme="dark"]` literals in styles.css.
  * Until then these generators are intentional, parity-tested scaffolding.
@@ -102,13 +105,15 @@ export function flattenTokens(node: unknown, prefix = ''): TokenLeaf[] {
   return out;
 }
 
-/** Build `[cssVarName, value]` pairs for one palette, in token-declaration order. */
-function varPairs(t: ThemeTokens): ReadonlyArray<readonly [string, string]> {
+type VarPairs = ReadonlyArray<readonly [string, string]>;
+
+/** `[cssVarName, value]` pairs for one palette, in token-declaration order. */
+export function cssVarPairs(t: ThemeTokens): VarPairs {
   return flattenTokens(t).map(({ path, value }) => [cssVarName(path), value] as const);
 }
 
-/** `[cssVarName, value]` pairs for the LIGHT (default) palette. */
-export const CSS_VAR_MAP: ReadonlyArray<readonly [string, string]> = varPairs(tokens);
+/** `[cssVarName, value]` pairs for the shared LIGHT (default) palette. */
+export const CSS_VAR_MAP: VarPairs = cssVarPairs(tokens);
 
 /** True for a variable the dark theme has to re-declare. Stated as an INCLUSION
  *  (`--color-*`) rather than a list of things to exclude: every theme-varying
@@ -120,26 +125,35 @@ export function isThemedVar(name: string): boolean {
   return name.startsWith('--color-');
 }
 
-/** `[cssVarName, value]` pairs for the DARK palette ({@link darkTokens}).
- *  Fonts, radii, spacing, type sizes, frame heights and motion are
- *  theme-invariant, so the dark override block only carries colour. */
-export const DARK_CSS_VAR_MAP: ReadonlyArray<readonly [string, string]> = varPairs(
-  darkTokens,
-).filter(([name]) => isThemedVar(name));
-
-/** Render the light tokens as a `:root { … }` CSS block. */
-export function generateRootCss(): string {
-  const lines = CSS_VAR_MAP.map(([name, value]) => `  ${name}: ${value};`);
-  return `:root {\n${lines.join('\n')}\n}`;
+/** The pairs a dark palette has to re-declare. Fonts, radii, spacing, type
+ *  sizes, frame heights and motion are theme-invariant, so the dark override
+ *  block only carries colour. */
+export function darkCssVarPairs(t: ThemeTokens): VarPairs {
+  return cssVarPairs(t).filter(([name]) => isThemedVar(name));
 }
 
-/** Render both palettes: `:root { … }` (light, plus `color-scheme: light`)
- *  followed by a `[data-theme="dark"] { … }` override block. */
-export function generateThemeCss(): string {
-  const dark = DARK_CSS_VAR_MAP.map(([name, value]) => `  ${name}: ${value};`);
+/** `[cssVarName, value]` pairs for the shared DARK palette ({@link darkTokens}). */
+export const DARK_CSS_VAR_MAP: VarPairs = darkCssVarPairs(darkTokens);
+
+function declarations(pairs: VarPairs): string {
+  return pairs.map(([name, value]) => `  ${name}: ${value};`).join('\n');
+}
+
+/** Render a light palette as a `:root { … }` CSS block. */
+export function generateRootCss(light: ThemeTokens = tokens): string {
+  return `:root {\n${declarations(cssVarPairs(light))}\n}`;
+}
+
+/** Render a palette pair: `:root { … }` (light) followed by a
+ *  `[data-theme="dark"] { … }` override block. Defaults to the shared pair
+ *  mobile reads; the desktop passes its own (`./desktop.ts`). */
+export function generateThemeCss(
+  light: ThemeTokens = tokens,
+  dark: ThemeTokens = darkTokens,
+): string {
   return [
-    generateRootCss(),
+    generateRootCss(light),
     '',
-    `[data-theme="dark"] {\n${dark.join('\n')}\n  color-scheme: dark;\n}`,
+    `[data-theme="dark"] {\n${declarations(darkCssVarPairs(dark))}\n  color-scheme: dark;\n}`,
   ].join('\n');
 }

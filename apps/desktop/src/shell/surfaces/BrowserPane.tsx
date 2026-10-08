@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRegionSelect, type Rect } from './useRegionSelect';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import type { BrowserTabInfo } from '@moxxy/desktop-ipc-contract';
@@ -65,8 +65,12 @@ function TabView({
     ...(requestId ? { requestId } : {}),
   });
 
-  // Let the chrome above act on whichever view is in front.
-  if (visible) onState(tabId, url || initialUrl);
+  // Let the chrome above act on whichever view is in front. After every render,
+  // not during it: the chrome keeps this in its own state, and a component may
+  // not set another's while it renders.
+  useEffect(() => {
+    if (visible) onState(tabId, url || initialUrl);
+  });
 
   return (
     <webview

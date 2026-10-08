@@ -32,14 +32,13 @@ export function TargetSessionPicker({
         alignItems: 'center',
         gap: 'var(--space-6)',
         fontSize: 'var(--type-label)',
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
         color: 'var(--color-text-dim)',
       }}
     >
       {label}
       <Select
         tone="soft"
+        aria-label={label === '' ? 'Runs in' : undefined}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
         style={{ maxWidth: 220 }}

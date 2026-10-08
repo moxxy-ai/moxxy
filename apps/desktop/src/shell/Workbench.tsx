@@ -1,35 +1,28 @@
 /**
- * The workbench: the right-hand pane, as a TABBED workbench rather than a
- * drawer that shows one thing at a time.
+ * The workbench: the right-hand pane, with one tab per kind of work (terminal,
+ * files, diff, browser).
  *
- * What this replaces: a rail whose contents were chosen from a dropdown in the
- * header, defaulted to fully collapsed, and contributed zero width when closed.
- * Three consequences, all fixed here:
+ * Closed, it draws nothing and takes no room; the run's header holds the way
+ * in. The element itself stays in the tree, because of the browser (below).
  *
- *   1. You could not tell that a terminal and a diff both existed, let alone
- *      switch between them — picking one meant reopening a menu.
- *   2. Closed meant GONE. Nothing on screen said a workbench was available, so
- *      the panes were effectively undiscoverable. Closed now leaves a vertical
- *      tab strip, which is also how you reopen it.
- *   3. The changed-file count was invisible until you went looking for it. It
- *      is on the tab.
- *
- * Two constraints from the old rail are load-bearing and preserved:
+ * Two constraints are load-bearing:
  *
  *   - Width is NEVER transitioned. TerminalPane's xterm `fit()` measures at
  *     mount, and an animated width let it measure a sliver and lock the PTY to
- *     a couple of columns. Open/close is a snap; only the seam fades.
+ *     a couple of columns. Open and close snap.
  *   - The active pane is mounted only while the workbench is open, so a pane
  *     never mounts into a zero-width box.
  *
- * The browser is the exception: once opened it stays mounted, hidden off-screen
- * while collapsed or behind another pane. Unmounting it destroys its pages (a
- * `<webview>` dies with its element), so a tab would vanish on a collapse.
+ * The browser is the exception: once opened it stays mounted, parked
+ * off-screen while the workbench is closed or showing another pane. Unmounting
+ * it destroys its pages (a `<webview>` dies with its element), so a tab would
+ * vanish on a close.
  */
 
 import { useRef, useState } from 'react';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { chordLabel } from '@/hotkeys/chordLabel';
 import {
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
@@ -90,12 +83,12 @@ export function Workbench({
   full = false,
   onToggleFull,
 }: {
-  /** Active tab, or null when the workbench is collapsed. */
+  /** Active tab, or null when the workbench is closed. */
   readonly tab: WorkbenchTab | null;
   readonly onPick: (tab: WorkbenchTab) => void;
   readonly onClose: () => void;
   readonly workspaceId: string | null;
-  /** Badge on the Diff tab. Undefined while unknown (not a git repo, not
+  /** Count on the Diff tab. Undefined while unknown (not a git repo, not
    *  loaded yet) so an unknown count never renders as a confident zero. */
   readonly changedCount?: number;
   /** Full view: the pane fills the window and the chat floats over it as a
@@ -145,27 +138,6 @@ export function Workbench({
     window.addEventListener('pointerup', onUp);
   };
 
-  // Collapsed: a vertical strip of the same tabs. This is the whole fix for
-  // "closed meant gone" — the workbench is always visible as an affordance, and
-  // clicking any tab both opens it and selects that pane.
-  const stubs = TABS.map((t) => (
-    <button
-      key={t.id}
-      type="button"
-      className="bench__stub tip"
-      data-testid={`bench-open-${t.id}`}
-      data-tip={`Open ${t.label}`}
-      data-tip-side="left"
-      aria-label={`Open ${t.label}`}
-      onClick={() => onPick(t.id)}
-    >
-      <Icon name={t.icon} size={15} />
-      {t.id === 'files' && changedCount !== undefined && changedCount > 0 && (
-        <span className="bench__count">{changedCount}</span>
-      )}
-    </button>
-  ));
-
   // One <aside> in both states, the body always last: the kept browser must
   // stay at the same place in the tree, or React remounts it.
   return (
@@ -173,9 +145,10 @@ export function Workbench({
       ref={ref}
       className={!open ? 'bench bench--closed' : isFull ? 'bench bench--full' : 'bench'}
       aria-label="Workbench"
+      aria-hidden={open ? undefined : true}
       style={open && !isFull ? { width } : undefined}
     >
-      {open ? (
+      {open && (
         <>
           {!isFull && <div
             role="separator"
@@ -246,7 +219,8 @@ export function Workbench({
                   aria-label={isFull ? 'Exit full view' : 'Full view'}
                   aria-pressed={isFull}
                   data-testid="bench-full"
-                  data-tip={isFull ? 'Exit full view  ⇧⌘F' : 'Full view  ⇧⌘F'}
+                  data-hotkey="view.workbenchFull"
+                  data-tip={`${isFull ? 'Exit full view' : 'Full view'}  ${chordLabel('mod+shift+f')}`}
                   data-tip-side="left"
                   onClick={onToggleFull}
                 >
@@ -267,8 +241,6 @@ export function Workbench({
             </span>
           </div>
         </>
-      ) : (
-        stubs
       )}
 
       {/* Only the active pane mounts, and only while open — see the header note

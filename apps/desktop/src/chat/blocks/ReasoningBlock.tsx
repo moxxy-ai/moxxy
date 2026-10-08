@@ -4,69 +4,36 @@ import { Icon } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '../MarkdownBody';
 
 /**
- * A finalized reasoning summary persisted in the log — the model's thinking
- * that preceded the following tool calls / answer text. Rendered DIM and
- * COLLAPSED by default (a "Thinking" header + chevron); expanding reveals the
- * markdown summary. Redacted reasoning is never expandable — a static
- * "[reasoning withheld]" line stands in for the opaque blob.
+ * The model's thinking before the calls or the answer that follow it. Folded
+ * and quiet by default; opening it shows the summary. Withheld reasoning has
+ * nothing to open, so one line stands in for it.
  */
 export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEvent }): JSX.Element {
   const [open, setOpen] = useState(false);
 
   if (event.redacted) {
     return (
-      <div
-        data-testid="block-reasoning"
-        className="mono"
-        style={{
-          alignSelf: 'stretch',
-          maxWidth: '92%',
-          fontSize: 'var(--type-meta)',
-          color: 'var(--color-text-dim)',
-          fontStyle: 'italic',
-          padding: '2px 0',
-        }}
-      >
-        [reasoning withheld]
+      <div className="reasoning reasoning--withheld" data-testid="block-reasoning">
+        Reasoning withheld
       </div>
     );
   }
 
   return (
-    <div
-      data-testid="block-reasoning"
-      style={{ alignSelf: 'stretch', maxWidth: '92%', opacity: 0.8 }}
-    >
+    <div className="reasoning" data-testid="block-reasoning">
       <button
         type="button"
+        className="reasoning__toggle"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '2px 0',
-          width: '100%',
-          textAlign: 'left',
-        }}
       >
-        <span
-          aria-hidden
-          style={{
-            color: 'var(--color-text-dim)',
-            transform: open ? 'rotate(90deg)' : 'none',
-            transition: 'transform 120ms ease',
-            display: 'inline-flex',
-          }}
-        >
-          <Icon name="chevron-right" size={14} />
+        <span className="reasoning__chevron" data-open={open} aria-hidden>
+          <Icon name="chevron-right" size={12} />
         </span>
-        <span style={{ fontWeight: 600, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
-          Thinking
-        </span>
+        <span className="reasoning__label">Thinking</span>
       </button>
       {open && (
-        <div style={{ marginTop: 4, paddingLeft: 22, color: 'var(--color-text-muted)' }}>
+        <div className="reasoning__body">
           <MarkdownBody text={event.content} />
         </div>
       )}

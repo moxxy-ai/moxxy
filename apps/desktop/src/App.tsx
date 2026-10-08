@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MoxxyMark } from '@/components/MoxxyMark';
 import {
   ConnectionBridge,
@@ -21,11 +21,14 @@ import { useAppHotkeys } from './hotkeys/useAppHotkeys';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
+import { CommandPalette } from './chat/CommandPalette';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
-import { AppRail } from './shell/AppRail';
-import type { View } from './shell/views';
+import { ShellNavProvider } from './shell/navigation/ShellNav';
+import { useShellNavigation } from './shell/navigation/useShellNavigation';
+import { usePalettePlaces } from './shell/navigation/usePalettePlaces';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
+import { showsRuns } from './shell/views';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
@@ -49,9 +52,7 @@ import {
   describeConnectionPhase,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
-
-const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['collaborate', 'apps', 'automations'];
-const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
+import { useAttention } from './attention/useAttention';
 
 /**
  * Top-level shell. Runner startup is non-blocking: persisted desks/history can
@@ -61,8 +62,9 @@ const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
  *   1. CLI / provider onboarding takes the whole pane while either
  *      condition is unmet.
  *   2. A terminal first-connect failure owns the pane.
- *   3. Otherwise the Harness frame renders:
- *      AppRail | index column | field | workbench.
+ *   3. Otherwise the shell renders: sidebar | conversation | workbench.
+ *      Every other place is reached from the sidebar's account row or the
+ *      command palette (see `shell/navigation`).
  */
 export function App(): JSX.Element {
   // Theme controller — applies the persisted light/dark/system pref to
@@ -76,13 +78,12 @@ export function App(): JSX.Element {
   // Prime the authoritative desk overview independently of runner startup. Its
   // shared store also points connectionStore at the persisted active session,
   // letting the shell + disk-backed transcript render before a pool snapshot.
-  useDesks();
+  const { desks, setActiveSession } = useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
   const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
-  const [view, setView] = useState<View>('chat');
   const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
@@ -92,6 +93,9 @@ export function App(): JSX.Element {
   const [settingsTab, setSettingsTab] = useSettingsTab('settings');
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
@@ -141,11 +145,6 @@ export function App(): JSX.Element {
     );
   }, [activeWorkspaceId, connectedProvider]);
 
-  // When an app (or other off-chat surface) does "Send to chat", it stages a
-  // composer draft and pulses a request to show the chat view — switch to it so
-  // the user lands on the prefilled composer.
-  useComposerChatViewRequest(() => setView('chat'));
-
   // Boot-probe heartbeat: the React tree mounted, so a hot-updated bundle is
   // healthy — tell main to confirm it (no-op on the bundled floor). A SINGLE
   // swallowed invoke here was the prime suspect for "updates but reverts to the
@@ -186,32 +185,43 @@ export function App(): JSX.Element {
     lastConnected,
     sessionInfoReady,
   });
-  const runnerTabsLocked = shell.sessionLoading;
-  const onView = (next: View): void => {
-    if (runnerTabsLocked && isRunnerLockedView(next)) {
-      setView('chat');
-      return;
-    }
-    setView(next);
-  };
+  const nav = useShellNavigation({
+    sessionLoading: shell.sessionLoading,
+    onShowShortcuts: showShortcuts,
+    onOpenPalette: openPalette,
+  });
+  const { view, go } = nav;
+  useAttention({
+    desks,
+    mainChatId: view === 'chat' ? activeWorkspaceId : null,
+    activeId: activeWorkspaceId,
+    onOpen: useCallback(
+      (sessionId: string) => {
+        void setActiveSession(sessionId);
+        go('chat');
+        // Shows and focuses the main window, closing the Mini Chat if it is open.
+        void api().invoke('focus.restoreMain');
+      },
+      [setActiveSession, go],
+    ),
+  });
 
-  useEffect(() => {
-    if (runnerTabsLocked && isRunnerLockedView(view)) {
-      setView('chat');
-    }
-  }, [runnerTabsLocked, view]);
+  // When an app (or other off-chat surface) does "Send to chat", it stages a
+  // composer draft and pulses a request to show the chat view — switch to it so
+  // the user lands on the prefilled composer.
+  useComposerChatViewRequest(() => go('chat'));
 
   // One window-level dispatcher for the whole keymap; the bindings themselves
   // live in `useAppHotkeys`, which is also what the help sheet renders from.
-  // Registered through `onView` so a shortcut can't jump to a runner-locked
-  // destination the rail itself refuses.
+  // Registered through `go` so a shortcut can't jump to a place the menu
+  // itself refuses while the session loads.
   useHotkeyDispatcher();
   useAppHotkeys({
-    setView: onView,
-    benchTab: bench.tab,
-    setBenchTab: bench.setTab,
+    setView: go,
+    onOpenPalette: openPalette,
+    toggleBench: bench.toggle,
     toggleBenchFull: bench.toggleFull,
-    onShowShortcuts: () => setShortcutsOpen(true),
+    onShowShortcuts: showShortcuts,
   });
 
   if (prefsLoading) {
@@ -312,26 +322,20 @@ export function App(): JSX.Element {
   // Keep this comment so the variable's absence is intentional.)
 
   return (
+    <ShellNavProvider value={nav}>
     <div className="app-shell">
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      {/* One navigation organ. The index column beside it changes CONTENTS per
-          destination rather than being a different component per view. */}
-      <AppRail
-        view={view}
-        onView={onView}
-        disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
-        disabledReason={RUNNER_LOCKED_REASON}
-      />
-      {/* One index column per destination: the rail says where you are, the
-          column says what is in here. */}
-      {view === 'chat' && (
+      {/* One sidebar; its list changes with the view, and a view with no list
+          of its own keeps the runs. Its account row is the way to every other
+          place. */}
+      {showsRuns(view) && (
         <WorkspaceSidebar
-          onOpenRun={() => onView('chat')}
+          onOpenRun={() => go('chat')}
           onOpenChannel={(id) => {
             setChannelId(id);
-            onView('channels');
+            go('channels');
           }}
         />
       )}
@@ -356,6 +360,7 @@ export function App(): JSX.Element {
             workspaceId={activeWorkspaceId}
             sessionLoading={shell.sessionLoading}
             docked={bench.full}
+            workPanel={{ open: bench.open, onToggle: bench.toggle }}
           />
           <Workbench
             tab={bench.tab}
@@ -397,7 +402,7 @@ export function App(): JSX.Element {
           channel's chat is a full chat surface, its setup a field page. */}
       {view === 'channels' && <ChannelsSurface selected={channelId} />}
       {/* Mobile pairing is a property of the INSTALL, not another chat surface to
-          configure, so it sits at the foot of the rail rather than in the channel
+          configure, so it has its own place rather than a row in the channel
           catalog. Like Channels it never depends on the runner session. */}
       {view === 'mobile' && (
         <main className="field">
@@ -405,6 +410,9 @@ export function App(): JSX.Element {
         </main>
       )}
       {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
+      {paletteOpen && (
+        <ShellPalette workspaceId={activeWorkspaceId} onClose={() => setPaletteOpen(false)} />
+      )}
       {!connected && <ReconnectBanner label={describeConnectionPhase(shellPhase)} />}
       {/* The runner BLOCKS on permission/approval asks. ChatSurface renders
           them in the chat view and AgentTaskModal claims the surface while a
@@ -413,11 +421,22 @@ export function App(): JSX.Element {
       {view !== 'chat' && <GlobalAskFallback workspaceId={activeWorkspaceId} />}
       <WorkflowApprovals modal />
     </div>
+    </ShellNavProvider>
   );
 }
 
-function isRunnerLockedView(view: View): boolean {
-  return RUNNER_LOCKED_VIEWS.includes(view);
+/** The ⌘K palette: the shell's places plus the active run's actions. */
+function ShellPalette({
+  workspaceId,
+  onClose,
+}: {
+  readonly workspaceId: string;
+  readonly onClose: () => void;
+}): JSX.Element {
+  const { places, onPlace } = usePalettePlaces();
+  return (
+    <CommandPalette workspaceId={workspaceId} places={places} onPlace={onPlace} onClose={onClose} />
+  );
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {

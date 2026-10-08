@@ -75,15 +75,13 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
                 height: 52,
                 borderRadius: 'var(--radius-card)',
                 background: 'var(--color-primary)',
-                color: '#fff',
+                color: 'var(--color-on-primary)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 700,
                 fontSize: 'var(--type-section)',
-                letterSpacing: '0.04em',
                 flexShrink: 0,
-                boxShadow: '0 10px 24px -16px rgba(244, 114, 182, 0.7)',
               }}
             >
               {initials}
@@ -217,13 +215,11 @@ function tierBadgeStyle(tier: string): React.CSSProperties {
     padding: '3px 10px',
     borderRadius: 'var(--radius-pill)',
     fontWeight: 700,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
     fontSize: 'var(--type-label)',
     background: isFree
       ? 'color-mix(in srgb, var(--color-text-dim) 18%, transparent)'
       : 'var(--color-primary)',
-    color: isFree ? 'var(--color-text-muted)' : '#fff',
+    color: isFree ? 'var(--color-text-muted)' : 'var(--color-on-primary)',
     border: isFree
       ? '1px solid color-mix(in srgb, var(--color-text-dim) 32%, transparent)'
       : 'none',

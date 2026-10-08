@@ -68,6 +68,4 @@ const labelStyle: React.CSSProperties = {
   fontSize: 'var(--type-meta)',
   fontWeight: 700,
   color: 'var(--color-text-dim)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
 };

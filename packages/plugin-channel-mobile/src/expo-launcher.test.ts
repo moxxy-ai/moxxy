@@ -60,7 +60,8 @@ describe('mobile Expo launcher', () => {
     );
     const started = new Promise<void>((resolveStarted) => {
       const watcher = watch(appDir, () => {
-        if (!existsSync(marker)) return;
+        // The file exists, empty, before its line is written to it.
+        if (!existsSync(marker) || readFileSync(marker, 'utf8') === '') return;
         watcher.close();
         resolveStarted();
       });

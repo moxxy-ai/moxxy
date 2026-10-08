@@ -13,7 +13,7 @@ export function WorkflowApprovalCard({
   onRevoke: () => void;
 }): JSX.Element {
   return (
-    <section style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 8 }}>
+    <section className="approval-card">
       <h3>{item.workflowName}</h3>
       <p>
         {item.tool} · {item.status}
@@ -25,14 +25,7 @@ export function WorkflowApprovalCard({
           <br />
           Definition: {item.revision}
         </p>
-        <pre
-          style={{
-            whiteSpace: 'pre-wrap',
-            overflowWrap: 'anywhere',
-            maxHeight: 240,
-            overflow: 'auto',
-          }}
-        >
+        <pre className="approval-card__input">
           {JSON.stringify(item.input, null, 2)}
         </pre>
       </details>
@@ -41,7 +34,7 @@ export function WorkflowApprovalCard({
         allow all tools.
       </p>
       {item.status === 'pending' && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="approval-card__acts">
           <Button disabled={busy} onClick={() => onDecide('allow_once')}>
             Allow once
           </Button>

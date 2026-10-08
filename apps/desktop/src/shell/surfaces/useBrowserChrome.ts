@@ -99,7 +99,7 @@ export function useBrowserChrome(opts: {
     [activeTabId],
   );
 
-  // Read inside onViewState, which the view calls on every render it is in
+  // Read inside onViewState, which the view calls after every render it is in
   // front for — a stale closure there would echo the page over live typing.
   const editingRef = useRef(false);
   editingRef.current = editing;

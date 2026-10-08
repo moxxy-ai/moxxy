@@ -54,8 +54,10 @@ export {
   showFocusWindow,
   toggleFocusWindow,
   isFocusOpen,
+  openFocusWindow,
   type FocusWindowPlacement,
 } from './focus-window.js';
+export { appPresence, type PresenceWindow } from './app-presence.js';
 export {
   createFocusModeController,
   type FocusModeController,

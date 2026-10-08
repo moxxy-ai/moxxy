@@ -13,7 +13,7 @@ import type { ChannelEntry, ConnectionPhase } from '@moxxy/desktop-ipc-contract'
 import { ChannelActions, ChannelPage, ChannelRunButton, ledState, useChannelPage } from '../apps/ChannelsPanel';
 import { ChatSurface } from '../chat/ChatSurface';
 import type { ModelOwner } from '../chat/agent-picker/useAgentSession';
-import { IndexColumn } from '../shell/IndexColumn';
+import { IndexColumn, IndexEmpty, IndexRow } from '../shell/IndexColumn';
 import { BarActions, InstrumentBar } from '../shell/InstrumentBar';
 import { Workbench } from '../shell/Workbench';
 import { useWorkbench } from '../shell/useWorkbench';
@@ -38,9 +38,9 @@ import { useChannelRunMode } from './useChannelRunMode';
  */
 
 function channelNote(entry: ChannelEntry): string | null {
-  if (entry.status.error) return 'error';
-  if (entry.status.running) return entry.status.connected === false ? 'pairing' : 'live';
-  if (entry.status.configured) return 'ready';
+  if (entry.status.error) return 'Error';
+  if (entry.status.running) return entry.status.connected === false ? 'Pairing' : 'Live';
+  if (entry.status.configured) return 'Ready';
   return null;
 }
 
@@ -63,8 +63,7 @@ export function ChannelsIndex({
         data-testid="channels-group"
         aria-expanded={!folded}
         aria-label={`${folded ? 'expand' : 'collapse'} channels`}
-        className="row-button index-group"
-        style={{ cursor: 'pointer', borderRadius: 'var(--radius-block)' }}
+        className="index-group index-group--fold"
         onClick={() => setFolded((f) => !f)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -73,18 +72,10 @@ export function ChannelsIndex({
           }
         }}
       >
-        <span
-          aria-hidden
-          style={{
-            display: 'inline-flex',
-            flexShrink: 0,
-            transform: folded ? 'none' : 'rotate(90deg)',
-            transition: 'transform var(--motion-shift) ease',
-          }}
-        >
+        <span className="index-group__chevron" data-open={!folded} aria-hidden>
           <Icon name="chevron-right" size={12} />
         </span>
-        <span className="index-group__label">catalog</span>
+        <span className="index-group__label">Catalog</span>
         {/* Folded, the group still reports how many are live — that is the one
          *  fact you would open it to check. */}
         {folded && running > 0 && <span className="led" data-state="running" aria-hidden />}
@@ -96,66 +87,21 @@ export function ChannelsIndex({
           const active = id === selected;
           const note = channelNote(entry);
           return (
-            <button
+            <IndexRow
               key={id}
-              type="button"
-              data-testid={`channel-row-${id}`}
-              data-active={active}
-              className={active ? 'session-row' : 'session-row row-button'}
-              onClick={() => onSelect(id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-8)',
-                width: '100%',
-                minHeight: 'var(--frame-row)',
-                padding: '2px var(--space-6) 2px var(--space-24)',
-                borderRadius: 'var(--radius-block)',
-                background: active ? 'var(--color-card-bg)' : 'transparent',
-                color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
-                fontWeight: active ? 600 : 400,
-                fontSize: 'var(--type-row)',
-                textAlign: 'left',
-              }}
-            >
-              <span className="led" data-state={ledState(entry)} aria-hidden />
-              <span
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {entry.descriptor.name}
-              </span>
-              {note && (
-                <span
-                  style={{
-                    flexShrink: 0,
-                    fontSize: 'var(--type-label)',
-                    color:
-                      note === 'error' ? 'var(--color-red-text)' : 'var(--color-text-dim)',
-                  }}
-                >
-                  {note}
-                </span>
-              )}
-            </button>
+              nested
+              label={entry.descriptor.name}
+              active={active}
+              led={ledState(entry) ?? 'off'}
+              note={note ?? undefined}
+              noteTone={note === 'Error' ? 'bad' : undefined}
+              testId={`channel-row-${id}`}
+              onPick={() => onSelect(id)}
+            />
           );
         })}
       {!folded && channels.list.length === 0 && !channels.loading && (
-        <p
-          style={{
-            margin: 0,
-            padding: '2px var(--space-6) var(--space-6) var(--space-24)',
-            fontSize: 'var(--type-label)',
-            color: 'var(--color-text-dim)',
-          }}
-        >
-          none available
-        </p>
+<IndexEmpty>None available</IndexEmpty>
       )}
     </IndexColumn>
   );
@@ -323,6 +269,7 @@ function ChannelChatSurface({
         title={{ context: 'Channels', subject: name }}
         {...(modelOwner ? { modelOwner } : {})}
         docked={bench.full}
+        workPanel={{ open: bench.open, onToggle: bench.toggle }}
         notice={
           online ? null : (
             <p

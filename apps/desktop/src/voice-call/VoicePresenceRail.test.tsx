@@ -11,7 +11,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
     onInstallLocalPiper: vi.fn(),
     onMuteMicrophone: vi.fn(),
     onUnmuteMicrophone: vi.fn(),
-    onToggleWaitingSound: vi.fn(),
     onClose: vi.fn(),
   };
   const view = render(
@@ -20,7 +19,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       status={{ title: 'Listening', detail: 'Speak naturally. You can still type.' }}
       rail={EMPTY_RAIL}
       microphoneMuted={false}
-      waitingSoundEnabled
       localPiperInstallRequired={false}
       localPiperInstalling={false}
       localPiperInstallError={null}
@@ -35,33 +33,93 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
 }
 
 describe('VoicePresenceRail agent work', () => {
-  it('shows that the agent is working when no tool runs, instead of "No tools running"', () => {
+  it('shows that the agent is working when no tool runs', () => {
     renderRail({ phase: 'working', agentWork: { label: 'Agent thinking', elapsed: '1:05' } });
 
     expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Agent thinking · 1:05');
-    expect(screen.queryByText('No tools running')).toBeNull();
   });
 
-  it('keeps "No tools running" when the agent is not working', () => {
+  it('says what the phase means where the work would be, when nothing runs', () => {
     renderRail({ agentWork: null });
 
-    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('No tools running');
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Speak naturally. You can still type.');
+    // A line about tools that are not running reads like something waiting to load.
+    expect(screen.queryByText('No tools running')).toBeNull();
+  });
+});
+
+describe('VoicePresenceRail as a capsule', () => {
+  const side = (name: string): HTMLElement | null =>
+    screen.getByRole('button', { name }).closest<HTMLElement>('.voice-rail-side');
+
+  it('rests on its state alone: the work and the controls are to its sides', () => {
+    const { container } = renderRail();
+
+    const presence = container.querySelector('.voice-rail-presence');
+    expect(presence).toContainElement(screen.getByRole('status'));
+    expect(presence?.querySelector('button')).toBeNull();
+    expect(screen.getByTestId('voice-rail-idle').closest('.voice-rail-side')).not.toBeNull();
+    for (const name of ['Turn the microphone off', 'End voice mode']) {
+      expect(side(name)).not.toBeNull();
+    }
+    expect(screen.getByRole('region', { name: 'Voice mode' })).not.toHaveAttribute('data-open');
+  });
+
+  it('shows in the capsule that work is under way, without its words', () => {
+    const { container, rerender } = renderRail({ phase: 'working', agentWork: { label: 'Agent thinking', elapsed: '0:04' } });
+
+    const presence = container.querySelector('.voice-rail-presence');
+    expect(presence?.querySelector('.voice-rail-busy')).not.toBeNull();
+    expect(presence).not.toHaveTextContent('Agent thinking');
+    rerender(<></>);
+  });
+
+  it('has nothing ticking in the capsule while nothing runs', () => {
+    const { container } = renderRail();
+
+    expect(container.querySelector('.voice-rail-presence .voice-rail-busy')).toBeNull();
+  });
+
+  it.each([
+    ['the call stopped', { phase: 'error' as const, errorReason: 'Piper stopped responding.' }],
+    ['the local voice is missing', { phase: 'error' as const, localPiperInstallRequired: true }],
+    ['the local voice is installing', { localPiperInstallRequired: true, localPiperInstalling: true }],
+  ])('stays open when %s, since it needs the person', (_name, props) => {
+    renderRail(props);
+
+    expect(screen.getByRole('region', { name: 'Voice mode' })).toHaveAttribute('data-open', 'true');
+  });
+
+  it('ends the call with a receiver put down and the word', () => {
+    renderRail();
+
+    const end = screen.getByRole('button', { name: 'End voice mode' });
+    expect(end).toHaveTextContent('End');
+    expect(end.querySelector('[data-icon]')).toHaveAttribute('data-icon', 'phone-down');
   });
 });
 
 describe('VoicePresenceRail', () => {
   it('announces the phase and keeps every control reachable by name', () => {
-    const { onMuteMicrophone, onToggleWaitingSound, onClose } = renderRail();
+    const { onMuteMicrophone, onClose } = renderRail();
 
     expect(screen.getByRole('status')).toHaveTextContent('Listening');
     expect(screen.getByText('Speak naturally. You can still type.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Turn the microphone off' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Turn the waiting sound off' }));
     fireEvent.click(screen.getByRole('button', { name: 'End voice mode' }));
     expect(onMuteMicrophone).toHaveBeenCalledTimes(1);
-    expect(onToggleWaitingSound).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no sound of its own to switch: a call makes none while it waits', () => {
+    renderRail();
+
+    expect(screen.queryByRole('button', { name: /waiting sound/i })).toBeNull();
+    expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Turn the microphone off',
+      'End voice mode',
+    ]);
   });
 
   it('offers to unmute once the microphone is off, and says so', () => {
@@ -90,7 +148,7 @@ describe('VoicePresenceRail', () => {
 
     const operation = screen.getByTestId('voice-rail-operation');
     expect(operation).toHaveTextContent('Running commands');
-    expect(operation).toHaveTextContent('IN PROGRESS');
+    expect(operation).toHaveTextContent('In progress');
     expect(operation).toHaveTextContent('+2 active');
     expect(operation.textContent).not.toMatch(/--|\/|npm|rm /);
   });
@@ -98,7 +156,7 @@ describe('VoicePresenceRail', () => {
   it('keeps the work slot occupied while nothing is running', () => {
     renderRail();
 
-    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('No tools running');
+    expect(screen.getByTestId('voice-rail-idle')).toHaveTextContent('Speak naturally. You can still type.');
     expect(screen.queryByTestId('voice-rail-operation')).toBeNull();
   });
 
@@ -202,6 +260,47 @@ describe('VoicePresenceRail', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'End voice mode' })).toBeInTheDocument();
+  });
+
+  it('says why the call stopped once, as the alert, without repeating the state beside it', () => {
+    renderRail({
+      phase: 'error',
+      status: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
+      errorReason: 'The microphone is in use by another app.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The microphone is in use by another app.');
+    expect(screen.getAllByText('Voice mode stopped')).toHaveLength(1);
+  });
+
+  it('gives the whole reason in a tooltip when the card has to cut it', () => {
+    const reason = 'The microphone is in use by another app. Close the app that holds it, then try again.';
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(32);
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(64);
+
+    renderRail({ phase: 'error', errorReason: reason });
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-tip', reason);
+    vi.restoreAllMocks();
+  });
+
+  it('adds no tooltip to a reason that is all there to read', () => {
+    renderRail({ phase: 'error', errorReason: 'Piper stopped responding.' });
+
+    expect(screen.getByRole('alert')).not.toHaveAttribute('data-tip');
+  });
+
+  it('gives the whole line about the phase in a tooltip when it is cut', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(300);
+
+    renderRail({ phase: 'paused', status: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' } });
+
+    expect(screen.getByText('Moxxy will not listen until you turn it back on')).toHaveAttribute(
+      'data-tip',
+      'Moxxy will not listen until you turn it back on',
+    );
+    vi.restoreAllMocks();
   });
 
   it('paints no canvas — the rail is vector and CSS only', () => {

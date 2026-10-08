@@ -203,8 +203,6 @@ function Section({
           style={{
             margin: 0,
             fontSize: 'var(--type-label)',
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
             fontWeight: 600,
             color: 'var(--color-text-dim)',
           }}
@@ -280,8 +278,6 @@ function CollapsibleSection({
           style={{
             margin: 0,
             fontSize: 'var(--type-label)',
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
             fontWeight: 600,
             color: 'var(--color-text-dim)',
           }}

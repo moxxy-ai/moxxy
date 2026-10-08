@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { tokens, darkTokens, type ThemeTokens } from './index.js';
+import { desktopTokens, desktopDarkTokens } from './desktop.js';
 
 /**
  * A palette change is otherwise unverifiable by CI: nothing fails when colours
@@ -40,6 +41,14 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** Every palette that ships: the shared pair (mobile) and the desktop pair. */
+const THEMES: ReadonlyArray<readonly [string, ThemeTokens]> = [
+  ['light', tokens],
+  ['dark', darkTokens],
+  ['desktop light', desktopTokens],
+  ['desktop dark', desktopDarkTokens],
+];
+
 /** Pairings that must hold in BOTH themes, as [foreground, background, min]. */
 function pairsFor(t: ThemeTokens): ReadonlyArray<readonly [string, string, string, number]> {
   return [
@@ -58,10 +67,7 @@ function pairsFor(t: ThemeTokens): ReadonlyArray<readonly [string, string, strin
   ];
 }
 
-describe.each([
-  ['light', tokens as ThemeTokens],
-  ['dark', darkTokens],
-])('%s palette contrast', (_name, theme) => {
+describe.each(THEMES)('%s palette contrast', (_name, theme) => {
   it.each(pairsFor(theme))('%s meets %s', (_label, fg, bg, min) => {
     expect(contrast(fg, bg)).toBeGreaterThanOrEqual(min);
   });
@@ -90,10 +96,7 @@ describe.each([
   });
 });
 
-describe.each([
-  ['light', tokens as ThemeTokens],
-  ['dark', darkTokens],
-])('%s: filled action labels', (_name, theme) => {
+describe.each(THEMES)('%s: filled action labels', (_name, theme) => {
   it.each([
     ['resting', 'action'],
     ['hovered', 'actionHover'],
@@ -109,10 +112,7 @@ describe.each([
  * call site that hard-codes `#fff` passes in light and silently fails in dark,
  * so the pairing is asserted per theme rather than assuming white.
  */
-describe.each([
-  ['light', tokens as ThemeTokens],
-  ['dark', darkTokens],
-])('%s: the label on a commanded fill', (_name, theme) => {
+describe.each(THEMES)('%s: the label on a commanded fill', (_name, theme) => {
   it.each([
     ['primary', 'primary'],
     ['primaryStrong', 'primaryStrong'],

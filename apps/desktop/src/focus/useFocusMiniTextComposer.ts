@@ -15,6 +15,12 @@ import {
 import { useAttachmentImagePreviews } from '@/chat/image-preview/useAttachmentImagePreviews';
 import { useImagePreview } from '@/chat/image-preview/useImagePreview';
 import type { ImagePreviewItem } from '@/chat/image-preview/types';
+import { runSessionCommand } from '@/chat/command-palette/run-command';
+import { stepsForCommand } from '@/chat/command-palette/steppers';
+import { composerPlaceholder } from '@/chat/composer/composer-placeholder';
+import type { SendAction } from '@/chat/composer/SendButton';
+import { useSlashMenu, type SlashMenu, type SlashSession } from '@/chat/composer/slash/useSlashMenu';
+import { useFocusSessionState, type FocusSessionState } from './useFocusSessionState';
 
 export interface FocusMiniTextComposer {
   readonly inputRef: RefObject<HTMLTextAreaElement>;
@@ -23,11 +29,22 @@ export interface FocusMiniTextComposer {
   readonly attachments: ReadonlyArray<ComposerAttachment>;
   readonly attachmentPreviews: ReadonlyMap<string, ImagePreviewItem>;
   readonly attachError: string | null;
+  readonly dismissAttachError: () => void;
   readonly onPaste: ReturnType<typeof useComposerAttachments>['onPaste'];
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
   readonly sending: boolean;
-  readonly canAbort: boolean;
+  /** A turn is running: the send button is Stop and a new message queues. */
+  readonly running: boolean;
+  readonly sendAction: SendAction;
+  readonly placeholder: string;
+  /** The mode and auto-approve of the session, as the desktop composer says them. */
+  readonly session: FocusSessionState;
+  /** The desktop composer's slash menu, over this field. */
+  readonly slash: SlashMenu;
+  /** A goal waits for its objective: the next send starts the run. */
+  readonly goalArmed: boolean;
+  readonly standDownGoal: () => void;
   readonly queued: ReadonlyArray<{
     readonly key: string;
     readonly prompt: string;
@@ -61,22 +78,65 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     clearAttachments,
     attachError,
+    dismissAttachError,
     onPaste,
   } = useComposerAttachments(focusInput);
   const attachmentPreviews = useAttachmentImagePreviews(workspaceId ?? undefined, attachments);
   const imagePreview = useImagePreview();
+  const session = useFocusSessionState(workspaceId);
+  const [goalArmed, setGoalArmed] = useState(false);
+  const standDownGoal = useCallback(() => setGoalArmed(false), []);
   const trimmedDraft = draft.trim();
+  const running = chat.activeTurnId !== null || chat.sending;
   const canSubmit =
     Boolean(workspaceId) &&
     !chat.compacting &&
     (trimmedDraft.length > 0 || attachments.length > 0);
 
-  const submit = useCallback((): void => {
+  // The mode is awaited before the turn is sent, so the prompt never runs under the previous one.
+  const startIn = (mode: string, prompt: string): void => {
+    const staged = attachments.length > 0 ? attachments : undefined;
+    setDraft('');
+    clearAttachments();
+    void session.setMode(mode).then(() => chat.send(prompt, staged));
+  };
+
+  const slashSource = useMemo(
+    (): SlashSession => ({
+      modes: session.modes,
+      activeMode: session.mode,
+      modeBusy: running,
+      autoApprove: session.autoApprove,
+      skills: session.skills,
+      commands: session.commands,
+    }),
+    [session.modes, session.mode, session.autoApprove, session.skills, session.commands, running],
+  );
+  const slash = useSlashMenu(slashSource, draft, setDraft, {
+    setMode: (mode) => void session.setMode(mode),
+    startIn,
+    armGoal: () => setGoalArmed(true),
+    toggleAutoApprove: () => session.setAutoApprove(!session.autoApprove),
+    // This window has no room for an action's form: its words are typed after its name.
+    runCommand: (command, args) => {
+      if (args === '' && stepsForCommand(command.name).length > 0) setDraft(`/${command.name} `);
+      else if (workspaceId) void runSessionCommand(workspaceId, command, args);
+    },
+  });
+
+  const submit = (): void => {
     if (!canSubmit) return;
+    if (goalArmed) {
+      if (trimmedDraft.length === 0) return;
+      setGoalArmed(false);
+      startIn('goal', trimmedDraft);
+      return;
+    }
+    if (slash.submit()) return;
     void chat.send(trimmedDraft, attachments.length > 0 ? attachments : undefined);
     setDraft('');
     clearAttachments();
-  }, [attachments, canSubmit, chat, clearAttachments, trimmedDraft]);
+  };
 
   const abort = useCallback((): void => {
     void chat.abort();
@@ -89,12 +149,16 @@ export function useFocusMiniTextComposer({
     input.style.height = `${Math.min(input.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
   }, [draft]);
 
-  const onKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>): void => {
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (slash.handleKey(event)) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       submit();
+    } else if (event.key === 'Escape' && goalArmed) {
+      event.preventDefault();
+      setGoalArmed(false);
     }
-  }, [submit]);
+  };
 
   const removeQueued = useCallback((id: string): void => {
     if (workspaceId) chatStore.dropFromQueue(workspaceId, id);
@@ -124,11 +188,27 @@ export function useFocusMiniTextComposer({
     attachments,
     attachmentPreviews,
     attachError,
+    dismissAttachError,
     onPaste,
     removeAttachment,
     canSubmit,
     sending: chat.sending,
-    canAbort: chat.activeTurnId !== null,
+    running,
+    sendAction: goalArmed ? 'Start goal' : queued.length > 0 ? 'Queue' : 'Send',
+    placeholder: workspaceId
+      ? composerPlaceholder({
+          ready: true,
+          compacting: chat.compacting,
+          goalArmed,
+          inFlight: running,
+          hasAttachments: attachments.length > 0,
+          mode: session.mode,
+        })
+      : 'No active workspace',
+    session,
+    slash,
+    goalArmed,
+    standDownGoal,
     queued,
     submit,
     abort,

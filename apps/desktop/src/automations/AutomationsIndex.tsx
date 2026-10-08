@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { useScheduler, useWebhooks, useWorkflows } from '@moxxy/client-core';
-import { IndexColumn } from '../shell/IndexColumn';
+import { IndexColumn, IndexEmpty, IndexRow } from '../shell/IndexColumn';
 
 /**
  * The Automations index: collapsible groups by kind, with the actual automations
@@ -80,8 +80,7 @@ export function AutomationsIndex({
               data-testid={`automations-group-${group.id}`}
               aria-expanded={!isFolded}
               aria-label={`${isFolded ? 'expand' : 'collapse'} ${group.label}`}
-              className="row-button index-group"
-              style={{ cursor: 'pointer', borderRadius: 'var(--radius-block)' }}
+              className="index-group index-group--fold"
               onClick={() => {
                 toggle(group.id);
                 onPick(group.id);
@@ -94,21 +93,10 @@ export function AutomationsIndex({
                 }
               }}
             >
-              <span
-                aria-hidden
-                style={{
-                  display: 'inline-flex',
-                  flexShrink: 0,
-                  transform: isFolded ? 'none' : 'rotate(90deg)',
-                  transition: 'transform var(--motion-shift) ease',
-                }}
-              >
+              <span className="index-group__chevron" data-open={!isFolded} aria-hidden>
                 <Icon name="chevron-right" size={12} />
               </span>
-              <span
-                className="index-group__label"
-                style={group.id === kind ? { color: 'var(--color-text-muted)' } : undefined}
-              >
+              <span className="index-group__label" data-current={group.id === kind || undefined}>
                 {group.label}
               </span>
               {/* Folded, the group carries its children's state the way a folded
@@ -119,79 +107,22 @@ export function AutomationsIndex({
             </div>
             {!isFolded &&
               group.items.map((item) => (
-                <button
+                <IndexRow
                   key={`${group.id}:${item.id}`}
-                  type="button"
-                  data-testid={`automations-item-${item.id}`}
-                  data-active={selected === `${group.id}:${item.id}`}
-                  className={
-                    selected === `${group.id}:${item.id}`
-                      ? 'session-row'
-                      : 'session-row row-button'
-                  }
-                  onClick={() => {
+                  nested
+                  label={item.name}
+                  active={selected === `${group.id}:${item.id}`}
+                  led={item.enabled ? 'done' : 'off'}
+                  note={item.enabled ? undefined : 'Paused'}
+                  testId={`automations-item-${item.id}`}
+                  onPick={() => {
                     setSelected(`${group.id}:${item.id}`);
                     onPick(group.id);
                   }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--space-8)',
-                    width: '100%',
-                    minHeight: 'var(--frame-row)',
-                    padding: '2px var(--space-6) 2px var(--space-24)',
-                    borderRadius: 'var(--radius-block)',
-                    background:
-                      selected === `${group.id}:${item.id}` ? 'var(--color-card-bg)' : 'transparent',
-                    color:
-                      selected === `${group.id}:${item.id}`
-                        ? 'var(--color-sidebar-text)'
-                        : 'var(--color-sidebar-text-dim)',
-                    fontWeight: selected === `${group.id}:${item.id}` ? 600 : 400,
-                    fontSize: 'var(--type-row)',
-                    textAlign: 'left',
-                  }}
-                >
-                  <span
-                    className="led"
-                    data-state={item.enabled ? 'done' : undefined}
-                    aria-hidden
-                  />
-                  <span
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {item.name}
-                  </span>
-                  {!item.enabled && (
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        fontSize: 'var(--type-label)',
-                        color: 'var(--color-text-dim)',
-                      }}
-                    >
-                      paused
-                    </span>
-                  )}
-                </button>
+                />
               ))}
             {!isFolded && group.items.length === 0 && (
-              <p
-                style={{
-                  margin: 0,
-                  padding: '2px var(--space-6) var(--space-6) var(--space-24)',
-                  fontSize: 'var(--type-label)',
-                  color: 'var(--color-text-dim)',
-                }}
-              >
-                none yet
-              </p>
+<IndexEmpty>None yet</IndexEmpty>
             )}
           </div>
         );

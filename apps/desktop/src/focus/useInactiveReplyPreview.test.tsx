@@ -70,6 +70,40 @@ describe('useInactiveReplyPreview', () => {
     expect(result.current.preview).toBeNull();
   });
 
+  it('reads a reply as one plain line, as the run list does, not as its Markdown source', () => {
+    const { result } = renderHook(() => useInactiveReplyPreview({
+      stage: 'inactive',
+      workspaceId: WORKSPACE_ID,
+    }));
+
+    act(() => chatStore.dispatch(WORKSPACE_ID, {
+      type: 'send_started',
+      turnId: asTurnId('turn-plan'),
+    }));
+    act(() => dispatch(event(1, {
+      type: 'assistant_chunk',
+      turnId: asTurnId('turn-plan'),
+      delta: '# Move the session list',
+    })));
+    expect(result.current.preview?.text).toBe('Move the session list');
+    act(() => dispatch(event(2, {
+      type: 'assistant_message',
+      turnId: asTurnId('turn-plan'),
+      source: 'model',
+      content: '# Move the session list\n\nSessions load from **one** `indexed` store.\n\n## Approach\n- Keep the log',
+      stopReason: 'end_turn',
+    })));
+    act(() => chatStore.dispatch(WORKSPACE_ID, {
+      type: 'turn_complete',
+      turnId: asTurnId('turn-plan'),
+      error: null,
+    }));
+
+    expect(result.current.preview?.text).toBe(
+      'Move the session list Sessions load from one indexed store. Approach Keep the log',
+    );
+  });
+
   it('pins a clicked final answer until the next user turn', () => {
     const { result } = renderHook(() => useInactiveReplyPreview({
       stage: 'active',

@@ -17,9 +17,11 @@
  * rather than inlined as garbage. Earlier the desktop dropped every binary file
  * silently, so PDFs/Word/Excel never reached the model at all.
  *
- * It also owns {@link persistImageBlob}: pasted/dropped images arrive as raw
- * bytes (no path), so we stash them in a temp file and hand back a path the
- * same {@link buildAttachments} pipeline can read on the next turn.
+ * It also owns {@link persistImageBlob} and {@link persistFileBlob}: pasted or
+ * dropped files arrive as raw bytes (no path), so we stash them in a temp file
+ * and hand back a path the same {@link buildAttachments} pipeline can read on
+ * the next turn. {@link attachmentProblem} answers, before a path is staged,
+ * whether that pipeline would leave it out.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -27,6 +29,7 @@ import { chmod, mkdtemp, open, readFile, readdir, stat, unlink, writeFile } from
 import type { FileHandle } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { ATTACHMENT_LIMITS, attachmentSizeProblem, formatFileSize } from '@moxxy/desktop-ipc-contract';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { assertDefined } from '@moxxy/sdk';
 import { parseOffice } from 'officeparser';
@@ -54,7 +57,7 @@ const OFFICE_EXTENSIONS: ReadonlySet<string> = new Set([
 
 /** Caps so a renderer-chosen file can't OOM the main process / blow the prompt. */
 const MAX_TEXT_BYTES = 512 * 1024; // 512 KB inlined directly; larger → agentic fallback
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB image
+const MAX_IMAGE_BYTES = ATTACHMENT_LIMITS.imageBytes; // shared, so the renderer refuses the same files
 /** Anthropic's native PDF ceiling. Larger PDFs fall back to text extraction. */
 const MAX_PDF_NATIVE_BYTES = 32 * 1024 * 1024; // 32 MB
 /** How much of an oversized file we inline before pointing at the full copy. */
@@ -446,6 +449,50 @@ export async function buildAttachments(
   return out;
 }
 
+/**
+ * Why {@link buildAttachments} would leave `absPath` out of a prompt, as a
+ * sentence for the person, or null when it would attach it. Asked when a file
+ * is staged, so the person is told then, not by a prompt sent without it.
+ * Reads the size and at most the head, never the whole file, so it cannot see
+ * a document whose text fails to extract.
+ */
+export async function attachmentProblem(absPath: string, name: string): Promise<string | null> {
+  const ext = path.extname(absPath).toLowerCase();
+  const folder = `${name} is a folder. Attach the files inside it.`;
+  let handle: FileHandle | null = null;
+  try {
+    try {
+      handle = await open(absPath, 'r');
+    } catch {
+      // Windows refuses to open a folder; POSIX opens it, and the handle says so below.
+      const isFolder = await stat(absPath).then(
+        (info) => info.isDirectory(),
+        () => false,
+      );
+      return isFolder ? folder : `${name} could not be read.`;
+    }
+    // Asked of the open handle, never of the path again: the size is that of the file then read.
+    const info = await handle.stat();
+    if (info.isDirectory()) return folder;
+    const size = info.size;
+    if (IMAGE_MEDIA_TYPES[ext]) {
+      return size > MAX_IMAGE_BYTES ? attachmentSizeProblem({ name, size, image: true }) : null;
+    }
+    const head = await readHead(handle, HEAD_EXCERPT_BYTES);
+    const document = isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext);
+    if (size > MAX_READ_WHOLE_BYTES) {
+      const text = !document && !isLegacyDoc(head, ext) && !head.includes(0);
+      return text ? null : `${name} is ${formatFileSize(size)}. Only plain text can be attached at that size.`;
+    }
+    if (document) return null;
+    return head.includes(0) ? `${name} is not a kind of file Moxxy can read.` : null;
+  } catch {
+    return `${name} could not be read.`;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
 export interface ImageAttachmentPreview {
   readonly kind: 'image';
   readonly name: string;
@@ -562,12 +609,33 @@ export async function persistImageBlob(
       `Image is too large to attach (max ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))} MB).`,
     );
   }
+  const display = name && name.trim().length > 0 ? name : `pasted-image.${ext}`;
+  return { path: await writeTempAttachment(buf, `.${ext}`), name: display };
+}
+
+/**
+ * Persist the bytes of any file the renderer was handed by a drop or a paste.
+ * The bytes, never a path: a path the renderer names is one a compromised
+ * renderer could forge. Throws the sentence the renderer shows when the file
+ * is empty or over the size limit.
+ */
+export async function persistFileBlob(dataBase64: string, name: string): Promise<{ path: string; name: string }> {
+  const buf = Buffer.from(dataBase64, 'base64');
+  const display = path.basename(name.replace(/\\/g, '/')).trim() || 'attachment';
+  const problem = attachmentSizeProblem({ name: display, size: buf.byteLength });
+  if (problem) throw new Error(problem);
+  // Only the extension leaves the name: it decides how the file is read.
+  const ext = /^\.[a-z0-9]{1,12}$/iu.test(path.extname(display)) ? path.extname(display).toLowerCase() : '';
+  return { path: await writeTempAttachment(buf, ext), name: display };
+}
+
+/** Write `buf` to a new, unpredictably named file in the private temp directory. */
+async function writeTempAttachment(buf: Buffer, ext: string): Promise<string> {
   const attachmentTmpDir = await getAttachmentTmpDir();
   void pruneOldAttachments(attachmentTmpDir);
-  const filePath = path.join(attachmentTmpDir, `${randomUUID()}.${ext}`);
+  const filePath = path.join(attachmentTmpDir, `${randomUUID()}${ext}`);
   await writeFile(filePath, buf, { flag: 'wx', mode: 0o600 });
-  const display = name && name.trim().length > 0 ? name : `pasted-image.${ext}`;
-  return { path: filePath, name: display };
+  return filePath;
 }
 
 /** Best-effort sweep of stale temp attachments. Never throws — a failed

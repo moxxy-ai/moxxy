@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { defineSurface, defineTool, z, type SurfaceInstance } from '@moxxy/sdk';
-import { createTerminalProcess, type TerminalProcess } from './pty.js';
+import { defineSurface, defineTool, waitFor, z, type SurfaceInstance } from '@moxxy/sdk';
+import { createTerminalProcess, type PromptSignal, type TerminalProcess } from './pty.js';
 
 /**
  * Shared terminal processes, keyed by cwd. The surface and the `terminal` tool
@@ -191,11 +191,11 @@ const terminalInputSchema = z.object({
 });
 
 /**
- * The `terminal` tool runs a command in the SHARED terminal the user sees. It
- * appends a unique sentinel that echoes the exit code, then reads output until
- * the sentinel returns — reliable completion detection in an interactive,
- * input-echoing shell. The command and its output stay visible to the user, who
- * can take over at any time.
+ * The `terminal` tool runs a command in the SHARED terminal the user sees and
+ * reads its output until the shell is back at its prompt. zsh and bash report
+ * that themselves (shell-hooks.ts); any other shell is typed a unique sentinel
+ * that echoes the exit code. The command and its output stay visible to the
+ * user, who can take over at any time.
  */
 export function buildTerminalTool() {
   return defineTool({
@@ -274,9 +274,35 @@ const MAX_ACC = 1_000_000;
 const commandTails = new WeakMap<TerminalProcess, Promise<void>>();
 
 /**
- * Write `command` then a sentinel `printf` to a shared shell and collect output
- * until the sentinel line appears. Returns the captured output (best-effort
- * stripped of the echoed sentinel command) + the exit code parsed from it.
+ * How long a starting shell gets to show its first prompt before its commands
+ * are typed with a sentinel instead (its own start files replaced the hook).
+ */
+const PROMPT_REPORT_DEADLINE_MS = 5_000;
+
+/** Shells that showed no prompt before the deadline: their later commands do not wait for one again. */
+const silent = new WeakSet<TerminalProcess>();
+
+/** Resolves once the shell has shown a prompt; false when it reports none in time. */
+async function reportsPrompt(
+  proc: TerminalProcess,
+  prompt: PromptSignal,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (silent.has(proc)) return false;
+  const outcome = await waitFor(() => (prompt.seen ? true : undefined), {
+    wakeOn: [(wake) => prompt.onPrompt(wake)],
+    timeoutMs: PROMPT_REPORT_DEADLINE_MS,
+    signal,
+  });
+  if (outcome.status === 'timeout') silent.add(proc);
+  return outcome.status === 'ready';
+}
+
+/**
+ * Write `command` to a shared shell and collect output until the shell reports
+ * its prompt, or, in a shell that reports none, until the sentinel `printf`
+ * typed after the command prints. Returns the captured output (best-effort
+ * stripped of the echoed command) + the exit code.
  *
  * Serialized per shared process: a command writes only once the previous one on
  * the same shell finishes, so concurrent callers never interleave their writes
@@ -329,6 +355,7 @@ function runCommandSerialized(
       settled = true;
       unsubData();
       unsubExit();
+      unsubPrompt();
       clearTimeout(timer);
       if (onAbort) signal?.removeEventListener('abort', onAbort);
       typed?.remove();
@@ -424,6 +451,7 @@ function runCommandSerialized(
     // immediately with the shell's exit code rather than hanging to the full
     // timeout (up to 600s) on a known-dead process.
     const unsubExit = proc.onExit((code) => finish(code, false));
+    let unsubPrompt = (): void => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Two writes to the interactive shell: the command, then the sentinel whose
     // $? reflects the command's exit. A leading newline before the printf
@@ -434,7 +462,7 @@ function runCommandSerialized(
     // `preexec` setting the window title) print right before it, and the
     // sentinel is only recognized at the start of a line. On a non-PTY pipe the
     // shell still runs both sequentially.
-    const writeAndArm = (): void => {
+    const writeAndArm = (hooked: boolean): void => {
       if (settled) return; // shell died (or we were torn down) before our turn
       // The shell is ALREADY dead at write time (it exited before our turn, or
       // in the TOCTOU window between getSharedTerminal returning it and now).
@@ -448,14 +476,34 @@ function runCommandSerialized(
       }
       timer = setTimeout(() => finish(null, true), timeoutMs);
       typed = typeable(command, marker);
+      if (hooked && proc.prompt) {
+        // Nothing follows the command on the terminal's input, where the
+        // program it starts could read it: the shell says when it is done. A
+        // prompt drawn again for anything else (an empty Enter, a Ctrl-C, the
+        // end of a command the user typed) started no command since, so it is
+        // not this one's; a blank line starts none, and any prompt ends it.
+        const before = proc.prompt.commands;
+        const blank = command.trim() === '';
+        unsubPrompt = proc.prompt.onPrompt((exitCode, commands) => {
+          if (blank || commands > before) finish(exitCode, false);
+        });
+        proc.write(`${typed.line}\n`);
+        return;
+      }
       proc.write(`${typed.line}\n`);
       proc.write(`\n${sentinelPrintf(marker)}\n`);
     };
-    // Idle shell → write now (keeps the single-command path fully synchronous).
-    // Busy shell → wait our turn; the timeout clock only starts when we write, so
-    // a command queued behind a slow predecessor doesn't burn its budget waiting.
-    if (startWrites) void startWrites.then(writeAndArm);
-    else writeAndArm();
+    // A shell with no prompt report, or one that has shown its prompt already,
+    // is decided on the spot, which keeps the single-command path synchronous.
+    const start = (): void => {
+      if (!proc.prompt || proc.prompt.seen) writeAndArm(proc.prompt !== undefined);
+      else void reportsPrompt(proc, proc.prompt, signal).then(writeAndArm);
+    };
+    // Idle shell → write now. Busy shell → wait our turn; the timeout clock only
+    // starts when we write, so a command queued behind a slow predecessor
+    // doesn't burn its budget waiting.
+    if (startWrites) void startWrites.then(start);
+    else start();
   });
 }
 
@@ -475,7 +523,9 @@ interface TypedCommand {
 }
 
 function typeable(command: string, marker: string): TypedCommand {
-  if (process.platform === 'win32' || (!command.includes('\n') && command.length <= TYPED_LIMIT)) {
+  // A trailing backslash joins the next typed line to the command; in a file it ends with it.
+  const oneShortLine = !command.includes('\n') && command.length <= TYPED_LIMIT && !command.endsWith('\\');
+  if (process.platform === 'win32' || oneShortLine) {
     return { line: command, remove: () => {} };
   }
   const file = join(tmpdir(), `moxxy-command-${marker}.sh`);

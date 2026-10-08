@@ -17,11 +17,15 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { FocusWidget } from './FocusWidget';
 import { bootClient } from '../lib/boot';
+import { TipLayer } from '../components/tip/TipLayer';
+import { registerModeEvents } from '../chat/modes/register-mode-events';
 import '../styles.css';
 import './focus-document.css';
 
 // The focus widget is its own document/bundle — wire the shared client here too.
 bootClient();
+// The Mini Chat draws the same conversation as the desktop, mode cards included.
+registerModeEvents();
 
 const root = document.getElementById('root');
 if (!root) {
@@ -30,7 +34,12 @@ if (!root) {
    
   console.error('[focus] #root missing from focus.html');
 } else {
-  ReactDOM.createRoot(root).render(<FocusWidget />);
+  ReactDOM.createRoot(root).render(
+    <>
+      <FocusWidget />
+      <TipLayer />
+    </>,
+  );
    
   console.log('[focus] mounted');
 }

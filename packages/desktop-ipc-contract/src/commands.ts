@@ -14,6 +14,7 @@ import type { AskResponse } from './ask.js';
 import type { ConnectionSnapshot } from './connection.js';
 import type { OnboardingStatus, NodeProbe } from './onboarding.js';
 import type { DesktopPrefs } from './prefs.js';
+import type { AppPresence } from './presence.js';
 import type {
   WorkflowSummary,
   WorkflowRun,
@@ -449,6 +450,23 @@ export interface IpcCommands {
     /** Optional source filename; a friendly default is used otherwise. */
     name?: string;
   }) => Promise<PromptAttachment>;
+  /** Persist the bytes of a dropped or pasted file (the renderer can't write
+   *  files, and a path it named would not clear the provenance gate) to a
+   *  temp file the agent can read. Rejects a file over the size limit. */
+  'session.saveAttachment': (args: {
+    /** Base64-encoded file bytes (no `data:` prefix). */
+    dataBase64: string;
+    /** The file's own name; its extension decides how it is read. */
+    name: string;
+  }) => Promise<PromptAttachment>;
+  /** Why a path about to be staged cannot be attached, as a sentence for the
+   *  person, or null when it can. Asked before staging, so a file the host
+   *  would drop when the prompt is sent is refused where the person can see. */
+  'session.checkAttachment': (args: {
+    workspaceId?: string;
+    path: string;
+    name: string;
+  }) => Promise<string | null>;
   /** Local desktop-only preview for staged image attachments. The host still
    *  provenance-gates the path before reading it; unauthorized, oversized, or
    *  non-image files return null. */
@@ -751,6 +769,10 @@ export interface IpcCommands {
    *  main-process controller path as the app menu, tray menu, and global
    *  shortcut. Local desktop IPC only. */
   'focus.toggle': () => Promise<void>;
+  /** Which of the app's windows has the keyboard, so the renderer can tell a
+   *  chat being read from one that needs a chime or a banner. Local desktop
+   *  IPC only. */
+  'window.presence': () => Promise<AppPresence>;
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
   /** Resize the focus window. Keeps the nearer screen edge pinned so the

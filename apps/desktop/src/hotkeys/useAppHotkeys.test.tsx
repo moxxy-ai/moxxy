@@ -13,12 +13,22 @@ beforeEach(() => {
 });
 afterEach(() => __setApiOverride(null));
 
-function Harness({ toggleBenchFull }: { readonly toggleBenchFull: () => void }): null {
+function Harness({
+  toggleBenchFull,
+  toggleBench = vi.fn(),
+  setView = vi.fn(),
+  onOpenPalette = vi.fn(),
+}: {
+  readonly toggleBenchFull: () => void;
+  readonly toggleBench?: () => void;
+  readonly setView?: (view: string) => void;
+  readonly onOpenPalette?: () => void;
+}): null {
   useHotkeyDispatcher();
   useAppHotkeys({
-    setView: vi.fn(),
-    benchTab: 'browser',
-    setBenchTab: vi.fn(),
+    setView,
+    onOpenPalette,
+    toggleBench,
     toggleBenchFull,
     onShowShortcuts: vi.fn(),
   });
@@ -39,5 +49,29 @@ describe('useAppHotkeys, full view', () => {
     render(<Harness toggleBenchFull={toggle} />);
     fireEvent.keyDown(window, { key: 'f', metaKey: true });
     expect(toggle).not.toHaveBeenCalled();
+  });
+});
+
+/** The palette is the fast way to every place, so it opens over whatever is on
+ *  screen instead of first dragging the user back to the conversation. */
+describe('useAppHotkeys, palette', () => {
+  it('opens the palette on ⌘K without leaving the current view', () => {
+    const setView = vi.fn();
+    const onOpenPalette = vi.fn();
+    render(<Harness toggleBenchFull={vi.fn()} setView={setView} onOpenPalette={onOpenPalette} />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(onOpenPalette).toHaveBeenCalledOnce();
+    expect(setView).not.toHaveBeenCalled();
+  });
+});
+
+/** One toggle, the same one the header's button uses, so the shortcut and the
+ *  button cannot disagree about which pane comes back. */
+describe('useAppHotkeys, work panel', () => {
+  it('shows or hides the work panel on ⌘J', () => {
+    const toggleBench = vi.fn();
+    render(<Harness toggleBenchFull={vi.fn()} toggleBench={toggleBench} />);
+    fireEvent.keyDown(window, { key: 'j', metaKey: true });
+    expect(toggleBench).toHaveBeenCalledOnce();
   });
 });

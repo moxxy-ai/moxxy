@@ -12,21 +12,17 @@ import { TraceEntry } from '../trace/TraceEntry';
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
  *
- * Every kind is wrapped in a {@link TraceEntry}, so they all hang off the same
- * timeline and the gutter glyph — not a per-block avatar or card — is what says
- * which kind it is:
+ *   - event(user_prompt)       the person's bubble (or a trigger note).
+ *   - event(assistant_message) the agent's bubble.
+ *   - event(reasoning)         folded, quiet.
+ *   - event(error/abort)       a note.
+ *   - tool-call                one quiet row.
+ *   - skill-scope              SkillGroupView (banner + nested children).
+ *   - subagent / -group        an agent row, or a foldable tree of siblings.
+ *   - live-tools               each in-flight call as a row.
  *
- *   - event(user_prompt)      → commanded line (or a trigger marker).
- *   - event(assistant_message)→ prose, in the serif voice.
- *   - event(reasoning)        → folded, dim.
- *   - event(error/abort)      → system note.
- *   - tool-call               → one dense row.
- *   - skill-scope             → SkillGroupView (banner + nested children).
- *   - subagent / -group       → agent row, or a collapsible tree of siblings.
- *   - live-tools              → each in-flight call as a row.
- *
- * The in-flight streaming assistant text is NOT a block — Transcript
- * renders it via {@link StreamingAssistant} at the tail.
+ * The in-flight streaming assistant text is NOT a block: Transcript renders it
+ * via {@link StreamingAssistant} at the tail.
  */
 export function BlockView({
   block,
@@ -39,8 +35,6 @@ export function BlockView({
     case 'event':
       return <EventBlockView event={block.event} onPreviewImage={onPreviewImage} />;
     case 'tool-call':
-      // No kicker: the row already leads with the tool's name, and a "TOOL"
-      // label above it would just be a second word for the same fact.
       return (
         <TraceEntry kind="tool">
           <ToolBlock
@@ -56,18 +50,11 @@ export function BlockView({
           <SkillGroupView scope={block} />
         </TraceEntry>
       );
+    // These three draw their own entry, so they are not wrapped in a second one.
     case 'subagent':
-      return (
-        <TraceEntry kind="subagent">
-          <SubagentView block={block} />
-        </TraceEntry>
-      );
+      return <SubagentView block={block} />;
     case 'subagent-group':
-      return (
-        <TraceEntry kind="subagent">
-          <SubagentGroupView block={block} />
-        </TraceEntry>
-      );
+      return <SubagentGroupView block={block} />;
     case 'live-tools':
       return (
         <TraceEntry kind="tool">
@@ -75,11 +62,7 @@ export function BlockView({
         </TraceEntry>
       );
     case 'collab':
-      return (
-        <TraceEntry kind="subagent" label="collaboration">
-          <CollaborationCard block={block} />
-        </TraceEntry>
-      );
+      return <CollaborationCard block={block} />;
     default: {
       // Exhaustiveness guard: a new Block kind in @moxxy/chat-model must be
       // handled here or this becomes a compile error rather than rendering blank.

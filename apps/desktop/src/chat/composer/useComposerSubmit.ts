@@ -1,16 +1,17 @@
 /**
  * Composer send orchestration as a focused hook.
  *
- * Owns the three send-side callbacks: `submit` (ship the draft + staged
+ * Owns the send-side callbacks: `submit` (ship the draft + staged
  * attachments, then clear), `setAutoApprove` (mirror the per-workspace
- * auto-approve flag to the runner driver), and `startGoal` (the one-click
- * goal: switch to goal mode and submit the objective — goal mode auto-approves
- * its own tool calls internally and hands back to the previous mode when the
- * objective concludes, so no session-wide auto-approve flip is needed).
+ * auto-approve flag to the runner driver), `startIn` (switch the mode, then
+ * submit a prompt in it) and `startGoal` (the one-click goal: `startIn` goal
+ * mode — it auto-approves its own tool calls internally and hands back to the
+ * previous mode when the objective concludes, so no session-wide auto-approve
+ * flip is needed).
  *
- * Extracted verbatim from `Composer.tsx`; behavior is unchanged. The composer
- * still owns the draft/attachment STATE and passes the values + clear callbacks
- * in, so this hook stays a thin orchestration layer over `onSend` + the IPC.
+ * The composer still owns the draft/attachment STATE and passes the values +
+ * clear callbacks in, so this hook stays a thin orchestration layer over
+ * `onSend` + the IPC.
  */
 import { useCallback } from 'react';
 import { api, chatStore } from '@moxxy/client-core';
@@ -38,17 +39,19 @@ export interface UseComposerSubmitArgs {
 export interface ComposerSubmit {
   readonly submit: () => void;
   readonly setAutoApprove: (enabled: boolean) => void;
+  /** Switch to `mode`, then send `prompt` in it. */
+  readonly startIn: (mode: string, prompt: string) => void;
   readonly startGoal: (objective: string) => void;
 }
 
-/** Switch the runner to goal mode and resolve once it has applied, so the
- *  objective turn can't run under the previous mode. No auto-approve flip:
- *  goal mode auto-approves its own tool calls via a run-scoped resolver, so a
+/** Switch the runner's mode and resolve once it has applied, so the turn that
+ *  follows can't run under the previous one. Goal mode needs no auto-approve
+ *  flip: it auto-approves its own tool calls via a run-scoped resolver, so a
  *  session-wide flag (which would outlive the run) is redundant — and it made
  *  the session permanently promptless after the goal finished. */
-async function applyGoalConfig(workspaceId: string): Promise<void> {
+async function applyMode(workspaceId: string, mode: string): Promise<void> {
   await api()
-    .invoke('session.setMode', { workspaceId, mode: 'goal' })
+    .invoke('session.setMode', { workspaceId, mode })
     .catch(() => {});
 }
 
@@ -80,24 +83,21 @@ export function useComposerSubmit({
     [workspaceId],
   );
 
-  // One-click goal: switch to goal mode and start working on the typed
-  // objective. Mirrors the TUI's `/goal <objective>`. Needs an objective in
-  // the draft.
+  // Switch the mode and start on the typed prompt in it: the one-click goal
+  // (the TUI's `/goal <objective>`) and a slash line such as `/plan <prompt>`.
   //
   // The mode RPC is AWAITED before the turn is enqueued: if the turn were
-  // sent before it applied, the objective would run under the wrong mode.
-  // Tool approval needs no flip here — goal mode auto-approves internally
-  // for the duration of the run only.
-  const startGoal = useCallback(
-    (objective: string): void => {
+  // sent before it applied, the prompt would run under the wrong mode.
+  const startIn = useCallback(
+    (mode: string, prompt: string): void => {
       if (!ready) return;
-      const trimmed = objective.trim();
+      const trimmed = prompt.trim();
       if (!trimmed) return;
-      // Close the modal + clear the composer up front (the input is consumed).
+      // Clear the composer up front (the input is consumed).
       clearDraft();
       clearAttachments();
       closeGoal();
-      void applyGoalConfig(workspaceId).then(() => {
+      void applyMode(workspaceId, mode).then(() => {
         // Refresh the Mode chip so it reflects the switch.
         window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
         onSend(trimmed, attachments.length > 0 ? attachments : undefined);
@@ -106,5 +106,9 @@ export function useComposerSubmit({
     [ready, attachments, workspaceId, onSend, clearDraft, clearAttachments, closeGoal],
   );
 
-  return { submit, setAutoApprove, startGoal };
+  // Tool approval needs no flip here — goal mode auto-approves internally
+  // for the duration of the run only.
+  const startGoal = useCallback((objective: string): void => startIn('goal', objective), [startIn]);
+
+  return { submit, setAutoApprove, startIn, startGoal };
 }

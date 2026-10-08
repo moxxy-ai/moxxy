@@ -38,6 +38,8 @@ import {
   createFocusModeController,
   endFocusWindowDrag,
   isFocusOpen,
+  openFocusWindow,
+  appPresence,
   moveFocusWindowDrag,
   moveFocusWindowBy,
   resizeFocusWindow,
@@ -104,6 +106,7 @@ import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.
 import { armBootProbe } from './boot-probe.js';
 import { installApplicationMenu } from './menus.js';
 import { registerAppAssetSchemePrivileged } from './app-scheme.js';
+import { nameAppForWindows } from './windows-app-id.js';
 import { RealtimeCaptureController } from './realtime-capture.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
@@ -378,7 +381,7 @@ async function createWindow(): Promise<void> {
     // doesn't flash white-then-dark while the renderer boots. themeSource was
     // set from prefs before createWindow, so shouldUseDarkColors is correct
     // for explicit choices as well as `system`.
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0b0c13' : '#f1f2f9',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f4f4f4',
     autoHideMenuBar: true,
     icon: iconPath,
     webPreferences: {
@@ -729,6 +732,15 @@ async function createWindow(): Promise<void> {
   ipcMain.handle('focus.restoreMain', () => {
     return focusMode.restoreMain();
   });
+  ipcMain.removeHandler('window.presence');
+  ipcMain.handle('window.presence', () => {
+    const widget = openFocusWindow();
+    return appPresence({
+      main: mainWindow,
+      widget,
+      others: BrowserWindow.getAllWindows().filter((win) => win !== mainWindow && win !== widget),
+    });
+  });
   ipcMain.removeHandler('focus.resize');
   ipcMain.handle(
     'focus.resize',
@@ -794,6 +806,7 @@ const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
+  nameAppForWindows(app);
   // Register `moxxy://` as our protocol. In an unpackaged dev run we must
   // point the OS at the electron binary + this entry script so the scheme
   // resolves back to us; a packaged app registers via electron-builder's

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { oneLine, summarizeArgs, type SubagentBlock } from '@moxxy/chat-model';
-import { Icon } from '@moxxy/desktop-ui';
 import { preStyle } from './block-shared';
+import { DisclosureRow } from './DisclosureRow';
 import { TraceEntry } from '../trace/TraceEntry';
 
 export function SubagentView({
@@ -13,40 +13,15 @@ export function SubagentView({
   const running = block.completedAtMs === null && block.error === null;
   const state = block.error ? 'failed' : running ? 'running' : 'done';
   return (
-    <TraceEntry
-      kind="subagent"
-      testId="block-subagent"
-      meta={`${block.toolCallCount} tool ${block.toolCallCount === 1 ? 'call' : 'calls'}`}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-6)',
-          width: '100%',
-          textAlign: 'left',
-        }}
-      >
-        <span className="led" data-state={state} aria-hidden />
-        <span className={running ? 'activity-shimmer' : undefined} style={{ fontWeight: 600, fontSize: 'var(--type-row)' }}>
-          {block.label}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span
-          aria-hidden
-          style={{
-            color: 'var(--color-text-dim)',
-            transform: open ? 'rotate(90deg)' : 'none',
-            transition: 'transform var(--motion-shift) ease',
-            display: 'inline-flex',
-          }}
-        >
-          <Icon name="chevron-right" size={12} />
-        </span>
-      </button>
+    <TraceEntry kind="subagent" testId="block-subagent">
+      <DisclosureRow
+        state={state}
+        label={block.label}
+        meta={`${block.toolCallCount} tool ${block.toolCallCount === 1 ? 'call' : 'calls'}`}
+        live={running}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && <SubagentDetail block={block} />}
     </TraceEntry>
   );
@@ -63,25 +38,12 @@ export function SubagentDetail({ block }: { readonly block: SubagentBlock }): JS
   const elapsed =
     block.completedAtMs !== null ? Math.round((block.completedAtMs - block.startedAtMs) / 100) / 10 : null;
   return (
-    <div
-      style={{
-        marginTop: 'var(--space-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-        fontSize: 'var(--type-row)',
-        color: 'var(--color-text-muted)',
-      }}
-    >
-      <div style={{ fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
+    <div className="disclosure-body">
+      <div className="disclosure-body__meta">
         {block.toolCallCount} tool {block.toolCallCount === 1 ? 'call' : 'calls'}
         {block.stopReason ? ` · ${block.stopReason}` : ''}
         {elapsed !== null ? ` · ${elapsed}s` : ''}
       </div>
-      {/* The same activity rows a step's tools get in the main trace. These used
-          to carry a violet wash, which spent a hue the palette reserves for
-          meaning on saying only "this happened inside an agent" — something the
-          gutter glyph already says. */}
       {block.toolCalls.length > 0 && (
         <ul className="activity-list" role="list">
           {block.toolCalls.map((tc, i) => {
@@ -102,7 +64,7 @@ export function SubagentDetail({ block }: { readonly block: SubagentBlock }): JS
       ) : block.finalPreview ? (
         <pre style={preStyle}>{block.finalPreview}</pre>
       ) : (
-        <div style={{ color: 'var(--color-text-dim)' }}>
+        <div className="disclosure-body__meta">
           {running ? 'Working…' : 'No output captured.'}
         </div>
       )}
