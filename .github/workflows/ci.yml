@@ -228,8 +228,16 @@ jobs:
       - name: Install the Linux package
         if: runner.os == 'Linux'
         run: |
+          depends="$(dpkg-deb -f apps/desktop/release/moxxy-desktop-*-amd64.deb Depends)"
+          echo "Depends: $depends"
+          # The builder's own list is replaced by ours, so the package is read, not the config.
+          for name in libgtk-3-0 libnss3 'libasound2t64 | libasound2' xz-utils; do
+            case "$depends" in *"$name"*) ;; *) echo "::error::the .deb does not depend on $name"; exit 1 ;; esac
+          done
           sudo apt-get install -y ./apps/desktop/release/moxxy-desktop-*-amd64.deb
           test -x /usr/bin/moxxy-desktop
+          # The real sound library, not a package that only answers to its name.
+          dpkg -S libasound.so.2 | grep -q '^libasound2'
 
       - name: Upload Linux test installers
         if: runner.os == 'Linux'

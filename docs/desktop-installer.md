@@ -119,6 +119,15 @@ Use helper and the Windows native modules are compiled there.
 The Linux `.deb` and `.AppImage` (x64) come from the same job's Ubuntu leg, as
 `moxxy-linux-test-installers`; that leg also installs the `.deb` with `apt`.
 
+The `.deb` names its own dependencies (`build.deb.depends` in
+`apps/desktop/package.json`): the builder's default list plus the sound library
+and `xz-utils`, which a minimal system lacks — without the first the app does
+not start, without the second the bundled Node is not unpacked. A list of our
+own replaces the builder's, so `scripts/desktop-packaging.test.mjs` fails when a
+default is missing from it. The sound library is `libasound2t64 | libasound2`,
+in that order: on Ubuntu 24.04 and Debian 13 `libasound2` is only a name other
+packages answer to, and `apt` would pick an OSS stand-in for it.
+
 ## Installing over an existing install
 
 Installing a new version replaces the application only. Everything the user
