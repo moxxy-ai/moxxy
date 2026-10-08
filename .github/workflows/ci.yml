@@ -111,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-latest]
+        os: [windows-2022, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -158,6 +158,13 @@ jobs:
         # Needs the plugin's dist/ (manifest writer) from the workspace build.
         if: runner.os == 'macOS'
         run: packages/plugin-computer-control/native/macos/build.sh
+
+      - name: Build Linux Computer Use component
+        # Built on the image the installer is built on, so it links the same system libraries.
+        if: runner.os == 'Linux'
+        run: |
+          sudo packages/plugin-computer-control/native/linux/deps.sh
+          packages/plugin-computer-control/native/linux/build.sh
 
       - name: Prepare embedded CLI and plugins
         # The native executable is a full-installer resource, not a JS hot update.
@@ -212,6 +219,26 @@ jobs:
         with:
           name: moxxy-windows-test-installer
           path: apps/desktop/release/moxxy-desktop-*-setup.exe
+          if-no-files-found: error
+
+      - name: Package Linux installers
+        if: runner.os == 'Linux'
+        run: pnpm --filter @moxxy/desktop exec electron-builder --linux --x64 --publish never
+
+      - name: Install the Linux package
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y ./apps/desktop/release/moxxy-desktop-*-amd64.deb
+          test -x /usr/bin/moxxy-desktop
+
+      - name: Upload Linux test installers
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: moxxy-linux-test-installers
+          path: |
+            apps/desktop/release/moxxy-desktop-*-amd64.deb
+            apps/desktop/release/moxxy-desktop-*-x86_64.AppImage
           if-no-files-found: error
 
   windows-runtime-tests:

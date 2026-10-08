@@ -116,6 +116,8 @@ unpacks the runtimes as a first launch does and runs them.
 The Windows installer is built on Windows (CI: the `Packaged desktop smoke`
 job uploads it as `moxxy-windows-test-installer`), because the Windows Computer
 Use helper and the Windows native modules are compiled there.
+The Linux `.deb` and `.AppImage` (x64) come from the same job's Ubuntu leg, as
+`moxxy-linux-test-installers`; that leg also installs the `.deb` with `apt`.
 
 ## Installing over an existing install
 
