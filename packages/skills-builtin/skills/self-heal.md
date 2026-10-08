@@ -1,23 +1,16 @@
 ---
 name: self-heal
-description: When a tool call fails or the system misbehaves, diagnose the root cause and propose ONE scoped fix that the user approves before it lands.
+description: When Moxxy itself is broken — its own plugin, MCP server, provider or permission rule fails to load or keeps failing — diagnose and propose ONE repair the user approves. Not for ordinary task errors; work through those yourself.
 triggers:
-  - "tool failed"
-  - "permission denied"
-  - "not found"
-  - "doesn't work"
-  - "broken"
-  - "fix this"
-  - "fix it"
-  - "can't run"
-  - "is hanging"
-  - "is stuck"
-  - "is failing"
-  - "what's wrong"
-  - "diagnose"
   - "self-heal"
   - "self heal"
-  - "repair"
+  - "repair moxxy"
+  - "fix moxxy"
+  - "moxxy is broken"
+  - "plugin failed to load"
+  - "plugin is not loading"
+  - "mcp server is not working"
+  - "tool is not registered"
 # allowed-tools intentionally omitted: this skill drives a broad, evolving set of
 # privileged tools (Read, Grep, Glob, bash, Edit, Write, install_plugin, mcp_*,
 # synthesize_skill) — an omitted allowed-tools means "all tools", on purpose.
@@ -25,12 +18,22 @@ triggers:
 
 # Self-heal — diagnose then propose ONE fix
 
-When a tool errored, a subagent hung, an install is missing, a permission was
-denied, or "something just isn't working", follow this loop. Every concrete
-change runs through an existing tool whose permission gate is `prompt`, so the
-user explicitly approves each destructive action — there is no "allow always"
-shortcut for fixes. **This is intentional.** Self-healing without a human in
-the loop turns a one-line bug into a cascade.
+## When this applies
+
+Only when **Moxxy itself** is at fault: a plugin, MCP server, provider, skill or
+permission rule of its own is missing, fails to load, hangs or keeps failing.
+
+It does **not** apply to an ordinary error in the task you are doing — a command
+that exited with an error, a missing file or folder, a page or request that
+failed, a wrong argument. Those are part of the work: read the error, try
+another way and carry on, without asking the user to approve each step.
+
+When one of Moxxy's own parts errored — a plugin did not load, a subagent hung,
+an install is missing, a permission rule keeps denying — follow this loop. Every
+concrete change runs through an existing tool whose permission gate is `prompt`,
+so the user explicitly approves each destructive action — there is no "allow
+always" shortcut for fixes. **This is intentional.** Self-healing without a
+human in the loop turns a one-line bug into a cascade.
 
 ## Loop
 

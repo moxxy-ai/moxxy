@@ -1,8 +1,9 @@
 /**
  * How Moxxy conducts herself, whatever surface or mode the conversation is on.
  * Each rule answers a fault seen in a live session: live facts stated without
- * checking, a choice the user settled lost on a redo, and the voice and the
- * agent speaking of themselves in different grammatical genders in one chat.
+ * checking, a choice the user settled lost on a redo, the voice and the
+ * agent speaking of themselves in different grammatical genders in one chat,
+ * and a turn ended at the first failed step with an offer to continue.
  */
 import { describe, expect, it } from 'vitest';
 import type { ProviderRequest } from './provider.js';
@@ -37,6 +38,38 @@ describe('AGENT_CONDUCT', () => {
 
   it('holds the self-reference rule the voice uses too', () => {
     expect(AGENT_CONDUCT).toContain(SELF_REFERENCE_NOTE);
+  });
+
+  it('works until the request is done and tries another route when a step fails', () => {
+    expect(AGENT_CONDUCT).toMatch(/Work until the user's request is done/);
+    expect(AGENT_CONDUCT).toMatch(/When a step fails, try another route yourself before ending the turn/);
+  });
+
+  it('takes the next step instead of announcing it, and does not ask again for what is settled', () => {
+    expect(AGENT_CONDUCT).toMatch(/Never end your reply by announcing or offering the next step — take it/);
+    expect(AGENT_CONDUCT).toMatch(/What the user already told you is settled; do not ask for it again/);
+  });
+
+  it('asks for no permission in chat for a step that can be undone and stays within the request', () => {
+    expect(AGENT_CONDUCT).toMatch(/can be undone, stays within what the user asked for/);
+    expect(AGENT_CONDUCT).toMatch(/breaks no limit the user or an approval rule set/);
+    expect(AGENT_CONDUCT).toMatch(/needs no new permission in chat/);
+  });
+
+  it('asks for what only the user has and before anything that cannot be undone', () => {
+    expect(AGENT_CONDUCT).toMatch(/something only they have \(a password or token/);
+    expect(AGENT_CONDUCT).toMatch(/before anything that cannot be undone or reaches beyond the request/);
+  });
+
+  it('does not work around a refusal or a look-only request, and waits after Stop', () => {
+    expect(AGENT_CONDUCT).toMatch(/a tool reports a missing permission/);
+    expect(AGENT_CONDUCT).toMatch(/only look and not change anything, do not work around it/);
+    expect(AGENT_CONDUCT).toMatch(/After the user presses Stop, stop and wait to be resumed/);
+  });
+
+  it('ends a turn unfinished only at a real block, naming what was tried', () => {
+    expect(AGENT_CONDUCT).toMatch(/End the turn unfinished only at a real block/);
+    expect(AGENT_CONDUCT).toMatch(/name what you tried\.$/);
   });
 });
 

@@ -53,6 +53,9 @@ In every mode and on every surface, the built-in `@moxxy/agent-conduct` plugin a
 - Live facts — prices, timetables, availability, news, weather — are checked with a tool before the agent states them; an unchecked one is said to be unchecked.
 - Redoing earlier work (a new search, a new tab, another attempt) carries over every choice the user already settled, such as dates or one-way vs. return.
 - Moxxy speaks of herself in the feminine form in languages that mark it ("sprawdziłam", never "sprawdziłem"). Voice Mode follows the same rule (`SELF_REFERENCE_NOTE`), so the agent and the voice no longer switch forms within one chat.
+- A failed step is not the end of the turn: the agent tries another route itself and takes the next step instead of offering it. It still asks for what only the user has (a password, a choice between results that differ) and before anything that cannot be undone or goes beyond the request, and it does not work around a refused permission, a "look only" request, or Stop.
+
+The built-in `self-heal` skill is for Moxxy's own parts — a plugin, MCP server, provider or permission rule that does not load or keeps failing. An ordinary error in the task (a command that exits with an error, a missing folder, a failed request) is worked through as part of the task, without a proposal and a wait for approval.
 
 ## Tools and integrations
 

@@ -26,7 +26,9 @@ helper, so the model sees one set of tools on both systems (see
   `element_index`, and a JPEG of the window. An index stays with its element for
   as long as the element lives. Password fields are listed without a value.
 - An app with no open window returns an empty state and says so. Keys still
-  reach it, so `super+n` or `super+o` can open a window.
+  reach it, so `super+n` or `super+o` can open a window. The working rules tell
+  the model that this is not a block: it opens a window and carries on, instead
+  of ending the turn and asking the user to open the app.
 - Actions take an `element_index` or a point of the latest screenshot. When a
   call names both, a real point is the target and a `0,0` point is ignored.
   Element actions go through accessibility and work while the app is in the

@@ -154,6 +154,38 @@ describe('shipped builtin skills', () => {
   });
 });
 
+describe('the self-heal skill', () => {
+  const read = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'self-heal.md'), 'utf8'));
+
+  // The description is in every request's skill index. When it covered any
+  // failed tool call, the agent answered an ordinary error in the task with a
+  // proposal and a wait for approval instead of trying another way.
+  it('is for Moxxy itself being broken, not for an ordinary error in the task', async () => {
+    const frontmatter = skillFrontmatterSchema.parse((await read()).frontmatter);
+
+    expect(frontmatter.description).toMatch(/^When Moxxy itself is broken/);
+    expect(frontmatter.description).toMatch(/Not for ordinary task errors; work through those yourself\.$/);
+    expect(frontmatter.description).not.toMatch(/When a tool call fails/);
+  });
+
+  it('is not triggered by the words of an everyday failure', async () => {
+    const frontmatter = skillFrontmatterSchema.parse((await read()).frontmatter);
+    const everyday = ['tool failed', 'permission denied', 'not found', "doesn't work", 'broken', 'fix this', 'fix it', "can't run", 'is hanging', 'is stuck', 'is failing', "what's wrong", 'diagnose', 'repair'];
+
+    expect((frontmatter.triggers ?? []).filter((trigger) => everyday.includes(trigger))).toEqual([]);
+    expect(frontmatter.triggers).toContain('self-heal');
+    expect(frontmatter.triggers).toContain('plugin failed to load');
+  });
+
+  it('says in its body when it applies and that task errors are worked through', async () => {
+    const { body } = await read();
+
+    expect(body).toMatch(/## When this applies/);
+    expect(body).toMatch(/Only when \*\*Moxxy itself\*\* is at fault/);
+    expect(body).toMatch(/try\s+another way and carry on, without asking the user to approve each step/);
+  });
+});
+
 describe('the browser skill in the chat @ menu', () => {
   it('shows as the Moxxy Browser, answers @moxxy_browser and keeps Computer Use out of that request', async () => {
     const raw = await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8');
