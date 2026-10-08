@@ -8,7 +8,7 @@ const noop = (): void => undefined;
 function setup(locked = false) {
   return renderHook(
     ({ sessionLoading }: { sessionLoading: boolean }) =>
-      useShellNavigation({ sessionLoading, onShowShortcuts: noop, onOpenPalette: noop }),
+      useShellNavigation({ sessionLoading, onShowShortcuts: noop, onOpenPalette: noop, onSection: noop }),
     { initialProps: { sessionLoading: locked } },
   );
 }
@@ -41,11 +41,35 @@ describe('useShellNavigation', () => {
     const onVoice = vi.fn();
     const { result } = renderHook(() => {
       useVoiceCallRequest(onVoice);
-      return useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop });
+      return useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop, onSection: noop });
     });
     act(() => result.current.go('settings'));
     act(() => result.current.go('voice'));
     expect(result.current.view).toBe('chat');
     expect(onVoice).toHaveBeenCalledOnce();
+  });
+
+  it('opens a section of a view: the section is shown first, then the view', () => {
+    const onSection = vi.fn();
+    const { result } = renderHook(() =>
+      useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop, onSection }),
+    );
+
+    act(() => result.current.open({ destination: 'settings', section: 'voice' }));
+
+    expect(onSection).toHaveBeenCalledWith({ destination: 'settings', section: 'voice' });
+    expect(result.current.view).toBe('settings');
+  });
+
+  it('opens a place with no section as it always went there', () => {
+    const onSection = vi.fn();
+    const { result } = renderHook(() =>
+      useShellNavigation({ sessionLoading: false, onShowShortcuts: noop, onOpenPalette: noop, onSection }),
+    );
+
+    act(() => result.current.open({ destination: 'mobile' }));
+
+    expect(onSection).not.toHaveBeenCalled();
+    expect(result.current.view).toBe('mobile');
   });
 });

@@ -1,11 +1,14 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { View } from '../views';
 import type { DestinationId } from './destinations';
+import type { PlaceTarget } from './places';
 
 /** What the shell lets any part of the frame do about where the user is. */
 export interface ShellNav {
   readonly view: View;
   readonly go: (id: DestinationId) => void;
+  /** Goes to a place, showing the section it names when it names one. */
+  readonly open: (target: PlaceTarget) => void;
   readonly isDisabled: (id: DestinationId) => boolean;
   readonly disabledReason: string;
   readonly showShortcuts: () => void;

@@ -67,7 +67,23 @@ Every other place is reached two ways, and both read one list,
 | Way in | Where |
 |---|---|
 | Account menu | The row at the foot of the sidebar. It lists every place, the command palette and the keyboard shortcuts. |
-| Command palette | ⌘K / Ctrl+K, from any view. It lists the same places and the current run's actions. |
+| Command palette | ⌘K / Ctrl+K, from any view. It lists the same places and the current run's actions, and it finds what is inside a place by its own name. |
+
+The palette searches one index, `shell/navigation/places.ts`: the places above,
+every settings section and the options inside it (`settings/sections.ts`), the
+kinds of automation, the channels that are set up and the apps that are
+installed. Typing "provider", "gpt live", "theme" or "webhook" opens the view
+on the section that holds it, so nobody has to remember which view an option
+lives in. `shell/navigation/search-places.ts` ranks the matches: the option's
+own name first, then its other names. With nothing typed the palette lists the
+places only. An option added to a settings section is named in that section's
+`finds`, and `shell/navigation/search-places.test.ts` holds the words people
+type against the place each one opens.
+
+Settings sections are listed once, in `settings/sections.ts`, and the sidebar,
+the pane and the palette all read that list. Settings holds Providers, Voice,
+Jev, Vault and Preferences, and opens on Providers. Extensions holds MCP and
+Skills.
 
 Holding ⌘ (Ctrl on Windows and Linux) for a moment writes each control's
 shortcut on it, so the keymap can be learnt from the window itself
@@ -84,6 +100,13 @@ goes back to the conversation. `shell/views.ts` holds that rule. In any view
 other than the runs, the sidebar's head carries a back control. A place that
 needs a loaded session (Collaborate, Automations, Apps) is shown disabled, with
 the reason, while the session loads.
+
+First run is the one screen with no sidebar, because there is nothing to move
+between yet. It is one form on the sidebar's ground: the mark, a card with
+"Step n of N" over a line of step marks, and one step at a time
+(`onboarding/chrome/Shell.tsx`). A step that can be left for later offers a
+quiet "Skip for now" in place of the lit button, so the accent only marks the
+way forward.
 
 Menus are one component, `shell/menu/PopoverMenu.tsx`, positioned by
 `shell/menu/usePopover.ts`. A menu opened with the pointer grows from the
@@ -361,3 +384,6 @@ above are reimplemented here in Moxxy's own components.
    workflows and actions in both composers; the next turn's state as a dot and a line; a
    voice button in the Mini Chat header; the terminal greets with the mark,
    keeps its last row in view and no longer shows the agent's end marker.
+9. **Found by name** (done): the palette finds every option by its own name
+   and opens the section that holds it; Providers are the first section of
+   Settings; first run is one form with no sidebar.

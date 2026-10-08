@@ -17,7 +17,7 @@ import { WebhooksPanel } from '../apps/WebhooksPanel';
  * collapsible groups holding the automations themselves.
  */
 
-import type { Kind } from './AutomationsIndex';
+import type { AutomationKind as Kind } from './kinds';
 
 /** A pure switch. Each kind's pane owns its own instrument bar, because each has
  *  its own summary and its own actions, and a shared bar here could carry

@@ -34,6 +34,7 @@ async function load(prefs: Record<string, unknown>) {
 const NAV = {
   view: 'chat' as const,
   go: vi.fn(),
+  open: vi.fn(),
   isDisabled: () => false,
   disabledReason: '',
   showShortcuts: vi.fn(),

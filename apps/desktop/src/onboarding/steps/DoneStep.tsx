@@ -31,7 +31,7 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
         gap: 18,
       }}
     >
-      <MoxxyMark size={200} />
+      <MoxxyMark size={112} />
       <div>
         <h2 style={{ margin: 0, fontSize: 'var(--type-display)', fontWeight: 700 }}>You&rsquo;re all set!</h2>
         <p

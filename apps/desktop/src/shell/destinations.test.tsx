@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { AutomationsIndex } from '../automations/AutomationsIndex';
 import { ChannelsIndex } from '../channels/ChannelsSurface';
-import { SettingsIndex } from '../settings/SettingsPanel';
+import { SettingsIndex, useSettingsTab } from '../settings/SettingsPanel';
 import { reloadSidebarCollapsedFromStorage } from '@/lib/useSidebarCollapsed';
 
 /**
@@ -85,7 +85,7 @@ describe('SettingsIndex', () => {
 
   it('groups the sections by what they are about', () => {
     const { container } = render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
-    expect(captions(container)).toEqual(['Agent', 'Extend', 'Voice', 'Computer use', 'Trust', 'App']);
+    expect(captions(container)).toEqual(['Agent', 'Voice', 'Computer use', 'Trust', 'App', 'Extend']);
     // A flat row gave "Vault" and "Skills" the same standing, when one is a
     // secret store and the other a capability.
     expect(screen.getByTestId('settings-tab-vault')).toBeTruthy();
@@ -93,25 +93,22 @@ describe('SettingsIndex', () => {
     expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
   });
 
-  it('splits extensions from application settings in the product navigation', () => {
-    const { container, rerender } = render(
-      <SettingsIndex
-        tab="providers"
-        onPick={vi.fn()}
-        scope="extensions"
-      />,
-    );
-    expect(captions(container)).toEqual(['Agent', 'Extend']);
-    expect(screen.queryByTestId('settings-tab-vault')).toBeNull();
+  it('keeps the model connection in Settings, and only what extends Moxxy in Extensions', () => {
+    // Connecting a model is the first thing a person sets up; under
+    // "Extensions" it was looked for in Settings and not found.
+    const { container, rerender } = render(<SettingsIndex tab="mcp" onPick={vi.fn()} scope="extensions" />);
+    expect(captions(container)).toEqual(['Extend']);
+    expect(rows(container).map((row) => row.dataset.testid)).toEqual(['settings-tab-mcp', 'settings-tab-skills']);
+    expect(screen.queryByTestId('settings-tab-providers')).toBeNull();
 
-    rerender(
-      <SettingsIndex tab="vault" onPick={vi.fn()} scope="settings" />,
-    );
-    expect(screen.getByTestId('settings-tab-vault')).toBeTruthy();
-    expect(screen.getByTestId('settings-tab-preferences')).toBeTruthy();
-    expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
-    expect(screen.getByTestId('settings-tab-jev')).toBeTruthy();
+    rerender(<SettingsIndex tab="providers" onPick={vi.fn()} scope="settings" />);
+    expect(screen.getByTestId('settings-tab-providers')).toHaveAttribute('aria-current', 'true');
     expect(screen.queryByTestId('settings-tab-skills')).toBeNull();
+  });
+
+  it('opens Settings on the providers, and Extensions on the MCP servers', () => {
+    expect(renderHook(() => useSettingsTab('settings')).result.current[0]).toBe('providers');
+    expect(renderHook(() => useSettingsTab('extensions')).result.current[0]).toBe('mcp');
   });
 
   it('draws no caption over a list where every group is a single row', () => {
@@ -120,6 +117,7 @@ describe('SettingsIndex', () => {
     const { container } = render(<SettingsIndex tab="voice" onPick={vi.fn()} scope="settings" />);
     expect(captions(container)).toEqual([]);
     expect(rows(container).map((row) => row.dataset.testid)).toEqual([
+      'settings-tab-providers',
       'settings-tab-voice',
       'settings-tab-jev',
       'settings-tab-vault',

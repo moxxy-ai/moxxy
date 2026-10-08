@@ -7,9 +7,18 @@ import { CommandPalette, type PalettePlace } from './CommandPalette';
 /** ⌘K is the second way to every place in the app; the account menu is the first. */
 
 const PLACES: ReadonlyArray<PalettePlace> = [
-  { id: 'chat', label: 'Runs', icon: 'chat', disabled: false },
-  { id: 'settings', label: 'Settings', icon: 'settings', disabled: false },
-  { id: 'automations', label: 'Automations', icon: 'workflow', disabled: true },
+  { id: 'chat', label: 'Runs', icon: 'chat', keywords: ['chat'], target: { destination: 'chat' }, top: true, disabled: false },
+  { id: 'settings', label: 'Settings', icon: 'settings', keywords: [], target: { destination: 'settings' }, top: true, disabled: false },
+  { id: 'automations', label: 'Automations', icon: 'workflow', keywords: [], target: { destination: 'automations' }, top: true, disabled: true },
+  {
+    id: 'settings/voice/gpt-live',
+    label: 'GPT-Live',
+    trail: 'Settings › Voice',
+    icon: 'mic',
+    keywords: ['realtime'],
+    target: { destination: 'settings', section: 'voice' },
+    disabled: false,
+  },
 ];
 
 beforeEach(() => {
@@ -41,14 +50,34 @@ describe('CommandPalette places', () => {
     fireEvent.change(field, { target: { value: 'sett' } });
     expect(screen.queryByRole('option', { name: /Runs/ })).toBeNull();
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(onPlace).toHaveBeenCalledWith('settings');
+    expect(onPlace).toHaveBeenCalledWith(expect.objectContaining({ target: { destination: 'settings' } }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('goes there on click', () => {
     const { onPlace } = renderPalette();
     fireEvent.click(screen.getByRole('option', { name: /Runs/ }));
-    expect(onPlace).toHaveBeenCalledWith('chat');
+    expect(onPlace).toHaveBeenCalledWith(expect.objectContaining({ target: { destination: 'chat' } }));
+  });
+
+  it('keeps what is inside a section out of the list until it is looked for', () => {
+    const { field, onPlace } = renderPalette();
+    expect(screen.queryByRole('option', { name: /GPT-Live/ })).toBeNull();
+
+    fireEvent.change(field, { target: { value: 'gpt live' } });
+    const option = screen.getByRole('option', { name: /GPT-Live/ });
+    expect(option.textContent).toContain('Settings › Voice');
+
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(onPlace).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { destination: 'settings', section: 'voice' } }),
+    );
+  });
+
+  it('finds a place by another word for it', () => {
+    const { field } = renderPalette();
+    fireEvent.change(field, { target: { value: 'chat' } });
+    expect(screen.getByRole('option', { name: /Runs/ })).toBeTruthy();
   });
 
   it('shows a locked place but will not go to it', () => {

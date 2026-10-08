@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
-import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle, pickerBtnStyle } from '../chrome';
+import { StepCard, Fields, Nav, PrimaryButton, SuccessRow, inputStyle, pickerBtnStyle } from '../chrome';
 
 export function WorkspaceStep({
   onNext,
@@ -53,17 +53,7 @@ export function WorkspaceStep({
           text={`You already have ${desks.desks.length} workspace${desks.desks.length === 1 ? '' : 's'}.`}
         />
       )}
-      <div
-        style={{
-          padding: '16px 18px',
-          background: 'var(--color-card-bg)',
-          border: '1px solid var(--color-card-border)',
-          borderRadius: 'var(--radius-card)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
+      <Fields>
         <button type="button" onClick={() => void onPickFolder()} style={pickerBtnStyle}>
           <Icon name="workspace" size={16} />
           {folder ? folder : 'Choose a folder…'}
@@ -86,8 +76,8 @@ export function WorkspaceStep({
         >
           {creating ? 'Creating…' : 'Create workspace'}
         </PrimaryButton>
-      </div>
-      <Nav onBack={onBack} onNext={onNext} nextLabel="Skip for now" />
+      </Fields>
+      <Nav onBack={onBack} onNext={onNext} skip />
     </StepCard>
   );
 }

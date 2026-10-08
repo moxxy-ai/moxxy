@@ -22,24 +22,20 @@ import { useAppHotkeys } from './hotkeys/useAppHotkeys';
 import { ConnectionScreen, type UpdateCliResult } from './connection/ConnectionScreen';
 import { Onboarding } from './onboarding/Onboarding';
 import { ChatSurface } from './chat/ChatSurface';
-import { CommandPalette } from './chat/CommandPalette';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import { ShellNavProvider } from './shell/navigation/ShellNav';
 import { useShellNavigation } from './shell/navigation/useShellNavigation';
-import { usePalettePlaces } from './shell/navigation/usePalettePlaces';
+import { ShellPalette } from './shell/navigation/ShellPalette';
+import { useSections } from './shell/navigation/useSections';
 import { Workbench } from './shell/Workbench';
 import { useWorkbench } from './shell/useWorkbench';
 import { showsRuns } from './shell/views';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
-import { AutomationsPanel, useAutomationsKind } from './automations/AutomationsPanel';
+import { AutomationsPanel } from './automations/AutomationsPanel';
 import { AutomationsIndex } from './automations/AutomationsIndex';
-import {
-  ChannelsIndex,
-  ChannelsSurface,
-  useChannelSelection,
-} from './channels/ChannelsSurface';
-import { SettingsIndex, useSettingsTab } from './settings/SettingsPanel';
+import { ChannelsIndex, ChannelsSurface } from './channels/ChannelsSurface';
+import { SettingsIndex } from './settings/SettingsPanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { MobilePanel } from './mobile/MobilePanel';
 import { UpdateBanner } from './shell/UpdateBanner';
@@ -126,10 +122,17 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
   const bench = useWorkbench(activeWorkspaceId);
   // Each destination remembers what it was showing, so switching away and back
   // does not silently reset the list to its first entry.
-  const [automationsKind, setAutomationsKind] = useAutomationsKind();
-  const [channelId, setChannelId] = useChannelSelection();
-  const [extensionsTab, setExtensionsTab] = useSettingsTab('extensions');
-  const [settingsTab, setSettingsTab] = useSettingsTab('settings');
+  const sections = useSections();
+  const {
+    automationsKind,
+    setAutomationsKind,
+    channelId,
+    setChannelId,
+    extensionsTab,
+    setExtensionsTab,
+    settingsTab,
+    setSettingsTab,
+  } = sections;
   const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -224,6 +227,7 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
     sessionLoading: shell.sessionLoading,
     onShowShortcuts: showShortcuts,
     onOpenPalette: openPalette,
+    onSection: sections.show,
   });
   const { view, go } = nav;
   useAttention({
@@ -457,20 +461,6 @@ function AppWindow({ prefs, prefsLoading, justFinishedOnboarding, onFinishedOnbo
       <WorkflowApprovals modal />
     </div>
     </ShellNavProvider>
-  );
-}
-
-/** The ⌘K palette: the shell's places plus the active run's actions. */
-function ShellPalette({
-  workspaceId,
-  onClose,
-}: {
-  readonly workspaceId: string;
-  readonly onClose: () => void;
-}): JSX.Element {
-  const { places, onPlace } = usePalettePlaces();
-  return (
-    <CommandPalette workspaceId={workspaceId} places={places} onPlace={onPlace} onClose={onClose} />
   );
 }
 

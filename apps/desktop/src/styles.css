@@ -4378,3 +4378,100 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
     opacity: 0.5;
   }
 }
+
+/* --- Onboarding ------------------------------------------------
+ * One form in the middle of the window, on the sidebar's ground so the card
+ * is the only thing lit. No sidebar: there is nothing to move between yet. */
+
+.onboard {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  display: grid;
+  /* Anchored below the top, not centred: the mark and the step line stay
+   * where they are while the form under them changes height. */
+  place-items: start center;
+  padding: clamp(var(--space-32), 14vh, 140px) var(--space-16) var(--space-32);
+  background: var(--color-sidebar-bg);
+}
+
+.onboard__column {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.onboard__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  font-family: var(--font-chrome);
+  font-size: var(--type-row);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.onboard__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  padding: var(--space-24);
+  background: var(--color-card-bg);
+  border-radius: var(--radius-card);
+  box-shadow: var(--color-card-shadow);
+}
+
+.onboard__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.onboard__count {
+  font-family: var(--font-chrome);
+  font-size: var(--type-label);
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.onboard__marks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-4);
+}
+
+.onboard__mark {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-card-border);
+  transition: background-color var(--motion-shift) ease;
+}
+.onboard__mark[data-state='done'] { background: color-mix(in srgb, var(--color-primary) 45%, var(--color-card-border)); }
+.onboard__mark[data-state='current'] { background: var(--color-primary); }
+
+/* A step arrives from a little below. It is seen a handful of times in the
+ * life of an install, so it may move; it fades only its own card's content. */
+.onboard__step {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--motion-overlay) var(--ease-out),
+    transform var(--motion-overlay) var(--ease-out);
+}
+@starting-style {
+  .onboard__step {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard__mark,
+  .onboard__step { transition: none; }
+}

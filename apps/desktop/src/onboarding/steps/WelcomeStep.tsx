@@ -13,7 +13,7 @@ export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.El
     <div
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18 }}
     >
-      <MoxxyMark size={220} className="moxxy-avatar-loader" />
+      <MoxxyMark size={112} className="moxxy-avatar-loader" />
       <div>
         <h2 style={{ margin: 0, fontSize: 'var(--type-display)', fontWeight: 700 }}>
           Hi, I&rsquo;m <span style={{ color: 'var(--color-primary-strong)' }}>Moxxy</span>.
