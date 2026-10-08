@@ -25,7 +25,8 @@ export interface UpdateScreenStep {
   readonly detail?: string;
 }
 
-export type UpdateScreenAction = 'retry' | 'close';
+/** `manual`: the installer downloaded and run by hand, when the system refused it. */
+export type UpdateScreenAction = 'retry' | 'manual' | 'close';
 
 export interface UpdateScreenModel {
   readonly kind: 'updating' | 'failed' | 'setup' | 'ready';
@@ -90,6 +91,7 @@ function updateModel(plan: AppUpdatePlan, progress: AppUpdateProgress | null, cl
     return { key: step.id, label: UPDATE_STEPS[plan.route][step.id], status: step.status, ...(detail ? { detail } : {}) };
   });
   if (failed) {
+    const refused = plan.steps.some((step) => step.id === 'installer' && step.status === 'failed') && Boolean(plan.releaseUrl);
     return {
       kind: 'failed',
       title: 'The update could not be finished',
@@ -99,7 +101,7 @@ function updateModel(plan: AppUpdatePlan, progress: AppUpdateProgress | null, cl
       busy: false,
       notes: [],
       footer: null,
-      actions: ['retry', 'close'],
+      actions: refused ? ['retry', 'manual', 'close'] : ['retry', 'close'],
     };
   }
   return {

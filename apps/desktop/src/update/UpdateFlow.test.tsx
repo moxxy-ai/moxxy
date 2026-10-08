@@ -17,6 +17,7 @@ function host(setup: AppSetupState | null) {
   const invoke = vi.fn(async (cmd: string) => {
     if (cmd === 'app.setup') return setup ?? { reason: null, phase: 'done', steps: [], notes: [] };
     if (cmd === 'app.updateAll') return { ok: true, plan: null };
+    if (cmd === 'onboarding.openExternal') return undefined;
     throw new Error(`unexpected ${cmd}`);
   });
   __setApiOverride({
@@ -88,6 +89,22 @@ describe('UpdateFlow', () => {
     rerender(<UpdateFlow runner="starting" onboarded />);
 
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens the release page when the system refused the installer', async () => {
+    const invoke = host(null);
+    const releaseUrl = 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0';
+    render(<UpdateFlow runner="ready" onboarded />);
+    emit('app.update.plan', {
+      ...downloading,
+      route: 'installer',
+      releaseUrl,
+      steps: [{ id: 'installer', status: 'failed', error: 'not signed' }, { id: 'restart', status: 'pending' }],
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Download the installer' }));
+
+    expect(invoke).toHaveBeenCalledWith('onboarding.openExternal', { url: releaseUrl });
   });
 
   it('asks the host again when a failed update is retried, and stays closed when it is not', async () => {

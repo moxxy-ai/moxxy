@@ -16,7 +16,7 @@ here it's the desktop's **own** renderer + main + preload + IPC contract.
 | | What changes | Mechanism | User experience |
 |---|---|---|---|
 | **Tier 1** (≈ every release) | renderer, main process, preload, **IPC/protocol**, any JS | Signed **app bundle** downloaded into `<userData>/app/<version>/`, activated on next launch | Banner → "Update" → relaunch. **No binary download.** |
-| **Tier 2** (rare) | Electron / Chromium / Node version, native-module ABI | `electron-updater` against GitHub Releases | Win/Linux: background download + install on restart. macOS: disabled (`shell-updater.ts` no-ops — Squirrel.Mac needs a signed app); the Tier-1 "needs a full app update" banner links the release page instead. |
+| **Tier 2** (rare) | Electron / Chromium / Node version, native-module ABI | `electron-updater` against the exact release the update names | The same banner → "Update": the installer downloads, the app quits into it and comes back. Windows shows the one-click installer's progress bar, no wizard. Nothing is downloaded or installed in the background. An unsigned macOS build cannot install it (Squirrel.Mac needs a signed app): the installer screen then offers the release page. |
 
 Tier 1 covers protocol/IPC changes safely because the renderer and the main
 process that talk to each other always come from the **same** bundle — there's
@@ -134,6 +134,10 @@ plan** — the version the update ends at, the route and the steps in order:
   starts and after it ends, and sent to the renderer as `app.update.plan`.
 - A step that fails stops the update there, with its reason and without a
   restart. The next click plans again from what is installed.
+- An installer the system refuses (an unsigned macOS build) fails the
+  `installer` step like any other; the plan carries the release page
+  (`releaseUrl`) and the screen offers **Download the installer** beside
+  **Try again**, so nobody is left with an update they cannot get.
 - The restart is only done when the next launch says so: `app.updatePlan`
   compares the planned version with the one running. An app that came back on
   the old version reads as a failed update and the screen says why while the
@@ -163,6 +167,14 @@ A packaged app prepares itself in `prepareInstalledApp`
   always kept as a backup; when it had been changed by hand, the screen says so
   once, with the backup's path. A package linked to local source (a symlink or
   junction) is a developer's and is left alone.
+- One backup per package is kept. Each update leaves a transaction holding a
+  full copy of the package it replaced (`~/.moxxy/desktop/provider-updates`,
+  `computer-updates`); once a package is in place, `pruneComputerUpdates`
+  removes the older transactions and keeps the record of the installed copy
+  and the newest backup. It removes nothing while an update is unfinished,
+  when the installed copy matches no record (changed by hand), or for a failed
+  package, and a transaction's journal goes before its files, so a removal cut
+  short can never leave a half-deleted copy that reads as a backup.
 - `components` is tried once per app version. Each part is installed and
   verified next to the live copy (`<dir>.update-*`) and only then swapped in;
   a failure leaves the live copy untouched, the screen says Moxxy works with

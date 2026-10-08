@@ -97,7 +97,7 @@ import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
-import { initShellUpdater, installFullAppUpdate } from './shell-updater.js';
+import { installFullAppUpdate } from './shell-updater.js';
 import { DeepLinkRouter } from './deep-link.js';
 import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
 import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.js';
@@ -1070,11 +1070,6 @@ app.whenReady().then(async () => {
   // renderer's first drain.
   const argvUrl = process.argv.find((a) => a.startsWith('moxxy://'));
   if (argvUrl) deepLinks.handle(argvUrl);
-
-  // Tier-2: background download of a new native shell where supported
-  // (Windows/Linux); a no-op on dev + unsigned macOS. Tier-1 JS hot-updates
-  // (the common case) are independent of this.
-  initShellUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow();

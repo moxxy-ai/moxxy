@@ -22,6 +22,7 @@ export function buildUpdatePlan({ app, id, now }: UpdatePlanInput): AppUpdatePla
     createdAt: now,
     route: needsInstaller ? 'installer' : 'hot',
     version: app.latestVersion,
+    ...(needsInstaller && app.releaseUrl ? { releaseUrl: app.releaseUrl } : {}),
     steps: steps.map((step) => ({ id: step, status: 'pending' })),
   };
 }

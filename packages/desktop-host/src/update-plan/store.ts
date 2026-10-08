@@ -11,6 +11,7 @@ const planSchema = z.object({
   createdAt: z.number(),
   route: z.enum(['hot', 'installer']),
   version: z.string().min(1).max(100),
+  releaseUrl: z.string().url().max(2000).optional(),
   steps: z
     .array(
       z.object({

@@ -15,6 +15,8 @@ export interface UpdateScreenProps {
   readonly leaving: boolean;
   readonly onExited: () => void;
   readonly onRetry: () => void;
+  /** Opens the page the installer can be downloaded from. */
+  readonly onManual: () => void;
   readonly onClose: () => void;
 }
 
@@ -65,7 +67,7 @@ function ProgressBar({ value }: { readonly value: number | null }): JSX.Element 
   );
 }
 
-export function UpdateScreen({ model, leaving, onExited, onRetry, onClose }: UpdateScreenProps): JSX.Element {
+export function UpdateScreen({ model, leaving, onExited, onRetry, onManual, onClose }: UpdateScreenProps): JSX.Element {
   const titleId = useId();
   const exited = (event: AnimationEvent<HTMLDivElement>): void => {
     if (leaving && event.target === event.currentTarget) onExited();
@@ -111,6 +113,11 @@ export function UpdateScreen({ model, leaving, onExited, onRetry, onClose }: Upd
             {model.actions.includes('close') && (
               <Button variant={model.actions.includes('retry') ? 'secondary' : 'cta'} size="lg" autoFocus={!model.actions.includes('retry')} onClick={onClose}>
                 {closeLabel}
+              </Button>
+            )}
+            {model.actions.includes('manual') && (
+              <Button variant="secondary" size="lg" onClick={onManual}>
+                Download the installer
               </Button>
             )}
             {model.actions.includes('retry') && (

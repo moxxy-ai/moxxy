@@ -17,6 +17,7 @@ import {
   type NpmCommand,
   type PackageRegistry,
 } from '../component-update.js';
+import { isManagedPackage, pruneComputerUpdates } from '../computer-update.js';
 import { offerBundledComputerUpdate } from '../computer-update-runtime.js';
 import { offerBundledProviderUpdate, type ProviderUpdateOffer } from '../provider-update-runtime.js';
 import { seedPluginsFromResources } from '../seed-plugins.js';
@@ -64,6 +65,18 @@ export interface PrepareInstalledAppOptions {
 }
 
 const isDir = (dir: string): Promise<boolean> => fs.stat(dir).then((stat) => stat.isDirectory(), () => false);
+
+/** One backup of a package is kept; the copies older installers left are removed.
+ *  Housekeeping: a failure is logged and never fails the setup. */
+async function clearOldBackups(moxxyHome: string, plugin: string, log?: (message: string) => void): Promise<void> {
+  if (!isManagedPackage(plugin)) return;
+  try {
+    const removed = await pruneComputerUpdates(moxxyHome, plugin);
+    if (removed.length > 0) log?.(`${plugin}: removed ${removed.length} old backup(s)`);
+  } catch (error) {
+    log?.(`${plugin}: old backups not removed (${error instanceof Error ? error.message : String(error)})`);
+  }
+}
 
 export async function prepareInstalledApp(options: PrepareInstalledAppOptions): Promise<void> {
   const { setup, moxxyHome, userDataDir, resourcesPath, componentsVersion } = options;
@@ -135,6 +148,8 @@ export async function prepareInstalledApp(options: PrepareInstalledAppOptions): 
           if (result.replacedLocalCopy) {
             setup.note(`${label(result.plugin)} was updated. It had been changed by hand, so the previous copy was kept in ${result.replacedLocalCopy}`);
           }
+          // A package that failed keeps its whole history, for whoever looks into it.
+          if (result.outcome !== 'failed') await clearOldBackups(moxxyHome, result.plugin, options.log);
         }
         const failed = results.filter((result) => result.outcome === 'failed');
         if (failed.length > 0) {

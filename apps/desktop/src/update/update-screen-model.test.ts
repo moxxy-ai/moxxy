@@ -93,6 +93,19 @@ describe('updateScreenModel — the update', () => {
     expect(shown?.steps[0]).toMatchObject({ status: 'failed', detail: 'offline' });
   });
 
+  it('offers the installer by hand when the system would not take it', () => {
+    const refused: AppUpdatePlan = {
+      ...downloading,
+      route: 'installer',
+      releaseUrl: 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0',
+      steps: [{ id: 'installer', status: 'failed', error: 'Could not get code signature for running application' }, { id: 'restart', status: 'pending' }],
+    };
+
+    expect(model({ plan: refused })?.actions).toEqual(['retry', 'manual', 'close']);
+    // Nowhere to send the person: only what can be done here is offered.
+    expect(model({ plan: { ...refused, releaseUrl: undefined } })?.actions).toEqual(['retry', 'close']);
+  });
+
   it('lets go of a failed update once it is closed', () => {
     expect(model({ plan: failed, closed: true })).toBeNull();
   });

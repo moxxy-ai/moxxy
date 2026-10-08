@@ -24,7 +24,7 @@ const updating: UpdateScreenModel = {
   footer: 'Nothing for you to do — Moxxy restarts by itself.',
   actions: [],
 };
-const handlers = () => ({ onRetry: vi.fn(), onClose: vi.fn(), onExited: vi.fn() });
+const handlers = () => ({ onRetry: vi.fn(), onManual: vi.fn(), onClose: vi.fn(), onExited: vi.fn() });
 const show = (model: UpdateScreenModel, leaving = false) => {
   const on = handlers();
   render(<UpdateScreen model={model} leaving={leaving} {...on} />);
@@ -75,6 +75,15 @@ describe('UpdateScreen', () => {
 
     expect(on.onRetry).toHaveBeenCalledTimes(1);
     expect(on.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the installer by hand when the model does', () => {
+    const on = show({ ...updating, kind: 'failed', busy: false, progress: null, footer: null, actions: ['retry', 'manual', 'close'] });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download the installer' }));
+
+    expect(on.onManual).toHaveBeenCalledTimes(1);
+    expect(on.onRetry).not.toHaveBeenCalled();
   });
 
   it('says what a person should know and waits for them to open Moxxy', () => {

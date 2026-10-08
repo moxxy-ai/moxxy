@@ -32,6 +32,12 @@ describe('buildUpdatePlan', () => {
     expect(result?.steps.map((step) => step.id)).toEqual(['installer', 'restart']);
   });
 
+  it('remembers where the installer can be had by hand, for when the system refuses it', () => {
+    const releaseUrl = 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0';
+    expect(plan({ ...appInstaller, releaseUrl })?.releaseUrl).toBe(releaseUrl);
+    expect(plan({ ...appHot, releaseUrl })).not.toHaveProperty('releaseUrl');
+  });
+
   it('takes the installer for a bundle this shell cannot load', () => {
     expect(plan({ ...appHot, compatible: false })?.route).toBe('installer');
   });

@@ -3,7 +3,7 @@
  * temp installer and profile. Only npm's registry is a stand-in (the network).
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PackageRegistry } from '../component-update.js';
@@ -78,6 +78,21 @@ describe('prepareInstalledApp', () => {
     expect(state.notes).toHaveLength(1);
     expect(state.notes[0]).toMatch(/ChatGPT sign-in was updated.*previous copy/);
     expect((await launch({ shellVersion: '0.7.0' })).notes).toEqual([]);
+  });
+
+  it('keeps one backup of a connection, however many installers replaced it', async () => {
+    const { fixture, launch } = await installed();
+    const backups = join(fixture.moxxyHome, 'desktop', 'provider-updates', fixture.plugin.slice('@moxxy/'.length));
+    for (const shellVersion of ['0.6.0', '0.7.0', '0.8.0']) {
+      await writeFile(join(fixture.source, 'dist/index.js'), `// installer ${shellVersion}\n${fixtureProviderCode}`);
+      await launch({ shellVersion });
+    }
+
+    const [kept, ...others] = await readdir(backups);
+
+    expect(others).toEqual([]);
+    expect(await readFile(join(backups, kept as string, 'previous', 'dist/index.js'), 'utf8')).toContain('installer 0.7.0');
+    expect(await readFile(join(fixture.target, 'dist/index.js'), 'utf8')).toContain('installer 0.8.0');
   });
 
   it('has nothing to set up on the launch after', async () => {

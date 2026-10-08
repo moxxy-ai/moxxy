@@ -29,6 +29,13 @@ describe('update plan store', () => {
     expect(await createUpdatePlanStore(userData).read()).toEqual(plan);
   });
 
+  it('keeps the release page of an installer plan', async () => {
+    const userData = profile();
+    const installer: AppUpdatePlan = { ...plan, route: 'installer', releaseUrl: 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0' };
+    await createUpdatePlanStore(userData).write(installer);
+    expect(await createUpdatePlanStore(userData).read()).toEqual(installer);
+  });
+
   it('replaces the earlier plan', async () => {
     const userData = profile();
     const store = createUpdatePlanStore(userData);

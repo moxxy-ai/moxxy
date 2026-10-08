@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useUpdateActivity } from '@moxxy/client-core';
+import { api, useUpdateActivity } from '@moxxy/client-core';
 import { useLingering } from './useLingering';
 import { updateScreenModel, type RunnerState, type UpdateScreenModel } from './update-screen-model';
 
@@ -19,6 +19,7 @@ export interface UpdateScreenState {
   readonly leaving: boolean;
   readonly onExited: () => void;
   readonly onRetry: () => void;
+  readonly onManual: () => void;
   readonly onClose: () => void;
 }
 
@@ -50,6 +51,10 @@ export function useUpdateScreen(options: { readonly runner: RunnerState; readonl
   });
   const { shown, leaving, onExited } = useLingering(model);
   const onClose = useCallback(() => setClosed(showing), [showing]);
+  const releaseUrl = plan?.releaseUrl;
+  const onManual = useCallback(() => {
+    if (releaseUrl) void api().invoke('onboarding.openExternal', { url: releaseUrl });
+  }, [releaseUrl]);
 
-  return { model: shown, leaving, onExited, onRetry: retry, onClose };
+  return { model: shown, leaving, onExited, onRetry: retry, onManual, onClose };
 }

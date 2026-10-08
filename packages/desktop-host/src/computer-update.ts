@@ -41,6 +41,9 @@ export interface PreparedComputerUpdate {
   readonly localChanges: 'untracked' | 'unchanged' | 'changed';
 }
 const prepared = new WeakSet<PreparedComputerUpdate>();
+/** Transactions this process is still filling or activating; pruning skips them. */
+const staging = new Set<string>();
+const transactionName = /^update-[a-zA-Z0-9]{6}$/;
 const tails = new Map<string, Promise<unknown>>();
 
 function targetPath(home: string, plugin: ManagedPackage = pluginName): string {
@@ -57,7 +60,7 @@ async function journals(home:string, plugin: ManagedPackage = pluginName):Promis
   if (names.length>1000) throw new Error('Computer Use recovery history exceeds safety limit');
   const result:Array<{directory:string;file:string;record:Journal}>=[];
   for (const name of names.sort()) {
-    if (!/^update-[a-zA-Z0-9]{6}$/.test(name)) continue;
+    if (!transactionName.test(name)) continue;
     const directory=path.join(root,name),file=path.join(directory,'transaction.json');
     await assertOwnedParents(home,directory);
     if (!await exists(file)) continue;
@@ -235,6 +238,45 @@ export async function recordManagedInstall(moxxyHome:string, plugin:ManagedPacka
   const transaction=await fs.mkdtemp(path.join(root,'update-'));
   const journal:Journal={schemaVersion:1,phase:'verified',previous:null,staged};
   await writeFileAtomic(path.join(transaction,'transaction.json'),JSON.stringify(journal));
+  // The record is written; clearing old ones is housekeeping and must not undo it.
+  await pruneComputerUpdates(home, plugin, staged).catch(()=>undefined);
+}
+
+/** Every update leaves a transaction holding a full copy of the package it
+ *  replaced. Keeps the record of the installed copy and the newest backup and
+ *  removes the other transactions. Nothing is removed while an update is
+ *  unfinished, or when the installed copy matches no record (changed by hand):
+ *  the next update writes one. Returns the directories removed. */
+export async function pruneComputerUpdates(moxxyHome:string, plugin:ManagedPackage=pluginName, installedHash?:string):Promise<string[]> {
+  managedPackageSchema.parse(plugin);
+  const home=path.resolve(moxxyHome), root=updatesPath(home, plugin);
+  await assertOwnedParents(home,root);
+  if (!await exists(root) || await isLinkedInstall({moxxyHome:home,plugin})) return [];
+  const records=await journals(home, plugin);
+  if (records.some(({record})=>record.phase==='prepared' || record.phase==='activated')) return [];
+  const installed=installedHash ?? await computerTreeHash(targetPath(home, plugin));
+  const dated=await Promise.all(records.map(async(entry)=>({
+    ...entry, at:(await fs.stat(entry.file)).mtimeMs, backup:await exists(path.join(entry.directory,'previous')),
+  })));
+  dated.sort((a,b)=>b.at-a.at);
+  const current=dated.find(({record})=>record.phase==='verified' && record.staged===installed);
+  if (!current) return [];
+  // The installed copy's own backup is the newest by definition; times only
+  // decide when it came without one (a first install, an update from npm).
+  const backup=current.backup ? current : dated.find((entry)=>entry.backup);
+  const keep=new Set([current.directory, ...(backup ? [backup.directory] : [])]);
+  const removed:string[]=[];
+  for (const name of (await fs.readdir(root)).sort()) {
+    const directory=path.join(root,name);
+    if (!transactionName.test(name) || keep.has(directory) || staging.has(directory)) continue;
+    if (!(await fs.lstat(directory)).isDirectory()) continue;
+    // The journal goes first: a removal cut short leaves no record that could
+    // later pass a half-deleted copy off as a backup.
+    await fs.rm(path.join(directory,'transaction.json'),{force:true});
+    await fs.rm(directory,{recursive:true,force:true,maxRetries:3});
+    removed.push(directory);
+  }
+  return removed;
 }
 
 export async function prepareComputerUpdate(options: UpdateOptions): Promise<PreparedComputerUpdate> {
@@ -249,6 +291,7 @@ export async function prepareComputerUpdate(options: UpdateOptions): Promise<Pre
   const sourceHash=await bundleFingerprint(options.resourcesPath, plugin);
   await fs.mkdir(updatesPath(home, plugin),{recursive:true});
   const transaction=await fs.mkdtemp(path.join(updatesPath(home, plugin),'update-'));
+  staging.add(transaction);
   const staged=path.join(transaction,'staged');
   let count=0;
   async function copy(from: string, to: string, ancestors: ReadonlySet<string>): Promise<void> {
@@ -284,6 +327,7 @@ export async function prepareComputerUpdate(options: UpdateOptions): Promise<Pre
     prepared.add(update);
     return update;
   } catch (error) {
+    staging.delete(transaction);
     await fs.rm(transaction,{recursive:true,force:true});
     throw error;
   }
@@ -320,7 +364,7 @@ export async function activateComputerUpdate(
       if (await computerTreeHash(update.targetPath) !== update.stagedHash) throw new Error('Installed Computer Use bytes changed during verification');
       await applyComputerLedgers(update.moxxyHome,update.transactionPath,ledgers);
       await writeJournal(update,'verified',approvedInstalledHash,ledgers);
-      prepared.delete(update);
+      prepared.delete(update); staging.delete(update.transactionPath);
       return {backupPath:update.backupPath};
     } catch (error) {
       if (newMoved) {
@@ -330,7 +374,7 @@ export async function activateComputerUpdate(
       if (oldMoved) await fs.rename(update.backupPath,update.targetPath);
       await applyComputerLedgers(update.moxxyHome,update.transactionPath,ledgers,true);
       await writeJournal(update,'rolled_back',approvedInstalledHash,ledgers);
-      prepared.delete(update);
+      prepared.delete(update); staging.delete(update.transactionPath);
       throw error;
     }
   });
@@ -340,6 +384,7 @@ export async function activateComputerUpdate(
 }
 
 export async function discardComputerUpdate(update:PreparedComputerUpdate):Promise<void> {
+  staging.delete(update.transactionPath);
   if (!prepared.has(update)) return;
   await fs.rm(update.stagedPath,{recursive:true,force:true});
   // A transaction with a journal/backup is retained for recovery, never removed.

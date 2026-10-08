@@ -65,6 +65,9 @@ export interface AppUpdatePlan {
   route: AppUpdateRoute;
   /** The app version the update ends at. */
   version: string;
+  /** Where the installer can be downloaded by hand — offered only when the
+   *  system refused to install it. Installer route only. */
+  releaseUrl?: string;
   steps: ReadonlyArray<AppUpdateStep>;
 }
 
