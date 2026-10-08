@@ -307,7 +307,6 @@ export function ChatSurface({
               rail={voicePresentation.rail}
               agentWork={voicePresentation.agentWork}
               microphoneMuted={voiceCall.microphoneMuted}
-              waitingSoundEnabled={voiceCall.waitingSoundEnabled}
               localPiperInstallRequired={voiceCall.localPiperInstallRequired}
               localPiperInstalling={voiceCall.localPiperInstalling}
               localPiperInstallError={voiceCall.localPiperInstallError}
@@ -318,7 +317,6 @@ export function ChatSurface({
               onInstallLocalPiper={voiceCall.installLocalPiper}
               onMuteMicrophone={voiceCall.muteMicrophone}
               onUnmuteMicrophone={voiceCall.unmuteMicrophone}
-              onToggleWaitingSound={voiceCall.toggleWaitingSound}
               onClose={voiceCall.close}
             />
           </div>

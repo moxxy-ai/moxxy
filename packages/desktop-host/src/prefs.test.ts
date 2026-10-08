@@ -39,6 +39,16 @@ describe('readPrefs', () => {
     expect(p.version).toBe(1);
   });
 
+  it('has the reply sound on until it is switched off, also for a file written before it existed', () => {
+    expect(readPrefs().replySound).toBe(true);
+
+    writePrefsFile({ onboardingComplete: true, theme: 'dark' });
+    expect(readPrefs().replySound).toBe(true);
+
+    writePrefsFile({ replySound: false });
+    expect(readPrefs().replySound).toBe(false);
+  });
+
   it('returns defaults for a malformed file (never throws)', () => {
     mkdirSync(path.dirname(prefsPath()), { recursive: true });
     writeFileSync(prefsPath(), '{not json');

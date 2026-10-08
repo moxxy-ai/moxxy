@@ -23,6 +23,7 @@ const DEFAULTS: DesktopPrefs = {
   mobileGatewayEnabled: false,
   theme: 'system',
   voiceEngine: 'local',
+  replySound: true,
   focusMiniTextSize: null,
   channelRunModes: {},
   version: 1,

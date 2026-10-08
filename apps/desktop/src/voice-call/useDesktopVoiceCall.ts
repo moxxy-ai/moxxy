@@ -6,7 +6,6 @@ import {
 } from '@moxxy/client-core';
 import { useCallback, useEffect } from 'react';
 import { useVoiceActivityDetection } from './useVoiceActivityDetection';
-import { VOICE_WAITING_TONE } from './voice-waiting-tone';
 import type { DesktopVoiceCallSurface } from './desktop-voice-call-bridge';
 import {
   useDesktopVoiceCallBridge,
@@ -29,7 +28,8 @@ export function useDesktopVoiceCall(
 ): DesktopVoiceCallBridgeResult {
   const { surface, gptLiveTransport, ...callOptions } = options;
   const engine = useVoiceEnginePreference();
-  const localCall = useVoiceCall({ ...callOptions, waitingTone: VOICE_WAITING_TONE });
+  // No waiting tone is handed over: a call is silent while Moxxy works.
+  const localCall = useVoiceCall(callOptions);
   const liveCall = useGptLiveVoiceCall({
     workspaceId: callOptions.workspaceId,
     ready: callOptions.ready,

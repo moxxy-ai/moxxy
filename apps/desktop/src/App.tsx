@@ -52,6 +52,7 @@ import {
   describeConnectionPhase,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
+import { useReplySound } from './reply-sound/useReplySound';
 
 /**
  * Top-level shell. Runner startup is non-blocking: persisted desks/history can
@@ -77,8 +78,9 @@ export function App(): JSX.Element {
   // Prime the authoritative desk overview independently of runner startup. Its
   // shared store also points connectionStore at the persisted active session,
   // letting the shell + disk-backed transcript render before a pool snapshot.
-  useDesks();
+  const { desks } = useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
+  useReplySound({ desks, onScreenId: activeWorkspaceId });
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;

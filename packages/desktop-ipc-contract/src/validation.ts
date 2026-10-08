@@ -523,6 +523,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
+      replySound: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),

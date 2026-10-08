@@ -587,7 +587,7 @@ describe('FocusWidget stages', () => {
     await waitFor(() => expect(captureStarts).toBe(1));
     expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
     expect(screen.getByRole('button', { name: /mute microphone/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /turn waiting sound off/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /waiting sound/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /^collapse$/i }));
     expect(screen.getByRole('button', { name: /voice mode active.*click to expand/i })).toBeTruthy();
@@ -630,7 +630,6 @@ describe('FocusWidget stages', () => {
           activity: null,
           errorReason: null,
           microphoneMuted: false,
-          waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
           localPiperInstallError: null,
@@ -689,7 +688,6 @@ describe('FocusWidget stages', () => {
           activity: 'editing',
           errorReason: null,
           microphoneMuted: false,
-          waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
           localPiperInstallError: null,
@@ -745,7 +743,6 @@ describe('FocusWidget stages', () => {
           activity: null,
           errorReason: null,
           microphoneMuted: false,
-          waitingSoundEnabled: true,
           localPiperInstallRequired: false,
           localPiperInstalling: false,
           localPiperInstallError: null,
@@ -774,7 +771,7 @@ describe('FocusWidget stages', () => {
     }
   });
 
-  it('exposes the full voice microphone and waiting-sound controls in focus mode', async () => {
+  it('exposes the voice microphone control in focus mode', async () => {
     let captureStarts = 0;
     const cancelCapture = vi.fn();
     const preferences = new Map<string, string>();
@@ -811,10 +808,6 @@ describe('FocusWidget stages', () => {
     const unmuteButton = screen.getByRole('button', { name: /unmute microphone/i });
     expect(unmuteButton.querySelector('[data-voice-microphone-muted="true"]')).toBeTruthy();
     expect(unmuteButton).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(screen.getByRole('button', { name: /turn waiting sound off/i }));
-    expect(screen.getByRole('button', { name: /turn waiting sound on/i })).toBeTruthy();
-    expect(preferences.get('moxxy.voice.waiting-sound')).toBe('0');
 
     fireEvent.click(screen.getByRole('button', { name: /unmute microphone/i }));
     await waitFor(() => expect(captureStarts).toBe(2));

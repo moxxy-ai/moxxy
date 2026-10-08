@@ -52,7 +52,6 @@ export function VoicePresenceRail({
   status,
   rail,
   microphoneMuted,
-  waitingSoundEnabled,
   localPiperInstallRequired,
   localPiperInstalling,
   localPiperInstallError,
@@ -63,7 +62,6 @@ export function VoicePresenceRail({
   onInstallLocalPiper,
   onMuteMicrophone,
   onUnmuteMicrophone,
-  onToggleWaitingSound,
   onClose,
   agentWork = null,
 }: {
@@ -71,7 +69,6 @@ export function VoicePresenceRail({
   readonly status: VoiceModeStatus;
   readonly rail: VoiceRailView;
   readonly microphoneMuted: boolean;
-  readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
   readonly localPiperInstallError: string | null;
@@ -82,7 +79,6 @@ export function VoicePresenceRail({
   readonly onInstallLocalPiper: () => void;
   readonly onMuteMicrophone: () => void;
   readonly onUnmuteMicrophone: () => void;
-  readonly onToggleWaitingSound: () => void;
   readonly onClose: () => void;
   /** What the agent is doing while no tool runs; null when it is idle. */
   readonly agentWork?: VoiceAgentWork | null;
@@ -218,17 +214,6 @@ export function VoicePresenceRail({
             onClick={microphoneMuted ? onUnmuteMicrophone : onMuteMicrophone}
           >
             <Icon name="mic" size={16} />
-          </button>
-          <button
-            type="button"
-            className={`voice-rail-control tip${waitingSoundEnabled ? '' : ' is-off'}`}
-            aria-pressed={waitingSoundEnabled}
-            aria-label={waitingSoundEnabled ? 'Turn the waiting sound off' : 'Turn the waiting sound on'}
-            data-tip={waitingSoundEnabled ? 'Waiting sound on' : 'Waiting sound off'}
-            data-tip-side="top"
-            onClick={onToggleWaitingSound}
-          >
-            <Icon name="speaker" size={16} />
           </button>
           <button
             type="button"

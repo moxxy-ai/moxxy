@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react';
 import { chatStore } from '@moxxy/client-core';
+import { turnInFlight } from '@/lib/turn-in-flight';
 import { lastMessageText } from './session-preview';
 
 /** What this window knows about its runs beyond the session list. */
@@ -30,7 +31,7 @@ export function useLiveSessions(ids: ReadonlyArray<string>): LiveSessions {
     const key: unknown[] = [];
     for (const id of ids) {
       const chat = chatStore.getChat(id);
-      key.push(id, chat.events, chat.sending || chat.activeTurnId !== null);
+      key.push(id, chat.events, turnInFlight(chat));
     }
     const previous = cache.current;
     if (previous.key.length === key.length && key.every((part, i) => part === previous.key[i])) {
@@ -42,7 +43,7 @@ export function useLiveSessions(ids: ReadonlyArray<string>): LiveSessions {
       const chat = chatStore.getChat(id);
       const text = lastMessageText(chat.events);
       if (text) latest.set(id, text);
-      if (chat.sending || chat.activeTurnId !== null) running.add(id);
+      if (turnInFlight(chat)) running.add(id);
     }
     const value = latest.size === 0 && running.size === 0 ? NOTHING : { latest, running };
     cache.current = { key, value };

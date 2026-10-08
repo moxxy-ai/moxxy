@@ -11,7 +11,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
     onInstallLocalPiper: vi.fn(),
     onMuteMicrophone: vi.fn(),
     onUnmuteMicrophone: vi.fn(),
-    onToggleWaitingSound: vi.fn(),
     onClose: vi.fn(),
   };
   const view = render(
@@ -20,7 +19,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       status={{ title: 'Listening', detail: 'Speak naturally. You can still type.' }}
       rail={EMPTY_RAIL}
       microphoneMuted={false}
-      waitingSoundEnabled
       localPiperInstallRequired={false}
       localPiperInstalling={false}
       localPiperInstallError={null}
@@ -61,7 +59,7 @@ describe('VoicePresenceRail as a capsule', () => {
     expect(presence).toContainElement(screen.getByRole('status'));
     expect(presence?.querySelector('button')).toBeNull();
     expect(screen.getByTestId('voice-rail-idle').closest('.voice-rail-side')).not.toBeNull();
-    for (const name of ['Turn the microphone off', 'Turn the waiting sound off', 'End voice mode']) {
+    for (const name of ['Turn the microphone off', 'End voice mode']) {
       expect(side(name)).not.toBeNull();
     }
     expect(screen.getByRole('region', { name: 'Voice mode' })).not.toHaveAttribute('data-open');
@@ -103,17 +101,25 @@ describe('VoicePresenceRail as a capsule', () => {
 
 describe('VoicePresenceRail', () => {
   it('announces the phase and keeps every control reachable by name', () => {
-    const { onMuteMicrophone, onToggleWaitingSound, onClose } = renderRail();
+    const { onMuteMicrophone, onClose } = renderRail();
 
     expect(screen.getByRole('status')).toHaveTextContent('Listening');
     expect(screen.getByText('Speak naturally. You can still type.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Turn the microphone off' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Turn the waiting sound off' }));
     fireEvent.click(screen.getByRole('button', { name: 'End voice mode' }));
     expect(onMuteMicrophone).toHaveBeenCalledTimes(1);
-    expect(onToggleWaitingSound).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no sound of its own to switch: a call makes none while it waits', () => {
+    renderRail();
+
+    expect(screen.queryByRole('button', { name: /waiting sound/i })).toBeNull();
+    expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Turn the microphone off',
+      'End voice mode',
+    ]);
   });
 
   it('offers to unmute once the microphone is off, and says so', () => {

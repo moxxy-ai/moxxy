@@ -209,9 +209,10 @@ the conversation and the composer, on the composer's measure and of its make
 (`voice-call/VoicePresenceRail.tsx`). At rest it is a capsule in the middle of
 that measure: the mark, what Moxxy is doing, and dots while a tool runs. Under
 the pointer or the keyboard's focus it opens to the full card: the tool at
-work on the left, and on the right the microphone and the waiting sound as
-round icons whose tooltips say the state they are in, and a pill that ends the
-call.
+work on the left, and on the right the microphone as a round icon whose
+tooltip says the state it is in, and a pill that ends the call. A call makes no
+sound of its own while Moxxy works: the card shows the work, and the only thing
+heard is the answer (`voice-call/voice-silence.test.ts`).
 
 | Rule | Why |
 |---|---|
@@ -223,6 +224,16 @@ call.
 
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
+
+### An answer in another chat
+
+When a chat that is not on screen finishes its answer, the window rings once:
+two soft notes, made in code (`reply-sound/reply-chime.ts`), so there is no
+audio file to ship. The chat on screen is silent, a chat removed while it
+answered is silent, and an answer followed at once by its queued message rings
+only when the last of them is done (`reply-sound/useReplySound.ts`). The sound
+is a desktop preference, `replySound`, on by default and switched in Settings →
+Preferences → Sounds.
 
 ## The work panel
 

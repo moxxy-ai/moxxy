@@ -401,7 +401,6 @@ function Surface({
         voiceModePhase={voiceCall.phase}
         voiceModeErrorReason={voiceCall.errorReason}
         voiceModeMuted={voiceCall.microphoneMuted}
-        waitingSoundEnabled={voiceCall.waitingSoundEnabled}
         localPiperInstallRequired={voiceCall.localPiperInstallRequired}
         petPhase={petPhase}
         petInputAnalyser={petInputAnalyser}
@@ -412,7 +411,6 @@ function Surface({
         onRetryVoiceMode={voiceCall.retry}
         onMuteVoiceMode={voiceCall.muteMicrophone}
         onUnmuteVoiceMode={voiceCall.unmuteMicrophone}
-        onToggleWaitingSound={voiceCall.toggleWaitingSound}
         onCollapse={collapse}
         onText={() => setStage('mini-text')}
         bubbleRestoreVisible={bubbleRestoreVisible}

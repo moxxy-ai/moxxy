@@ -34,6 +34,9 @@ export interface DesktopPrefs {
   theme: ThemePreference;
   /** Voice Mode engine. Defaults to `local`. */
   voiceEngine: VoiceEnginePreference;
+  /** Whether a chat that is not on screen rings when it finishes its answer.
+   *  Defaults to true. */
+  replySound: boolean;
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;

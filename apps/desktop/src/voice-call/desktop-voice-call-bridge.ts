@@ -16,7 +16,6 @@ export interface DesktopVoiceCallSnapshot {
   readonly activity: VoiceToolActivity | null;
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
-  readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
   readonly localPiperInstallError: string | null;
@@ -29,8 +28,7 @@ export type DesktopVoiceCallCommand =
   | 'retry'
   | 'install-local-piper'
   | 'mute-microphone'
-  | 'unmute-microphone'
-  | 'toggle-waiting-sound';
+  | 'unmute-microphone';
 
 export type DesktopVoiceCallBridgeMessage =
   | {
@@ -108,7 +106,6 @@ const snapshotSchema = z.object({
   activity: activitySchema.nullable(),
   errorReason: z.string().max(500).nullable(),
   microphoneMuted: z.boolean(),
-  waitingSoundEnabled: z.boolean(),
   localPiperInstallRequired: z.boolean(),
   localPiperInstalling: z.boolean(),
   localPiperInstallError: z.string().max(500).nullable(),
@@ -138,7 +135,6 @@ const messageSchema = z.discriminatedUnion('type', [
       'install-local-piper',
       'mute-microphone',
       'unmute-microphone',
-      'toggle-waiting-sound',
     ]),
   }).strict(),
   z.object({

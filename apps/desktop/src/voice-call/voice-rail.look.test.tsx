@@ -17,7 +17,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       status={{ title: 'Listening', detail: 'Speak naturally. You can still type.' }}
       rail={{ operation: null, overflowCount: 0, nextExpiry: null }}
       microphoneMuted={false}
-      waitingSoundEnabled={false}
       localPiperInstallRequired={false}
       localPiperInstalling={false}
       localPiperInstallError={null}
@@ -28,7 +27,6 @@ function renderRail(overrides: Partial<Parameters<typeof VoicePresenceRail>[0]> 
       onInstallLocalPiper={() => {}}
       onMuteMicrophone={() => {}}
       onUnmuteMicrophone={() => {}}
-      onToggleWaitingSound={() => {}}
       onClose={() => {}}
       {...overrides}
     />,
@@ -39,7 +37,6 @@ describe('VoicePresenceRail look', () => {
   it('says the state of each control in its tooltip, since the control is an icon', () => {
     renderRail();
     expect(screen.getByRole('button', { name: 'Turn the microphone off' })).toHaveAttribute('data-tip', 'Microphone on');
-    expect(screen.getByRole('button', { name: 'Turn the waiting sound on' })).toHaveAttribute('data-tip', 'Waiting sound off');
     expect(screen.getByRole('button', { name: 'End voice mode' })).toHaveTextContent('End');
   });
 

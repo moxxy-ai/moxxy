@@ -373,6 +373,11 @@ describe('IPC payload validation', () => {
     })).toThrow();
   });
 
+  it('allows the reply sound to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { replySound: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { replySound: 'loud' })).toThrow();
+  });
+
   it('allows mobileGatewayEnabled in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
