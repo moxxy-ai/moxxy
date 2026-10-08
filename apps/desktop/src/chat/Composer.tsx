@@ -25,8 +25,7 @@ import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
 import { MentionMenu } from './composer/MentionMenu';
 import { SlashMenu } from './composer/slash/SlashMenu';
-import type { SlashSource } from './composer/slash/slash-commands';
-import { useSlashMenu } from './composer/slash/useSlashMenu';
+import { useSlashMenu, type SlashSession } from './composer/slash/useSlashMenu';
 import { runSessionCommand } from './command-palette/run-command';
 import { stepsForCommand } from './command-palette/steppers';
 import type { CommandInfo } from './command-palette/types';
@@ -211,7 +210,7 @@ export function Composer({
 
   const modeBusy = !ready || inFlight;
   const slashSource = useMemo(
-    (): SlashSource => ({
+    (): SlashSession => ({
       modes: agent.modes,
       activeMode: mode,
       modeBusy,

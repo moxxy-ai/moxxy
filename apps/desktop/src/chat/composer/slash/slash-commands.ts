@@ -1,6 +1,6 @@
 /**
- * What the composer offers after a slash: the modes, the skills and the run's
- * actions, narrowed by the word being typed. Pure rules; what a pick does is
+ * What the composer offers after a slash: the modes, the skills, the workflows
+ * and the run's actions, narrowed by the word being typed. Pure rules; what a pick does is
  * `useSlashMenu`.
  */
 
@@ -16,9 +16,18 @@ export type SlashAction =
   | { readonly kind: 'goal' }
   | { readonly kind: 'auto-approve' }
   | { readonly kind: 'skill'; readonly token: string }
+  /** Run through the run's own workflows action, as `/workflows run <name>` does. */
+  | { readonly kind: 'workflow'; readonly command: CommandInfo; readonly name: string }
   | { readonly kind: 'command'; readonly command: CommandInfo };
 
-export type SlashSection = 'Modes' | 'Skills' | 'Actions';
+export type SlashSection = 'Modes' | 'Skills' | 'Workflows' | 'Actions';
+
+/** What the menu needs to know of a workflow. */
+export interface SlashWorkflow {
+  readonly name: string;
+  readonly description: string;
+  readonly enabled: boolean;
+}
 
 export interface SlashOption {
   readonly section: SlashSection;
@@ -41,6 +50,7 @@ export interface SlashSource {
   readonly autoApprove: boolean;
   readonly skills: ReadonlyArray<SkillInfo>;
   readonly commands: ReadonlyArray<CommandInfo>;
+  readonly workflows: ReadonlyArray<SlashWorkflow>;
 }
 
 /** Actions of the terminal client that do nothing in a window: it has no process to quit, and the menu is its help. */
@@ -49,6 +59,9 @@ const CHANNEL = 'desktop';
 /** Skills shown before a word narrows them, so the actions under them stay in reach. */
 const SKILLS_UNFILTERED = 6;
 const SKILLS_FILTERED = 8;
+/** The action a workflow is run through; without it the run has no workflows. */
+const WORKFLOWS_ACTION = 'workflows';
+const WORKFLOWS_UNFILTERED = 6;
 
 /** The word after a slash that starts the draft, while the draft is that one word. */
 export function slashQuery(draft: string): string | null {
@@ -121,10 +134,29 @@ function skillOptions(source: SlashSource, query: string): SlashOption[] {
   }));
 }
 
+/** The workflows that are on; one that is off cannot run, so it is not offered. */
+function workflowOptions(source: SlashSource, query: string): SlashOption[] {
+  const command = source.commands.find((candidate) => candidate.name === WORKFLOWS_ACTION);
+  if (!command) return [];
+  const options = source.workflows
+    .filter((workflow) => workflow.enabled)
+    .map((workflow): SlashOption => ({
+      section: 'Workflows',
+      name: workflow.name,
+      // Found by its own name only: `/workflows` and Enter must reach the action, not start a run.
+      aliases: [],
+      label: workflow.name,
+      hint: workflow.description,
+      action: { kind: 'workflow', command, name: workflow.name },
+    }));
+  return query === '' ? options.slice(0, WORKFLOWS_UNFILTERED) : narrowed(options, query);
+}
+
 export function slashOptions(source: SlashSource, query: string): SlashOption[] {
   return [
     ...narrowed(modeOptions(source), query),
     ...skillOptions(source, query),
+    ...workflowOptions(source, query),
     ...narrowed(actionOptions(source), query),
   ];
 }

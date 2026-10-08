@@ -19,8 +19,7 @@ import { runSessionCommand } from '@/chat/command-palette/run-command';
 import { stepsForCommand } from '@/chat/command-palette/steppers';
 import { composerPlaceholder } from '@/chat/composer/composer-placeholder';
 import type { SendAction } from '@/chat/composer/SendButton';
-import type { SlashSource } from '@/chat/composer/slash/slash-commands';
-import { useSlashMenu, type SlashMenu } from '@/chat/composer/slash/useSlashMenu';
+import { useSlashMenu, type SlashMenu, type SlashSession } from '@/chat/composer/slash/useSlashMenu';
 import { useFocusSessionState, type FocusSessionState } from './useFocusSessionState';
 
 export interface FocusMiniTextComposer {
@@ -101,7 +100,7 @@ export function useFocusMiniTextComposer({
   };
 
   const slashSource = useMemo(
-    (): SlashSource => ({
+    (): SlashSession => ({
       modes: session.modes,
       activeMode: session.mode,
       modeBusy: running,

@@ -168,6 +168,11 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       if (channel === 'session.runCommand') {
         return Promise.resolve({ kind: 'noop' });
       }
+      if (channel === 'workflows.list') {
+        return Promise.resolve([
+          { name: 'daily-digest', description: 'Mails the morning digest', enabled: true, scope: 'user', steps: 3, triggers: 'on-demand' },
+        ]);
+      }
       if (channel === 'session.saveImageAttachment') {
         return Promise.resolve({ path: '/tmp/moxxy-focus/screen.png', name: 'screen.png' });
       }
@@ -2476,6 +2481,7 @@ describe('FocusWidget Mini Chat slash menu', () => {
     commands: [
       { name: 'compact', description: 'Summarize older turns' },
       { name: 'vault', description: 'Store a secret' },
+      { name: 'workflows', description: 'List and run workflows', aliases: ['workflow'] },
     ],
   };
 
@@ -2601,6 +2607,19 @@ describe('FocusWidget Mini Chat slash menu', () => {
     );
     expect(await screen.findByTestId('composer-auto-approve')).toBeTruthy();
     act(() => chatStore.setAutoApprove('ws-test', false));
+  });
+
+  it('runs a workflow picked from the menu', async () => {
+    const { spy, input } = await openMiniChat();
+
+    type(input, '/daily');
+    await screen.findByRole('option', { name: /daily-digest/u });
+    enter(input);
+
+    await waitFor(() =>
+      expect(sent(spy, 'session.runCommand')).toEqual([{ workspaceId: 'ws-test', name: 'workflows', args: 'run daily-digest' }]),
+    );
+    expect(sent(spy, 'session.runTurn')).toEqual([]);
   });
 
   it('sends a path as the prompt it is', async () => {

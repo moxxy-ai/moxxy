@@ -121,8 +121,8 @@ without asking, the accent for a goal. The model is read in the header.
 
 ### The slash menu
 
-A slash as the first character of the field opens a menu above it with three
-named groups: the modes, the skills and the run's actions. Typing narrows it,
+A slash as the first character of the field opens a menu above it with four
+named groups: the modes, the skills, the workflows and the run's actions. Typing narrows it,
 the arrows move, Enter or Tab picks, Escape closes it and keeps the draft. It
 opens without animation, because it is opened from the keyboard.
 
@@ -131,12 +131,13 @@ opens without animation, because it is opened from the keyboard.
 | A mode | Switches the session's mode. Not offered as a change while a turn runs. |
 | Goal | Arms a goal: the next message is its objective. |
 | A skill | Puts the skill's `@mention` in the field, ready for the rest of the prompt. |
+| A workflow | Runs it in this run, through the run's own `/workflows run <name>`, so the result lands in the conversation and a step that needs a reply asks in the question card. Only workflows that are on are listed; the list is read each time the menu opens (`useSlashWorkflows.ts`). Typing `/workflows` reaches the action itself, never a workflow. |
 | Auto-approve | Switches it for the session. |
 | An action | Runs it. One that needs values opens its form; in the Mini Chat, which has no room for a form, its name stays in the field and the values are typed after it. |
 
 A line typed in full does the same: `/plan <prompt>` and `/goal <objective>`
 switch the mode first and then send, `/compact <words>` hands the action its
-words. A line that starts with a slash and names none of these (a path) is
+words, and `/workflows run <name>` runs a workflow. A line that starts with a slash and names none of these (a path) is
 sent as written.
 
 `chat/composer/slash/slash-commands.ts` holds what is offered (pure rules),
@@ -298,7 +299,7 @@ above are reimplemented here in Moxxy's own components.
    composer, question card and tooltips; the question shows the whole tool
    call; voice mode is a card above the composer; the terminal takes the
    palette; a finished plan offers to be carried out.
-8. **In reach of the keyboard** (done): a slash menu for modes, skills and
-   actions in both composers; the next turn's state as a dot and a line; a
+8. **In reach of the keyboard** (done): a slash menu for modes, skills,
+   workflows and actions in both composers; the next turn's state as a dot and a line; a
    voice button in the Mini Chat header; the terminal greets with the mark,
    keeps its last row in view and no longer shows the agent's end marker.

@@ -8,14 +8,20 @@ interface SlashMenuProps {
   readonly onPick: (index: number) => void;
 }
 
+/** What a row is called for by: the word typed for it, or, for a workflow named by its label, what a pick does. */
+function handleOf(option: SlashOption): string {
+  if (option.section === 'Workflows') return 'Run';
+  return `${option.section === 'Skills' ? '@' : '/'}${option.name}`;
+}
+
 /** Keeps the highlighted row in sight as the arrows move through a list that scrolls. */
 function keepInView(row: HTMLDivElement | null): void {
   if (row && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
 }
 
 /**
- * The slash menu above the composer: the modes, the skills and the actions of
- * the run, each under its name. The textarea keeps the focus and the keys
+ * The slash menu above the composer: the modes, the skills, the workflows and
+ * the actions of the run, each under its name. The textarea keeps the focus and the keys
  * (useSlashMenu); a row is picked on mouse-down so the textarea never blurs.
  */
 export function SlashMenu({ options, active, onPick }: SlashMenuProps): JSX.Element {
@@ -42,8 +48,7 @@ export function SlashMenu({ options, active, onPick }: SlashMenuProps): JSX.Elem
           >
             <span className="mention-menu__label">{option.label}</span>
             <span className="menu__text mention-menu__hint">
-              {option.section === 'Skills' ? '@' : '/'}
-              {option.name}
+              {handleOf(option)}
               {option.hint ? ` · ${option.hint}` : ''}
             </span>
             {option.active && (

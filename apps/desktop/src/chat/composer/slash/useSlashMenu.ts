@@ -8,6 +8,10 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CommandInfo } from '../../command-palette/types';
 import type { MentionKey } from '../useComposerMentions';
 import { slashInvocation, slashOptions, slashQuery, type SlashOption, type SlashSource } from './slash-commands';
+import { useSlashWorkflows } from './useSlashWorkflows';
+
+/** What a composer knows of its session; the menu reads the workflows itself. */
+export type SlashSession = Omit<SlashSource, 'workflows'>;
 
 /** What the composer does for a pick; the menu itself changes nothing. */
 export interface SlashHandlers {
@@ -32,12 +36,14 @@ export interface SlashMenu {
 }
 
 export function useSlashMenu(
-  source: SlashSource,
+  session: SlashSession,
   draft: string,
   setDraft: (text: string) => void,
   handlers: SlashHandlers,
 ): SlashMenu {
   const query = slashQuery(draft);
+  const workflows = useSlashWorkflows(query !== null);
+  const source = useMemo((): SlashSource => ({ ...session, workflows }), [session, workflows]);
   const options = useMemo(() => (query === null ? [] : slashOptions(source, query)), [source, query]);
   const [dismissed, setDismissed] = useState(false);
   const [highlight, setHighlight] = useState({ query: '', index: 0 });
@@ -66,6 +72,8 @@ export function useSlashMenu(
       else handlers.armGoal();
     } else if (action.kind === 'auto-approve') {
       handlers.toggleAutoApprove();
+    } else if (action.kind === 'workflow') {
+      handlers.runCommand(action.command, `run ${action.name}`);
     } else {
       handlers.runCommand(action.command, rest);
     }

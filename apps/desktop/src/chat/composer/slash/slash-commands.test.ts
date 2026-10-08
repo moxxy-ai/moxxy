@@ -17,6 +17,18 @@ const source: SlashSource = {
     { name: 'help', description: 'List commands' },
     { name: 'pair', description: 'Pair a chat', channels: ['telegram'] },
   ],
+  workflows: [],
+};
+
+const workflowsAction = { name: 'workflows', description: 'List and run workflows', aliases: ['workflow', 'flows'] };
+const withWorkflows: SlashSource = {
+  ...source,
+  commands: [...source.commands, workflowsAction],
+  workflows: [
+    { name: 'daily-digest', description: 'Mails the morning digest', enabled: true },
+    { name: 'research-report', description: 'Researches and reports', enabled: true },
+    { name: 'smoke-delete', description: 'Do not run', enabled: false },
+  ],
 };
 
 const names = (query: string, from: SlashSource = source): string[] => slashOptions(from, query).map((o) => o.name);
@@ -117,5 +129,42 @@ describe('slashInvocation', () => {
 
   it('is nothing for one word alone: the menu answers that', () => {
     expect(slashInvocation('/plan', source)).toBeNull();
+  });
+});
+
+describe('slashOptions for workflows', () => {
+  it('offers the workflows that are on, between the skills and the actions', () => {
+    const options = slashOptions(withWorkflows, '');
+
+    expect([...new Set(options.map((o) => o.section))]).toEqual(['Modes', 'Skills', 'Workflows', 'Actions']);
+    expect(options.filter((o) => o.section === 'Workflows').map((o) => o.name)).toEqual(['daily-digest', 'research-report']);
+  });
+
+  it('runs one through the run\'s own workflows action, as the terminal client does', () => {
+    const digest = slashOptions(withWorkflows, 'daily')[0];
+
+    expect(digest).toMatchObject({ section: 'Workflows', label: 'daily-digest', hint: 'Mails the morning digest' });
+    expect(digest?.action).toEqual({ kind: 'workflow', command: workflowsAction, name: 'daily-digest' });
+  });
+
+  it('offers none in a run that has no workflows action', () => {
+    const options = slashOptions({ ...withWorkflows, commands: source.commands }, '');
+
+    expect(options.some((o) => o.section === 'Workflows')).toBe(false);
+  });
+
+  it('narrows by a workflow\'s name; the word workflows is the action, never a workflow run by mistake', () => {
+    expect(names('resea', withWorkflows)).toEqual(['research', 'research-report']);
+    expect(names('workflows', withWorkflows)).toEqual(['workflows']);
+    expect(names('workflow', withWorkflows)).toEqual(['workflows']);
+  });
+
+  it('shows a handful before a word narrows them, so the actions stay in reach', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ name: `flow-${i}`, description: '', enabled: true }));
+
+    const shown = (query: string): number =>
+      slashOptions({ ...withWorkflows, workflows: many }, query).filter((o) => o.section === 'Workflows').length;
+    expect(shown('')).toBe(6);
+    expect(shown('flow')).toBe(9);
   });
 });

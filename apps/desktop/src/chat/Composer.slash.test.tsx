@@ -20,8 +20,14 @@ const info = {
   commands: [
     { name: 'compact', description: 'Summarize older turns' },
     { name: 'vault', description: 'Store a secret' },
+    { name: 'workflows', description: 'List and run workflows', aliases: ['workflow'] },
   ],
 } as unknown as SessionInfo;
+
+const WORKFLOWS = [
+  { name: 'daily-digest', description: 'Mails the morning digest', enabled: true, scope: 'user', steps: 3, triggers: 'on-demand' },
+  { name: 'smoke-delete', description: 'Do not run', enabled: false, scope: 'user', steps: 1, triggers: 'on-demand' },
+];
 
 /** Every call across the IPC boundary, the one thing replaced: there is no Electron main here. */
 let calls: Array<[string, unknown]>;
@@ -31,6 +37,7 @@ beforeEach(() => {
   __setApiOverride({
     invoke: async (name: string, args: unknown) => {
       calls.push([name, args]);
+      if (name === 'workflows.list') return WORKFLOWS;
       return name === 'session.runCommand' ? { kind: 'noop' } : undefined;
     },
     subscribe: () => () => {},
@@ -216,5 +223,44 @@ describe('Composer slash line typed in full', () => {
     enter(input);
 
     expect(onSend).toHaveBeenCalledWith('/Users/me/notes.md explain this', undefined);
+  });
+});
+
+describe('Composer slash menu for workflows', () => {
+  it('lists the workflows that are on, read when the menu opens', async () => {
+    const { input } = renderComposer();
+    expect(sent('workflows.list')).toEqual([]);
+
+    type(input, '/');
+
+    expect(await screen.findByRole('option', { name: /daily-digest/u })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /smoke-delete/u })).toBeNull();
+    expect(menu()?.textContent).toContain('Workflows');
+  });
+
+  it('runs the picked workflow in this run, the way /workflows run does', async () => {
+    const { input, onSend } = renderComposer();
+
+    type(input, '/daily');
+    await screen.findByRole('option', { name: /daily-digest/u });
+    enter(input);
+
+    await waitFor(() =>
+      expect(sent('session.runCommand')).toEqual([{ workspaceId: WORKSPACE, name: 'workflows', args: 'run daily-digest' }]),
+    );
+    expect(input.value).toBe('');
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('runs one from the line typed in full', async () => {
+    const { input, onSend } = renderComposer();
+
+    type(input, '/workflow run daily-digest');
+    enter(input);
+
+    await waitFor(() =>
+      expect(sent('session.runCommand')).toEqual([{ workspaceId: WORKSPACE, name: 'workflows', args: 'run daily-digest' }]),
+    );
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
