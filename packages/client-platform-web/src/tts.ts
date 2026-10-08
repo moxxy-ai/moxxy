@@ -209,7 +209,6 @@ function playAudioSource(
   releaseSource: () => void,
 ): AudioClipHandle {
   const audio = new Audio(sourceUrl);
-  audio.loop = opts.loop ?? false;
   let done = false;
   let audioContext: AudioContext | null = null;
   let source: MediaElementAudioSourceNode | null = null;
@@ -331,11 +330,6 @@ export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptio
   });
 }
 
-/** Play a trusted application-owned audio asset without a Blob copy. */
-export function playAudioUrl(url: string, opts: SpeakOptions = {}): AudioClipHandle {
-  return playAudioSource(url, opts, () => undefined);
-}
-
 /** Whether this environment can speak at all (gates the affordance). */
 export function isSpeechSupported(): boolean {
   return synth() !== null;
@@ -347,5 +341,4 @@ export const webTts: TextToSpeech = {
   speak,
   cancel: cancelSpeech,
   playClip: playAudioClip,
-  playUrl: playAudioUrl,
 };

@@ -16,7 +16,7 @@ import { useGptLiveVoiceCall } from './gpt-live/useGptLiveVoiceCall';
 import type { GptLiveTransport } from './gpt-live/gpt-live-transport';
 import { useVoiceEnginePreference } from './useVoiceEngine';
 
-export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'> & {
+export type UseDesktopVoiceCallOptions = UseVoiceCallOptions & {
   readonly surface: DesktopVoiceCallSurface;
   /** WebRTC seam for tests; production uses the browser transport. */
   readonly gptLiveTransport?: GptLiveTransport;
@@ -28,7 +28,6 @@ export function useDesktopVoiceCall(
 ): DesktopVoiceCallBridgeResult {
   const { surface, gptLiveTransport, ...callOptions } = options;
   const engine = useVoiceEnginePreference();
-  // No waiting tone is handed over: a call is silent while Moxxy works.
   const localCall = useVoiceCall(callOptions);
   const liveCall = useGptLiveVoiceCall({
     workspaceId: callOptions.workspaceId,
