@@ -225,15 +225,34 @@ heard is the answer (`voice-call/voice-silence.test.ts`).
 `apps/desktop/src/styles.conversation.test.ts` holds the drawing rules that can
 be checked in the stylesheet.
 
-### An answer in another chat
+### A chat that needs you
 
-When a chat that is not on screen finishes its answer, the window rings once:
-two soft notes, made in code (`reply-sound/reply-chime.ts`), so there is no
-audio file to ship. The chat on screen is silent, a chat removed while it
-answered is silent, and an answer followed at once by its queued message rings
-only when the last of them is done (`reply-sound/useReplySound.ts`). The sound
-is a desktop preference, `replySound`, on by default and switched in Settings →
-Preferences → Sounds.
+A chat calls the person back twice: when it finishes its answer, and when it
+stops to ask for a decision, which leaves its turn open
+(`attention/calls-for-attention.ts`). The chat being read needs nothing. What
+any other gets is decided in one place, `attention/attention-plan.ts`:
+
+| Where the person is | The chat that calls | Chime | System banner |
+| --- | --- | --- | --- |
+| In the main window, reading that chat | the one on screen | no | no |
+| In the main window | any other, or the active one while another view is open | yes | no |
+| In the Mini Chat | the one it shows | no | no |
+| In the Mini Chat | any other | yes | no |
+| Elsewhere, the Mini Chat floating beside the work | the one it shows | yes | no: the widget shows it |
+| Elsewhere | any | yes | yes |
+
+Only the main process knows which window has the keyboard, so the renderer
+asks it (`window.presence`) at the moment a chat calls; a main process that
+cannot be asked counts as "in the main window". The chime is two soft notes
+made in code (`attention/reply-chime.ts`), so there is no audio file to ship.
+The banner is the system's own notification, silent, headed by the chat's name
+and carrying the answer's first line or "Waiting for your decision."; a newer
+one for the same chat replaces the older, and a click brings the main window
+forward on that chat (`attention/show-banner.ts`). A chat removed while it
+answered calls for nothing, and an answer followed at once by its queued
+message calls only when the last of them is done. Each has its own desktop
+preference, `replySound` and `systemNotifications`, both on by default and
+switched in Settings → Preferences → Notifications.
 
 ## The work panel
 

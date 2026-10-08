@@ -14,6 +14,7 @@ import type { AskResponse } from './ask.js';
 import type { ConnectionSnapshot } from './connection.js';
 import type { OnboardingStatus, NodeProbe } from './onboarding.js';
 import type { DesktopPrefs } from './prefs.js';
+import type { AppPresence } from './presence.js';
 import type {
   WorkflowSummary,
   WorkflowRun,
@@ -768,6 +769,10 @@ export interface IpcCommands {
    *  main-process controller path as the app menu, tray menu, and global
    *  shortcut. Local desktop IPC only. */
   'focus.toggle': () => Promise<void>;
+  /** Which of the app's windows has the keyboard, so the renderer can tell a
+   *  chat being read from one that needs a chime or a banner. Local desktop
+   *  IPC only. */
+  'window.presence': () => Promise<AppPresence>;
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
   /** Resize the focus window. Keeps the nearer screen edge pinned so the

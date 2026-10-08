@@ -52,7 +52,7 @@ import {
   describeConnectionPhase,
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
-import { useReplySound } from './reply-sound/useReplySound';
+import { useAttention } from './attention/useAttention';
 
 /**
  * Top-level shell. Runner startup is non-blocking: persisted desks/history can
@@ -78,9 +78,8 @@ export function App(): JSX.Element {
   // Prime the authoritative desk overview independently of runner startup. Its
   // shared store also points connectionStore at the persisted active session,
   // letting the shell + disk-backed transcript render before a pool snapshot.
-  const { desks } = useDesks();
+  const { desks, setActiveSession } = useDesks();
   const activeWorkspaceId = useActiveWorkspaceId();
-  useReplySound({ desks, onScreenId: activeWorkspaceId });
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
@@ -192,6 +191,20 @@ export function App(): JSX.Element {
     onOpenPalette: openPalette,
   });
   const { view, go } = nav;
+  useAttention({
+    desks,
+    mainChatId: view === 'chat' ? activeWorkspaceId : null,
+    activeId: activeWorkspaceId,
+    onOpen: useCallback(
+      (sessionId: string) => {
+        void setActiveSession(sessionId);
+        go('chat');
+        // Shows and focuses the main window, closing the Mini Chat if it is open.
+        void api().invoke('focus.restoreMain');
+      },
+      [setActiveSession, go],
+    ),
+  });
 
   // When an app (or other off-chat surface) does "Send to chat", it stages a
   // composer draft and pulses a request to show the chat view — switch to it so

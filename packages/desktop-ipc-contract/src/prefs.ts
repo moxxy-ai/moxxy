@@ -34,9 +34,12 @@ export interface DesktopPrefs {
   theme: ThemePreference;
   /** Voice Mode engine. Defaults to `local`. */
   voiceEngine: VoiceEnginePreference;
-  /** Whether a chat that is not on screen rings when it finishes its answer.
-   *  Defaults to true. */
+  /** Whether a chat the person is not reading rings when it answers or stops
+   *  to ask. Defaults to true. */
   replySound: boolean;
+  /** Whether such a chat also shows a system notification while the app is in
+   *  the background. Defaults to true. */
+  systemNotifications: boolean;
   /** Last native size chosen for the Focus Mode mini text composer.
    *  Null means the renderer should use its built-in default. */
   focusMiniTextSize: FocusMiniTextSize | null;

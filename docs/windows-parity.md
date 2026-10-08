@@ -125,6 +125,7 @@ directory. Skip only when the behaviour itself does not exist on Windows.
 | treat file names as case-sensitive | they are not; and `CON`, `NUL`, `AUX` or a trailing dot are invalid names |
 | read a text file and get `\n` | a checkout may hold `\r\n`; never hash or byte-compare a checked-in text file |
 | read a held ⌘ as a held shortcut key | the key is Ctrl, and AltGr arrives as Ctrl+Alt on many layouts: a hold that is joined by Alt or any other key is typing, not a wait for hints (`apps/desktop/src/hotkeys/useModifierHeld.ts`) |
+| show a system notification from a process with no identity | Windows shows a toast only for a process whose AppUserModelID equals the one on its Start-menu shortcut; the installer writes `build.appId` there, so the main process names itself the same (`apps/desktop/electron/main/windows-app-id.ts`). A dev run has no shortcut and shows none |
 | ship a native binary built on your machine | the Windows helper and native modules must be compiled on Windows (x64 only) |
 
 ## What to do before calling a change done

@@ -66,6 +66,9 @@ export type { OnboardingStatus, NodeProbe } from './onboarding.js';
 // ---------- Desktop preferences (first-run + auth state) -------------------
 export type { ThemePreference, VoiceEnginePreference, DesktopPrefs } from './prefs.js';
 
+// ---------- Which of the app's windows has the keyboard --------------------
+export type { AppPresence } from './presence.js';
+
 // ---------- Workflows ------------------------------------------------------
 export type {
   WorkflowSummary,

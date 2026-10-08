@@ -210,6 +210,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
   'focus.toggle': z.undefined(),
+  'window.presence': z.undefined(),
   'focus.moveBy': z.object({ dx: focusDelta, dy: focusDelta }).strict(),
   'focus.dragStart': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
   'focus.dragMove': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
@@ -524,6 +525,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       theme: z.enum(['light', 'dark', 'system']).optional(),
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
       replySound: z.boolean().optional(),
+      systemNotifications: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),

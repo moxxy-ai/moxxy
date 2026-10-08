@@ -378,6 +378,16 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { replySound: 'loud' })).toThrow();
   });
 
+  it('allows system notifications to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { systemNotifications: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { systemNotifications: 'banner' })).toThrow();
+  });
+
+  it('takes no arguments for window.presence', () => {
+    expect(() => validateIpcInput('window.presence', undefined)).not.toThrow();
+    expect(() => validateIpcInput('window.presence', { sneaky: true })).toThrow();
+  });
+
   it('allows mobileGatewayEnabled in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();

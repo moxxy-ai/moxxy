@@ -49,6 +49,16 @@ describe('readPrefs', () => {
     expect(readPrefs().replySound).toBe(false);
   });
 
+  it('has system notifications on until they are switched off, also for a file written before they existed', () => {
+    expect(readPrefs().systemNotifications).toBe(true);
+
+    writePrefsFile({ replySound: false });
+    expect(readPrefs().systemNotifications).toBe(true);
+
+    writePrefsFile({ systemNotifications: false });
+    expect(readPrefs().systemNotifications).toBe(false);
+  });
+
   it('returns defaults for a malformed file (never throws)', () => {
     mkdirSync(path.dirname(prefsPath()), { recursive: true });
     writeFileSync(prefsPath(), '{not json');
