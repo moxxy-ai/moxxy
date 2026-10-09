@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-zai
 
+## 0.42.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.42.1
+- @moxxy/plugin-provider-anthropic@0.42.1
+- @moxxy/plugin-provider-openai@0.42.1
+
 ## 0.42.0
 
 ### Patch Changes

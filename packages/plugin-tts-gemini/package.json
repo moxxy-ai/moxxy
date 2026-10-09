@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-tts-gemini",
-  "version": "0.42.0",
+  "version": "0.42.1",
   "description": "Google Gemini Flash-Lite text-to-speech extension for moxxy.",
   "keywords": [
     "moxxy",
