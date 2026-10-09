@@ -7,6 +7,7 @@
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { removeTree } from './remove-tree.js';
 
 const DITTO = '/usr/bin/ditto';
 const CODESIGN = '/usr/bin/codesign';
@@ -43,7 +44,7 @@ export function appBundleOf(execPath: string): string | null {
 
 /** Unpacks the archive into `intoDir`, emptied first, and returns the app in it. */
 export async function extractMacArchive(archive: string, intoDir: string): Promise<string> {
-  await fs.rm(intoDir, { recursive: true, force: true });
+  await removeTree(intoDir);
   await fs.mkdir(intoDir, { recursive: true });
   const unpacked = await run(DITTO, ['-x', '-k', archive, intoDir]);
   if (unpacked.code !== 0) throw new Error(`The download could not be unpacked: ${lastLine(unpacked.stderr)}`);

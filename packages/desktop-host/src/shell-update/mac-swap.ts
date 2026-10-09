@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, promises as fs, readFileSync, renameSync, rmSync
 import path from 'node:path';
 import { z } from '@moxxy/sdk';
 import { writeFileAtomicSync } from '@moxxy/sdk/server';
+import { removeTree } from './remove-tree.js';
 
 const pendingSchema = z.object({
   version: z.string().min(1).max(100),
@@ -121,14 +122,21 @@ export async function settleShellUpdate(opts: { userDataDir: string; shellVersio
   const paths = shellUpdatePaths(opts.userDataDir);
   const { version } = pending;
   if (opts.shellVersion === version) {
-    await fs.rm(paths.root, { recursive: true, force: true });
+    // The record goes last: a clean-up cut short is finished by the next launch.
+    try {
+      for (const left of [paths.previous, paths.staged, paths.downloads, paths.root]) {
+        await removeTree(left);
+      }
+    } catch {
+      /* the next launch tries again */
+    }
     return { version, installed: true };
   }
   if (pending.swapped) {
     // This is the previous app, started from where it is kept: leave it there.
     return { version, installed: false, error: `Moxxy is running version ${opts.shellVersion}, not ${version}.` };
   }
-  await fs.rm(paths.staged, { recursive: true, force: true });
+  await removeTree(paths.staged);
   await fs.rm(paths.pending, { force: true });
   return { version, installed: false, error: pending.error ?? 'Moxxy closed before the new version was put in place.' };
 }

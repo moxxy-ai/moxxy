@@ -66,7 +66,11 @@ export async function downloadVerified(opts: DownloadOptions, deps: { fetchImpl?
   try {
     let received = 0;
     for (;;) {
-      const { done, value } = await within(reader.read(), STALLED_MS);
+      // What the network layer calls it ("terminated") tells nobody anything.
+      const read = reader.read().catch(() => {
+        throw new Error('The download was interrupted. Check the connection and try again.');
+      });
+      const { done, value } = await within(read, STALLED_MS);
       if (done) break;
       received += value.length;
       if (received > size) throw new Error('The download is larger than the release said.');

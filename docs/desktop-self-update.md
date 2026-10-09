@@ -16,7 +16,7 @@ here it's the desktop's **own** renderer + main + preload + IPC contract.
 | | What changes | Mechanism | User experience |
 |---|---|---|---|
 | **Tier 1** (≈ every release) | renderer, main process, preload, **IPC/protocol**, any JS | Signed **app bundle** downloaded into `<userData>/app/<version>/`, activated on next launch | Banner → "Update" → relaunch. **No binary download.** |
-| **Tier 2** (rare) | Electron / Chromium / Node version, native-module ABI | `electron-updater` against the exact release the update names | The same banner → "Update": the installer downloads, the app quits into it and comes back. Windows shows the one-click installer's progress bar, no wizard. Nothing is downloaded or installed in the background. An unsigned macOS build cannot install it (Squirrel.Mac needs a signed app): the installer screen then offers the release page. |
+| **Tier 2** (rare) | Electron / Chromium / Node version, native-module ABI, the bundled runner | The full app of the exact release the update names: `electron-updater` on Windows and Linux, Moxxy replacing itself on macOS (below) | The same banner → "Update": the new app downloads, Moxxy closes, the new app takes its place and opens. Windows shows the one-click installer's progress bar, no wizard. Nothing is downloaded or installed in the background. A macOS app that is not signed, or sits in a folder it cannot change, cannot replace itself: the installer screen then offers the release page. |
 
 Tier 1 covers protocol/IPC changes safely because the renderer and the main
 process that talk to each other always come from the **same** bundle — there's
@@ -134,15 +134,18 @@ plan** — the version the update ends at, the route and the steps in order:
   starts and after it ends, and sent to the renderer as `app.update.plan`.
 - A step that fails stops the update there, with its reason and without a
   restart. The next click plans again from what is installed.
-- An installer the system refuses (an unsigned macOS build) fails the
-  `installer` step like any other; the plan carries the release page
-  (`releaseUrl`) and the screen offers **Download the installer** beside
-  **Try again**, so nobody is left with an update they cannot get.
+- An installer that cannot install (an unsigned macOS build, a folder Moxxy
+  cannot change, no room on the disk) fails the `installer` step like any
+  other; the plan carries the release page (`releaseUrl`) and the screen
+  offers **Download the installer** beside **Try again**, so nobody is left
+  with an update they cannot get. The same holds when the installer
+  downloaded but the restart did not bring the new version.
 - The restart is only done when the next launch says so: `app.updatePlan`
-  compares the planned version with the one running. An app that came back on
-  the old version reads as a failed update and the screen says why while the
-  update is still on offer. A step the app closed in the middle of reads as
-  failed too.
+  compares the planned version with the one running — the installed app's for
+  the `installer` route, since a bundle can run ahead of the app it is in. An
+  app that came back on the old version reads as a failed update and the
+  screen says why while the update is still on offer. A step the app closed
+  in the middle of reads as failed too.
 - Code: `packages/desktop-host/src/update-plan/` (`plan`, `run`, `settle`,
   `store`), wired in `packages/desktop-host/src/ipc/update.ts`.
 
@@ -203,12 +206,84 @@ behind the welcome screens instead of covering them.
 
 #### The runner protocol gate
 
-A bundle whose signed `runnerProtocol` is above the shell's
-`FLOOR_RUNNER_PROTOCOL` takes the installer route. The floor must equal the
-runner's `RUNNER_PROTOCOL_VERSION` in every release (a unit test and
-`scripts/build-app-bundle.mjs` both fail otherwise): an installer built with a
-floor one behind refuses the next bundle made for its own runner, and every
-update after it needs the full installer.
+A bundle speaks one runner protocol, and the installed app carries one runner.
+A bundle that needs a newer runner than the installed app has takes the
+installer route. The app knows its own runner as `FLOOR_RUNNER_PROTOCOL`,
+which must equal the runner's `RUNNER_PROTOCOL_VERSION` in every release (a
+unit test and `scripts/build-app-bundle.mjs` both fail otherwise): an
+installer built with a floor one behind sends every later update through the
+full installer.
+
+The manifest says which runner the bundle needs in `needsRunnerProtocol`,
+**unsigned**. Releases up to 0.42.0 signed it (`runnerProtocol`), and an
+installed app refused a bundle whose signed protocol was above its own — at
+the check, at staging, and again at every start. That left an app with one
+way to a release with a newer runner: its own installer step. On macOS that
+step crashes for any installer over about a gigabyte, in the app that is
+already installed, where no release can fix it.
+
+So a release no longer signs it (`scripts/build-app-bundle.test.mjs` holds
+the release script to that):
+
+- **An app that reads `needsRunnerProtocol`** (0.43 and later) takes the
+  installer route straight away, as before: one download, one restart.
+- **An app from before** ignores the field, takes the release as an ordinary
+  bundle and restarts into it. The bundle then finds itself in an app whose
+  runner is too old (`shellIsBehind`: the bootstrap says its runner in
+  `MOXXY_SHELL_RUNNER_PROTOCOL`; one that says nothing is from before, and
+  only 0.42.0 among those carries the current runner). It starts no agent. It
+  shows the installer screen and installs the full app of its own version with
+  its own, current installer code — a second restart, and no question asked.
+  If that cannot be done, **Not now** takes Moxxy back to the version that was
+  installed (`app.revertUpdate` drops the bundle without marking it bad).
+
+The field is unsigned because installed apps verify the manifest's exact
+signed bytes: a new signed field would make every one of them reject the
+release. Changing it can only choose between two routes that each verify what
+they install — the bundle by its signed hashes, the full app by its code
+signature.
+
+#### The full installer on macOS
+
+`electron-updater` hands the downloaded archive to Squirrel.Mac through a
+local proxy, and Squirrel reads the whole response into memory. With the
+runtimes in the installer (over a gigabyte) the app crashed there, before
+anything was installed and before the screen could offer the release page.
+Moxxy now does the replacement itself
+(`packages/desktop-host/src/shell-update/`):
+
+1. **Before anything is downloaded** it checks the move can work: the app is
+   not run from where macOS keeps unmoved downloads, it can change the folder
+   it is in, that folder is on the same disk as its data, and the disk has
+   room for the archive and the app unpacked from it.
+2. It reads `latest-mac.yml` of the release, takes the archive for this
+   processor, and **streams it to disk**, keeping it only when its size and
+   SHA-512 are the ones the release named. A download that is whole is not
+   fetched again on a retry.
+3. It unpacks the archive (`ditto`) under `<userData>/shell-update/staged/`
+   and accepts the app only when it is the version the release named and its
+   signature is valid and satisfies **the running app's own designated
+   requirement** (`codesign --verify --deep --strict -R=…`) — the check macOS
+   itself makes before one version of an app may replace another. An unsigned
+   or ad-hoc signed build never passes it.
+4. As the process exits — windows closed, runners stopped — the installed app
+   is renamed to `<userData>/shell-update/previous/` and the new one into its
+   place: two renames on one disk. If the second fails, the first is undone.
+   The relaunch then starts whatever is at the app's path.
+5. The launch after settles it (`settleShellUpdate`), as soon as the window is
+   up (`app.appBooted`) rather than at the first update check: with the new
+   version running, the previous app and the download are removed. The record
+   of the update is removed last, so a clean-up cut short — the app closed
+   while a gigabyte was being deleted — is finished by the next launch.
+   Folders are removed with `rm` (`removeTree`), not `fs.rm`: inside Electron
+   `fs` reads an `.asar` as a folder, and an app bundle would never go.
+   Otherwise the
+   reason the move left is what the installer screen shows, and the download
+   stays for the next try.
+
+There is no rollback for a new app that was put in place and then does not
+start; the previous one stays under `shell-update/previous/` until a new
+version has started.
 
 ### Security model
 
@@ -232,6 +307,10 @@ update after it needs the full installer.
   honored only in non-packaged runs).
 - **Compatibility gate** (`minElectron`, optional `nodeAbi`) — an incompatible
   bundle is treated as a Tier-2 (shell) update, never loaded as JS.
+- **The full app on macOS** is accepted only with a valid code signature that
+  satisfies the running app's designated requirement, on top of the SHA-512
+  from the release's `latest-mac.yml`. `needsRunnerProtocol` is the one
+  manifest field read without a signature (see the runner protocol gate).
 - **Off by default:** with no public key baked in, the app always runs the floor
   and the updater refuses to download. A build can't be tricked into loading an
   unsigned bundle.
@@ -285,8 +364,9 @@ Release. Tag-last ordering means a failed build never burns the version.
 > monorepo usually points at a CLI release). The workflow always creates a
 > draft for review; **Publish** it to turn updates on.
 
-For Tier-2 auto-apply on macOS, also complete `docs/desktop-code-signing.md`
-(Developer ID signing + notarization). Until then macOS Tier-2 is notify-only.
+For Tier 2 on macOS, also complete `docs/desktop-code-signing.md` (Developer ID
+signing + notarization): an app replaces itself only with one signed by the
+same developer. An unsigned build offers the release page instead.
 
 ---
 
@@ -317,7 +397,11 @@ relaunch picks up the new bundle, corrupt it and confirm rollback) uses the
 
 - `apps/desktop/electron/main/bootstrap.ts` — the immutable floor / loader.
 - `apps/desktop/electron/main/update-key.ts` — the baked public key.
-- `apps/desktop/electron/main/shell-updater.ts` — Tier-2 (electron-updater).
+- `apps/desktop/electron/main/shell-updater.ts` — Tier-2: electron-updater on
+  Windows and Linux, `shell-update` on macOS.
+- `packages/desktop-host/src/shell-update/` — the full app on macOS: the
+  release's archive list, the download, the signature check, the move and
+  what the launch after does with it.
 - `packages/desktop-host/src/app-update/` — manifest (signing/canonicalization) +
   resolve (the verify gate, incl. the per-file check) + stager + boot-log +
   build, exposed as the `@moxxy/desktop-host/app-update` subpath (node-builtins
@@ -332,4 +416,6 @@ relaunch picks up the new bundle, corrupt it and confirm rollback) uses the
   `apps/desktop/src/settings/UpdateSection.tsx` — where an update is offered;
   `packages/client-core/src/useAppUpdate.ts` and `useUpdateActivity.ts` — the
   shared hooks.
+- `packages/desktop-host/src/app-update/shell-protocol.ts` — which runner the
+  installed app carries, and whether a bundle needs a newer one.
 - `scripts/build-app-bundle.mjs` — the CI publisher.

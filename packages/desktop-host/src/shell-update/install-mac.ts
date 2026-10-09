@@ -18,6 +18,7 @@ import { downloadVerified } from './download.js';
 import { extractMacArchive, verifyMacApp } from './mac-app.js';
 import { parseMacFeed, pickMacArchive } from './mac-feed.js';
 import { shellUpdatePaths, writePendingShellUpdate } from './mac-swap.js';
+import { removeTree } from './remove-tree.js';
 
 export interface MacAppUpdateOptions {
   /** `…/releases/download/desktop-v<version>/` of the release to install. */
@@ -81,10 +82,10 @@ async function prepare(opts: MacAppUpdateOptions, deps: { fetchImpl?: typeof fet
   }
 
   // What an earlier attempt left, except this very archive.
-  await Promise.all([paths.pending, paths.staged, paths.previous].map((left) => fs.rm(left, { recursive: true, force: true })));
+  await Promise.all([paths.pending, paths.staged, paths.previous].map(removeTree));
   await fs.mkdir(paths.downloads, { recursive: true });
   for (const name of await fs.readdir(paths.downloads)) {
-    if (name !== archive.name) await fs.rm(path.join(paths.downloads, name), { recursive: true, force: true });
+    if (name !== archive.name) await removeTree(path.join(paths.downloads, name));
   }
 
   const downloaded = path.join(paths.downloads, archive.name);
@@ -112,7 +113,7 @@ async function prepare(opts: MacAppUpdateOptions, deps: { fetchImpl?: typeof fet
     });
   } catch (error) {
     // An archive that unpacks to the wrong thing is not worth keeping.
-    await fs.rm(paths.staged, { recursive: true, force: true });
+    await removeTree(paths.staged);
     await fs.rm(downloaded, { force: true });
     throw error;
   }

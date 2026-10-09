@@ -113,6 +113,28 @@ describe('settleShellUpdate', () => {
     expect(existsSync(paths.root)).toBe(false);
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'finishes on the next launch a clean-up that was cut short',
+    async () => {
+      const pending = pendingFor('2.0.0');
+      const paths = shellUpdatePaths(userDataDir);
+      makeApp(pending.stagedApp, 'new');
+      writePendingShellUpdate(userDataDir, pending);
+      applyShellUpdate(userDataDir);
+      const locked = path.join(pending.previousApp, 'Contents');
+      chmodSync(locked, 0o555);
+      try {
+        expect(await settleShellUpdate({ userDataDir, shellVersion: '2.0.0' })).toEqual({ version: '2.0.0', installed: true });
+        expect(existsSync(pending.previousApp)).toBe(true);
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+
+      expect(await settleShellUpdate({ userDataDir, shellVersion: '2.0.0' })).toEqual({ version: '2.0.0', installed: true });
+      expect(existsSync(paths.root)).toBe(false);
+    },
+  );
+
   it('keeps the old app aside while the app running is still the old one', async () => {
     const pending = pendingFor('2.0.0');
     makeApp(pending.stagedApp, 'new');

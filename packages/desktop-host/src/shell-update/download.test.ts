@@ -67,12 +67,12 @@ describe('downloadVerified', () => {
     expect(readdirSync(path.dirname(dest))).toEqual([]);
   });
 
-  it('keeps nothing when the connection breaks half way', async () => {
+  it('keeps nothing when the connection breaks half way, and says so in plain words', async () => {
     const { fetchImpl } = serving(BODY, { breakAfter: 1 });
 
     await expect(
       downloadVerified({ url: URL_OK, dest, sha512: sha512(BODY), size: BODY.length }, { fetchImpl }),
-    ).rejects.toThrow(/connection reset/);
+    ).rejects.toThrow('The download was interrupted. Check the connection and try again.');
 
     expect(readdirSync(path.dirname(dest))).toEqual([]);
   });

@@ -372,6 +372,9 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
   handle('app.appBooted', async () => {
     // The window is up to show it: finish the update the installed app is behind on.
     if (shellBehind) void completeUpdate();
+    // Not left to the first update check: the app the installer replaced is
+    // a gigabyte on disk until this runs.
+    else void settlePlan();
     // The running override (if any) reached a healthy render — confirm it so the
     // boot-probe doesn't poison it. No-op on the bundled floor.
     const version = process.env.MOXXY_APP_BUNDLE_VERSION;
