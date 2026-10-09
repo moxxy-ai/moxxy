@@ -325,6 +325,67 @@ export async function loadActiveProvider(opts: UserConfigOptions = {}): Promise<
   return typeof provider === 'string' ? provider : null;
 }
 
+// --- what a new conversation starts with ----------------------------------
+
+/** A reasoning effort a person can set; `off` is reasoning switched off. */
+export type ModelDefaultEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh';
+
+/** A change to what a new conversation starts with; only what is named is written. */
+export interface ModelDefaultsChange {
+  /** A provider and the model it runs, set together. */
+  readonly model?: { readonly provider: string; readonly model: string };
+  readonly effort?: ModelDefaultEffort;
+  readonly fast?: boolean;
+}
+
+/** The defaults as the config holds them: nothing may be set, and reasoning may be on at the provider's own effort. */
+export interface StoredModelDefaults {
+  readonly provider: string | null;
+  readonly model: string | null;
+  readonly effort: ModelDefaultEffort | 'default';
+  readonly fast: boolean;
+}
+
+const MODEL_DEFAULT_EFFORTS: ReadonlyArray<string> = ['low', 'medium', 'high', 'xhigh'];
+
+function storedEffort(reasoning: unknown): StoredModelDefaults['effort'] {
+  if (reasoning === true) return 'default';
+  if (!reasoning || typeof reasoning !== 'object') return 'off';
+  const effort = (reasoning as { effort?: unknown }).effort;
+  return typeof effort === 'string' && MODEL_DEFAULT_EFFORTS.includes(effort) ? (effort as ModelDefaultEffort) : 'default';
+}
+
+/** Read `plugins.provider.default`, its `model`, `context.reasoning` and `context.fast`. */
+export async function loadModelDefaults(opts: UserConfigOptions = {}): Promise<StoredModelDefaults> {
+  const doc = await readUserConfigDoc(opts.configPath ?? defaultUserConfigPath());
+  const provider = doc.getIn(['plugins', 'provider', 'default']);
+  const model = typeof provider === 'string' ? doc.getIn(['plugins', 'provider', 'items', provider, 'model']) : undefined;
+  const context = readRawEntry(doc, ['context']);
+  return {
+    provider: typeof provider === 'string' ? provider : null,
+    model: typeof model === 'string' ? model : null,
+    effort: storedEffort(context.reasoning),
+    fast: context.fast === true,
+  };
+}
+
+/** Persist a change in one write, so a reader never sees half of it. */
+export async function setModelDefaults(change: ModelDefaultsChange, opts: UserConfigOptions = {}): Promise<void> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  await configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    if (change.model) {
+      doc.setIn(['plugins', 'provider', 'default'], change.model.provider);
+      doc.setIn(['plugins', 'provider', 'items', change.model.provider, 'model'], change.model.model);
+    }
+    if (change.effort !== undefined) {
+      doc.setIn(['context', 'reasoning'], change.effort === 'off' ? false : { effort: change.effort });
+    }
+    if (change.fast !== undefined) doc.setIn(['context', 'fast'], change.fast);
+    await writeUserConfigDoc(configPath, doc);
+  });
+}
+
 /** Provider names disabled via `plugins.provider.items.<name>.enabled: false`. */
 export async function loadDisabledProviders(
   opts: UserConfigOptions = {},

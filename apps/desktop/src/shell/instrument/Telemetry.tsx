@@ -53,10 +53,11 @@ export function Telemetry({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const usage = useContextUsage(workspaceId);
-  const tuning = useModelTuning(workspaceId, info, selectedModel);
-  // Model name only: the override when set, else the active provider (whose
-  // runner-default model is not named until the first response).
-  const model = selectedModel ?? info.activeProvider ?? 'model';
+  // The model picked here, else the one the runner says a turn will run on.
+  const running = selectedModel ?? info.defaultModel ?? null;
+  const tuning = useModelTuning(workspaceId, info, running);
+  // A runner too old to name that model is shown by its provider.
+  const model = running ?? info.activeProvider ?? 'model';
   const mode = info.activeMode ?? null;
   const fraction = usage.fraction;
   const prompt = usage.summary.totalPrompt;

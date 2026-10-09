@@ -177,6 +177,20 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('takes a known change, whole or in part, for settings.setModelDefaults', () => {
+    const model = { provider: 'openai-codex', model: 'gpt-6-luna' };
+    expect(() => validateIpcInput('settings.setModelDefaults', { model, effort: 'medium', fast: true })).not.toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { model })).not.toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'off' })).not.toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { fast: false })).not.toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { effort: 'default' })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { model: { ...model, model: '' } })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { model: { ...model, provider: '../x' } })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { model: { provider: 'openai-codex' } })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', { path: 'permissions' })).toThrow();
+    expect(() => validateIpcInput('settings.setModelDefaults', {})).toThrow();
+  });
+
   it('takes only a yes or no for settings.setFast', () => {
     expect(() => validateIpcInput('settings.setFast', { enabled: true })).not.toThrow();
     expect(() => validateIpcInput('settings.setFast', { workspaceId: 'ws', enabled: false })).not.toThrow();

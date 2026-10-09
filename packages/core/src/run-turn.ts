@@ -2,6 +2,7 @@ import type { EmittedEvent, LLMProvider, ModeContext, MoxxyEvent, RunTurnOptions
 import { mentionedSkills, skillAttachment, toolsForMode, withoutTools } from '@moxxy/sdk';
 import type { SessionRuntime } from './session-runtime.js';
 import { createSubagentSpawner } from './subagents.js';
+import { resolveTurnModel } from './turn-model.js';
 
 // `RunTurnOptions` now lives in `@moxxy/sdk` so the runner client (which has
 // no `Session`) can reference it. Re-exported here to keep the historical
@@ -73,10 +74,7 @@ export async function* runTurn(
     let model: string;
     try {
       provider = session.providers.getActive();
-      // Sticky model: prefer the explicit per-turn model, then the session's
-      // last-resolved model (so a conversation keeps the model it was using
-      // across turns), then the active provider's default.
-      const resolvedModel = opts.model ?? session.lastResolvedModel ?? provider.models[0]?.id;
+      const resolvedModel = resolveTurnModel(session, provider, opts.model);
       if (!resolvedModel) {
         throw new Error(
           `Active provider '${provider.name}' has no models configured`,

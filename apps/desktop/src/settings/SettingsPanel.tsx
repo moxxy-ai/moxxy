@@ -4,6 +4,7 @@ import { useSettings } from '@moxxy/client-core';
 import { Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
+import { DefaultModelSetting } from './DefaultModel';
 import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
 import { PreferencesTab } from './PreferencesTab';
@@ -51,6 +52,7 @@ const TAB_VIEWS: Readonly<Record<SettingsTab, TabView>> = {
         onActivate={s.activateProvider}
         onRefresh={s.refresh}
         search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
+        defaultModel={<DefaultModelSetting />}
       />
     ),
   },

@@ -104,6 +104,8 @@ export type {
   GeminiVoiceInfo,
   SkillFile,
   ReasoningEffort,
+  ModelDefaultsChange,
+  StoredModelDefaults,
 } from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------

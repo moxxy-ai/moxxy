@@ -963,6 +963,12 @@ describe('activeModel', () => {
     expect(activeModel(session)).toBe('descriptor-first');
   });
 
+  it("uses the model set as the provider's default before any turn ran", () => {
+    const session = sessionWithProvider(['descriptor-first', 'other']);
+    session.defaultModels = { 'wf-test': 'other' };
+    expect(activeModel(session)).toBe('other');
+  });
+
   it("returns 'default' (runTurn's own terminal fallback) with no provider and no turn", () => {
     const session = new Session({ cwd: '/tmp', logger: silentLogger });
     expect(activeModel(session)).toBe('default');

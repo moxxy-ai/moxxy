@@ -443,6 +443,15 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']),
   }),
   'settings.setFast': z.object({ workspaceId: optionalWorkspace, enabled: z.boolean() }),
+  // Written into the config file: a provider name that cannot leave its key, and a model id of sane length.
+  'settings.setModelDefaults': z
+    .object({
+      model: z.object({ provider: providerName, model: z.string().min(1).max(256) }).strict().optional(),
+      effort: z.enum(['off', 'low', 'medium', 'high', 'xhigh']).optional(),
+      fast: z.boolean().optional(),
+    })
+    .strict()
+    .refine((change) => Object.keys(change).length > 0, 'nothing to change'),
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),
