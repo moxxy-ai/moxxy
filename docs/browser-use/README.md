@@ -389,7 +389,13 @@ which is how a new request is told apart from the one that was stopped.
 
 A snapshot flags a page that is waiting for the user — a cookie choice, a
 CAPTCHA, a sign-in — and the agent hands over with `browser_await_human`
-instead of answering it. A link to a cookie *policy* is not a cookie choice,
+instead of answering it. One wall the agent answers itself: a cookie banner
+that shows a way to turn down what the site does not need ("Reject all",
+"Only necessary", "Tylko niezbędne", "Odrzuć opcjonalne"). The snapshot names
+that control under `### Cookie banner` and the agent presses it and carries on.
+It never presses a control that accepts, a banner with no such control is still
+handed over, and "I do not agree" is not taken for one — that also refuses a
+contract. A link to a cookie *policy* is not a cookie choice,
 a form that merely has a password field among others is not a sign-in, and a
 page that only *mentions* a CAPTCHA — Coolify lists a service called "Cap
 Captcha" — is not running one: a CAPTCHA counts only as its widget (a frame, a

@@ -1377,6 +1377,38 @@ describe('BrowserHost — a wall only counts when it is on screen', () => {
 
     expect(text).not.toContain('### Needs you');
   });
+
+  const DECLINABLE_PAGE = [
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b', 'c'] },
+    { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie' }, backendDOMNodeId: 55 },
+    { nodeId: 'c', role: { value: 'button' }, name: { value: 'Tylko niezbędne' }, backendDOMNodeId: 56 },
+  ];
+
+  it('tells the agent to decline a cookie banner itself when the declining control is really there', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(DECLINABLE_PAGE);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Cookie banner');
+    expect(text).toContain('"Tylko niezbędne"');
+    expect(text).not.toContain('### Needs you');
+  });
+
+  it('hands the banner over when the declining control is in the tree but not drawn', async () => {
+    const a = fakeWc(1);
+    const host = hostWith(a);
+    host.register(1);
+    a.setPage(DECLINABLE_PAGE);
+    a.setBox(56, null);
+
+    const text = String(((await host.snapshot()).result as { text: string }).text);
+
+    expect(text).toContain('### Needs you');
+    expect(text).not.toContain('### Cookie banner');
+  });
 });
 
 describe('BrowserHost — putting the wall where the person can see it', () => {

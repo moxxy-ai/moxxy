@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectWall, wallNote } from './wall.js';
+import { declineNote, detectWall, wallNote } from './wall.js';
 import type { AxNode } from './tree.js';
 
 /**
@@ -231,5 +231,69 @@ describe('detectWall — a page that talks about CAPTCHAs is not running one', (
     expect(detectWall(page(card('Cap Captcha'), node('Iframe', 'reCAPTCHA')))?.kind).toBe('captcha');
     expect(detectWall(page(node('IframePresentational', 'hCaptcha challenge')))?.kind).toBe('captcha');
     expect(detectWall(page(node('textbox', 'Enter the CAPTCHA')))?.kind).toBe('captcha');
+  });
+});
+
+describe('detectWall — a cookie banner that can be turned down', () => {
+  /**
+   * The owner's decision: what a site does not need is declined without asking.
+   * So the wall names the control that does it, and only that one — accepting
+   * stays the user's, and so does a banner that offers no way to decline.
+   */
+  const named = (uid: string, role: string, name: string): AxNode => ({ uid, role, name, children: [] }) as AxNode;
+
+  it('names the control that declines, in either language', () => {
+    for (const name of ['Reject all', 'Only necessary cookies', 'Odrzuć wszystkie', 'Tylko niezbędne', 'Odrzuć opcjonalne', 'Continue without accepting']) {
+      const wall = detectWall(page(named('2', 'button', 'Accept all'), named('3', 'button', name)));
+
+      expect(wall, name).toMatchObject({ kind: 'consent', decline: { uid: '3', name } });
+    }
+  });
+
+  it('counts as a banner on the declining control alone', () => {
+    expect(detectWall(page(named('2', 'button', 'Akceptuję'), named('3', 'button', 'Odrzuć opcjonalne')))).toMatchObject({
+      kind: 'consent',
+      decline: { uid: '3' },
+    });
+  });
+
+  it('names none when the banner only lets you accept or open its settings', () => {
+    const wall = detectWall(page(named('2', 'button', 'Zaakceptuj wszystkie'), named('3', 'button', 'Ustawienia plików cookie')));
+
+    expect(wall?.kind).toBe('consent');
+    expect(wall).not.toHaveProperty('decline');
+  });
+
+  it('does not take refusing terms for declining cookies', () => {
+    // "I do not agree" to a contract is a decision of another weight.
+    const wall = detectWall(page(named('2', 'button', 'Zgadzam się'), named('3', 'button', 'Nie zgadzam się')));
+
+    expect(wall?.kind).toBe('consent');
+    expect(wall).not.toHaveProperty('decline');
+  });
+
+  it('does not take a box in the banner settings for the answer', () => {
+    const wall = detectWall(page(named('2', 'button', 'Accept all'), named('3', 'checkbox', 'Only necessary')));
+
+    expect(wall).not.toHaveProperty('decline');
+  });
+
+  it('keeps the more blocking wall, with nothing to decline on it', () => {
+    const wall = detectWall(page(named('2', 'button', 'Reject all'), named('3', 'textbox', 'Hasło')));
+
+    expect(wall?.kind).toBe('signin');
+    expect(wall).not.toHaveProperty('decline');
+  });
+});
+
+describe('declineNote', () => {
+  it('tells the agent to press the declining control itself and carry on, never to accept', () => {
+    const note = declineNote('Tylko niezbędne');
+
+    expect(note).toContain('"Tylko niezbędne"');
+    expect(note).toMatch(/press it yourself and carry on/i);
+    expect(note).toMatch(/do not ask the user/i);
+    expect(note).toMatch(/never press a control that accepts/i);
+    expect(note).toContain('browser_await_human');
   });
 });

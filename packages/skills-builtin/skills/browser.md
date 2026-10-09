@@ -206,7 +206,12 @@ Keyboard shortcuts of the app ("r" for a rectangle tool) go through
 A cookie banner, a CAPTCHA, a sign-in form: the snapshot says so under
 **Needs you**. Do not click through any of them.
 
-- The consent is the user's to give. Do not accept or reject it for them.
+- A cookie banner that shows a way to turn down what the site does not need —
+  "Reject all", "Only necessary", "Tylko niezbędne" — is the one you answer
+  yourself: the snapshot names that control under **Cookie banner**; press it
+  and carry on, without asking.
+- Agreeing is the user's to do. Never press a control that accepts or agrees,
+  and hand over a banner that shows no way to decline.
 - The CAPTCHA is theirs to solve. Do not try, and do not look for a way around it.
 - The password is theirs to type. Never type one, and **never ask them to tell
   you a credential** — they enter it themselves.

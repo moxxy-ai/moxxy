@@ -214,6 +214,14 @@ describe('the browser skill', () => {
     expect(text).toMatch(/Trust one clear signal/);
   });
 
+  it('lets it decline a cookie banner itself, and never accept one', async () => {
+    const text = await body();
+    expect(text).toMatch(/is the one you answer\s+yourself/);
+    expect(text).toMatch(/under \*\*Cookie banner\*\*; press it\s+and carry on, without asking/);
+    expect(text).toMatch(/Never press a control that accepts or agrees/);
+    expect(text).toMatch(/hand over a banner that shows no way to decline/);
+  });
+
   it('tells it to stop, not work around, when the user takes the browser', async () => {
     const text = await body();
     expect(text).toMatch(/taken over the browser/);

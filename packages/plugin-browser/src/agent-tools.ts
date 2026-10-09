@@ -376,8 +376,8 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     icon: 'lock',
     description:
       'Stop and hand the browser to the user, then continue once they say they are done. Use this the moment ' +
-      'a page needs something you must not do yourself: signing in, a one-time code, a consent or payment ' +
-      'screen, a CAPTCHA. Say plainly in `reason` what they should do. ' +
+      'a page needs something you must not do yourself: signing in, a one-time code, a consent you cannot decline or a ' +
+      'payment screen, a CAPTCHA. Say plainly in `reason` what they should do. ' +
       'You are NOT reading the page while this is pending, and you must never ask the user to tell you a ' +
       'password or code — they type it themselves. The result reports whether they finished; take a fresh ' +
       'browser_snapshot afterwards and confirm from the page that it worked before carrying on. In a browser with ' +

@@ -4,10 +4,12 @@ import type { AxNode } from './tree.js';
 /**
  * Pages that have stopped being readable and started asking for a person.
  *
- * The agent must not click through any of these. A cookie choice is the user's
- * to make, a CAPTCHA is theirs to solve, and a password is theirs to type — and
- * an agent that presses "Accept all" on their behalf has made a decision nobody
- * asked it to make. Every browser tool that acts is permission-gated, so this is
+ * The agent must not click through any of these. Agreeing to cookies is the
+ * user's to do, a CAPTCHA is theirs to solve, and a password is theirs to type —
+ * and an agent that presses "Accept all" on their behalf has made a decision
+ * nobody asked it to make. Declining what a site does not need gives nothing
+ * away, so a banner that offers that is the one wall the agent answers itself
+ * (`Wall.decline`). Every browser tool that acts is permission-gated, so this is
  * not the only guard; it is the one that arrives *before* the model has to work
  * out what it is looking at from a wall of buttons.
  */
@@ -47,8 +49,18 @@ const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ..
  * question comes straight back.
  */
 const CONSENT_WORD = /(cookie|ciasteczk)/i;
-const CONSENT_PHRASE =
-  /(accept all|reject all|i agree|agree and continue|only necessary|zaakceptuj wszystk|odrzuć wszystk|odrzuc wszystk|zgadzam się|zgadzam sie|tylko niezbędne|tylko niezbedne)/i;
+/**
+ * What only the declining control of a cookie banner is called. "I do not
+ * agree" is left out on purpose: it also refuses a contract, which is not the
+ * agent's to refuse.
+ */
+const DECLINE =
+  'reject all|reject non-essential|reject optional|only necessary|necessary only|only essential|continue without accepting|' +
+  'odrzuć wszystk|odrzuc wszystk|odrzuć zbędne|odrzuć opcjonalne|tylko niezbędne|tylko niezbedne|kontynuuj bez akceptacji';
+const DECLINE_PHRASE = new RegExp(`(${DECLINE})`, 'i');
+const CONSENT_PHRASE = new RegExp(`(accept all|i agree|agree and continue|zaakceptuj wszystk|zgadzam się|zgadzam sie|${DECLINE})`, 'i');
+/** A box named "Only necessary" sits in a banner's settings; the answer is a button or a link. */
+const ANSWERS = new Set(['button', 'link']);
 /**
  * A link that names cookies leads to a policy — Wikipedia's footer carries one
  * on every page — so a link counts only when it uses a banner's own phrase.
@@ -91,6 +103,8 @@ export interface Wall {
    * answer: the person is told to click something they cannot see.
    */
   readonly uid: string;
+  /** The control of a cookie banner that turns down what the site does not need, when it shows one. */
+  readonly decline?: { readonly uid: string; readonly name: string };
 }
 
 export function detectWall(tree: AxNode | null): Wall | null {
@@ -98,6 +112,7 @@ export function detectWall(tree: AxNode | null): Wall | null {
   let captcha: string | null = null;
   let secret: string | null = null;
   let consent: string | null = null;
+  let decline: Wall['decline'];
   let otherFields = 0;
   let saysSignIn = false;
 
@@ -111,11 +126,12 @@ export function detectWall(tree: AxNode | null): Wall | null {
     }
     if (PRESSABLE.has(n.role) && SIGNIN.test(name)) saysSignIn = true;
     if (consent === null && PRESSABLE.has(n.role) && isConsent(n.role, name)) consent = n.uid;
+    if (decline === undefined && ANSWERS.has(n.role) && DECLINE_PHRASE.test(name)) decline = { uid: n.uid, name };
   });
 
   if (captcha !== null) return { kind: 'captcha', uid: captcha };
   if (secret !== null && (saysSignIn || otherFields <= SIGNIN_FIELDS)) return { kind: 'signin', uid: secret };
-  if (consent !== null) return { kind: 'consent', uid: consent };
+  if (consent !== null) return { kind: 'consent', uid: consent, ...(decline ? { decline } : {}) };
   return null;
 }
 
@@ -129,12 +145,21 @@ const NOTES: Record<WallKind, string> = {
     'never ask the user to tell you one — call browser_await_human explaining what the page wants, ' +
     'let them type it themselves, and read the page again afterwards to confirm it worked.',
   consent:
-    'This page is asking for a cookie or consent choice. That choice belongs to the user, so do NOT ' +
-    'accept or reject it on their behalf — call browser_await_human explaining what is being asked, ' +
-    'and read the page again once they have answered.',
+    'This page is asking for a cookie or consent choice and shows no way to turn down what it does not need. ' +
+    'Agreeing belongs to the user, so do NOT accept on their behalf — call browser_await_human explaining ' +
+    'what is being asked, and read the page again once they have answered.',
 };
 
 /** What the agent should do about a wall, in the agent's own instructions. */
 export function wallNote(kind: WallKind): string {
   return NOTES[kind];
+}
+
+/** What the agent should do about a cookie banner that can be turned down with the control called `name`. */
+export function declineNote(name: string): string {
+  return (
+    `This page shows a cookie banner with a way to turn down what the site does not need: "${name}". ` +
+    'Press it yourself and carry on with the task — do not ask the user. Never press a control that accepts ' +
+    'or agrees to more; if the banner is still there after that, call browser_await_human.'
+  );
 }

@@ -20,6 +20,10 @@ describe('channelTurnContext (what the model must know about replying on a messe
     expect(telegram).toContain('50 MB per file');
   });
 
+  it('asks in the chat only about a cookie banner that cannot be declined, as on every other surface', () => {
+    expect(telegram).toContain('such as a cookie banner that shows no way to decline');
+  });
+
   it('points at the desktop pane for this channel for what only the user may enter', () => {
     expect(telegram).toContain('under Channels → Telegram');
     expect(telegram).toContain('Channels → Telegram → Browser');

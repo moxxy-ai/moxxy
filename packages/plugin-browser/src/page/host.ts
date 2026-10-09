@@ -906,7 +906,7 @@ export class BrowserHost {
       tab.seen = fingerprint;
       tab.rendering = rendering;
 
-      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall }) + inProgress;
+      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall: wall?.kind, decline: wall?.decline }) + inProgress;
       // Names what was read, so the conversation can retire this read once the
       // tab is read whole again (Supersede in @moxxy/sdk).
       const supersede = { key: readKey(tab.id), whole: changes === null };
@@ -2050,34 +2050,38 @@ export class BrowserHost {
     // AxTree is the root node with an index hung off it, so one value is both.
     tree: AxNode & { index: ReadonlyMap<string, AxNode> },
     tab: Tab,
-  ): Promise<WallKind | null> {
+  ): Promise<{ kind: WallKind; decline?: string } | null> {
     delete tab.wall;
     const found = detectWall(tree);
     if (!found) return null;
     const node = tree.index.get(found.uid);
-    if (node?.backendNodeId === undefined) return null;
+    if (node?.backendNodeId === undefined || !(await this.hasBox(cdp, node.backendNodeId))) return null;
+    // Kept so the hand-off can scroll to it: asking is the easy half.
+    tab.wall = {
+      kind: found.kind,
+      backendNodeId: node.backendNodeId,
+      // Carried so the pane can name the thing. "Press Done" next to a
+      // description of something the person cannot find is how a hand-off
+      // becomes a guessing game.
+      label: node.name || node.role,
+    };
+    // The control that declines is held to the same test: one that is not drawn cannot be pressed.
+    const declining = found.decline ? tree.index.get(found.decline.uid)?.backendNodeId : undefined;
+    const decline = found.decline && declining !== undefined && (await this.hasBox(cdp, declining)) ? found.decline.name : undefined;
+    return { kind: found.kind, ...(decline ? { decline } : {}) };
+  }
+
+  /** Whether the element has a box with any area. No box is the same answer as an empty one. */
+  private async hasBox(cdp: { send: (m: string, p?: Record<string, unknown>) => Promise<unknown> }, backendNodeId: number): Promise<boolean> {
     try {
-      const box = (await cdp.send('DOM.getBoxModel', { backendNodeId: node.backendNodeId })) as {
-        model?: { content?: number[] };
-      };
+      const box = (await cdp.send('DOM.getBoxModel', { backendNodeId })) as { model?: { content?: number[] } } | undefined;
       const q = box?.model?.content;
-      if (!Array.isArray(q) || q.length < 8) return null;
-      const width = Math.max(q[0]!, q[2]!, q[4]!, q[6]!) - Math.min(q[0]!, q[2]!, q[4]!, q[6]!);
-      const height = Math.max(q[1]!, q[3]!, q[5]!, q[7]!) - Math.min(q[1]!, q[3]!, q[5]!, q[7]!);
-      if (!(width > 0 && height > 0)) return null;
-      // Kept so the hand-off can scroll to it: asking is the easy half.
-      tab.wall = {
-        kind: found.kind,
-        backendNodeId: node.backendNodeId,
-        // Carried so the pane can name the thing. "Press Done" next to a
-        // description of something the person cannot find is how a hand-off
-        // becomes a guessing game.
-        label: node.name || node.role,
-      };
-      return found.kind;
+      if (!Array.isArray(q) || q.length < 8) return false;
+      const xs = q.filter((_, at) => at % 2 === 0);
+      const ys = q.filter((_, at) => at % 2 === 1);
+      return Math.max(...xs) > Math.min(...xs) && Math.max(...ys) > Math.min(...ys);
     } catch {
-      // No box is the same answer as an empty one: nothing to point a person at.
-      return null;
+      return false;
     }
   }
 

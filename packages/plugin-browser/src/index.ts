@@ -63,7 +63,7 @@ export { JevAccess, RUN_TOOL, buildRunTool, withBrowserRunGuidance, type RunTool
 export { formatRunReport, runBrowserSteps, runStepSchema, type PageRead, type RunPort, type RunReport, type RunStep } from './run/browser-run.js';
 export { diffRendering, renderingFromText, renderingOf } from './ax/diff.js';
 export { formatSnapshot, redactSecretValues, UNTRUSTED_NOTE, type TabInfo } from './ax/snapshot.js';
-export { detectWall, wallNote, type Wall, type WallKind } from './ax/wall.js';
+export { declineNote, detectWall, wallNote, type Wall, type WallKind } from './ax/wall.js';
 export {
   BrowserHost,
   BROWSER_PARTITION,
