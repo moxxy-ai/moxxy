@@ -1,5 +1,5 @@
 import type { AppState, ShownText } from '../backend/rpc.js';
-import { invariant } from '@moxxy/sdk';
+import { invariant, type Shortfall } from '@moxxy/sdk';
 import { ComputerUseError, type ActionResult } from '../contract/outcome.js';
 import { looksDifferent } from '../contract/progress.js';
 import type { ComputerAction, RunStep } from '../contract/tools.js';
@@ -416,6 +416,14 @@ function describeStep(step: RunStep): string {
   if (step.do === 'key') return `key ${step.key}`;
   const text = step.text === undefined ? '' : ` ${JSON.stringify(step.text.length > 60 ? `${step.text.slice(0, 60)}…` : step.text)}`;
   return `${step.do}${step.target === undefined ? '' : ` ${JSON.stringify(step.target)}`}${step.do === 'click' || step.do === 'scroll' ? '' : text}`;
+}
+
+/** What the run did not get done, for the loop: the step it failed at, and why. */
+export function runShortfall(report: RunReport, steps: readonly RunStep[]): Shortfall | undefined {
+  const at = report.outcomes.findIndex((outcome) => outcome.status === 'failed');
+  const step = steps[at];
+  if (!step) return undefined;
+  return { what: `step ${at + 1} of ${steps.length}, ${describeStep(step)}: ${report.outcomes[at]?.why ?? 'failed'}` };
 }
 
 /** The run for the main model: what was done to which element, and where it stopped and why. */

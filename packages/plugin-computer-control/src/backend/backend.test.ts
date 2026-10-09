@@ -289,6 +289,20 @@ describe('a run of steps', () => {
     ]);
   });
 
+  it('tells the loop which step it did not get done, and nothing of it when all were done', async () => {
+    const { tools } = backend([], {}, jev([]));
+    await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });
+    const secrets = { TYPESAFE_API_KEY: 'vault-key' };
+
+    const done = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Add a word', steps }, 'turn', secrets);
+    const stopped = await run(tools, 'computer_run', { app: 'TextEdit', goal: 'Open', steps: [{ do: 'click', target: 'a button that is not there' }] }, 'turn', secrets);
+
+    expect(done).not.toHaveProperty('shortfall');
+    expect((stopped as { shortfall?: { what: string } }).shortfall?.what).toMatch(/^step 1 of 1, click "a button that is not there": /);
+    // The model reads the same result as before: the report and the picture.
+    expect(forModel(stopped)).toMatch(/computer_run: 0 of 1 steps done/);
+  });
+
   it('clicks what the screenshot reads as the target when no element is named so', async () => {
     const { tools } = backend([], {}, jev([]));
     await requestAccess(tools, { apps: ['TextEdit'], reason: 'Edit' });

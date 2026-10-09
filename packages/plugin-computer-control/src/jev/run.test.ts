@@ -5,7 +5,7 @@ import type { ComputerAction, RunStep } from '../contract/tools.js';
 import type { AppElement } from '@moxxy/jev';
 import { JevError, type AskJev, type JevAnswers, type JevQuestion } from '@moxxy/jev';
 import { STATE_CHARS } from '@moxxy/jev';
-import { describeRun, runSteps, type RunDeps } from './run.js';
+import { describeRun, runShortfall, runSteps, type RunDeps } from './run.js';
 
 const button = (index: number, title: string, extra: Partial<AppElement> = {}): AppElement =>
   ({ key: `w/${index}`, index, depth: 1, role: 'button', title, frame: { x: index * 100, y: 10, width: 80, height: 20 }, ...extra });
@@ -698,3 +698,22 @@ describe('describeRun', () => {
     expect(text).toContain('2. done — key Return');
   });
 });
+
+describe('runShortfall — what a run tells the loop it did not get done', () => {
+  it('names the step that failed and why, and is nothing for a run that did every step', async () => {
+    const stuck = app([button(1, 'Export')]);
+    const { ask: none } = jev((_state, id) => (id === 'target' ? pick(1) : undefined));
+    const steps: RunStep[] = [{ do: 'click', target: 'Export' }, { do: 'key', key: 'Return' }];
+    const failed = await runSteps('Export', steps, stuck.state(), deps(stuck, none));
+
+    expect(failed.outcomes.at(-1)).toMatchObject({ status: 'failed', why: 'nothing changed' });
+    expect(runShortfall(failed, steps)).toEqual({ what: 'step 1 of 2, click "Export": nothing changed' });
+
+    const open = app([button(1, 'Export')], (_action, elements) => { elements.push(button(2, 'Dialog')); });
+    const { ask } = jev((_state, id) => (id === 'target' ? pick(1) : id === 'expected' ? yes(0.9) : undefined));
+    const whole: RunStep[] = [{ do: 'click', target: 'Export', expect: 'a dialog is open' }];
+
+    expect(runShortfall(await runSteps('Export', whole, open.state(), deps(open, ask)), whole)).toBeUndefined();
+  });
+});
+
