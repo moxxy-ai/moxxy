@@ -232,6 +232,11 @@ it reads on the page, with `expect` on the steps that open or change something:
     { "do": "click", "target": "the title link of the second book", "expect": "the page of one book with its price" } ] }
 ```
 
+A run works on the page that is already open; it has no step that opens an
+address. The agent is told so: an address the user names is opened with
+`browser_navigate` first, because a tab left in the pane by an earlier
+conversation is not that page.
+
 A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
 `hover`. For each one the backend serves the page as Jev reads it — the
 elements one can act on under the uids the other tools use, and the page as

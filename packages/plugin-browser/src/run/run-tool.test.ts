@@ -143,6 +143,16 @@ describe('withBrowserRunGuidance', () => {
     expect(system).toMatch(/without reading the page first/);
   });
 
+  it('says a run cannot open an address, so a named address is opened first and a tab left from earlier work is not it', async () => {
+    const access = new JevAccess();
+    await access.key(ctx({ TYPESAFE_API_KEY: 'k' }));
+    const system = withBrowserRunGuidance(access)(request(['browser_navigate', RUN_TOOL]), { sessionId: 's1' }).system ?? '';
+
+    expect(system).toMatch(/works on the page that is already open and cannot open an address/);
+    expect(system).toMatch(/When the user names an address, open it with browser_navigate before anything else/);
+    expect(system).toMatch(/a tab left open from earlier work is not that page/);
+  });
+
   it('trusts the environment before any tool call has looked into the vault', () => {
     vi.stubEnv('TYPESAFE_API_KEY', 'k');
     const out = withBrowserRunGuidance(new JevAccess())(request([RUN_TOOL]), { sessionId: 's1' });
