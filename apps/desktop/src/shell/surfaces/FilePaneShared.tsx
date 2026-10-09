@@ -120,8 +120,6 @@ export function Group({
           fontSize: 'var(--type-label)',
           fontWeight: 700,
           color: 'var(--color-text-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
           marginBottom: 6,
           padding: '0 4px',
         }}

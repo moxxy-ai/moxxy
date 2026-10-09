@@ -20,7 +20,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
-import { persistImageBlob, previewImageAttachment } from '../attachments.js';
+import { attachmentProblem, persistFileBlob, persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
 import { assertDefined } from '@moxxy/sdk';
 import {
@@ -482,6 +482,22 @@ export function registerSessionHandlers(
     // here). Mirrors session.pickAttachment, which remembers its picked path.
     await rememberPickedAttachment(saved.path);
     return saved;
+  });
+  handle('session.saveAttachment', async ({ dataBase64, name }) => {
+    // A dropped or pasted file of any kind, as bytes for the reason given on
+    // persistFileBlob; remembered for the reason given just above.
+    const saved = await persistFileBlob(dataBase64, name);
+    await rememberPickedAttachment(saved.path);
+    return saved;
+  });
+  handle('session.checkAttachment', async ({ workspaceId, path, name }) => {
+    const { supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
+    const cwd = supervisor.getCwd();
+    // The gate first: a path the turn would drop is not one to open here either.
+    const { authorized } = await authorizeAttachments([{ path, name }], cwd ? [cwd] : []);
+    const [att] = authorized;
+    if (!att) return `${name} is outside this workspace. Use Attach file, or drop it here.`;
+    return attachmentProblem(att.path, att.name);
   });
   handle('session.previewAttachment', async ({ workspaceId, path, name }) => {
     const { supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });

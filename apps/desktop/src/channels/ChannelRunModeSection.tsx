@@ -4,7 +4,7 @@ import type { ChannelRunModeState } from './useChannelRunMode';
 export function ChannelRunModeSection({ state }: { readonly state: ChannelRunModeState }): JSX.Element {
   return (
     <section data-testid="channel-run-mode" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-      <div className="section-head">run mode</div>
+      <div className="section-head">Run mode</div>
       <div role="radiogroup" aria-label="Run mode" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
         {state.options.map((o) => (
           <label key={o.mode} style={{ display: 'flex', gap: 'var(--space-8)', alignItems: 'flex-start', cursor: 'pointer' }}>

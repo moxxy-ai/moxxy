@@ -85,13 +85,16 @@ function installHost(entry: ChannelEntry = discord()) {
         activeProvider: 'p',
         activeMode: 'default',
         providers: [{ name: 'p', models: [{ id: 'm', contextWindow: 200_000 }] }],
-        modes: [{ name: 'default' }],
+        modes: ['default'],
         skills: [],
         tools: [],
       };
     }
     if (cmd === 'session.runTurn') return { turnId: 't2' };
     if (cmd === 'browser.listTabs') return { tabs: [], activeTabId: null };
+    // What the diff pane asks for when the work panel opens on it.
+    if (cmd === 'git.isRepo') return false;
+    if (cmd === 'workspace.listDir') return { cwd: '/tmp/bot', relPath: '.', entries: [] };
     return undefined;
   });
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -184,8 +187,12 @@ describe('ChannelsSurface', () => {
 
     await screen.findByTestId('composer-input');
 
-    expect(screen.getByTestId('bench-open-browser')).toBeTruthy();
-    expect(screen.getByTestId('bench-open-terminal')).toBeTruthy();
+    // Closed until asked for: the chat's header holds the way in.
+    expect(screen.queryByTestId('bench-tab-browser')).toBeNull();
+    fireEvent.click(screen.getByTestId('work-panel-toggle'));
+
+    expect(screen.getByTestId('bench-tab-browser')).toBeTruthy();
+    expect(screen.getByTestId('bench-tab-terminal')).toBeTruthy();
   });
 
   it('opens the browser when the bot’s agent starts using it', async () => {

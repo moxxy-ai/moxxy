@@ -1,11 +1,10 @@
 /**
  * Settings → "Update" section: the ONE place to bring moxxy up to date.
  *
- * A single "Update" button updates BOTH halves of the desktop at once:
- *   - the RUNNER (the bundled `@moxxy/cli`), which restarts live, and
- *   - the DESKTOP app itself (the renderer + main + IPC JS bundle), which
- *     hot-updates and applies on the next launch — or, when a hot-update can't
- *     deliver, downloads the full installer and restarts into it.
+ * A single "Update" button installs the new DESKTOP app (the JS bundle, or the
+ * full installer when the bundle can't deliver) and restarts onto it; the
+ * launch after brings the RUNNER and extensions to the version that app was
+ * built with. Both parts show on the installer screen (`update/`).
  *
  * The resting card mirrors the Appearance row: the app version on the left, the
  * single Update action on the right. The runner version + on-disk path and the
@@ -50,7 +49,10 @@ export function UpdateSection(): JSX.Element {
     diagnostics,
     cliInfo,
     cliError,
+    components,
+    componentsBusy,
     runUpdateAll,
+    runComponentsUpdate,
     loadDiagnostics,
     relaunch,
   } = useAppUpdate();
@@ -79,7 +81,7 @@ export function UpdateSection(): JSX.Element {
   return (
     <Section
       title="Update"
-      description="One update for everything — the desktop app and its bundled runner come to the latest version together, no reinstall. A new app version applies on the next launch; the runner restarts live."
+      description="One update for everything. Moxxy installs the new version, restarts once, and brings its agent runtime and extensions along — nothing else to do."
     >
       <div style={card}>
         {/* Header row — app version on the left, the single Update action on the
@@ -189,8 +191,8 @@ export function UpdateSection(): JSX.Element {
           </p>
         )}
 
-        {/* The runner update is non-fatal: if it was skipped, the bundled CLI
-            keeps working. Surface it as a secondary note. */}
+        {/* Bringing the runner up by hand (in the details below) failed: the
+            installed one keeps working. */}
         {cliError && (
           <p style={{ margin: 0, fontSize: 'var(--type-row)', color: 'var(--color-red)', lineHeight: 1.5 }}>
             {cliError} The bundled runner keeps working.
@@ -234,6 +236,25 @@ export function UpdateSection(): JSX.Element {
                   {cliInfo ? (cliInfo.version ?? 'unknown') : '…'}
                 </span>
               </div>
+              {/* The launch after an update brings the runner to the version
+                  the app was built with. This is the way to try again by hand
+                  when that could not be done (no network, no npm). */}
+              {components?.available && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
+                    This app was built with version {components.version}.
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="update-runner"
+                    style={primaryBtn(componentsBusy)}
+                    disabled={componentsBusy}
+                    onClick={() => void runComponentsUpdate()}
+                  >
+                    {componentsBusy ? 'Updating…' : 'Bring it up to date'}
+                  </button>
+                </div>
+              )}
               {cliInfo?.path && (
                 <div
                   className="mono"
@@ -404,8 +425,6 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
 const badge = (updated: boolean): React.CSSProperties => ({
   fontSize: 'var(--type-label)',
   fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: 0.4,
   padding: '2px 7px',
   borderRadius: 'var(--radius-pill)',
   color: updated ? 'var(--color-green)' : 'var(--color-text-dim)',

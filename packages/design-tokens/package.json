@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./desktop": {
+      "types": "./dist/desktop.d.ts",
+      "import": "./dist/desktop.js"
+    },
     "./css-vars": {
       "types": "./dist/css-vars.d.ts",
       "import": "./dist/css-vars.js"

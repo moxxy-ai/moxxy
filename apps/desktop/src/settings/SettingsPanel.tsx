@@ -11,7 +11,10 @@ import { VoiceTab } from './VoiceTab';
 import { JevTab } from './JevTab';
 import { SearchBox } from './settings-primitives';
 import { InstrumentBar } from '../shell/InstrumentBar';
-import { IndexColumn } from '../shell/IndexColumn';
+import { IndexColumn, IndexGroup, IndexRow } from '../shell/IndexColumn';
+import { sectionsIn, type SettingsScope, type SettingsTab } from './sections';
+
+export type { SettingsScope, SettingsTab } from './sections';
 
 type SettingsSlice = ReturnType<typeof useSettings>;
 
@@ -23,13 +26,10 @@ interface TabContext {
   readonly setQuery: (v: string) => void;
 }
 
-/** A single source of truth for the settings tabs: its id/label, whether it
- *  reads the runner-backed slice (`standalone` = render outside the shared
- *  loading/error chrome), and how it renders. Adding a tab is one entry here —
- *  the nav, the standalone set, and per-tab filtering all derive from it. */
-interface TabDescriptor {
-  readonly id: string;
-  readonly label: string;
+/** How a section draws: whether it reads the runner-backed slice (`standalone`
+ *  = render outside the shared loading/error chrome), and its pane. What the
+ *  sections ARE lives in `./sections`. */
+interface TabView {
   readonly standalone: boolean;
   readonly render: (ctx: TabContext) => JSX.Element;
 }
@@ -39,10 +39,8 @@ function filtered<T extends { name: string }>(items: ReadonlyArray<T>, query: st
   return q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
 }
 
-const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
-  {
-    id: 'providers',
-    label: 'Providers',
+const TAB_VIEWS: Readonly<Record<SettingsTab, TabView>> = {
+  providers: {
     standalone: false,
     render: ({ s, query, setQuery }) => (
       <ProvidersTab
@@ -56,9 +54,7 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
       />
     ),
   },
-  {
-    id: 'mcp',
-    label: 'MCP',
+  mcp: {
     standalone: false,
     render: ({ s, query, setQuery }) => (
       <McpTab
@@ -69,15 +65,8 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
       />
     ),
   },
-  {
-    id: 'skills',
-    label: 'Skills',
-    standalone: false,
-    render: ({ s }) => <SkillsView s={s} />,
-  },
-  {
-    id: 'vault',
-    label: 'Vault',
+  skills: { standalone: false, render: ({ s }) => <SkillsView s={s} /> },
+  vault: {
     standalone: false,
     render: ({ s, query, setQuery }) => (
       <VaultTab
@@ -88,43 +77,35 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
       />
     ),
   },
-  { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
-  { id: 'voice', label: 'Voice', standalone: true, render: () => <VoiceTab /> },
-  { id: 'jev', label: 'Jev', standalone: true, render: () => <JevTab /> },
-];
+  preferences: { standalone: true, render: () => <PreferencesTab /> },
+  voice: { standalone: true, render: () => <VoiceTab /> },
+  jev: { standalone: true, render: () => <JevTab /> },
+};
 
-export type SettingsTab = (typeof TAB_DESCRIPTORS)[number]['id'];
-export type SettingsScope = 'all' | 'extensions' | 'settings';
-
-const TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
-  id,
-  label,
-}));
+type Group = { readonly label: string; readonly sections: ReadonlyArray<ReturnType<typeof sectionsIn>[number]> };
 
 /**
- * Settings sections, grouped by what they are ABOUT rather than listed flat.
- *
- * A flat row of chips gave "Vault" and "Skills" the same standing, when one is a
- * secret store and the other a capability — the grouping is the answer to "where
- * would I look for this", which is the only question a settings nav has to
- * answer.
+ * A view's sections under their captions, grouped by what they are ABOUT
+ * rather than listed flat: "where would I look for this" is the only question
+ * a settings nav has to answer.
  */
-const GROUPS: ReadonlyArray<{ readonly label: string; readonly ids: ReadonlyArray<SettingsTab> }> = [
-  { label: 'agent', ids: ['providers'] },
-  { label: 'extend', ids: ['mcp', 'skills'] },
-  { label: 'voice', ids: ['voice'] },
-  { label: 'computer use', ids: ['jev'] },
-  { label: 'trust', ids: ['vault'] },
-  { label: 'app', ids: ['preferences'] },
-];
-
-function groupsFor(scope: SettingsScope): typeof GROUPS {
-  if (scope === 'extensions') return GROUPS.slice(0, 2);
-  if (scope === 'settings') return GROUPS.slice(2);
-  return GROUPS;
+function groupsFor(scope: SettingsScope): ReadonlyArray<Group> {
+  const groups: Array<{ label: string; sections: Array<Group['sections'][number]> }> = [];
+  for (const section of sectionsIn(scope)) {
+    const last = groups.at(-1);
+    if (last && last.label === section.group) last.sections.push(section);
+    else groups.push({ label: section.group, sections: [section] });
+  }
+  return groups;
 }
 
-/** The Settings index column: the sections, grouped. */
+/**
+ * The Settings index column: the sections, grouped.
+ *
+ * A caption sorts a list into groups. Where every group in view is a single
+ * row there is nothing to sort, and a caption over each row reads as a second
+ * row that cannot be pressed; that list is drawn flat.
+ */
 export function SettingsIndex({
   tab,
   onPick,
@@ -134,45 +115,23 @@ export function SettingsIndex({
   readonly onPick: (tab: SettingsTab) => void;
   readonly scope?: SettingsScope;
 }): JSX.Element | null {
+  const groups = groupsFor(scope);
+  const captioned = groups.some((group) => group.sections.length > 1);
   return (
     <IndexColumn title={scope === 'extensions' ? 'extensions' : 'settings'}>
-      {groupsFor(scope).map((group) => (
+      {groups.map((group) => (
         <div key={group.label}>
-          <div className="index-group">
-            <span className="index-group__label">{group.label}</span>
-          </div>
-          {group.ids.map((id) => {
-            const label = TABS.find((t) => t.id === id)?.label ?? id;
-            const active = id === tab;
-            return (
-              <button
-                key={id}
-                type="button"
-                className={active ? 'session-row' : 'session-row row-button'}
-                data-testid={`settings-tab-${id}`}
-                data-active={active}
-                aria-current={active ? 'true' : undefined}
-                onClick={() => onPick(id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  width: '100%',
-                  minHeight: 'var(--frame-row)',
-                  padding: '2px var(--space-6) 2px var(--space-8)',
-                  borderRadius: 'var(--radius-block)',
-                  background: active ? 'var(--color-card-bg)' : 'transparent',
-                  color: active
-                    ? 'var(--color-sidebar-text)'
-                    : 'var(--color-sidebar-text-dim)',
-                  fontWeight: active ? 600 : 400,
-                  fontSize: 'var(--type-row)',
-                  textAlign: 'left',
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
+          {captioned && <IndexGroup label={group.label} />}
+          {group.sections.map((section) => (
+            <IndexRow
+              key={section.id}
+              label={section.label}
+              icon={section.icon}
+              active={section.id === tab}
+              testId={`settings-tab-${section.id}`}
+              onPick={() => onPick(section.id)}
+            />
+          ))}
         </div>
       ))}
     </IndexColumn>
@@ -184,7 +143,11 @@ export function SettingsIndex({
 export function useSettingsTab(
   scope: SettingsScope = 'all',
 ): readonly [SettingsTab, (t: SettingsTab) => void] {
-  const [tab, setTab] = useState<SettingsTab>(scope === 'settings' ? 'voice' : 'providers');
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const first = sectionsIn(scope)[0];
+    assertDefined(first, 'every settings view lists a section');
+    return first.id;
+  });
   return [tab, setTab];
 }
 
@@ -220,9 +183,9 @@ export function SettingsPanel({
     setQuery('');
   }
 
-  const firstTab = TAB_DESCRIPTORS[0];
-  assertDefined(firstTab, 'TAB_DESCRIPTORS is a non-empty constant list');
-  const active = TAB_DESCRIPTORS.find((d) => d.id === tab) ?? firstTab;
+  const section = sectionsIn('all').find((candidate) => candidate.id === tab);
+  assertDefined(section, 'the open tab is a settings section');
+  const active = { label: section.label, ...TAB_VIEWS[tab] };
   const ctx: TabContext = { s, query, setQuery };
 
   return (

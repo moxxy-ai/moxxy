@@ -638,8 +638,6 @@ function InsertNodeMenu({
         style={{
           fontSize: 'var(--type-label)',
           fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
           color: 'var(--color-text-dim)',
           padding: '2px 6px',
         }}
@@ -967,8 +965,6 @@ function NodeCard({
             style={{
               fontSize: 'var(--type-label)',
               fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
               color: accent,
             }}
           >

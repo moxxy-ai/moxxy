@@ -27,10 +27,10 @@ export function ledState(entry: ChannelEntry): 'failed' | 'running' | 'done' | u
 }
 
 export function statusLabel(entry: ChannelEntry): string {
-  if (entry.status.error) return 'stopped · error';
-  if (entry.status.running) return entry.status.connected === false ? 'pairing' : 'running';
-  if (entry.status.configured) return 'configured';
-  return 'not configured';
+  if (entry.status.error) return 'Stopped · error';
+  if (entry.status.running) return entry.status.connected === false ? 'Pairing' : 'Running';
+  if (entry.status.configured) return 'Configured';
+  return 'Not configured';
 }
 
 /** The subset of `useChannels()` a page acts through. Named as the hook names
@@ -194,7 +194,7 @@ export function ChannelPage({
 
       {configuring && (
         <div>
-          <div className="section-head">setup</div>
+          <div className="section-head">Setup</div>
           <div className="form">
             {descriptor.configFields.map((f) => (
               <label key={f.name} className="form__field">

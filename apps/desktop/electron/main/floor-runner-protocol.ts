@@ -11,9 +11,10 @@
  * floor JS — which matches the CLI.
  *
  * Baked as a literal (not imported from `@moxxy/runner`) to keep the immutable
- * bootstrap dependency-free + tiny, mirroring `update-key.ts`. MUST stay in
- * lockstep with `@moxxy/runner`'s `RUNNER_PROTOCOL_VERSION` at release time —
- * the release build asserts the two match (see scripts/build-app-bundle.mjs),
- * so a forgotten bump fails the build rather than shipping a wrong floor.
+ * bootstrap dependency-free + tiny, mirroring `update-key.ts`. MUST equal
+ * `@moxxy/runner`'s `RUNNER_PROTOCOL_VERSION`: a floor left behind makes a
+ * fresh install refuse the next JS update stamped with its own runner's
+ * protocol, so every update after it needs the full installer. A unit test and
+ * the release build (scripts/build-app-bundle.mjs) both assert the two match.
  */
-export const FLOOR_RUNNER_PROTOCOL = 23;
+export const FLOOR_RUNNER_PROTOCOL = 24;

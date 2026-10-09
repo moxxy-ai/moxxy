@@ -1,64 +1,14 @@
-import { Icon } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '../MarkdownBody';
 
-/** Live reasoning preview while the model is still thinking — shown in
- *  place of the dead "thinking…" dots for a reasoning model. Visually
- *  subdued (dim avatar + muted body) so it reads as the model's scratch
- *  thinking, not its final answer; replaced by StreamingAssistant the
- *  moment the answer text starts to arrive. */
+/** The model's thinking while it is still arriving. Drawn as quiet text under
+ *  a moving label, so it reads as working-out and not as the answer; the
+ *  answer's bubble takes its place as soon as the answer starts. */
 export function StreamingReasoning({ text }: { readonly text: string }): JSX.Element {
   return (
-    <div
-      data-testid="block-streaming-reasoning"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%', opacity: 0.7 }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: 'var(--radius-block)',
-          background: 'var(--color-input-soft)',
-          color: 'var(--color-text-dim)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <Icon name="agent" size={18} />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 'var(--type-ui)', color: 'var(--color-text-muted)' }}>
-            Thinking
-          </span>
-          <span
-            className="mono"
-            style={{
-              fontSize: 'var(--type-meta)',
-              color: 'var(--color-text-dim)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <span
-              aria-hidden
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: 'var(--color-text-dim)',
-                animation: 'moxxy-thinking 1.1s ease-in-out infinite',
-              }}
-            />
-            thinking…
-          </span>
-        </div>
-        <div style={{ marginTop: 6, color: 'var(--color-text-muted)' }}>
-          <MarkdownBody text={text} streaming />
-        </div>
+    <div className="reasoning" data-testid="block-streaming-reasoning">
+      <span className="reasoning__label activity-shimmer">Thinking…</span>
+      <div className="reasoning__body">
+        <MarkdownBody text={text} streaming />
       </div>
     </div>
   );

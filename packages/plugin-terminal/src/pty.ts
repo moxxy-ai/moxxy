@@ -19,6 +19,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { chmodSync, existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as nodePath from 'node:path';
+import { ShellMarks, installShellHooks, type ShellHooks } from './shell-hooks.js';
 
 /**
  * Upper bound on output/exit listeners on a single shared process. A surface
@@ -184,8 +185,20 @@ function clampDimension(n: number): number {
 
 export type TerminalBackend = 'pty' | 'pipe';
 
+/** A shell that reports its commands and each return to its prompt (see shell-hooks.ts). */
+export interface PromptSignal {
+  /** False until the shell has shown its first prompt: it is still starting. */
+  readonly seen: boolean;
+  /** How many commands the shell has started, the one running now included. */
+  readonly commands: number;
+  /** Called each time the prompt is back, with the last command's exit code and that count. */
+  onPrompt(cb: (exitCode: number, commands: number) => void): () => void;
+}
+
 export interface TerminalProcess {
   readonly backend: TerminalBackend;
+  /** Absent for a shell that cannot report its prompt (cmd, PowerShell, fish). */
+  readonly prompt?: PromptSignal;
   /** When `backend === 'pipe'`, the reason the real PTY couldn't start (so the
    *  surface can show an honest "degraded" status instead of a silently-dead
    *  box). Null when a real PTY is in use. */
@@ -207,6 +220,11 @@ export interface TerminalProcess {
 export class TerminalProcessImpl implements TerminalProcess {
   private readonly dataListeners = new Set<(d: string) => void>();
   private readonly exitListeners = new Set<(c: number) => void>();
+  private readonly promptListeners = new Set<(exitCode: number, commands: number) => void>();
+  private readonly marks: ShellMarks | null;
+  private promptSeen = false;
+  private commands = 0;
+  readonly prompt?: PromptSignal;
   private buffer = '';
   private warnedListenerLeak = false;
   alive = true;
@@ -216,7 +234,25 @@ export class TerminalProcessImpl implements TerminalProcess {
     private readonly pty: NodePtyProcess | null,
     private readonly child: ChildProcessWithoutNullStreams | null,
     readonly ptyError: string | null = null,
+    private readonly hooks: ShellHooks | null = null,
   ) {
+    this.marks = hooks ? new ShellMarks(hooks.key) : null;
+    if (hooks) {
+      const seen = (): boolean => this.promptSeen;
+      const commands = (): number => this.commands;
+      this.prompt = {
+        get seen() {
+          return seen();
+        },
+        get commands() {
+          return commands();
+        },
+        onPrompt: (cb) => {
+          this.promptListeners.add(cb);
+          return () => this.promptListeners.delete(cb);
+        },
+      };
+    }
     if (pty) {
       pty.onData((d) => this.emitData(d));
       pty.onExit((e) => this.emitExit(e.exitCode));
@@ -273,11 +309,26 @@ export class TerminalProcessImpl implements TerminalProcess {
         /* a bad viewer must not break the stream */
       }
     }
+    // After the data listeners, so a command's reader holds its last output
+    // before it learns the prompt is back.
+    for (const report of this.marks?.read(d) ?? []) {
+      this.commands = report.commands;
+      if (report.exitCode === null) continue;
+      this.promptSeen = true;
+      for (const cb of [...this.promptListeners]) {
+        try {
+          cb(report.exitCode, report.commands);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   }
 
   private emitExit(code: number): void {
     if (!this.alive) return;
     this.alive = false;
+    this.hooks?.remove();
     for (const cb of this.exitListeners) {
       try {
         cb(code);
@@ -404,21 +455,24 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
   // strip vars here (it would silently break legitimate commands); gate any
   // scrubbing behind an explicit opt-in if ever needed.
   const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color' };
+  const hooks = installShellHooks(shell, env);
+  const shellArgs = hooks ? hooks.args : [];
+  const shellEnv = hooks ? hooks.env : env;
   const pty = await loadNodePty();
   let ptyError: string | null = pty ? null : 'node-pty is not installed';
   if (pty) {
     const trySpawn = (): NodePtyProcess =>
-      pty.spawn(shell, [], { name: 'xterm-256color', cols, rows, cwd, env });
+      pty.spawn(shell, shellArgs, { name: 'xterm-256color', cols, rows, cwd, env: shellEnv });
     // Make sure the prebuilt spawn-helper is executable, then spawn. If the first
     // spawn still fails (e.g. the bit was only just lost), repair + retry ONCE
     // before giving up — most "posix_spawnp failed" cases clear on the retry.
     ensureSpawnHelperExecutable();
     try {
-      return new TerminalProcessImpl('pty', trySpawn(), null);
+      return new TerminalProcessImpl('pty', trySpawn(), null, null, hooks);
     } catch {
       ensureSpawnHelperExecutable();
       try {
-        return new TerminalProcessImpl('pty', trySpawn(), null);
+        return new TerminalProcessImpl('pty', trySpawn(), null, null, hooks);
       } catch (err2) {
         // Don't swallow it: record WHY so the surface can show an honest status
         // instead of a silently-dead piped terminal.
@@ -432,15 +486,15 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
   // viewer's `\r` is never turned into `\n`, nothing echoes), so it is NOT a
   // usable interactive terminal — `ptyError` is surfaced to the user so the pane
   // reports the degraded state rather than appearing to ignore every keystroke.
-  const args = process.platform === 'win32' ? [] : ['-i'];
+  const args = process.platform === 'win32' ? [] : [...shellArgs, '-i'];
   const child = spawn(shell, args, {
     cwd,
-    env: { ...env, PS1: '$ ' },
+    env: { ...shellEnv, PS1: '$ ' },
     stdio: ['pipe', 'pipe', 'pipe'],
     // Own process group (POSIX) so kill() can signal the WHOLE tree by negative
     // pid — otherwise grandchildren (a dev server, a `tail -f`, a build) outlive
     // the session. No-op semantics on Windows; node-pty handles its own tree.
     detached: process.platform !== 'win32',
   });
-  return new TerminalProcessImpl('pipe', null, child, ptyError);
+  return new TerminalProcessImpl('pipe', null, child, ptyError, hooks);
 }

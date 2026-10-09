@@ -5,6 +5,7 @@ import {
   activateComputerUpdate, discardComputerUpdate, prepareComputerUpdate, recoverComputerUpdates,
   isBundledComputerCurrent,
   isInstalledNewerThanBundled,
+  isLinkedInstall,
   type PreparedComputerUpdate,
 } from './computer-update.js';
 
@@ -61,6 +62,7 @@ export async function offerBundledComputerUpdate(options:{
   confirm:(offer:ComputerUpdateOffer)=>Promise<boolean>;
   log?:(message:string)=>void;
 }):Promise<'current'|'declined'|'updated'> {
+  if (await isLinkedInstall(options)) return 'current';
   if (await isBundledComputerCurrent(options)) return 'current';
   if (await isInstalledNewerThanBundled(options)) return 'current';
   const executable=path.join(options.resourcesPath,'plugins-seed','node_modules','@moxxy','plugin-computer-control','bin','win32-x64','moxxy-computer.exe');

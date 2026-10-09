@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@moxxy/client-core', () => ({
   useDesks: () => mocks.desksApi,
   useUnreadWorkspaces: () => [],
+  chatStore: { subscribe: () => () => undefined, getChat: () => ({ events: [], sending: false, activeTurnId: null }) },
   usePrefs: () => ({ prefs: null, loading: false, update: vi.fn() }),
 }));
 
@@ -98,11 +99,11 @@ describe('WorkspaceSidebar session actions', () => {
     expect(mocks.removeSession).toHaveBeenCalledWith('session-2');
   });
 
-  it('filters the tree from the column head, and says when nothing matches', () => {
+  it('filters the runs from the search field, and says when nothing matches', () => {
     renderSidebar();
 
-    fireEvent.click(screen.getByTestId('workspace-search-toggle'));
-    const field = screen.getByTestId('workspace-search');
+    // Always there, like a messenger's: no toggle to find first.
+    const field = screen.getByTestId('workspace-search') as HTMLInputElement;
 
     // A session match keeps its workspace visible with only that session under it.
     fireEvent.change(field, { target: { value: 'hejo' } });
@@ -114,16 +115,21 @@ describe('WorkspaceSidebar session actions', () => {
     expect(screen.queryByTestId('session-row-session-2')).toBeNull();
     expect(screen.getByText(/Nothing matches/)).toBeTruthy();
 
-    // Escape closes the filter and restores the full tree.
+    // Escape clears the filter and restores the full list.
     fireEvent.keyDown(field, { key: 'Escape' });
-    expect(screen.queryByTestId('workspace-search')).toBeNull();
+    expect(field.value).toBe('');
     expect(screen.getByTestId('session-row-session-1')).toBeTruthy();
   });
 
-  it('starts a new workspace from the index column HEAD', () => {
-    // The [+] moved out of the tree and into the column head, beside the title,
-    // where the design puts it — the tree used to spend a whole row on nothing
-    // but that one right-aligned button.
+  it('starts a new run in the current workspace from the sidebar head', async () => {
+    renderSidebar();
+    fireEvent.click(screen.getByTestId('session-new'));
+    expect(mocks.desksApi.createSession).toHaveBeenCalledWith('desk-1');
+  });
+
+  it('starts a new workspace from the end of the list', () => {
+    // Rare next to starting a run, so it is a quiet row under the list rather
+    // than a button in the head.
     renderSidebar();
 
     const plus = screen.getByTestId('workspace-new');

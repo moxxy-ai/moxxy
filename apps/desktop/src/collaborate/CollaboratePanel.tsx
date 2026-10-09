@@ -952,7 +952,7 @@ function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
           <span aria-hidden>{m.to === 'all' ? '📣 all' : `→ ${m.to}`}</span>
         </span>
         {kind && (
-          <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
+          <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
             {kind.label}
           </span>
         )}
@@ -1004,7 +1004,7 @@ function TaskModal({ task, onClose }: { readonly task?: CollabTaskView; readonly
         )}
         {task.paths && task.paths.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 'var(--type-meta)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-dim)' }}>Deliverables</div>
+            <div style={{ fontSize: 'var(--type-meta)', fontWeight: 700, color: 'var(--color-text-dim)' }}>Deliverables</div>
             {task.paths.map((p) => (
               <div key={p} className="mono" style={{ fontSize: 'var(--type-row)', color: 'var(--color-text-muted)', wordBreak: 'break-all' }}>{p}</div>
             ))}

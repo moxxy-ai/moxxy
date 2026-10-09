@@ -1,11 +1,18 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { WorkbenchTab } from './Workbench';
 import { useAgentSurfaceReveal } from './surfaces/useAgentSurfaceReveal';
 
+/** The pane a first open lands on, before any pane has been used. */
+const FIRST_TAB: WorkbenchTab = 'files';
+
 export interface WorkbenchState {
-  /** The open pane, or null when the workbench is collapsed. */
+  /** The open pane, or null when the workbench is closed. */
   readonly tab: WorkbenchTab | null;
+  readonly open: boolean;
   readonly setTab: (tab: WorkbenchTab | null) => void;
+  /** Close it, or open it on the pane last in use. The header's button and the
+   *  shortcut both call this, so they agree on which pane comes back. */
+  readonly toggle: () => void;
   /** The open pane fills the window and the chat floats over it as a composer. */
   readonly full: boolean;
   /** Into full view and out again; with nothing open, opens the browser in it. */
@@ -20,22 +27,27 @@ export interface WorkbenchState {
  * it.
  */
 export function useWorkbench(workspaceId: string | null): WorkbenchState {
-  // Starts collapsed — collapsed still leaves a vertical tab strip, so the
-  // panes stay discoverable and one click opens the one you want.
+  // Starts closed, and closed it takes no room: the run's header opens it.
   const [tab, setTabState] = useState<WorkbenchTab | null>(null);
   const [full, setFull] = useState(false);
+  const lastTab = useRef<WorkbenchTab>(FIRST_TAB);
 
   const setTab = useCallback((next: WorkbenchTab | null): void => {
+    if (next !== null) lastTab.current = next;
     setTabState(next);
     // Full view is a way of showing a pane; with none open it ends.
     if (next === null) setFull(false);
   }, []);
 
+  const toggle = useCallback((): void => {
+    setTab(tab === null ? lastTab.current : null);
+  }, [tab, setTab]);
+
   const toggleFull = useCallback((): void => {
-    setTabState((current) => current ?? 'browser');
+    if (tab === null) setTab('browser');
     setFull((current) => !current);
-  }, []);
+  }, [tab, setTab]);
 
   useAgentSurfaceReveal(workspaceId, setTab);
-  return { tab, setTab, full, toggleFull };
+  return { tab, open: tab !== null, setTab, toggle, full, toggleFull };
 }

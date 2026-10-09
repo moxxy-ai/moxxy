@@ -771,6 +771,46 @@ describe('session.* attachment provenance', () => {
     }
   });
 
+  it('saveAttachment keeps a dropped file for the turn, whatever its kind', async () => {
+    const saved = (await invoke('session.saveAttachment', {
+      dataBase64: Buffer.from('a,b\n1,2\n').toString('base64'),
+      name: 'figures.csv',
+    })) as { path: string; name: string };
+    expect(saved.name).toBe('figures.csv');
+    expect(saved.path.startsWith(CWD)).toBe(false);
+
+    try {
+      await invoke('session.runTurn', { workspaceId: WS, prompt: 'sum these', attachments: [saved] });
+      expect(forwardedAttachments()).toEqual([saved]); // authorized, NOT dropped
+    } finally {
+      await rm(saved.path, { force: true });
+    }
+  });
+
+  it('checkAttachment says why a file in the workspace would be left out, and nothing when it would not', async () => {
+    const binary = path.join(CWD, 'blob.bin');
+    const text = path.join(CWD, 'notes.txt');
+    await writeFile(binary, Buffer.from([0x00, 0x01, 0x02]));
+    await writeFile(text, 'hello');
+
+    await expect(invoke('session.checkAttachment', { workspaceId: WS, path: binary, name: 'blob.bin' })).resolves.toBe(
+      'blob.bin is not a kind of file Moxxy can read.',
+    );
+    await expect(invoke('session.checkAttachment', { workspaceId: WS, path: text, name: 'notes.txt' })).resolves.toBeNull();
+  });
+
+  it('checkAttachment refuses a path the turn would drop, without looking at it', async () => {
+    const stray = path.join(os.tmpdir(), `session-check-stray-${process.pid}.txt`);
+    await writeFile(stray, 'hello');
+    try {
+      await expect(invoke('session.checkAttachment', { workspaceId: WS, path: stray, name: 'stray.txt' })).resolves.toBe(
+        'stray.txt is outside this workspace. Use Attach file, or drop it here.',
+      );
+    } finally {
+      await rm(stray, { force: true });
+    }
+  });
+
   it('drops an attachment that was neither picked nor under the workspace cwd', async () => {
     const stray = path.join(os.tmpdir(), `session-ipc-stray-${process.pid}.png`);
     await writeFile(stray, Buffer.from(PNG_1x1, 'base64'));

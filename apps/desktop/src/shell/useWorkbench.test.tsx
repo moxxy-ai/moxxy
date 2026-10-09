@@ -57,4 +57,22 @@ describe('useWorkbench', () => {
     act(() => result.current.setTab('terminal'));
     expect(result.current).toMatchObject({ tab: 'terminal', full: true });
   });
+
+  it('opens and closes as one toggle, on the diff the first time', () => {
+    const { result } = renderHook(() => useWorkbench('ws'));
+    expect(result.current.open).toBe(false);
+    act(() => result.current.toggle());
+    expect(result.current).toMatchObject({ open: true, tab: 'files' });
+    act(() => result.current.toggle());
+    expect(result.current).toMatchObject({ open: false, tab: null });
+  });
+
+  it('reopens on the pane that was last in use', () => {
+    const { result } = renderHook(() => useWorkbench('ws'));
+    act(() => result.current.setTab('terminal'));
+    act(() => result.current.toggle());
+    expect(result.current.open).toBe(false);
+    act(() => result.current.toggle());
+    expect(result.current).toMatchObject({ open: true, tab: 'terminal' });
+  });
 });

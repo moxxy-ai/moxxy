@@ -1,38 +1,59 @@
 /**
- * Actions palette — formerly "Commands". Exposes the runner's
- * `command.run` capabilities to the user as one-click actions.
+ * The command palette: every place in the app and every action of the current
+ * run, behind one filter field.
  *
- * Two phases:
+ * It opens on the views. Typing finds what is inside them too (a settings
+ * option, a channel, an app), each row saying where it is. Places go there at
+ * once. An action runs at once too, unless it takes
+ * parameters; then every field is shown together in a form, not one step at a
+ * time. Results land in the transcript as a dismissible `action_result` block.
  *
- *   1. List view — quick-filter list of every action; ↑↓/Enter to
- *      navigate, click to pick.
- *   2. Args form (only when the action takes parameters) — every
- *      arg field rendered AT ONCE so the user fills them all in
- *      and clicks Run; no step-by-step.
+ * It opens from the keyboard, so it appears without an animation.
  *
- * Actions with no args run as soon as they're picked. Successful and
- * failed results show up in the transcript as a dismissible bordered
- * `action_result` block.
- *
- * This container owns the command fetch + filtering + run/dispatch; the
+ * This container owns the command fetch, the filter and the run/dispatch; the
  * args form lives in its own module.
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
-import { Modal } from '@moxxy/desktop-ui';
+import { Icon, Modal } from '@moxxy/desktop-ui';
+import type { Place } from '../../shell/navigation/places';
+import { searchPlaces } from '../../shell/navigation/search-places';
 import { ArgsForm } from './ArgsForm';
+import { runSessionCommand } from './run-command';
 import { humanize, quote, stepsForCommand, subcommandForCommand } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
+
+/** A place the palette can go to, as the shell offers it right now. */
+export interface PalettePlace extends Place {
+  readonly disabled: boolean;
+  /** The shortcut that goes there, already formatted. */
+  readonly hint?: string;
+}
 
 interface Props {
   readonly workspaceId: string;
   readonly onClose: () => void;
+  /** Places to offer above the actions. None when the palette is not in the shell. */
+  readonly places?: ReadonlyArray<PalettePlace>;
+  readonly onPlace?: (place: PalettePlace) => void;
+  /** An action already picked elsewhere (the composer's slash menu): open on its form. */
+  readonly command?: CommandInfo;
 }
 
-export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
+type Row =
+  | { readonly kind: 'place'; readonly place: PalettePlace }
+  | { readonly kind: 'command'; readonly command: CommandInfo };
+
+const NO_PLACES: ReadonlyArray<PalettePlace> = [];
+
+export function CommandPalette({
+  workspaceId,
+  onClose,
+  places = NO_PLACES,
+  onPlace,
+  command: picked,
+}: Props): JSX.Element {
   const [commands, setCommands] = useState<ReadonlyArray<CommandInfo>>([]);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
@@ -40,7 +61,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
   const [argsFor, setArgsFor] = useState<{
     command: CommandInfo;
     steps: ReadonlyArray<ArgStep>;
-  } | null>(null);
+  } | null>(() => (picked ? { command: picked, steps: stepsForCommand(picked.name) } : null));
 
   useEffect(() => {
     let cancelled = false;
@@ -56,16 +77,22 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
     };
   }, [workspaceId]);
 
-  const filtered = useMemo(() => {
+  const rows = useMemo((): ReadonlyArray<Row> => {
     const q = filter.trim().toLowerCase();
-    if (!q) return commands;
-    return commands.filter((c) => {
-      if (c.name.toLowerCase().includes(q)) return true;
-      if (c.description?.toLowerCase().includes(q)) return true;
-      if (c.aliases?.some((a) => a.toLowerCase().includes(q))) return true;
-      return false;
-    });
-  }, [commands, filter]);
+    const matchingPlaces = searchPlaces(places, filter);
+    const matchingCommands = q
+      ? commands.filter((c) => {
+          if (c.name.toLowerCase().includes(q)) return true;
+          if (c.description?.toLowerCase().includes(q)) return true;
+          if (c.aliases?.some((a) => a.toLowerCase().includes(q))) return true;
+          return false;
+        })
+      : commands;
+    return [
+      ...matchingPlaces.map((place): Row => ({ kind: 'place', place })),
+      ...matchingCommands.map((command): Row => ({ kind: 'command', command })),
+    ];
+  }, [places, commands, filter]);
 
   const run = async (command: CommandInfo, values: ReadonlyArray<string>): Promise<void> => {
     setRunning(true);
@@ -76,76 +103,26 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
     const sub = subcommandForCommand(command.name);
     const argString = [...(sub ? [sub] : []), ...values.map(quote)].join(' ');
     try {
-      const result = await api().invoke('session.runCommand', {
-        workspaceId,
-        name: command.name,
-        args: argString,
-      });
-      // Session-action directives are side-effect-only. Wipe the transcript
-      // BEFORE dispatching the notice card below, otherwise it would land in
-      // the cleared transcript and immediately disappear.
-      if (result.kind === 'session-action' && result.action === 'clear') {
-        chatStore.clear(workspaceId);
-      } else if (result.kind === 'session-action' && result.action === 'new') {
-        // `/new`: clear the transcript AND reset the runner to a fresh, empty
-        // session — dropping the model's context and the persisted history so
-        // it doesn't resurrect on the next launch. Without the runner reset,
-        // clearing only the renderer would leave the model still primed with
-        // the old conversation (and a restart would replay it back).
-        chatStore.clear(workspaceId);
-        await api().invoke('session.newSession', { workspaceId });
-      }
-      // Don't render an action_result block for pure side-effects /
-      // noops; the empty header bar that we used to leave in the
-      // chat after a noop command was confusing.
-      const text =
-        result.kind === 'text'
-          ? result.text ?? ''
-          : result.kind === 'error'
-            ? result.message ?? 'command failed'
-            : result.kind === 'session-action'
-              ? result.notice ?? ''
-              : '';
-      const isSilent =
-        result.kind === 'noop' ||
-        (result.kind === 'session-action' && !text.trim() && !result.notice);
-      if (!isSilent) {
-        const tone =
-          result.kind === 'error'
-            ? 'error'
-            : result.kind === 'session-action'
-              ? 'notice'
-              : 'info';
-        chatStore.dispatch(workspaceId, {
-          type: 'action_result',
-          commandName: command.name,
-          argsLine: argString,
-          tone,
-          text,
-        });
-      }
-      onClose();
-    } catch (e) {
-      chatStore.dispatch(workspaceId, {
-        type: 'action_result',
-        commandName: command.name,
-        argsLine: argString,
-        tone: 'error',
-        text: toErrorMessage(e),
-      });
+      await runSessionCommand(workspaceId, command, argString);
       onClose();
     } finally {
       setRunning(false);
     }
   };
 
-  const onSelect = (cmd: CommandInfo): void => {
-    const steps = stepsForCommand(cmd.name);
-    if (steps.length === 0) {
-      void run(cmd, []);
+  const onSelect = (row: Row): void => {
+    if (row.kind === 'place') {
+      if (row.place.disabled) return;
+      onPlace?.(row.place);
+      onClose();
       return;
     }
-    setArgsFor({ command: cmd, steps });
+    const steps = stepsForCommand(row.command.name);
+    if (steps.length === 0) {
+      void run(row.command, []);
+      return;
+    }
+    setArgsFor({ command: row.command, steps });
   };
 
   if (argsFor) {
@@ -162,8 +139,8 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
   }
 
   return (
-    <Modal title="Actions" onClose={onClose} width={520}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <Modal title="Command palette" onClose={onClose} width={520}>
+      <div className="palette">
         <input
           autoFocus
           // Combobox semantics: the input drives a roving selection in the
@@ -172,10 +149,8 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
           role="combobox"
           aria-expanded
           aria-controls="command-palette-list"
-          aria-activedescendant={
-            filtered.length > 0 ? `command-palette-opt-${active}` : undefined
-          }
-          aria-label="Filter actions"
+          aria-activedescendant={rows.length > 0 ? `command-palette-opt-${active}` : undefined}
+          aria-label="Search places and actions"
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
@@ -184,92 +159,69 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
-              setActive((i) => Math.min(filtered.length - 1, i + 1));
+              setActive((i) => Math.min(rows.length - 1, i + 1));
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               setActive((i) => Math.max(0, i - 1));
             } else if (e.key === 'Enter') {
               e.preventDefault();
-              const cmd = filtered[active];
-              if (cmd && !running) onSelect(cmd);
+              const row = rows[active];
+              if (row && !running) onSelect(row);
             }
           }}
-          placeholder="Filter actions…"
+          placeholder="Search places and actions…"
           className="palette__input"
         />
         <ul
           id="command-palette-list"
           role="listbox"
-          aria-label="Available actions"
-          style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 4,
-            maxHeight: 380,
-            overflowY: 'auto',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-block)',
-          }}
+          aria-label="Places and actions"
+          className="palette__list"
         >
-          {filtered.length === 0 && (
-            <li style={{ padding: '10px 12px', fontSize: 'var(--type-row)', color: 'var(--color-text-dim)' }}>
-              No actions match.
-            </li>
-          )}
-          {filtered.map((cmd, i) => {
-            const hasArgs = stepsForCommand(cmd.name).length > 0;
-            return (
-              <li key={cmd.name}>
-                <button
-                  type="button"
-                  id={`command-palette-opt-${i}`}
-                  role="option"
-                  aria-selected={i === active}
-                  onClick={() => onSelect(cmd)}
-                  onMouseEnter={() => setActive(i)}
-                  disabled={running}
-                  className="palette__row"
-                  data-active={i === active}
-                >
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 'var(--type-ui)',
-                      color: 'var(--color-text)',
-                      minWidth: 110,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {humanize(cmd.name)}
-                  </span>
-                  <span style={{ flex: 1, fontSize: 'var(--type-row)', color: 'var(--color-text-muted)' }}>
-                    {cmd.description || 'No description'}
-                  </span>
-                  {hasArgs && (
-                    <span
-                      title="Will prompt for arguments before running"
-                      style={{
-                        fontSize: 'var(--type-label)',
-                        padding: '1px 6px',
-                        borderRadius: 'var(--radius-pill)',
-                        background: 'var(--color-primary-soft)',
-                        color: 'var(--color-primary-strong)',
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        fontWeight: 700,
-                      }}
-                    >
-                      Args
+          {rows.length === 0 && <li className="palette__empty">Nothing matches.</li>}
+          {rows.map((row, i) => (
+            <li key={row.kind === 'place' ? `place-${row.place.id}` : `command-${row.command.name}`}>
+              <button
+                type="button"
+                id={`command-palette-opt-${i}`}
+                role="option"
+                aria-selected={i === active}
+                onClick={() => onSelect(row)}
+                onMouseEnter={() => setActive(i)}
+                disabled={running || (row.kind === 'place' && row.place.disabled)}
+                className="palette__row"
+                data-active={i === active}
+              >
+                {row.kind === 'place' ? (
+                  <>
+                    <span className="palette__icon" aria-hidden>
+                      <Icon name={row.place.icon} size={15} />
                     </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
+                    <span className="palette__name">{row.place.label}</span>
+                    <span className="palette__desc">{row.place.trail}</span>
+                    {row.place.hint && <span className="palette__hint">{row.place.hint}</span>}
+                  </>
+                ) : (
+                  <>
+                    <span className="palette__icon" aria-hidden>
+                      <Icon name="spark" size={15} />
+                    </span>
+                    <span className="palette__name">{humanize(row.command.name)}</span>
+                    <span className="palette__desc">
+                      {row.command.description || 'No description'}
+                    </span>
+                    {stepsForCommand(row.command.name).length > 0 && (
+                      <span className="palette__hint" title="Asks for details before running">
+                        …
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+            </li>
+          ))}
         </ul>
-        <p style={{ margin: 0, fontSize: 'var(--type-meta)', color: 'var(--color-text-dim)' }}>
-          ↑↓ to navigate · ↵ to run · Esc to close
-        </p>
+        <p className="palette__keys">↑↓ to move · ↵ to choose · Esc to close</p>
       </div>
     </Modal>
   );

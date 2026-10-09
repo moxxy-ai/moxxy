@@ -1,5 +1,15 @@
 # @moxxy/plugin-channel-discord
 
+## 0.42.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.42.1
+- @moxxy/core@0.42.1
+- @moxxy/channel-kit@0.42.1
+- @moxxy/plugin-vault@0.42.1
+- @moxxy/chat-model@0.4.15
+
 ## 0.42.0
 
 ### Minor Changes

@@ -5,14 +5,18 @@ import { dark } from '@clerk/themes';
 import { App } from './App';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
+import { TipLayer } from './components/tip/TipLayer';
+import { HotkeyHints } from './hotkeys/HotkeyHints';
 import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
+import { registerModeEvents } from './chat/modes/register-mode-events';
 import { LOOPBACK_PORTS_ALT } from '../electron/loopback-ports';
 import './styles.css';
 
 // Install the shared client's transport + platform capabilities before the
 // React tree (and its hooks/bridges) mount.
 bootClient();
+registerModeEvents();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root not found — check index.html');
@@ -110,6 +114,8 @@ ReactDOM.createRoot(root).render(
     <ErrorBoundary>
       <DeepLinkBridge />
       {Tree}
+      <TipLayer />
+      <HotkeyHints />
     </ErrorBoundary>
   </React.StrictMode>,
 );

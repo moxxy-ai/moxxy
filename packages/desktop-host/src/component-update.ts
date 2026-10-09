@@ -1,8 +1,9 @@
 /**
  * The one-click update of what the desktop runs besides its own bundle: the
  * runner (`@moxxy/cli` in `<userData>/cli`) and the user's `@moxxy` plugins in
- * `~/.moxxy/plugins`. Both follow the latest published CLI version — the
- * release publishes every `@moxxy` package at that one version.
+ * `~/.moxxy/plugins`. Both go to the version the running app was built with —
+ * never to whatever npm calls latest, which moves ahead of the app between
+ * its releases. A release publishes every `@moxxy` package at that one version.
  *
  * Nothing live is touched until the new version is installed and verified: a
  * copy is updated next to the live directory, checked, and swapped in, with
@@ -93,20 +94,38 @@ async function registryPlugins(pluginsDir: string): Promise<Array<{ name: string
   return result.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** What an update would change, or null when everything is current (or the
- *  release can't be looked up). Never installs anything. */
-export async function planComponentUpdate(options: {
+export interface ComponentVersions {
   readonly cliVersion: string | null;
   readonly moxxyHome: string;
-  readonly registry: PackageRegistry;
-}): Promise<ComponentUpdatePlan | null> {
-  const version = await options.registry.latestVersion(CLI);
-  if (!version) return null;
-  const behind = (current: string | null) => current === null || compareSemver(version, current) > 0;
-  const cli = behind(options.cliVersion) ? { current: options.cliVersion } : null;
-  const candidates = (await registryPlugins(path.join(options.moxxyHome, 'plugins'))).filter((p) => behind(p.current));
-  const published = await Promise.all(candidates.map((p) => options.registry.hasVersion(p.name, version)));
-  const plugins = candidates.filter((_, i) => published[i]);
+  /** The version to be on: the one the running app was built with. */
+  readonly version: string;
+}
+
+const isBehind = (version: string, current: string | null): boolean => current === null || compareSemver(version, current) > 0;
+
+/** Whether the runner or an installed `@moxxy` plugin is older than `version`.
+ *  Reads only what is installed — no network. */
+export async function componentsBehind(options: ComponentVersions): Promise<boolean> {
+  if (isBehind(options.version, options.cliVersion)) return true;
+  const plugins = await registryPlugins(path.join(options.moxxyHome, 'plugins'));
+  return plugins.some((p) => isBehind(options.version, p.current));
+}
+
+/** What an update to `version` would change, or null when everything is there
+ *  already (or npm does not have it). Never installs anything. */
+export async function planComponentUpdate(
+  options: ComponentVersions & { readonly registry: PackageRegistry },
+): Promise<ComponentUpdatePlan | null> {
+  const { version, registry } = options;
+  const installed = await registryPlugins(path.join(options.moxxyHome, 'plugins'));
+  const candidates = [
+    ...(isBehind(version, options.cliVersion) ? [CLI] : []),
+    ...installed.filter((p) => isBehind(version, p.current)).map((p) => p.name),
+  ];
+  const published = await Promise.all(candidates.map((name) => registry.hasVersion(name, version)));
+  const available = new Set(candidates.filter((_, i) => published[i]));
+  const cli = available.has(CLI) ? { current: options.cliVersion } : null;
+  const plugins = installed.filter((p) => available.has(p.name));
   return cli || plugins.length > 0 ? { version, cli, plugins } : null;
 }
 

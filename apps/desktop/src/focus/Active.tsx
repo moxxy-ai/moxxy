@@ -44,7 +44,6 @@ export function Active({
   voiceModePhase,
   voiceModeErrorReason,
   voiceModeMuted,
-  waitingSoundEnabled,
   localPiperInstallRequired,
   petPhase,
   petInputAnalyser,
@@ -55,7 +54,6 @@ export function Active({
   onRetryVoiceMode,
   onMuteVoiceMode,
   onUnmuteVoiceMode,
-  onToggleWaitingSound,
   onCollapse,
   onText,
   bubbleRestoreVisible,
@@ -76,7 +74,6 @@ export function Active({
   readonly voiceModePhase: VoiceCallPhase;
   readonly voiceModeErrorReason: string | null;
   readonly voiceModeMuted: boolean;
-  readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly petPhase: VoiceCallPhase;
   readonly petInputAnalyser: unknown | null;
@@ -87,7 +84,6 @@ export function Active({
   readonly onRetryVoiceMode: () => void;
   readonly onMuteVoiceMode: () => void;
   readonly onUnmuteVoiceMode: () => void;
-  readonly onToggleWaitingSound: () => void;
   readonly onCollapse: () => void;
   readonly onText: () => void;
   readonly bubbleRestoreVisible: boolean;
@@ -129,7 +125,7 @@ export function Active({
         )}
         {voiceModeAvailable && !voiceModeActive && (
           <ActionButton onClick={onStartVoiceMode} aria-label="Start voice mode">
-            <Icon name="spark" size={17} />
+            <Icon name="phone" size={17} />
           </ActionButton>
         )}
         {voiceModeActive && (
@@ -140,7 +136,7 @@ export function Active({
             pressed
             title="Voice mode is active"
           >
-            <Icon name="stop" size={16} />
+            <Icon name="phone-down" size={17} />
           </ActionButton>
         )}
         {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
@@ -154,26 +150,14 @@ export function Active({
           </ActionButton>
         )}
         {voiceModeActive && voiceModePhase !== 'error' && (
-          <>
-            <ActionButton
-              onClick={voiceModeMuted ? onUnmuteVoiceMode : onMuteVoiceMode}
-              aria-label={voiceModeMuted ? 'Unmute microphone' : 'Mute microphone'}
-              active={!voiceModeMuted}
-              pressed={!voiceModeMuted}
-            >
-              <VoiceMicrophoneActionIcon muted={voiceModeMuted} />
-            </ActionButton>
-            <ActionButton
-              onClick={onToggleWaitingSound}
-              aria-label={waitingSoundEnabled
-                ? 'Turn waiting sound off'
-                : 'Turn waiting sound on'}
-              active={waitingSoundEnabled}
-              pressed={waitingSoundEnabled}
-            >
-              <Icon name="speaker" size={17} />
-            </ActionButton>
-          </>
+          <ActionButton
+            onClick={voiceModeMuted ? onUnmuteVoiceMode : onMuteVoiceMode}
+            aria-label={voiceModeMuted ? 'Unmute microphone' : 'Mute microphone'}
+            active={!voiceModeMuted}
+            pressed={!voiceModeMuted}
+          >
+            <VoiceMicrophoneActionIcon muted={voiceModeMuted} />
+          </ActionButton>
         )}
         {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
           <span role="alert" style={style.visuallyHidden}>

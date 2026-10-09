@@ -18,6 +18,9 @@ import { TraceEntry } from './trace/TraceEntry';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
 import type { ImagePreviewItem } from './image-preview/types';
 import { visibleTranscriptNodes } from './transcript-nodes';
+import { ModeTranscriptContext } from './modes/ModeTranscriptContext';
+import { PlanNextContext, type PlanNext } from './modes/plan-next';
+import { readModeEvents } from './modes/mode-events';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -36,6 +39,8 @@ interface TranscriptProps {
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
   /** Presentation metadata advertised by the live tool registry. */
   readonly compactTools?: CompactToolMap;
+  /** Carries the open plan out; null or absent where that is not on offer. */
+  readonly onPlanNext?: ((next: PlanNext) => void) | null;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
@@ -59,15 +64,6 @@ const MemoBlock = memo(
     blocksEquivalent(a.block, b.block) &&
     a.onPreviewImage === b.onPreviewImage,
 );
-
-/** Row gutter — Virtuoso measures each item, so spacing rides on the row
- *  rather than a flex `gap`. Flex column so each block's `alignSelf`
- *  (user → right, tool → left, assistant → stretch) is honoured; in the
- *  old flat flex container it worked for free, but each virtualised row is
- *  its own element now. */
-// The trace gutter supplies the left inset (and the timeline that runs through
-// it), so a row must not add its own or the spine detaches from the glyphs.
-const ROW: React.CSSProperties = { display: 'flex', flexDirection: 'column' };
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;
@@ -108,7 +104,7 @@ function Row({
   readonly foldVersion: number;
 }): JSX.Element {
   return (
-    <div style={ROW}>
+    <div className="transcript__row">
       {node.kind === 'ext' ? (
         <ExtensionCard ext={node.ext} workspaceId={workspaceId} />
       ) : node.kind === 'tool-group' ? (
@@ -122,6 +118,12 @@ function Row({
       )}
     </div>
   );
+}
+
+/** Room above the first entry. A list header, because the scroller itself is
+ *  measured by Virtuoso and cannot take padding. */
+function TranscriptLead(): JSX.Element {
+  return <div className="transcript__lead" aria-hidden />;
 }
 
 /** Virtuoso's `firstItemIndex` must decrease by exactly the number of
@@ -147,6 +149,7 @@ export function Transcript({
   onReachedTop,
   onPreviewImage,
   compactTools,
+  onPlanNext = null,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks). The
@@ -165,11 +168,14 @@ export function Transcript({
     foldRef.current = new IncrementalFold(compactTools);
     compactRef.current = compactTools;
   }
+  // What the plan, goal and research modes reported about these turns.
+  const modes = useMemo(() => readModeEvents(events), [events]);
   const nodes = useMemo(
     () => groupToolNodes(visibleTranscriptNodes(
       buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools),
+      modes.notes,
     )),
-    [events, extensions, compactTools],
+    [events, extensions, compactTools, modes],
   );
   const foldVersion = foldRef.current?.version ?? events.length;
 
@@ -230,15 +236,17 @@ export function Transcript({
   return (
     // One catalog fetch for the whole transcript; every tool row reads the
     // declared icon from context rather than asking for it per row.
+    <ModeTranscriptContext.Provider value={modes}>
+    <PlanNextContext.Provider value={onPlanNext}>
     <ToolIconProvider workspaceId={workspaceId}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
-    <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <div className="transcript">
       <Virtuoso<RenderNode>
         ref={virtuosoRef}
         data={nodes as RenderNode[]}
         data-testid="transcript"
-        style={{ flex: 1 }}
+        className="transcript__scroller"
         // Only follow when the user is already at the bottom (scrolling up to
         // read is never interrupted). A newly-committed line scrolls SMOOTHLY;
         // during active streaming we pin instantly ('auto') so rapid chunks
@@ -262,18 +270,19 @@ export function Transcript({
           />
         )}
         components={{
+          Header: TranscriptLead,
           Footer: () => (
-            <div>
+            <div className="transcript__row transcript__tail">
               {streamingText ? (
-                <TraceEntry kind="agent" label="moxxy" live>
+                <TraceEntry kind="agent">
                   <StreamingAssistant text={streamingText} />
                 </TraceEntry>
               ) : streamingReasoning ? (
-                <TraceEntry kind="reasoning" label="reasoning" live>
+                <TraceEntry kind="reasoning">
                   <StreamingReasoning text={streamingReasoning} />
                 </TraceEntry>
               ) : sending ? (
-                <TraceEntry kind="agent" label="moxxy" live>
+                <TraceEntry kind="agent">
                   <ThinkingIndicator />
                 </TraceEntry>
               ) : null}
@@ -284,5 +293,7 @@ export function Transcript({
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
     </ToolIconProvider>
+    </PlanNextContext.Provider>
+    </ModeTranscriptContext.Provider>
   );
 }

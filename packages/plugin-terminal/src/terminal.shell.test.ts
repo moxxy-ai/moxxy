@@ -29,6 +29,14 @@ const TITLE_HOOKS = [
   'unset HISTFILE',
 ].join('\n');
 
+/** Drains whatever is typed ahead for a moment, the way a prompt library reads its answers. */
+const READS_INPUT = `"${process.execPath}" -e "process.stdin.resume(); setTimeout(() => process.exit(0), 300)"`;
+
+/** What a terminal draws of a stream: its control sequences are not text. */
+function shownText(raw: string): string {
+  return raw.replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]/gu, '');
+}
+
 describe.skipIf(zshPath === null)('runCommand in a zsh set up like Oh My Zsh', () => {
   const saved = { SHELL: process.env.SHELL, ZDOTDIR: process.env.ZDOTDIR };
   let dotdir: string;
@@ -95,6 +103,24 @@ describe.skipIf(zshPath === null)('runCommand in a zsh set up like Oh My Zsh', (
     expect(res.output.split('\n')).toEqual(expect.arrayContaining(['/', '600']));
   });
 
+  it('finishes when the command reads the terminal input itself, like an installer asking questions', async () => {
+    const res = await runCommand(term, READS_INPUT, '__MOXXY_DONE_zsh_9__', COMMAND_TIMEOUT_MS);
+    const next = await runCommand(term, 'echo ok', '__MOXXY_DONE_zsh_10__', COMMAND_TIMEOUT_MS);
+
+    expect(res.timedOut).toBe(false);
+    expect(res.exitCode).toBe(0);
+    expect(next.output.split('\n')).toContain('ok');
+  });
+
+  it('shows nothing in the terminal but the command and its output', async () => {
+    await runCommand(term, 'echo hi', '__MOXXY_DONE_zsh_11__', COMMAND_TIMEOUT_MS);
+
+    const shown = shownText(term.scrollback());
+    expect(shown).toContain('echo hi');
+    expect(shown).not.toContain('__MOXXY_DONE');
+    expect(shown).not.toContain('printf');
+  });
+
   it('frees a shell left waiting for the end of an unfinished command', async () => {
     const stuck = await runCommand(term, "cat <<'NEVER'", '__MOXXY_DONE_zsh_7__', 1_000);
     const next = await runCommand(term, 'echo ok', '__MOXXY_DONE_zsh_8__', COMMAND_TIMEOUT_MS);
@@ -102,5 +128,55 @@ describe.skipIf(zshPath === null)('runCommand in a zsh set up like Oh My Zsh', (
     expect(stuck.timedOut).toBe(true);
     expect(stuck.output).toContain('waiting for the rest of an unfinished command');
     expect(next.output.split('\n')).toContain('ok');
+  });
+});
+
+const bash = spawnSync('bash', ['-c', 'command -v bash'], { encoding: 'utf8' });
+const bashPath = bash.status === 0 ? bash.stdout.trim() : null;
+
+describe.skipIf(bashPath === null || process.platform === 'win32')('runCommand in bash', () => {
+  const saved = { SHELL: process.env.SHELL, HOME: process.env.HOME };
+  let home: string;
+  let term: TerminalProcess;
+
+  beforeEach(async () => {
+    home = mkdtempSync(path.join(os.tmpdir(), 'moxxy-bash-'));
+    // The user's own prompt command runs after the report and must still see `$?`.
+    writeFileSync(path.join(home, '.bashrc'), "PROMPT_COMMAND='MOXXY_SAW=$?'\nPS1='$ '\nunset HISTFILE\n");
+    process.env.SHELL = bashPath ?? undefined;
+    process.env.HOME = home;
+    term = await createTerminalProcess(os.tmpdir());
+  });
+
+  afterEach(() => {
+    term.kill();
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    removeDirSync(home);
+  });
+
+  it('reports the exit code of a failing command, and leaves it to the user\'s prompt command', async () => {
+    const res = await runCommand(term, '(exit 3)', '__MOXXY_DONE_bash_0__', COMMAND_TIMEOUT_MS);
+    const seen = await runCommand(term, 'echo saw=$MOXXY_SAW', '__MOXXY_DONE_bash_1__', COMMAND_TIMEOUT_MS);
+
+    expect(res.exitCode).toBe(3);
+    expect(seen.output.split('\n')).toContain('saw=3');
+  });
+
+  it('finishes when the command reads the terminal input itself', async () => {
+    const res = await runCommand(term, READS_INPUT, '__MOXXY_DONE_bash_2__', COMMAND_TIMEOUT_MS);
+
+    expect(res.timedOut).toBe(false);
+    expect(res.exitCode).toBe(0);
+  });
+
+  it('shows nothing in the terminal but the command and its output', async () => {
+    await runCommand(term, 'echo hi', '__MOXXY_DONE_bash_3__', COMMAND_TIMEOUT_MS);
+
+    const shown = shownText(term.scrollback());
+    expect(shown).not.toContain('__MOXXY_DONE');
+    expect(shown).not.toContain('printf');
   });
 });

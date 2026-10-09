@@ -13,7 +13,7 @@ import { assertDefined } from '@/lib/assert';
 import { decodeError, toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
 import { retryWhileReconnecting } from '@moxxy/client-core';
-import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
+import { StepCard, Fields, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
 import { OAuthSignIn } from '../../settings/shared/OAuthSignIn';
 
 /** Static fallback provider list (used until `settings.providerCatalog`
@@ -137,17 +137,7 @@ export function ProviderStep({
           : "Drop in an API key from your provider. It's encrypted by the moxxy vault."
       }
     >
-      <div
-        style={{
-          padding: '16px 18px',
-          background: 'var(--color-card-bg)',
-          border: '1px solid var(--color-card-border)',
-          borderRadius: 'var(--radius-card)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
+      <Fields>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ fontSize: 'var(--type-row)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
             Provider
@@ -202,8 +192,8 @@ export function ProviderStep({
             {saving ? 'Saving…' : done ? 'Update key' : 'Save key'}
           </PrimaryButton>
         )}
-      </div>
-      <Nav onBack={onBack} onNext={onNext} nextLabel={done ? 'Continue' : 'Skip for now'} />
+      </Fields>
+      <Nav onBack={onBack} onNext={onNext} skip={!done} />
     </StepCard>
   );
 }

@@ -2,21 +2,24 @@
  * Renderer-side state machine for the self-update flow, shared by the
  * Settings → Update panel and the launch banner.
  *
- * Drives the dashboard IPC commands (`app.updateInfo` / `app.checkUpdate` /
- * `app.updateDashboard` / `app.updateShell`) plus the runner-and-extensions
- * commands (`app.cliInfo` / `app.checkComponents` / `app.updateComponents`),
- * and subscribes to `app.update.progress` so the UI can show progress. The
- * actual download/verify/install all happen main-side; this only orchestrates
- * and reflects status.
+ * Drives the update IPC commands and subscribes to `app.update.progress` and
+ * `app.update.plan` so the UI can show progress. The download, verification
+ * and install all happen main-side; this only asks and reflects status.
  *
  * The unified {@link UseAppUpdate.runUpdateAll} is the one "Update" people
- * click: it brings the runner, the extensions and the desktop app to latest
- * and relaunches — no second step, nothing to decide.
+ * click. The host owns it (`app.updateAll`): it decides the steps, carries
+ * them out and restarts — no second step, nothing to decide.
+ *
+ * An update is offered for a new release of the app only. The runner and the
+ * extensions are not released to people on their own: the launch after an app
+ * update brings them to the version that app was built with.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { appUpdatePlanState } from '@moxxy/desktop-ipc-contract';
 import type {
   AppUpdateCheck,
+  AppUpdatePlan,
   ComponentUpdateCheck,
   AppUpdateDiagnostics,
   AppUpdateInfo,
@@ -40,8 +43,13 @@ export type UpdateState =
 export interface UseAppUpdate {
   info: AppUpdateInfo | null;
   check: AppUpdateCheck | null;
-  /** The runner + extensions side of the last check. */
+  /** Whether the runner or extensions are behind the version this app was
+   *  built with; read with the diagnostics (`loadDiagnostics`). */
   components: ComponentUpdateCheck | null;
+  /** {@link UseAppUpdate.runComponentsUpdate} is running. */
+  componentsBusy: boolean;
+  /** The update being carried out, or the last one as this launch found it. */
+  plan: AppUpdatePlan | null;
   state: UpdateState;
   progress: AppUpdateProgress | null;
   error: string | null;
@@ -51,9 +59,8 @@ export interface UseAppUpdate {
    *  fetched on mount via `app.cliInfo`. Either field may be null if it can't
    *  be resolved. */
   cliInfo: { version: string | null; path: string | null } | null;
-  /** Non-fatal note when the runner and extensions can't be updated here
-   *  (e.g. npm not on PATH). The installed ones keep working, so this never
-   *  blocks the app update. */
+  /** Why {@link UseAppUpdate.runComponentsUpdate} could not bring the runner
+   *  and extensions up (e.g. npm not on PATH). The installed ones keep working. */
   cliError: string | null;
   runCheck: () => Promise<void>;
   runUpdate: () => Promise<void>;
@@ -62,18 +69,31 @@ export interface UseAppUpdate {
    *  deliver. On success the app quits mid-call; on failure the state returns
    *  to the CTA with `error` set so the UI can offer the release page. */
   runShellUpdate: () => Promise<void>;
-  /** The ONE update people click: the runner and extensions, then the app,
-   *  then a relaunch onto all of it. A part that can't install changes
-   *  nothing and leaves `error` set for another try. */
+  /** The ONE update people click: the host installs the new app and restarts
+   *  onto it. A step that fails stops the update there and leaves `error` set
+   *  for another try. */
   runUpdateAll: () => Promise<void>;
+  /** By hand, for when the launch after an update could not do it: brings the
+   *  runner and extensions to the version this app was built with. */
+  runComponentsUpdate: () => Promise<void>;
   loadDiagnostics: () => Promise<void>;
   relaunch: () => void;
+}
+
+const updateFailed = (detail?: string): string =>
+  `The update could not be finished; Moxxy works as before.${detail ? ` (${detail})` : ''}`;
+
+/** What to tell the user about a plan that failed, or null when it did not. */
+function planFailure(plan: AppUpdatePlan): string | null {
+  if (appUpdatePlanState(plan) !== 'failed') return null;
+  return updateFailed(plan.steps.find((step) => step.status === 'failed')?.error);
 }
 
 export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   const [info, setInfo] = useState<AppUpdateInfo | null>(null);
   const [check, setCheck] = useState<AppUpdateCheck | null>(null);
   const [components, setComponents] = useState<ComponentUpdateCheck | null>(null);
+  const [plan, setPlan] = useState<AppUpdatePlan | null>(null);
   const [state, setState] = useState<UpdateState>('idle');
   const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +103,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     null,
   );
   const [cliError, setCliError] = useState<string | null>(null);
+  const [componentsBusy, setComponentsBusy] = useState(false);
   const autoChecked = useRef(false);
 
   useEffect(() => {
@@ -94,32 +115,42 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
 
   // The runner (CLI) version shown alongside the app/dashboard version: the
   // unified panel surfaces BOTH. Mirrors how `info` is fetched on mount.
+  const loadCliInfo = useCallback(
+    (): Promise<void> =>
+      api()
+        .invoke('app.cliInfo')
+        .then(setCliInfo)
+        .catch(() => setCliInfo({ version: null, path: null })),
+    [],
+  );
   useEffect(() => {
-    void api()
-      .invoke('app.cliInfo')
-      .then(setCliInfo)
-      .catch(() => setCliInfo({ version: null, path: null }));
-  }, []);
+    void loadCliInfo();
+  }, [loadCliInfo]);
 
   useEffect(() => {
     const off = api().subscribe('app.update.progress', (p: AppUpdateProgress) => setProgress(p));
     return off;
   }, []);
 
+  useEffect(() => api().subscribe('app.update.plan', setPlan), []);
+
   const runCheck = useCallback(async (): Promise<void> => {
     setState('checking');
     setError(null);
     try {
-      const [c, parts] = await Promise.all([
+      const [c, last] = await Promise.all([
         api().invoke('app.checkUpdate'),
-        api().invoke('app.checkComponents').catch(() => null),
+        api().invoke('app.updatePlan').catch(() => null),
       ]);
       setCheck(c);
-      setComponents(parts);
+      setPlan(last);
       const appAvailable = !c.error && c.available;
+      // An update that failed or did not survive its restart is said so, for
+      // as long as it is still on offer.
+      if (appAvailable && last) setError(planFailure(last));
       if (appAvailable && c.requiresFullUpdate) setState('requires-full-update');
       else if (appAvailable && !c.compatible) setState('incompatible');
-      else if (appAvailable || parts?.available) setState('available');
+      else if (appAvailable) setState('available');
       else if (c.error) setState('unavailable');
       else setState('uptodate');
     } catch (e) {
@@ -175,88 +206,70 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
   }, []);
 
   /**
-   * The one "Update": runner and extensions first — installed and verified
-   * beside the live copies main-side, so a failure there changes nothing and
-   * stops here — then the desktop app, then a relaunch so everything new runs.
-   * When the app can only update through its full installer, the app quits
-   * into it instead (the installer brings its own runner).
+   * The one "Update". The host decides what it takes (the app bundle or the
+   * full installer), does it and restarts; a step that fails stops it there
+   * with the running app untouched.
    */
   const runUpdateAll = useCallback(async (): Promise<void> => {
     setState('updating');
     setError(null);
-    setCliError(null);
     setProgress(null);
-    let installed = false;
-    const failed = (detail?: string): string =>
-      `The update could not be finished; Moxxy works as before.${detail ? ` (${detail})` : ''}`;
-    const relaunchOntoUpdate = async (): Promise<void> => {
-      setState('staged');
-      setProgress({ phase: 'install', message: 'Restarting Moxxy…' });
-      await api().invoke('app.relaunch').catch(() => undefined);
-    };
-    const fullInstaller = async (): Promise<void> => {
-      const s = await api().invoke('app.updateShell');
-      if (s.ok) setProgress({ phase: 'install', message: 'Restarting to install…' });
-      else if (installed) await relaunchOntoUpdate();
-      else {
-        setError(s.error ?? 'Full update failed.');
-        setState('requires-full-update');
-      }
-    };
-
     try {
-      setProgress({ phase: 'install', message: 'Checking the runner and extensions…' });
-      const parts = await api().invoke('app.checkComponents');
-      setComponents(parts);
-      if (parts.error) {
-        setCliError(`The runner and extensions stay as they are: ${parts.error}`);
-      } else if (parts.available) {
-        const r = await api().invoke('app.updateComponents');
-        if (!r.ok) {
-          setError(failed(r.error));
-          setState('error');
-          return;
-        }
-        installed = r.updated;
+      const r = await api().invoke('app.updateAll');
+      setPlan(r.plan);
+      if (!r.ok) {
+        setError(updateFailed(r.error));
+        // The installer failing leaves the release page as the way through.
+        setState(r.plan?.route === 'installer' ? 'requires-full-update' : 'error');
+        return;
       }
-
-      setProgress({ phase: 'download', message: 'Checking for app updates…' });
-      const c = await api().invoke('app.checkUpdate');
-      setCheck(c);
-      if (!c.error && c.available) {
-        if (c.requiresFullUpdate || !c.compatible) {
-          await fullInstaller();
-          return;
-        }
-        const u = await api().invoke('app.updateDashboard');
-        if (u.ok && u.version) {
-          setStagedVersion(u.version);
-          installed = true;
-        } else if (u.requiresFullUpdate) {
-          await fullInstaller();
-          return;
-        } else if (!installed) {
-          setError(failed(u.error));
-          setState('error');
-          return;
-        }
+      if (!r.plan) {
+        setState('uptodate');
+        return;
       }
-
-      if (installed) await relaunchOntoUpdate();
-      else setState('uptodate');
+      setStagedVersion(r.plan.version);
+      setState('staged');
+      setProgress({
+        phase: 'install',
+        message: r.plan.route === 'installer' ? 'Restarting to install…' : 'Restarting Moxxy…',
+      });
     } catch (e) {
-      setError(failed(toErrorMessage(e)));
+      setError(updateFailed(toErrorMessage(e)));
       setState('error');
     }
   }, []);
 
+  const loadComponents = useCallback(
+    (): Promise<void> =>
+      api()
+        .invoke('app.checkComponents')
+        .then(setComponents)
+        .catch(() => setComponents(null)),
+    [],
+  );
+
   const loadDiagnostics = useCallback(async (): Promise<void> => {
+    void loadComponents();
     try {
       setDiagnostics(await api().invoke('app.updateDiagnostics'));
     } catch {
       setDiagnostics(null);
     }
-  }, []);
+  }, [loadComponents]);
+
+  const runComponentsUpdate = useCallback(async (): Promise<void> => {
+    setComponentsBusy(true);
+    setCliError(null);
+    try {
+      const r = await api().invoke('app.updateComponents');
+      if (!r.ok) setCliError(`The runner and extensions stay as they are: ${r.error ?? 'the update failed.'}`);
+    } catch (e) {
+      setCliError(`The runner and extensions stay as they are: ${toErrorMessage(e)}`);
+    } finally {
+      await Promise.all([loadCliInfo(), loadComponents()]);
+      setComponentsBusy(false);
+    }
+  }, [loadCliInfo, loadComponents]);
 
   const relaunch = useCallback((): void => {
     void api().invoke('app.relaunch').catch(() => undefined);
@@ -273,6 +286,8 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     info,
     check,
     components,
+    componentsBusy,
+    plan,
     state,
     progress,
     error,
@@ -284,6 +299,7 @@ export function useAppUpdate(opts: { autoCheck?: boolean } = {}): UseAppUpdate {
     runUpdate,
     runShellUpdate,
     runUpdateAll,
+    runComponentsUpdate,
     loadDiagnostics,
     relaunch,
   };

@@ -12,8 +12,6 @@ export function Palette({ dispatch }: { dispatch: (a: BuilderAction) => void }):
       <span
         style={{
           fontSize: 'var(--type-label)',
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
           color: 'var(--color-text-dim)',
         }}
       >

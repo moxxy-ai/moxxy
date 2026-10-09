@@ -123,8 +123,6 @@ export function AgentTaskModal({
                 fontSize: 'var(--type-meta)',
                 fontWeight: 700,
                 color: 'var(--color-text-dim)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.06em',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,

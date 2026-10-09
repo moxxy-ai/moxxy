@@ -16,9 +16,16 @@ export interface OverflowMenuItem {
    *  commits via `onSelect` and closes the whole menu. */
   readonly submenu?: {
     readonly value: string;
-    readonly options: ReadonlyArray<string>;
+    readonly options: ReadonlyArray<SubmenuOption>;
     readonly onSelect: (value: string) => void;
   };
+}
+
+/** One choice in a submenu: what it is called, and what picking it means. */
+export interface SubmenuOption {
+  readonly value: string;
+  readonly label: string;
+  readonly hint?: string;
 }
 
 interface OverflowMenuProps {
@@ -30,9 +37,9 @@ interface OverflowMenuProps {
 }
 
 /**
- * The composer's "+" overflow button. Collapses the less-frequent tools
- * (Actions / Goal / Auto-approve / Mode) into a single left-aligned trigger
- * that opens a small popover above it, keeping the toolbar compact. A `submenu`
+ * The composer's "+" button. Holds everything that is not typing or sending
+ * (attach, actions, goal, auto-approve, voice, mode) in a menu that opens
+ * above it. A `submenu`
  * item (Mode) discloses its options as a flyout to the side. Closes on
  * outside-click, Escape, or item selection.
  */
@@ -72,12 +79,12 @@ export function OverflowMenu({
     };
   }, [open, openSub]);
 
-  const armed = highlighted || open;
   return (
-    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
+    <div ref={rootRef} className="composer-tools">
       <button
         type="button"
-        className="btn-chip"
+        className="composer-btn"
+        data-armed={highlighted || open ? 'true' : undefined}
         aria-label="More tools"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -86,26 +93,11 @@ export function OverflowMenu({
           setOpen((o) => !o);
           setOpenSub(null);
         }}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minWidth: 'var(--frame-control)',
-          height: 'var(--frame-control)',
-          padding: 0,
-          lineHeight: 1,
-          border: `1px solid ${armed ? 'var(--color-primary)' : 'var(--color-card-border)'}`,
-          borderRadius: 'var(--radius-block)',
-          background: armed ? 'var(--color-primary-soft)' : 'var(--color-surface)',
-          color: armed ? 'var(--color-primary-strong)' : 'var(--color-text-muted)',
-          cursor: disabled ? 'default' : 'pointer',
-        }}
       >
         <Icon name="plus" size={16} />
       </button>
       {open && (
         <div role="menu" className="menu menu--up">
-          <div className="menu__label">Turn</div>
           {items.map((item) =>
             item.submenu ? (
               <SubmenuRow
@@ -180,8 +172,9 @@ function SubmenuRow({
   readonly onToggle: () => void;
   readonly onSelect: (value: string) => void;
 }): JSX.Element {
+  const current = submenu.options.find((opt) => opt.value === submenu.value);
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="composer-tools__sub">
       <button
         type="button"
         role="menuitem"
@@ -196,33 +189,30 @@ function SubmenuRow({
         <span className="menu__text">{item.label}</span>
         {/* The current value reads as the row's right-hand column, the same shape
             the telemetry cells use: label on the left, reading on the right. */}
-        <span className="menu__value">{submenu.value || '—'}</span>
-        <span
-          aria-hidden
-          className="menu__mark"
-          style={{
-            transform: open ? 'rotate(90deg)' : undefined,
-            transition: 'transform var(--motion-shift) ease',
-          }}
-        >
+        <span className="menu__value">{current ? current.label : submenu.value || '—'}</span>
+        <span className="menu__mark disclosure__chevron" data-open={open} aria-hidden>
           <Icon name="chevron-right" size={13} />
         </span>
       </button>
       {open && (
         <div role="menu" aria-label={item.label} className="menu menu--side">
           {submenu.options.map((opt) => {
-            const active = opt === submenu.value;
+            const active = opt.value === submenu.value;
             return (
               <button
-                key={opt}
+                key={opt.value}
                 type="button"
                 role="menuitemradio"
                 aria-checked={active}
-                onClick={() => onSelect(opt)}
+                onClick={() => onSelect(opt.value)}
                 className="menu__row"
+                data-lines={opt.hint ? '2' : undefined}
                 data-active={active ? 'true' : undefined}
               >
-                <span className="menu__text">{opt}</span>
+                <span className="menu__text">
+                  {opt.label}
+                  {opt.hint && <span className="menu__sub">{opt.hint}</span>}
+                </span>
                 {active && (
                   <span className="menu__mark" aria-hidden>
                     <Icon name="check" size={13} />

@@ -1,5 +1,6 @@
 import type { ReasoningEffort } from '@moxxy/desktop-ipc-contract';
 import type { SkillInfo } from '@moxxy/sdk';
+import type { CommandInfo } from '../command-palette/types';
 
 /**
  * Shared session-shape types for the agent picker. A trimmed view of
@@ -45,6 +46,8 @@ export interface SessionInfo {
   readonly fast?: boolean;
   /** What the composer's @ menu offers. */
   readonly skills?: ReadonlyArray<SkillInfo>;
+  /** The run's actions, which its / menu offers beside the modes and the skills. */
+  readonly commands?: ReadonlyArray<CommandInfo>;
 }
 
 /**

@@ -30,11 +30,10 @@ vi.mock('./surfaces/BrowserPane', async () => {
 });
 
 /**
- * The workbench replaced a drawer that was undiscoverable when closed and could
- * only show one pane. What is pinned here is that you can always get INTO it and
- * always get OUT of it — the second half is not hypothetical: with the collapse
- * button in the same flex row as four labelled tabs, a narrow workbench pushed
- * it past the right edge and an opened workbench could not be closed at all.
+ * Closed, the workbench is gone: the run's header holds the way in. What is
+ * pinned here is that an open workbench can always be closed again. That is not
+ * hypothetical: with the collapse button in the same flex row as four labelled
+ * tabs, a narrow workbench pushed it past the right edge.
  */
 
 beforeEach(() => {
@@ -51,29 +50,19 @@ afterEach(() => __setApiOverride(null));
 const TABS = ['terminal', 'explorer', 'files', 'browser'] as const;
 
 describe('Workbench, collapsed', () => {
-  it('still shows every pane as a stub, so it is never invisible', () => {
-    render(<Workbench tab={null} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />);
-    for (const id of TABS) {
-      expect(screen.getByTestId(`bench-open-${id}`), `stub ${id} missing`).toBeTruthy();
-    }
-  });
-
-  it('opens straight onto the pane whose stub was clicked', () => {
-    const onPick = vi.fn();
-    render(<Workbench tab={null} onPick={onPick} onClose={vi.fn()} workspaceId="ws" />);
-    fireEvent.click(screen.getByTestId('bench-open-files'));
-    expect(onPick).toHaveBeenCalledWith('files');
-  });
-
-  it('badges the diff stub with the changed-file count, and hides a zero', () => {
-    const { rerender } = render(
+  it('draws nothing: no strip, no tabs, no way in of its own', () => {
+    const { container } = render(
       <Workbench tab={null} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" changedCount={12} />,
     );
-    expect(screen.getByTestId('bench-open-files').textContent).toContain('12');
-    rerender(
-      <Workbench tab={null} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" changedCount={0} />,
-    );
-    expect(screen.getByTestId('bench-open-files').textContent).not.toContain('0');
+    const aside = container.querySelector('aside');
+    expect(aside).toHaveClass('bench--closed');
+    expect(aside?.querySelector('button')).toBeNull();
+    expect(aside?.textContent).toBe('');
+  });
+
+  it('is out of the accessibility tree while it has nothing in it', () => {
+    render(<Workbench tab={null} onPick={vi.fn()} onClose={vi.fn()} workspaceId="ws" />);
+    expect(screen.queryByRole('complementary', { name: 'Workbench' })).toBeNull();
   });
 });
 

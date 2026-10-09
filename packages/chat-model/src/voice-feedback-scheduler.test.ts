@@ -54,29 +54,16 @@ class ManualClock implements VoiceFeedbackClock {
 function setup(options: Partial<VoiceFeedbackSchedulerOptions> = {}) {
   const clock = new ManualClock();
   const cues: Array<VoiceFeedbackCue & { readonly at: number }> = [];
-  const waitingToneStarts: number[] = [];
   let cancelled = 0;
-  let waitingToneStops = 0;
   const scheduler = new VoiceFeedbackScheduler({
     clock,
     emitCue: (cue) => cues.push({ ...cue, at: clock.now() }),
-    startWaitingTone: () => waitingToneStarts.push(clock.now()),
-    stopWaitingTone: () => {
-      waitingToneStops += 1;
-    },
     cancelPendingCues: () => {
       cancelled += 1;
     },
     ...options,
   });
-  return {
-    clock,
-    cues,
-    waitingToneStarts,
-    scheduler,
-    cancelled: () => cancelled,
-    waitingToneStops: () => waitingToneStops,
-  };
+  return { clock, cues, scheduler, cancelled: () => cancelled };
 }
 
 describe('VoiceFeedbackScheduler', () => {
@@ -130,36 +117,16 @@ describe('VoiceFeedbackScheduler', () => {
     expect(cues).toEqual([]);
   });
 
-  it('starts the waiting tone during transcription and keeps it running when text arrives', () => {
-    const { clock, waitingToneStarts, scheduler, waitingToneStops } = setup();
+  it('says nothing through a turn that runs no tool, however long it takes', () => {
+    const { clock, cues, scheduler } = setup();
 
     scheduler.beginTranscription();
-    clock.advanceTo(119);
-    expect(waitingToneStarts).toEqual([]);
-
-    clock.advanceTo(120);
-    expect(waitingToneStarts).toEqual([120]);
-    const stopsBeforeTranscript = waitingToneStops();
-
-    scheduler.attachTranscript('Opowiedz mi proszę o kawie.');
     clock.advanceTo(1_000);
-
-    expect(waitingToneStarts).toEqual([120]);
-    expect(waitingToneStops()).toBe(stopsBeforeTranscript);
-  });
-
-  it('starts one non-verbal waiting tone after the short-response grace period', () => {
-    const { clock, cues, waitingToneStarts, scheduler } = setup();
-
-    scheduler.beginTurn('Cześć');
-    clock.advanceTo(119);
-    expect(waitingToneStarts).toEqual([]);
-    expect(cues).toEqual([]);
-
+    scheduler.attachTranscript('Opowiedz mi proszę o kawie.');
     clock.advanceTo(220_000);
 
-    expect(waitingToneStarts).toEqual([120]);
     expect(cues).toEqual([]);
+    expect(clock.pendingCount()).toBe(0);
   });
 
   it('speaks only after a tool remains active for the 10 → 30 → 90 second cadence', () => {
@@ -178,66 +145,15 @@ describe('VoiceFeedbackScheduler', () => {
     ]);
   });
 
-  it('cancels a pending waiting tone when real assistant speech becomes playable', () => {
-    const { clock, cues, waitingToneStarts, scheduler, waitingToneStops } = setup();
+  it('drops the cues still waiting to be said once the real answer can be played', () => {
+    const { cancelled, cues, scheduler } = setup();
 
     scheduler.beginTurn('Tell me a short story in English.');
-    clock.advanceTo(80);
+    const before = cancelled();
     scheduler.assistantSpeechQueued();
-    clock.advanceTo(1_500);
 
-    expect(waitingToneStarts).toEqual([]);
+    expect(cancelled()).toBe(before + 1);
     expect(cues).toEqual([]);
-    expect(waitingToneStops()).toBeGreaterThan(0);
-  });
-
-  it('stops an active waiting tone before assistant speech and never restarts it in that turn', () => {
-    const { clock, waitingToneStarts, scheduler, waitingToneStops } = setup();
-
-    scheduler.beginTurn('Tell me a short story in English.');
-    clock.advanceTo(300);
-    scheduler.assistantSpeechQueued();
-    scheduler.setPlayback('speaking', 'assistant');
-    scheduler.setPlayback('idle', null);
-    clock.advanceTo(5_000);
-
-    expect(waitingToneStarts).toEqual([120]);
-    expect(waitingToneStops()).toBeGreaterThan(0);
-  });
-
-  it('pauses the waiting tone for a spoken cue and resumes it after playback', () => {
-    const { clock, waitingToneStarts, scheduler, waitingToneStops } = setup();
-
-    scheduler.beginTurn('Sprawdź proszę projekt.');
-    scheduler.toolApproved('call-1', 'Read');
-    clock.advanceTo(10_000);
-    expect(waitingToneStops()).toBeGreaterThan(0);
-
-    scheduler.setPlayback('synthesizing', 'cue');
-    scheduler.setPlayback('speaking', 'cue');
-    scheduler.setPlayback('idle', null);
-    clock.advanceTo(10_119);
-    expect(waitingToneStarts).toEqual([120]);
-    clock.advanceTo(10_120);
-
-    expect(waitingToneStarts).toEqual([120, 10_120]);
-  });
-
-  it('honours a live waiting-sound preference change without ending the turn', () => {
-    const { clock, waitingToneStarts, scheduler, waitingToneStops } = setup();
-
-    scheduler.beginTurn('Przygotuj proszę odpowiedź.');
-    clock.advanceTo(300);
-    scheduler.setWaitingToneEnabled(false);
-    clock.advanceTo(2_000);
-    expect(waitingToneStarts).toEqual([120]);
-    expect(waitingToneStops()).toBeGreaterThan(0);
-
-    scheduler.setWaitingToneEnabled(true);
-    clock.advanceTo(2_119);
-    expect(waitingToneStarts).toEqual([120]);
-    clock.advanceTo(2_120);
-    expect(waitingToneStarts).toEqual([120, 2_120]);
   });
 
   it('keeps English feedback English and inherits it for an ambiguous next utterance', () => {

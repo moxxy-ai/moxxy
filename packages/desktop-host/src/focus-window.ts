@@ -102,6 +102,11 @@ export function isFocusOpen(): boolean {
   return !!focusWindow && !focusWindow.isDestroyed();
 }
 
+/** The open focus widget, or null. */
+export function openFocusWindow(): BrowserWindow | null {
+  return isFocusOpen() ? focusWindow : null;
+}
+
 /** Toggle the focus widget. Called from the tray menu / shortcut /
  *  main-window minimize handler. */
 export async function toggleFocusWindow(opts: CreateOpts): Promise<void> {

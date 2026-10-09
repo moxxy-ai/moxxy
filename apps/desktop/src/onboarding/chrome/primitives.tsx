@@ -1,6 +1,7 @@
 /**
  * Shared onboarding step primitives — the small building blocks every step
- * composes: StepCard (title + sub + body), Nav (Back / Next footer),
+ * composes: StepCard (title + sub + body), Fields (a step's inputs and its own
+ * action), Nav (Back / Next footer),
  * PrimaryButton (the shared filled action), SuccessRow (the green confirmed row),
  * and Pulse (the avatar loading row). Style tokens live in ./styles; this
  * module is otherwise self-contained so it stays a dependency leaf.
@@ -44,6 +45,13 @@ export function StepCard({
   );
 }
 
+// ---- Fields ---------------------------------------------------------------
+
+/** A step's inputs and its own action, straight on the form's card. */
+export function Fields({ children }: { readonly children: React.ReactNode }): JSX.Element {
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>{children}</div>;
+}
+
 // ---- Nav ------------------------------------------------------------------
 
 export function Nav({
@@ -51,20 +59,29 @@ export function Nav({
   onNext,
   nextLabel = 'Continue',
   nextDisabled,
+  skip = false,
 }: {
   readonly onBack: () => void;
   readonly onNext: () => void;
   readonly nextLabel?: string;
   readonly nextDisabled?: boolean;
+  /** The step is being passed over, not finished: its own action stays the lit one. */
+  readonly skip?: boolean;
 }): JSX.Element {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--space-4)' }}>
       <Button variant="secondary" size="lg" onClick={onBack}>
         Back
       </Button>
-      <PrimaryButton onClick={onNext} disabled={nextDisabled}>
-        {nextLabel}
-      </PrimaryButton>
+      {skip ? (
+        <Button variant="ghost" size="lg" onClick={onNext} disabled={nextDisabled}>
+          Skip for now
+        </Button>
+      ) : (
+        <PrimaryButton onClick={onNext} disabled={nextDisabled}>
+          {nextLabel}
+        </PrimaryButton>
+      )}
     </div>
   );
 }

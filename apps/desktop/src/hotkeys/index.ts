@@ -10,3 +10,4 @@ export {
 export { HotkeyRegistry, hotkeys, type HotkeyBinding } from './registry';
 export { useHotkey, useHotkeyList, useHotkeyDispatcher, useHotkeyList$ } from './useHotkeys';
 export { ShortcutsSheet } from './ShortcutsSheet';
+export { HotkeyHints } from './HotkeyHints';

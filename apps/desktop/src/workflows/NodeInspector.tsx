@@ -59,7 +59,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
       }}
     >
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, textTransform: 'uppercase', color: accent }}>
+        <span style={{ fontSize: 'var(--type-label)', fontWeight: 700, color: accent }}>
           {meta.label}
         </span>
         <button
@@ -691,8 +691,6 @@ function dispatchUpdate(
 const fieldLabel: React.CSSProperties = {
   fontSize: 'var(--type-label)',
   fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.03em',
   color: 'var(--color-text-dim)',
 };
 

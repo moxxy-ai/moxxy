@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
+import { useNow } from '@/lib/useNow';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
@@ -10,6 +11,8 @@ import {
 } from '@/lib/useWorkspaceCollapsed';
 import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { filterDesks } from './workspace-sidebar/filter-desks';
+import { sessionPreview } from './workspace-sidebar/session-preview';
+import { useLiveSessions } from './workspace-sidebar/useLiveSessions';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
 import { SidebarChannelsSection } from './SidebarChannels';
@@ -26,19 +29,12 @@ interface Props {
 }
 
 /**
- * The Runs index: the contextual column beside the app rail, listing every
- * workspace as a collapsible folder row with its sessions nested beneath (see
- * {@link WorkspaceTree}). Picking a session anywhere foregrounds it and its
- * workspace; folder rows only fold.
+ * The run list: every workspace as a section, its runs beneath it (see
+ * {@link WorkspaceTree}). Picking a run anywhere foregrounds it and its
+ * workspace; section headers only fold.
  *
- * It no longer navigates. It used to end with Mobile and Settings entries while
- * Chat / Collaborate / Apps lived in a pill in the main-pane header, so the same
- * kind of decision was split across two organs. Every destination is in the app
- * rail now, and this column only ever answers "what is in here".
- *
- * Collapsing is unchanged (⌘B / Ctrl+B, or the button in the head): the column
- * contributes no width at all, and the instrument bar grows the expand button so
- * the affordance never disappears with it. {@link IndexColumn} owns that.
+ * It does not navigate. Every other place in the app is reached from the
+ * account row that {@link IndexColumn} puts under this list.
  */
 export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Element | null {
   const desks = useDesks();
@@ -62,12 +58,24 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
   /** Session queued for rename; null when no rename modal is open. */
   const [pendingSessionRename, setPendingSessionRename] = useState<DeskSession | null>(null);
-  /** Free-text filter over the tree; null when the field is closed. */
-  const [query, setQuery] = useState<string | null>(null);
+  /** Free-text filter over the list; empty when not filtering. */
+  const [query, setQuery] = useState('');
+  const now = useNow();
 
+  const sessions = useMemo(() => desks.desks.flatMap((d) => d.sessions), [desks.desks]);
+  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions]);
+  const live = useLiveSessions(sessionIds);
+  const previews = useMemo(() => {
+    const lines = new Map<string, string>();
+    for (const session of sessions) {
+      const line = sessionPreview(session, live.latest.get(session.id) ?? null);
+      if (line) lines.set(session.id, line);
+    }
+    return lines;
+  }, [sessions, live.latest]);
 
   const activeDesk = desks.desks.find((d) => d.id === desks.activeId) ?? null;
-  const filtering = query !== null && query.trim().length > 0;
+  const filtering = query.trim().length > 0;
   const visibleDesks = filtering ? filterDesks(desks.desks, query) : desks.desks;
 
   const onStartNewWorkspace = async (): Promise<void> => {
@@ -102,58 +110,46 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
 
   return (
     <IndexColumn
-      title={
-        query === null ? (
-          'runs'
-        ) : (
+      title="runs"
+      actions={
+        <button
+          type="button"
+          data-testid="session-new"
+          data-hotkey="session.new"
+          aria-label="New session"
+          className="btn-quiet tip"
+          data-tip="New session"
+          data-tip-side="bottom"
+          disabled={activeDesk === null || sessionBusyDeskId !== null}
+          onClick={() => {
+            if (!activeDesk) return;
+            void onNewSession(activeDesk.id);
+            onOpenRun();
+          }}
+        >
+          <Icon name="edit" size={15} />
+        </button>
+      }
+      toolbar={
+        <label className="sidebar-search">
+          <Icon name="search" size={14} aria-hidden />
           <input
-            autoFocus
             type="search"
             data-testid="workspace-search"
             aria-label="Filter workspaces and sessions"
-            placeholder="Filter workspaces, paths, sessions…"
-            className="index-col__search"
+            placeholder="Search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setQuery(null);
+              if (e.key === 'Escape') setQuery('');
             }}
           />
-        )
-      }
-      actions={
-        <>
-          <button
-            type="button"
-            data-testid="workspace-search-toggle"
-            aria-label={query === null ? 'Filter workspaces' : 'Close filter'}
-            aria-expanded={query !== null}
-            className="btn-box tip"
-            data-active={query !== null ? 'true' : undefined}
-            data-tip={query === null ? 'Filter' : 'Close filter'}
-            data-tip-side="bottom"
-            onClick={() => setQuery((q) => (q === null ? '' : null))}
-          >
-            <Icon name={query === null ? 'search' : 'x'} size={14} />
-          </button>
-          <button
-            type="button"
-            data-testid="workspace-new"
-            aria-label="new workspace"
-            className="btn-box tip"
-            data-tip="New workspace"
-            data-tip-side="bottom"
-            disabled={busy}
-            onClick={() => void onStartNewWorkspace()}
-          >
-            <Icon name="plus" size={14} />
-          </button>
-        </>
+        </label>
       }
     >
       <>
         {desks.loading && desks.desks.length === 0 ? (
-          <div style={{ padding: '8px 0' }}>
+          <div className="run-list__loading">
             <Skeleton.Row />
             <Skeleton.Row />
           </div>
@@ -161,58 +157,30 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
           <button
             type="button"
             data-testid="desk-new"
+            className="sidebar-add"
             onClick={() => void onStartNewWorkspace()}
             disabled={busy}
-            className="row-button"
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '10px 12px',
-              fontSize: 'var(--type-ui)',
-              color: 'var(--color-sidebar-text-dim)',
-              borderRadius: 'var(--radius-block)',
-              opacity: busy ? 0.6 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
           >
-            <span
-              style={{
-                width: 20,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name="plus" size={16} />
-            </span>
+            <Icon name="plus" size={15} />
             {busy ? 'Picking folder…' : 'New workspace'}
           </button>
         ) : filtering && visibleDesks.length === 0 ? (
-          <p
-            style={{
-              margin: 0,
-              padding: 'var(--space-12) var(--space-6)',
-              fontSize: 'var(--type-meta)',
-              color: 'var(--color-text-dim)',
-            }}
-          >
-            Nothing matches “{query}”.
-          </p>
+          <p className="run-list__empty">Nothing matches “{query}”.</p>
         ) : (
           <WorkspaceTree
             desks={visibleDesks}
             activeDeskId={desks.activeId}
             activeSessionId={activeDesk?.activeSessionId ?? null}
             unread={unread}
+            running={live.running}
+            previews={previews}
+            now={now}
             collapsed={filtering ? NO_COLLAPSED : foldedDesks}
             busyDeskId={sessionBusyDeskId}
             onToggleCollapse={toggleWorkspaceCollapsed}
             onSelectSession={(id) => {
-              // Picking a session always lands on its chat — also the way
-              // back out of Settings/Apps now that the sidebar carries
-              // no Chat entry. Cross-desk picks activate that desk too.
+              // Picking a session always lands on its chat. Cross-desk picks
+              // activate that desk too.
               void desks.setActiveSession(id);
               onOpenRun();
             }}
@@ -225,6 +193,19 @@ export function WorkspaceSidebar({ onOpenRun, onOpenChannel }: Props): JSX.Eleme
             onRenameWorkspace={(d) => setPendingRename(d)}
             onRemoveWorkspace={(d) => setPendingRemove(d)}
           />
+        )}
+        {desks.desks.length > 0 && !filtering && (
+          <button
+            type="button"
+            data-testid="workspace-new"
+            aria-label="new workspace"
+            className="sidebar-add"
+            disabled={busy}
+            onClick={() => void onStartNewWorkspace()}
+          >
+            <Icon name="plus" size={15} />
+            {busy ? 'Picking folder…' : 'New workspace'}
+          </button>
         )}
         {onOpenChannel && <SidebarChannelsSection onOpen={onOpenChannel} />}
       </>

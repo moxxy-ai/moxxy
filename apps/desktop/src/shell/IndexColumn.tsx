@@ -1,5 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { PanelLeftIcon } from './PanelLeftIcon';
+import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { MoxxyMark } from '@/components/MoxxyMark';
+import { PanelIcon } from './PanelIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import {
   INDEX_MAX_WIDTH,
@@ -7,61 +9,47 @@ import {
   setIndexWidth,
   useIndexWidth,
 } from '@/lib/useIndexWidth';
+import { SidebarAccount } from './account/SidebarAccount';
+import { useShellNav } from './navigation/ShellNav';
 
 /**
- * The index column: the contextual list beside the app rail.
+ * The sidebar: one frame whose list changes with the view.
  *
- * One column whose CONTENTS change per destination (workspaces + sessions under
- * Runs, workflow kinds under Automations, and so on) rather than a different
- * organ per view. That is the whole point of the split-nav fix: the rail says
- * where you are, the index says what is there.
+ * Under Runs it lists workspaces and their runs; under Settings, the sections;
+ * and so on. The frame itself owns what every view needs: the way back to the
+ * runs, the collapse control, the resize grip, and the account row that leads
+ * to every other place in the app.
  *
- * `IndexHead` is deliberately the same height as the instrument bar
- * (`--frame-bar`) and carries the same bottom seam, so the two read as ONE
- * horizontal strap crossing under the rail. It also paints above the rail's
- * stacking order so the active item's commanded strap passes under that seam.
+ * Collapsing (⌘B / Ctrl+B, or the button in the head) is immediate. It is
+ * mostly done from the keyboard, and a width that eases would also reflow the
+ * conversation on every frame. The column stays mounted while collapsed, so its
+ * list keeps its scroll position; `visibility: hidden` takes it out of the
+ * accessibility tree and the tab order.
  *
- * Collapsing (⌘B / Ctrl+B, or the button in the head) ANIMATES its width, matching
- * the app rail. It used to unmount outright, and a thing that is not in the DOM
- * cannot be animated — the column vanished in one frame while the rail beside it
- * eased, which read as a glitch rather than as two panels doing the same thing.
- *
- * Staying mounted means it has to be genuinely out of reach when closed, not just
- * zero pixels wide: `visibility: hidden` (applied AFTER the width finishes, and
- * removed immediately on the way back) takes it out of the accessibility tree and
- * the tab order, and `content-visibility` lets the browser skip rendering the
- * subtree entirely. The instrument bar still grows the expand affordance, so the
- * way back never disappears with it.
- *
- * The workbench deliberately does NOT animate its width — see the note in
- * Workbench.tsx about xterm measuring at mount.
- *
- * It is also drag-resizable from its right edge, with the width persisted, like
- * the workbench. The transition is suppressed WHILE dragging: a width easing
- * toward the pointer lags behind it, which feels like the handle has come loose.
+ * It is drag-resizable from its right edge, with the width persisted.
  */
 export function IndexColumn({
   title,
   actions,
+  toolbar,
   children,
-  footer,
 }: {
-  /** Uppercase label for the column, e.g. "runs" — or a control that replaces it
-   *  (the search field takes the title's place while it is open, the way the
-   *  instrument bar's search does). */
-  readonly title: ReactNode;
-  /** Trailing controls in the head (search, new, …). */
+  /** The view's name, e.g. "runs". */
+  readonly title: string;
+  /** Trailing controls in the head (new, …). */
   readonly actions?: ReactNode;
+  /** A fixed strip between the head and the list, e.g. a search field. */
+  readonly toolbar?: ReactNode;
   readonly children: ReactNode;
-  /** Pinned strip at the bottom — budget, totals, status. */
-  readonly footer?: ReactNode;
 }): JSX.Element | null {
+  const nav = useShellNav();
+  const awayFromRuns = nav !== null && nav.view !== 'chat';
   const collapsed = useSidebarCollapsed();
   const width = useIndexWidth();
   const ref = useRef<HTMLElement | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  // Drag the right edge. The column is pinned to the rail on its left, so
+  // Drag the right edge. The column is pinned to the window's left, so
   // width = pointer x − (its left edge). The left edge is captured at
   // pointer-down so the maths survives the column resizing mid-drag.
   const startDrag = (e: React.PointerEvent): void => {
@@ -91,27 +79,41 @@ export function IndexColumn({
       style={collapsed ? undefined : { width }}
     >
       <div className="index-col__head">
-        {typeof title === 'string' ? (
-          <span className="index-col__title">{title}</span>
+        {awayFromRuns ? (
+          <button
+            type="button"
+            className="btn-quiet tip"
+            data-testid="sidebar-back"
+            aria-label="Back to runs"
+            data-tip="Back to runs"
+            data-tip-side="bottom"
+            onClick={() => nav.go('chat')}
+          >
+            <Icon name="chevron-right" size={16} className="icon-flip" />
+          </button>
         ) : (
-          title
+          <span className="index-col__mark" aria-hidden>
+            <MoxxyMark size={20} />
+          </span>
         )}
+        <span className="index-col__title">{title}</span>
         {actions}
         <button
           type="button"
           aria-label="Collapse sidebar"
           data-testid="sidebar-collapse"
-          title="Collapse sidebar (⌘B / Ctrl+B)"
+          data-hotkey="view.sidebar"
           onClick={() => setSidebarCollapsed(true)}
-          className="btn-box tip"
-          data-tip="Collapse"
+          className="btn-quiet tip"
+          data-tip="Hide sidebar"
           data-tip-side="bottom"
         >
-          <PanelLeftIcon size={14} />
+          <PanelIcon size={15} />
         </button>
       </div>
+      {toolbar !== undefined && <div className="index-col__toolbar">{toolbar}</div>}
       <div className="index-col__body">{children}</div>
-      {footer !== undefined && <div className="index-col__foot">{footer}</div>}
+      {nav !== null && <SidebarAccount />}
       {!collapsed && (
         <div
           role="separator"
@@ -169,4 +171,60 @@ export function IndexGroup({
       {count !== undefined && <span className="index-group__count">{count}</span>}
     </div>
   );
+}
+
+export type IndexLed = 'off' | 'running' | 'awaiting' | 'done' | 'failed';
+
+/** A row in a list that is not a run: a settings section, an automation, a
+ *  channel. Its light and its note are for rows that have a state to report. */
+export function IndexRow({
+  label,
+  active,
+  onPick,
+  icon,
+  led,
+  note,
+  noteTone,
+  nested = false,
+  testId,
+}: {
+  readonly label: string;
+  readonly active: boolean;
+  readonly onPick: () => void;
+  /** For a row that is a place to go; a caption never has one. */
+  readonly icon?: IconName;
+  readonly led?: IndexLed;
+  readonly note?: string;
+  readonly noteTone?: 'bad';
+  /** The row sits under a group that folds, so it is indented past the chevron. */
+  readonly nested?: boolean;
+  readonly testId?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className="index-row"
+      data-testid={testId}
+      data-active={active}
+      data-nested={nested || undefined}
+      aria-current={active ? 'true' : undefined}
+      onClick={onPick}
+    >
+      {led !== undefined && (
+        <span className="led" data-state={led === 'off' ? undefined : led} aria-hidden />
+      )}
+      {icon !== undefined && <Icon name={icon} size={15} className="index-row__icon" />}
+      <span className="index-row__label">{label}</span>
+      {note !== undefined && (
+        <span className="index-row__note" data-tone={noteTone}>
+          {note}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** What a group says when it holds nothing. */
+export function IndexEmpty({ children }: { readonly children: ReactNode }): JSX.Element {
+  return <p className="index-empty">{children}</p>;
 }

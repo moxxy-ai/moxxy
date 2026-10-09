@@ -1,7 +1,7 @@
 /**
  * Inline style tokens + the keyframe stylesheet for the focus widget.
  *
- * Flat. Sharp-cornered. No transitions on the things that
+ * Cards of the desktop's make. No transitions on the things that
  * resize/relayout (those caused the bounce on collapse). Kept in one
  * module so every stage component (inactive / active / mini-text) and
  * the shared primitives pull the same `style` record.
@@ -345,151 +345,6 @@ export const style = {
     backdropFilter: 'blur(14px)',
     ...noDrag,
   },
-  focusAskCard: {
-    boxSizing: 'border-box',
-    padding: '12px 14px',
-    display: 'flex',
-    flexDirection: 'column',
-    background: 'var(--focus-ask-bg)',
-    border: '1px solid var(--focus-ask-border)',
-    borderRadius: 'var(--radius-card)',
-    boxShadow: 'var(--focus-ask-shadow)',
-    color: 'var(--focus-ask-text)',
-    fontFamily: 'inherit',
-    textAlign: 'left',
-    overflow: 'hidden',
-    backdropFilter: 'blur(18px) saturate(1.2)',
-    ...noDrag,
-  },
-  focusAskCardToast: {
-    width: 468,
-    maxHeight: 196,
-  },
-  focusAskCardPanel: {
-    width: '100%',
-    marginBottom: 12,
-    maxHeight: 'none',
-  },
-  focusAskTopline: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  focusAskKicker: {
-    fontSize: 'var(--type-label)',
-    fontWeight: 800,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
-    color: 'var(--focus-ask-kicker)',
-  },
-  focusAskDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 'var(--radius-pill)',
-    background: 'var(--color-primary)',
-    boxShadow: '0 0 14px color-mix(in srgb, var(--color-primary) 80%, transparent)',
-  },
-  focusAskTitle: {
-    margin: 0,
-    fontSize: 'var(--type-ui)',
-    lineHeight: '18px',
-    fontWeight: 760,
-    color: 'var(--focus-ask-title)',
-    letterSpacing: 0,
-  },
-  focusAskBody: {
-    margin: '3px 0 0',
-    fontSize: 'var(--type-row)',
-    lineHeight: '16px',
-    color: 'var(--focus-ask-body)',
-    maxHeight: 68,
-    overflowX: 'hidden',
-    overflowY: 'auto',
-    overscrollBehavior: 'contain',
-    wordBreak: 'break-word',
-  },
-  focusAskDetail: {
-    margin: '10px 0 0',
-    maxHeight: 30,
-    padding: '5px 7px',
-    overflow: 'hidden',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    background: 'var(--focus-ask-detail-bg)',
-    border: '1px solid var(--focus-ask-detail-border)',
-    borderRadius: 'var(--radius-block)',
-    color: 'var(--focus-ask-detail-text)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: 'var(--type-label)',
-    lineHeight: '14px',
-  },
-  focusAskTextArea: {
-    width: '100%',
-    boxSizing: 'border-box',
-    marginTop: 8,
-    padding: '8px 9px',
-    resize: 'none',
-    outline: 'none',
-    border: '1px solid var(--focus-ask-detail-border)',
-    borderRadius: 'var(--radius-card)',
-    background: 'var(--focus-ask-detail-bg)',
-    color: 'var(--focus-ask-text)',
-    fontFamily: 'inherit',
-    fontSize: 'var(--type-row)',
-    lineHeight: '16px',
-    ...noDrag,
-  },
-  focusAskActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 9,
-    flexShrink: 0,
-    ...noDrag,
-  },
-  focusAskButton: {
-    height: 26,
-    minWidth: 54,
-    maxWidth: 118,
-    padding: '0 10px',
-    border: '1px solid transparent',
-    borderRadius: 'var(--radius-chip)',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    fontSize: 'var(--type-meta)',
-    fontWeight: 600,
-    lineHeight: '24px',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    ...noDrag,
-  },
-  focusAskButtonDanger: {
-    background: 'var(--focus-ask-danger-bg)',
-    borderColor: 'var(--focus-ask-danger-border)',
-    color: 'var(--focus-ask-danger-text)',
-  },
-  focusAskButtonNeutral: {
-    background: 'var(--focus-ask-neutral-bg)',
-    borderColor: 'var(--focus-ask-neutral-border)',
-    color: 'var(--focus-ask-text)',
-  },
-  focusAskButtonPrimary: {
-    background: 'var(--color-action)',
-    borderColor: 'var(--color-action)',
-    color: 'var(--color-on-action)',
-    boxShadow: 'none',
-  },
-  focusAskButtonDisabled: {
-    opacity: 1,
-    background: 'var(--focus-input-bg)',
-    borderColor: 'var(--color-card-border-strong)',
-    color: 'var(--focus-dim)',
-    cursor: 'not-allowed',
-  },
-
   // ---- active ----------------------------------------------------------
   activeRootWithPreviewBubble: {
     width: '100%',
@@ -591,29 +446,29 @@ export const style = {
     flexDirection: 'column',
     background: PANEL_BG,
     border: PANEL_BORDER,
+    borderRadius: 'var(--radius-card)',
+    boxShadow: 'var(--focus-panel-shadow)',
     overflow: 'hidden',
+    // Anchors the veil drawn over the panel while files are held over it.
+    position: 'relative',
     ...noDrag,
   },
+  // No rule under it: like the run's header on the desktop.
+  // Equal columns either side, so the mark stays centred whatever each side holds.
   miniHeader: {
-    display: 'flex',
+    display: 'grid',
+    gridTemplateColumns: '1fr auto 1fr',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '6px 8px',
-    borderBottom: '1px solid var(--focus-subtle-border)',
+    gap: 6,
+    padding: '4px 6px',
     cursor: 'grab',
     ...drag,
   },
+  miniHeaderStart: { display: 'flex', alignItems: 'center', minWidth: 0 },
+  miniHeaderEnd: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2, minWidth: 0 },
+  // The round button itself is the desktop's; here it only leaves the drag region.
   headerButton: {
-    width: 24,
-    height: 24,
-    padding: 0,
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--focus-muted)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexShrink: 0,
     ...noDrag,
   },
   miniTitle: {
@@ -622,8 +477,6 @@ export const style = {
     gap: 6,
     fontSize: 'var(--type-meta)',
     fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
     color: 'var(--focus-muted)',
     ...noDrag,
   },
@@ -631,7 +484,6 @@ export const style = {
     color: 'var(--color-primary)',
     fontSize: 'var(--type-label)',
     fontWeight: 800,
-    letterSpacing: '0.045em',
   },
   panelBody: {
     flex: 1,
@@ -646,17 +498,6 @@ export const style = {
     WebkitUserSelect: 'text',
     ...noDrag,
   },
-  focusQueuedTurns: {
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'nowrap',
-    gap: 5,
-    maxWidth: '100%',
-    minHeight: 28,
-    overflowX: 'auto',
-    overflowY: 'hidden',
-    ...noDrag,
-  },
   focusTransientStatus: {
     flex: '0 0 auto',
     padding: '3px 8px',
@@ -667,10 +508,8 @@ export const style = {
   composerDock: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 7,
-    padding: '8px 10px',
-    borderTop: '1px solid var(--focus-subtle-border)',
-    background: 'var(--focus-composer-bg)',
+    gap: 6,
+    padding: '4px 10px 10px',
     ...noDrag,
   },
   focusAttachmentStrip: {
@@ -757,68 +596,6 @@ export const style = {
     flexShrink: 0,
     ...noDrag,
   },
-  focusAttachError: {
-    fontSize: 'var(--type-meta)',
-    lineHeight: '15px',
-    color: 'var(--color-red)',
-  },
-  composer: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    gap: 6,
-    ...noDrag,
-  },
-  input: {
-    flex: 1,
-    minHeight: 34,
-    maxHeight: 112,
-    boxSizing: 'border-box',
-    padding: '7px 10px',
-    fontSize: 'var(--type-ui)',
-    lineHeight: '18px',
-    color: 'var(--focus-text)',
-    background: 'var(--focus-input-bg)',
-    border: '1px solid var(--focus-input-border)',
-    borderRadius: 'var(--radius-block)',
-    outline: 'none',
-    fontFamily: 'inherit',
-    resize: 'none',
-    overflowY: 'auto',
-    ...noDrag,
-  },
-  send: {
-    width: 34,
-    height: 34,
-    border: 'none',
-    borderRadius: 'var(--radius-block)',
-    background: 'var(--color-action)',
-    color: 'var(--color-on-action)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  sendDisabled: {
-    opacity: 1,
-    background: 'var(--focus-input-bg)',
-    color: 'var(--focus-dim)',
-    border: '1px solid var(--color-card-border-strong)',
-    cursor: 'not-allowed',
-  },
-  stop: {
-    width: 34,
-    height: 34,
-    border: '1px solid color-mix(in srgb, var(--color-red) 72%, transparent)',
-    borderRadius: 'var(--radius-block)',
-    background: 'color-mix(in srgb, var(--color-red) 18%, var(--focus-input-bg))',
-    color: 'var(--color-red)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
 } satisfies Record<string, React.CSSProperties>;
 
 // ---- Keyframes + theme vars ----------------------------------------------
@@ -831,13 +608,13 @@ export const style = {
 /**
  * The focus window is its own transparent BrowserWindow. These constants
  * overlay the shared palette with the `--focus-*` surface tokens used only
- * here. Values track the Harness palette in
- * @moxxy/design-tokens; the `--focus-*` alphas are ink-tinted with the panel's
- * own blue-green ink (11, 15, 18) rather than a slate borrowed from Tailwind.
+ * here. Values track the desktop palette in @moxxy/design-tokens, so the
+ * widget and the window it floats over read as one app; the `--focus-*` alphas
+ * are tinted with the same neutral ink.
  */
-const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
-      --color-text-muted: #4a5a64;
-      --color-text-dim: #66757e;
+export const FOCUS_LIGHT_VARS = `      --color-text: #141414;
+      --color-text-muted: #5e5e5e;
+      --color-text-dim: #7a7a7a;
       --color-primary: #d62a00;
       --color-primary-strong: #b32300;
       --color-primary-soft: #ffefeb;
@@ -847,97 +624,71 @@ const FOCUS_LIGHT_VARS = `      --color-text: #0b0f12;
       --color-on-action: #ffffff;
       --color-surface: #ffffff;
       --color-red: #c0303a;
-      --color-card-border: #dfe4e6;
-      --color-card-border-strong: #c7cfd2;
-      --color-code-bg: #f1f3f4;
-      --color-bg-card-hover: #f7f8f9;
-      --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+      --color-card-border: #e6e6e6;
+      --color-card-border-strong: #d1d1d1;
+      --color-code-bg: #f0f0f0;
+      --color-bg-card-hover: #f7f7f7;
+      --color-bubble: #f2f2f2;
+      --color-bubble-inset: #e7e7e7;
+      --color-bubble-rule: #dadada;
+      --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      --font-prose: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 
       --focus-panel-bg: #ffffff;
-      --focus-panel-border: rgba(11, 15, 18, 0.14);
-      --focus-panel-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 12px 28px -20px rgba(11, 15, 18, 0.14);
-      --focus-text: #0b0f12;
-      --focus-muted: #4a5a64;
-      --focus-dim: #66757e;
-      --focus-divider: rgba(11, 15, 18, 0.12);
-      --focus-subtle-border: rgba(11, 15, 18, 0.08);
-      --focus-action-hover-bg: rgba(11, 15, 18, 0.06);
+      --focus-panel-border: rgba(20, 20, 20, 0.14);
+      --focus-panel-shadow: 0 1px 0 rgba(20, 20, 20, 0.03), 0 12px 28px -20px rgba(20, 20, 20, 0.14);
+      --focus-text: #141414;
+      --focus-muted: #5e5e5e;
+      --focus-dim: #7a7a7a;
+      --focus-divider: rgba(20, 20, 20, 0.12);
+      --focus-subtle-border: rgba(20, 20, 20, 0.08);
+      --focus-action-hover-bg: rgba(20, 20, 20, 0.06);
       --focus-action-danger-bg: rgba(192, 48, 58, 0.12);
       --focus-preview-bg: rgba(255, 255, 255, 0.96);
-      --focus-preview-border: rgba(199, 207, 210, 0.75);
+      --focus-preview-border: rgba(209, 209, 209, 0.75);
       --focus-preview-shadow: none;
-      --focus-preview-text: #0b0f12;
-      --focus-composer-bg: #ffffff;
-      --focus-input-bg: #f1f3f4;
-      --focus-input-border: rgba(11, 15, 18, 0.12);
-      --focus-ask-bg: rgba(255, 255, 255, 0.97);
-      --focus-ask-border: rgba(11, 15, 18, 0.14);
-      --focus-ask-shadow: 0 1px 0 rgba(11, 15, 18, 0.03), 0 18px 40px -24px rgba(11, 15, 18, 0.22);
-      --focus-ask-text: #0b0f12;
-      --focus-ask-title: #0b0f12;
-      --focus-ask-body: #4a5a64;
-      --focus-ask-kicker: #9a6208;
-      --focus-ask-detail-bg: rgba(11, 15, 18, 0.045);
-      --focus-ask-detail-border: rgba(11, 15, 18, 0.10);
-      --focus-ask-detail-text: #1c242a;
-      --focus-ask-neutral-bg: rgba(11, 15, 18, 0.06);
-      --focus-ask-neutral-border: rgba(11, 15, 18, 0.10);
-      --focus-ask-danger-bg: rgba(192, 48, 58, 0.10);
-      --focus-ask-danger-border: rgba(192, 48, 58, 0.22);
-      --focus-ask-danger-text: #b02730;`;
+      --focus-preview-text: #141414;
+      --focus-input-bg: #ebebeb;
+      --focus-input-border: rgba(20, 20, 20, 0.12);`;
 
-const FOCUS_DARK_VARS = `      --color-text: #e4ebef;
-      --color-text-muted: #93a2ab;
-      --color-text-dim: #77868f;
+export const FOCUS_DARK_VARS = `      --color-text: #f5f5f5;
+      --color-text-muted: #a6a6a6;
+      --color-text-dim: #858585;
       --color-primary: #ff4a1e;
       --color-primary-strong: #ff8a3d;
       --color-primary-soft: #2b130d;
-      --color-on-primary: #0b0f12;
+      --color-on-primary: #141414;
       --color-action: #d62a00;
       --color-action-hover: #e02c00;
       --color-on-action: #ffffff;
-      --color-surface: #1c242a;
+      --color-surface: #262626;
       --color-red: #f2545b;
-      --color-card-border: #212a31;
-      --color-card-border-strong: #2e3941;
-      --color-code-bg: #1c242a;
-      --color-bg-card-hover: #1a2127;
-      --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
-      --font-prose: 'Avenir Next', -apple-system, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+      --color-card-border: #2c2c2c;
+      --color-card-border-strong: #3a3a3a;
+      --color-code-bg: #2a2a2a;
+      --color-bg-card-hover: #262626;
+      --color-bubble: #262626;
+      --color-bubble-inset: #1c1c1c;
+      --color-bubble-rule: #3a3a3a;
+      --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+      --font-prose: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 
-      --focus-panel-bg: #151b20;
-      --focus-panel-border: rgba(147, 162, 171, 0.22);
+      --focus-panel-bg: #212121;
+      --focus-panel-border: rgba(255, 255, 255, 0.14);
       --focus-panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -24px rgba(0, 0, 0, 0.8);
-      --focus-text: #e4ebef;
-      --focus-muted: #93a2ab;
-      --focus-dim: #77868f;
-      --focus-divider: rgba(147, 162, 171, 0.18);
-      --focus-subtle-border: rgba(147, 162, 171, 0.14);
+      --focus-text: #f5f5f5;
+      --focus-muted: #a6a6a6;
+      --focus-dim: #858585;
+      --focus-divider: rgba(255, 255, 255, 0.12);
+      --focus-subtle-border: rgba(255, 255, 255, 0.09);
       --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
       --focus-action-danger-bg: rgba(242, 84, 91, 0.16);
-      --focus-preview-bg: rgba(21, 27, 32, 0.96);
-      --focus-preview-border: rgba(147, 162, 171, 0.24);
+      --focus-preview-bg: rgba(33, 33, 33, 0.96);
+      --focus-preview-border: rgba(255, 255, 255, 0.16);
       --focus-preview-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.8);
-      --focus-preview-text: #e4ebef;
-      --focus-composer-bg: #101519;
-      --focus-input-bg: #0a0e11;
-      --focus-input-border: #212a31;
-      --focus-ask-bg: rgba(21, 27, 32, 0.97);
-      --focus-ask-border: rgba(147, 162, 171, 0.22);
-      --focus-ask-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 24px 48px -24px rgba(0, 0, 0, 0.8);
-      --focus-ask-text: #e4ebef;
-      --focus-ask-title: #ffffff;
-      --focus-ask-body: #93a2ab;
-      --focus-ask-kicker: #e8a33d;
-      --focus-ask-detail-bg: rgba(255, 255, 255, 0.08);
-      --focus-ask-detail-border: rgba(255, 255, 255, 0.10);
-      --focus-ask-detail-text: #e4ebef;
-      --focus-ask-neutral-bg: rgba(255, 255, 255, 0.10);
-      --focus-ask-neutral-border: rgba(255, 255, 255, 0.13);
-      --focus-ask-danger-bg: rgba(242, 84, 91, 0.13);
-      --focus-ask-danger-border: rgba(242, 84, 91, 0.28);
-      --focus-ask-danger-text: #f58a90;`;
+      --focus-preview-text: #f5f5f5;
+      --focus-input-bg: #242424;
+      --focus-input-border: #2c2c2c;`;
 
 if (typeof document !== 'undefined') {
   const existing = document.getElementById('focus-keyframes');
@@ -965,9 +716,6 @@ ${FOCUS_DARK_VARS}
 ${FOCUS_DARK_VARS}
         color-scheme: dark;
       }
-    }
-    .focus-ask-markdown > :last-child {
-      margin-bottom: 0 !important;
     }
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }

@@ -6,7 +6,6 @@ import {
 } from '@moxxy/client-core';
 import { useCallback, useEffect } from 'react';
 import { useVoiceActivityDetection } from './useVoiceActivityDetection';
-import { VOICE_WAITING_TONE } from './voice-waiting-tone';
 import type { DesktopVoiceCallSurface } from './desktop-voice-call-bridge';
 import {
   useDesktopVoiceCallBridge,
@@ -17,7 +16,7 @@ import { useGptLiveVoiceCall } from './gpt-live/useGptLiveVoiceCall';
 import type { GptLiveTransport } from './gpt-live/gpt-live-transport';
 import { useVoiceEnginePreference } from './useVoiceEngine';
 
-export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'> & {
+export type UseDesktopVoiceCallOptions = UseVoiceCallOptions & {
   readonly surface: DesktopVoiceCallSurface;
   /** WebRTC seam for tests; production uses the browser transport. */
   readonly gptLiveTransport?: GptLiveTransport;
@@ -29,7 +28,7 @@ export function useDesktopVoiceCall(
 ): DesktopVoiceCallBridgeResult {
   const { surface, gptLiveTransport, ...callOptions } = options;
   const engine = useVoiceEnginePreference();
-  const localCall = useVoiceCall({ ...callOptions, waitingTone: VOICE_WAITING_TONE });
+  const localCall = useVoiceCall(callOptions);
   const liveCall = useGptLiveVoiceCall({
     workspaceId: callOptions.workspaceId,
     ready: callOptions.ready,

@@ -1,5 +1,62 @@
 # @moxxy/desktop
 
+## 0.42.0
+
+### Minor Changes
+
+- 8c4b847: A chat you are not reading now calls you back in two more cases: when it stops to ask for a decision, and when the chat on screen finishes while Moxxy is in the background. While Moxxy is in the background it also shows a system notification with the chat's name and the first line of the answer; clicking it opens that chat. The sound and the notification each have a switch in Settings → Preferences → Notifications.
+- 2ca5a74: Files can be dropped onto the conversation and onto the Mini Chat, and any file can be pasted. A file that is too large, a folder or a file Moxxy cannot read is refused when it is added, by name and with the reason, instead of going missing when the message is sent. Holding ⌘ (Ctrl on Windows and Linux) shows each control's shortcut on it. The voice card rests as a small capsule and opens under the pointer or the keyboard. When a call stops, the card says why on two lines instead of one cut line, and shows the whole reason in a tooltip when it is longer. Starting a call is a phone and ending one is a phone laid down, everywhere. The terminal opens with the word Moxxy instead of the mark. Fixes a React warning raised by the browser pane on every render.
+- a2e84ae: Focus mode now continues the desktop instead of looking like a second app: the Mini Chat uses the desktop composer (same card, send/stop button, mode and auto-approve chips read from the session), the same question card, mode cards and tooltips. A tool approval shows the whole call instead of a 28-character summary. Voice mode is a card above the composer, the terminal takes the app's palette and follows the theme, and a finished plan offers "Implement" and "Run as goal".
+- f65b621: A run now reads like a conversation in a messenger. Your messages are bubbles on the right, the agent's answers are bubbles on the left, and tool calls, reasoning and sub-agents run between them as quiet lines you can open. The time of a message, and copy, read aloud and feedback for an answer, appear under it when you point at it. The composer is one compact card with a round add button and a round send button, which becomes Stop while the agent is working. The strip of mode and model tags above the field and the line of keyboard hints under it are gone; the composer now speaks up only when auto-approve is on or a goal is armed. Voice conversation moved from its own button into the add menu, next to attach, actions, goal, auto-approve and mode.
+- 13cc6d1: The rest of the desktop app now matches the new conversation. Labels are in sentence case instead of small capitals; Settings, Extensions, Automations and Channels share one sidebar row and one state chip; table heads line up with their columns. Apps, Collaborate and Mobile keep the list of runs beside them, so the account menu and the way back are always there. The Approvals section in Automations only appears while a workflow is waiting for you. The Focus window and its Mini Chat use the same neutral palette and bubbles as the main window.
+- c2e1814: A review pass over the new desktop look.
+
+  - A voice conversation and focus mode are one click away again, as icons in the run's header beside the work panel button.
+  - Tooltips are no longer cut off by the sidebar, the header or the edge of the window.
+  - Settings sections have icons, and the captions between them no longer look like rows you can click.
+  - Plan, goal and research modes are drawn like the rest of the conversation: the active mode is a chip in the composer that you can leave in one click, a plan or a finished goal is a card, a research run shows its rounds and names each agent by its question, and the mode menu says what each mode does.
+  - A question that stops the run (a tool approval, a research plan to confirm) is a card above the composer with readable text and clear buttons.
+  - Quotes, code blocks and tables in an answer have a copy button.
+
+- 57b5ceb: The desktop app now opens on the conversation. The icon rail on the left is gone. The sidebar is a list of your runs, grouped by workspace, and each run shows an avatar, when it was last active and its latest message. Extensions, Settings, Collaborate, Automations, Apps, Channels, Mobile and Voice have moved into one menu at the bottom of the sidebar, and into the command palette, which now opens with ⌘K / Ctrl+K from any screen. Nothing was removed. The header above a run is lower and quieter: search, focus mode and rename sit behind one button, and the run's state appears only when it needs you.
+- c7743fb: The desktop app starts its move to a messenger look, where the conversation is the main thing on screen. This first step changes the foundation only: neutral greys instead of the blue-green panel, the system text face instead of a monospaced one, and rounder corners, in both the light and the dark theme. Buttons and entrances also move on sharper curves, and nothing bounces. The orange accent stays. The layout is unchanged for now; the sidebar, header, message bubbles and composer follow in later steps. The mobile app keeps its current look.
+- 7a48f3d: A chat that is not on screen now rings softly when it finishes its answer, so work left running in one chat calls you back from another; the sound can be switched off in Settings → Preferences → Sounds. Voice Mode no longer plays a waiting sound while Moxxy works, and its speaker button is gone from the voice card and from focus mode.
+- 557070a: Typing a slash in the composer opens a menu of modes, skills, workflows and actions, in the main window and in the Mini Chat, so an automation can be run straight from the chat; `/plan <prompt>` and `/goal <objective>` typed in full work too. The Mini Chat header gets a voice conversation button. The mode and auto-approve notes above the field are a dot and a line of text instead of a capsule. The terminal opens with the Moxxy mark and no longer cuts off its last row.
+- 81e6e0d: The work panel on the right (terminal, files, diff and browser) no longer leaves a strip of icons when it is closed. Closed, it is gone and the conversation has the full width. Open it with the new button in the run's header or with ⌘J / Ctrl+J; it comes back on the pane you used last. It still opens by itself when the agent starts using its browser or terminal.
+
+### Patch Changes
+
+- 95f5c0d: Checking a file staged for a prompt now opens it first and reads its size from the open file, so a file swapped between the check and the read cannot be measured as one file and read as another.
+- e551f39: The Linux `.deb` installs on a minimal system: it now brings the sound library the app needs to start and `xz`, which unpacks the bundled Node. Both were assumed to be there, which holds on a desktop Ubuntu and not on a minimal install.
+- 06f7a94: Providers are back where people look for them: they are the first section of Settings, and Settings opens on them. Extensions keeps MCP servers and Skills.
+
+  The command palette (⌘K / Ctrl+K) finds options by their own name. Typing "provider", "gpt live", "gemini flash", "theme", "webhook" or the name of a channel or an app opens the view on the section that holds it, so nobody has to remember which view an option lives in. With nothing typed it lists the places, as before.
+
+  First run is one form with no sidebar: the mark, a card that says which step this is out of how many, and one step at a time in the app's own look. A step that can be left for later offers a quiet "Skip for now".
+
+- dc20c22: One click updates everything, with one restart and no questions. Update downloads the new app and restarts once; the app that comes back sets up its extensions, model connections and agent runtime before it starts, on one screen that shows each step and leaves by itself. The dialogs that asked about the OpenAI connections, extensions and Computer Use minutes after the start are gone: those packages install silently, the previous copy is kept, and a copy that had been changed by hand is mentioned once with where its backup is. The update banner appears only for a new app release; the runner and extensions follow the version the app was built with instead of the newest one on npm, so a package published before its desktop release no longer moves the app onto an untested runner or brings a second update. A step that fails stops the update with its reason and no restart, and the launch after a restart checks that the planned version is the one running. The installer built from this release accepts the next app update without a second full installer: it had been refusing updates made for its own runner.
+
+  An update that needs the full installer goes through the same button and the same screen. Windows and Linux no longer download an installer in the background at launch and install it on quit behind a system notification. When the system refuses the installer (an unsigned macOS build), the screen offers the release page to download it instead of only "Try again".
+
+  One backup of each app-managed package is kept instead of one per update: older copies are removed once the new one is in place, so the profile stops growing by a full copy of each connection with every release.
+
+  The app no longer asks for workflow approvals every two seconds while the agent runtime is still starting; each of those asks failed and was written to the log.
+
+- Updated dependencies [4e79a9d]
+  - @moxxy/cli@0.42.1
+  - @moxxy/sdk@0.42.1
+  - @moxxy/plugin-channel-mobile@0.42.1
+  - @moxxy/plugin-stt-whisper-codex@0.42.1
+  - @moxxy/plugin-vault@0.42.1
+  - @moxxy/chat-model@0.4.15
+  - @moxxy/client-core@0.13.33
+  - @moxxy/client-platform-web@0.1.72
+  - @moxxy/desktop-host@0.14.24
+  - @moxxy/desktop-ipc-contract@0.14.29
+  - @moxxy/ipc-server-ws@0.1.71
+  - @moxxy/runner@0.2.58
+  - @moxxy/workflows-builder@0.1.55
+
 ## 0.41.1
 
 ### Patch Changes

@@ -341,6 +341,33 @@ describe('ChatSurface, docked', () => {
     expect(screen.getByTestId('composer-mock')).toBeVisible();
   });
 
+  it('says it takes files while they are held over the chat, and stops saying so when they leave', () => {
+    const files = { dataTransfer: { types: ['Files'], dropEffect: 'none', items: [] } };
+    const view = render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} />);
+    const chat = view.container.querySelector('main');
+    if (!chat) throw new Error('expected the chat column');
+    expect(screen.queryByText('Drop files to attach')).not.toBeInTheDocument();
+
+    fireEvent.dragEnter(chat, files);
+    expect(screen.getByText('Drop files to attach')).toBeInTheDocument();
+    expect(screen.getByText('Images up to 8 MB, other files up to 32 MB')).toBeInTheDocument();
+
+    fireEvent.dragLeave(chat, files);
+    expect(screen.queryByText('Drop files to attach')).not.toBeInTheDocument();
+  });
+
+  it('takes a drop on the floating composer without covering the pane behind it', () => {
+    const files = { dataTransfer: { types: ['Files'], dropEffect: 'none', items: [] } };
+    const view = render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);
+    const chat = view.container.querySelector('main');
+    if (!chat) throw new Error('expected the chat column');
+
+    fireEvent.dragEnter(chat, files);
+
+    expect(screen.queryByText('Drop files to attach')).not.toBeInTheDocument();
+    expect(fireEvent.dragOver(chat, files)).toBe(false);
+  });
+
   it('still shows a question the agent is waiting on', () => {
     askState.ask = { id: 'a1' };
     render(<ChatSurface phase={connected} workspaceId="s" sessionLoading={false} docked />);

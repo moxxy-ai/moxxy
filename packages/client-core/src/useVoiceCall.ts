@@ -8,7 +8,6 @@ import {
 } from 'react';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { toErrorMessage } from './errors.js';
-import { getPlatform, type AudioClipHandle } from './platform.js';
 import { api } from './transport.js';
 import {
   createVoiceCallState,
@@ -27,10 +26,6 @@ import {
   type VoiceActiveOperation,
 } from './voice-operations.js';
 
-export interface VoiceWaitingToneSource {
-  readonly audioUrl: string;
-}
-
 export interface VoiceCallChat {
   readonly sending: boolean;
   readonly activeTurnId: string | null;
@@ -43,7 +38,6 @@ export interface UseVoiceCallOptions {
   readonly ready: boolean;
   readonly chat: VoiceCallChat;
   readonly inputRequired: boolean;
-  readonly waitingTone?: VoiceWaitingToneSource;
 }
 
 export interface UseVoiceCall {
@@ -53,7 +47,6 @@ export interface UseVoiceCall {
   readonly activeOperations: ReadonlyArray<VoiceActiveOperation>;
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
-  readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
   readonly localPiperInstalling: boolean;
   readonly localPiperInstallError: string | null;
@@ -66,7 +59,6 @@ export interface UseVoiceCall {
   readonly installLocalPiper: () => void;
   readonly muteMicrophone: () => void;
   readonly unmuteMicrophone: () => void;
-  readonly toggleWaitingSound: () => void;
   /** Stop the current utterance and hand it to the existing transcriber. */
   readonly finishUtterance: () => void;
   /** Discard a no-speech capture and immediately arm a fresh one. */
@@ -78,7 +70,6 @@ export interface UseVoiceCall {
 const LOCAL_PIPER = 'local-piper';
 const GEMINI_TTS = 'gemini-tts';
 const VOICE_MODE_SYNTHESIZERS = new Set([LOCAL_PIPER, GEMINI_TTS]);
-const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
 const POST_INSTALL_RELOAD_POLL_MS = 500;
 const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [
   100,
@@ -118,17 +109,12 @@ function waitForPreflightRetry(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-function readWaitingSoundPreference(): boolean {
-  return getPlatform().kv?.getItem(WAITING_SOUND_PREFERENCE) !== '0';
-}
-
 /** Coordinates one half-duplex call over the current chat session. */
 export function useVoiceCall({
   workspaceId,
   ready,
   chat,
   inputRequired,
-  waitingTone,
 }: UseVoiceCallOptions): UseVoiceCall {
   const [state, dispatch] = useReducer(reduceVoiceCall, undefined, createVoiceCallState);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
@@ -136,7 +122,6 @@ export function useVoiceCall({
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
   const [activity, setActivity] = useState<VoiceToolActivity | null>(null);
   const [activeOperations, setActiveOperations] = useState<ReadonlyArray<VoiceActiveOperation>>([]);
-  const [waitingSoundEnabled, setWaitingSoundEnabled] = useState(readWaitingSoundPreference);
   const [localPiperInstallRequired, setLocalPiperInstallRequired] = useState(false);
   const [localPiperInstalling, setLocalPiperInstalling] = useState(false);
   const [localPiperInstallError, setLocalPiperInstallError] = useState<string | null>(null);
@@ -152,8 +137,6 @@ export function useVoiceCall({
   const operationOrdinalRef = useRef(0);
   const toolRequestsByCallRef = useRef(new Map<string, { readonly name: string; readonly input: unknown }>());
   const feedbackTurnActiveRef = useRef(false);
-  const waitingToneHandleRef = useRef<AudioClipHandle | null>(null);
-  const waitingToneGenerationRef = useRef(0);
   const previousInputRequiredRef = useRef(false);
   const audioSuppressedTurnIdRef = useRef<string | null>(null);
   const pendingFeedbackTranscriptRef = useRef<string | null>(null);
@@ -171,43 +154,14 @@ export function useVoiceCall({
   });
   const speechRef = useRef(speech);
   speechRef.current = speech;
-  const stopWaitingTone = useCallback((): void => {
-    waitingToneGenerationRef.current += 1;
-    waitingToneHandleRef.current?.stop();
-    waitingToneHandleRef.current = null;
-  }, []);
-  const startWaitingTone = useCallback((): void => {
-    stopWaitingTone();
-    if (!waitingTone) return;
-    const player = getPlatform().tts;
-    if (!player?.playUrl) return;
-    const generation = waitingToneGenerationRef.current;
-    const clear = (): void => {
-      if (waitingToneGenerationRef.current === generation) waitingToneHandleRef.current = null;
-    };
-    try {
-      waitingToneHandleRef.current = player.playUrl(waitingTone.audioUrl, {
-        loop: true,
-        onend: clear,
-        onerror: clear,
-      });
-    } catch {
-      clear();
-    }
-  }, [stopWaitingTone, waitingTone]);
   const feedback = useMemo(
     () => new VoiceFeedbackScheduler({
       emitCue: (cue) => speechRef.current.speakCue(cue.text, cue.language),
-      startWaitingTone,
-      stopWaitingTone,
       cancelPendingCues: () => speechRef.current.cancelPendingCues(),
     }),
-    [startWaitingTone, stopWaitingTone, workspaceId],
+    [workspaceId],
   );
   feedbackRef.current = feedback;
-  useEffect(() => {
-    feedback.setWaitingToneEnabled(waitingSoundEnabled);
-  }, [feedback, waitingSoundEnabled]);
   const completedTurnCountRef = useRef(speech.completedTurnCount);
   completedTurnCountRef.current = speech.completedTurnCount;
   const previousSpeechPhaseRef = useRef(speech.phase);
@@ -428,14 +382,6 @@ export function useVoiceCall({
     void voice.resume();
     dispatch({ type: 'unmute-microphone' });
   }, [state.active, state.phase, voice.resume]);
-  const toggleWaitingSound = useCallback((): void => {
-    setWaitingSoundEnabled((enabled) => {
-      const next = !enabled;
-      getPlatform().kv?.setItem(WAITING_SOUND_PREFERENCE, next ? '1' : '0');
-      feedback.setWaitingToneEnabled(next);
-      return next;
-    });
-  }, [feedback]);
   const finishUtterance = useCallback((): void => voice.stop(), [voice.stop]);
   const restartListening = useCallback((): void => {
     if (
@@ -786,7 +732,6 @@ export function useVoiceCall({
     activeOperations,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
-    waitingSoundEnabled,
     localPiperInstallRequired,
     localPiperInstalling,
     localPiperInstallError,
@@ -799,7 +744,6 @@ export function useVoiceCall({
     installLocalPiper,
     muteMicrophone,
     unmuteMicrophone,
-    toggleWaitingSound,
     finishUtterance,
     restartListening,
     bargeIn,

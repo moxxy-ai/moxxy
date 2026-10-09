@@ -47,6 +47,9 @@ export type IconName =
   | 'terminal'
   | 'globe'
   | 'smartphone'
+  | 'phone'
+  | 'phone-down'
+  | 'monitor'
   | 'file'
   | 'diff'
   | 'grid'
@@ -72,6 +75,7 @@ export function Icon({ name, size = 18, ...rest }: IconProps): JSX.Element {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      data-icon={name}
       {...rest}
     >
       {paths[name]}
@@ -328,6 +332,23 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M3 12h18" />
       <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
     </>
+  ),
+  monitor: (
+    <>
+      <rect x="2.5" y="3.5" width="19" height="13" rx="2" />
+      <path d="M8 20.5h8" />
+      <path d="M12 16.5v4" />
+    </>
+  ),
+  phone: (
+    <path d="M13.8 16.6a1 1 0 0 0 1.2-.3l.4-.5A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.5.4a1 1 0 0 0-.3 1.2 14 14 0 0 0 6.4 6.4" />
+  ),
+  // The receiver put down: the same handset, turned to lie across.
+  'phone-down': (
+    <path
+      transform="rotate(135 12 12)"
+      d="M13.8 16.6a1 1 0 0 0 1.2-.3l.4-.5A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.5.4a1 1 0 0 0-.3 1.2 14 14 0 0 0 6.4 6.4"
+    />
   ),
   smartphone: (
     <>

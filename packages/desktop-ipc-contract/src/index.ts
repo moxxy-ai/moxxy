@@ -45,6 +45,14 @@ export type { SessionInfo };
 export { SESSION_INFO_REFRESH_EVENT } from './ask.js';
 export type { AskRequest, AskResponse, WorkflowAsk } from './ask.js';
 
+// ---------- Attachment size limits ------------------------------------------
+export {
+  ATTACHMENT_LIMITS,
+  attachmentSizeProblem,
+  formatFileSize,
+  isImageFileName,
+} from './attachment-limits.js';
+
 // ---------- Uniform error envelope ----------------------------------------
 export { encodeIpcError, decodeIpcError } from './error-envelope.js';
 export type { MoxxyIpcErrorCode, MoxxyIpcError } from './error-envelope.js';
@@ -57,6 +65,9 @@ export type { OnboardingStatus, NodeProbe } from './onboarding.js';
 
 // ---------- Desktop preferences (first-run + auth state) -------------------
 export type { ThemePreference, VoiceEnginePreference, DesktopPrefs } from './prefs.js';
+
+// ---------- Which of the app's windows has the keyboard --------------------
+export type { AppPresence } from './presence.js';
 
 // ---------- Workflows ------------------------------------------------------
 export type {
@@ -125,7 +136,17 @@ export type {
   AppUpdateProgress,
   AppBootLogEntry,
   AppUpdateDiagnostics,
+  AppUpdateRoute,
+  AppUpdateStepId,
+  AppUpdateStepStatus,
+  AppUpdateStep,
+  AppUpdatePlan,
+  AppUpdatePlanState,
+  AppSetupStepId,
+  AppSetupStep,
+  AppSetupState,
 } from './app-update.js';
+export { appUpdatePlanState } from './app-update.js';
 
 // ---------- Deep links (moxxy:// URLs) -------------------------------------
 export type { DeepLinkPayload } from './deep-link.js';

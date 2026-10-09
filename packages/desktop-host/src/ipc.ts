@@ -112,7 +112,7 @@ export function registerIpcHandlers(
   for (const bus of buses) {
     setActiveBus(bus);
     registerAskHandlers();
-    registerAppHandlers(pool);
+    registerAppHandlers(pool, opts.update?.componentsVersion);
     // Self-update handlers. The baked signing key is supplied by the app's main
     // (it owns `update-key.ts`); an empty/absent config means updates report as
     // unavailable rather than erroring.

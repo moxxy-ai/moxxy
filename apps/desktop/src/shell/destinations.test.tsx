@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { AutomationsIndex } from '../automations/AutomationsIndex';
 import { ChannelsIndex } from '../channels/ChannelsSurface';
-import { SettingsIndex } from '../settings/SettingsPanel';
+import { SettingsIndex, useSettingsTab } from '../settings/SettingsPanel';
 import { reloadSidebarCollapsedFromStorage } from '@/lib/useSidebarCollapsed';
 
 /**
@@ -55,7 +55,7 @@ describe('AutomationsIndex', () => {
   it('says a group is empty rather than rendering nothing under it', () => {
     // An open group with no rows and no message reads as a rendering failure.
     render(<AutomationsIndex kind="workflows" onPick={vi.fn()} />);
-    expect(screen.getAllByText('none yet').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('None yet').length).toBeGreaterThan(0);
   });
 });
 
@@ -72,16 +72,20 @@ describe('ChannelsIndex', () => {
     // Only AFTER the fetch settles: while it is in flight the column is loading,
     // not empty, and claiming "none available" then would be a lie with a race.
     render(<ChannelsIndex selected={null} onSelect={vi.fn()} />);
-    expect(await screen.findByText('none available')).toBeTruthy();
+    expect(await screen.findByText('None available')).toBeTruthy();
   });
 });
 
 describe('SettingsIndex', () => {
+  const captions = (container: HTMLElement): string[] =>
+    Array.from(container.querySelectorAll('.index-group__label')).map((el) => el.textContent ?? '');
+
+  const rows = (container: HTMLElement): HTMLElement[] =>
+    Array.from(container.querySelectorAll<HTMLElement>('.index-row'));
+
   it('groups the sections by what they are about', () => {
-    render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
-    for (const group of ['agent', 'extend', 'voice', 'computer use', 'trust', 'app']) {
-      expect(screen.getByText(group)).toBeTruthy();
-    }
+    const { container } = render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
+    expect(captions(container)).toEqual(['Agent', 'Voice', 'Computer use', 'Trust', 'App', 'Extend']);
     // A flat row gave "Vault" and "Skills" the same standing, when one is a
     // secret store and the other a capability.
     expect(screen.getByTestId('settings-tab-vault')).toBeTruthy();
@@ -89,26 +93,50 @@ describe('SettingsIndex', () => {
     expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
   });
 
-  it('splits extensions from application settings in the product navigation', () => {
-    const { rerender } = render(
-      <SettingsIndex
-        tab="providers"
-        onPick={vi.fn()}
-        scope="extensions"
-      />,
-    );
-    expect(screen.getByText('agent')).toBeTruthy();
-    expect(screen.getByText('extend')).toBeTruthy();
-    expect(screen.queryByTestId('settings-tab-vault')).toBeNull();
+  it('keeps the model connection in Settings, and only what extends Moxxy in Extensions', () => {
+    // Connecting a model is the first thing a person sets up; under
+    // "Extensions" it was looked for in Settings and not found.
+    const { container, rerender } = render(<SettingsIndex tab="mcp" onPick={vi.fn()} scope="extensions" />);
+    expect(captions(container)).toEqual(['Extend']);
+    expect(rows(container).map((row) => row.dataset.testid)).toEqual(['settings-tab-mcp', 'settings-tab-skills']);
+    expect(screen.queryByTestId('settings-tab-providers')).toBeNull();
 
-    rerender(
-      <SettingsIndex tab="vault" onPick={vi.fn()} scope="settings" />,
-    );
-    expect(screen.getByText('trust')).toBeTruthy();
-    expect(screen.getByText('app')).toBeTruthy();
-    expect(screen.getByTestId('settings-tab-voice')).toBeTruthy();
-    expect(screen.getByTestId('settings-tab-jev')).toBeTruthy();
+    rerender(<SettingsIndex tab="providers" onPick={vi.fn()} scope="settings" />);
+    expect(screen.getByTestId('settings-tab-providers')).toHaveAttribute('aria-current', 'true');
     expect(screen.queryByTestId('settings-tab-skills')).toBeNull();
+  });
+
+  it('opens Settings on the providers, and Extensions on the MCP servers', () => {
+    expect(renderHook(() => useSettingsTab('settings')).result.current[0]).toBe('providers');
+    expect(renderHook(() => useSettingsTab('extensions')).result.current[0]).toBe('mcp');
+  });
+
+  it('draws no caption over a list where every group is a single row', () => {
+    // "Voice" over "Voice", "Trust" over "Vault": a caption per row sorts
+    // nothing, and reads as a second row that cannot be pressed.
+    const { container } = render(<SettingsIndex tab="voice" onPick={vi.fn()} scope="settings" />);
+    expect(captions(container)).toEqual([]);
+    expect(rows(container).map((row) => row.dataset.testid)).toEqual([
+      'settings-tab-providers',
+      'settings-tab-voice',
+      'settings-tab-jev',
+      'settings-tab-vault',
+      'settings-tab-preferences',
+    ]);
+    // A row says its own name and nothing else: one row with a note beside
+    // three without reads as a mistake.
+    for (const row of rows(container)) {
+      expect(row.querySelector('.index-row__note'), row.dataset.testid).toBeNull();
+    }
+    expect(screen.getByTestId('settings-tab-jev').textContent).toBe('Jev');
+  });
+
+  it('gives every section an icon, so a row never looks like a caption', () => {
+    const { container } = render(<SettingsIndex tab="providers" onPick={vi.fn()} />);
+    expect(rows(container)).toHaveLength(7);
+    for (const row of rows(container)) {
+      expect(row.querySelector('svg.index-row__icon'), row.dataset.testid).not.toBeNull();
+    }
   });
 
   it('picks a section on click', () => {

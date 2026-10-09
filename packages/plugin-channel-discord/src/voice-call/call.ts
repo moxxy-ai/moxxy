@@ -73,8 +73,6 @@ export class VoiceCall {
   private readonly feedback = new VoiceFeedbackScheduler({
     announceSteps: true,
     emitCue: (cue) => this.reply?.interject(cue.text),
-    startWaitingTone: () => undefined,
-    stopWaitingTone: () => undefined,
     cancelPendingCues: () => undefined,
   });
   private readonly endedListeners = new Set<(why: CallEnd) => void>();

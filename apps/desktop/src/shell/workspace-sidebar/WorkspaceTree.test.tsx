@@ -1,18 +1,18 @@
 /**
- * WorkspaceTree — collapsible workspace folders with nested sessions:
- *   1. Folder row per desk; session rows nest under expanded folders only.
- *   2. Chevron / row click toggles collapse (buttons inside don't).
- *   3. [+] on a folder creates a session IN that desk; header [+] makes
- *      a new workspace.
- *   4. Sessions select; the active desk's active session is highlighted.
- *   5. Unread dots: per-session when expanded, rolled up onto the folder
- *      only while collapsed.
+ * WorkspaceTree — the run list, grouped into one section per workspace:
+ *   1. A section header per desk; run rows sit under expanded sections only.
+ *   2. Chevron / header click toggles collapse (buttons inside don't).
+ *   3. [+] on a header creates a session IN that desk.
+ *   4. Runs select; the active desk's active session is highlighted.
+ *   5. A run row reads like a conversation: avatar, name, time, preview, and a
+ *      badge on the avatar for unread or working. Unread rolls up onto the
+ *      header only while the section is collapsed.
  *   6. ⋯ menus only request rename/remove flows; parent containers own
  *      modals and persistence.
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Desk } from '@moxxy/desktop-ipc-contract';
 import { WorkspaceTree } from './WorkspaceTree';
 
@@ -27,6 +27,8 @@ function desk(over: Partial<Desk> & { id: string }): Desk {
     ...over,
   };
 }
+
+const NOW = Date.parse('2026-10-07T12:00:00Z');
 
 type Handlers = Parameters<typeof WorkspaceTree>[0];
 
@@ -56,7 +58,12 @@ function renderTree(over: Partial<Handlers> = {}): {
           name: 'Alpha',
           sessions: [
             { id: 'a', name: 'Session 1', createdAt: 1 },
-            { id: 'a2', name: 'Fix the login bug', createdAt: 2 },
+            {
+              id: 'a2',
+              name: 'Fix the login bug',
+              createdAt: 2,
+              lastActivity: new Date(NOW - 4 * 60_000).toISOString(),
+            },
           ],
           activeSessionId: 'a2',
         }),
@@ -69,6 +76,9 @@ function renderTree(over: Partial<Handlers> = {}): {
       activeDeskId="a"
       activeSessionId="a2"
       unread={new Set()}
+      running={new Set()}
+      previews={new Map()}
+      now={NOW}
       collapsed={new Set()}
       busyDeskId={null}
       {...handlers}
@@ -217,43 +227,55 @@ describe('WorkspaceTree', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('uses a stronger text tier for workspace headers than idle sessions', () => {
-    renderTree();
-    expect(screen.getByText('Alpha').style.color).toBe('var(--color-text-muted)');
-    expect(screen.getByTestId('session-row-a').style.color).toBe(
-      'var(--color-sidebar-text-dim)',
+  it('draws a run as a conversation: avatar, name, time and a preview', () => {
+    renderTree({ previews: new Map([['a2', 'The first PDF test now waits.']]) });
+    const row = screen.getByTestId('session-row-a2');
+    expect(within(row).getByTestId('session-avatar')).toHaveTextContent('F');
+    expect(row).toHaveTextContent('Fix the login bug');
+    expect(within(row).getByTestId('session-time')).toHaveTextContent('4m');
+    expect(within(row).getByTestId('session-preview')).toHaveTextContent(
+      'The first PDF test now waits.',
     );
   });
 
-  it('distinguishes workspace colour chips from round session LEDs', () => {
+  it('leaves out the time and the preview rather than inventing them', () => {
+    renderTree();
+    const row = screen.getByTestId('session-row-a');
+    expect(within(row).queryByTestId('session-time')).toBeNull();
+    expect(within(row).queryByTestId('session-preview')).toBeNull();
+  });
+
+  it('badges the avatar of a run that is working', () => {
+    renderTree({ running: new Set(['a']) });
+    const row = screen.getByTestId('session-row-a');
+    expect(within(row).getByLabelText('working')).toBeTruthy();
+    expect(within(screen.getByTestId('session-row-a2')).queryByLabelText('working')).toBeNull();
+  });
+
+  it('tells a workspace from a run: a colour chip on the header, an avatar on the row', () => {
     renderTree();
     expect(screen.getByTestId('desk-chip-a').style.background).toBe('rgb(59, 130, 246)');
-    expect(screen.getByTestId('session-row-a').querySelector('.led')).toBeTruthy();
+    expect(within(screen.getByTestId('desk-row-a')).queryByTestId('session-avatar')).toBeNull();
+    expect(within(screen.getByTestId('session-row-a')).getByTestId('session-avatar')).toBeTruthy();
   });
 
-  it('hangs sessions from a visible workspace guide rail', () => {
-    renderTree();
-    const group = screen.getByRole('group', { name: 'sessions in Alpha' });
-    expect(group.style.borderLeft).toBe('1px solid var(--color-sidebar-border)');
+  it('says how many runs a workspace holds without opening it', () => {
+    renderTree({ collapsed: new Set(['a']) });
+    expect(screen.getByTestId('desk-row-a')).toHaveTextContent('2');
   });
 
-  // Regression: the ⋯ menu is anchored inside the row's subtree, and the
-  // ActionsOverlay's `transform` traps the menu's z-index in a local
-  // stacking context. Without lifting the owning row while its menu is
-  // open, a LATER sibling row paints over the menu (it looked see-through
-  // and overlapped the next folder). The row must carry a z-index only
-  // while its menu is open, and drop it again on close.
-  it('lifts the row that owns an open ⋯ menu above the rows below it', () => {
+  // The row's actions only show on hover, and the menu is portalled out of the
+  // row: without holding the row "open" the ⋯ would fade out from under its own
+  // menu the moment the pointer moved onto it.
+  it('keeps a row\'s actions up while its ⋯ menu is open', () => {
     renderTree();
     const row = screen.getByTestId('session-row-a2');
-    expect(row.style.zIndex).toBe(''); // idle: no stacking lift
+    expect(row).not.toHaveAttribute('data-menu-open');
 
     fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
-    expect(row.style.zIndex).not.toBe(''); // open: lifted above following rows
+    expect(row).toHaveAttribute('data-menu-open', 'true');
 
-    // Closing the menu (Escape) drops the lift again so it never stacks
-    // permanently over its neighbours.
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(row.style.zIndex).toBe('');
+    expect(row).not.toHaveAttribute('data-menu-open');
   });
 });

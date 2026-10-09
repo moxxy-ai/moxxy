@@ -22,65 +22,23 @@ export function TriggerBlock({
   const [expanded, setExpanded] = useState(false);
   const { icon, label } = describeTrigger(origin);
   return (
-    <div
-      data-testid="block-trigger"
-      style={{ alignSelf: 'flex-start', maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 6 }}
-    >
+    <div className="trigger" data-testid="block-trigger">
       <button
         type="button"
+        className="trigger__chip"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         title={expanded ? 'Hide the trigger payload' : 'Show the trigger payload'}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '5px 12px',
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-card-border)',
-          borderRadius: 'var(--radius-pill)',
-          fontSize: 'var(--type-row)',
-          color: 'var(--color-text-dim)',
-          cursor: 'pointer',
-          fontWeight: 600,
-        }}
       >
         <Icon name={icon} size={13} />
         <span>
-          {label} · <span style={{ color: 'var(--color-text)' }}>{origin.name}</span>
+          {label} · <b>{origin.name}</b>
         </span>
-        <span
-          aria-hidden
-          style={{
-            display: 'inline-flex',
-            transform: expanded ? 'rotate(90deg)' : 'none',
-            transition: 'transform 120ms ease',
-            opacity: 0.7,
-          }}
-        >
+        <span className="disclosure__chevron" data-open={expanded} aria-hidden>
           <Icon name="chevron-right" size={12} />
         </span>
       </button>
-      {expanded && (
-        <div
-          className="mono"
-          style={{
-            padding: '10px 12px',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 'var(--radius-card)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontSize: 'var(--type-row)',
-            lineHeight: 1.5,
-            color: 'var(--color-text-dim)',
-            maxHeight: 360,
-            overflow: 'auto',
-          }}
-        >
-          {text}
-        </div>
-      )}
+      {expanded && <div className="trigger__payload">{text}</div>}
     </div>
   );
 }

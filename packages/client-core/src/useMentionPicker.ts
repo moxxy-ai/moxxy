@@ -11,6 +11,8 @@ import type { SkillInfo } from '@moxxy/sdk';
 import { insertMention, mentionOptions, mentionQueryAt, type MentionOption } from '@moxxy/sdk/skill-mentions';
 
 export type { MentionOption } from '@moxxy/sdk/skill-mentions';
+/** The skills that answer a typed word, for a menu other than the @ one (the composer's slash menu). */
+export { mentionOptions } from '@moxxy/sdk/skill-mentions';
 
 export interface MentionPicker {
   readonly open: boolean;

@@ -24,10 +24,9 @@ export { seedModelsFromResources, type SeedModelsResult } from './seed-models.js
 export { adoptSeededLocalPiper } from './local-piper.js';
 export { activateManagedNode } from './node-manager.js';
 export { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes } from './seed-runtimes.js';
-export { offerBundledComputerUpdate, type ComputerUpdateOffer } from './computer-update-runtime.js';
-export { offerBundledProviderUpdate, type ProviderUpdateOffer } from './provider-update-runtime.js';
-export { DeferredPackageUpdates, type ManagedPackageUpdate } from './deferred-package-updates.js';
-export { recoverComponentUpdates } from './component-update.js';
+export { findNpm, npmRegistry } from './component-update.js';
+export { getCliVersion } from './installer.js';
+export { prepareInstalledApp, StartupSetup, type PrepareInstalledAppOptions } from './startup-setup/index.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {
   cwdForSession,
@@ -54,8 +53,10 @@ export {
   showFocusWindow,
   toggleFocusWindow,
   isFocusOpen,
+  openFocusWindow,
   type FocusWindowPlacement,
 } from './focus-window.js';
+export { appPresence, type PresenceWindow } from './app-presence.js';
 export {
   createFocusModeController,
   type FocusModeController,

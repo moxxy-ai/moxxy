@@ -2,7 +2,7 @@ import type { ApprovalRequest, ComputerControlSnapshot, MoxxyEvent, SurfaceDataM
 
 import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
-import type { AppUpdateProgress } from './app-update.js';
+import type { AppSetupState, AppUpdatePlan, AppUpdateProgress } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
@@ -38,6 +38,10 @@ export interface IpcEvents {
   /** Streamed during `app.updateDashboard` — one event per download/verify/
    *  extract/activate step so the Updates UI can show a progress bar. */
   'app.update.progress': AppUpdateProgress;
+  /** Sent whenever a step of the running update (`app.updateAll`) changes. */
+  'app.update.plan': AppUpdatePlan;
+  /** Sent as the launch's setup (`app.setup`) moves from step to step. */
+  'app.setup.changed': AppSetupState;
   /** The runner needs a permission/approval decision — the renderer
    *  shows a bottom sheet and replies via `ask.respond`. */
   'ask.request': AskRequest;

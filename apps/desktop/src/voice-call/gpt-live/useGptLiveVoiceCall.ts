@@ -372,7 +372,6 @@ export function useGptLiveVoiceCall({
     activeOperations: tasks.operations,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
-    waitingSoundEnabled: false,
     localPiperInstallRequired: false,
     localPiperInstalling: false,
     localPiperInstallError: null,
@@ -385,7 +384,6 @@ export function useGptLiveVoiceCall({
     installLocalPiper: NOOP,
     muteMicrophone: () => setMicrophoneMuted(true),
     unmuteMicrophone: () => setMicrophoneMuted(false),
-    toggleWaitingSound: NOOP,
     // GPT-Live detects turn ends and interruptions on the server.
     finishUtterance: NOOP,
     restartListening: NOOP,

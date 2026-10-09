@@ -24,6 +24,7 @@ function host(answers: Record<string, unknown>) {
       'app.cliInfo': { version: '1.0.0', path: '/x' },
       'app.checkUpdate': { available: false, currentVersion: '0.5.0', latestVersion: '0.5.0', compatible: true },
       'app.checkComponents': componentsBehind,
+      'app.updatePlan': null,
     };
     return channel in answers ? answers[channel] : defaults[channel];
   });
@@ -36,26 +37,54 @@ afterEach(() => {
   __setApiOverride(null);
 });
 
+const appBehind = { available: true, currentVersion: '0.5.0', latestVersion: '0.6.0', compatible: true };
+const restarting = {
+  id: 'plan-1',
+  createdAt: 1_000,
+  route: 'hot',
+  version: '0.6.0',
+  steps: [
+    { id: 'app', status: 'done' },
+    { id: 'restart', status: 'running' },
+  ],
+};
+const failed = {
+  ...restarting,
+  steps: [
+    { id: 'app', status: 'failed', error: 'no network' },
+    { id: 'restart', status: 'pending' },
+  ],
+};
+
 describe('UpdateBanner', () => {
-  it('updates everything and restarts after one click', async () => {
-    const invoke = host({ 'app.updateComponents': { ok: true, updated: true } });
+  it('stays away when only the runner or extensions are behind: they come with the app', async () => {
+    const invoke = host({});
+    render(<UpdateBanner />);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app.checkUpdate'));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app.updatePlan'));
+    expect(screen.queryByRole('button', { name: 'Update' })).toBeNull();
+  });
+
+  it('hands the whole update to the host after one click and steps aside for the installer screen', async () => {
+    const invoke = host({ 'app.checkUpdate': appBehind, 'app.updateAll': { ok: true, plan: restarting } });
     render(<UpdateBanner />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app.relaunch'));
-    expect(screen.getByText(/Restarting Moxxy/)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+    expect(invoke.mock.calls.filter(([c]) => c === 'app.updateAll')).toHaveLength(1);
   });
 
   it('says Moxxy still works and offers another try when the update fails', async () => {
-    const invoke = host({ 'app.updateComponents': { ok: false, updated: false, error: 'no network' } });
+    const invoke = host({ 'app.checkUpdate': appBehind, 'app.updateAll': { ok: false, plan: failed, error: 'no network' } });
     render(<UpdateBanner />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Update' }));
 
     expect(await screen.findByText(/works as before/)).toBeTruthy();
+    expect(screen.getByText(/no network/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === 'app.updateComponents')).toHaveLength(2));
-    expect(invoke).not.toHaveBeenCalledWith('app.relaunch');
+    await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === 'app.updateAll')).toHaveLength(2));
   });
 });

@@ -52,7 +52,6 @@ function snapshotFrom(
     activity: call.activity,
     errorReason: call.errorReason?.slice(0, 500) ?? null,
     microphoneMuted: call.microphoneMuted,
-    waitingSoundEnabled: call.waitingSoundEnabled,
     localPiperInstallRequired: call.localPiperInstallRequired,
     localPiperInstalling: call.localPiperInstalling,
     localPiperInstallError: call.localPiperInstallError?.slice(0, 500) ?? null,
@@ -82,9 +81,6 @@ function runOwnerCommand(call: UseVoiceCall, command: DesktopVoiceCallCommand): 
       return;
     case 'unmute-microphone':
       call.unmuteMicrophone();
-      return;
-    case 'toggle-waiting-sound':
-      call.toggleWaitingSound();
   }
 }
 
@@ -212,7 +208,6 @@ export function useDesktopVoiceCallBridge({
     localCall.localPiperInstalling,
     localCall.localPiperInstallError,
     localCall.phase,
-    localCall.waitingSoundEnabled,
     queuedTurns,
     publishSnapshot,
     surface,
@@ -322,7 +317,6 @@ export function useDesktopVoiceCallBridge({
       installLocalPiper: () => sendCommand('install-local-piper'),
       muteMicrophone: () => sendCommand('mute-microphone'),
       unmuteMicrophone: () => sendCommand('unmute-microphone'),
-      toggleWaitingSound: () => sendCommand('toggle-waiting-sound'),
       finishUtterance: () => undefined,
       restartListening: () => undefined,
       bargeIn: () => undefined,

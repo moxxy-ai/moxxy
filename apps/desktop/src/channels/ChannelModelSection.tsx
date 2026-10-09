@@ -6,7 +6,7 @@ import type { ChannelModelState } from './useChannelModel';
 export function ChannelModelSection({ state }: { readonly state: ChannelModelState }): JSX.Element {
   return (
     <section data-testid="channel-model" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
-      <div className="section-head">model</div>
+      <div className="section-head">Model</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-8)', flexWrap: 'wrap' }}>
         <span className="mono" style={{ fontSize: 'var(--type-ui)' }}>
           {state.label}

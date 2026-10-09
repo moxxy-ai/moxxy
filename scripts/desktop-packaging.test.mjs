@@ -3,6 +3,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import { nativePnpm, pnpmCommand } from '../apps/desktop/scripts/pnpm-command.mjs';
@@ -27,6 +28,27 @@ test('desktop extraResources copies the dependency trees and the voices from the
       filter: ['moxxy-cli/**/*', 'plugins-seed/**/*', 'models-seed/**/*', 'runtimes-seed/**/*'],
     },
   ]);
+});
+
+test('the .deb still asks for everything the builder asks for by default', async () => {
+  // A `depends` list of our own replaces the builder's, it does not add to it.
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  const fromDesktop = createRequire(path.join(repo, 'apps/desktop/package.json'));
+  const fromBuilder = createRequire(fromDesktop.resolve('electron-builder/package.json'));
+  const { default: FpmTarget } = fromBuilder('app-builder-lib/out/targets/FpmTarget.js');
+  const defaults = FpmTarget.prototype.getDefaultDepends('deb');
+  assert.ok(defaults.length > 0);
+  for (const name of defaults) assert.ok(manifest.build.deb.depends.includes(name), `${name} is missing`);
+});
+
+test('the .deb brings the sound library and xz, which a minimal system lacks', async () => {
+  // Without the first the app does not start; without the second the bundled Node is not unpacked.
+  const manifest = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'));
+  const { depends } = manifest.build.deb;
+  // Ubuntu 24.04 and Debian 13 renamed the library. The new name goes first: there the old one is
+  // only a name other packages answer to, and apt picks an OSS stand-in for it.
+  assert.ok(depends.includes('libasound2t64 | libasound2'), depends.join(', '));
+  assert.ok(depends.includes('xz-utils'), depends.join(', '));
 });
 
 test('universal macOS merge accepts the Computer Use helper, which is already universal', async () => {

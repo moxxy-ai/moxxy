@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { assertDefined, computerControlCommandSchema } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
+import { ATTACHMENT_LIMITS } from './attachment-limits.js';
 
 /** Single source of truth for the runtime attachment-kind enum. It is tied to
  *  the SDK's `UserPromptAttachment.kind` union by the assertion below, so if the
@@ -172,6 +173,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.checkUpdate': z.undefined(),
   'app.updateDashboard': z.undefined(),
   'app.updateShell': z.undefined(),
+  'app.updateAll': z.undefined(),
+  'app.updatePlan': z.undefined(),
+  'app.setup': z.undefined(),
   'app.relaunch': z.undefined(),
   'app.appBooted': z.undefined(),
   'app.updateDiagnostics': z.undefined(),
@@ -209,6 +213,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
   'focus.toggle': z.undefined(),
+  'window.presence': z.undefined(),
   'focus.moveBy': z.object({ dx: focusDelta, dy: focusDelta }).strict(),
   'focus.dragStart': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
   'focus.dragMove': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
@@ -344,6 +349,21 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     .object({
       workspaceId: optionalWorkspace,
       path: z.string().min(1).max(4096),
+      name: z.string().min(1).max(1024),
+    })
+    .strict(),
+  'session.checkAttachment': z
+    .object({
+      workspaceId: optionalWorkspace,
+      path: z.string().min(1).max(4096),
+      name: z.string().min(1).max(1024),
+    })
+    .strict(),
+  // The bytes of a dropped or pasted file: bounded to the base64 of the largest
+  // file allowed, so an oversized payload is refused before it is decoded.
+  'session.saveAttachment': z
+    .object({
+      dataBase64: z.string().min(1).max(Math.ceil(ATTACHMENT_LIMITS.fileBytes / 3) * 4),
       name: z.string().min(1).max(1024),
     })
     .strict(),
@@ -507,6 +527,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
       voiceEngine: z.enum(['local', 'gpt-live']).optional(),
+      replySound: z.boolean().optional(),
+      systemNotifications: z.boolean().optional(),
       focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),

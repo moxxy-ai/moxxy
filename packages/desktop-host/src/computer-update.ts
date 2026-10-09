@@ -41,6 +41,9 @@ export interface PreparedComputerUpdate {
   readonly localChanges: 'untracked' | 'unchanged' | 'changed';
 }
 const prepared = new WeakSet<PreparedComputerUpdate>();
+/** Transactions this process is still filling or activating; pruning skips them. */
+const staging = new Set<string>();
+const transactionName = /^update-[a-zA-Z0-9]{6}$/;
 const tails = new Map<string, Promise<unknown>>();
 
 function targetPath(home: string, plugin: ManagedPackage = pluginName): string {
@@ -57,7 +60,7 @@ async function journals(home:string, plugin: ManagedPackage = pluginName):Promis
   if (names.length>1000) throw new Error('Computer Use recovery history exceeds safety limit');
   const result:Array<{directory:string;file:string;record:Journal}>=[];
   for (const name of names.sort()) {
-    if (!/^update-[a-zA-Z0-9]{6}$/.test(name)) continue;
+    if (!transactionName.test(name)) continue;
     const directory=path.join(root,name),file=path.join(directory,'transaction.json');
     await assertOwnedParents(home,directory);
     if (!await exists(file)) continue;
@@ -71,11 +74,19 @@ async function exists(file: string): Promise<boolean> {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
 
-/** Regular files only: never follow user-scope symlinks into unrelated data. */
+/** How many files are read at once while hashing a tree. An update hashes
+ *  the same few thousand files several times over; one read at a time made
+ *  that the longest part of installing it. */
+const HASH_READS = 8;
+const TREE_BYTES_LIMIT = 512_000_000;
+
+/** Regular files only: never follow user-scope symlinks into unrelated data.
+ *  The records are in the walk's order, so the hash does not depend on which
+ *  read finishes first — it is written to journals and must not change. */
 export async function computerTreeHash(directory: string): Promise<string | null> {
   if (!await exists(directory)) return null;
-  let bytes = 0, files = 0;
   const records: Array<[string,string]> = [];
+  const unread: Array<{ readonly record: [string,string]; readonly file: string }> = [];
   async function walk(file: string, relative: string): Promise<void> {
     const stat = await fs.lstat(file);
     if (stat.isSymbolicLink()) throw new Error('Computer Use update refuses symbolic links');
@@ -84,13 +95,28 @@ export async function computerTreeHash(directory: string): Promise<string | null
       const names = (await fs.readdir(file)).sort();
       for (const name of names) await walk(path.join(file,name), relative ? relative+'/'+name : name);
     } else {
-      if (!stat.isFile() || ++files > 20000) throw new Error('Computer Use package exceeds update limits');
-      const content=await readBoundedFile(file,512_000_000-bytes,'Computer Use package exceeds update limits');
-      bytes += content.length;
-      records.push([relative,createHash('sha256').update(content).digest('hex')]);
+      if (!stat.isFile() || unread.length >= 20000) throw new Error('Computer Use package exceeds update limits');
+      const record: [string,string] = [relative,''];
+      records.push(record);
+      unread.push({record,file});
     }
   }
   await walk(directory,'');
+  let bytes = 0, next = 0, failed = false;
+  async function read(): Promise<void> {
+    while (!failed) {
+      const entry = unread[next++];
+      if (!entry) return;
+      try {
+        // The handle is what is checked and read, so a path swapped after the walk is still refused.
+        const content=await readBoundedFile(entry.file,TREE_BYTES_LIMIT-bytes,'Computer Use package exceeds update limits');
+        bytes += content.length;
+        if (bytes > TREE_BYTES_LIMIT) throw new Error('Computer Use package exceeds update limits');
+        entry.record[1]=createHash('sha256').update(content).digest('hex');
+      } catch (error) { failed = true; throw error; }
+    }
+  }
+  await Promise.all(Array.from({length:HASH_READS},read));
   return createHash('sha256').update(JSON.stringify(records)).digest('hex');
 }
 
@@ -179,6 +205,13 @@ export async function isBundledComputerCurrent(options:UpdateOptions):Promise<bo
   return records.some(({record})=>record.phase==='verified' && record.staged===installed && record.source===source);
 }
 
+/** The installed copy is a link to someone's own source (`npm link`, a
+ *  junction on Windows): theirs, never replaced by the installer's. */
+export async function isLinkedInstall(options:Pick<UpdateOptions,'moxxyHome'|'plugin'>):Promise<boolean> {
+  const target=targetPath(path.resolve(options.moxxyHome), options.plugin ?? pluginName);
+  return await exists(target) && (await fs.lstat(target)).isSymbolicLink();
+}
+
 /** The installed copy is newer than the installer's (the desktop updated it
  *  from npm since): replacing it would be a downgrade, never offered. */
 export async function isInstalledNewerThanBundled(options:UpdateOptions):Promise<boolean> {
@@ -205,6 +238,45 @@ export async function recordManagedInstall(moxxyHome:string, plugin:ManagedPacka
   const transaction=await fs.mkdtemp(path.join(root,'update-'));
   const journal:Journal={schemaVersion:1,phase:'verified',previous:null,staged};
   await writeFileAtomic(path.join(transaction,'transaction.json'),JSON.stringify(journal));
+  // The record is written; clearing old ones is housekeeping and must not undo it.
+  await pruneComputerUpdates(home, plugin, staged).catch(()=>undefined);
+}
+
+/** Every update leaves a transaction holding a full copy of the package it
+ *  replaced. Keeps the record of the installed copy and the newest backup and
+ *  removes the other transactions. Nothing is removed while an update is
+ *  unfinished, or when the installed copy matches no record (changed by hand):
+ *  the next update writes one. Returns the directories removed. */
+export async function pruneComputerUpdates(moxxyHome:string, plugin:ManagedPackage=pluginName, installedHash?:string):Promise<string[]> {
+  managedPackageSchema.parse(plugin);
+  const home=path.resolve(moxxyHome), root=updatesPath(home, plugin);
+  await assertOwnedParents(home,root);
+  if (!await exists(root) || await isLinkedInstall({moxxyHome:home,plugin})) return [];
+  const records=await journals(home, plugin);
+  if (records.some(({record})=>record.phase==='prepared' || record.phase==='activated')) return [];
+  const installed=installedHash ?? await computerTreeHash(targetPath(home, plugin));
+  const dated=await Promise.all(records.map(async(entry)=>({
+    ...entry, at:(await fs.stat(entry.file)).mtimeMs, backup:await exists(path.join(entry.directory,'previous')),
+  })));
+  dated.sort((a,b)=>b.at-a.at);
+  const current=dated.find(({record})=>record.phase==='verified' && record.staged===installed);
+  if (!current) return [];
+  // The installed copy's own backup is the newest by definition; times only
+  // decide when it came without one (a first install, an update from npm).
+  const backup=current.backup ? current : dated.find((entry)=>entry.backup);
+  const keep=new Set([current.directory, ...(backup ? [backup.directory] : [])]);
+  const removed:string[]=[];
+  for (const name of (await fs.readdir(root)).sort()) {
+    const directory=path.join(root,name);
+    if (!transactionName.test(name) || keep.has(directory) || staging.has(directory)) continue;
+    if (!(await fs.lstat(directory)).isDirectory()) continue;
+    // The journal goes first: a removal cut short leaves no record that could
+    // later pass a half-deleted copy off as a backup.
+    await fs.rm(path.join(directory,'transaction.json'),{force:true});
+    await fs.rm(directory,{recursive:true,force:true,maxRetries:3});
+    removed.push(directory);
+  }
+  return removed;
 }
 
 export async function prepareComputerUpdate(options: UpdateOptions): Promise<PreparedComputerUpdate> {
@@ -219,6 +291,7 @@ export async function prepareComputerUpdate(options: UpdateOptions): Promise<Pre
   const sourceHash=await bundleFingerprint(options.resourcesPath, plugin);
   await fs.mkdir(updatesPath(home, plugin),{recursive:true});
   const transaction=await fs.mkdtemp(path.join(updatesPath(home, plugin),'update-'));
+  staging.add(transaction);
   const staged=path.join(transaction,'staged');
   let count=0;
   async function copy(from: string, to: string, ancestors: ReadonlySet<string>): Promise<void> {
@@ -254,6 +327,7 @@ export async function prepareComputerUpdate(options: UpdateOptions): Promise<Pre
     prepared.add(update);
     return update;
   } catch (error) {
+    staging.delete(transaction);
     await fs.rm(transaction,{recursive:true,force:true});
     throw error;
   }
@@ -290,7 +364,7 @@ export async function activateComputerUpdate(
       if (await computerTreeHash(update.targetPath) !== update.stagedHash) throw new Error('Installed Computer Use bytes changed during verification');
       await applyComputerLedgers(update.moxxyHome,update.transactionPath,ledgers);
       await writeJournal(update,'verified',approvedInstalledHash,ledgers);
-      prepared.delete(update);
+      prepared.delete(update); staging.delete(update.transactionPath);
       return {backupPath:update.backupPath};
     } catch (error) {
       if (newMoved) {
@@ -300,7 +374,7 @@ export async function activateComputerUpdate(
       if (oldMoved) await fs.rename(update.backupPath,update.targetPath);
       await applyComputerLedgers(update.moxxyHome,update.transactionPath,ledgers,true);
       await writeJournal(update,'rolled_back',approvedInstalledHash,ledgers);
-      prepared.delete(update);
+      prepared.delete(update); staging.delete(update.transactionPath);
       throw error;
     }
   });
@@ -310,6 +384,7 @@ export async function activateComputerUpdate(
 }
 
 export async function discardComputerUpdate(update:PreparedComputerUpdate):Promise<void> {
+  staging.delete(update.transactionPath);
   if (!prepared.has(update)) return;
   await fs.rm(update.stagedPath,{recursive:true,force:true});
   // A transaction with a journal/backup is retained for recovery, never removed.

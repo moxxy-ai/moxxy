@@ -212,6 +212,28 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('bounds a dropped file handed over as bytes', () => {
+    const cmd = 'session.saveAttachment';
+    expect(() => validateIpcInput(cmd, { dataBase64: 'aGk=', name: 'notes.md' })).not.toThrow();
+
+    expect(() => validateIpcInput(cmd, { dataBase64: '', name: 'notes.md' })).toThrow();
+    expect(() => validateIpcInput(cmd, { dataBase64: 'aGk=', name: '' })).toThrow();
+    expect(() => validateIpcInput(cmd, { dataBase64: 'aGk=', name: 'n'.repeat(1025) })).toThrow();
+    expect(() => validateIpcInput(cmd, { dataBase64: 'aGk=', name: 'notes.md', path: '/etc/passwd' })).toThrow();
+    // Base64 of the largest file allowed, and not a character more than its encoding needs.
+    expect(() => validateIpcInput(cmd, { dataBase64: 'a'.repeat(44_739_245), name: 'big.bin' })).toThrow();
+  });
+
+  it('bounds the question of whether a path can be attached', () => {
+    const cmd = 'session.checkAttachment';
+    expect(() => validateIpcInput(cmd, { path: '/tmp/a.png', name: 'a.png' })).not.toThrow();
+    expect(() => validateIpcInput(cmd, { workspaceId: 'w1', path: '/tmp/a.png', name: 'a.png' })).not.toThrow();
+
+    expect(() => validateIpcInput(cmd, { path: '', name: 'a.png' })).toThrow();
+    expect(() => validateIpcInput(cmd, { path: '/tmp/a.png' })).toThrow();
+    expect(() => validateIpcInput(cmd, { path: '/tmp/a.png', name: 'a.png', force: true })).toThrow();
+  });
+
   it('bounds local session.previewAttachment payloads', () => {
     const cmd = 'session.previewAttachment';
     expect(() =>
@@ -349,6 +371,21 @@ describe('IPC payload validation', () => {
       height: 176,
       verticalAnchor: 'top',
     })).toThrow();
+  });
+
+  it('allows the reply sound to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { replySound: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { replySound: 'loud' })).toThrow();
+  });
+
+  it('allows system notifications to be switched in prefs.update', () => {
+    expect(() => validateIpcInput('prefs.update', { systemNotifications: false })).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { systemNotifications: 'banner' })).toThrow();
+  });
+
+  it('takes no arguments for window.presence', () => {
+    expect(() => validateIpcInput('window.presence', undefined)).not.toThrow();
+    expect(() => validateIpcInput('window.presence', { sneaky: true })).toThrow();
   });
 
   it('allows mobileGatewayEnabled in prefs.update', () => {
