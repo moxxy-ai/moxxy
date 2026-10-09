@@ -6,6 +6,9 @@ policy. Its runtime is a TypeScript framework for modular agentic loops, but
 that architecture is progressively disclosed rather than exposed in the
 default product experience. Read `PRODUCT.md` before changing user-facing
 flows, vocabulary, or navigation.
+Read `docs/desktop-design.md` before changing how the desktop looks, moves or
+is laid out, and update it in the same change: it is the record of the
+desktop's style, and the code alone does not say which choices were deliberate.
 
 If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.ai/agents/` that matches your task.
 
