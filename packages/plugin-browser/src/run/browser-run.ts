@@ -167,8 +167,9 @@ const setsState = (step: RunStep): step is RunStep & { do: 'check' | 'uncheck' }
 const BOXES: ReadonlySet<string> = new Set(['checkbox', 'switch', 'radio', 'menuitemcheckbox', 'menuitemradio']);
 
 /** Whether the element is on or off, where the page says so: a ticked box, a toggle either way. Nothing for a plain button. */
-function onOff(element: AppElement): boolean | undefined {
+function onOff(element: AppElement): boolean | 'mixed' | undefined {
   const states = element.states ?? [];
+  if (states.includes('mixed')) return 'mixed';
   if (states.includes('checked') || states.includes('selected')) return true;
   return states.includes('not selected') || BOXES.has(element.role) ? false : undefined;
 }
@@ -372,9 +373,11 @@ export async function runBrowserSteps(
           outcomes[at] = { ...outcomes[at], step, status: 'unverified', why: `delivered, but ${named(pressed)} can no longer be read to see whether it is ${wanted ? 'on' : 'off'}` };
           break;
         }
-        if (onOff(after) !== wanted) {
+        const state = onOff(after);
+        if (state !== wanted) {
           await forget();
-          fail(`${named(pressed)} is still ${wanted ? 'off' : 'on'} after the click`);
+          const shown = state === 'mixed' ? 'partly checked' : state === undefined ? 'unknown' : state ? 'on' : 'off';
+          fail(`${named(pressed)} is still ${shown} after the click`);
           break;
         }
         outcomes[at] = { ...outcomes[at], step, status: 'done', checked: true, state: wanted ? 'now on' : 'now off' };

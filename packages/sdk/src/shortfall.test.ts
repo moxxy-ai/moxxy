@@ -62,6 +62,12 @@ describe('openShortfall', () => {
 });
 
 describe('shortfallNudge', () => {
+  it('does not assert delivery when the helper did not answer', () => {
+    const text = shortfallNudge({ what: 'Save: helper timed out', unverified: true });
+    expect(text).not.toContain('It was delivered');
+    expect(text).toContain('read the page or window to see whether it took effect');
+    expect(text).toContain('do not repeat it blind');
+  });
   it('names the step, offers another way and leaves room to say what blocks', () => {
     const text = shortfallNudge({ what: 'step 1, click "Send": the page answered 503' });
 

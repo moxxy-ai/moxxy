@@ -906,7 +906,7 @@ export class BrowserHost {
       tab.seen = fingerprint;
       tab.rendering = rendering;
 
-      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall: wall?.kind, decline: wall?.decline }) + inProgress;
+      const text = formatSnapshot({ tree, url, title, tabs: this.list(), body, wall: wall?.kind, decline: wall?.decline, declineUid: wall?.declineUid }) + inProgress;
       // Names what was read, so the conversation can retire this read once the
       // tab is read whole again (Supersede in @moxxy/sdk).
       const supersede = { key: readKey(tab.id), whole: changes === null };
@@ -2050,7 +2050,7 @@ export class BrowserHost {
     // AxTree is the root node with an index hung off it, so one value is both.
     tree: AxNode & { index: ReadonlyMap<string, AxNode> },
     tab: Tab,
-  ): Promise<{ kind: WallKind; decline?: string } | null> {
+  ): Promise<{ kind: WallKind; decline?: string; declineUid?: string } | null> {
     delete tab.wall;
     const found = detectWall(tree);
     if (!found) return null;
@@ -2068,7 +2068,7 @@ export class BrowserHost {
     // The control that declines is held to the same test: one that is not drawn cannot be pressed.
     const declining = found.decline ? tree.index.get(found.decline.uid)?.backendNodeId : undefined;
     const decline = found.decline && declining !== undefined && (await this.hasBox(cdp, declining)) ? found.decline.name : undefined;
-    return { kind: found.kind, ...(decline ? { decline } : {}) };
+    return { kind: found.kind, ...(decline && found.decline ? { decline, declineUid: found.decline.uid } : {}) };
   }
 
   /** Whether the element has a box with any area. No box is the same answer as an empty one. */

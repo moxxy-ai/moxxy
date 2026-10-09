@@ -4,9 +4,10 @@ import type { TurnCheckpoint } from './mode/checkpoint.js';
 
 /**
  * What a tool result says it was asked to do and did not get done: `what`
- * names the step and why, `unverified` marks a step that was delivered though
- * its effect was not seen. A result that got everything done leaves
- * `shortfall` out, and so does one stopped by a refusal — that is the user's
+ * names the step and why, `unverified` marks an action whose effect is unknown,
+ * including delivery without confirmation and a helper that did not answer.
+ * A result that got everything done leaves `shortfall` out, and so does one
+ * stopped by a refusal — that is the user's
  * answer, not a step left to finish.
  */
 export interface Shortfall {
@@ -37,7 +38,7 @@ export function openShortfall(events: ReadonlyArray<MoxxyEvent>): Shortfall | nu
 
 export function shortfallNudge(shortfall: Shortfall): string {
   const next = shortfall.unverified
-    ? 'It was delivered, so first read the page or window to see whether it took effect. ' +
+    ? 'Its effect is unconfirmed, so first read the page or window to see whether it took effect. ' +
       'If it shows that it did not — an error, a "try again" — do the step again. ' +
       'If it may have gone through (a send, a payment, a tick), do not repeat it blind. '
     : 'Try it again where the error or the page invites that, or go another way: a different element, tool or route. ';

@@ -42,6 +42,23 @@ describe('rungs', () => {
 describe('judge', () => {
   const delivered = { outcome: 'delivered' } as const;
 
+  it.each(['user_stopped', 'user_intervened', 'permissions_not_granted', 'permissions_pending', 'screen_locked', 'tier_insufficient', 'app_not_allowed', 'protected_path', 'system_key_combo', 'clipboard_not_granted', 'own_window'] as const)('keeps the final block code %s even if an action was partly delivered', (code) => {
+      for (const outcome of ['blocked', 'delivered'] as const) {
+        expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome, code }, changed: true, expected: 0.9 }))
+          .toMatchObject({ verdict: 'stop', code });
+      }
+    });
+
+  it.each(['timeout', 'helper_failed'] as const)('does not retry when delivery is unknown (%s)', (code) => {
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'blocked', code }, changed: false }))
+      .toMatchObject({ verdict: 'stop', code, unverified: true });
+  });
+
+  it('keeps a delivered but unseen effect distinct from an ordinary failure', () => {
+    expect(judge({ step: { do: 'click', target: 'Save' }, result: { outcome: 'delivered', code: 'page_loading' }, changed: false }))
+      .toMatchObject({ verdict: 'stop', code: 'page_loading', unverified: true });
+  });
+
   it('goes on after an action that was delivered and changed the window', () => {
     expect(judge({ step: { do: 'click', target: 'Save' }, result: delivered, changed: true })).toEqual({ verdict: 'done', verified: false });
   });
@@ -108,6 +125,6 @@ describe('judge', () => {
 
   it('takes another way when the element would not take the input: focus left the field, or something covers it', () => {
     const step = { do: 'type' as const, target: 'the search field', text: 'x' };
-    expect(judge({ step, result: { outcome: 'blocked', code: 'target_blocked' }, changed: false })).toEqual({ verdict: 'retry', why: 'blocked (target_blocked)' });
+    expect(judge({ step, result: { outcome: 'blocked', code: 'target_blocked' }, changed: false })).toEqual({ verdict: 'retry', why: 'blocked (target_blocked)', code: 'target_blocked' });
   });
 });

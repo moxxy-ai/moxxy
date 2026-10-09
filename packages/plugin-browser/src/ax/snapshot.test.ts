@@ -181,9 +181,11 @@ describe('formatSnapshot — a page that is waiting on a person', () => {
       tabs: [],
       wall: 'consent',
       decline: 'Odrzuć wszystko',
+      declineUid: '17',
     });
 
     expect(out).toContain('### Cookie banner');
+    expect(out).toContain('browser_click with uid="17"');
     expect(out).toContain('"Odrzuć wszystko"');
     expect(out).not.toContain('### Needs you');
     expect(out.indexOf('### Cookie banner')).toBeLessThan(out.indexOf('### Snapshot'));

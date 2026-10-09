@@ -13,6 +13,11 @@ const FINAL: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   'app_not_allowed', 'protected_path', 'system_key_combo', 'clipboard_not_granted', 'own_window',
 ]);
 
+export const isFinalBlock = (code: ErrorCode | undefined): boolean => code !== undefined && FINAL.has(code);
+/** A timeout cannot prove the action was not applied. */
+export const unverifiedResult = (result: ActionResult): boolean =>
+  result.outcome === 'delivered' || result.code === 'timeout' || result.code === 'helper_failed';
+
 const click = (target: { element_index: number } | { x: number; y: number }): ComputerAction => ({ action: 'click', ...target, mouse_button: 'left', click_count: 1 });
 
 /** The ways to carry out a step on its element, best first. Each way is a short run of actions. */
@@ -44,8 +49,7 @@ export function rungs(step: RunStep, element: AppElement | undefined, selectAll:
 
 export type Verdict =
   | { readonly verdict: 'done'; readonly verified: boolean }
-  | { readonly verdict: 'retry'; readonly why: string }
-  | { readonly verdict: 'stop'; readonly why: string };
+  | { readonly verdict: 'retry' | 'stop'; readonly why: string; readonly code?: ErrorCode; readonly unverified?: true };
 
 export interface Attempt {
   readonly step: RunStep;
@@ -68,21 +72,24 @@ const LOADING = 'the click followed a link and the new page is still loading, so
 
 /** What one attempt at a step means for the run. */
 export function judge({ step, result, changed, expected, unseen, typed, moved }: Attempt): Verdict {
+  const details = { ...(result.code ? { code: result.code } : {}), ...(unverifiedResult(result) ? { unverified: true as const } : {}) };
+  const why = `${result.outcome}${result.code ? ` (${result.code})` : ''}`;
+  // A human block takes precedence even if part of the action went through.
+  if (isFinalBlock(result.code)) return { verdict: 'stop', why, ...details };
   if (result.outcome !== 'delivered') {
-    const why = `${result.outcome}${result.code ? ` (${result.code})` : ''}`;
-    return result.code && FINAL.has(result.code) ? { verdict: 'stop', why } : { verdict: 'retry', why };
+    return { verdict: details.unverified ? 'stop' : 'retry', why, ...details };
   }
   // Doing these again would do them twice. A key that brought another window forward opened or switched one, which Jev,
   // reading a single window, cannot tell from one that was there before.
   if (typed || (moved && step.do === 'key')) return { verdict: 'done', verified: expected !== undefined && expected >= HOLDS };
   if (expected !== undefined && expected >= HOLDS) return { verdict: 'done', verified: true };
-  if (result.code === 'page_loading') return { verdict: 'stop', why: LOADING };
+  if (result.code === 'page_loading') return { verdict: 'stop', why: LOADING, ...details };
   if (expected !== undefined) {
-    if (unseen) return { verdict: 'stop', why: UNSEEN };
-    if (expected <= FAILS || !changed) return { verdict: 'retry', why: 'the expected result does not show' };
+    if (unseen) return { verdict: 'stop', why: UNSEEN, ...details };
+    if (expected <= FAILS || !changed) return { verdict: 'retry', why: 'the expected result does not show', ...details };
     return { verdict: 'done', verified: false };
   }
   // A key or a scroll can be right and still change nothing visible; a click or a value cannot.
-  if (!changed && step.do !== 'key' && step.do !== 'scroll') return { verdict: 'retry', why: 'nothing changed' };
+  if (!changed && step.do !== 'key' && step.do !== 'scroll') return { verdict: 'retry', why: 'nothing changed', ...details };
   return { verdict: 'done', verified: false };
 }

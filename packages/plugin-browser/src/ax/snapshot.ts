@@ -47,6 +47,7 @@ export interface SnapshotInput {
   readonly wall?: WallKind | null;
   /** The control that declines a cookie banner, when the wall is one that shows it: the agent presses it instead of asking. */
   readonly decline?: string | null;
+  readonly declineUid?: string;
 }
 
 /**
@@ -115,7 +116,7 @@ export function formatSnapshot(input: SnapshotInput): string {
   // Ahead of the content, because it changes what the agent should do with
   // everything below it: a page that has stopped being readable and started
   // asking for a person is not a page to act on.
-  if (input.wall === 'consent' && input.decline) sections.push('### Cookie banner', declineNote(input.decline));
+  if (input.wall === 'consent' && input.decline) sections.push('### Cookie banner', declineNote(input.decline, input.declineUid));
   else if (input.wall) sections.push('### Needs you', wallNote(input.wall));
 
   sections.push('### Untrusted page content', UNTRUSTED_NOTE, '### Snapshot');

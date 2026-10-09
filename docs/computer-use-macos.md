@@ -254,6 +254,21 @@ verified, 4 Jev requests, 7.5 s; before the helper changes below it was 24.1 s.
 The same plan again, from memory: 0 Jev requests, 4.0 s (two clicks; the third
 step's result already showed).
 
+### Stops and unconfirmed effects
+
+`computer_run` carries the helper's error `code` into its step outcome, rather
+than inferring a stop from the wording of `why`. User Stop or takeover, locked
+screens and access blocks do not produce pending work for the end-of-turn
+reminder. The report gives the code's existing guidance instead of suggesting
+another route around the block.
+
+An action delivered without its effect being confirmed carries `unverified`.
+Timeouts, helper failures and missing batch answers are also uncertain: the
+action may have applied. The runner does not automatically resend them; the
+report and reminder ask to observe first. A human block takes precedence even
+if an earlier part of the step was delivered. Ordinary recoverable failures
+still permit the existing single reminder per turn.
+
 ### Time per action
 
 After an action the helper waits for the app to settle, then reads the tree

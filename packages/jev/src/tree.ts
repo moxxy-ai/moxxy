@@ -11,7 +11,7 @@ const elementSchema = z.object({
   description: text.optional(),
   value: text.optional(),
   secure: z.boolean().optional(),
-  states: z.array(z.enum(['focused', 'selected', 'not selected', 'checked', 'expanded', 'collapsed', 'disabled', 'read-only'])).max(6).optional(),
+  states: z.array(z.enum(['focused', 'selected', 'not selected', 'checked', 'mixed', 'expanded', 'collapsed', 'disabled', 'read-only'])).max(6).optional(),
   actions: z.array(z.string().min(1).max(64)).max(32).optional(),
   /** Bounds in the coordinate frame of the state's screenshot. */
   frame: z.object({ x: z.number(), y: z.number(), width: z.number().nonnegative(), height: z.number().nonnegative() }).strict().optional(),

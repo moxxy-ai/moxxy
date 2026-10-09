@@ -125,9 +125,10 @@ export function appTreeOf(
 
 type JevState = NonNullable<AppElement['states']>[number];
 
-/** Jev's word for each state. A toggle that is pressed is one that is on, "selected", and one that is off is "not selected"; a box ticked in part has no word, so Jev is told nothing of it. */
+/** Jev's word for each state. Mixed stays distinct from both on and off. */
 const JEV_STATE: Partial<Record<AxState, JevState>> = {
   checked: 'checked',
+  mixed: 'mixed',
   pressed: 'selected',
   'not pressed': 'not selected',
   selected: 'selected',

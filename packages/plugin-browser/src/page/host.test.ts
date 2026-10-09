@@ -1379,7 +1379,8 @@ describe('BrowserHost — a wall only counts when it is on screen', () => {
   });
 
   const DECLINABLE_PAGE = [
-    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['b', 'c'] },
+    { nodeId: 'a', role: { value: 'RootWebArea' }, name: { value: 'Sklep' }, childIds: ['d'] },
+    { nodeId: 'd', role: { value: 'dialog' }, name: { value: 'Pliki cookie' }, childIds: ['b', 'c'] },
     { nodeId: 'b', role: { value: 'button' }, name: { value: 'Zaakceptuj wszystkie' }, backendDOMNodeId: 55 },
     { nodeId: 'c', role: { value: 'button' }, name: { value: 'Tylko niezbędne' }, backendDOMNodeId: 56 },
   ];
@@ -1394,6 +1395,7 @@ describe('BrowserHost — a wall only counts when it is on screen', () => {
 
     expect(text).toContain('### Cookie banner');
     expect(text).toContain('"Tylko niezbędne"');
+    expect(text).toContain('browser_click with uid="4"');
     expect(text).not.toContain('### Needs you');
   });
 

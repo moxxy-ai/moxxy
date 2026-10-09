@@ -62,8 +62,7 @@ describe('appTreeOf', () => {
     expect(appTreeSchema.safeParse(out).success).toBe(true);
     expect(out.elements.map((element) => element.states)).toEqual([
       ['focused', 'checked'],
-      // Jev has no word for a box ticked in part: it is told neither "checked" nor anything else.
-      undefined,
+      ['mixed'],
       ['selected'],
       ['selected'],
       ['collapsed', 'disabled'],

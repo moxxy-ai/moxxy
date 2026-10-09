@@ -35,8 +35,8 @@ const CAPTCHA =
 const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ...FILLABLE]);
 
 /**
- * A control belongs to a consent banner if it says so, or if it uses a phrase
- * that appears nowhere else.
+ * A complete consent label can ask for a choice without proving it is about
+ * cookies. Only a cookie control or its own cookie banner may be declined.
  *
  * The first draft matched loose stems — `akceptuj`, `więcej opcji` — and paid
  * for it: Canva's account menu is called "Więcej opcji konta i zespołu", so
@@ -50,15 +50,15 @@ const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ..
  */
 const CONSENT_WORD = /(cookie|ciasteczk)/i;
 /**
- * What only the declining control of a cookie banner is called. "I do not
- * agree" is left out on purpose: it also refuses a contract, which is not the
- * agent's to refuse.
+ * Complete declining labels, optionally naming cookies. Other objects such
+ * as invitations cannot be appended. Refusing a contract is not included.
  */
 const DECLINE =
-  'reject all|reject non-essential|reject optional|only necessary|necessary only|only essential|continue without accepting|' +
-  'odrzuć wszystk|odrzuc wszystk|odrzuć zbędne|odrzuć opcjonalne|tylko niezbędne|tylko niezbedne|kontynuuj bez akceptacji';
-const DECLINE_PHRASE = new RegExp(`(${DECLINE})`, 'i');
-const CONSENT_PHRASE = new RegExp(`(accept all|i agree|agree and continue|zaakceptuj wszystk|zgadzam się|zgadzam sie|${DECLINE})`, 'i');
+  '(?:reject (?:all|non-essential|optional)|only (?:necessary|essential)|necessary only|continue without accepting)(?: cookies)?|' +
+  '(?:odrzu[ćc] (?:wszystk(?:ie|o)|zbędne|opcjonalne)|tylko (?:niezbędne|niezbedne)|kontynuuj bez akceptacji)(?: (?:pliki cookie|cookies|ciasteczka))?';
+const DECLINE_PHRASE = new RegExp(`^(?:${DECLINE})$`, 'i');
+const CONSENT_PHRASE = new RegExp(`^(?:accept all(?: cookies)?|i agree|agree and continue|zaakceptuj wszystk(?:ie|o)(?: pliki cookie)?|zgadzam si[ęe]|${DECLINE})$`, 'i');
+const normalized = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ');
 /** A box named "Only necessary" sits in a banner's settings; the answer is a button or a link. */
 const ANSWERS = new Set(['button', 'link']);
 /**
@@ -66,7 +66,17 @@ const ANSWERS = new Set(['button', 'link']);
  * on every page — so a link counts only when it uses a banner's own phrase.
  */
 const isConsent = (role: string, name: string): boolean =>
-  CONSENT_PHRASE.test(name) || (role !== 'link' && CONSENT_WORD.test(name));
+  CONSENT_PHRASE.test(normalized(name)) || (role !== 'link' && CONSENT_WORD.test(name));
+
+const DIALOGS = new Set(['dialog', 'alertdialog']);
+const CONTAINERS = new Set([...DIALOGS, 'group', 'region']);
+
+/** Local banner text, without borrowing another dialog or a policy link. */
+function mentionsCookies(node: AxNode): boolean {
+  if (node.role === 'link') return false;
+  if (CONSENT_WORD.test(node.name)) return true;
+  return node.children.some((child) => !CONTAINERS.has(child.role) && mentionsCookies(child));
+}
 
 /** What a control that signs you in is called. */
 const SIGNIN = /(sign in|sign-in|log in|log-in|login|zaloguj|logowanie|continue with|kontynuuj z|anmelden|iniciar sesi)/i;
@@ -79,9 +89,12 @@ const SIGNIN = /(sign in|sign-in|log in|log-in|login|zaloguj|logowanie|continue 
 const SIGNIN_FIELDS = 2;
 
 /** Walk the tree once, shallow-first is irrelevant — every node gets looked at. */
-function walk(node: AxNode, visit: (n: AxNode) => void): void {
-  visit(node);
-  for (const child of node.children ?? []) walk(child, visit);
+function walk(node: AxNode, visit: (n: AxNode, scope: AxNode | undefined) => void, scope?: AxNode): void {
+  const local = DIALOGS.has(node.role)
+    ? (mentionsCookies(node) ? node : undefined)
+    : scope ?? (CONTAINERS.has(node.role) && mentionsCookies(node) ? node : undefined);
+  visit(node, local);
+  for (const child of node.children) walk(child, visit, local);
 }
 
 /**
@@ -112,11 +125,12 @@ export function detectWall(tree: AxNode | null): Wall | null {
   let captcha: string | null = null;
   let secret: string | null = null;
   let consent: string | null = null;
-  let decline: Wall['decline'];
+  let cookie: Wall | undefined;
+  let cookieScope: AxNode | undefined;
   let otherFields = 0;
   let saysSignIn = false;
 
-  walk(tree, (n) => {
+  walk(tree, (n, scope) => {
     const name = n.name ?? '';
     if (!name) return;
     if (captcha === null && CAPTCHA_WIDGET.has(n.role) && CAPTCHA.test(name)) captcha = n.uid;
@@ -126,12 +140,25 @@ export function detectWall(tree: AxNode | null): Wall | null {
     }
     if (PRESSABLE.has(n.role) && SIGNIN.test(name)) saysSignIn = true;
     if (consent === null && PRESSABLE.has(n.role) && isConsent(n.role, name)) consent = n.uid;
-    if (decline === undefined && ANSWERS.has(n.role) && DECLINE_PHRASE.test(name)) decline = { uid: n.uid, name };
+    if (PRESSABLE.has(n.role) && isConsent(n.role, name) && (scope || CONSENT_WORD.test(name))) {
+      const local = scope ?? n;
+      const declining = ANSWERS.has(n.role) && DECLINE_PHRASE.test(normalized(name)) &&
+        !n.states?.includes('disabled');
+      if (!cookie || (scope === undefined && declining && cookie.decline === undefined &&
+          cookieScope !== undefined && !CONTAINERS.has(cookieScope.role))) {
+        cookie = { kind: 'consent', uid: n.uid };
+        cookieScope = local;
+      }
+      if (cookieScope === local && cookie.decline === undefined && declining) {
+        cookie = { ...cookie, decline: { uid: n.uid, name } };
+      }
+    }
   });
 
   if (captcha !== null) return { kind: 'captcha', uid: captcha };
   if (secret !== null && (saysSignIn || otherFields <= SIGNIN_FIELDS)) return { kind: 'signin', uid: secret };
-  if (consent !== null) return { kind: 'consent', uid: consent, ...(decline ? { decline } : {}) };
+  if (cookie) return cookie;
+  if (consent !== null) return { kind: 'consent', uid: consent };
   return null;
 }
 
@@ -156,10 +183,12 @@ export function wallNote(kind: WallKind): string {
 }
 
 /** What the agent should do about a cookie banner that can be turned down with the control called `name`. */
-export function declineNote(name: string): string {
+export function declineNote(name: string, uid?: string): string {
   return (
     `This page shows a cookie banner with a way to turn down what the site does not need: "${name}". ` +
     'Press it yourself and carry on with the task — do not ask the user. Never press a control that accepts ' +
-    'or agrees to more; if the banner is still there after that, call browser_await_human.'
+    'or agrees to more; if the banner is still there after that, call browser_await_human. ' +
+    'This exception is only for cookies. Do not reject invitations, requests or other choices unless the user asked for that.' +
+    (uid ? ` Use browser_click with uid=${JSON.stringify(uid)} for this banner's control, not a similarly named control elsewhere.` : '')
   );
 }
