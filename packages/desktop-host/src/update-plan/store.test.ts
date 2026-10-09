@@ -36,6 +36,13 @@ describe('update plan store', () => {
     expect(await createUpdatePlanStore(userData).read()).toEqual(installer);
   });
 
+  it('keeps that a plan completes an update already half in', async () => {
+    const userData = profile();
+    const completing: AppUpdatePlan = { ...plan, route: 'installer', completes: true };
+    await createUpdatePlanStore(userData).write(completing);
+    expect(await createUpdatePlanStore(userData).read()).toEqual(completing);
+  });
+
   it('replaces the earlier plan', async () => {
     const userData = profile();
     const store = createUpdatePlanStore(userData);

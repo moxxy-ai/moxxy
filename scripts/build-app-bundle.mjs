@@ -33,9 +33,12 @@ import { fileURLToPath } from 'node:url';
 // Built output of the shared, tested builder — same code the integration test
 // and (transitively) the client verifier use, so producer + consumer can't drift.
 import { buildAppBundle } from '../packages/desktop-host/dist/app-update/index.js';
-// The runner protocol the bundle's bundled client speaks — stamped into the
-// signed manifest so the bootstrap's lockstep gate can refuse a JS hot-update
-// whose client would outrun the pinned CLI's runner.
+// The runner protocol the bundle's client speaks. Written to the manifest
+// UNSIGNED (`needsRunnerProtocol`): an installed app that knows the field takes
+// the full installer when its runner is older; one that predates it loads the
+// bundle, which then installs the full app itself. The signed stamp made those
+// older apps refuse the bundle and run their own installer step, which crashes
+// on macOS now that the installer is over a gigabyte.
 import { RUNNER_PROTOCOL_VERSION } from '../packages/runner/dist/index.js';
 import { collectAppBundleFiles } from './app-bundle-files.mjs';
 
@@ -110,7 +113,7 @@ function main() {
     bundleUrl,
     privateKeyPem,
     files,
-    runnerProtocol: RUNNER_PROTOCOL_VERSION,
+    needsRunnerProtocol: RUNNER_PROTOCOL_VERSION,
     releaseUrl,
     notes: process.env.MOXXY_BUNDLE_NOTES,
   });
@@ -123,7 +126,7 @@ function main() {
   console.log(
     `build-app-bundle: wrote ${Object.keys(files).length} files ` +
       `(${(bytes / 1024).toFixed(0)} KiB raw → ${(bundleGz.length / 1024).toFixed(0)} KiB gz)\n` +
-      `  version=${version} minElectron=${minElectron} nodeAbi=${nodeAbi || '(any)'} runnerProtocol=${RUNNER_PROTOCOL_VERSION}\n` +
+      `  version=${version} minElectron=${minElectron} nodeAbi=${nodeAbi || '(any)'} needsRunnerProtocol=${RUNNER_PROTOCOL_VERSION}\n` +
       `  sha256=${manifest.sha256}\n` +
       `  bundleUrl=${bundleUrl}\n` +
       `  out=${outDir}`,

@@ -1,7 +1,11 @@
 /**
  * Tier-2 updates: replacing the native shell (Electron/Chromium/Node or a
  * changed native-module ABI) — the rare case a JS hot-update (Tier-1) can't
- * cover. Uses electron-updater against the release the update plan names.
+ * cover. On Windows and Linux electron-updater installs the release the update
+ * plan names. On macOS Moxxy replaces itself (`@moxxy/desktop-host`'s
+ * `shell-update`): electron-updater hands the archive to Squirrel.Mac, which
+ * reads all of it into memory and crashed the app once the installer grew past
+ * a gigabyte.
  *
  * There is no background check: an update is installed when the person clicks
  * Update, as one step of the plan (`app.updateAll`), never behind their back.
@@ -13,11 +17,50 @@
  */
 
 import { app } from 'electron';
+import { appBundleOf, applyShellUpdate, prepareMacAppUpdate } from '@moxxy/desktop-host';
+
+type Progress = (p: { phase: 'download' | 'install'; received?: number; total?: number; message?: string }) => void;
+
+/** Set once a new macOS app is downloaded, checked and waiting to be moved in. */
+let macUpdateWaitingIn: string | null = null;
+
+/**
+ * macOS: download the release's archive to disk, unpack and check it against
+ * this app's signature, and leave it waiting. The returned function restarts
+ * Moxxy; the new app takes the old one's place as the process exits
+ * ({@link finishFullAppUpdate}), and the relaunch then starts it.
+ */
+async function installMacAppUpdate(opts: { feedBaseUrl: string; onProgress: Progress }): Promise<() => void> {
+  const appPath = appBundleOf(app.getPath('exe'));
+  if (!appPath) throw new Error('Moxxy is not running from an app it could replace.');
+  const userDataDir = app.getPath('userData');
+  opts.onProgress({ phase: 'download', message: 'Fetching the new version…' });
+  await prepareMacAppUpdate({ feedBaseUrl: opts.feedBaseUrl, appPath, userDataDir, arch: process.arch, onProgress: opts.onProgress });
+  opts.onProgress({ phase: 'install', message: 'Restarting to install…' });
+  return () => {
+    macUpdateWaitingIn = userDataDir;
+    app.relaunch();
+    app.quit();
+  };
+}
+
+/**
+ * The last thing before the process exits: move a waiting macOS app in. A move
+ * that fails leaves the installed app where it was and its reason on disk for
+ * the launch after. Does nothing when no update is waiting.
+ */
+export function finishFullAppUpdate(): void {
+  if (!macUpdateWaitingIn) return;
+  const moved = applyShellUpdate(macUpdateWaitingIn);
+  macUpdateWaitingIn = null;
+  if (!moved.ok) console.error(`[moxxy] full app update: ${moved.error}`);
+}
 
 /**
  * Download the FULL installer from an exact desktop release and quit into it.
- * User-triggered, on every platform. Squirrel.Mac refuses an unsigned app: on
- * such a build this rejects and the installer screen offers the release page.
+ * User-triggered, on every platform. A macOS app that is unsigned, or cannot
+ * change the folder it is in, cannot replace itself: this rejects and the
+ * installer screen offers the release page.
  *
  * `feedBaseUrl` is the `releases/download/desktop-v<version>/` asset base of
  * the release to install, resolved by the caller (desktop-host's
@@ -30,16 +73,9 @@ import { app } from 'electron';
  * verified, with the function that quits into it — the caller decides when
  * (after its own state is saved and the IPC reply can flush).
  */
-export async function installFullAppUpdate(opts: {
-  feedBaseUrl: string;
-  onProgress: (p: {
-    phase: 'download' | 'install';
-    received?: number;
-    total?: number;
-    message?: string;
-  }) => void;
-}): Promise<() => void> {
+export async function installFullAppUpdate(opts: { feedBaseUrl: string; onProgress: Progress }): Promise<() => void> {
   if (!app.isPackaged) throw new Error('Full app updates run only in the packaged app.');
+  if (process.platform === 'darwin') return installMacAppUpdate(opts);
   const mod = (await import('electron-updater')) as {
     autoUpdater?: ElectronAutoUpdater;
     default?: { autoUpdater?: ElectronAutoUpdater };

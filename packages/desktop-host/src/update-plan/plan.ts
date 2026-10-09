@@ -11,9 +11,11 @@ export interface UpdatePlanInput {
   readonly app: AppUpdateCheck;
   readonly id: string;
   readonly now: number;
+  /** The bundle of this version is already running; only the installed app is behind. */
+  readonly completes?: boolean;
 }
 
-export function buildUpdatePlan({ app, id, now }: UpdatePlanInput): AppUpdatePlan | null {
+export function buildUpdatePlan({ app, id, now, completes }: UpdatePlanInput): AppUpdatePlan | null {
   if (app.error || !app.available || !app.latestVersion) return null;
   const needsInstaller = app.requiresFullUpdate === true || !app.compatible;
   const steps: AppUpdateStepId[] = [needsInstaller ? 'installer' : 'app', 'restart'];
@@ -23,6 +25,7 @@ export function buildUpdatePlan({ app, id, now }: UpdatePlanInput): AppUpdatePla
     route: needsInstaller ? 'installer' : 'hot',
     version: app.latestVersion,
     ...(needsInstaller && app.releaseUrl ? { releaseUrl: app.releaseUrl } : {}),
+    ...(completes ? { completes: true } : {}),
     steps: steps.map((step) => ({ id: step, status: 'pending' })),
   };
 }

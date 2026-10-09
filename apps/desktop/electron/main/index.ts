@@ -96,8 +96,16 @@ import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
-import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
-import { installFullAppUpdate } from './shell-updater.js';
+import {
+  readConfirmed,
+  markConfirmed,
+  markBad,
+  appendBootLog,
+  shellIsBehind,
+  shellRunnerProtocol,
+  SHELL_RUNNER_PROTOCOL_ENV,
+} from '@moxxy/desktop-host/app-update';
+import { finishFullAppUpdate, installFullAppUpdate } from './shell-updater.js';
 import { DeepLinkRouter } from './deep-link.js';
 import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
 import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.js';
@@ -121,6 +129,20 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
 import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences, webContents } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Which runner the installed app carries. This main is either that app's own
+// (then it is the one compiled in here) or a newer bundle the app loaded — and
+// a bundle can be loaded by an app whose runner is too old for it: releases no
+// longer sign the runner they need, so that an app from before can take them
+// at all. Such a launch starts no agent; it installs the full app
+// (`shellBehind` in the update handlers).
+const installedApp = {
+  bundleVersion: process.env.MOXXY_APP_BUNDLE_VERSION,
+  declared: process.env[SHELL_RUNNER_PROTOCOL_ENV],
+  shellVersion: app.getVersion(),
+};
+const SHELL_RUNNER_PROTOCOL = installedApp.bundleVersion ? shellRunnerProtocol(installedApp) : FLOOR_RUNNER_PROTOCOL;
+const SHELL_BEHIND = shellIsBehind({ ...installedApp, needed: FLOOR_RUNNER_PROTOCOL });
 
 // The local-only `moxxy-app://` asset scheme (serves an installed app's
 // downloaded assets — e.g. the anonymizer's NER model — from `userData/moxxy-apps`
@@ -246,6 +268,7 @@ const MANAGED_COMPUTER_UPDATE = process.platform === 'win32' && process.arch ===
 /** Expensive runner-only boot work. RunnerPool invokes this once, lazily, so
  *  the renderer can paint persisted desks/history before any runner spawns. */
 async function prepareRunnerEnvironment(): Promise<void> {
+  if (SHELL_BEHIND) throw new Error('Moxxy is finishing an update and starts no agent until it has.');
   if (app.isPackaged) {
     const moxxyHome =
       process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
@@ -905,7 +928,7 @@ app.whenReady().then(async () => {
   // The installer carries Node and Python for a computer that has neither.
   // Those unpacked on an earlier run are on PATH at once; a first launch
   // unpacks them in the background, and the runner and the Node check wait.
-  if (app.isPackaged) {
+  if (app.isPackaged && !SHELL_BEHIND) {
     const moxxyHome = process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
     activateRuntimes(moxxyHome);
     void prepareBundledRuntimes({
@@ -983,11 +1006,10 @@ app.whenReady().then(async () => {
       manifestUrl: process.env.MOXXY_UPDATE_URL,
       // The same runner-protocol ceiling the bootstrap's boot gate enforces, so
       // the stager refuses (with a "needs the full installer" status) a bundle
-      // that every boot would silently reject as `runner-protocol-skew`. When
-      // this main IS a hot-updated override, its compiled constant can only be
-      // ≤ the floor's (the boot gate already admitted it) — i.e. at worst the
-      // stage-time gate is conservative, never permissive.
-      cliRunnerProtocol: FLOOR_RUNNER_PROTOCOL,
+      // that every boot would silently reject as `runner-protocol-skew`. The
+      // installed app's own, not this bundle's: the bundle can be the newer.
+      cliRunnerProtocol: SHELL_RUNNER_PROTOCOL,
+      shellBehind: SHELL_BEHIND,
       // Where the launch after an update brings the runner and extensions:
       // the version this app was built with, never npm's latest.
       componentsVersion: __MOXXY_COMPONENTS_VERSION__,
@@ -1035,16 +1057,19 @@ app.whenReady().then(async () => {
   // First paint is complete. Seed plugins, sweep stale sockets, and connect the
   // active runner in the background while the renderer shows the persisted
   // shell/transcript. User-triggered runner creation shares this same gate.
-  void primeInitialRunner(pool, desks)
-    .catch((err) => {
-      console.error('[moxxy] initial runner startup failed:', err);
-    })
-    // After the first runner so bundled plugins are seeded before a channel
-    // (e.g. Discord, run mode "with the app") boots its own runner.
-    .then(() => autostartConfiguredChannels())
-    .catch((err) => {
-      console.error('[moxxy] channel autostart failed:', err);
-    });
+  // Not while the installed app is behind: the window shows the installer only.
+  if (!SHELL_BEHIND) {
+    void primeInitialRunner(pool, desks)
+      .catch((err) => {
+        console.error('[moxxy] initial runner startup failed:', err);
+      })
+      // After the first runner so bundled plugins are seeded before a channel
+      // (e.g. Discord, run mode "with the app") boots its own runner.
+      .then(() => autostartConfiguredChannels())
+      .catch((err) => {
+        console.error('[moxxy] channel autostart failed:', err);
+      });
+  }
 
   if (wsBridge && wsBus && wsConfig && mobileGateway) {
     // The opt-in env bridge is independent of first paint. Hand the running
@@ -1089,7 +1114,12 @@ app.on('before-quit', (event) => {
   if (isQuitting) return;
   isQuitting = true;
   event.preventDefault();
-  void shutdown().finally(() => app.exit(0));
+  void shutdown().finally(() => {
+    // A full app update on macOS moves the new app in here, once nothing of
+    // this one is left running, so the relaunch starts the new one.
+    finishFullAppUpdate();
+    app.exit(0);
+  });
 });
 
 app.on('will-quit', () => {
