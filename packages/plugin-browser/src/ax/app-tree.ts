@@ -1,7 +1,7 @@
 import type { AppElement, AppTree } from '@moxxy/jev';
 import { MAX_LABEL_CHARS, unnamedTitle } from './format.js';
 import { isSecret } from './snapshot.js';
-import type { AxNode, AxState } from './tree.js';
+import { TAKES_TEXT, type AxNode, type AxState } from './tree.js';
 
 /**
  * A page as Jev reads it: the elements one can act on, each under the uid the
@@ -31,9 +31,6 @@ const ACTIONABLE: ReadonlySet<string> = new Set([
   'treeitem',
   'DisclosureTriangle',
 ]);
-
-/** Roles that take text; each carries a value, empty or not, so grounding can tell them from the rest. */
-const TAKES_TEXT: ReadonlySet<string> = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
 
 /** What `appTreeSchema` takes. */
 const MAX_ELEMENTS = 5_000;
@@ -128,14 +125,16 @@ export function appTreeOf(
 
 type JevState = NonNullable<AppElement['states']>[number];
 
-/** Jev's word for each state. A toggle that is pressed is one that is on, "selected"; a box ticked in part has no word, so Jev is told nothing of it. */
+/** Jev's word for each state. A toggle that is pressed is one that is on, "selected", and one that is off is "not selected"; a box ticked in part has no word, so Jev is told nothing of it. */
 const JEV_STATE: Partial<Record<AxState, JevState>> = {
   checked: 'checked',
   pressed: 'selected',
+  'not pressed': 'not selected',
   selected: 'selected',
   expanded: 'expanded',
   collapsed: 'collapsed',
   disabled: 'disabled',
+  'read-only': 'read-only',
 };
 
 function statesOf(node: AxNode): JevState[] {

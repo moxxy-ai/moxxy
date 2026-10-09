@@ -72,6 +72,26 @@ describe('appTreeOf', () => {
     expect(formatTree(out)).toContain('checkbox "Unlock" focused checked');
   });
 
+  it('tells Jev a field is read-only', () => {
+    const account = node('1', 'RootWebArea', 'Account', [node('2', 'textbox', 'Display name', [], { states: ['read-only'] })]);
+    const out = appTreeOf(account, { app: 'panel.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements[0]?.states).toEqual(['read-only']);
+  });
+
+  it('tells Jev a toggle is off, so "switched off" can be seen after the click that did it', () => {
+    const panel = node('1', 'RootWebArea', 'Panel', [
+      node('2', 'button', 'Profil publiczny', [], { states: ['not pressed'] }),
+      node('3', 'button', 'Pokazuj status', [], { states: ['pressed'] }),
+    ]);
+    const out = appTreeOf(panel, { app: 'panel.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements.map((element) => element.states)).toEqual([['not selected'], ['selected']]);
+    expect(formatTree(out)).toContain('button "Profil publiczny" not selected');
+  });
+
   it('gives a field one types into a value, even an empty one, and never a secret', () => {
     const byIndex = new Map(tree.elements.map((element) => [element.index, element]));
     expect(byIndex.get(5)?.value).toBe('');

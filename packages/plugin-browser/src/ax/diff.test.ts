@@ -41,6 +41,14 @@ describe('diffRendering', () => {
     expect(diffRendering(ticked, ticked)).toEqual([]);
   });
 
+  it('reports a toggle that was switched off as off, not as a row that lost its mark', () => {
+    const toggle = (states: AxNode['states']): AxNode => ({ uid: '32', role: 'button', name: 'Profil publiczny', states, children: [] });
+
+    expect(diffRendering(renderingOf(page(toggle(['pressed']))), renderingOf(page(toggle(['not pressed']))))).toEqual([
+      expect.stringMatching(/^~ \[32\] button: "Profil publiczny" \[not pressed\]/),
+    ]);
+  });
+
   it('reports what appeared', () => {
     const after = renderingOf(page(node('2', 'heading', 'Koty'), node('3', 'link', 'Stara oferta'), node('9', 'button', 'Zamknij')));
 

@@ -81,10 +81,14 @@ a uid, not a CSS selector and not a coordinate.
   saw it. Ask for `full: true` when you have lost your bearings — it costs far
   more, so not by default.
 - A row ends with what the page says the element is in: `[checked]`,
-  `[pressed]`, `[selected]`, `[expanded]` / `[collapsed]`, `[disabled]`. No mark
-  means it is not. A box that already reads `[checked]` is ticked — clicking it
-  again unticks it. A `[disabled]` control cannot be pressed: turn on what the
-  page offers to unlock it, then press.
+  `[pressed]` / `[not pressed]`, `[selected]`, `[expanded]` / `[collapsed]`,
+  `[disabled]`, `[read-only]`. No mark means it is not. A box that already reads `[checked]`
+  is ticked — clicking it again unticks it. A button that reads `[pressed]` or
+  `[not pressed]` is a switch: it is on or off already, and one click turns it
+  the other way, so press it only when it is not where you want it. A
+  `[disabled]` control cannot be pressed and a `[read-only]` field does not
+  take text: use what the page offers to unlock it — a box to tick, an Edit
+  button beside the field — then press or type.
 - After a navigation the uids are gone with the page they described, and the next
   read is a whole tree again.
 - If the answer is "unchanged since your last snapshot", the page really has not
@@ -130,6 +134,11 @@ is on it. It finds each element by its name, from what worked
 on this site before, or by asking Jev, checks every `expect`, and stops at the
 first step that does not work, saying why. Its answer ends with the page as it
 is now — continue from there; do not read it again.
+
+For a box, a switch or a toggle, send the state you want: `check` to have it
+on, `uncheck` to have it off — never `click`. The step reads the element, does
+nothing when it is already that way, and otherwise clicks once and reads that
+it changed. A click on a box that is already ticked unticks it.
 
 When a run cannot find a control you named, it names the closest ones on the
 page. Look at those before you decide it is not there: a page often calls the

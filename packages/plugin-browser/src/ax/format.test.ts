@@ -64,6 +64,18 @@ describe('formatAxTree — the row', () => {
     expect(formatAxTree(menu)).toBe('[10] button: "Filtry" [expanded] [in progress]');
   });
 
+  it('says a field is read-only, so the way to unlock it is looked for before typing', () => {
+    const field: AxNode = { uid: '46', role: 'textbox', name: 'Nazwa wyświetlana', value: 'kamil123', states: ['read-only'], children: [] };
+
+    expect(formatAxTree(field)).toBe('[46] textbox: "Nazwa wyświetlana" (value: "kamil123") [read-only]');
+  });
+
+  it('says a toggle is off, so it is not taken for a plain button and pressed again', () => {
+    const toggle: AxNode = { uid: '32', role: 'button', name: 'Profil publiczny', states: ['not pressed'], children: [] };
+
+    expect(formatAxTree(toggle)).toBe('[32] button: "Profil publiczny" [not pressed]');
+  });
+
   it('indents children by two spaces per level', () => {
     // uids come from the fixture helper's call order, which is inner-first —
     // assert the shape, not the numbers. Real uids are assigned pre-order by

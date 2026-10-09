@@ -85,9 +85,15 @@ unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
 text: "£53.74"`), so a price or a date deep in a list is not lost.
 
 A row ends with what the page says the element is in: `[focused]`, `[checked]`
-(`[partly checked]` for a box ticked in part), `[pressed]`, `[selected]`,
-`[expanded]` or `[collapsed]`, `[disabled]`. No mark means the page does not
-say it. A change of state alone is a change of the row, so ticking a box shows
+(`[partly checked]` for a box ticked in part), `[pressed]` or `[not pressed]`,
+`[selected]`, `[expanded]` or `[collapsed]`, `[disabled]`, `[read-only]`. No
+mark means the page does not say it. A switch that is off says `[not pressed]`:
+without it the row read like any button, a run could not see "switched off"
+after the click that did it, and the agent pressed it again and switched it
+back on. A text field the page keeps locked says `[read-only]`, and a run that
+types into one says so too: before, the agent typed twice, saw the old text
+stay, and saved the form without the change — the Edit button beside the field
+was never tried. A change of state alone is a change of the row, so ticking a box shows
 in the next read and in the check of a run's `expect`. Before this, a ticked
 box read exactly like an unticked one: a run reported the tick as not seen, the
 agent clicked again and unticked it.
@@ -245,8 +251,16 @@ address. The agent is told so: an address the user names is opened with
 `browser_navigate` first, because a tab left in the pane by an earlier
 conversation is not that page.
 
-A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key` or
-`hover`. For each one the backend serves the page as Jev reads it — the
+A step is `click`, `type` (`text`, `submit`), `select` (`option`), `key`,
+`hover`, or `check` / `uncheck`. The last two name the state wanted for a box,
+a switch or a toggle, not the press that gets there: the step reads the
+element, does nothing when it is already that way (`already on`), and
+otherwise clicks once and reads that it changed (`now on`) — or fails with
+"still off after the click". An element that does not say whether it is on or
+off is refused before it is pressed. Before this, the agent sent a click to a
+box that was already ticked, expecting it to "stay on", and switched it off.
+
+For each step the backend serves the page as Jev reads it — the
 elements one can act on under the uids the other tools use, and the page as
 text (`tree` on the bridge, which leaves the agent's own reads untouched) — and
 code finds the element, in this order. The elements one can act on are those

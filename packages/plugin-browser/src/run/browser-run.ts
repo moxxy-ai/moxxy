@@ -15,7 +15,7 @@ import {
   type JevQuestion,
   type RunMemory,
 } from '@moxxy/jev';
-import { z } from '@moxxy/sdk';
+import { z, type Shortfall } from '@moxxy/sdk';
 import { ALLOW_SITE_TOOL } from '../site-access.js';
 
 /**
@@ -27,7 +27,7 @@ import { ALLOW_SITE_TOOL } from '../site-access.js';
 
 export const runStepSchema = z
   .object({
-    do: z.enum(['click', 'type', 'select', 'key', 'hover']),
+    do: z.enum(['click', 'type', 'select', 'key', 'hover', 'check', 'uncheck']),
     target: z.string().min(1).max(300).optional(),
     text: z.string().max(10_000).optional(),
     submit: z.boolean().optional(),
@@ -41,6 +41,9 @@ export type RunStep = z.infer<typeof runStepSchema>;
 const USES: Record<RunStep['do'], ReadonlyArray<keyof RunStep>> = {
   click: ['target', 'expect'],
   hover: ['target', 'expect'],
+  // The element read on or off is the proof of these two; an `expect` would put to Jev what was just read.
+  check: ['target'],
+  uncheck: ['target'],
   type: ['target', 'text', 'submit', 'expect'],
   select: ['target', 'option', 'expect'],
   key: ['key', 'expect'],
@@ -63,8 +66,8 @@ export function normalizeStep(step: RunStep): RunStep {
 
 /** What a step lacks to be carried out, or nothing. */
 export function stepProblem(step: RunStep): string | undefined {
-  if ((step.do === 'click' || step.do === 'hover' || step.do === 'select') && step.target === undefined) {
-    return `a ${step.do} step needs a target`;
+  if (step.do !== 'type' && step.do !== 'key' && step.target === undefined) {
+    return `${/^[aeiou]/.test(step.do) ? 'an' : 'a'} ${step.do} step needs a target`;
   }
   if (step.do === 'type' && step.text === undefined) return 'a type step needs text';
   if (step.do === 'select' && step.option === undefined) return 'a select step needs an option';
@@ -109,8 +112,10 @@ export interface StepOutcome {
   readonly found?: Found;
   /** The element acted on, as `role "title"`. */
   readonly element?: string;
-  /** Jev saw what the step expects. */
+  /** Jev saw what the step expects, or the element itself was read in the state the step asks for. */
   readonly checked?: true;
+  /** A check or uncheck step: the way the element was found already, or is now. */
+  readonly state?: 'already on' | 'already off' | 'now on' | 'now off';
   readonly why?: string;
 }
 
@@ -154,6 +159,19 @@ const EXPECTED_CHANGE: JevQuestion = {
 };
 
 const needsElement = (step: RunStep) => step.target !== undefined || step.do === 'type';
+
+/** A step that names the state wanted, not the press that gets there. */
+const setsState = (step: RunStep): step is RunStep & { do: 'check' | 'uncheck' } => step.do === 'check' || step.do === 'uncheck';
+
+/** Roles that are on or off by what they are: one without a mark is off. */
+const BOXES: ReadonlySet<string> = new Set(['checkbox', 'switch', 'radio', 'menuitemcheckbox', 'menuitemradio']);
+
+/** Whether the element is on or off, where the page says so: a ticked box, a toggle either way. Nothing for a plain button. */
+function onOff(element: AppElement): boolean | undefined {
+  const states = element.states ?? [];
+  if (states.includes('checked') || states.includes('selected')) return true;
+  return states.includes('not selected') || BOXES.has(element.role) ? false : undefined;
+}
 const named = (element: AppElement) => `${element.role} "${element.title ?? element.description ?? ''}"`;
 const clip = (text: string, limit: number) => (text.length <= limit ? text : `${text.slice(0, limit)}\n… (the page goes on)`);
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -194,7 +212,8 @@ const fieldAfter = (element: AppElement, tree: AppTree) => {
 function typedMiss(element: AppElement, text: string, tree: AppTree): string | undefined {
   const now = fieldAfter(element, tree);
   if (!now || flat(now.value ?? '').includes(flat(text))) return undefined;
-  return `${named(now)} holds ${shownText(now.value ?? '')}, not what was typed`;
+  const locked = now.states?.includes('read-only') ? ' — it is read-only: use what the page offers to unlock it (an Edit button beside it), then type' : '';
+  return `${named(now)} holds ${shownText(now.value ?? '')}, not what was typed${locked}`;
 }
 
 const holdsValue = (element: AppElement, tree: AppTree) => fieldAfter(element, tree) !== undefined;
@@ -291,11 +310,27 @@ export async function runBrowserSteps(
       }
       ahead = undefined;
 
+      const wanted = setsState(step) ? step.do === 'check' : undefined;
+      if (wanted !== undefined) {
+        const element = candidates[0];
+        const now = element ? onOff(element) : undefined;
+        if (!element || now === undefined) {
+          fail(`${element ? named(element) : `"${step.target}"`} does not say whether it is on or off; press it with a click step and read the page after`);
+          break;
+        }
+        // The first reading of the target is the one whose state was read: another candidate may be the other way.
+        candidates = [element];
+        if (now === wanted) {
+          outcomes[at] = { step, status: 'done', ...(found ? { found } : {}), element: named(element), checked: true, state: wanted ? 'already on' : 'already off' };
+          continue;
+        }
+      }
+
       let acted: { element?: AppElement; opened?: string; result?: Readonly<Record<string, unknown>> } | undefined;
       let problem = '';
       for (const element of candidates.length > 0 ? candidates : [undefined]) {
         try {
-          const result = await deps.port.act(step, element ? String(element.index) : undefined, read.tabId);
+          const result = await deps.port.act(wanted === undefined ? step : { ...step, do: 'click' }, element ? String(element.index) : undefined, read.tabId);
           acted = {
             ...(element ? { element } : {}),
             ...(result.opened ? { opened: result.opened.tabId } : {}),
@@ -327,8 +362,24 @@ export async function runBrowserSteps(
         fail(missed);
         break;
       }
-      /** Seen by Jev, or a typed field read back holding the text: the only steps worth remembering. */
+      /** Seen by Jev, or read back off the element itself — a typed field holding the text, a box the way it was asked for: the only steps worth remembering. */
       let seen = step.do === 'type' && acted.element !== undefined && holdsValue(acted.element, read.tree);
+
+      if (wanted !== undefined && acted.element) {
+        const pressed = acted.element;
+        const after = read.tree.elements.find((candidate) => candidate.index === pressed.index);
+        if (!after) {
+          outcomes[at] = { ...outcomes[at], step, status: 'unverified', why: `delivered, but ${named(pressed)} can no longer be read to see whether it is ${wanted ? 'on' : 'off'}` };
+          break;
+        }
+        if (onOff(after) !== wanted) {
+          await forget();
+          fail(`${named(pressed)} is still ${wanted ? 'off' : 'on'} after the click`);
+          break;
+        }
+        outcomes[at] = { ...outcomes[at], step, status: 'done', checked: true, state: wanted ? 'now on' : 'now off' };
+        seen = true;
+      }
 
       if (step.expect !== undefined) {
         const next = steps[at + 1];
@@ -383,6 +434,22 @@ const stepLabel = (step: RunStep) =>
 
 const FOUND: Record<Found, string> = { memory: 'remembered', name: 'by its name', jev: 'by Jev', focus: 'the focused field' };
 
+/**
+ * What the run did not get done, for the loop: the first step that is not
+ * done, and why. Nothing when the user is why it stopped — a site they have
+ * not allowed, a browser they took over — since that is theirs to lift.
+ */
+export function runShortfall(report: RunReport): Shortfall | undefined {
+  const at = report.outcomes.findIndex((outcome) => outcome.status !== 'done');
+  const outcome = report.outcomes[at];
+  if (!outcome || (report.stopped !== undefined && refused(report.stopped))) return undefined;
+  const why = outcome.why ?? report.stopped ?? (outcome.status === 'failed' ? 'failed' : 'not run');
+  return {
+    what: `step ${at + 1} of ${report.outcomes.length}, ${stepLabel(outcome.step)}: ${why}`,
+    ...(outcome.status === 'unverified' ? { unverified: true } : {}),
+  };
+}
+
 export function formatRunReport(report: RunReport): string {
   const done = report.outcomes.filter((outcome) => outcome.status === 'done').length;
   const failedAt = report.outcomes.findIndex((outcome) => outcome.status !== 'done');
@@ -390,7 +457,8 @@ export function formatRunReport(report: RunReport): string {
     `browser_run on ${report.site}: ${done} of ${report.outcomes.length} steps done${failedAt >= 0 ? `; stopped at step ${failedAt + 1}` : ''}.`,
   ];
   report.outcomes.forEach((outcome, at) => {
-    const how = outcome.element ? ` (${outcome.element}, ${FOUND[outcome.found ?? 'name']}${outcome.checked ? '; expectation seen' : ''})` : '';
+    const proof = outcome.state ?? (outcome.checked ? 'expectation seen' : '');
+    const how = outcome.element ? ` (${outcome.element}, ${FOUND[outcome.found ?? 'name']}${proof ? `; ${proof}` : ''})` : '';
     const status =
       outcome.status === 'done'
         ? `done${how}`
@@ -402,7 +470,7 @@ export function formatRunReport(report: RunReport): string {
     lines.push(`${at + 1}. ${stepLabel(outcome.step)} — ${status}`);
   });
   if (report.stopped && !report.outcomes.some((outcome) => outcome.why === report.stopped)) lines.push(`Stopped: ${report.stopped}`);
-  if (report.outcomes.some((outcome) => outcome.status === 'done' && outcome.step.expect === undefined)) {
+  if (report.outcomes.some((outcome) => outcome.status === 'done' && outcome.step.expect === undefined && outcome.state === undefined)) {
     lines.push('Steps without expect were delivered, not verified: check the page below.');
   }
   if (failedAt >= 0) lines.push('Carry on from the step that did not run, with the single browser tools or another browser_run.');

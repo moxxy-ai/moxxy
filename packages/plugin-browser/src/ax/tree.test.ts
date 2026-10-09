@@ -111,10 +111,34 @@ describe('buildAxTree', () => {
       node('2', 'button', { name: 'Obserwuj', props: { pressed: 'true' } }),
       node('3', 'tab', { name: 'Opis', props: { selected: true } }),
       node('4', 'button', { name: 'Pokaż kod', props: { disabled: true } }),
-      node('5', 'tab', { name: 'Opinie', props: { selected: false, disabled: false, pressed: 'false' } }),
+      node('5', 'tab', { name: 'Opinie', props: { selected: false, disabled: false } }),
     ]);
 
     expect(tree!.children.map((child) => child.states)).toEqual([['pressed'], ['selected'], ['disabled'], undefined]);
+  });
+
+  it('tells a toggle that is off from a button that holds no state', () => {
+    // Only a toggle carries `pressed` at all, and nothing else on a button says it is one.
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2', '3', '4'] }),
+      node('2', 'button', { name: 'Profil publiczny', props: { pressed: 'false' } }),
+      node('3', 'button', { name: 'Pokazuj status', props: { pressed: 'true' } }),
+      node('4', 'button', { name: 'Zapisz' }),
+    ]);
+
+    expect(tree!.children.map((child) => child.states)).toEqual([['not pressed'], ['pressed'], undefined]);
+  });
+
+  it('says a text field is read-only, and nothing of it for a field that takes text or an element that never does', () => {
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2', '3', '4'] }),
+      node('2', 'textbox', { name: 'Nazwa wyświetlana', props: { readonly: true } }),
+      node('3', 'textbox', { name: 'E-mail', props: { readonly: false } }),
+      // A table cell is "read-only" on every page that has a table: that says nothing a person would act on.
+      node('4', 'gridcell', { name: '12,50 zł', props: { readonly: true } }),
+    ]);
+
+    expect(tree!.children.map((child) => child.states)).toEqual([['read-only'], undefined, undefined]);
   });
 
   it('keeps the uid, the focus and the frame of an element that also has a state', () => {

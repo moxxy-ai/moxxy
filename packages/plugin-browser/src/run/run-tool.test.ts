@@ -86,6 +86,23 @@ describe('browser_run', () => {
     expect(out.text).toContain('### Page');
   });
 
+  it('tells the loop which step it did not get done, and nothing of it when all were done', async () => {
+    // Jev sees none of what the step expects: the click is delivered, its effect is not confirmed.
+    const unseen: AskJev = async () => ({ expected: { answer: false, probability: 0.02 }, expected_change: { answer: false, probability: 0.02 } }) as never;
+    const short = tool(new JevAccess(), bridge(), () => unseen);
+    const whole = tool();
+    const secrets = ctx({ TYPESAFE_API_KEY: 'k-1' });
+
+    const stopped = (await short.run.handler(
+      short.run.inputSchema.parse({ goal: 'open Travel', steps: [{ do: 'click', target: 'Travel', expect: 'a ticket number' }] }),
+      secrets,
+    )) as { shortfall?: unknown };
+    const done = (await whole.run.handler(whole.run.inputSchema.parse({ goal: 'open Travel', steps: [{ do: 'click', target: 'Travel' }] }), secrets)) as { shortfall?: unknown };
+
+    expect(stopped.shortfall).toEqual({ what: 'step 1 of 1, click "Travel": delivered, but "a ticket number" was not seen', unverified: true });
+    expect(done).not.toHaveProperty('shortfall');
+  });
+
   it('is acted on under the site consent, not a prompt per run', () => {
     expect(tool().run.permission?.action).toBe('allow');
   });
@@ -151,6 +168,17 @@ describe('withBrowserRunGuidance', () => {
     expect(system).toMatch(/works on the page that is already open and cannot open an address/);
     expect(system).toMatch(/When the user names an address, open it with browser_navigate before anything else/);
     expect(system).toMatch(/a tab left open from earlier work is not that page/);
+  });
+
+  it('says a box, a switch or a toggle is set with check or uncheck, since a click turns one that is already right the other way', async () => {
+    const access = new JevAccess();
+    await access.key(ctx({ TYPESAFE_API_KEY: 'k' }));
+    const system = withBrowserRunGuidance(access)(request(['browser_click', RUN_TOOL]), { sessionId: 's1' }).system ?? '';
+    const steps = tool().run.inputSchema.parse({ goal: 'g', steps: [{ do: 'check', target: 'E-mail' }, { do: 'uncheck', target: 'SMS' }] }) as { steps: Array<{ do: string }> };
+
+    expect(steps.steps.map((step) => step.do)).toEqual(['check', 'uncheck']);
+    expect(system).toMatch(/set it with a check or uncheck step, never a click/);
+    expect(system).toMatch(/does nothing when it is already that way/);
   });
 
   it('trusts the environment before any tool call has looked into the vault', () => {
