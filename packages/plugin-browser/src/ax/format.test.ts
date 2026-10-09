@@ -52,6 +52,18 @@ describe('formatAxTree — the row', () => {
     );
   });
 
+  it('marks what the page says the element is in, after the focus', () => {
+    const box: AxNode = { uid: '5', role: 'checkbox', name: 'Odblokuj', focused: true, states: ['checked'], children: [] };
+    const off: AxNode = { uid: '8', role: 'button', name: 'Pokaż kod', states: ['disabled'], children: [] };
+    const half: AxNode = { uid: '9', role: 'checkbox', name: 'Wszystkie', states: ['mixed'], children: [] };
+    const menu: AxNode = { uid: '10', role: 'button', name: 'Filtry', states: ['expanded'], inProgress: true, children: [] };
+
+    expect(formatAxTree(box)).toBe('[5] checkbox: "Odblokuj" [focused] [checked]');
+    expect(formatAxTree(off)).toBe('[8] button: "Pokaż kod" [disabled]');
+    expect(formatAxTree(half)).toBe('[9] checkbox: "Wszystkie" [partly checked]');
+    expect(formatAxTree(menu)).toBe('[10] button: "Filtry" [expanded] [in progress]');
+  });
+
   it('indents children by two spaces per level', () => {
     // uids come from the fixture helper's call order, which is inner-first —
     // assert the shape, not the numbers. Real uids are assigned pre-order by

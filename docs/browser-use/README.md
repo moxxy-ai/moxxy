@@ -84,6 +84,14 @@ bearings again. Rows deeper than the depth cap collapse to one, and an
 unnamed collapsed row keeps the text it holds (`paragraph ... (2 descendants)
 text: "£53.74"`), so a price or a date deep in a list is not lost.
 
+A row ends with what the page says the element is in: `[focused]`, `[checked]`
+(`[partly checked]` for a box ticked in part), `[pressed]`, `[selected]`,
+`[expanded]` or `[collapsed]`, `[disabled]`. No mark means the page does not
+say it. A change of state alone is a change of the row, so ticking a box shows
+in the next read and in the check of a run's `expect`. Before this, a ticked
+box read exactly like an unticked one: a run reported the tick as not seen, the
+agent clicked again and unticked it.
+
 ### What a page may and may not ask
 
 Every read starts with a note that the page is untrusted data. The page never

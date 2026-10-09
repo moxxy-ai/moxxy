@@ -19,8 +19,14 @@ function node(
     ignored?: boolean;
     backendDOMNodeId?: number;
     focused?: boolean;
+    /** Other CDP properties, as `name: value` — a tristate comes as text, a boolean as a boolean. */
+    props?: Record<string, unknown>;
   } = {},
 ): AxNodeRaw {
+  const properties = [
+    ...(opts.focused ? [{ name: 'focused', value: { value: true } }] : []),
+    ...Object.entries(opts.props ?? {}).map(([name, value]) => ({ name, value: { value } })),
+  ];
   return {
     nodeId,
     role: { value: role },
@@ -29,7 +35,7 @@ function node(
     ...(opts.children ? { childIds: opts.children } : {}),
     ...(opts.ignored ? { ignored: true } : {}),
     ...(opts.backendDOMNodeId !== undefined ? { backendDOMNodeId: opts.backendDOMNodeId } : {}),
-    ...(opts.focused ? { properties: [{ name: 'focused', value: { value: true } }] } : {}),
+    ...(properties.length > 0 ? { properties } : {}),
   };
 }
 
@@ -73,6 +79,52 @@ describe('buildAxTree', () => {
     ]);
 
     expect(tree!.children[0]!.focused).toBe(true);
+  });
+
+  it('says a ticked box is checked, so a second click is not sent to tick it again', () => {
+    // CDP sends the tristate as text: "false" is truthy, so it must be read as text.
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2', '3', '4', '5'] }),
+      node('2', 'checkbox', { name: 'Odblokuj', props: { checked: 'true' } }),
+      node('3', 'checkbox', { name: 'Newsletter', props: { checked: 'false' } }),
+      node('4', 'checkbox', { name: 'Wszystkie', props: { checked: 'mixed' } }),
+      node('5', 'checkbox', { name: 'Bez stanu' }),
+    ]);
+
+    expect(tree!.children.map((child) => child.states)).toEqual([['checked'], undefined, ['mixed'], undefined]);
+  });
+
+  it('tells an open section from a closed one, and from one that cannot be opened at all', () => {
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2', '3', '4'] }),
+      node('2', 'button', { name: 'Filtry', props: { expanded: true } }),
+      node('3', 'button', { name: 'Sortuj', props: { expanded: false } }),
+      node('4', 'button', { name: 'Kup' }),
+    ]);
+
+    expect(tree!.children.map((child) => child.states)).toEqual([['expanded'], ['collapsed'], undefined]);
+  });
+
+  it('carries pressed, selected and disabled, and leaves out what is false', () => {
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2', '3', '4', '5'] }),
+      node('2', 'button', { name: 'Obserwuj', props: { pressed: 'true' } }),
+      node('3', 'tab', { name: 'Opis', props: { selected: true } }),
+      node('4', 'button', { name: 'Pokaż kod', props: { disabled: true } }),
+      node('5', 'tab', { name: 'Opinie', props: { selected: false, disabled: false, pressed: 'false' } }),
+    ]);
+
+    expect(tree!.children.map((child) => child.states)).toEqual([['pressed'], ['selected'], ['disabled'], undefined]);
+  });
+
+  it('keeps the uid, the focus and the frame of an element that also has a state', () => {
+    const tree = buildAxTree([
+      node('1', 'RootWebArea', { children: ['2'] }),
+      { ...node('2', 'checkbox', { name: 'Odblokuj', focused: true, backendDOMNodeId: 7, props: { checked: 'true', disabled: true } }), frame: 'f1' },
+    ]);
+
+    expect(tree!.children[0]).toMatchObject({ uid: '2', focused: true, backendNodeId: 7, frame: 'f1', states: ['checked', 'disabled'] });
+    expect(tree!.index.get('2')).toBe(tree!.children[0]);
   });
 
   it('splices out an ignored node but keeps its children', () => {

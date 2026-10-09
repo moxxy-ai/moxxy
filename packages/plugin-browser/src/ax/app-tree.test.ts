@@ -48,6 +48,30 @@ describe('appTreeOf', () => {
     expect(depth[17]).toBe(2);
   });
 
+  it('tells Jev what the page says an element is in, in the words Jev knows', () => {
+    const form = node('1', 'RootWebArea', 'Form', [
+      node('2', 'checkbox', 'Unlock', [], { focused: true, states: ['checked'] }),
+      node('3', 'checkbox', 'All', [], { states: ['mixed'] }),
+      node('4', 'button', 'Follow', [], { states: ['pressed'] }),
+      node('5', 'tab', 'Reviews', [], { states: ['pressed', 'selected'] }),
+      node('6', 'button', 'Filters', [], { states: ['collapsed', 'disabled'] }),
+      node('7', 'button', 'Buy'),
+    ]);
+    const out = appTreeOf(form, { app: 'shop.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements.map((element) => element.states)).toEqual([
+      ['focused', 'checked'],
+      // Jev has no word for a box ticked in part: it is told neither "checked" nor anything else.
+      undefined,
+      ['selected'],
+      ['selected'],
+      ['collapsed', 'disabled'],
+      undefined,
+    ]);
+    expect(formatTree(out)).toContain('checkbox "Unlock" focused checked');
+  });
+
   it('gives a field one types into a value, even an empty one, and never a secret', () => {
     const byIndex = new Map(tree.elements.map((element) => [element.index, element]));
     expect(byIndex.get(5)?.value).toBe('');

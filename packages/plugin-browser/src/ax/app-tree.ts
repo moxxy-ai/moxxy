@@ -1,7 +1,7 @@
 import type { AppElement, AppTree } from '@moxxy/jev';
 import { MAX_LABEL_CHARS, unnamedTitle } from './format.js';
 import { isSecret } from './snapshot.js';
-import type { AxNode } from './tree.js';
+import type { AxNode, AxState } from './tree.js';
 
 /**
  * A page as Jev reads it: the elements one can act on, each under the uid the
@@ -126,9 +126,27 @@ export function appTreeOf(
   };
 }
 
+type JevState = NonNullable<AppElement['states']>[number];
+
+/** Jev's word for each state. A toggle that is pressed is one that is on, "selected"; a box ticked in part has no word, so Jev is told nothing of it. */
+const JEV_STATE: Partial<Record<AxState, JevState>> = {
+  checked: 'checked',
+  pressed: 'selected',
+  selected: 'selected',
+  expanded: 'expanded',
+  collapsed: 'collapsed',
+  disabled: 'disabled',
+};
+
+function statesOf(node: AxNode): JevState[] {
+  const said = (node.states ?? []).flatMap((state) => JEV_STATE[state] ?? []);
+  return [...new Set<JevState>([...(node.focused ? (['focused'] as const) : []), ...said])];
+}
+
 function elementOf(node: AxNode, index: number, key: string, depth: number): AppElement {
   const secret = isSecret(node);
   const value = TAKES_TEXT.has(node.role) ? (node.value ?? '') : node.value;
+  const states = statesOf(node);
   return {
     key: key.slice(-512),
     index,
@@ -136,6 +154,6 @@ function elementOf(node: AxNode, index: number, key: string, depth: number): App
     role: node.role.slice(0, 128),
     ...(node.name ? { title: clip(node.name) } : node.hint ? { title: clip(unnamedTitle(node.hint)) } : {}),
     ...(secret ? { secure: true } : value === undefined ? {} : { value: clip(value) }),
-    ...(node.focused ? { states: ['focused' as const] } : {}),
+    ...(states.length > 0 ? { states } : {}),
   };
 }

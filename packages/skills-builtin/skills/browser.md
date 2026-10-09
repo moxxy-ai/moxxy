@@ -80,6 +80,11 @@ a uid, not a CSS selector and not a coordinate.
   keeps meaning the same element, so everything not listed is still as you last
   saw it. Ask for `full: true` when you have lost your bearings — it costs far
   more, so not by default.
+- A row ends with what the page says the element is in: `[checked]`,
+  `[pressed]`, `[selected]`, `[expanded]` / `[collapsed]`, `[disabled]`. No mark
+  means it is not. A box that already reads `[checked]` is ticked — clicking it
+  again unticks it. A `[disabled]` control cannot be pressed: turn on what the
+  page offers to unlock it, then press.
 - After a navigation the uids are gone with the page they described, and the next
   read is a whole tree again.
 - If the answer is "unchanged since your last snapshot", the page really has not

@@ -32,6 +32,15 @@ describe('diffRendering', () => {
     expect(diffRendering(before, before)).toEqual([]);
   });
 
+  it('reports a box that was ticked, though nothing else about it moved', () => {
+    const box = (states?: AxNode['states']): AxNode => ({ uid: '5', role: 'checkbox', name: 'Odblokuj', ...(states ? { states } : {}), children: [] });
+    const unticked = renderingOf(page(box()));
+    const ticked = renderingOf(page(box(['checked'])));
+
+    expect(diffRendering(unticked, ticked)).toEqual([expect.stringMatching(/^~ \[5\] checkbox: "Odblokuj" \[checked\]/)]);
+    expect(diffRendering(ticked, ticked)).toEqual([]);
+  });
+
   it('reports what appeared', () => {
     const after = renderingOf(page(node('2', 'heading', 'Koty'), node('3', 'link', 'Stara oferta'), node('9', 'button', 'Zamknij')));
 
