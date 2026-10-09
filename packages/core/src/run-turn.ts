@@ -134,6 +134,7 @@ export async function* runTurn(
       cacheStrategy: session.cacheStrategies.getActive(),
       ...(session.elisionSettings ? { elision: session.elisionSettings } : {}),
       ...(session.lazyTools !== undefined ? { lazyTools: session.lazyTools } : {}),
+      ...(session.unfinishedStepCheck !== undefined ? { unfinishedStepCheck: session.unfinishedStepCheck } : {}),
       // Reasoning preference (effort) — honored only by providers/models that
       // advertise `supportsReasoning` (gated in collectProviderStream).
       ...(session.reasoning ? { reasoning: session.reasoning } : {}),

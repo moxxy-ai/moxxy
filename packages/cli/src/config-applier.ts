@@ -101,6 +101,11 @@ export function buildSessionConfigApplier(
       applied.push('lazyTools');
     }
 
+    if (next.context?.unfinishedStepCheck !== last.context?.unfinishedStepCheck) {
+      session.unfinishedStepCheck = next.context?.unfinishedStepCheck;
+      applied.push('unfinishedStepCheck');
+    }
+
     if (!deepEqual(next.context?.reasoning, last.context?.reasoning)) {
       session.reasoning = next.context?.reasoning;
       applied.push('reasoning');

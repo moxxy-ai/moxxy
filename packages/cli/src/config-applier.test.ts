@@ -227,6 +227,15 @@ describe('buildSessionConfigApplier', () => {
     expect(session.fast).toBe(false);
   });
 
+  it('switches the reminder about a step that did not get done off and back on while the session runs', async () => {
+    const session = makeSession();
+    const apply = buildSessionConfigApplier(session, {});
+    expect((await apply({ context: { unfinishedStepCheck: false } })).applied).toContain('unfinishedStepCheck');
+    expect(session.unfinishedStepCheck).toBe(false);
+    await apply({});
+    expect(session.unfinishedStepCheck).toBeUndefined();
+  });
+
   it("follows the model set as a provider's default while the session runs", async () => {
     const session = makeSession();
     const apply = buildSessionConfigApplier(session, {});

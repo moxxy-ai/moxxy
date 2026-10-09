@@ -63,6 +63,7 @@ export interface SessionRuntime {
   readonly approvalResolver: ApprovalResolver | null;
   readonly elisionSettings: ElisionSettings | null;
   readonly lazyTools: boolean | undefined;
+  readonly unfinishedStepCheck: boolean | undefined;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: ReasoningEffort } | boolean | undefined;
   readonly fast?: boolean;

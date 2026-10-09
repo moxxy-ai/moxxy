@@ -201,6 +201,8 @@ export class Session implements ClientSession, SessionRuntime {
   elisionSettings: ElisionSettings | null = null;
   /** Lazy tool loading, from `config.context.lazyTools`. Unset = automatic (on for a long tool list). */
   lazyTools: boolean | undefined = undefined;
+  /** The end-of-turn reminder about a step that did not get done, from `config.context.unfinishedStepCheck`. Unset = on. */
+  unfinishedStepCheck: boolean | undefined = undefined;
   /**
    * Reasoning/thinking preference, from `config.context.reasoning`. Forwarded
    * to each turn's ModeContext and on to the provider, which honors it only

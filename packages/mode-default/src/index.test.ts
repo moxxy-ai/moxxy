@@ -563,3 +563,131 @@ describe('defaultMode — reporting on work that had not finished', () => {
     expect(provider.received).toHaveLength(2);
   });
 });
+
+describe('defaultMode — ending the turn on a step that did not get done', () => {
+  /** A tool that carries out steps and says which of them it did not get done. */
+  const runTool = (outputs: ReadonlyArray<unknown>) => {
+    let call = 0;
+    return defineTool({
+      name: 'run',
+      description: 'carries out steps',
+      inputSchema: z.object({}),
+      handler: () => outputs[Math.min(call++, outputs.length - 1)],
+    });
+  };
+  const SHORT = { text: '0 of 1 steps done', shortfall: { what: 'step 1, click "Send": the page answered 503, try again' } };
+  const DONE = { text: '1 of 1 steps done' };
+
+  const sentTexts = (provider: FakeProvider, call: number): string =>
+    (provider.received[call]?.messages ?? [])
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+
+  it('asks once to take another way or name the block, and the agent sends it again', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), toolUseReply('run', {}, 'c2'), textReply('sent: ZGL-1')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, DONE]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(4);
+    expect(sentTexts(provider, 2)).toContain('step 1, click "Send": the page answered 503, try again');
+    expect(sentTexts(provider, 2)).toContain('did not get done');
+    // The reminder rode one request and is gone from the next.
+    expect(sentTexts(provider, 3)).not.toContain('did not get done');
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'sent: ZGL-1' });
+  });
+
+  it('asks at most once in a turn, though the next try fails as well', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), toolUseReply('run', {}, 'c2'), textReply('the server keeps answering 503')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(4);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'the server keeps answering 503' });
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('says nothing when a later step got the work done by another route', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('run', {}, 'c2'), textReply('sent')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT, DONE]));
+
+    await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('says nothing after the agent handed the page over to the user', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('hand_over', {}, 'c2'), textReply('it needs you')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+    session.tools.register(defineTool({ name: 'hand_over', description: '', inputSchema: z.object({}), handler: () => ({ completed: false }) }));
+
+    await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('says nothing when the user refused the step', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), toolUseReply('run', {}, 'c2'), textReply('you said no')] });
+    let asked = 0;
+    const session = sessionWith(provider);
+    session.setPermissionResolver({ name: 'second-no', async check() { return ++asked === 1 ? { mode: 'allow' } : { mode: 'deny', reason: 'no' }; } });
+    session.tools.register(runTool([SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(events.some((e) => e.type === 'tool_call_denied')).toBe(true);
+    expect(provider.received).toHaveLength(3);
+  });
+
+  it('does not carry a step left undone into the next turn', async () => {
+    const provider = new FakeProvider({
+      script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), textReply('nothing left to try'), textReply('hello')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+
+    await collectTurn(session, 'send the form');
+    expect(provider.received).toHaveLength(3);
+    await collectTurn(session, 'thanks');
+
+    expect(provider.received).toHaveLength(4);
+  });
+
+  it('does nothing when switched off: the turn ends as it did before', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), textReply('could not send it')] });
+    const session = sessionWith(provider);
+    session.unfinishedStepCheck = false;
+    session.tools.register(runTool([SHORT]));
+
+    const events = await collectTurn(session, 'send the form');
+
+    expect(provider.received).toHaveLength(2);
+    expect(events.some((e) => e.type === 'plugin_event')).toBe(false);
+  });
+
+  it('sends nothing more once the user stopped the turn at the reminder', async () => {
+    const provider = new FakeProvider({ script: [toolUseReply('run', {}, 'c1'), textReply('could not send it'), textReply('must not be asked for')] });
+    const session = sessionWith(provider);
+    session.tools.register(runTool([SHORT]));
+    const controller = new AbortController();
+    session.log.subscribe((e) => {
+      if (e.type === 'plugin_event' && e.subtype === 'checkpoint_injected') controller.abort();
+    });
+
+    await collectTurn(session, 'send the form', { signal: controller.signal });
+
+    expect(provider.received).toHaveLength(2);
+  });
+});
+

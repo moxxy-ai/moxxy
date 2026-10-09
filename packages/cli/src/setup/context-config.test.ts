@@ -4,6 +4,7 @@ import { applyContextConfig, type ContextTarget } from './context-config.js';
 const target = (): ContextTarget => ({
   elisionSettings: null,
   lazyTools: undefined,
+  unfinishedStepCheck: undefined,
   loopGuard: undefined,
   reasoning: undefined,
   fast: false,
@@ -41,6 +42,17 @@ describe('applyContextConfig', () => {
     applyContextConfig(session, { lazyTools: false });
 
     expect(session.lazyTools).toBe(false);
+  });
+
+  it('switches off the reminder about a step that did not get done, and leaves it on when the config says nothing', () => {
+    const off = target();
+    const unset = target();
+
+    applyContextConfig(off, { unfinishedStepCheck: false });
+    applyContextConfig(unset, { fast: true });
+
+    expect(off.unfinishedStepCheck).toBe(false);
+    expect(unset.unfinishedStepCheck).toBeUndefined();
   });
 
   it('leaves the session as it was without a context block', () => {
