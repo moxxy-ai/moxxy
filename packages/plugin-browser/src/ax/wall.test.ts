@@ -77,6 +77,39 @@ describe('wallNote', () => {
   });
 });
 
+describe('detectWall — agreements with the full terms label', () => {
+  it.each([
+    'I agree to the terms',
+    'Zgadzam się na regulamin',
+    'By continuing, I agree to the terms',
+    'Nie zgadzam się na regulamin',
+    'I agree: terms and conditions',
+    'I agree—terms and conditions',
+    'Agree and continue with the terms',
+    '  ZGADZAM  SIE\u00a0na regulamin  ',
+  ])('leaves "%s" to the user', (name) => {
+    const agreement: AxNode = { uid: '2', role: 'checkbox', name, children: [] };
+    expect(detectWall(page(agreement))).toEqual({ kind: 'consent', uid: '2' });
+  });
+
+  it.each(['Accept all terms and conditions', 'Accept all terms-of-service', 'Zaakceptuj wszystkie warunki regulaminu'])('leaves the explicit terms button "%s" to the user', (name) => {
+    const agreement: AxNode = { uid: '2', role: 'button', name, children: [] };
+    expect(detectWall(page(agreement))).toEqual({ kind: 'consent', uid: '2' });
+  });
+
+  it('does not borrow an invitation decline or a cookie policy for terms', () => {
+    const agreement: AxNode = { uid: '2', role: 'button', name: 'I agree to the terms', children: [] };
+    const invitations: AxNode = { uid: '3', role: 'button', name: 'Reject all invitations', children: [] };
+    expect(detectWall(page(agreement, invitations, node('link', 'Cookie policy'))))
+      .toEqual({ kind: 'consent', uid: '2' });
+  });
+
+  it('does not treat agreement-like names or ordinary prose as a consent control', () => {
+    expect(detectWall(page(node('button', 'I agreement settings')))).toBeNull();
+    expect(detectWall(page(node('paragraph', 'I agree to the terms')))).toBeNull();
+  });
+});
+
 describe('detectWall — naming the element, so it can be checked', () => {
   /**
    * A control can sit in the accessibility tree without being drawn: hidden by

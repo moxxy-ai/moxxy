@@ -35,8 +35,8 @@ const CAPTCHA =
 const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ...FILLABLE]);
 
 /**
- * A complete consent label can ask for a choice without proving it is about
- * cookies. Only a cookie control or its own cookie banner may be declined.
+ * An agreement may include the terms being agreed to. Cookie choices match
+ * in full; only a cookie control or its own cookie banner may be declined.
  *
  * The first draft matched loose stems — `akceptuj`, `więcej opcji` — and paid
  * for it: Canva's account menu is called "Więcej opcji konta i zespołu", so
@@ -57,7 +57,9 @@ const DECLINE =
   '(?:reject (?:all|non-essential|optional)|only (?:necessary|essential)|necessary only|continue without accepting)(?: cookies)?|' +
   '(?:odrzu[ćc] (?:wszystk(?:ie|o)|zbędne|opcjonalne)|tylko (?:niezbędne|niezbedne)|kontynuuj bez akceptacji)(?: (?:pliki cookie|cookies|ciasteczka))?';
 const DECLINE_PHRASE = new RegExp(`^(?:${DECLINE})$`, 'i');
-const CONSENT_PHRASE = new RegExp(`^(?:accept all(?: cookies)?|i agree|agree and continue|zaakceptuj wszystk(?:ie|o)(?: pliki cookie)?|zgadzam si[ęe]|${DECLINE})$`, 'i');
+const CONSENT_PHRASE = new RegExp(`^(?:accept all(?: cookies)?|zaakceptuj wszystk(?:ie|o)(?: pliki cookie)?|${DECLINE})$`, 'i');
+/** The text of an agreement does not authorize accepting or declining it. */
+const AGREEMENT_PHRASE = /\b(?:i agree|agree and continue|zgadzam si[ęe]|accept all (?:the )?(?:terms|conditions)|zaakceptuj wszystk(?:ie|o) (?:warunki|regulamin))(?:$|\W)/i;
 const normalized = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ');
 /** A box named "Only necessary" sits in a banner's settings; the answer is a button or a link. */
 const ANSWERS = new Set(['button', 'link']);
@@ -65,8 +67,10 @@ const ANSWERS = new Set(['button', 'link']);
  * A link that names cookies leads to a policy — Wikipedia's footer carries one
  * on every page — so a link counts only when it uses a banner's own phrase.
  */
-const isConsent = (role: string, name: string): boolean =>
-  CONSENT_PHRASE.test(normalized(name)) || (role !== 'link' && CONSENT_WORD.test(name));
+const isConsent = (role: string, name: string): boolean => {
+  const label = normalized(name);
+  return AGREEMENT_PHRASE.test(label) || CONSENT_PHRASE.test(label) || (role !== 'link' && CONSENT_WORD.test(name));
+};
 
 const DIALOGS = new Set(['dialog', 'alertdialog']);
 const CONTAINERS = new Set([...DIALOGS, 'group', 'region']);

@@ -403,6 +403,10 @@ belong to the same cookie dialog/group/region; another dialog or a policy link
 in the footer cannot supply that context. Disabled controls are not offered.
 An ambiguous consent choice remains the user's to answer. This exception does
 not authorize declining invitations, requests or other choices outside the task.
+Agreement controls may include the full terms being agreed to ("I agree to the
+terms", "Zgadzam się na regulamin"), including the phrase within a longer label.
+They remain under `### Needs you`, with no automatic decline. Recognizing an
+agreement is separate from the exact-label match that permits cookie rejection.
 It never presses a control that accepts, a banner with no such control is still
 handed over, and "I do not agree" is not taken for one — that also refuses a
 contract. A link to a cookie *policy* is not a cookie choice,

@@ -9,6 +9,7 @@ import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { appTreeOf } from '../ax/app-tree.js';
 import { buildAxTree, newUidMemory, type AxNodeRaw, type AxTree } from '../ax/tree.js';
 import { declineNote, detectWall } from '../ax/wall.js';
+import { formatSnapshot } from '../ax/snapshot.js';
 import { runBrowserSteps, type RunPort, type RunStep } from './browser-run.js';
 
 let browser: Browser;
@@ -72,6 +73,25 @@ const port: RunPort = {
 const noJev: AskJev = async () => { throw new Error('An exact label must not need the Jev service'); };
 const run = (step: RunStep) => runBrowserSteps({ goal: 'Set the requested checkbox state', steps: [step] }, {
   port, ask: noJev, signal: new AbortController().signal, memory: new RunMemory(directory),
+});
+
+describe('terms agreement on the real page', () => {
+  it.each(['I agree to the terms', 'Zgadzam się na regulamin'])('asks the user for "%s" without offering cookie rejection', async (label) => {
+    await page.setContent(`<label><input id="terms" type="checkbox">${label}</label>`);
+    const found = await readTree();
+    const agreement = [...found.index.values()].find((element) => element.role === 'checkbox');
+    assertDefined(agreement, 'Chromium exposes the terms checkbox');
+    expect(agreement.name).toBe(label);
+    const wall = detectWall(found);
+    expect(wall).toEqual({ kind: 'consent', uid: agreement.uid });
+    assertDefined(wall, 'the terms agreement needs the user');
+    const snapshot = formatSnapshot({ tree: found, url: 'https://fixture.test', title: 'Terms', tabs: [], wall: wall.kind });
+    expect(snapshot).toContain('### Needs you');
+    expect(snapshot).toContain('browser_await_human');
+    expect(snapshot).not.toContain('### Cookie banner');
+    expect(await page.locator('#terms').isChecked()).toBe(false);
+    expect(clicks).toBe(0);
+  });
 });
 
 describe('cookie rejection on the real page', () => {
