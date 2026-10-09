@@ -169,6 +169,20 @@ describe('runner-protocol lockstep gate', () => {
     expect(r?.version).toBe('0.0.6');
   });
 
+  it('loads a bundle that only says, unsigned, that it needs a newer runner — the bundle then installs the full app itself', () => {
+    // What an installed app does with a release made after the signed stamp
+    // was dropped: with the stamp it refused the bundle and sent the person to
+    // an installer that crashed on macOS.
+    installBundle('0.0.6', { needsRunnerProtocol: 24 });
+    const r = resolveActiveBundle({
+      userDataDir: tmp,
+      publicKeyPem: PUBKEY,
+      shell: SHELL,
+      cliRunnerProtocol: 15,
+    });
+    expect(r?.version).toBe('0.0.6');
+  });
+
   it('does not gate when the caller omits cliRunnerProtocol', () => {
     installBundle('0.0.6', { runnerProtocol: 99 });
     const r = resolveActiveBundle({ userDataDir: tmp, publicKeyPem: PUBKEY, shell: SHELL });

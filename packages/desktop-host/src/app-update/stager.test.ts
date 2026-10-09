@@ -191,6 +191,7 @@ describe('checkForUpdate runner-protocol gate', () => {
   function checkWithProtocol(
     bundleProtocol: number | undefined,
     cliRunnerProtocol: number | undefined,
+    needsRunnerProtocol?: number,
   ): ReturnType<typeof checkForUpdate> {
     const { manifestJson } = buildAppBundle({
       version: '0.0.9',
@@ -200,6 +201,7 @@ describe('checkForUpdate runner-protocol gate', () => {
       privateKeyPem: PRIVKEY,
       files: { 'dist/index.html': Buffer.from('x') },
       ...(typeof bundleProtocol === 'number' ? { runnerProtocol: bundleProtocol } : {}),
+      ...(typeof needsRunnerProtocol === 'number' ? { needsRunnerProtocol } : {}),
     });
     const fetchImpl = (async () => new Response(manifestJson)) as unknown as typeof fetch;
     return checkForUpdate(
@@ -220,6 +222,17 @@ describe('checkForUpdate runner-protocol gate', () => {
     expect(res.available).toBe(true);
     expect(res.requiresFullUpdate).toBe(true);
     expect(res.compatible).toBe(false); // can't be applied as a hot-update
+  });
+
+  it('takes the installer for a bundle that only says, unsigned, which runner it needs', async () => {
+    const res = await checkWithProtocol(undefined, 6, 7);
+    expect(res.available).toBe(true);
+    expect(res.requiresFullUpdate).toBe(true);
+    expect(res.compatible).toBe(false);
+
+    const served = await checkWithProtocol(undefined, 7, 7);
+    expect(served.requiresFullUpdate).toBeUndefined();
+    expect(served.compatible).toBe(true);
   });
 
   it('does not flag an equal or lower runner protocol', async () => {
@@ -403,6 +416,27 @@ describe('downloadAndStage hardening', () => {
     ).rejects.toThrow(/full app installer/i);
     // nothing staged, nothing activated — no false "updated, relaunch" state
     expect(existsSync(bundleRoot(tmp, '0.0.6'))).toBe(false);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
+  it('refuses to stage a bundle that says, unsigned, it needs a newer runner than this app has', async () => {
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      needsRunnerProtocol: 7,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+    const fetchImpl = (async () => new Response(new Uint8Array(bundleGz))) as unknown as typeof fetch;
+
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY, cliRunnerProtocol: 6 }, { fetchImpl }),
+    ).rejects.toThrow(/full app installer/i);
     expect(readActiveVersion(tmp)).toBeNull();
   });
 

@@ -25,7 +25,7 @@ export interface UpdateScreenStep {
   readonly detail?: string;
 }
 
-/** `manual`: the installer downloaded and run by hand, when the system refused it. */
+/** `manual`: the installer downloaded and run by hand, when it could not install itself. */
 export type UpdateScreenAction = 'retry' | 'manual' | 'close';
 
 export interface UpdateScreenModel {
@@ -85,23 +85,25 @@ function runningDetail(progress: AppUpdateProgress | null): string | undefined {
 
 function updateModel(plan: AppUpdatePlan, progress: AppUpdateProgress | null, closed: boolean): UpdateScreenModel | null {
   const failed = appUpdatePlanState(plan) === 'failed';
-  if (failed && closed) return null;
+  // With only the installed app left to update there is nothing behind the
+  // screen to go back to; "Not now" restarts Moxxy on the version before.
+  if (failed && closed && !plan.completes) return null;
   const steps = plan.steps.map((step): UpdateScreenStep => {
     const detail = step.status === 'failed' ? step.error : step.status === 'running' && step.id !== 'restart' ? runningDetail(progress) : undefined;
     return { key: step.id, label: UPDATE_STEPS[plan.route][step.id], status: step.status, ...(detail ? { detail } : {}) };
   });
   if (failed) {
-    const refused = plan.steps.some((step) => step.id === 'installer' && step.status === 'failed') && Boolean(plan.releaseUrl);
+    const byHand = plan.route === 'installer' && Boolean(plan.releaseUrl);
     return {
       kind: 'failed',
       title: 'The update could not be finished',
-      subtitle: 'Moxxy works as before.',
+      subtitle: plan.completes ? '"Not now" takes Moxxy back to the version you had.' : 'Moxxy works as before.',
       steps,
       progress: null,
       busy: false,
       notes: [],
       footer: null,
-      actions: refused ? ['retry', 'manual', 'close'] : ['retry', 'close'],
+      actions: byHand ? ['retry', 'manual', 'close'] : ['retry', 'close'],
     };
   }
   return {

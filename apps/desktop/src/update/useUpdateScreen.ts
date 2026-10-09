@@ -50,7 +50,12 @@ export function useUpdateScreen(options: { readonly runner: RunnerState; readonl
     closed: closed === showing,
   });
   const { shown, leaving, onExited } = useLingering(model);
-  const onClose = useCallback(() => setClosed(showing), [showing]);
+  const completes = plan?.completes === true;
+  const onClose = useCallback(() => {
+    // Nothing to go on with while the installed app is behind: back to the version before.
+    if (completes) void api().invoke('app.revertUpdate').catch(() => undefined);
+    else setClosed(showing);
+  }, [completes, showing]);
   const releaseUrl = plan?.releaseUrl;
   const onManual = useCallback(() => {
     if (releaseUrl) void api().invoke('onboarding.openExternal', { url: releaseUrl });

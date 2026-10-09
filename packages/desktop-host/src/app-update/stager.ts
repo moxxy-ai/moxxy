@@ -31,7 +31,6 @@ import {
   appUpdateDir,
   bundleRoot,
   compareSemver,
-  exceedsCliRunnerProtocol,
   isCompatible,
   isSafeVersion,
   safeRelPath,
@@ -39,6 +38,7 @@ import {
   unmarkBad,
   verifyBundleFiles,
 } from './resolve.js';
+import { needsNewerRunner } from './shell-protocol.js';
 
 /** Only these hosts (and subdomains) are ever fetched — GitHub's API, web, and
  *  release-asset CDN. `(^|\.)github\.com$` covers both `github.com` and
@@ -81,7 +81,7 @@ const MAX_INFLATED_BYTES = 1024 * 1024 * 1024;
  * each `Location` before refetching. Also wires an AbortController timeout so a
  * hung connection can't wedge the update.
  */
-async function fetchAllowed(
+export async function fetchAllowed(
   fetchImpl: typeof fetch,
   url: string,
   init?: RequestInit,
@@ -358,7 +358,7 @@ export async function checkForUpdate(
   // the spawnable CLI would stage fine but be rejected on every launch
   // (`runner-protocol-skew`) — report it as needing the full installer instead
   // of letting the flow claim a success that can never take effect.
-  const requiresFullUpdate = exceedsCliRunnerProtocol(manifest, opts.cliRunnerProtocol);
+  const requiresFullUpdate = needsNewerRunner(manifest, opts.cliRunnerProtocol);
   const result: CheckResult = {
     available: newer,
     latestVersion: manifest.version,
@@ -470,7 +470,7 @@ async function stageOne(
   // Stage-time mirror of the bootstrap's runner-protocol lockstep gate (checked
   // AFTER the signature so the stamp is trusted): refuse before any download
   // rather than activate a bundle every subsequent boot will refuse.
-  if (exceedsCliRunnerProtocol(manifest, opts.cliRunnerProtocol)) {
+  if (needsNewerRunner(manifest, opts.cliRunnerProtocol)) {
     throw new Error(
       'this update changes the runner protocol and needs the full app installer — a hot-update would be refused at startup',
     );

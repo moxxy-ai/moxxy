@@ -13,11 +13,12 @@
 
 import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow } from 'electron';
-import type { AppSetupState, AppUpdateCheck, AppUpdatePlan } from '@moxxy/desktop-ipc-contract';
+import { appUpdatePlanState, type AppSetupState, type AppUpdateCheck, type AppUpdatePlan } from '@moxxy/desktop-ipc-contract';
 
 import {
   type ShellInfo,
   checkForUpdate,
+  clearActiveVersion,
   downloadAndStage,
   markConfirmed,
   pruneBundles,
@@ -30,6 +31,7 @@ import {
 } from '../app-update/index.js';
 import { sendEvent } from '../send-event';
 import { wsEventBus } from '../event-bus';
+import { settleShellUpdate } from '../shell-update/index.js';
 import { buildUpdatePlan, createUpdatePlanStore, runUpdatePlan, settleUpdatePlan, type UpdatePlanStore } from '../update-plan/index.js';
 import { handle } from './shared';
 
@@ -69,6 +71,14 @@ export interface UpdateConfig {
     feedBaseUrl: string;
     onProgress: (p: { phase: 'download' | 'install'; received?: number; total?: number; message?: string }) => void;
   }) => Promise<() => void>;
+  /**
+   * The bundle running was loaded by an installed app whose runner is too old
+   * for it (`shellIsBehind`) — what a release does to an app that predates the
+   * unsigned `needsRunnerProtocol`. No agent can start; the one thing to do is
+   * install the full app of this bundle's version, which starts by itself once
+   * the window is up.
+   */
+  shellBehind?: boolean;
 }
 
 /** The GitHub repo whose `desktop-v*` releases the updater pulls from. */
@@ -82,6 +92,8 @@ function shellInfo(): ShellInfo {
   return { electron: process.versions.electron, nodeAbi: process.versions.modules ?? '' };
 }
 
+const releasePage = (version: string): string => `https://github.com/${GH_REPO}/releases/tag/desktop-v${version}`;
+
 function messageOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -93,6 +105,7 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
   // updater discovers the latest desktop release from GH_REPO's API.
   const manifestUrlOverride = app.isPackaged ? undefined : config.manifestUrl;
   const enabled = (): boolean => !!publicKeyPem && app.isPackaged;
+  const shellBehind = config.shellBehind === true;
   const check = (currentVersion: string): ReturnType<typeof checkForUpdate> =>
     checkForUpdate({
       repo: GH_REPO,
@@ -112,6 +125,18 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
 
   const checkUpdate = async (): Promise<AppUpdateCheck> => {
     const currentVersion = runningVersion();
+    if (shellBehind) {
+      // The update on offer is the one half in: the installed app for the
+      // bundle already running. Known without asking the network.
+      return {
+        available: true,
+        currentVersion: app.getVersion(),
+        latestVersion: currentVersion,
+        compatible: false,
+        requiresFullUpdate: true,
+        releaseUrl: releasePage(currentVersion),
+      };
+    }
     if (!enabled()) {
       return {
         available: false,
@@ -214,7 +239,9 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     if (!installShellUpdate) {
       return { ok: false, error: 'Full app updates are not available in this build.' };
     }
-    const res = await check(currentVersion);
+    // With the installed app behind, the release to install is the one whose
+    // bundle is running; otherwise the newest one.
+    const res = shellBehind ? { available: true, latestVersion: currentVersion, error: undefined } : await check(currentVersion);
     if (!res.available || !res.latestVersion) {
       return { ok: false, error: res.error ?? 'No update available.' };
     }
@@ -258,9 +285,14 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
   // this launch is carrying out would fail its running step.
   const settlePlan = (): Promise<void> =>
     (planSettled ??= (async () => {
+      // First what the full installer left: with the new app running, the one
+      // it replaced is removed; otherwise it says why the new one is not.
+      const installed = await settleShellUpdate({ userDataDir: app.getPath('userData'), shellVersion: app.getVersion() });
       const store = planStore();
       const plan = await store.read();
-      if (plan) await store.write(settleUpdatePlan(plan, runningVersion()));
+      if (!plan) return;
+      const why = installed && !installed.installed ? installed.error : undefined;
+      await store.write(settleUpdatePlan(plan, { app: runningVersion(), shell: app.getVersion() }, why));
     })().catch((error: unknown) => {
       console.warn('[moxxy] update plan could not be settled:', error);
     }));
@@ -270,10 +302,11 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     return planStore().read();
   });
 
-  handle('app.updateAll', async () => {
+  type UpdateAllResult = { ok: boolean; plan: AppUpdatePlan | null; error?: string };
+  const runUpdateAll = async (): Promise<UpdateAllResult> => {
     await settlePlan();
     const store = planStore();
-    const plan = buildUpdatePlan({ app: await checkUpdate(), id: randomUUID(), now: Date.now() });
+    const plan = buildUpdatePlan({ app: await checkUpdate(), id: randomUUID(), now: Date.now(), completes: shellBehind });
     if (!plan) {
       await store.clear();
       return { ok: true, plan: null };
@@ -300,6 +333,35 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
     });
     const failed = result.steps.find((step) => step.status === 'failed');
     return failed ? { ok: false, plan: result, ...(failed.error ? { error: failed.error } : {}) } : { ok: true, plan: result };
+  };
+  // One update at a time: a second ask (a double click, another window) joins the first.
+  let updating: Promise<UpdateAllResult> | null = null;
+  const updateAll = (): Promise<UpdateAllResult> =>
+    (updating ??= runUpdateAll().finally(() => {
+      updating = null;
+    }));
+  handle('app.updateAll', updateAll);
+
+  // With the installed app behind, the update finishes itself once per launch.
+  // An attempt that already failed is shown again, not repeated unasked.
+  let completion: Promise<void> | null = null;
+  const completeUpdate = (): Promise<void> =>
+    (completion ??= (async () => {
+      await settlePlan();
+      const last = await planStore().read();
+      const failedBefore = last?.completes === true && last.version === runningVersion() && appUpdatePlanState(last) === 'failed';
+      if (failedBefore) emitPlan(last);
+      else await updateAll();
+    })().catch((error: unknown) => {
+      console.warn('[moxxy] the update could not be completed:', error);
+    }));
+
+  handle('app.revertUpdate', async () => {
+    if (!shellBehind) return;
+    // Not poisoned: the bundle is sound, the installed app is what is behind.
+    clearActiveVersion(app.getPath('userData'));
+    await planStore().clear();
+    relaunch();
   });
 
   const NOTHING_TO_SET_UP: AppSetupState = { reason: null, phase: 'done', steps: [], notes: [] };
@@ -308,6 +370,11 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
   handle('app.relaunch', async () => relaunch());
 
   handle('app.appBooted', async () => {
+    // The window is up to show it: finish the update the installed app is behind on.
+    if (shellBehind) void completeUpdate();
+    // Not left to the first update check: the app the installer replaced is
+    // a gigabyte on disk until this runs.
+    else void settlePlan();
     // The running override (if any) reached a healthy render — confirm it so the
     // boot-probe doesn't poison it. No-op on the bundled floor.
     const version = process.env.MOXXY_APP_BUNDLE_VERSION;

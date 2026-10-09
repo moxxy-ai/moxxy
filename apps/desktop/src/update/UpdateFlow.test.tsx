@@ -18,6 +18,7 @@ function host(setup: AppSetupState | null) {
     if (cmd === 'app.setup') return setup ?? { reason: null, phase: 'done', steps: [], notes: [] };
     if (cmd === 'app.updateAll') return { ok: true, plan: null };
     if (cmd === 'onboarding.openExternal') return undefined;
+    if (cmd === 'app.revertUpdate') return undefined;
     throw new Error(`unexpected ${cmd}`);
   });
   __setApiOverride({
@@ -105,6 +106,23 @@ describe('UpdateFlow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Download the installer' }));
 
     expect(invoke).toHaveBeenCalledWith('onboarding.openExternal', { url: releaseUrl });
+  });
+
+  it('goes back to the version before when only the installed app was left to update and the person gives up', async () => {
+    const invoke = host(null);
+    render(<UpdateFlow runner="stopped" onboarded />);
+    emit('app.update.plan', {
+      ...downloading,
+      route: 'installer',
+      completes: true,
+      steps: [{ id: 'installer', status: 'failed', error: 'offline' }, { id: 'restart', status: 'pending' }],
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+
+    expect(invoke).toHaveBeenCalledWith('app.revertUpdate');
+    // Nothing to go on with behind it: the screen stays until Moxxy restarts.
+    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('asks the host again when a failed update is retried, and stays closed when it is not', async () => {

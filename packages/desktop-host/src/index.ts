@@ -27,6 +27,7 @@ export { activateRuntimes, bundledRuntimesReady, prepareBundledRuntimes } from '
 export { findNpm, npmRegistry } from './component-update.js';
 export { getCliVersion } from './installer.js';
 export { prepareInstalledApp, StartupSetup, type PrepareInstalledAppOptions } from './startup-setup/index.js';
+export { appBundleOf, applyShellUpdate, prepareMacAppUpdate } from './shell-update/index.js';
 export { ensureDesktopVaultKey } from './vault-key.js';
 export {
   cwdForSession,

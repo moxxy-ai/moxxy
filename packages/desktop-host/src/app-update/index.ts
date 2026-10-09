@@ -9,6 +9,7 @@
  *   - native-resolution.ts — make the shell's optional native deps resolvable from a bundle
  *   - stager.ts            — download → verify → atomically install a bundle (Phase 2)
  *   - boot-log.ts          — persistent boot/update decision log (observability)
+ *   - shell-protocol.ts    — which runner the installed app carries, and whether a bundle needs a newer one
  */
 
 export {
@@ -61,6 +62,8 @@ export {
 } from './boot-log.js';
 
 export { setupNativeResolution } from './native-resolution.js';
+
+export { SHELL_RUNNER_PROTOCOL_ENV, shellRunnerProtocol, shellIsBehind, needsNewerRunner } from './shell-protocol.js';
 
 export {
   type StagerDeps,

@@ -32,6 +32,7 @@ import {
   clearActiveVersion,
   appendBootLog,
   setupNativeResolution,
+  SHELL_RUNNER_PROTOCOL_ENV,
 } from '@moxxy/desktop-host/app-update';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
@@ -89,6 +90,9 @@ async function boot(): Promise<void> {
   // re-sets them below when a bundle IS picked.
   delete process.env.MOXXY_APP_BUNDLE_ROOT;
   delete process.env.MOXXY_APP_BUNDLE_VERSION;
+  // The runner this install carries, for whichever bundle it loads: one that
+  // needs a newer runner installs the full app instead of starting an agent.
+  process.env[SHELL_RUNNER_PROTOCOL_ENV] = String(FLOOR_RUNNER_PROTOCOL);
 
   // Let a userData bundle resolve the shell's optional native deps (keychain).
   setupNativeResolution(floorRoot);

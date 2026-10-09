@@ -68,6 +68,10 @@ export interface AppUpdatePlan {
   /** Where the installer can be downloaded by hand — offered only when the
    *  system refused to install it. Installer route only. */
   releaseUrl?: string;
+  /** The bundle of this version is already running, on an installed app too
+   *  old to run its agent: the plan brings the installed app up to it. Until
+   *  it does there is nothing to go on with — only the version before. */
+  completes?: boolean;
   steps: ReadonlyArray<AppUpdateStep>;
 }
 
