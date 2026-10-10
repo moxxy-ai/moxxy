@@ -391,6 +391,7 @@ export async function* runReactLoop(
         ...(reasoning.signature ? { signature: reasoning.signature } : {}),
         ...(reasoning.redacted ? { redacted: true } : {}),
         ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
+        ...(reasoning.replayItems ? { replayItems: reasoning.replayItems } : {}),
       });
     }
 

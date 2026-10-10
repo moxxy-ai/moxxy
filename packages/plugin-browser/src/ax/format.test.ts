@@ -235,3 +235,33 @@ describe('formatAxTree — work in progress', () => {
     );
   });
 });
+
+describe('formatAxTree — row context', () => {
+  it('does not use a decorative subtree label instead of the visible row label', () => {
+    const page = n('listitem', { children: [
+      n('img', { children: [n('LabelText', { children: [n('StaticText', { name: 'Decoy' })] })] }),
+      n('LabelText', { children: [n('StaticText', { name: 'Actual task' })] }),
+      n('button', { name: 'Delete' }),
+    ] });
+    const button = formatAxTree(page).split('\n').find(line => line.includes('button: "Delete"'));
+    expect(button).toContain('row "Actual task"');
+    expect(button).not.toContain('Decoy');
+  });
+
+  it('keeps nested row context out of the outer row and unrelated controls', () => {
+    const page = n('RootWebArea', { children: [
+      n('listitem', { children: [
+        n('button', { name: 'Outer action' }),
+        n('listitem', { children: [
+          n('LabelText', { children: [n('StaticText', { name: 'Inner task' })] }),
+          n('button', { name: 'Inner action' }),
+        ] }),
+      ] }),
+      n('button', { name: 'Unrelated action' }),
+    ] });
+    const buttons = formatAxTree(page).split('\n').filter(line => line.includes('button:'));
+    expect(buttons[0]).not.toContain('(row');
+    expect(buttons[1]).toContain('row "Inner task"');
+    expect(buttons[2]).not.toContain('(row');
+  });
+});

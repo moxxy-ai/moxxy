@@ -43,6 +43,8 @@ const FORWARDED = [
   'Page.frameStartedLoading',
   'Page.frameNavigated',
   'Page.loadEventFired',
+  'Runtime.consoleAPICalled', 'Runtime.exceptionThrown',
+  'Network.requestWillBeSent', 'Network.responseReceived', 'Network.loadingFinished', 'Network.loadingFailed',
 ];
 
 export interface ChromiumTab {

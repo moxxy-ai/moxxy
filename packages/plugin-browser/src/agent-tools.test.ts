@@ -164,6 +164,19 @@ describe('browser_click', () => {
     expect(schema.safeParse({ uid: '1' }).success).toBe(false);
     expect(schema.safeParse({ uid: '1', element: 'Przycisk Kup' }).success).toBe(true);
   });
+
+  it('accepts and forwards a double click while rejecting unsupported counts', async () => {
+    const fake = fakeSidecar();
+    fake.setReply(() => ({ tabId: 't1' }));
+    const tool = byName(buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn }), 'browser_click');
+    const input = tool.inputSchema.parse({ uid: '12', element: 'Todo label', click_count: 2 });
+    expect(input).toMatchObject({ click_count: 2 });
+    await tool.handler(input, ctx());
+    expect(fake.received[0]).toMatchObject({ method: 'act', params: { action: 'click', uid: '12', click_count: 2 } });
+    for (const click_count of [0, 3, 1.5]) {
+      expect(tool.inputSchema.safeParse({ uid: '12', element: 'Todo label', click_count }).success).toBe(false);
+    }
+  });
 });
 
 describe('browser_type', () => {
@@ -245,6 +258,8 @@ describe('the tool set', () => {
       'browser_allow_site',
       'browser_point',
       'browser_upload',
+      'browser_diagnostics',
+      'browser_viewport',
     ]);
   });
 
@@ -284,6 +299,10 @@ describe('optional fields the model leaves empty', () => {
   const tools = (): ReadonlyArray<ToolDef> =>
     buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fakeSidecar().spawn });
 
+  it('allows a requested picture even when the accessibility tree describes the page', () => {
+    expect(byName(tools(), 'browser_capture').description).toMatch(/when the user requests one/);
+  });
+
   it('reads an empty url on browser_tabs as absent', () => {
     const parsed = byName(tools(), 'browser_tabs').inputSchema.parse({ action: 'list', tab_id: '', url: '' });
 
@@ -312,6 +331,28 @@ describe('optional fields the model leaves empty', () => {
     const parsed = byName(tools(), 'browser_capture').inputSchema.parse({ uid: '', tab_id: '' });
 
     expect(parsed).toEqual({});
+  });
+
+  it('keeps the measured CSS box in a cropped picture caption without another sidecar call', async () => {
+    const fake = fakeSidecar();
+    const box = { x: 8, y: 20, width: 820, height: 114 };
+    fake.setReply((method) => method === 'box' ? box : { width: 410, height: 57, forModel: 'Picture of the element.' });
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+    expect(await byName(tools, 'browser_capture').handler({ uid: '15', tab_id: 't1' }, ctx())).toMatchObject({
+      cssBounds: box,
+      width: 410,
+      height: 57,
+      forModel: expect.stringContaining('820×114 CSS pixels'),
+    });
+    expect(fake.received.map((request) => request.method)).toEqual(['box', 'capture']);
+  });
+
+  it('rejects a malformed element box instead of returning a picture of another region', async () => {
+    const fake = fakeSidecar();
+    fake.setReply(() => ({}));
+    const tools = buildAgentTools({ sidecarPath: '/fake.js', spawnFn: fake.spawn });
+    await expect(byName(tools, 'browser_capture').handler({ uid: '15' }, ctx())).rejects.toThrow();
+    expect(fake.received.map((request) => request.method)).toEqual(['box']);
   });
 
   it('still refuses a url that was set and is not one', () => {

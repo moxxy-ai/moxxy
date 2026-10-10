@@ -163,6 +163,11 @@ const needsElement = (step: RunStep) => step.target !== undefined || step.do ===
 /** A step that names the state wanted, not the press that gets there. */
 const setsState = (step: RunStep): step is RunStep & { do: 'check' | 'uncheck' } => step.do === 'check' || step.do === 'uncheck';
 
+/** A row's label is a click target, but check/uncheck must address its control. */
+const targetsFor = (step: RunStep, tree: AppTree): AppTree => setsState(step)
+  ? { ...tree, elements: tree.elements.filter(element => element.role !== 'LabelText') }
+  : tree;
+
 /** Roles that are on or off by what they are: one without a mark is off. */
 const BOXES: ReadonlySet<string> = new Set(['checkbox', 'switch', 'radio', 'menuitemcheckbox', 'menuitemradio']);
 
@@ -173,6 +178,7 @@ function onOff(element: AppElement): boolean | 'mixed' | undefined {
   if (states.includes('checked') || states.includes('selected')) return true;
   return states.includes('not selected') || BOXES.has(element.role) ? false : undefined;
 }
+
 const named = (element: AppElement) => `${element.role} "${element.title ?? element.description ?? ''}"`;
 const clip = (text: string, limit: number) => (text.length <= limit ? text : `${text.slice(0, limit)}\n… (the page goes on)`);
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -241,6 +247,7 @@ function changesBetween(before: string, after: string): { appeared: string[]; we
 
 /** Where a step's element is found without asking Jev: what worked before, its own name, or the focus. */
 function groundHere(step: RunStep, tree: AppTree, memory: AppMemory): { element: AppElement; found: Found } | undefined {
+  tree = targetsFor(step, tree);
   if (step.target === undefined) {
     const focused = tree.elements.find((element) => element.states?.includes('focused') && element.value !== undefined);
     return focused ? { element: focused, found: 'focus' } : undefined;
@@ -298,8 +305,9 @@ export async function runBrowserSteps(
           fail('Nothing on the page has focus to type into; name the field as the target.');
           break;
         } else {
-          const answers = ahead ?? (await ask({ goal, step, ...windowState(read.tree) }, targetQuestions(read.tree)));
-          const grounding = readTarget(read.tree, answers);
+          const targets = targetsFor(step, read.tree);
+          const answers = ahead ?? (await ask({ goal, step, ...windowState(targets) }, targetQuestions(targets)));
+          const grounding = readTarget(targets, answers);
           if (grounding.kind === 'none') {
             const closest = grounding.closest.map(named).join(', ');
             fail(`could not find "${step.target}" on the page${closest ? `; closest: ${closest} — one of these may be what you meant under another name` : ''}`);
@@ -329,9 +337,11 @@ export async function runBrowserSteps(
 
       let acted: { element?: AppElement; opened?: string; result?: Readonly<Record<string, unknown>> } | undefined;
       let problem = '';
+      const submits = step.do === 'type' && step.submit === true;
+      const action = submits ? { ...step, submit: false } : step;
       for (const element of candidates.length > 0 ? candidates : [undefined]) {
         try {
-          const result = await deps.port.act(wanted === undefined ? step : { ...step, do: 'click' }, element ? String(element.index) : undefined, read.tabId);
+          const result = await deps.port.act(wanted === undefined ? action : { ...step, do: 'click' }, element ? String(element.index) : undefined, read.tabId);
           acted = {
             ...(element ? { element } : {}),
             ...(result.opened ? { opened: result.opened.tabId } : {}),
@@ -355,16 +365,39 @@ export async function runBrowserSteps(
 
       outcomes[at] = { step, status: 'done', ...(found ? { found } : {}), ...(acted.element ? { element: named(acted.element) } : {}) };
       const before = read;
-      read = await deps.port.read(acted.opened ?? read.tabId);
+      // The native type reply can confirm its existing value check. Older
+      // ports fall back to reading the field before Enter.
+      const typedVerified = submits && acted.result?.textVerified === true;
+      if (!typedVerified) read = await deps.port.read(acted.opened ?? read.tabId);
 
-      const missed = acted.element && step.do === 'type' ? typedMiss(acted.element, step.text ?? '', read.tree) : undefined;
+      const missed = !typedVerified && acted.element && step.do === 'type' ? typedMiss(acted.element, step.text ?? '', read.tree) : undefined;
       if (missed) {
         await forget();
         fail(missed);
         break;
       }
       /** Seen by Jev, or read back off the element itself — a typed field holding the text, a box the way it was asked for: the only steps worth remembering. */
-      let seen = step.do === 'type' && acted.element !== undefined && holdsValue(acted.element, read.tree);
+      let seen = typedVerified || (step.do === 'type' && acted.element !== undefined && holdsValue(acted.element, read.tree));
+
+      if (submits) {
+        // Enter may clear or replace the field. Verify typing before submitting;
+        // the expectation below observes the completed submission instead.
+        deps.signal.throwIfAborted();
+        try {
+          const submitted = await deps.port.act({ do: 'key', key: 'Enter' }, acted.element ? String(acted.element.index) : undefined, read.tabId);
+          acted = {
+            ...acted,
+            ...(submitted.opened ? { opened: submitted.opened.tabId } : {}),
+            ...(submitted.result ? { result: { ...acted.result, ...submitted.result } } : {}),
+          };
+          read = await deps.port.read(acted.opened ?? read.tabId);
+        } catch (error) {
+          const why = messageOf(error);
+          outcomes[at] = { ...outcomes[at], step, status: 'unverified', why: `submission could not be confirmed: ${why}` };
+          if (refused(why)) throw new Stop(why);
+          break;
+        }
+      }
 
       if (wanted !== undefined && acted.element) {
         const pressed = acted.element;
@@ -386,6 +419,7 @@ export async function runBrowserSteps(
 
       if (step.expect !== undefined) {
         const next = steps[at + 1];
+        const nextTargets = next ? targetsFor(next, read.tree) : read.tree;
         const nextAsks = next !== undefined && next.target !== undefined && !groundHere(next, read.tree, await memoryOf(read.tree.app));
         const answers = await ask(
           {
@@ -393,9 +427,9 @@ export async function runBrowserSteps(
             performed: { ...step, ...(acted.element ? { on: named(acted.element) } : {}), ...(acted.result ? { result: acted.result } : {}) },
             changes: changesBetween(before.page, read.page),
             page: clip(read.page, nextAsks ? PAGE_CHARS - CHANGE_CHARS : STATE_CHARS - CHANGE_CHARS),
-            ...(nextAsks ? { step: next, ...windowState(read.tree, STATE_CHARS - PAGE_CHARS) } : {}),
+            ...(nextAsks ? { step: next, ...windowState(nextTargets, STATE_CHARS - PAGE_CHARS) } : {}),
           },
-          { expected: EXPECTED, expected_change: EXPECTED_CHANGE, ...(nextAsks ? targetQuestions(read.tree) : {}) },
+          { expected: EXPECTED, expected_change: EXPECTED_CHANGE, ...(nextAsks ? targetQuestions(nextTargets) : {}) },
         );
         const yes = (id: string) => {
           const answer = answers[id];

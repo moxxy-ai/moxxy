@@ -1,4 +1,5 @@
 import type { HostedTool, ToolDef } from './tool.js';
+import type { ReasoningReplayItem } from './events.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -36,6 +37,7 @@ export type ContentBlock =
       readonly signature?: string;
       readonly redacted?: boolean;
       readonly encrypted?: string;
+      readonly replayItems?: ReadonlyArray<ReasoningReplayItem>;
     };
 
 /**
@@ -110,7 +112,7 @@ export type ProviderEvent =
    * Codex reasoning encrypted_content) that must be replayed verbatim;
    * `redacted` marks reasoning that must never be displayed.
    */
-  | { readonly type: 'reasoning_signature'; readonly signature?: string; readonly redacted?: boolean; readonly encrypted?: string };
+  | { readonly type: 'reasoning_signature'; readonly signature?: string; readonly redacted?: boolean; readonly encrypted?: string; readonly replayItem?: ReasoningReplayItem };
 
 export interface TokenUsage {
   /** Non-cached prompt tokens. Providers whose raw usage includes cached

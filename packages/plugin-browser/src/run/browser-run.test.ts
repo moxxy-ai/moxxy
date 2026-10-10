@@ -301,7 +301,7 @@ describe('runBrowserSteps', () => {
     const site = shop({});
     const typed = await runBrowserSteps({ goal: 'g', steps: [{ do: 'type', text: 'himalayas', submit: true }] }, { port: site.port, ask: jev({}).ask, memory: memory(), signal });
     expect(typed.outcomes[0]).toMatchObject({ status: 'done', found: 'focus' });
-    expect(site.acted).toEqual([{ do: 'type', uid: '5', text: 'himalayas' }]);
+    expect(site.acted).toEqual([{ do: 'type', uid: '5', text: 'himalayas' }, { do: 'key', uid: '5', key: 'Enter' }]);
 
     const nowhere = await runBrowserSteps({ goal: 'g', steps: [{ do: 'type', text: 'x' }] }, { port: shop({}, 'travel').port, ask: jev({}).ask, memory: memory(), signal });
     expect(nowhere.outcomes[0]?.why).toMatch(/nothing on the page has focus/i);

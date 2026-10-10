@@ -8,6 +8,22 @@ function control() {
 }
 
 describe('BrowserControl', () => {
+  it('does not claim already delivered input was undone when takeover comes during a press', async () => {
+    const { c } = control();
+    let delivered = false;
+    await c.during(async () => { delivered = true; c.takeOver(); });
+    expect(delivered).toBe(true);
+    expect(c.refusal()).not.toContain('nothing was done');
+  });
+
+  it('does not start input after the user took control during preparation', async () => {
+    const { c } = control();
+    c.takeOver();
+    let started = false;
+    await expect(c.during(async () => { started = true; })).rejects.toThrow(/user has taken over/);
+    expect(started).toBe(false);
+  });
+
   it('starts with the agent allowed to drive', () => {
     const { c } = control();
     expect(c.state).toEqual({ driver: 'agent', turnId: null });

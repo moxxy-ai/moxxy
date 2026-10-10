@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { asSkillId, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
+import { asSkillId, assertDefined, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
 import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
@@ -37,6 +37,39 @@ const sessionWith = (provider: FakeProvider): Session => {
 };
 
 describe('defaultMode end-to-end', () => {
+  it('persists all provider-owned reasoning items and replays them before the next tool continuation', async () => {
+    const replayItems = [
+      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque-one' } },
+      { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'opaque-two' } },
+    ];
+    const provider = new FakeProvider({ script: [
+      [
+        ...replayItems.map(replayItem => ({ type: 'reasoning_signature' as const, replayItem })),
+        ...toolUseReply('ReadTitle', {}, 'read-title'),
+      ],
+      textReply('The title is CodeMirror.'),
+    ] });
+    const session = sessionWith(provider);
+    session.tools.register(defineTool({
+      name: 'ReadTitle', description: 'Read the title', inputSchema: z.object({}),
+      handler: () => ({ title: 'CodeMirror' }),
+    }));
+
+    try {
+      const events = await collectTurn(session, 'Read the title');
+      expect(events.find(event => event.type === 'reasoning_message')).toMatchObject({ replayItems });
+      const continuation = provider.received[1];
+      assertDefined(continuation, 'the tool result must trigger a second provider request');
+      const assistant = continuation.messages.find(message => message.role === 'assistant');
+      assertDefined(assistant, 'the next request must contain the reasoning and tool call');
+      expect(assistant.content[0]).toEqual({
+        type: 'reasoning', text: '', replayItems,
+      });
+    } finally {
+      await session.close();
+    }
+  });
+
   it('runs a plain text turn and emits the expected event sequence', async () => {
     const provider = new FakeProvider({ script: [textReply('hello there')] });
     const session = sessionWith(provider);

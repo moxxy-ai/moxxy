@@ -68,6 +68,24 @@ beforeEach(() => vi.stubEnv('TYPESAFE_API_KEY', ''));
 afterEach(() => vi.unstubAllEnvs());
 
 describe('browser_run', () => {
+  it('uses browser history for navigation rather than page keyboard shortcuts', async () => {
+    const access = new JevAccess();
+    await access.key(ctx({ TYPESAFE_API_KEY: 'k-1' }));
+    const request: ProviderRequest = { model: 'model', messages: [], tools: [tool(access).run] };
+    const guided = withBrowserRunGuidance(access)(request, { sessionId: 's1' });
+    expect(guided.system).toContain('Use browser_history for back, forward and reload');
+    expect(guided.system).toContain('run keys reach the page');
+  });
+
+  it('directs double clicks to the UID tool rather than a single-click run step', async () => {
+    const access = new JevAccess();
+    await access.key(ctx({ TYPESAFE_API_KEY: 'k-1' }));
+    const request: ProviderRequest = { model: 'model', messages: [], tools: [tool(access).run] };
+    const guided = withBrowserRunGuidance(access)(request, { sessionId: 's1' });
+    expect(guided.system).toContain('browser_click with click_count: 2');
+    expect(guided.system).toContain('a run click is only a single press');
+  });
+
   it('runs the steps through the bridge with the key from the vault, and reads the page once at the end', async () => {
     const { run, b, keys } = tool();
 

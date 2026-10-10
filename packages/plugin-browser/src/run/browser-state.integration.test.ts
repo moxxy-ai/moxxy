@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { chromium, type Browser, type CDPSession, type Page } from 'playwright';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { assertDefined } from '@moxxy/sdk';
-import { appTreeSchema, RunMemory, type AskJev } from '@moxxy/jev';
+import { appTreeSchema, byName, RunMemory, type AskJev } from '@moxxy/jev';
 import { removeDirSync } from '@moxxy/vitest-preset/fs';
 import { appTreeOf } from '../ax/app-tree.js';
 import { buildAxTree, newUidMemory, type AxNodeRaw, type AxTree } from '../ax/tree.js';
@@ -76,6 +76,53 @@ const run = (step: RunStep) => runBrowserSteps({ goal: 'Set the requested checkb
 });
 
 describe('repeated product actions on the real page', () => {
+  it('still resolves a checkbox by its exact name when its row label has the same text', async () => {
+    await page.setContent('<ul><li><input id="box" type="checkbox" aria-label="Write tests"><label>Write tests</label></li></ul>');
+    expect((await run({ do: 'check', target: 'Write tests' })).outcomes[0]?.status).toBe('done');
+    expect(await page.locator('#box').isChecked()).toBe(true);
+    expect((await run({ do: 'uncheck', target: 'Write tests' })).outcomes[0]?.status).toBe('done');
+    expect(await page.locator('#box').isChecked()).toBe(false);
+    expect(clicks).toBe(2);
+  });
+
+  it('offers the row name itself instead of its checkbox as a click target', async () => {
+    await page.setContent(`<ul><li><input id="box" type="checkbox">
+      <label onclick="window.labelClicks++">Implement fix</label></li></ul>
+      <label>Unrelated field label</label><script>window.labelClicks=0</script>`);
+    const actions = appTreeSchema.parse(appTreeOf(await readTree(), { app: 'todos.test' }));
+    const named = byName(actions, { do: 'click', target: 'Implement fix' });
+    expect(named).toMatchObject({ role: 'LabelText', title: 'Implement fix' });
+    assertDefined(named, 'the row label is available under its actual UID');
+    await click(String(named.index));
+    expect(await page.locator('#box').isChecked()).toBe(false);
+    expect(await page.evaluate(() => Reflect.get(window, 'labelClicks'))).toBe(1);
+    expect(actions.elements.some(element => element.title === 'Unrelated field label')).toBe(false);
+  });
+
+  it('keeps unnamed checkboxes and a uniquely visible delete button with their own list row', async () => {
+    await page.setContent(`<ul>
+      <li id="plan"><input id="plan-box" type="checkbox"><label>Plan API</label>
+        <button aria-label="Delete todo" onclick="this.closest('li').remove()">×</button></li>
+      <li id="tests"><input id="tests-box" type="checkbox"><label>Write tests</label>
+        <button aria-label="Delete todo" hidden>×</button></li>
+    </ul>`);
+    const actions = appTreeSchema.parse(appTreeOf(await readTree(), { app: 'todos.test' }));
+    const boxes = actions.elements.filter((element) => element.role === 'checkbox');
+    expect(boxes.map((element) => element.description)).toEqual(['Section: Plan API', 'Section: Write tests']);
+    const tests = boxes.find((element) => element.description === 'Section: Write tests');
+    assertDefined(tests, 'the unnamed checkbox belongs to the Write tests row');
+    await click(String(tests.index));
+    expect(await page.locator('#tests-box').isChecked()).toBe(true);
+    expect(await page.locator('#plan-box').isChecked()).toBe(false);
+    const removePlan = actions.elements.find((element) => element.role === 'button');
+    assertDefined(removePlan, 'Chromium exposes only the visible delete button');
+    expect(removePlan.description).toBe('Section: Plan API');
+    await click(String(removePlan.index));
+    expect(await page.locator('#plan').count()).toBe(0);
+    expect(await page.locator('#tests-box').isChecked()).toBe(true);
+    expect(clicks).toBe(2);
+  });
+
   it('keeps each repeated add button with its section, even through layout wrappers', async () => {
     await page.setContent(`<main>
       <div><h2>SOLHETTA Żarówka LED E14 250 lumenów</h2><p>9,99 zł / 2 szt.</p></div>

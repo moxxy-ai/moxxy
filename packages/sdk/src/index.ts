@@ -22,6 +22,7 @@ export type {
   AssistantMessageEvent,
   ReasoningChunkEvent,
   ReasoningMessageEvent,
+  ReasoningReplayItem,
   ToolCallRequestedEvent,
   ToolCallApprovedEvent,
   ToolCallDeniedEvent,

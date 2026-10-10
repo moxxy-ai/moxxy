@@ -19,6 +19,7 @@ export interface ResponsesSseEvent {
     arguments?: string;
     /** On a `reasoning` output item: the opaque blob to replay (round-trip). */
     encrypted_content?: string;
+    summary?: ReadonlyArray<{ type: string; text: string }>;
   };
   item_id?: string;
   call_id?: string;

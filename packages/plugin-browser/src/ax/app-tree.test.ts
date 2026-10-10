@@ -65,6 +65,26 @@ describe('appTreeOf', () => {
     expect(byName(out, { do: 'click', target: 'Add to basket' })).toBeUndefined();
   });
 
+  it('does not borrow a nested row label for its outer row or an unrelated action', () => {
+    const rows = node('1', 'RootWebArea', 'Todos', [
+      node('2', 'listitem', '', [
+        node('3', 'button', 'Outer action'),
+        node('4', 'list', '', [node('5', 'listitem', '', [
+          node('6', 'checkbox'),
+          node('7', 'LabelText', '', [node('8', 'StaticText', 'Nested task')]),
+          node('9', 'button', 'Delete todo'),
+        ])]),
+      ]),
+      node('10', 'button', 'Unrelated action'),
+      node('11', 'checkbox'),
+    ]);
+    const out = appTreeOf(rows, { app: 'todos.test' });
+    expect(out.elements.map((element) => [element.index, element.description])).toEqual([
+      [3, undefined], [6, 'Section: Nested task'], [7, undefined], [9, 'Section: Nested task'], [10, undefined],
+    ]);
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+  });
+
   it('keeps what contains what, so an option belongs to its list', () => {
     const depth = Object.fromEntries(tree.elements.map((element) => [element.index, element.depth]));
     expect(depth[16]).toBe(1);

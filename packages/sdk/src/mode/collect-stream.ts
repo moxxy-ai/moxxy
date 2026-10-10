@@ -2,7 +2,7 @@ import type { ProviderEvent, ProviderMessage, TokenUsage } from '../provider.js'
 import type { ModeContext } from '../mode.js';
 import type { StopReason } from '../provider-utils.js';
 import { applyLazyTools, shouldGateTools } from '../tool-gating.js';
-import type { ProviderCallTiming } from '../events.js';
+import type { ProviderCallTiming, ReasoningReplayItem } from '../events.js';
 import { providerTiming } from './provider-timing.js';
 
 /**
@@ -58,6 +58,7 @@ export interface StreamResult {
     readonly signature?: string;
     readonly redacted?: boolean;
     readonly encrypted?: string;
+    readonly replayItems?: ReadonlyArray<ReasoningReplayItem>;
   };
 }
 
@@ -185,6 +186,7 @@ export async function collectProviderStream(
   let reasoningSignature: string | undefined;
   let reasoningRedacted = false;
   let reasoningEncrypted: string | undefined;
+  const reasoningReplayItems: ReasoningReplayItem[] = [];
 
   let stream: AsyncIterable<ProviderEvent>;
   try {
@@ -255,6 +257,7 @@ export async function collectProviderStream(
           if (event.signature) reasoningSignature = event.signature;
           if (event.encrypted) reasoningEncrypted = event.encrypted;
           if (event.redacted) reasoningRedacted = true;
+          if (event.replayItem) reasoningReplayItems.push(event.replayItem);
           break;
         }
         case 'message_start':
@@ -286,12 +289,13 @@ export async function collectProviderStream(
   // Surface reasoning when there's visible text OR an opaque blob to replay
   // (a redacted_thinking block has no text but must still round-trip).
   const reasoning =
-    reasoningText.trim().length > 0 || reasoningEncrypted
+    reasoningText.trim().length > 0 || reasoningEncrypted || reasoningReplayItems.length > 0
       ? {
           text: reasoningText,
           ...(reasoningSignature ? { signature: reasoningSignature } : {}),
           ...(reasoningRedacted ? { redacted: true } : {}),
           ...(reasoningEncrypted ? { encrypted: reasoningEncrypted } : {}),
+          ...(reasoningReplayItems.length > 0 ? { replayItems: reasoningReplayItems } : {}),
         }
       : undefined;
   return {

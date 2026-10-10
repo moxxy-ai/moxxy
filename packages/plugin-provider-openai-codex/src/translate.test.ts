@@ -3,6 +3,36 @@ import { defineTool, z } from '@moxxy/sdk';
 import { extractSystemText, toResponsesBody, toResponsesInput } from './translate.js';
 
 describe('toResponsesInput', () => {
+  it('replays completed Codex reasoning items verbatim before their tool calls without forwarding foreign state', () => {
+    const first = { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'Checking the page' }], encrypted_content: 'opaque-one', status: 'completed' };
+    const second = { type: 'reasoning', id: 'rs_2', summary: [], encrypted_content: 'opaque-two', status: 'completed' };
+    const input = toResponsesInput([{ role: 'assistant', content: [
+      { type: 'reasoning', text: 'Checking the page', replayItems: [
+        { provider: 'openai-codex', item: first },
+        { provider: 'another-provider', item: first },
+        { provider: 'openai-codex', item: second },
+      ] },
+      { type: 'tool_use', id: 'nav', name: 'browser_navigate', input: { url: 'https://codemirror.net/' } },
+    ] }]);
+    expect(input).toEqual([
+      first, second,
+      { type: 'function_call', call_id: 'nav', name: 'browser_navigate', arguments: '{"url":"https://codemirror.net/"}' },
+    ]);
+  });
+
+  it('does not send unsigned summaries, legacy foreign blobs or malformed replay items', () => {
+    expect(toResponsesInput([{ role: 'assistant', content: [
+      { type: 'reasoning', text: 'Visible summary only' },
+      { type: 'reasoning', text: '', redacted: true, encrypted: 'anthropic-state' },
+      { type: 'reasoning', text: '', replayItems: [
+        { provider: 'openai-codex', item: { type: 'reasoning', summary: [], encrypted_content: 'missing-id' } },
+        { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs', encrypted_content: 'missing-summary' } },
+        { provider: 'openai-codex', item: { type: 'reasoning', id: 'rs', summary: [] } },
+        { provider: 'openai-codex', item: { type: 'message', id: 'rs', summary: [], encrypted_content: 'wrong-type' } },
+      ] },
+    ] }])).toEqual([]);
+  });
+
   it.each(['gpt-6-astra', 'gpt-5.6-sol'])('preserves screenshot pixels and metadata in the request for %s', (model) => {
     const body = toResponsesBody({
       model,

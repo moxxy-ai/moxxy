@@ -86,6 +86,7 @@ function startParentWatchdog(): void {
 }
 
 let queue: Promise<void> = Promise.resolve();
+const requests = new Map<string, AbortController>();
 
 /**
  * Parse one input line and chain its dispatch onto the serial request queue.
@@ -122,12 +123,26 @@ export function enqueueLine(line: string, out: (reply: Reply) => void): Promise<
     });
     return queue;
   }
+  // Cancellation must reach a queued or running operation without waiting for it.
+  if (req.method === 'cancel') {
+    const callId = typeof req.params?.call_id === 'string' ? req.params.call_id : '';
+    const running = requests.get(callId);
+    running?.abort();
+    try { out({ id: req.id, ok: true, result: { cancelled: Boolean(running) } }); } catch { /* broken stdout */ }
+    return queue;
+  }
+  if (requests.has(req.id)) {
+    out({ id: req.id, ok: false, error: { message: 'duplicate request id', kind: 'runtime' } });
+    return queue;
+  }
+  const controller = new AbortController();
+  requests.set(req.id, controller);
   // Sequentially serve requests on the single page. Parent can pipeline by
   // sending more requests; we serialize them inside the sidecar so a goto
   // doesn't race a click.
   queue = queue
     .then(async () => {
-      const reply = await dispatch(state, req);
+      const reply = await dispatch(state, req, controller.signal);
       out(reply);
     })
     .catch((err) => {
@@ -136,7 +151,7 @@ export function enqueueLine(line: string, out: (reply: Reply) => void): Promise<
       } catch {
         /* stdout is gone too — nothing left to do but keep the queue alive */
       }
-    });
+    }).finally(() => requests.delete(req.id));
   return queue;
 }
 

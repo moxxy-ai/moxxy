@@ -17,12 +17,12 @@ describe('handleSseEvent — reasoning summary', () => {
     expect(out.events ?? []).toEqual([]);
   });
 
-  it('captures a reasoning item encrypted_content as a reasoning_signature', () => {
+  it('does not replay an unfinished reasoning item', () => {
     const out = run(
       { type: 'response.output_item.added', item: { type: 'reasoning', encrypted_content: 'blob' } },
       true,
     );
-    expect(out.events).toEqual([{ type: 'reasoning_signature', encrypted: 'blob' }]);
+    expect(out.events ?? []).toEqual([]);
   });
 
   it('still maps text + function-call events regardless of the reasoning toggle', () => {

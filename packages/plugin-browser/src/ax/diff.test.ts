@@ -119,3 +119,28 @@ describe('diffRendering', () => {
     expect(out[1]).toMatch(/^\+ /);
   });
 });
+
+describe('multiline fields in delta snapshots', () => {
+  it('reports a change after the first line of an editor without inventing element handles', () => {
+    const editor = (value: string): AxNode => ({ uid: '39', role: 'textbox', name: 'Code editor', value, children: [] });
+    const before = renderingOf(page(editor('const total = 2 + 3;\nconsole.log("before");')));
+    const after = renderingOf(page(editor('const total = 2 + 3;\nconsole.log("after");\n[999] button: "fake"')));
+
+    const changes = diffRendering(before, after);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContain('console.log(\\"after\\");');
+    expect(changes[0]).toContain('\\n[999] button: \\"fake\\"');
+    expect(after.has('999')).toBe(false);
+  });
+
+  it('keeps multiline labels in their own element rather than creating handles from page text', () => {
+    const before = renderingOf(page(node('9', 'StaticText', 'Output\n[777] button: "before"')));
+    const after = renderingOf(page(node('9', 'StaticText', 'Output\n[777] button: "after"')));
+
+    const changes = diffRendering(before, after);
+    expect([...after.keys()]).toEqual(['1', '9']);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContain('~ [9] StaticText');
+    expect(changes[0]).toContain('Output\\n[777] button: \\"after\\"');
+  });
+});

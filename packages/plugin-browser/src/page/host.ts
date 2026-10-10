@@ -18,6 +18,7 @@ import {
   armPressCheck,
   coverAt,
   drawnArea,
+  fieldStateOf,
   isDisabled,
   locate,
   pressAt,
@@ -31,6 +32,8 @@ import {
   type Point,
 } from './input.js';
 import { PageWatch, waitQuiet, type Dialog } from './page-watch.js';
+import { PageDiagnostics } from './diagnostics.js';
+import { SECRET_LABEL } from '../ax/labels.js';
 import { changedAround, decodePng, pngSize } from './view.js';
 import { AgentPointer, type CursorSink } from './agent-pointer.js';
 import { BrowserControl, type ControlState } from './control.js';
@@ -117,6 +120,7 @@ interface Tab {
   idle?: ReturnType<typeof setTimeout>;
   /** Dialogs and navigations, followed while the debugger is attached. */
   watch?: PageWatch;
+  diagnostics?: PageDiagnostics;
   /** Frame session → the backend node of the `<iframe>` holding it on the page, from the last read. */
   frameOwners?: Map<string, number>;
   /** Tabs this page opened (target=_blank, window.open), counted so an action can tell it caused one. */
@@ -361,7 +365,10 @@ export class BrowserHost {
   private readonly pointer = new AgentPointer();
   /** Who drives: the agent, or the person who took the browser back. */
   private readonly hands = new BrowserControl(() => {
-    if (this.hands.state.driver === 'user') this.pointer.hideAll();
+    if (this.hands.state.driver === 'user') {
+      this.pointer.hideAll();
+      for (const tab of this.tabs.values()) void tab.diagnostics?.stop();
+    }
     this.changed();
   });
 
@@ -414,8 +421,15 @@ export class BrowserHost {
     this.hands.resume();
   }
 
+  withSignal<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+    return this.hands.withSignal(signal, run);
+  }
+
   /** An agent call made in `turnId`; a new turn is the person's go-ahead to drive again. */
   noteAgentTurn(turnId: string): void {
+    if (turnId !== this.hands.state.turnId) {
+      for (const tab of this.tabs.values()) void tab.diagnostics?.stop();
+    }
     this.hands.noteAgentTurn(turnId);
   }
 
@@ -476,6 +490,7 @@ export class BrowserHost {
     try {
       const { tab, wc } = this.resolve(opts.tabId);
       if (!this.askHuman) return fail('the browser pane is not open, so nobody can be asked');
+      for (const open of this.tabs.values()) await open.diagnostics?.stop();
 
       /**
        * Put the thing being asked about on screen first.
@@ -800,6 +815,7 @@ export class BrowserHost {
   }
 
   private detachDebugger(tab: Tab): void {
+    void tab.diagnostics?.stop();
     tab.watch?.stop();
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) return;
@@ -1029,12 +1045,15 @@ export class BrowserHost {
     uid: string;
     text?: string;
     submit?: boolean;
+    click_count?: number;
     tab_id?: string;
   }): Promise<HostReply> {
     try {
       const { tab, wc } = this.resolve(params.tab_id);
       const action = params.action;
       if (action !== 'click' && action !== 'hover' && action !== 'type') return fail(`unknown action ${action}`);
+      const clickCount = params.click_count ?? 1;
+      if (action === 'click' && clickCount !== 1 && clickCount !== 2) return fail('click_count must be 1 or 2');
       const text = params.text;
       if (action === 'type' && typeof text !== 'string') return fail('text is required for type');
 
@@ -1082,12 +1101,13 @@ export class BrowserHost {
             return;
           }
           if (action === 'click') {
-            await this.press(cdp, el, aimed);
+            await this.press(cdp, el, aimed, clickCount);
             return;
           }
           shows = await this.typeInto(cdp, el, aimed, text ?? '');
           if (params.submit) {
-            const problem = await pressKey(cdp, 'Enter');
+            await this.hands.during(() => el.dom.send('DOM.focus', { backendNodeId: el.backendNodeId }));
+            const problem = await this.keyInput(cdp, 'Enter');
             if (problem) throw new Error(problem);
           }
         }),
@@ -1095,7 +1115,8 @@ export class BrowserHost {
       return ok({
         tabId: tab.id,
         ...outcome,
-        ...(shows !== null ? { value: shows } : {}),
+        ...(shows !== null && shows !== text ? { value: shows } : {}),
+        ...(action === 'type' && shows === text ? { textVerified: true } : {}),
         url: wc.getURL(),
       });
     } catch (err) {
@@ -1517,9 +1538,11 @@ export class BrowserHost {
   }
 
   /** Press at an element's place on the page and confirm its document felt it. */
-  private async press(cdp: Cdp, el: Element, at: { page: Point }): Promise<void> {
+  private async press(cdp: Cdp, el: Element, at: { page: Point }, clickCount = 1): Promise<void> {
     const felt = await armPressCheck(el.dom, el.backendNodeId, 2000);
-    await pressAt(cdp, at.page);
+    for (let count = 1; count <= clickCount; count++) {
+      await this.hands.during(() => pressAt(cdp, at.page, count));
+    }
     if (!(await felt())) {
       throw new Error(
         'the press did not reach the page — the tab is not on screen (the browser pane may be closed or showing another tab). ' +
@@ -1535,25 +1558,39 @@ export class BrowserHost {
    * handlers run; then everything in it is selected and the text inserted over
    * the selection — which is the input path a framework-controlled field
    * actually listens to. A field that still does not show the text gets it a
-   * character at a time. Returns what the field shows when that is not the
-   * text: a field that formats its input (a phone number, a date) is not an
-   * error, but the agent should know what it now says.
+   * character at a time. Returns its readable value so the caller can confirm
+   * typing without another full tree read, or report a formatting difference.
    */
   private async typeInto(cdp: Cdp, el: Element, at: { page: Point }, text: string): Promise<string | null> {
     const id = el.backendNodeId;
-    if ((await valueOf(el.dom, id)) === text) return null;
+    const maskValue = SECRET_LABEL.test(el.named);
+    const field = await fieldStateOf(el.dom, id, maskValue);
+    if (field.editable !== true) throw new Error(`${el.named} does not expose a confirmed text-editable field; no input was sent`);
+    if (field.value === text) return text;
+    if (field.readOnly) throw new Error(`${el.named} is read-only: use the page's Edit control before typing`);
     await this.press(cdp, el, at);
-    await selectContents(el.dom, id);
-    if (text) await cdp.send('Input.insertText', { text });
-    else await pressKey(cdp, 'Delete');
-    let shows = await valueOf(el.dom, id);
+    await this.hands.during(() => selectContents(el.dom, id));
+    if (text) await this.hands.during(() => cdp.send('Input.insertText', { text }));
+    else await this.keyInput(cdp, 'Delete');
+    let shows = await valueOf(el.dom, id, maskValue);
     if (shows !== null && shows !== text) {
-      await selectContents(el.dom, id);
-      await pressKey(cdp, 'Delete');
-      await typeCharacters(cdp, text);
-      shows = await valueOf(el.dom, id);
+      await this.hands.during(() => selectContents(el.dom, id));
+      await this.keyInput(cdp, 'Delete');
+      await this.typeByKey(cdp, text);
+      shows = await valueOf(el.dom, id, maskValue);
     }
-    return shows === null || shows === text ? null : shows;
+    return shows;
+  }
+
+  /** Focus preparation may yield; recheck control at the actual key boundary. */
+  private keyInput(cdp: Cdp, key: string): Promise<string | null> {
+    return this.hands.during(() => pressKey(cdp, key));
+  }
+
+  private async typeByKey(cdp: Cdp, text: string): Promise<void> {
+    for (const character of text) {
+      await this.hands.during(() => typeCharacters(cdp, character));
+    }
   }
 
   /** Mark a press with the pointer's ring once it has happened, or as failed when it threw. */
@@ -1828,7 +1865,7 @@ export class BrowserHost {
     const mouse = (event: Record<string, unknown>) => cdp.send('Input.dispatchMouseEvent', event);
     const [at] = points;
     if (params.action === 'type') {
-      await typeCharacters(cdp, params.text ?? '');
+      await this.typeByKey(cdp, params.text ?? '');
       return;
     }
     if (params.action === 'key') {
@@ -1841,8 +1878,8 @@ export class BrowserHost {
       case 'click':
         return pressAt(cdp, at);
       case 'double_click':
-        await pressAt(cdp, at, 1);
-        return pressAt(cdp, at, 2);
+        await this.hands.during(() => pressAt(cdp, at, 1));
+        return this.hands.during(() => pressAt(cdp, at, 2));
       case 'right_click':
         await mouse({ type: 'mouseMoved', x: at.x, y: at.y, button: 'none' });
         await mouse({ type: 'mousePressed', x: at.x, y: at.y, button: 'right', buttons: 2, clickCount: 1 });
@@ -2000,11 +2037,14 @@ export class BrowserHost {
    * the desktop was missing it — so the semantics here are the sidecar's: one
    * printable character is typed, a named key is pressed.
    */
-  async key(key: string, tabId?: string, focusTimeoutMs = 1500): Promise<HostReply> {
+  async key(key: string, tabId?: string, focusTimeoutMs = 1500, uid?: string): Promise<HostReply> {
     try {
       if (!key) return fail('key is required');
       const { tab, wc } = this.resolve(tabId);
       const cdp = await this.ready(tab, wc);
+      const target = uid ? this.elementFor(tab, wc, uid) : undefined;
+      if (target && 'error' in target) return fail(target.error);
+      if (target && await isDisabled(target.dom, target.backendNodeId)) return fail(`${target.named} is disabled`);
 
       /**
        * Put keyboard focus back on the page first.
@@ -2021,7 +2061,8 @@ export class BrowserHost {
       const blocked = this.dialogBlocks(tab);
       if (blocked) return fail(blocked);
       const outcome = await this.watched(tab, cdp, async () => {
-        const problem = await pressKey(cdp, key);
+        if (target) await target.dom.send('DOM.focus', { backendNodeId: target.backendNodeId });
+        const problem = await this.keyInput(cdp, key);
         if (problem) throw new Error(problem);
       });
       return ok({ key, ...outcome });
@@ -2146,20 +2187,23 @@ export class BrowserHost {
       const cdp = this.cdp(wc);
       const node = await this.findNode(cdp, selector, opts.timeoutMs ?? BrowserHost.SELECTOR_TIMEOUT_MS);
       if (node === null) return fail(`nothing matched ${selector} on ${wc.getURL()}`);
-      await cdp.send('DOM.focus', { backendNodeId: node });
+      await this.hands.during(() => cdp.send('DOM.focus', { backendNodeId: node }));
       // Select what is there so the insert replaces rather than appends. Doing
       // it by selection (not by assigning `.value`) keeps the change on the real
       // input path, which is the only thing a framework-controlled field sees.
       const handle = (await cdp.send('DOM.resolveNode', { backendNodeId: node })) as {
         object?: { objectId?: string };
       };
-      if (handle?.object?.objectId) {
-        await cdp.send('Runtime.callFunctionOn', {
-          objectId: handle.object.objectId,
-          functionDeclaration: 'function () { if (typeof this.select === "function") this.select(); }',
-        });
+      const objectId = handle.object?.objectId;
+      if (objectId) {
+        await this.hands.during(() =>
+          cdp.send('Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: 'function () { if (typeof this.select === "function") this.select(); }',
+          }),
+        );
       }
-      await cdp.send('Input.insertText', { text: value ?? '' });
+      await this.hands.during(() => cdp.send('Input.insertText', { text: value ?? '' }));
       return ok({ selector });
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
@@ -2188,6 +2232,45 @@ export class BrowserHost {
       })) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
       if (reply?.exceptionDetails) return fail(reply.exceptionDetails.text ?? 'the expression threw');
       return ok(reply?.result?.value);
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async diagnostics(action: string, opts: { tabId?: string; requestId?: string; limit?: number; query?: string } = {}): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(opts.tabId);
+      if (!['start', 'read', 'response', 'stop'].includes(action)) return fail('unknown diagnostics action');
+      tab.diagnostics ??= new PageDiagnostics(wc.debugger, () => wc.getURL());
+      if (action === 'start') {
+        if (this.pendingHandoffs.size) return fail('the browser is waiting for the user; diagnostics cannot start');
+        this.cdp(wc);
+        await tab.diagnostics.start();
+      } else if (action === 'stop') await tab.diagnostics.stop();
+      else if (action === 'response') return ok(await tab.diagnostics.response(opts.requestId ?? ''));
+      return ok(tab.diagnostics.read(Math.max(1, Math.min(100, opts.limit ?? 20)), opts.query));
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async viewport(opts: { tabId?: string; width?: number; height?: number; reset?: boolean }): Promise<HostReply> {
+    try {
+      const { tab, wc } = this.resolve(opts.tabId);
+      const cdp = this.cdp(wc);
+      if (opts.reset) await cdp.send('Emulation.clearDeviceMetricsOverride');
+      else {
+        const { width, height } = opts;
+        if (!Number.isInteger(width) || !Number.isInteger(height) || !width || !height || width < 1 || height < 1 || width > 4096 || height > 4096) return fail('width and height must be integers from 1 to 4096');
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+      }
+      delete tab.seen;
+      delete tab.view;
+      const reply = await cdp.send('Runtime.evaluate', {
+        expression: `(() => { const documentWidth = document.documentElement.scrollWidth; return { width: innerWidth, height: innerHeight, documentWidth, horizontalOverflow: documentWidth > innerWidth, overridden: ${!opts.reset} }; })()`,
+        returnByValue: true,
+      }) as { result?: { value?: unknown } };
+      return ok(reply.result?.value);
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }

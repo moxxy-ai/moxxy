@@ -4,6 +4,8 @@ import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.j
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
 import { ALLOW_SITE_TOOL, siteOf, sitesFromLog, type SiteGrant } from './site-access.js';
 import { buildRunTool, type JevAccess, type RunToolOptions } from './run/run-tool.js';
+import { buildDeveloperTools } from './developer-tools.js';
+import type { Region } from './page/host.js';
 
 /**
  * The agent's view of the browser: read the page as structured text, act on
@@ -147,17 +149,21 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     name: 'browser_click',
     icon: 'globe',
     description:
-      'Click an element by the [uid] shown in the latest browser_snapshot. The tab comes to the front, the ' +
+      'Click an element by the [uid] shown in the latest browser_snapshot. The tab comes to the front. ' +
+        'click_count is 1 by default; use 2 to double-click a label or open editing. The ' +
         'element is scrolled into view, and the click is refused — with the reason — if the element is disabled ' +
         'or something covers it (a banner, a dialog); clear what is in the way rather than retrying. It returns ' +
         'once the page has settled, saying what the click set off: navigated (and the new url), a dialog ' +
         '(an alert is accepted and quoted; a confirm or prompt stays open for browser_dialog), or a tab the page ' +
         'opened (its tab_id). Fails if the page navigated since that snapshot — take a fresh one.',
-    inputSchema: z.object({ uid: z.string().min(1), element, tab_id: tabId }),
+    inputSchema: z.object({
+      uid: z.string().min(1), element, tab_id: tabId,
+      click_count: z.number().int().min(1).max(2).optional().describe('Omit or use 1 for one click; 2 for a double click.'),
+    }),
     permission: acting,
     compact: { verb: 'Clicking', noun: { one: 'element', other: 'elements' }, previewKey: 'element' },
     isolation: ACT_ISOLATION,
-    handler: ({ uid, tab_id }, ctx) => call('act', { action: 'click', uid, tab_id }, ctx),
+    handler: ({ uid, tab_id, click_count }, ctx) => call('act', { action: 'click', uid, tab_id, ...(click_count !== undefined ? { click_count } : {}) }, ctx),
   });
 
   const typeFields = { uid: z.string().min(1), element, text: z.string(), tab_id: tabId };
@@ -233,11 +239,12 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     name: 'browser_capture',
     icon: 'file',
     description:
-      'Take a picture of the page — the last resort, after browser_snapshot. Use it when the accessibility ' +
-      'tree is empty where something is clearly visible (a <canvas> app, a chart, a rendered document). ' +
+      'Take a picture when the user requests one, or when browser_snapshot cannot describe visible content ' +
+      '(a <canvas> app, a chart, a rendered document). ' +
       'Pass a uid to crop to that element, which is far cheaper than a whole viewport and is usually the ' +
       'part that was actually in question. Every picture comes back named — a view id and its size — and ' +
-      'browser_point acts on what it shows, in its pixels; a crop to a canvas is the cheap way to work on one.',
+      'browser_point acts on what it shows, in its pixels; a crop to a canvas is the cheap way to work on one. ' +
+      'A uid crop also reports its measured capture rectangle in CSS pixels, before image scaling.',
     inputSchema: z.object({
       uid: blankAsAbsent(z.string().min(1)).describe(
         'Crop to this element from the last snapshot. Leave it out for the whole viewport — the page itself has no uid.',
@@ -250,15 +257,23 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     async handler({ uid, tab_id }, ctx) {
       // Cropping needs the element's box, which only the backend can resolve —
       // ask for it first, then capture just that rectangle.
-      let clip: unknown;
+      let clip: Region | undefined;
       if (uid) {
-        clip = await call('box', { uid, tab_id }, ctx).catch((err: unknown) => {
+        const box = await call('box', { uid, tab_id }, ctx).catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           if (!message.includes('is not in the last snapshot')) throw err;
           throw new Error(`${message} — to see the whole viewport, leave uid out`);
         });
+        clip = z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).parse(box);
       }
-      return call('capture', { tab_id, ...(clip ? { clip } : {}) }, ctx);
+      const result = await call('capture', { tab_id, ...(clip ? { clip } : {}) }, ctx);
+      if (!clip) return result;
+      const picture = z.record(z.unknown()).parse(result);
+      return {
+        ...picture,
+        cssBounds: clip,
+        forModel: `${typeof picture.forModel === 'string' ? picture.forModel : 'Picture of selected element.'} Element capture bounds: ${clip.width}×${clip.height} CSS pixels.`,
+      };
     },
   });
 
@@ -396,7 +411,7 @@ export function buildAgentTools(deps?: BrowserSessionDeps, opts: AgentToolsOptio
     handler: ({ reason, tab_id }, ctx) => call('await_human', { reason, tab_id }, ctx),
   });
 
-  const tools: ToolDef[] = [snapshot, find, click, type, navigate, tabs, capture, key, batch, back, awaitHuman, ...buildPageTools(call)];
+  const tools: ToolDef[] = [snapshot, find, click, type, navigate, tabs, capture, key, batch, back, awaitHuman, ...buildPageTools(call), ...buildDeveloperTools(call, ACT_ISOLATION)];
   if (!opts.run) return tools;
   tools.push(buildRunTool(call, opts.run));
   const { access } = opts.run;

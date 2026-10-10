@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { armPressCheck, pressAt, type Cdp } from './input.js';
+import { armPressCheck, pressAt, pressKey, valueOf, type Cdp } from './input.js';
 import { chromiumAvailable, closeChromium, openChromiumTab, type ChromiumTab } from './chromium-tab.test-support.js';
 
 /**
@@ -53,5 +53,41 @@ describe.skipIf(!available)('armPressCheck in a real Chromium page', () => {
     const felt = await armPressCheck(cdp, backendNodeId, 200);
 
     expect(await felt()).toBe(false);
+  });
+});
+
+describe.skipIf(!available)('field values in a real Chromium page', () => {
+  it.each([
+    ['<input id="field" value="Existing query">', 'Existing query'],
+    ['<div id="field" contenteditable style="white-space:pre">Editable text\n</div>', 'Editable text'],
+  ])('reads the actual input or editable value', async (html, expected) => {
+    tab = await openChromiumTab();
+    await tab.show(html);
+    const wc = tab.wc;
+    const cdp: Cdp = { send: (method, params) => wc.debugger.sendCommand(method, params) };
+    const { root } = (await cdp.send('DOM.getDocument')) as { root: { nodeId: number } };
+    const { nodeId } = (await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#field' })) as { nodeId: number };
+    const { node } = (await cdp.send('DOM.describeNode', { nodeId })) as { node: { backendNodeId: number } };
+    expect(await valueOf(cdp, node.backendNodeId)).toBe(expected);
+  });
+});
+
+
+describe.skipIf(!available)('keyboard edit history in a real Chromium page', () => {
+  it.each(['Control', 'Meta'])('redoes an undone edit with %s+Shift+z instead of undoing again', async (modifier) => {
+    tab = await openChromiumTab();
+    await tab.show('<textarea id="field"></textarea>');
+    const wc = tab.wc;
+    const cdp: Cdp = { send: (method, params) => wc.debugger.sendCommand(method, params) };
+    const { root } = (await cdp.send('DOM.getDocument')) as { root: { nodeId: number } };
+    const { nodeId } = (await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '#field' })) as { nodeId: number };
+    await cdp.send('DOM.focus', { nodeId });
+    await cdp.send('Input.insertText', { text: 'const total = 2 + 3;' });
+    expect(await tab.read('document.querySelector("#field").value')).toBe('const total = 2 + 3;');
+
+    expect(await pressKey(cdp, `${modifier}+z`)).toBeNull();
+    expect(await tab.read('document.querySelector("#field").value')).toBe('');
+    expect(await pressKey(cdp, `${modifier}+Shift+z`)).toBeNull();
+    expect(await tab.read('document.querySelector("#field").value')).toBe('const total = 2 + 3;');
   });
 });

@@ -2,6 +2,7 @@ import type { AppElement, AppTree } from '@moxxy/jev';
 import { MAX_LABEL_CHARS, unnamedTitle } from './format.js';
 import { isSecret } from './snapshot.js';
 import { TAKES_TEXT, type AxNode, type AxState } from './tree.js';
+import { AX_SECTIONS as SECTIONS, rowLabelOf } from './row-context.js';
 
 /**
  * A page as Jev reads it: the elements one can act on, each under the uid the
@@ -31,9 +32,6 @@ const ACTIONABLE: ReadonlySet<string> = new Set([
   'treeitem',
   'DisclosureTriangle',
 ]);
-
-/** Headings inside these blocks describe that block, not the next card or landmark. */
-const SECTIONS = new Set(['RootWebArea', 'main', 'banner', 'contentinfo', 'complementary', 'navigation', 'region', 'dialog', 'alertdialog', 'article', 'listitem', 'group']);
 
 /** What `appTreeSchema` takes. */
 const MAX_ELEMENTS = 5_000;
@@ -106,14 +104,19 @@ export function appTreeOf(
   let label: string | undefined;
 
   /** `place` is the key of the nearest listed container; `kinds` counts each role under it. */
-  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>, inherited?: string): string | undefined => {
+  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>, inherited?: string, inheritedRow?: string): string | undefined => {
     let section = SECTIONS.has(node.role) ? undefined : inherited;
+    let row = inheritedRow;
+    if (node.role === 'listitem') row = rowLabelOf(node, MAX_LABEL_CHARS);
+    else if (SECTIONS.has(node.role)) row = undefined;
     if (node.role === 'heading') section = (node.name || linesOf(node).join(' ')).trim() || section;
     let inside = { depth, place, kinds };
     const index = Number(node.uid);
     if (node.role === 'LabelText') label = (node.name || linesOf(node).join(' ')).trim() || label;
-    const shown = answersClicks(node) ? shownAs(node) : undefined;
-    const nameless = !shown && !node.name && !node.hint && node.value === undefined && !TAKES_TEXT.has(node.role);
+    // Row labels can be hovered or double-clicked even when a framework
+    // delegates their input handlers to the document instead of the node.
+    const shown = answersClicks(node) || (node.role === 'LabelText' && row !== undefined) ? shownAs(node) : undefined;
+    const nameless = !shown && !node.name && !node.hint && node.value === undefined && !TAKES_TEXT.has(node.role) && row === undefined;
     if ((ACTIONABLE.has(node.role) || shown) && !nameless && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
@@ -123,13 +126,14 @@ export function appTreeOf(
       kinds.set(node.role, ordinal);
       const key = `${place}/${node.role}[${ordinal}]`;
       const labelled = TAKES_TEXT.has(node.role) && label !== undefined && label !== node.name ? labelledAs(node, label) : undefined;
-      const context = section && (names.get(`${node.role}:${node.name}`) ?? 0) > 1
-        ? { description: clip(`Section: ${section}`) } : {};
+      let contextName = row && row !== (shown?.title ?? node.name) ? row : undefined;
+      if (!contextName && section && (names.get(`${node.role}:${node.name}`) ?? 0) > 1) contextName = section;
+      const context = contextName ? { description: clip(`Section: ${contextName}`) } : {};
       elements.push({ ...elementOf(node, index, key, depth), ...context, ...(shown ?? labelled ?? {}) });
       label = undefined;
       inside = { depth: Math.min(depth + 1, MAX_DEPTH), place: key, kinds: new Map() };
     }
-    for (const child of node.children) section = walk(child, inside.depth, inside.place, inside.kinds, section);
+    for (const child of node.children) section = walk(child, inside.depth, inside.place, inside.kinds, section, row);
     return SECTIONS.has(node.role) ? inherited : section;
   };
 

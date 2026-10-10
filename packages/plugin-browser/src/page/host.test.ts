@@ -118,6 +118,9 @@ function fakeWc(id: number, url = 'https://sklep.pl', title = 'Sklep', opts: { n
         if (method === 'Runtime.callFunctionOn') {
           const fn = String((params as { functionDeclaration?: string })?.functionDeclaration ?? '');
           if (fn.includes('getBoundingClientRect')) return { result: { value: onScreen } };
+          // The external CDP reply now states editability. Real field values,
+          // activation and protected inputs are verified in the Chromium suites.
+          if (fn.includes('const editable =')) return { result: { value: { value: null, readOnly: false, editable: true } } };
           if (fn.includes('input[type=file]')) {
             return fileInput
               ? { result: { type: 'object', subtype: 'node', objectId: 'file-input' } }

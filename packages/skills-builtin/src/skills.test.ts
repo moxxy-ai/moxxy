@@ -200,6 +200,16 @@ describe('the browser skill in the chat @ menu', () => {
 describe('the browser skill', () => {
   const body = async () => parseFrontmatterFile(await fs.readFile(path.join(BUILTIN_SKILLS_DIR, 'browser.md'), 'utf8')).body;
 
+  it('produces requested screenshots by reading rather than clicking their target', async () => {
+    const text = await body();
+    expect(text).toMatch(/For a requested picture, use `browser_capture`/);
+    expect(text).toMatch(/never click to select an element for its picture/);
+  });
+
+  it('restores the actual viewport through reset rather than an assumed desktop size', async () => {
+    expect(await body()).toContain('restore normal size with `reset: true`');
+  });
+
   it('offers runs of steps only where they exist, and says to carry on from the page they return', async () => {
     const text = await body();
     expect(text).toMatch(/When `browser_run` is among your tools/);
