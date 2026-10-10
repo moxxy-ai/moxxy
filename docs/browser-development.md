@@ -13,8 +13,11 @@ The desktop browser and Chromium sidecar share developer tools:
   `overridden: false` confirms the override was cleared; the normal panel may
   be narrower than a desktop width such as 1280 px. Measurements wait for the
   renderer's next animation frame, after resize handlers run, so a reset does
-  not report the previous emulated size. If no frame arrives within one second,
-  the tool reports that the layout could not be confirmed.
+  not report the previous emulated size. A desktop tab behind another one draws
+  no frames while Electron throttles it in the background, so the throttle is
+  lifted for that tab only while the measurement waits, then restored. If no
+  frame arrives within one second, the tool reports that the layout could not
+  be confirmed.
 
 An element crop through `browser_capture` returns its measured `cssBounds` and
 puts the crop dimensions in the model's image caption. These are CSS
@@ -32,20 +35,32 @@ buffers are limited to 64 KiB per resource and 1 MiB overall; evicted responses
 are reported as unavailable rather than refetched. Redirects retain the final
 request URL and response. Frame sessions from another site are not collected.
 
+On `localhost`, `*.localhost` and loopback addresses diagnostics start at once.
+On any other site, `start` and `response` first need the site allowed with
+`browser_allow_site`, the same consent acting on the page needs: a recording
+reads raw bodies a signed-in account's page receives, which a malicious page
+must not be able to request through the agent. `read` and `stop` stay free.
+
 Console entries identify the page URL at the time of the event, so retained
 messages from a previous page can be distinguished after navigation. Requests
 include method, URL, status, content type and completion or failure.
-Request bodies, cookies and headers are excluded. Recognized credential query
-parameters, bearer tokens and secret keys in JSON responses are masked;
+Request bodies, cookies and headers are excluded. A JSON key, query parameter
+or `name=value` pair whose name contains a credential word (`token`, `secret`,
+`password`, `jwt`, `csrf`, `xsrf`, `api_key`, `session`, `cookie`,
+`authorization`, `private_key`) is masked unless its value is a number, a
+boolean or null, so `max_tokens: 1000` stays readable. Bearer tokens and
+JWT-shaped values are masked wherever they appear;
 arbitrary secrets embedded in application log text cannot be identified
 reliably. Treat diagnostics as untrusted page content and avoid logging secrets
 in application code.
 
 Recordings stop at user takeover, before a browser hand-off, on tab close, when
 another turn starts using the browser, or after 30 seconds without a browser
-command. Starting again clears old entries.
-Stopped recordings retain bounded summaries; response bodies require an active
-recording. After changing viewport, take a fresh snapshot or screenshot: old
+command, so start, reproduce, read and fetch responses within one message.
+Starting again clears old entries. Stopped recordings retain bounded summaries,
+and `read` names why the recording ended (`ended`); response bodies require an
+active recording, and asking for one afterwards says why it ended and to start
+again instead of reporting the request as unknown. After changing viewport, take a fresh snapshot or screenshot: old
 picture coordinates no longer describe the layout.
 
 Browser navigation retains its existing public HTTP(S) restriction. These

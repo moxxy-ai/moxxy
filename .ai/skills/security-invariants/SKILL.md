@@ -40,6 +40,11 @@ around them changes.
 8. **Signed bytes are verified bytes.** Self-update verifies the signed
    per-file hash map at stage time AND every load; don't add code paths
    that execute staged content before verification.
+9. **Recording a signed-in page needs that site's consent.** Developer
+   diagnostics (`browser_diagnostics` start / response) read raw network
+   bodies an account's page receives; off the developer's own machine
+   (`isLocalDevSite`) they pass the same `browser_allow_site` gate as acting.
+   Credential-like keys and JWT-shaped values stay masked in what they return.
 
 Smell test for new code: "what happens if the JSON/peer/renderer/model is
 malicious?" — if the answer is "it can't be", prove it with the validator.

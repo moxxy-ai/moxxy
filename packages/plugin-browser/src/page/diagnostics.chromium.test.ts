@@ -14,6 +14,12 @@ beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.url?.startsWith('/secret')) {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'session=do-not-log' }).end(JSON.stringify({ token: 'do-not-log', nested: { accessToken: 'do-not-log', clientSecret: 'do-not-log' }, message: 'diagnostic result' }));
+    } else if (request.url?.startsWith('/tokens')) {
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        jwt: 'do-not-log', csrf_token: 'do-not-log', 'X-CSRF-Token': 'do-not-log', xsrfToken: 'do-not-log',
+        auth_token: 'do-not-log', 'x-api-key': 'do-not-log', apikey: 'do-not-log', private_key: 'do-not-log',
+        sessionid: 'do-not-log', note: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl', message: 'still useful',
+      }));
     } else if (request.url?.startsWith('/api')) {
       response.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'INVALID_QUERY_PARAMETER' }));
     } else {
@@ -121,6 +127,19 @@ describe.skipIf(!available)('developer tools on real Chromium', () => {
     }
   });
 
+  it('sets and resets the viewport of a tab behind another one', async () => {
+    const { host, tab } = await page();
+    const before = await tab.read<{ width: number; height: number }>('({ width: innerWidth, height: innerHeight })');
+    await tab.hide();
+    expect(await dispatchToHost(host, 'viewport', { width: 375, height: 800 })).toMatchObject({
+      ok: true, result: { width: 375, height: 800, overridden: true },
+    });
+    expect(await dispatchToHost(host, 'viewport', { reset: true })).toMatchObject({
+      ok: true, result: { ...before, overridden: false },
+    });
+    expect(tab.wc.getBackgroundThrottling?.()).toBe(true);
+  });
+
   it('measures the layout after the page processes its viewport resize', async () => {
     const { host, tab } = await page();
     await tab.read(`addEventListener('resize', () => {
@@ -146,6 +165,41 @@ describe.skipIf(!available)('developer tools on real Chromium', () => {
     expect(await dispatchToHost(host, 'viewport', { width: 390, height: 844 })).toMatchObject({
       ok: true, result: { width: 390, documentWidth: 390, horizontalOverflow: false },
     });
+  });
+
+  it('records on the developer\'s own machine without asking for the site', async () => {
+    const { host } = await page();
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'start', sites: [] })).toMatchObject({ ok: true, result: { recording: true } });
+  });
+
+  it('asks for the site before recording or reading a response anywhere else', async () => {
+    const { host, tab } = await page();
+    const port = new URL(origin).port;
+    await tab.wc.loadURL(`http://shop.example:${port}/`);
+    const start = await dispatchToHost(host, 'diagnostics', { action: 'start', sites: [] });
+    expect(start).toMatchObject({ ok: false, error: { message: expect.stringContaining('shop.example') } });
+    expect(start.ok ? '' : start.error.message).toContain('browser_allow_site');
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'response', request_id: 'any', sites: [] })).toMatchObject({
+      ok: false, error: { message: expect.stringContaining('browser_allow_site') },
+    });
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'read', sites: [] })).toMatchObject({ ok: true });
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'start', sites: ['shop.example'] })).toMatchObject({ ok: true });
+  });
+
+  it('masks credentials under any of their usual names, and a token whatever its field is called', async () => {
+    const { host, tab } = await page();
+    await dispatchToHost(host, 'diagnostics', { action: 'start' });
+    await tab.read(`fetch('/tokens').then((r) => r.text())`);
+    await expect.poll(async () => await dispatchToHost(host, 'diagnostics', { action: 'read', query: 'tokens' })).toMatchObject({
+      result: { network: [expect.objectContaining({ finished: true })] },
+    });
+    const read = await dispatchToHost(host, 'diagnostics', { action: 'read', query: 'tokens' });
+    const row = (read.result as { network: { id: string }[] }).network[0];
+    if (!row) throw new Error('request missing');
+    const response = JSON.stringify(await dispatchToHost(host, 'diagnostics', { action: 'response', request_id: row.id }));
+    expect(response).not.toContain('do-not-log');
+    expect(response).not.toContain('eyJhbGciOiJIUzI1NiJ9');
+    expect(response).toContain('still useful');
   });
 
   it('redacts recognized credentials and never includes network headers', async () => {
@@ -190,6 +244,34 @@ describe.skipIf(!available)('developer tools on real Chromium', () => {
       expect.objectContaining({ text: 'before navigation', url: `${origin}/` }),
       expect.objectContaining({ text: 'after navigation', url: `${origin}/other` }),
     ]) } });
+  });
+
+  it('says the recording ended with the message, and how to get a response, when it is read in the next one', async () => {
+    const { host, tab } = await page();
+    await dispatchToHost(host, 'diagnostics', { action: 'start', turn_id: 'developer' });
+    await tab.read(`fetch('/api?category_id=lighting').then((r) => r.text())`);
+    await expect.poll(async () => await dispatchToHost(host, 'diagnostics', { action: 'read', turn_id: 'developer' })).toMatchObject({
+      result: { network: [expect.objectContaining({ finished: true })] },
+    });
+    const read = await dispatchToHost(host, 'diagnostics', { action: 'read', turn_id: 'developer' });
+    const row = (read.result as { network: { id: string }[] }).network[0];
+    if (!row) throw new Error('request missing');
+
+    const later = await dispatchToHost(host, 'diagnostics', { action: 'response', request_id: row.id, turn_id: 'next' });
+    expect(later).toMatchObject({ ok: false, error: { message: expect.stringContaining('a new message started') } });
+    expect(later.ok ? '' : later.error.message).toMatch(/start .*again.*same message/i);
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'read', turn_id: 'next' })).toMatchObject({
+      ok: true, result: { recording: false, ended: 'a new message started' },
+    });
+  });
+
+  it('names an explicit stop as the reason the recording ended', async () => {
+    const { host } = await page();
+    await dispatchToHost(host, 'diagnostics', { action: 'start' });
+    await dispatchToHost(host, 'diagnostics', { action: 'stop' });
+    expect(await dispatchToHost(host, 'diagnostics', { action: 'response', request_id: 'gone' })).toMatchObject({
+      ok: false, error: { message: expect.stringContaining('it was stopped') },
+    });
   });
 
   it('does not carry a live recording into the next ordinary browser turn', async () => {

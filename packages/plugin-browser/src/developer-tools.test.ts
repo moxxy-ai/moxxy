@@ -13,6 +13,7 @@ describe('developer tool contracts', () => {
     expect(tool.inputSchema.safeParse({ action: 'response' }).success).toBe(false);
     expect(tool.inputSchema.safeParse({ action: 'response', request_id: '123' }).success).toBe(true);
     expect(tool.inputSchema.safeParse({ action: 'read', headers: true }).success).toBe(false);
+    expect(tool.description).toMatch(/same message/);
   });
 
   it('requires a complete bounded viewport or an explicit reset', () => {

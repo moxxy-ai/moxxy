@@ -11,17 +11,26 @@ const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const MAX_ROWS = 100;
 const MAX_TEXT = 1_000;
 const MAX_BODY = 8_000;
-const SECRET_KEY = /^(?:authorization|cookie|set[_-]?cookie|password|passwd|secret|client[_-]?secret|(?:access|refresh|id)[_-]?token|token|api[_-]?key|session[_-]?(?:id|token))$/i;
+/** A name that holds a credential anywhere in it: `jwt`, `X-CSRF-Token`, `auth_token`, `apikey`, `sessionid`… */
+const SECRET_NAME = 'authorization|cookie|passw(?:or)?d|secret|token|jwt|csrf|xsrf|api[_-]?key|session|private[_-]?key';
+const SECRET_KEY = new RegExp(SECRET_NAME, 'i');
+const SECRET_PAIR = new RegExp(`\\b([\\w-]*(?:${SECRET_NAME})[\\w-]*)\\s*[=:]\\s*[^\\s"',;&]+`, 'gi');
+/** A JSON Web Token is a credential whatever the field holding it is called. */
+const JWT = /\beyJ[\w-]+\.[\w-]+\.[\w-]*/g;
+
+/** A count or a flag under a credential-like name (`max_tokens: 1000`) is not a credential. */
+const isPlainFact = (value: unknown): boolean => typeof value === 'number' || typeof value === 'boolean' || value === null;
 
 function redactValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactValue);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SECRET_KEY.test(key) ? '[redacted]' : redactValue(item)]));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SECRET_KEY.test(key) && !isPlainFact(item) ? '[redacted]' : redactValue(item)]));
   return typeof value === 'string' ? redactText(value) : value;
 }
 
 function redactText(value: string): string {
   return value.replace(/\bBearer\s+[^\s"',;]+/gi, 'Bearer [redacted]')
-    .replace(/\b(password|client_secret|access_token|refresh_token|id_token|api[_-]?key)\s*[=:]\s*[^\s"',;&]+/gi, '$1=[redacted]');
+    .replace(JWT, '[redacted]')
+    .replace(SECRET_PAIR, '$1=[redacted]');
 }
 
 function safeUrl(raw: string): string {
@@ -56,6 +65,8 @@ interface RequestEntry {
 /** A bounded, explicitly started recording; never reads cookies, headers or request bodies. */
 export class PageDiagnostics {
   private recording = false;
+  /** Why the last recording ended, so a late read can say so instead of "not found". */
+  private ended: string | undefined;
   private started = 0;
   private dropped = 0;
   private readonly console: ConsoleEntry[] = [];
@@ -112,6 +123,7 @@ export class PageDiagnostics {
     this.console.length = 0;
     this.network.clear();
     this.dropped = 0;
+    this.ended = undefined;
     this.started = Date.now();
     this.recording = true;
     this.debuggerApi.on('message', this.listener);
@@ -125,9 +137,10 @@ export class PageDiagnostics {
     }
   }
 
-  async stop(): Promise<void> {
+  async stop(reason = 'it was stopped'): Promise<void> {
     if (!this.recording) return;
     this.recording = false;
+    this.ended = reason;
     this.debuggerApi.removeListener?.('message', this.listener);
     await this.disable();
   }
@@ -143,13 +156,18 @@ export class PageDiagnostics {
     const match = query.toLowerCase();
     const console = this.console.filter((row) => row.text.toLowerCase().includes(match));
     const network = [...this.network.values()].filter((row) => row.url.toLowerCase().includes(match));
-    return { recording: this.recording, console: console.slice(-limit), network: network.slice(-limit),
+    return { recording: this.recording, ...(!this.recording && this.ended ? { ended: this.ended } : {}),
+      console: console.slice(-limit), network: network.slice(-limit),
       dropped: this.dropped, available: { console: console.length, network: network.length } };
   }
 
   async response(id: string) {
     const row = this.network.get(id);
-    if (!this.recording || !row) throw new Error('request is not in the active recording');
+    if (!this.recording) {
+      throw new Error(`the recording ended: ${this.ended ?? 'it was never started'}. Start it again, reproduce the problem ` +
+        'and read the response in the same message — a recording does not outlive the message that started it.');
+    }
+    if (!row) throw new Error('request is not in the active recording');
     if (!row.finished || row.error) throw new Error(row.error || 'response has not finished loading');
     if (!row.mimeType || !/^(text\/|application\/(json|.*\+json|javascript|xml))/.test(row.mimeType)) throw new Error('response is not text');
     const reply = object(await this.debuggerApi.sendCommand('Network.getResponseBody', { requestId: id }));

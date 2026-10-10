@@ -1,4 +1,4 @@
-import { siteAllows, siteRefusal } from '../site-access.js';
+import { isLocalDevSite, siteAllows, siteRefusal } from '../site-access.js';
 import type { BrowserHost, HostReply, PointAction, PointParams } from './host.js';
 
 /**
@@ -220,16 +220,20 @@ export async function dispatchToHost(
  * Why this call would land on a site the conversation has not allowed, or
  * null. A navigation is judged by where it goes; any other action by the page
  * it acts on. Reading, scrolling, pointing and waiting decide nothing and go
- * anywhere. A call that carries no `sites` comes from `browser_session`, which
- * the user approves call by call — that approval is its consent.
+ * anywhere. Developer diagnostics record what the page sends and receives, so
+ * starting them or reading a response needs the site too, except on the
+ * developer's own machine. A call that carries no `sites` comes from
+ * `browser_session`, which the user approves call by call — that approval is
+ * its consent.
  */
 function offSiteRefusal(host: BrowserHost, method: string, params: Record<string, unknown>, tabId: string | undefined): string | null {
   if (!Array.isArray(params.sites)) return null;
   const sites = params.sites.filter((site): site is string => typeof site === 'string');
   const destination = (url: unknown): string | null =>
     typeof url === 'string' && url && !siteAllows(sites, url) ? siteRefusal(url) : null;
+  const pageOf = (tab: string | undefined) => host.list().find((t) => (tab ? t.tabId === tab : t.active));
   const here = (tab: string | undefined): string | null => {
-    const page = host.list().find((t) => (tab ? t.tabId === tab : t.active));
+    const page = pageOf(tab);
     // No such tab: let the action report that in its own words.
     return page && !siteAllows(sites, page.url) ? siteRefusal(page.url) : null;
   };
@@ -241,6 +245,12 @@ function offSiteRefusal(host: BrowserHost, method: string, params: Record<string
       return params.action === 'close' ? here(tabId) : null;
     case 'act':
       return params.action === 'hover' ? null : here(tabId);
+    case 'diagnostics': {
+      // Recording and response bodies can carry a signed-in account's data.
+      if (params.action !== 'start' && params.action !== 'response') return null;
+      const page = pageOf(tabId);
+      return page && isLocalDevSite(page.url) ? null : here(tabId);
+    }
     case 'select':
     case 'key':
     case 'point':

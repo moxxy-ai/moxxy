@@ -96,6 +96,9 @@ export interface HostWebContents {
   removeListener?(event: string, listener: (event: unknown, input?: { type?: string }) => void): void;
   /** Give this view keyboard focus. Optional for the same reason. */
   focus?(): void;
+  /** Electron's switch for slowing a page nobody sees. Optional for the same reason. */
+  getBackgroundThrottling?(): boolean;
+  setBackgroundThrottling?(allowed: boolean): void;
 }
 
 /** Resolve a live `WebContents` by id; null once it is gone. */
@@ -367,7 +370,7 @@ export class BrowserHost {
   private readonly hands = new BrowserControl(() => {
     if (this.hands.state.driver === 'user') {
       this.pointer.hideAll();
-      for (const tab of this.tabs.values()) void tab.diagnostics?.stop();
+      for (const tab of this.tabs.values()) void tab.diagnostics?.stop('the user took over the browser');
     }
     this.changed();
   });
@@ -428,7 +431,7 @@ export class BrowserHost {
   /** An agent call made in `turnId`; a new turn is the person's go-ahead to drive again. */
   noteAgentTurn(turnId: string): void {
     if (turnId !== this.hands.state.turnId) {
-      for (const tab of this.tabs.values()) void tab.diagnostics?.stop();
+      for (const tab of this.tabs.values()) void tab.diagnostics?.stop('a new message started');
     }
     this.hands.noteAgentTurn(turnId);
   }
@@ -490,7 +493,7 @@ export class BrowserHost {
     try {
       const { tab, wc } = this.resolve(opts.tabId);
       if (!this.askHuman) return fail('the browser pane is not open, so nobody can be asked');
-      for (const open of this.tabs.values()) await open.diagnostics?.stop();
+      for (const open of this.tabs.values()) await open.diagnostics?.stop('the browser was handed to the user');
 
       /**
        * Put the thing being asked about on screen first.
@@ -683,7 +686,7 @@ export class BrowserHost {
     if (!tab) return;
     tab.unwatch?.();
     if (tab.idle) clearTimeout(tab.idle);
-    this.detachDebugger(tab);
+    this.detachDebugger(tab, 'the tab closed');
     this.pointer.forget(tabId);
     this.tabs.delete(tabId);
     if (this.active === tabId) this.active = this.tabs.keys().next().value ?? null;
@@ -811,11 +814,11 @@ export class BrowserHost {
     } catch {
       // As above.
     }
-    this.detachDebugger(tab);
+    this.detachDebugger(tab, `the browser was idle for ${Math.round(this.idleReleaseMs / 1000)} seconds`);
   }
 
-  private detachDebugger(tab: Tab): void {
-    void tab.diagnostics?.stop();
+  private detachDebugger(tab: Tab, reason: string): void {
+    void tab.diagnostics?.stop(reason);
     tab.watch?.stop();
     const wc = this.lookup(tab.webContentsId);
     if (!wc || wc.isDestroyed()) return;
@@ -2266,6 +2269,10 @@ export class BrowserHost {
       }
       delete tab.seen;
       delete tab.view;
+      // A background tab draws no frames while Electron throttles it, so the
+      // frame below would never come; lift the throttle only while it waits.
+      const throttled = wc.getBackgroundThrottling?.() === true;
+      if (throttled) wc.setBackgroundThrottling?.(false);
       // CDP acknowledges a reset before the renderer necessarily applies its size.
       const reply = await cdp.send('Runtime.evaluate', {
         expression: `new Promise((resolve, reject) => {
@@ -2280,6 +2287,8 @@ export class BrowserHost {
         })`,
         returnByValue: true,
         awaitPromise: true,
+      }).finally(() => {
+        if (throttled && !wc.isDestroyed()) wc.setBackgroundThrottling?.(true);
       }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
       if (reply.exceptionDetails) return fail(reply.exceptionDetails.text ?? 'viewport layout could not be confirmed');
       return ok(reply.result?.value);
@@ -2292,7 +2301,7 @@ export class BrowserHost {
     for (const tab of this.tabs.values()) {
       tab.unwatch?.();
       if (tab.idle) clearTimeout(tab.idle);
-      this.detachDebugger(tab);
+      this.detachDebugger(tab, 'the browser closed');
     }
     this.tabs.clear();
     this.active = null;
