@@ -2413,6 +2413,18 @@ importers:
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/mode-default':
+        specifier: workspace:*
+        version: link:../mode-default
+      '@moxxy/plugin-vault':
+        specifier: workspace:*
+        version: link:../plugin-vault
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

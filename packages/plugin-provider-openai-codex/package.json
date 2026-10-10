@@ -41,9 +41,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.live.json",
     "test": "vitest run",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "moxxy": {
     "plugin": {
@@ -70,6 +71,10 @@
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
