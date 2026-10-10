@@ -66,6 +66,20 @@ afterEach(() => {
 });
 
 describe('removeAuditEntry (via skills audit revert)', () => {
+  it('edits the audit log in MOXXY_HOME when it is set', async () => {
+    const home = path.join(homeRef.dir, 'elsewhere');
+    vi.stubEnv('MOXXY_HOME', home);
+    try {
+      const log = path.join(home, 'skills', '.meta', 'created.jsonl');
+      mkdirSync(path.dirname(log), { recursive: true });
+      writeFileSync(log, [entry('alpha'), entry('beta')].join('\n') + '\n');
+      expect(await runSkillsCommand(revertArgv('beta'))).toBe(0);
+      expect(readFileSync(log, 'utf8')).not.toContain('"beta"');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('drops the matching slug and keeps all others (round-trip)', async () => {
     seedAudit(['alpha', 'beta', 'gamma']);
     const code = await runSkillsCommand(revertArgv('beta'));

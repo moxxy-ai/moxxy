@@ -6,10 +6,9 @@ import {
   silentLogger,
 } from '@moxxy/core';
 import { createMutex } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from '../setup/builtin-skills-dir.js';
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ParsedArgv } from '../argv.js';
 import { confirmedYes, helpRequested } from '../argv-helpers.js';
@@ -40,7 +39,7 @@ export interface AuditEntry {
   scope: string;
 }
 
-const AUDIT_PATH = (): string => path.join(os.homedir(), '.moxxy', 'skills', '.meta', 'created.jsonl');
+const AUDIT_PATH = (): string => moxxyPath('skills', '.meta', 'created.jsonl');
 
 /**
  * Serializes whole-file read-modify-write rewrites of the audit log so two

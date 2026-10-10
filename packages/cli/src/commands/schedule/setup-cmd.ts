@@ -1,10 +1,9 @@
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { PermissionEngine } from '@moxxy/core';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
 import { probeSession } from '../../setup.js';
 import { installAndStartDaemon } from '../schedule-daemon-svc.js';
+import { userPolicyPath } from '../../setup/user-policy-path.js';
 
 const DEFAULT_HEADLESS_ALLOW_TOOLS = ['telegram_send_message', 'web_fetch'];
 
@@ -43,7 +42,7 @@ async function stepAllowTools(tools: ReadonlyArray<string>): Promise<void> {
     process.stdout.write(`${colors.bold('skip')}  ${colors.dim('tool allowlist (--allow="")')}\n`);
     return;
   }
-  const policyPath = path.join(os.homedir(), '.moxxy', 'permissions.json');
+  const policyPath = userPolicyPath();
   const engine = await PermissionEngine.load(policyPath);
   const before = engine.policySnapshot;
   const existingAllowNames = new Set(before.allow.map((r) => r.name));

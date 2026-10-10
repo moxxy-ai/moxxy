@@ -50,7 +50,7 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 
 | Variable | Effect |
 |---|---|
-| `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, skills, sessions, and services. |
+| `MOXXY_HOME` | Overrides the `~/.moxxy` directory used for the vault, permission rules (`permissions.json`), skills, workflows, memory, plugins, self-update transactions, the policy-bundle cache, sessions, and services. Collaborative-mode sockets and run folders stay under `~/.moxxy/collab` so every process of a run finds them. |
 | `MOXXY_DEBUG=1` | Enables verbose CLI errors and process diagnostics. |
 | `MOXXY_VAULT_PASSPHRASE` | Supplies a headless vault passphrase instead of using the OS keychain. |
 | `MOXXY_NO_KEYCHAIN` | Set to `1` to keep the vault off the OS keychain: the key is read from and written to `~/.moxxy/vault.key` only. The test suite sets it. |

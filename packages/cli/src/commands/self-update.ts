@@ -1,5 +1,5 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyHome } from '@moxxy/sdk/server';
 import {
   detectCoreInstall,
   listCoreTxns,
@@ -27,10 +27,6 @@ const HELP = formatHelp({
   ],
 });
 
-function moxxyDir(): string {
-  return path.join(os.homedir(), '.moxxy');
-}
-
 export async function runSelfUpdateCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0] ?? 'status';
   if (sub === 'help' || helpRequested(argv)) {
@@ -39,7 +35,7 @@ export async function runSelfUpdateCommand(argv: ParsedArgv): Promise<number> {
   }
 
   if (sub === 'status') {
-    const dir = moxxyDir();
+    const dir = moxxyHome();
     const txns = await listTransactions(dir);
     const core = await listCoreTxns(dir);
     process.stdout.write(colors.bold('Tier 1 — plugins / skills\n'));
@@ -61,7 +57,7 @@ export async function runSelfUpdateCommand(argv: ParsedArgv): Promise<number> {
       printError('usage: moxxy self-update rollback <coreTxnId>');
       return 2;
     }
-    const dir = moxxyDir();
+    const dir = moxxyHome();
     const journal = await readCoreJournal(dir, txnId).catch(() => null);
     if (!journal) {
       printError(`no core transaction "${txnId}" (only Tier-2 core txns can be rolled back from the CLI)`);

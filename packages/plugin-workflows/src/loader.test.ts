@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { discoverWorkflows, MAX_WORKFLOW_FILE_BYTES } from './loader.js';
+import { defaultUserWorkflowsDir, discoverWorkflows, MAX_WORKFLOW_FILE_BYTES } from './loader.js';
 import { removeDir } from '@moxxy/vitest-preset/fs';
 
 const VALID_YAML = `name: keeper
@@ -78,5 +78,20 @@ describe('discoverWorkflows: per-file read robustness', () => {
     // The oversized file was never read into memory (skipped at the stat gate).
     expect(readPaths).not.toContain(bigPath);
     expect(warnings.some((w) => w?.path === bigPath && typeof w?.size === 'number')).toBe(true);
+  });
+});
+
+describe('defaultUserWorkflowsDir', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('lives in MOXXY_HOME when it is set', () => {
+    vi.stubEnv('MOXXY_HOME', path.join(os.tmpdir(), 'moxxy-home-elsewhere'));
+    expect(defaultUserWorkflowsDir()).toBe(path.join(os.tmpdir(), 'moxxy-home-elsewhere', 'workflows'));
+  });
+
+  it('falls back to ~/.moxxy', () => {
+    expect(defaultUserWorkflowsDir()).toBe(path.join(os.homedir(), '.moxxy', 'workflows'));
   });
 });

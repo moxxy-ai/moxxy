@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import { skillFrontmatterSchema, asSkillId, type Skill, type SkillScope } from '@moxxy/sdk';
 import { parseSkillFile } from './parse.js';
 import type { Logger } from '../logger.js';
@@ -117,7 +117,7 @@ function deriveTriggers(name: string): ReadonlyArray<string> {
 }
 
 export function defaultUserSkillsDir(): string {
-  return path.join(os.homedir(), '.moxxy', 'skills');
+  return moxxyPath('skills');
 }
 
 export function defaultProjectSkillsDir(cwd: string): string {
