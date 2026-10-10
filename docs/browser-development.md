@@ -11,7 +11,10 @@ The desktop browser and Chromium sidecar share developer tools:
   and `horizontalOverflow` in the same read. These describe the whole document;
   identifying which element overflows still requires inspecting that element.
   `overridden: false` confirms the override was cleared; the normal panel may
-  be narrower than a desktop width such as 1280 px.
+  be narrower than a desktop width such as 1280 px. Measurements wait for the
+  renderer's next animation frame, after resize handlers run, so a reset does
+  not report the previous emulated size. If no frame arrives within one second,
+  the tool reports that the layout could not be confirmed.
 
 An element crop through `browser_capture` returns its measured `cssBounds` and
 puts the crop dimensions in the model's image caption. These are CSS

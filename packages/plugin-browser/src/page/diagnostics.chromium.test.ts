@@ -109,12 +109,27 @@ describe.skipIf(!available)('developer tools on real Chromium', () => {
 
   it('confirms clearing the viewport override at the actual panel size', async () => {
     const { host, tab } = await page();
-    const before = await tab.read<number>('innerWidth');
-    await dispatchToHost(host, 'viewport', { width: 390, height: 844 });
-    expect(await dispatchToHost(host, 'viewport', { reset: true })).toMatchObject({
-      ok: true, result: { width: before, overridden: false },
+    const before = await tab.read<{ width: number; height: number }>('({ width: innerWidth, height: innerHeight })');
+    for (let attempt = 0; attempt < 50; attempt++) {
+      expect(await dispatchToHost(host, 'viewport', { width: 390, height: 844 })).toMatchObject({
+        ok: true, result: { width: 390, height: 844, overridden: true },
+      });
+      expect(await dispatchToHost(host, 'viewport', { reset: true })).toMatchObject({
+        ok: true, result: { ...before, overridden: false },
+      });
+      expect(await tab.read('({ width: innerWidth, height: innerHeight })')).toEqual(before);
+    }
+  });
+
+  it('measures the layout after the page processes its viewport resize', async () => {
+    const { host, tab } = await page();
+    await tab.read(`addEventListener('resize', () => {
+      document.querySelector('main').style.minWidth = innerWidth + 'px';
+    })`);
+    expect(await dispatchToHost(host, 'viewport', { width: 390, height: 844 })).toMatchObject({
+      ok: true, result: { width: 390, documentWidth: 398, horizontalOverflow: true },
     });
-    expect(await tab.read<number>('innerWidth')).toBe(before);
+    expect(await tab.read('document.querySelector("main").style.minWidth')).toBe('390px');
   });
 
   it('reports actual document overflow instead of just the requested viewport size', async () => {

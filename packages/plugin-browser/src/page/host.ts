@@ -2266,10 +2266,22 @@ export class BrowserHost {
       }
       delete tab.seen;
       delete tab.view;
+      // CDP acknowledges a reset before the renderer necessarily applies its size.
       const reply = await cdp.send('Runtime.evaluate', {
-        expression: `(() => { const documentWidth = document.documentElement.scrollWidth; return { width: innerWidth, height: innerHeight, documentWidth, horizontalOverflow: documentWidth > innerWidth, overridden: ${!opts.reset} }; })()`,
+        expression: `new Promise((resolve, reject) => {
+          const frame = requestAnimationFrame(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+          const timer = setTimeout(() => { cancelAnimationFrame(frame); reject(new Error('viewport layout could not be confirmed')); }, 1000);
+        }).then(() => {
+          const documentWidth = document.documentElement.scrollWidth;
+          return { width: innerWidth, height: innerHeight, documentWidth, horizontalOverflow: documentWidth > innerWidth, overridden: ${!opts.reset} };
+        })`,
         returnByValue: true,
-      }) as { result?: { value?: unknown } };
+        awaitPromise: true,
+      }) as { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
+      if (reply.exceptionDetails) return fail(reply.exceptionDetails.text ?? 'viewport layout could not be confirmed');
       return ok(reply.result?.value);
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
