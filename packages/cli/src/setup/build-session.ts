@@ -1,6 +1,6 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { moxxyPath } from '@moxxy/sdk/server';
+import { userPolicyPath } from './user-policy-path.js';
 import {
   EventLog,
   PermissionEngine,
@@ -57,9 +57,8 @@ export interface BuildSessionArgs {
  * re-fire side effects for historical events.
  */
 export async function buildSession(args: BuildSessionArgs): Promise<Session> {
-  const userPolicyPath =
-    args.config.permissions?.policyPath ?? path.join(os.homedir(), '.moxxy', 'permissions.json');
-  const permissionEngine = await PermissionEngine.load(userPolicyPath);
+  const policyPath = args.config.permissions?.policyPath ?? userPolicyPath();
+  const permissionEngine = await PermissionEngine.load(policyPath);
   // Config-supplied rules sit ABOVE the user's policy file and are never
   // written back. From the system scope (with `permissions` in `locked:`) this
   // is how an operator ships a deny a user cannot remove: not by editing the

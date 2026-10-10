@@ -1,6 +1,5 @@
-import * as path from 'node:path';
-import * as os from 'node:os';
 import { PermissionEngine } from '@moxxy/core';
+import { userPolicyPath } from '../setup/user-policy-path.js';
 import type { ParsedArgv } from '../argv.js';
 import { confirmedYes, helpRequested } from '../argv-helpers.js';
 import { printError } from '../errors.js';
@@ -25,10 +24,6 @@ const HELP = formatHelp({
   ],
 });
 
-function policyPath(): string {
-  return path.join(os.homedir(), '.moxxy', 'permissions.json');
-}
-
 export async function runPermsCommand(argv: ParsedArgv): Promise<number> {
   if (helpRequested(argv)) {
     process.stdout.write(HELP);
@@ -44,14 +39,14 @@ export async function runPermsCommand(argv: ParsedArgv): Promise<number> {
       import('@moxxy/plugin-cli'),
     ]);
     const { waitUntilExit } = render(
-      React.createElement(PermissionEditor, { policyPath: policyPath() }),
+      React.createElement(PermissionEditor, { policyPath: userPolicyPath() }),
     );
     await waitUntilExit();
     return 0;
   }
 
   const cmd = sub ?? 'list';
-  const engine = await PermissionEngine.load(policyPath());
+  const engine = await PermissionEngine.load(userPolicyPath());
 
   switch (cmd) {
     case 'list': {
@@ -122,7 +117,7 @@ export async function runPermsCommand(argv: ParsedArgv): Promise<number> {
       return 0;
     }
     case 'path': {
-      process.stdout.write(policyPath() + '\n');
+      process.stdout.write(userPolicyPath() + '\n');
       return 0;
     }
     default:
