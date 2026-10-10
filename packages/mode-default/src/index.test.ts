@@ -172,6 +172,78 @@ describe('defaultMode end-to-end', () => {
     expect(result.error?.kind).toBe('denied');
   });
 
+  it('ends the turn after Computer Use denial without asking again or bypassing it', async () => {
+    const provider = new FakeProvider({ script: [
+      toolUseReply('computer_run', { goal: 'type a name' }, 'denied'),
+      toolUseReply('Bash', { command: 'bypass' }, 'bypass'),
+      textReply('done'),
+    ] });
+    const session = sessionWith(provider);
+    const asked: string[] = [];
+    const executed: string[] = [];
+    session.setPermissionResolver({ name: 'operator', async check(call) {
+      asked.push(call.name);
+      return call.name === 'computer_run' ? { mode: 'deny' } : { mode: 'allow' };
+    } });
+    for (const name of ['computer_run', 'Bash']) {
+      session.tools.register(defineTool({ name, description: '', inputSchema: z.object({}).passthrough(),
+        handler: () => { executed.push(name); return 'done'; },
+      }));
+    }
+    const events = await collectTurn(session, 'type a name');
+    expect(asked).toEqual(['computer_run']);
+    expect(executed).toEqual([]);
+    expect(provider.received).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', stopReason: 'end_turn' });
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'checkpoint_injected')).toBe(false);
+  });
+
+  it('cancels the rest of a denied Computer Use batch but permits a new user turn', async () => {
+    const batch = [
+      { type: 'message_start' as const, model: 'fake' },
+      ...toolUseReply('computer_run', {}, 'first').slice(1, -1),
+      ...toolUseReply('Bash', {}, 'second').slice(1, -1),
+      { type: 'message_end' as const, stopReason: 'tool_use' as const },
+    ];
+    const provider = new FakeProvider({ script: [batch, toolUseReply('computer_run', {}, 'retry'), textReply('done')] });
+    const session = sessionWith(provider);
+    const asked: string[] = [];
+    const executed: string[] = [];
+    let permitted = false;
+    session.setPermissionResolver({ name: 'operator', async check(call) {
+      asked.push(call.name);
+      return { mode: permitted ? 'allow' : 'deny' };
+    } });
+    for (const name of ['computer_run', 'Bash']) {
+      session.tools.register(defineTool({ name, description: '', inputSchema: z.object({}),
+        handler: () => { executed.push(name); return 'done'; },
+      }));
+    }
+    const first = await collectTurn(session, 'go');
+    expect(asked).toEqual(['computer_run']);
+    expect(executed).toEqual([]);
+    expect(first.filter((e) => e.type === 'tool_result')).toHaveLength(2);
+    permitted = true;
+    const next = await collectTurn(session, 'I now permit it; retry');
+    expect(asked).toEqual(['computer_run', 'computer_run']);
+    expect(executed).toEqual(['computer_run']);
+    expect(next.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done' });
+  });
+
+  it('retries an ordinary Computer Use failure instead of treating it as a refusal', async () => {
+    const provider = new FakeProvider({ script: [
+      toolUseReply('computer_run', {}, 'fail'), toolUseReply('computer_run', {}, 'retry'), textReply('done'),
+    ] });
+    const session = sessionWith(provider);
+    let attempts = 0;
+    session.tools.register(defineTool({ name: 'computer_run', description: '', inputSchema: z.object({}),
+      handler: () => { attempts += 1; if (attempts === 1) throw new Error('503'); return 'done'; },
+    }));
+    const events = await collectTurn(session, 'go');
+    expect(attempts).toBe(2);
+    expect(events.at(-1)).toMatchObject({ type: 'assistant_message', content: 'done' });
+  });
+
   it('handles tool handler throws as failure result', async () => {
     const provider = new FakeProvider({
       script: [toolUseReply('boom', {}, 'c1'), textReply('recovered')],

@@ -219,10 +219,40 @@ export async function* executeToolUses(
       });
       return true;
     }
+    let computerDenied = false;
     try {
-      yield* dispatchToolCall(ctx, t, iteration);
+      for await (const event of dispatchToolCall(ctx, t, iteration)) {
+        if (event.type === 'tool_call_denied' && t.name.startsWith('computer_')) {
+          computerDenied = true;
+        }
+        yield event;
+      }
     } finally {
       unresolved.delete(t.id);
+    }
+    // A permission refusal is a terminal boundary, not a failed task step.
+    // Drain pending requests without invoking hooks, permissions or handlers.
+    if (computerDenied) {
+      for (const orphanId of unresolved) {
+        yield await ctx.emit({
+          type: 'tool_result',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          callId: asToolCallId(orphanId),
+          ok: false,
+          error: { kind: 'denied', message: 'Computer Use permission denied; remaining turn actions cancelled' },
+        });
+      }
+      yield await ctx.emit({
+        type: 'assistant_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        stopReason: 'end_turn',
+        content: 'Computer Use permission was denied. I stopped this turn without retrying or using another tool. You can send a new request; permissions will be checked again.',
+      });
+      return true;
     }
   }
   return false;

@@ -498,3 +498,16 @@ the workspace, so an older installed copy hides local changes.
 
 Results of the trials and the benchmark are in
 [`computer-use-rebuild/benchmark.md`](computer-use-rebuild/benchmark.md).
+
+### Permission refusal ends the current turn
+
+If a Computer Use tool is denied by the permission pipeline, the shared tool
+executor ends that turn with an explanation. It cancels remaining calls in the
+same batch without asking for permission or executing them, and does not request
+another model response or run continuation checkpoints. This prevents retrying
+with different arguments or switching to another tool after a refusal. Policy
+and hook denials have the same conservative behavior as an operator refusal.
+
+The session remains available. A subsequent user message starts a new turn with
+normal permission checks; the message itself does not grant permission. Ordinary
+tool failures still allow recovery. Stop and takeover keep their existing behavior.
