@@ -15,6 +15,19 @@ const tree = (...elements: AppElement[]): AppTree => ({ app: 'Editor', elements:
 const exportButton = { do: 'click' as const, target: 'the Export button', key: 'w/export', label: 'button\u001fExport', way: 1 };
 
 describe('RunMemory', () => {
+  it('does not reuse a repeated button for a different product at the same place', async () => {
+    const bulb = { ...element(2, '/button[1]', 'Add to basket'), description: 'Section: SOLHETTA' };
+    const lamp = { ...element(2, '/button[1]', 'Add to basket'), description: 'Section: FORSÅ' };
+    const step = { do: 'click', target: 'Add SOLHETTA to basket' };
+    const memory = new RunMemory(directory);
+    await memory.learn('shop.test', { targets: [{ ...step, key: bulb.key, label: labelOf(bulb), way: 0 }] });
+    const saved = await new RunMemory(directory).read('shop.test');
+    expect(recall(saved, step, tree(bulb))?.element).toEqual(bulb);
+    expect(recall(saved, step, tree(lamp))).toBeUndefined();
+    const moved = { ...bulb, key: '/button[2]', index: 3 };
+    expect(recall(saved, step, tree(lamp, moved))?.element).toEqual(moved);
+  });
+
   it('keeps what worked for an app across restarts, and counts repeats instead of storing them twice', async () => {
     let time = 100;
     const memory = new RunMemory(directory, () => time);

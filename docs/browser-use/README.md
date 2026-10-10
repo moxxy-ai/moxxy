@@ -75,6 +75,13 @@ person's would, and every step that can go wrong says so:
 6. **The result says what happened**: `navigated`, a `dialog`, a tab the page
    `opened`, or what a field `value` now shows.
 
+Repeated action labels keep their observed section heading in the compact tree
+used to choose a target. For example, two “Add to basket” buttons can be
+separated by the bulb's heading and the lamp's heading without changing either
+button's accessible name or UID. Learned targets also compare this description,
+so another product occupying the old button position is not reused. Headings inside a product card or landmark
+stay inside it; an ambiguous target still requires a fresh read or explicit UID.
+
 ## Reading a page
 
 `browser_snapshot` sends the accessibility tree once, then only what changed;

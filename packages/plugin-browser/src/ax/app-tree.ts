@@ -32,6 +32,9 @@ const ACTIONABLE: ReadonlySet<string> = new Set([
   'DisclosureTriangle',
 ]);
 
+/** Headings inside these blocks describe that block, not the next card or landmark. */
+const SECTIONS = new Set(['RootWebArea', 'main', 'banner', 'contentinfo', 'complementary', 'navigation', 'region', 'dialog', 'alertdialog', 'article', 'listitem', 'group']);
+
 /** What `appTreeSchema` takes. */
 const MAX_ELEMENTS = 5_000;
 const MAX_DEPTH = 64;
@@ -83,6 +86,17 @@ export function appTreeOf(
     opts.clickable?.has(node.backendNodeId) === true;
   const elements: AppElement[] = [];
   let truncated = false;
+  const names = new Map<string, number>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node) continue;
+    if (ACTIONABLE.has(node.role) && node.name) {
+      const name = `${node.role}:${node.name}`;
+      names.set(name, (names.get(name) ?? 0) + 1);
+    }
+    pending.push(...node.children);
+  }
 
   /**
    * The text of the last `<label>` read since the previous control. A label tied
@@ -92,7 +106,9 @@ export function appTreeOf(
   let label: string | undefined;
 
   /** `place` is the key of the nearest listed container; `kinds` counts each role under it. */
-  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>): void => {
+  const walk = (node: AxNode, depth: number, place: string, kinds: Map<string, number>, inherited?: string): string | undefined => {
+    let section = SECTIONS.has(node.role) ? undefined : inherited;
+    if (node.role === 'heading') section = (node.name || linesOf(node).join(' ')).trim() || section;
     let inside = { depth, place, kinds };
     const index = Number(node.uid);
     if (node.role === 'LabelText') label = (node.name || linesOf(node).join(' ')).trim() || label;
@@ -101,17 +117,20 @@ export function appTreeOf(
     if ((ACTIONABLE.has(node.role) || shown) && !nameless && Number.isSafeInteger(index)) {
       if (elements.length >= MAX_ELEMENTS) {
         truncated = true;
-        return;
+        return inherited;
       }
       const ordinal = (kinds.get(node.role) ?? 0) + 1;
       kinds.set(node.role, ordinal);
       const key = `${place}/${node.role}[${ordinal}]`;
       const labelled = TAKES_TEXT.has(node.role) && label !== undefined && label !== node.name ? labelledAs(node, label) : undefined;
-      elements.push({ ...elementOf(node, index, key, depth), ...(shown ?? labelled ?? {}) });
+      const context = section && (names.get(`${node.role}:${node.name}`) ?? 0) > 1
+        ? { description: clip(`Section: ${section}`) } : {};
+      elements.push({ ...elementOf(node, index, key, depth), ...context, ...(shown ?? labelled ?? {}) });
       label = undefined;
       inside = { depth: Math.min(depth + 1, MAX_DEPTH), place: key, kinds: new Map() };
     }
-    for (const child of node.children) walk(child, inside.depth, inside.place, inside.kinds);
+    for (const child of node.children) section = walk(child, inside.depth, inside.place, inside.kinds, section);
+    return SECTIONS.has(node.role) ? inherited : section;
   };
 
   walk(root, 1, '', new Map());

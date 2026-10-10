@@ -42,6 +42,29 @@ describe('appTreeOf', () => {
     ]);
   });
 
+  it("does not borrow a repeated button's section from a neighbouring card or landmark", () => {
+    const cards = node('1', 'RootWebArea', 'Shop', [
+      node('2', 'main', '', [node('3', 'list', '', [
+        node('4', 'listitem', '', [node('5', 'heading', 'SOLHETTA'), node('6', 'button', 'Add to basket')]),
+        node('7', 'listitem', '', [node('8', 'button', 'Add to basket')]),
+        node('9', 'listitem', '', [node('10', 'heading', 'FORSÅ'), node('11', 'button', 'Add to basket')]),
+      ])]),
+      node('12', 'contentinfo', '', [node('13', 'button', 'Add to basket')]),
+    ]);
+    const out = appTreeOf(cards, { app: 'shop.test' });
+    expect(out.elements.map((element) => [element.index, element.title, element.description])).toEqual([
+      [6, 'Add to basket', 'Section: SOLHETTA'],
+      [8, 'Add to basket', undefined],
+      [11, 'Add to basket', 'Section: FORSÅ'],
+      [13, 'Add to basket', undefined],
+    ]);
+    expect(out.elements.map((element) => element.key)).toEqual([
+      '/button[1]', '/button[2]', '/button[3]', '/button[4]',
+    ]);
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(byName(out, { do: 'click', target: 'Add to basket' })).toBeUndefined();
+  });
+
   it('keeps what contains what, so an option belongs to its list', () => {
     const depth = Object.fromEntries(tree.elements.map((element) => [element.index, element.depth]));
     expect(depth[16]).toBe(1);

@@ -75,6 +75,29 @@ const run = (step: RunStep) => runBrowserSteps({ goal: 'Set the requested checkb
   port, ask: noJev, signal: new AbortController().signal, memory: new RunMemory(directory),
 });
 
+describe('repeated product actions on the real page', () => {
+  it('keeps each repeated add button with its section, even through layout wrappers', async () => {
+    await page.setContent(`<main>
+      <div><h2>SOLHETTA Żarówka LED E14 250 lumenów</h2><p>9,99 zł / 2 szt.</p></div>
+      <button id="bulb" onclick="document.body.dataset.added='SOLHETTA'">Dodaj do koszyka</button>
+      <div><h2>FORSÅ Lampa biurkowa</h2></div>
+      <button id="lamp" onclick="document.body.dataset.added='FORSÅ'">Dodaj do koszyka</button>
+    </main>`);
+    const found = await readTree();
+    const actions = appTreeSchema.parse(appTreeOf(found, { app: 'shop.test', window: 'FORSÅ' }));
+    const buttons = actions.elements.filter((element) => element.role === 'button');
+    expect(buttons.map((element) => [element.title, element.description])).toEqual([
+      ['Dodaj do koszyka', 'Section: SOLHETTA Żarówka LED E14 250 lumenów'],
+      ['Dodaj do koszyka', 'Section: FORSÅ Lampa biurkowa'],
+    ]);
+    const bulb = buttons.find((element) => element.description?.includes('SOLHETTA'));
+    assertDefined(bulb, 'the bulb action carries the bulb section in its observation');
+    await click(String(bulb.index));
+    expect(await page.locator('body').getAttribute('data-added')).toBe('SOLHETTA');
+    expect(clicks).toBe(1);
+  });
+});
+
 describe('terms agreement on the real page', () => {
   it.each(['I agree to the terms', 'Zgadzam się na regulamin'])('asks the user for "%s" without offering cookie rejection', async (label) => {
     await page.setContent(`<label><input id="terms" type="checkbox">${label}</label>`);
