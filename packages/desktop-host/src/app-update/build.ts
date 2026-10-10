@@ -34,6 +34,9 @@ export interface BuildInput {
    * builds that predate the gate (treated as "no constraint").
    */
   runnerProtocol?: number;
+  /** The runner protocol the bundle needs, written to the manifest unsigned
+   *  (`AppManifest.needsRunnerProtocol`). What releases pass. */
+  needsRunnerProtocol?: number;
   releaseUrl?: string;
   notes?: string;
 }
@@ -103,6 +106,7 @@ export function buildAppBundle(input: BuildInput): BuildOutput {
   ).toString('base64');
 
   const manifest: AppManifest = { ...signed, signature };
+  if (typeof input.needsRunnerProtocol === 'number') manifest.needsRunnerProtocol = input.needsRunnerProtocol;
   if (input.releaseUrl) manifest.releaseUrl = input.releaseUrl;
   if (input.notes) manifest.notes = input.notes;
 

@@ -177,6 +177,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.updatePlan': z.undefined(),
   'app.setup': z.undefined(),
   'app.relaunch': z.undefined(),
+  'app.revertUpdate': z.undefined(),
   'app.appBooted': z.undefined(),
   'app.updateDiagnostics': z.undefined(),
   // Optional offline voice installation spawns the CLI and changes the active

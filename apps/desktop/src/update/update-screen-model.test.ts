@@ -106,6 +106,35 @@ describe('updateScreenModel — the update', () => {
     expect(model({ plan: { ...refused, releaseUrl: undefined } })?.actions).toEqual(['retry', 'close']);
   });
 
+  it('offers the installer by hand too when it downloaded but the restart did not bring the new version', () => {
+    const notLanded: AppUpdatePlan = {
+      ...downloading,
+      route: 'installer',
+      releaseUrl: 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0',
+      steps: [{ id: 'installer', status: 'done' }, { id: 'restart', status: 'failed', error: 'The new version could not be put in place: EACCES' }],
+    };
+
+    expect(model({ plan: notLanded })?.actions).toEqual(['retry', 'manual', 'close']);
+  });
+
+  it('says what "Not now" does when only the installed app is left to update', () => {
+    const completing: AppUpdatePlan = {
+      ...downloading,
+      route: 'installer',
+      completes: true,
+      releaseUrl: 'https://github.com/moxxy-ai/moxxy/releases/tag/desktop-v0.6.0',
+      steps: [{ id: 'installer', status: 'failed', error: 'offline' }, { id: 'restart', status: 'pending' }],
+    };
+
+    expect(model({ plan: completing })).toMatchObject({
+      kind: 'failed',
+      subtitle: '"Not now" takes Moxxy back to the version you had.',
+      actions: ['retry', 'manual', 'close'],
+    });
+    // Closing it is a way out, not a way to hide it: it stays until Moxxy restarts.
+    expect(model({ plan: completing, closed: true })?.kind).toBe('failed');
+  });
+
   it('lets go of a failed update once it is closed', () => {
     expect(model({ plan: failed, closed: true })).toBeNull();
   });

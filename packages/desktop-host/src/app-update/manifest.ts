@@ -41,6 +41,15 @@ export interface AppManifest {
    * construction with the CLI they shipped beside).
    */
   runnerProtocol?: number;
+  /**
+   * The runner protocol the bundle needs, said WITHOUT signing it. Releases
+   * carry this instead of the signed `runnerProtocol`: an installed app that
+   * predates it lets the bundle load, and the bundle then installs the full
+   * app itself (`shell-protocol.ts`); an app that knows it takes the installer
+   * straight away. Left unsigned because installed apps verify the exact
+   * signed bytes — and it only ever chooses between two verified routes.
+   */
+  needsRunnerProtocol?: number;
   /** SHA-256 (hex) of the gzipped bundle payload. */
   sha256: string;
   /** Per-file integrity map: bundle-relative POSIX path → SHA-256 (hex) of the
@@ -185,6 +194,10 @@ export function parseManifest(json: string): AppManifest | null {
       return null;
     }
     out.runnerProtocol = m.runnerProtocol;
+  }
+  // Unsigned, so never a reason to refuse the manifest: a bad value is dropped.
+  if (typeof m.needsRunnerProtocol === 'number' && Number.isInteger(m.needsRunnerProtocol) && m.needsRunnerProtocol >= 0) {
+    out.needsRunnerProtocol = m.needsRunnerProtocol;
   }
   if (str(m.releaseUrl)) out.releaseUrl = m.releaseUrl;
   if (str(m.notes)) out.notes = m.notes;

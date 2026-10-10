@@ -126,6 +126,28 @@ describe('verifyManifestSignature', () => {
   });
 });
 
+describe('the runner a bundle needs, said without signing it', () => {
+  it('is read from the manifest', () => {
+    const { manifest } = signed();
+    expect(parseManifest(JSON.stringify({ ...manifest, needsRunnerProtocol: 24 }))?.needsRunnerProtocol).toBe(24);
+    expect(parseManifest(JSON.stringify(manifest))).not.toHaveProperty('needsRunnerProtocol');
+  });
+
+  it('is not part of what the signature covers, so an app that predates it still accepts the manifest', () => {
+    const { manifest, publicKeyPem } = signed();
+    expect(verifyManifestSignature({ ...manifest, needsRunnerProtocol: 24 }, publicKeyPem)).toBe(true);
+  });
+
+  it('is left out when it is not a whole number', () => {
+    const { manifest } = signed();
+    for (const bad of [-1, 1.5, 'twenty-four', null]) {
+      const parsed = parseManifest(JSON.stringify({ ...manifest, needsRunnerProtocol: bad }));
+      expect(parsed).not.toBeNull();
+      expect(parsed).not.toHaveProperty('needsRunnerProtocol');
+    }
+  });
+});
+
 describe('parseManifest', () => {
   it('parses a well-formed manifest and lowercases the hash', () => {
     const { manifest } = signed({ sha256: 'A'.repeat(64) });

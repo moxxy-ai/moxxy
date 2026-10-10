@@ -190,6 +190,9 @@ export interface IpcCommands {
   'app.updateShell': () => Promise<{ ok: boolean; error?: string }>;
   /** Relaunch the app so a freshly-installed dashboard bundle takes effect. */
   'app.relaunch': () => Promise<void>;
+  /** Gives up on an update that only the installed app is left to finish
+   *  (`AppUpdatePlan.completes`): Moxxy restarts on the version it had. */
+  'app.revertUpdate': () => Promise<void>;
   /** Renderer → main heartbeat: the React tree mounted past the splash. Clears
    *  the boot-probe so a hot-updated bundle is marked healthy (no-op on the
    *  bundled floor). */

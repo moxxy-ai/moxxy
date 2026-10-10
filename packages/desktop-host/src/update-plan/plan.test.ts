@@ -42,6 +42,11 @@ describe('buildUpdatePlan', () => {
     expect(plan({ ...appHot, compatible: false })?.route).toBe('installer');
   });
 
+  it('marks the plan that brings the installed app up to the bundle already running', () => {
+    expect(buildUpdatePlan({ app: appInstaller, id: 'plan-1', now: 1_000, completes: true })?.completes).toBe(true);
+    expect(plan(appInstaller)).not.toHaveProperty('completes');
+  });
+
   it('plans nothing from a check that failed', () => {
     expect(plan({ ...appHot, error: 'offline' })).toBeNull();
   });
