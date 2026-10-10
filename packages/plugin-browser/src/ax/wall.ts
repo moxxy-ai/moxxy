@@ -36,7 +36,7 @@ const CAPTCHA_WIDGET = new Set(['Iframe', 'IframePresentational', 'checkbox', ..
 
 /**
  * An agreement may include the terms being agreed to. Cookie choices match
- * in full; only a cookie control or its own cookie banner may be declined.
+ * in full; a settings opener in the footer is not an open consent panel.
  *
  * The first draft matched loose stems — `akceptuj`, `więcej opcji` — and paid
  * for it: Canva's account menu is called "Więcej opcji konta i zespołu", so
@@ -54,8 +54,8 @@ const CONSENT_WORD = /(cookie|ciasteczk)/i;
  * as invitations cannot be appended. Refusing a contract is not included.
  */
 const DECLINE =
-  '(?:reject (?:all|non-essential|optional)|only (?:necessary|essential)|necessary only|continue without accepting)(?: cookies)?|' +
-  '(?:odrzu[ćc] (?:wszystk(?:ie|o)|zbędne|opcjonalne)|tylko (?:niezbędne|niezbedne)|kontynuuj bez akceptacji)(?: (?:pliki cookie|cookies|ciasteczka))?';
+  '(?:reject (?:all|non-essential|optional)|(?:accept )?only (?:necessary|essential)|necessary only|continue without accepting)(?: cookies)?|' +
+  '(?:odrzu[ćc] (?:wszystk(?:ie|o)|zbędne|opcjonalne)|(?:akceptuj )?tylko (?:niezbędne|niezbedne)|kontynuuj bez akceptacji)(?: (?:pliki cookie|cookies|ciasteczka))?';
 const DECLINE_PHRASE = new RegExp(`^(?:${DECLINE})$`, 'i');
 const CONSENT_PHRASE = new RegExp(`^(?:accept all(?: cookies)?|zaakceptuj wszystk(?:ie|o)(?: pliki cookie)?|${DECLINE})$`, 'i');
 /** The text of an agreement does not authorize accepting or declining it. */
@@ -67,9 +67,9 @@ const ANSWERS = new Set(['button', 'link']);
  * A link that names cookies leads to a policy — Wikipedia's footer carries one
  * on every page — so a link counts only when it uses a banner's own phrase.
  */
-const isConsent = (role: string, name: string): boolean => {
+const isConsent = (name: string): boolean => {
   const label = normalized(name);
-  return AGREEMENT_PHRASE.test(label) || CONSENT_PHRASE.test(label) || (role !== 'link' && CONSENT_WORD.test(name));
+  return AGREEMENT_PHRASE.test(label) || CONSENT_PHRASE.test(label);
 };
 
 const DIALOGS = new Set(['dialog', 'alertdialog']);
@@ -78,6 +78,7 @@ const CONTAINERS = new Set([...DIALOGS, 'group', 'region']);
 /** Local banner text, without borrowing another dialog or a policy link. */
 function mentionsCookies(node: AxNode): boolean {
   if (node.role === 'link') return false;
+  if (PRESSABLE.has(node.role) && !isConsent(node.name)) return false;
   if (CONSENT_WORD.test(node.name)) return true;
   return node.children.some((child) => !CONTAINERS.has(child.role) && mentionsCookies(child));
 }
@@ -143,8 +144,8 @@ export function detectWall(tree: AxNode | null): Wall | null {
       else otherFields++;
     }
     if (PRESSABLE.has(n.role) && SIGNIN.test(name)) saysSignIn = true;
-    if (consent === null && PRESSABLE.has(n.role) && isConsent(n.role, name)) consent = n.uid;
-    if (PRESSABLE.has(n.role) && isConsent(n.role, name) && (scope || CONSENT_WORD.test(name))) {
+    if (consent === null && PRESSABLE.has(n.role) && isConsent(name)) consent = n.uid;
+    if (PRESSABLE.has(n.role) && isConsent(name) && (scope || CONSENT_WORD.test(name))) {
       const local = scope ?? n;
       const declining = ANSWERS.has(n.role) && DECLINE_PHRASE.test(normalized(name)) &&
         !n.states?.includes('disabled');
@@ -192,6 +193,7 @@ export function declineNote(name: string, uid?: string): string {
     `This page shows a cookie banner with a way to turn down what the site does not need: "${name}". ` +
     'Press it yourself and carry on with the task — do not ask the user. Never press a control that accepts ' +
     'or agrees to more; if the banner is still there after that, call browser_await_human. ' +
+    'A necessary-only choice may use the word "Accept" ("Akceptuj tylko niezbędne"); it still declines optional cookies. ' +
     'This exception is only for cookies. Do not reject invitations, requests or other choices unless the user asked for that.' +
     (uid ? ` Use browser_click with uid=${JSON.stringify(uid)} for this banner's control, not a similarly named control elsewhere.` : '')
   );

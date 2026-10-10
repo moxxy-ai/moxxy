@@ -395,12 +395,18 @@ A snapshot flags a page that is waiting for the user — a cookie choice, a
 CAPTCHA, a sign-in — and the agent hands over with `browser_await_human`
 instead of answering it. One wall the agent answers itself: a cookie banner
 that shows a way to turn down what the site does not need ("Reject all",
-"Only necessary", "Tylko niezbędne", "Odrzuć opcjonalne"). The snapshot names
+"Only necessary", "Tylko niezbędne", "Akceptuj tylko niezbędne", "Accept only
+necessary cookies", "Odrzuć opcjonalne"). The snapshot names
 that control and its UID under `### Cookie banner` and the agent presses that
 element and carries on. Declining labels must match in full: "Reject all
 invitations" is not "Reject all". A control must explicitly name cookies or
 belong to the same cookie dialog/group/region; another dialog or a policy link
 in the footer cannot supply that context. Disabled controls are not offered.
+An opener such as "Ustawienia plików cookie", "Cookie settings" or "Manage
+cookies" does not itself mean a consent panel is open, even when it is a
+button. Once the panel closes, the footer opener does not keep the page
+blocked. Necessary-only choices decline optional cookies even when their
+label includes "Accept"; they do not authorize accepting optional categories.
 An ambiguous consent choice remains the user's to answer. This exception does
 not authorize declining invitations, requests or other choices outside the task.
 Agreement controls may include the full terms being agreed to ("I agree to the

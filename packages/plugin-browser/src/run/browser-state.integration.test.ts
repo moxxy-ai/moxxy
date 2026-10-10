@@ -95,6 +95,29 @@ describe('terms agreement on the real page', () => {
 });
 
 describe('cookie rejection on the real page', () => {
+  it.each(['Akceptuj tylko niezbędne', 'Accept only necessary cookies'])('declines through "%s" and carries on when only the footer opener remains', async (label) => {
+    await page.setContent(`<main><button id="task" onclick="this.dataset.clicked='yes'">Continue task</button></main>
+      <button id="invitations" onclick="this.dataset.clicked='yes'">Reject all invitations</button>
+      <div role="dialog" aria-label="Privacy"><p>We use cookies for statistics.</p>
+        <button id="accept" onclick="this.dataset.clicked='yes'">Accept all cookies</button>
+        <button id="necessary" onclick="document.body.dataset.consent='necessary';this.closest('[role=dialog]').remove()">${label}</button>
+      </div>
+      <footer><button>Ustawienia plików cookie</button></footer>`);
+    const wall = detectWall(await readTree());
+    assertDefined(wall?.decline, 'the banner offers the necessary-only choice');
+    await click(wall.decline.uid);
+    expect(await page.locator('body').getAttribute('data-consent')).toBe('necessary');
+    expect(await page.locator('#invitations').getAttribute('data-clicked')).toBeNull();
+    const found = await readTree();
+    expect(detectWall(found)).toBeNull();
+    expect(formatSnapshot({ tree: found, url: 'https://fixture.test', title: 'Task', tabs: [], wall: null })).not.toContain('### Needs you');
+    const task = [...found.index.values()].find((element) => element.name === 'Continue task' && element.role === 'button');
+    assertDefined(task, 'the task button remains available after declining cookies');
+    await click(task.uid);
+    expect(await page.locator('#task').getAttribute('data-clicked')).toBe('yes');
+    expect(clicks).toBe(2);
+  });
+
   it('presses an explicit cookie decline when the AX tree has no banner container', async () => {
     await page.setContent(`<button id="accept" onclick="this.dataset.clicked='yes'">Accept all cookies</button>
       <button id="decline" onclick="this.dataset.clicked='yes'">Reject all cookies</button>`);
