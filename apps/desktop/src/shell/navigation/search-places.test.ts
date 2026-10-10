@@ -14,6 +14,9 @@ describe('searchPlaces', () => {
   it.each<[string, PlaceTarget]>([
     ['provider', { destination: 'settings', section: 'providers' }],
     ['openai', { destination: 'settings', section: 'providers' }],
+    ['default model', { destination: 'settings', section: 'providers' }],
+    ['reasoning effort', { destination: 'settings', section: 'providers' }],
+    ['fast mode', { destination: 'settings', section: 'providers' }],
     ['chat', { destination: 'chat' }],
     ['conversation', { destination: 'chat' }],
     ['voice', VOICE],

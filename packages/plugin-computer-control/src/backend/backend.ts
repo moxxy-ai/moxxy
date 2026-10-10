@@ -4,12 +4,12 @@ import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
-import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
+import { COMPUTER_REFUSAL, computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, sameElements, type AppTree, type TreeView } from '@moxxy/jev';
 import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '@moxxy/jev';
 import { traceRun, tracedFromEnv } from '@moxxy/jev';
 import { RunMemory, describeRoutes, guess, labelOf, recall, shippedLearned, targetOf } from '../jev/memory.js';
-import { describeRun, pictured, runSteps, type ActWait, type RunReport } from '../jev/run.js';
+import { describeRun, pictured, runShortfall, runSteps, type ActWait, type RunReport } from '../jev/run.js';
 import { wrapUntrusted } from '../contract/untrusted.js';
 import { controlStateSchemaFor } from '../helper/protocol.js';
 import { HelperError, HelperTransport } from '../helper/transport.js';
@@ -146,7 +146,7 @@ export class ComputerBackend {
       return defineTool({
         name, description, inputSchema: input,
         inputJsonSchema: zodToJsonSchema(input),
-        permission: { action: 'prompt' }, icon: 'workspace',
+        permission: { action: 'prompt' }, refusalEndsTurn: COMPUTER_REFUSAL, icon: 'workspace',
         ...(LOOKING.has(name) ? { liveState: true } : {}),
         ...(ENTRY.has(name) ? { alwaysLoaded: true } : {}),
         // Only a run of steps leaves the machine: it asks Jev where each element is.
@@ -243,7 +243,10 @@ export class ComputerBackend {
       });
       await this.learn(turn, grant.id, input.goal, input.steps, report);
       const final = report.state.screenshot || report.state.screenshotUnavailable ? report.state : (await this.observe(ctx, grant)).result;
-      return this.present(turn, grant, final, [describeRun(report, input.steps)]);
+      const shown = this.present(turn, grant, final, [describeRun(report, input.steps)]);
+      const shortfall = runShortfall(report, input.steps);
+      // Only a result with a picture is an object; a plain text one stays the text the model reads.
+      return shortfall && typeof shown !== 'string' ? { ...shown, shortfall } : shown;
     },
     computer_click: (input, ctx) => this.act(input, 'click', ctx),
     computer_type_text: (input, ctx) => this.act(input, 'type_text', ctx),

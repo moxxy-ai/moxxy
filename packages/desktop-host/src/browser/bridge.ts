@@ -80,6 +80,7 @@ export class BrowserBridge {
     socket.setEncoding('utf8');
     let buf = '';
     let authed = false;
+    const requests = new Map<string, AbortController>();
 
     const reply = (payload: unknown): void => {
       if (!socket.destroyed) socket.write(JSON.stringify(payload) + '\n');
@@ -112,10 +113,23 @@ export class BrowserBridge {
           reply({ id, ok: true, result: { ready: true } });
           continue;
         }
-        void this.dispatch(req.method ?? '', req.params ?? {}).then(
+        if (req.method === 'cancel') {
+          const callId = typeof req.params?.call_id === 'string' ? req.params.call_id : '';
+          const running = requests.get(callId);
+          running?.abort();
+          reply({ id, ok: true, result: { cancelled: Boolean(running) } });
+          continue;
+        }
+        if (requests.has(id)) {
+          reply({ id, ok: false, error: { message: 'duplicate request id' } });
+          continue;
+        }
+        const controller = new AbortController();
+        requests.set(id, controller);
+        void this.dispatch(req.method ?? '', req.params ?? {}, controller.signal).then(
           (result) => reply({ id, ...result }),
           (err: unknown) => reply({ id, ok: false, error: { message: err instanceof Error ? err.message : String(err) } }),
-        );
+        ).finally(() => requests.delete(id));
       }
       if (buf.length > MAX_LINE) {
         socket.destroy();
@@ -123,19 +137,22 @@ export class BrowserBridge {
     });
 
     socket.on('error', () => socket.destroy());
-    socket.on('close', () => this.sockets.delete(socket));
+    socket.on('close', () => {
+      for (const controller of requests.values()) controller.abort();
+      this.sockets.delete(socket);
+    });
   }
 
   /**
    * Hand a call to the host. The method table is shared with the headless
    * sidecar (`dispatchToHost`), so one set of tools serves either backend.
    */
-  private async dispatch(method: string, params: Record<string, unknown>): Promise<HostReply> {
+  private async dispatch(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<HostReply> {
     // The sidecar's `close` tears its whole browser down. Here the browser is
     // the user's, on screen, holding their logins — the tool disposing of its
     // session must not take it with it.
     if (method === 'close') return { ok: true };
-    return dispatchToHost(this.host, method, params);
+    return dispatchToHost(this.host, method, params, { signal });
   }
 
   async stop(): Promise<void> {

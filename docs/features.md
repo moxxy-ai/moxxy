@@ -40,6 +40,13 @@ See [Getting started](getting-started.md) for background service commands.
 
 Built-in providers include Anthropic, OpenAI, ChatGPT OAuth, and a Claude Code subscription provider. The provider administration plugin can register OpenAI-compatible providers at runtime. Custom providers use the same `defineProvider` contract.
 
+ChatGPT OAuth requests are stateless (`store: false`). Completed encrypted reasoning
+items are preserved in the event log and replayed before the next tool continuation,
+including when visible reasoning summaries are disabled. Only the originating
+provider receives these opaque items; Moxxy does not decrypt or display them. This
+preserves context continuity and does not guarantee that a model completes every
+task correctly. See OpenAI's [stateless continuation guidance](https://developers.openai.com/api/docs/guides/deployment-checklist).
+
 Moxxy includes three agent modes:
 
 - `default`: a Claude Code-style ReAct loop
@@ -53,6 +60,11 @@ In every mode and on every surface, the built-in `@moxxy/agent-conduct` plugin a
 - Live facts — prices, timetables, availability, news, weather — are checked with a tool before the agent states them; an unchecked one is said to be unchecked.
 - Redoing earlier work (a new search, a new tab, another attempt) carries over every choice the user already settled, such as dates or one-way vs. return.
 - Moxxy speaks of herself in the feminine form in languages that mark it ("sprawdziłam", never "sprawdziłem"). Voice Mode follows the same rule (`SELF_REFERENCE_NOTE`), so the agent and the voice no longer switch forms within one chat.
+- A failed step is not the end of the turn: the agent tries another route itself and takes the next step instead of offering it. It still asks for what only the user has (a password, a choice between results that differ) and before anything that cannot be undone or goes beyond the request, and it does not work around a refused permission, a "look only" request, or Stop.
+- When a turn would end right on a run of browser or Computer Use steps that stopped short, the agent is reminded once to take another way or name what stops it (`context.unfinishedStepCheck`, on unless set to `false`). In a form trial the page answered "503, try again" and the agent reported that it could not send; with the reminder it sends again.
+- Computer Use preserves the helper's structured stop code: Stop, user takeover and access blocks do not trigger that reminder or a report telling the agent to try another route. Unconfirmed delivery, timeouts and incomplete helper replies require an observation before repeating an action; they never prove that it failed to apply.
+
+The built-in `self-heal` skill is for Moxxy's own parts — a plugin, MCP server, provider or permission rule that does not load or keeps failing. An ordinary error in the task (a command that exits with an error, a missing folder, a failed request) is worked through as part of the task, without a proposal and a wait for approval.
 
 ## Tools and integrations
 
@@ -61,6 +73,12 @@ Built-in tools include Read, Edit, Write, Bash, Grep, Glob, recall, Sleep, Wait,
 ### Moxxy Browser
 
 In the desktop, the agent works in the Browser pane — a real Chromium view you watch and can take over. A click brings its tab to the front, refuses an element something covers (naming what), and reports what it set off: a navigation, a dialog, a tab the page opened. It reads frames, answers dialogs (`browser_dialog`), picks from native lists (`browser_select`), scrolls, hovers and waits for text; links that open a new window open as tabs in the pane. You see the agent's own pointer glide to each element before it presses, and you can take the browser over at any time — press on the page, type into it, or use Take over — after which the agent's actions are refused until you resume or send a new message. You allow each site once (`browser_allow_site`) rather than approving every click; the agent's actions on a site you have not allowed are refused. On a canvas (Excalidraw, a map) it works from a picture of the page: it clicks, drags and types at places in its latest capture, and is refused when the page has changed there since. It can attach files to a page's upload field, asking you each time. With a TypeSafe key and Jev on (Settings → Jev), it carries out several steps named in words in one call (`browser_run`): code or Jev finds each element, Jev checks what each step should show, and what worked is remembered per site. Drag the seam beside the chat to widen the pane — the chat always keeps room to read and type — or press ⇧⌘F (or the ⤢ button) for full view: the pane fills the window and the chat floats over it as a composer, as in Codex. In the terminal UI the same tools drive a headless browser. See [Moxxy Browser](browser-use/README.md).
+
+For developer investigations, the Browser also records Console and Network on
+demand, reads bounded text responses and sets an exact CSS viewport for responsive
+layout checks. Recordings stop before handing control to the user; ordinary page
+reads do not enable them. See [Browser development diagnostics](browser-development.md)
+for limits and the diagnostic workflow.
 
 ### Waiting on work
 

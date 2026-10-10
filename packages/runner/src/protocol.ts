@@ -172,7 +172,8 @@ import type {
 /** v22: `SessionInfo.runningTurns` lists every running turn, including one a channel bot runs inside the runner, and `abort` reaches such a turn (additive). */
 /** v23: `computer.changed` pushes a session's Computer Use turns after every change, and `computer.control` accepts `takeover` (additive). */
 /** v24: `session.setFast` switches the provider's faster tier; `SessionInfo` reports `fast` and `reasoningEffort` (additive). */
-export const RUNNER_PROTOCOL_VERSION = 24;
+/** v25: `SessionInfo.defaultModel` reports the model a turn runs on when it names none (additive). */
+export const RUNNER_PROTOCOL_VERSION = 25;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is

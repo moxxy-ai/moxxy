@@ -17,4 +17,4 @@
  * protocol, so every update after it needs the full installer. A unit test and
  * the release build (scripts/build-app-bundle.mjs) both assert the two match.
  */
-export const FLOOR_RUNNER_PROTOCOL = 24;
+export const FLOOR_RUNNER_PROTOCOL = 25;

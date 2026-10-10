@@ -155,6 +155,11 @@ const runStep = z.preprocess(dropStepFiller, runStepShape.superRefine((step, ctx
 
 const region = z.array(z.number().int().nonnegative()).length(4).refine(([x0 = 0, y0 = 0, x1 = 0, y1 = 0]) => x1 > x0 && y1 > y0, 'region must be [x0, y0, x1, y1] with x1 > x0 and y1 > y0')
   .describe('[x0, y0, x1, y1] in the coordinate frame of the latest screenshot.');
+/** How a turn ends when the user refuses a Computer Use tool: no retry, no way round it through another tool. */
+export const COMPUTER_REFUSAL =
+  'Computer Use permission was denied. I stopped this turn without retrying or using another tool. ' +
+  'You can send a new request; permissions will be checked again.';
+
 export interface ComputerToolSpec<I = unknown> { readonly description: string; readonly input: z.ZodType<I, z.ZodTypeDef, unknown> }
 
 const AFTER = ' Returns the technical outcome and the fresh app state; check that the intended change happened.';

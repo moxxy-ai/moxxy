@@ -1,6 +1,7 @@
 import { PluginRequirementError, readPackageMoxxyRequirements, type Session } from '@moxxy/core';
 import type { MoxxyRequirement, Plugin } from '@moxxy/sdk';
 import type { ConfigApplier, ConfigApplyResult, MoxxyConfig } from '@moxxy/config';
+import { configuredDefaultModels } from './setup/default-models.js';
 
 export interface BuiltinPluginEntry {
   readonly name: string;
@@ -100,6 +101,11 @@ export function buildSessionConfigApplier(
       applied.push('lazyTools');
     }
 
+    if (next.context?.unfinishedStepCheck !== last.context?.unfinishedStepCheck) {
+      session.unfinishedStepCheck = next.context?.unfinishedStepCheck;
+      applied.push('unfinishedStepCheck');
+    }
+
     if (!deepEqual(next.context?.reasoning, last.context?.reasoning)) {
       session.reasoning = next.context?.reasoning;
       applied.push('reasoning');
@@ -118,6 +124,12 @@ export function buildSessionConfigApplier(
     if (next.hookTimeoutMs !== last.hookTimeoutMs) {
       // The dispatcher reads its timeout at construction. v0: pending.
       pending.push('hookTimeoutMs (restart required)');
+    }
+
+    const defaultModels = configuredDefaultModels(next);
+    if (!deepEqual(defaultModels, configuredDefaultModels(last))) {
+      session.defaultModels = defaultModels;
+      applied.push('defaultModel');
     }
 
     if (providerChanged(last, next)) {

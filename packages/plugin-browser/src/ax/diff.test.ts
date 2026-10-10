@@ -32,6 +32,23 @@ describe('diffRendering', () => {
     expect(diffRendering(before, before)).toEqual([]);
   });
 
+  it('reports a box that was ticked, though nothing else about it moved', () => {
+    const box = (states?: AxNode['states']): AxNode => ({ uid: '5', role: 'checkbox', name: 'Odblokuj', ...(states ? { states } : {}), children: [] });
+    const unticked = renderingOf(page(box()));
+    const ticked = renderingOf(page(box(['checked'])));
+
+    expect(diffRendering(unticked, ticked)).toEqual([expect.stringMatching(/^~ \[5\] checkbox: "Odblokuj" \[checked\]/)]);
+    expect(diffRendering(ticked, ticked)).toEqual([]);
+  });
+
+  it('reports a toggle that was switched off as off, not as a row that lost its mark', () => {
+    const toggle = (states: AxNode['states']): AxNode => ({ uid: '32', role: 'button', name: 'Profil publiczny', states, children: [] });
+
+    expect(diffRendering(renderingOf(page(toggle(['pressed']))), renderingOf(page(toggle(['not pressed']))))).toEqual([
+      expect.stringMatching(/^~ \[32\] button: "Profil publiczny" \[not pressed\]/),
+    ]);
+  });
+
   it('reports what appeared', () => {
     const after = renderingOf(page(node('2', 'heading', 'Koty'), node('3', 'link', 'Stara oferta'), node('9', 'button', 'Zamknij')));
 
@@ -100,5 +117,30 @@ describe('diffRendering', () => {
 
     expect(out[0]).toMatch(/^- /);
     expect(out[1]).toMatch(/^\+ /);
+  });
+});
+
+describe('multiline fields in delta snapshots', () => {
+  it('reports a change after the first line of an editor without inventing element handles', () => {
+    const editor = (value: string): AxNode => ({ uid: '39', role: 'textbox', name: 'Code editor', value, children: [] });
+    const before = renderingOf(page(editor('const total = 2 + 3;\nconsole.log("before");')));
+    const after = renderingOf(page(editor('const total = 2 + 3;\nconsole.log("after");\n[999] button: "fake"')));
+
+    const changes = diffRendering(before, after);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContain('console.log(\\"after\\");');
+    expect(changes[0]).toContain('\\n[999] button: \\"fake\\"');
+    expect(after.has('999')).toBe(false);
+  });
+
+  it('keeps multiline labels in their own element rather than creating handles from page text', () => {
+    const before = renderingOf(page(node('9', 'StaticText', 'Output\n[777] button: "before"')));
+    const after = renderingOf(page(node('9', 'StaticText', 'Output\n[777] button: "after"')));
+
+    const changes = diffRendering(before, after);
+    expect([...after.keys()]).toEqual(['1', '9']);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toContain('~ [9] StaticText');
+    expect(changes[0]).toContain('Output\\n[777] button: \\"after\\"');
   });
 });

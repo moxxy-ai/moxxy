@@ -52,6 +52,30 @@ describe('formatAxTree — the row', () => {
     );
   });
 
+  it('marks what the page says the element is in, after the focus', () => {
+    const box: AxNode = { uid: '5', role: 'checkbox', name: 'Odblokuj', focused: true, states: ['checked'], children: [] };
+    const off: AxNode = { uid: '8', role: 'button', name: 'Pokaż kod', states: ['disabled'], children: [] };
+    const half: AxNode = { uid: '9', role: 'checkbox', name: 'Wszystkie', states: ['mixed'], children: [] };
+    const menu: AxNode = { uid: '10', role: 'button', name: 'Filtry', states: ['expanded'], inProgress: true, children: [] };
+
+    expect(formatAxTree(box)).toBe('[5] checkbox: "Odblokuj" [focused] [checked]');
+    expect(formatAxTree(off)).toBe('[8] button: "Pokaż kod" [disabled]');
+    expect(formatAxTree(half)).toBe('[9] checkbox: "Wszystkie" [partly checked]');
+    expect(formatAxTree(menu)).toBe('[10] button: "Filtry" [expanded] [in progress]');
+  });
+
+  it('says a field is read-only, so the way to unlock it is looked for before typing', () => {
+    const field: AxNode = { uid: '46', role: 'textbox', name: 'Nazwa wyświetlana', value: 'kamil123', states: ['read-only'], children: [] };
+
+    expect(formatAxTree(field)).toBe('[46] textbox: "Nazwa wyświetlana" (value: "kamil123") [read-only]');
+  });
+
+  it('says a toggle is off, so it is not taken for a plain button and pressed again', () => {
+    const toggle: AxNode = { uid: '32', role: 'button', name: 'Profil publiczny', states: ['not pressed'], children: [] };
+
+    expect(formatAxTree(toggle)).toBe('[32] button: "Profil publiczny" [not pressed]');
+  });
+
   it('indents children by two spaces per level', () => {
     // uids come from the fixture helper's call order, which is inner-first —
     // assert the shape, not the numbers. Real uids are assigned pre-order by
@@ -209,5 +233,35 @@ describe('formatAxTree — work in progress', () => {
     expect(formatAxTree(n('progressbar', { name: 'Deploying', inProgress: true }))).toMatch(
       /^\[\d+\] progressbar: "Deploying" \[in progress\]$/,
     );
+  });
+});
+
+describe('formatAxTree — row context', () => {
+  it('does not use a decorative subtree label instead of the visible row label', () => {
+    const page = n('listitem', { children: [
+      n('img', { children: [n('LabelText', { children: [n('StaticText', { name: 'Decoy' })] })] }),
+      n('LabelText', { children: [n('StaticText', { name: 'Actual task' })] }),
+      n('button', { name: 'Delete' }),
+    ] });
+    const button = formatAxTree(page).split('\n').find(line => line.includes('button: "Delete"'));
+    expect(button).toContain('row "Actual task"');
+    expect(button).not.toContain('Decoy');
+  });
+
+  it('keeps nested row context out of the outer row and unrelated controls', () => {
+    const page = n('RootWebArea', { children: [
+      n('listitem', { children: [
+        n('button', { name: 'Outer action' }),
+        n('listitem', { children: [
+          n('LabelText', { children: [n('StaticText', { name: 'Inner task' })] }),
+          n('button', { name: 'Inner action' }),
+        ] }),
+      ] }),
+      n('button', { name: 'Unrelated action' }),
+    ] });
+    const buttons = formatAxTree(page).split('\n').filter(line => line.includes('button:'));
+    expect(buttons[0]).not.toContain('(row');
+    expect(buttons[1]).toContain('row "Inner task"');
+    expect(buttons[2]).not.toContain('(row');
   });
 });

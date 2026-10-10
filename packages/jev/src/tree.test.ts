@@ -10,6 +10,10 @@ const format = { key: 'w/format', index: 3, depth: 1, role: 'pop up button', tit
 const base = tree([window, close, text, format]);
 
 describe('formatTree', () => {
+  it('preserves a partly checked state in the validated tree and its text', () => {
+    const parsed = appTreeSchema.parse({ app: 'Settings', elements: [{ key: 'box', index: 1, depth: 1, role: 'checkbox', title: 'All', states: ['mixed'] }] });
+    expect(formatTree(parsed)).toContain('checkbox "All" mixed');
+  });
   it('prints one indexed, indented line per element', () => {
     expect(formatTree(base)).toBe([
       'App: TextEdit — window "Untitled"',

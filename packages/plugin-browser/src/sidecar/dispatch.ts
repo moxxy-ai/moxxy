@@ -41,7 +41,7 @@ const MAX_DIMENSION = 16_384;
  */
 const AGENT_METHODS = new Set([
   'snapshot', 'find', 'tree', 'act', 'dialog', 'select', 'wait', 'point', 'upload', 'tabs', 'await_human', 'box',
-  'key', 'back', 'forward', 'reload',
+  'key', 'back', 'forward', 'reload', 'diagnostics', 'viewport',
 ]);
 
 async function agentBrowser(state: SidecarState): Promise<SidecarBrowser> {
@@ -83,9 +83,10 @@ export async function teardown(state: SidecarState): Promise<void> {
   delete state.browser;
 }
 
-export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
+export async function dispatch(state: SidecarState, req: Req, signal?: AbortSignal): Promise<Reply> {
   try {
-    return await dispatchInner(state, req);
+    signal?.throwIfAborted();
+    return await dispatchInner(state, req, signal);
   } catch (err) {
     return {
       id: req.id,
@@ -95,15 +96,18 @@ export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
   }
 }
 
-async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
+async function dispatchInner(state: SidecarState, req: Req, signal?: AbortSignal): Promise<Reply> {
   const params = req.params ?? {};
+  if (state.browser && typeof params.turn_id === 'string' && params.turn_id) {
+    state.browser.host.noteAgentTurn(params.turn_id);
+  }
   // The surface's region capture and wheel share a name with the agent's
   // picture and scroll; their parameters tell them apart.
   const surfaceCall =
     (req.method === 'capture' && typeof params.x === 'number') || (req.method === 'scroll' && typeof params.dy === 'number');
   if (AGENT_METHODS.has(req.method) || (req.method === 'capture' && !surfaceCall) || (req.method === 'scroll' && !surfaceCall)) {
     const browser = await agentBrowser(state);
-    return replyOf(req.id, await browser.call(req.method, params));
+    return replyOf(req.id, await browser.call(req.method, params, signal));
   }
   switch (req.method) {
     case 'init': {

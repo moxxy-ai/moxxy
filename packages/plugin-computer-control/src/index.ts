@@ -1,5 +1,6 @@
 import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
 import { ComputerBackend, type PlatformProfile } from './backend/backend.js';
+import { COMPUTER_REFUSAL } from './contract/tools.js';
 import { helperProblem } from './helper/artifact.js';
 import { linuxProfile } from './linux/profile.js';
 import { macosProfile } from './macos/profile.js';
@@ -11,7 +12,7 @@ const name = '@moxxy/plugin-computer-control';
 function statusOnly(platform: NodeJS.Platform, architecture: string, limitation: string): Plugin {
   const status = defineTool({
     name: 'computer_status', description: 'Report Computer Use platform capabilities and limitations.',
-    inputSchema: z.object({}).strict(), permission: { action: 'prompt' },
+    inputSchema: z.object({}).strict(), permission: { action: 'prompt' }, refusalEndsTurn: COMPUTER_REFUSAL,
     handler: () => ({ platform, architecture, ready: false, limitations: [limitation] }),
   });
   return definePlugin({ name, version: '0.0.0', tools: [status] });

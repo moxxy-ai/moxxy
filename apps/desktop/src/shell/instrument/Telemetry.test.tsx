@@ -90,6 +90,38 @@ describe('Telemetry model panel', () => {
   });
 });
 
+describe('Telemetry model name', () => {
+  const info = {
+    sessionId: 's1',
+    providers: [
+      {
+        name: 'openai-codex',
+        models: [{ id: 'gpt-plain' }, { id: 'gpt-6-luna', supportsReasoning: true, supportsFast: true }],
+      },
+    ],
+    modes: [], activeProvider: 'openai-codex', activeMode: null, activeModeBadge: null,
+  };
+
+  it('names the model a turn will run on when none was picked here, and offers what that model has', () => {
+    __setApiOverride({ invoke: vi.fn(async () => {}), subscribe: () => () => {} } as unknown as MoxxyApi);
+    render(
+      <Telemetry workspaceId="ws-default" info={{ ...info, defaultModel: 'gpt-6-luna' }} selectedModel={null} disabled={false} onPick={() => {}} />,
+    );
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('gpt-6-luna');
+
+    fireEvent.click(screen.getByTestId('instrument-telemetry'));
+    expect(screen.getByRole('switch', { name: 'Fast mode' })).toBeInTheDocument();
+    __setApiOverride(null);
+  });
+
+  it('names the provider when the runner is too old to say which model that is', () => {
+    __setApiOverride({ invoke: vi.fn(async () => {}), subscribe: () => () => {} } as unknown as MoxxyApi);
+    render(<Telemetry workspaceId="ws-old" info={info} selectedModel={null} disabled={false} onPick={() => {}} />);
+    expect(screen.getByTestId('instrument-telemetry')).toHaveTextContent('openai-codex');
+    __setApiOverride(null);
+  });
+});
+
 describe('Telemetry token count', () => {
   /**
    * Every call sends the whole conversation again, so the running total reaches

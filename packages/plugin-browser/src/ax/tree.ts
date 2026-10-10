@@ -29,6 +29,12 @@ export interface AxNodeRaw {
   readonly frame?: string;
 }
 
+/** What the page says an element is in, beyond holding the focus. `mixed` is a box ticked in part; `not pressed` is a toggle that is off. */
+export type AxState = 'checked' | 'mixed' | 'pressed' | 'not pressed' | 'selected' | 'expanded' | 'collapsed' | 'disabled' | 'read-only';
+
+/** Roles that take text; each carries a value, empty or not, so grounding can tell them from the rest. */
+export const TAKES_TEXT: ReadonlySet<string> = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
+
 export interface AxNode {
   /** Handle the model acts on. Sequential, assigned by this walk. */
   readonly uid: string;
@@ -39,6 +45,8 @@ export interface AxNode {
   readonly backendNodeId?: number;
   /** True when the node currently holds focus. */
   readonly focused?: boolean;
+  /** What the page says the element is in (see {@link statesOf}); absent when it says nothing. */
+  readonly states?: ReadonlyArray<AxState>;
   /** True when the page says the element is still working (see {@link isInProgress}). */
   readonly inProgress?: boolean;
   /** What the markup says about a control with no name (see `./hints.ts`). */
@@ -81,6 +89,33 @@ function str(wrapper: { value?: unknown } | undefined): string | undefined {
 
 function isFocused(raw: AxNodeRaw): boolean {
   return (raw.properties ?? []).some((p) => p.name === 'focused' && p.value?.value === true);
+}
+
+/**
+ * The states CDP reports as properties. A tristate (`checked`, `pressed`) comes
+ * as the text "true" / "false" / "mixed" and a boolean as a boolean, so each is
+ * compared with what it means: `Boolean("false")` would tick every box. An
+ * absent property says nothing, and two "false" answers are states of their
+ * own: `expanded: false` is a section that could open and is closed, and
+ * `pressed: false` is a toggle that is off — only a toggle carries `pressed`,
+ * and without the mark it reads like any button, to be pressed again.
+ * `readonly` counts on a field that takes text only: a table cell carries it
+ * on every page with a table, and nobody acts on that.
+ */
+function statesOf(raw: AxNodeRaw): AxState[] {
+  const read = new Map((raw.properties ?? []).map((property) => [property.name, property.value?.value]));
+  const on = (name: string): boolean => read.get(name) === true || read.get(name) === 'true';
+  const states: AxState[] = [];
+  if (on('checked')) states.push('checked');
+  else if (read.get('checked') === 'mixed') states.push('mixed');
+  if (on('pressed')) states.push('pressed');
+  else if (read.get('pressed') === 'false') states.push('not pressed');
+  if (on('selected')) states.push('selected');
+  if (on('expanded')) states.push('expanded');
+  else if (read.get('expanded') === false || read.get('expanded') === 'false') states.push('collapsed');
+  if (on('disabled')) states.push('disabled');
+  if (on('readonly') && TAKES_TEXT.has(str(raw.role) ?? '')) states.push('read-only');
+  return states;
 }
 
 /**
@@ -181,6 +216,7 @@ export function buildAxTree(
     // only genuinely new nodes take a fresh one.
     const uid = memory ? label(memory, raw.nodeId) : String(++counter);
     const children = descend();
+    const states = statesOf(raw);
 
     const node: AxNode = {
       uid,
@@ -189,6 +225,7 @@ export function buildAxTree(
       ...(str(raw.value) !== undefined ? { value: str(raw.value) } : {}),
       ...(raw.backendDOMNodeId !== undefined ? { backendNodeId: raw.backendDOMNodeId } : {}),
       ...(isFocused(raw) ? { focused: true } : {}),
+      ...(states.length > 0 ? { states } : {}),
       ...(isInProgress(raw) ? { inProgress: true } : {}),
       ...hintOf(raw, hints),
       ...(raw.frame !== undefined ? { frame: raw.frame } : {}),

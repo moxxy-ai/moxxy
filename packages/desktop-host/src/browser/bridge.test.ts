@@ -138,6 +138,34 @@ describe('BrowserBridge — handshake', () => {
 });
 
 describe('BrowserBridge — serving the agent', () => {
+  it('cancels only a request on the originating connection and keeps the next command usable', async () => {
+    const { host, addr, c } = await boot();
+    await c.send('hello', { token: addr.token });
+    let focused: ((id: string) => void) | undefined;
+    const focus = new Promise<string>((resolve) => { focused = resolve; });
+    host.setFocuser(({ requestId }) => focused?.(requestId));
+    const key = c.send('key', { key: 'A', turn_id: 'cancel-test' });
+    const requestId = await focus;
+    const other = client(addr.socketPath);
+    await other.ready;
+    let cancelled: Record<string, unknown>;
+    let foreign: Record<string, unknown>;
+    try {
+      await other.send('hello', { token: addr.token });
+      foreign = await other.send('cancel', { call_id: 'r2' });
+      cancelled = await c.send('cancel', { call_id: 'r2' });
+    } finally {
+      other.socket.destroy();
+      host.confirmFocus(requestId);
+      host.setFocuser(null);
+    }
+    const stopped = await key;
+    expect(foreign).toMatchObject({ ok: true, result: { cancelled: false } });
+    expect(cancelled).toMatchObject({ ok: true, result: { cancelled: true } });
+    expect(stopped.ok).toBe(false);
+    expect(await c.send('key', { key: 'B', turn_id: 'next-test' })).toMatchObject({ ok: true });
+  });
+
   it('answers snapshot with the same envelope the sidecar produces', async () => {
     const { addr, c } = await boot();
     await c.send('hello', { token: addr.token });

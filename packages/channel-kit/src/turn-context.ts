@@ -24,7 +24,7 @@ export function channelTurnContext(spec: ChannelTurnContextSpec): string {
     `attachment they can open or download (${uploadLimit} at most) — then say briefly that you sent it. ` +
     `The user may be away from this computer and cannot see your browser or terminal from ${service} (only ` +
     `the moxxy desktop app shows them, under Channels → ${service}). When a page asks for a choice that ` +
-    'belongs to them, such as a cookie banner, do not wait for them to click it: tell them in the chat ' +
+    'belongs to them, such as a cookie banner that shows no way to decline, do not wait for them to click it: tell them in the chat ' +
     'what the page asks and name the options, then pick the one they choose. Something only they may ' +
     `enter (signing in, a one-time code, a CAPTCHA) cannot be done from ${service}: say so, and that they can ` +
     `do it in the desktop app under Channels → ${service} → Browser.`

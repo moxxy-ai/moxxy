@@ -107,6 +107,12 @@ export interface ReasoningChunkEvent extends EventBase {
   readonly delta: string;
 }
 
+/** Provider-owned reasoning state, kept opaque and replayed only to its origin. */
+export interface ReasoningReplayItem {
+  readonly provider: string;
+  readonly item: Readonly<Record<string, unknown>>;
+}
+
 /**
  * A finalized reasoning summary for ONE provider call. Parallels
  * {@link AssistantMessageEvent}: it is persisted + replayed, and because
@@ -126,6 +132,7 @@ export interface ReasoningMessageEvent extends EventBase {
   readonly redacted?: boolean;
   /** Opaque provider blob (Anthropic redacted_thinking data / Codex encrypted_content) replayed as-is. */
   readonly encrypted?: string;
+  readonly replayItems?: ReadonlyArray<ReasoningReplayItem>;
 }
 
 export interface ToolCallRequestedEvent extends EventBase {

@@ -42,10 +42,96 @@ describe('appTreeOf', () => {
     ]);
   });
 
+  it("does not borrow a repeated button's section from a neighbouring card or landmark", () => {
+    const cards = node('1', 'RootWebArea', 'Shop', [
+      node('2', 'main', '', [node('3', 'list', '', [
+        node('4', 'listitem', '', [node('5', 'heading', 'SOLHETTA'), node('6', 'button', 'Add to basket')]),
+        node('7', 'listitem', '', [node('8', 'button', 'Add to basket')]),
+        node('9', 'listitem', '', [node('10', 'heading', 'FORSÅ'), node('11', 'button', 'Add to basket')]),
+      ])]),
+      node('12', 'contentinfo', '', [node('13', 'button', 'Add to basket')]),
+    ]);
+    const out = appTreeOf(cards, { app: 'shop.test' });
+    expect(out.elements.map((element) => [element.index, element.title, element.description])).toEqual([
+      [6, 'Add to basket', 'Section: SOLHETTA'],
+      [8, 'Add to basket', undefined],
+      [11, 'Add to basket', 'Section: FORSÅ'],
+      [13, 'Add to basket', undefined],
+    ]);
+    expect(out.elements.map((element) => element.key)).toEqual([
+      '/button[1]', '/button[2]', '/button[3]', '/button[4]',
+    ]);
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(byName(out, { do: 'click', target: 'Add to basket' })).toBeUndefined();
+  });
+
+  it('does not borrow a nested row label for its outer row or an unrelated action', () => {
+    const rows = node('1', 'RootWebArea', 'Todos', [
+      node('2', 'listitem', '', [
+        node('3', 'button', 'Outer action'),
+        node('4', 'list', '', [node('5', 'listitem', '', [
+          node('6', 'checkbox'),
+          node('7', 'LabelText', '', [node('8', 'StaticText', 'Nested task')]),
+          node('9', 'button', 'Delete todo'),
+        ])]),
+      ]),
+      node('10', 'button', 'Unrelated action'),
+      node('11', 'checkbox'),
+    ]);
+    const out = appTreeOf(rows, { app: 'todos.test' });
+    expect(out.elements.map((element) => [element.index, element.description])).toEqual([
+      [3, undefined], [6, 'Section: Nested task'], [7, undefined], [9, 'Section: Nested task'], [10, undefined],
+    ]);
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+  });
+
   it('keeps what contains what, so an option belongs to its list', () => {
     const depth = Object.fromEntries(tree.elements.map((element) => [element.index, element.depth]));
     expect(depth[16]).toBe(1);
     expect(depth[17]).toBe(2);
+  });
+
+  it('tells Jev what the page says an element is in, in the words Jev knows', () => {
+    const form = node('1', 'RootWebArea', 'Form', [
+      node('2', 'checkbox', 'Unlock', [], { focused: true, states: ['checked'] }),
+      node('3', 'checkbox', 'All', [], { states: ['mixed'] }),
+      node('4', 'button', 'Follow', [], { states: ['pressed'] }),
+      node('5', 'tab', 'Reviews', [], { states: ['pressed', 'selected'] }),
+      node('6', 'button', 'Filters', [], { states: ['collapsed', 'disabled'] }),
+      node('7', 'button', 'Buy'),
+    ]);
+    const out = appTreeOf(form, { app: 'shop.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements.map((element) => element.states)).toEqual([
+      ['focused', 'checked'],
+      ['mixed'],
+      ['selected'],
+      ['selected'],
+      ['collapsed', 'disabled'],
+      undefined,
+    ]);
+    expect(formatTree(out)).toContain('checkbox "Unlock" focused checked');
+  });
+
+  it('tells Jev a field is read-only', () => {
+    const account = node('1', 'RootWebArea', 'Account', [node('2', 'textbox', 'Display name', [], { states: ['read-only'] })]);
+    const out = appTreeOf(account, { app: 'panel.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements[0]?.states).toEqual(['read-only']);
+  });
+
+  it('tells Jev a toggle is off, so "switched off" can be seen after the click that did it', () => {
+    const panel = node('1', 'RootWebArea', 'Panel', [
+      node('2', 'button', 'Profil publiczny', [], { states: ['not pressed'] }),
+      node('3', 'button', 'Pokazuj status', [], { states: ['pressed'] }),
+    ]);
+    const out = appTreeOf(panel, { app: 'panel.test' });
+
+    expect(appTreeSchema.safeParse(out).success).toBe(true);
+    expect(out.elements.map((element) => element.states)).toEqual([['not selected'], ['selected']]);
+    expect(formatTree(out)).toContain('button "Profil publiczny" not selected');
   });
 
   it('gives a field one types into a value, even an empty one, and never a secret', () => {
