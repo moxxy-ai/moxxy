@@ -501,12 +501,17 @@ Results of the trials and the benchmark are in
 
 ### Permission refusal ends the current turn
 
-If a Computer Use tool is denied by the permission pipeline, the shared tool
-executor ends that turn with an explanation. It cancels remaining calls in the
-same batch without asking for permission or executing them, and does not request
-another model response or run continuation checkpoints. This prevents retrying
-with different arguments or switching to another tool after a refusal. Policy
-and hook denials have the same conservative behavior as an operator refusal.
+If the user refuses a Computer Use tool, the shared tool executor ends that
+turn with an explanation. It cancels remaining calls in the same batch without
+asking for permission or executing them, and does not request another model
+response or run continuation checkpoints. This prevents retrying with different
+arguments or switching to another tool after a refusal.
+
+Every Computer Use tool declares this itself with `refusalEndsTurn` (its text is
+the turn's last message), so the SDK knows no tool names. Only the user's answer
+counts: a standing rule in `permissions.json` or a plugin hook refusing the tool
+is recorded as `policy` or `hook` and comes back to the model as a failed step,
+which it may route around within what the rules allow.
 
 The session remains available. A subsequent user message starts a new turn with
 normal permission checks; the message itself does not grant permission. Ordinary

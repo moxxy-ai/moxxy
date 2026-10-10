@@ -4,7 +4,7 @@ import { FILE_PANEL_NOTE, withComputerGuidance } from '../contract/guidance.js';
 import { parseKeyCombo, type KeyPlatform } from '../contract/keys.js';
 import { ComputerUseError, describeResult, isErrorCode, type ActionResult } from '../contract/outcome.js';
 import { ProgressTracker, fingerprint } from '../contract/progress.js';
-import { computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
+import { COMPUTER_REFUSAL, computerTools, type ComputerAction, type RunStep } from '../contract/tools.js';
 import { diffTrees, formatTree, sameElements, type AppTree, type TreeView } from '@moxxy/jev';
 import { JEV_HOST, JEV_OFF, JEV_SECRET, jevClient, type AskJev } from '@moxxy/jev';
 import { traceRun, tracedFromEnv } from '@moxxy/jev';
@@ -146,7 +146,7 @@ export class ComputerBackend {
       return defineTool({
         name, description, inputSchema: input,
         inputJsonSchema: zodToJsonSchema(input),
-        permission: { action: 'prompt' }, icon: 'workspace',
+        permission: { action: 'prompt' }, refusalEndsTurn: COMPUTER_REFUSAL, icon: 'workspace',
         ...(LOOKING.has(name) ? { liveState: true } : {}),
         ...(ENTRY.has(name) ? { alwaysLoaded: true } : {}),
         // Only a run of steps leaves the machine: it asks Jev where each element is.

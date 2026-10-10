@@ -63,7 +63,13 @@ export async function* dispatchToolCall(
       { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId), toolDescription: ctx.tools.get(t.name)?.description },
     );
     if (decision.mode === 'deny') {
-      yield* emitDenied(ctx, t, decision.reason ?? 'denied by resolver', 'resolver');
+      // The session's resolver consults standing rules before asking anyone;
+      // name such a refusal as policy, so 'resolver' means the answer given.
+      const standing = await ctx.permissions.policyCheck?.(
+        { callId: asToolCallId(t.id), name: t.name, input: actualInput },
+        { sessionId: String(ctx.sessionId), turnId: String(ctx.turnId) },
+      );
+      yield* emitDenied(ctx, t, decision.reason ?? 'denied by resolver', standing?.mode === 'deny' ? 'policy' : 'resolver');
       return;
     }
     // A deferred approval may outlive its turn, or policy may change while
@@ -183,8 +189,9 @@ async function* emitDenied(
  * Run a batch of tool uses in order, handling mid-batch abort. On
  * `ctx.signal.aborted` it synthesizes a failed `tool_result` for every
  * not-yet-run call (so the log never ends on an orphan `tool_call_requested`),
- * emits an `abort`, and returns `true` to tell the caller to stop. Returns
- * `false` after a clean batch. Shared by every loop strategy so the
+ * emits an `abort`, and returns `true` to tell the caller to stop. The user's
+ * refusal of a tool with `refusalEndsTurn` stops the turn the same way, ending
+ * it with that tool's text. Returns `false` after a clean batch. Shared by every loop strategy so the
  * orphan-on-abort guarantee lives in one place.
  */
 export async function* executeToolUses(
@@ -219,20 +226,20 @@ export async function* executeToolUses(
       });
       return true;
     }
-    let computerDenied = false;
+    const endsTurn = ctx.tools.get(t.name)?.refusalEndsTurn;
+    let refused = false;
     try {
       for await (const event of dispatchToolCall(ctx, t, iteration)) {
-        if (event.type === 'tool_call_denied' && t.name.startsWith('computer_')) {
-          computerDenied = true;
-        }
+        // Only the person's answer ends the turn; a rule or a hook is a failed step to route around.
+        if (event.type === 'tool_call_denied' && event.decidedBy === 'resolver') refused = true;
         yield event;
       }
     } finally {
       unresolved.delete(t.id);
     }
-    // A permission refusal is a terminal boundary, not a failed task step.
+    // For such a tool a refusal is a terminal boundary, not a failed task step.
     // Drain pending requests without invoking hooks, permissions or handlers.
-    if (computerDenied) {
+    if (refused && endsTurn !== undefined) {
       for (const orphanId of unresolved) {
         yield await ctx.emit({
           type: 'tool_result',
@@ -241,7 +248,7 @@ export async function* executeToolUses(
           source: 'system',
           callId: asToolCallId(orphanId),
           ok: false,
-          error: { kind: 'denied', message: 'Computer Use permission denied; remaining turn actions cancelled' },
+          error: { kind: 'denied', message: `${t.name} was refused, so the rest of this turn was cancelled` },
         });
       }
       yield await ctx.emit({
@@ -250,7 +257,7 @@ export async function* executeToolUses(
         turnId: ctx.turnId,
         source: 'system',
         stopReason: 'end_turn',
-        content: 'Computer Use permission was denied. I stopped this turn without retrying or using another tool. You can send a new request; permissions will be checked again.',
+        content: endsTurn,
       });
       return true;
     }
