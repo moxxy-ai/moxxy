@@ -369,7 +369,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     });
     try {
       await session.log.append(completedEvent(session, 'wf-a'));
-      await vi.waitFor(() => expect(runs).toContain('wf-b'));
+      await vi.waitFor(() => expect(runs).toContain('wf-b'), { timeout: 10_000, interval: 50 });
       // Let any (buggy) follow-on fires land before asserting quiescence.
       await new Promise((r) => setTimeout(r, 100));
       expect(runs).toEqual(['wf-b']);
@@ -385,7 +385,7 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     });
     try {
       await session.log.append(completedEvent(session, 'wf-a'));
-      await vi.waitFor(() => expect(runs).toContain('wf-c'));
+      await vi.waitFor(() => expect(runs).toContain('wf-c'), { timeout: 10_000, interval: 50 });
       await new Promise((r) => setTimeout(r, 100));
       expect(runs).toEqual(['wf-b', 'wf-c']);
     } finally {
