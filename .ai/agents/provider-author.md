@@ -81,19 +81,22 @@ The provider never sees permission logic. It only emits `tool_use_start`/`tool_u
 A provider that runs a vendor's own coding agent (Claude, Codex, OpenCode) instead of calling a model adds `agentStep(req): AsyncIterable<AgentStepEvent>` (types in `@moxxy/sdk`, `agent-step.ts`). The shared loop (`runReactLoop`) then hands each round of the conversation to it and records what it yields as ordinary events, so every mode and every surface keeps working:
 
 - `text_delta` / `message` become `assistant_chunk` / `assistant_message`; `tool_call` / `tool_result` become `tool_call_requested` (with `executedBy: 'provider'`) / `tool_result`; `usage` lands on `provider_response`.
-- `session` records the agent's own session id; the next turn gets it back as `req.resumeSessionId`.
+- `session` records the agent's own session id; the next turn gets it back as `req.resumeSessionId`. `req.sessionId` is the Moxxy conversation, the key for keeping one live agent per conversation.
 - `auto_approve` reports the agent's real approval policy, which becomes the conversation's auto-approve (one state); `req.autoApprove` carries it into the next turn.
 - Everything the agent needs from Moxxy goes through `req.host`: `runTool` for a Moxxy tool it called over MCP (hooks, permissions and log as usual), `approve` before it runs a tool of its own (`policyOnly` for a hook that must not ask the person), `ask` for its Question.
+- `goal` reports the agent's own goal (Claude `/goal`, Codex `thread/goal`): `active` or `complete`. It is recorded as a `goal_status` plugin event, and goal mode ends its run on `complete` through `onAgentGoal` instead of waiting for `goal_complete`.
 - `stream` still serves one-shot text calls (skill synthesis, summaries).
 - Moxxy's end-of-turn reminders do not run on these turns; a checkpoint runs there only with `agentConnections: true`.
 
-The parts every agent connection needs live in `@moxxy/agent-connection-kit` (private, bundled into the CLI):
+The parts every agent connection needs live in `@moxxy/agent-connection-kit` (published, because the connection plugins install from npm on demand; add it to `CLOSURE` in `apps/desktop/scripts/bundle-plugins-seed.mjs` too):
 
 - `startMoxxyMcpServer` — the MCP server (Streamable HTTP on 127.0.0.1, bearer token, browsers refused) through which the agent calls Moxxy tools. Point it at a turn with `setHandler(moxxyToolsHandler(req.tools, req.host))`, and at `undefined` between turns. Results go through `toolOutputForModel` from `@moxxy/sdk`, so the agent sees exactly what a model would (images as pixels).
 - `JsonRpcLineClient` — JSON-RPC over stdio lines, with or without the `"jsonrpc"` field (Codex app-server leaves it out, ACP agents send it); both sides can make requests.
-- `AgentSessionPool` — one live agent per conversation up to a limit, the idlest closed first, waiting on turn ends (never a timer); call `closeAll` from `onShutdown`.
+- `AgentSessionPool` — one live agent per conversation up to a limit, the idlest closed first, waiting on turn ends (never a timer); close the conversation's agent from `onShutdown` (`pool.close(String(ctx.sessionId))`).
 - `agentModeFor` — Moxxy mode to the agent's own `default` / `plan` / `goal`.
 - `inspectAgentCli` — the CLI's version, who installed it (npm, Homebrew, the vendor installer) and the matching update command.
+
+`FakeAgentProvider` (`@moxxy/testing`) scripts `agentStep` for tests of modes and surfaces. To test a connection itself, replace only the vendor boundary and drive it through a real Moxxy session, as `plugin-provider-claude-code` does with `fake-claude.testkit.ts`.
 
 ## Recorded fixtures
 

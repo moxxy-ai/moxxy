@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Opt-in live smoke test for the installed Claude CLI subscription provider.
+ * Opt-in live smoke test for the Claude Agent connection (`claude-code`).
  *
  * Unlike scripts/e2e-live.mjs, this consumes no ANTHROPIC_API_KEY: authentication
  * is owned by the user's installed `claude` executable. The harness exits 0 with
@@ -10,8 +10,9 @@
  *   node scripts/e2e-claude-cli-live.mjs
  *
  * Override the executable/model with CLAUDE_CODE_EXECUTABLE and
- * MOXXY_CLAUDE_E2E_MODEL. Both runs use generated temporary directories; the
- * native-tool task runs only inside a freshly initialized temporary git repo.
+ * MOXXY_CLAUDE_E2E_MODEL. Both runs use generated temporary directories (the
+ * Agent SDK installs into the temporary MOXXY_HOME); Claude writes a file only
+ * inside a freshly initialized temporary git repo, allowed by --allow-tools.
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -63,18 +64,16 @@ function assistantText(events) {
   }).join('\n');
 }
 
-function writeConfig(workspace, nativeTools) {
+function writeConfig(workspace) {
   const config = join(workspace, 'moxxy.config.yaml');
-  const native = nativeTools
-    ? "\n          mode: native-tools\n          permissionMode: acceptEdits\n          allowedTools:\n            - Write\n            - Edit"
-    : '';
-  writeFileSync(config, `plugins:\n  provider:\n    default: claude-code\n    items:\n      claude-code:\n        model: ${model}\n        config:\n          executable: ${JSON.stringify(executable)}${native}\n`);
+  writeFileSync(config, `plugins:\n  provider:\n    default: claude-code\n    items:\n      claude-code:\n        model: ${model}\n        config:\n          executable: ${JSON.stringify(executable)}\n`);
   return config;
 }
 
-async function runMoxxy(workspace, prompt, nativeTools = false) {
-  const config = writeConfig(workspace, nativeTools);
-  return run(process.execPath, [cliBin, '-p', prompt, '--model', model, '--output-format', 'stream-json', '--config', config], {
+async function runMoxxy(workspace, prompt, allowTools = []) {
+  const config = writeConfig(workspace);
+  const allow = allowTools.length > 0 ? ['--allow-tools', allowTools.join(',')] : [];
+  return run(process.execPath, [cliBin, '-p', prompt, '--model', model, '--output-format', 'stream-json', '--config', config, ...allow], {
     cwd: workspace,
     env: { ...process.env, MOXXY_HOME: moxxyHome },
   });
@@ -101,7 +100,7 @@ async function main() {
     console.log(`[SKIP] Claude CLI is installed but not signed in. Run \`${executable} auth login\` (or \`moxxy login claude-code\`) and retry.`);
     return;
   }
-  console.log(`moxxy Claude CLI live smoke — executable=${executable} model=${model}`);
+  console.log(`moxxy Claude Agent live smoke — executable=${executable} model=${model}`);
 
   const textWorkspace = join(root, 'text');
   mkdirSync(textWorkspace);
@@ -116,10 +115,10 @@ async function main() {
   const marker = `CLAUDE-SMOKE-${Date.now()}`;
   const task = await runMoxxy(
     taskRepo,
-    `Use your native Write tool to create smoke-result.txt in the current repository containing exactly ${marker}. Then reply with exactly TASK COMPLETE.`,
-    true,
+    `Use your Write tool to create smoke-result.txt in the current repository containing exactly ${marker}. Then reply with exactly TASK COMPLETE.`,
+    ['Write'],
   );
-  assertTurn('isolated native-tool repository task', task, ({ text }) => /TASK COMPLETE/i.test(text));
+  assertTurn('isolated repository task with an approved Write', task, ({ text }) => /TASK COMPLETE/i.test(text));
   const changed = await run('git', ['status', '--porcelain', '--', 'smoke-result.txt'], { cwd: taskRepo });
   const contents = readFileSync(join(taskRepo, 'smoke-result.txt'), 'utf8').trim();
   if (!changed.stdout.trim() || contents !== marker) throw new Error('task did not create the expected observable repository change');

@@ -254,12 +254,13 @@ export type {
   AgentStepRequest,
   AgentStepHost,
   AgentStepEvent,
+  AgentGoalStatus,
   AgentToolCall,
   AgentToolOutcome,
   AgentApprovalRequest,
   AgentApprovalDecision,
 } from './provider.js';
-export { AGENT_CONNECTION_PLUGIN_ID, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from './agent-step.js';
+export { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from './agent-step.js';
 export {
   encodeLoginAuthUrl,
   decodeLoginAuthUrl,

@@ -2313,19 +2313,34 @@ importers:
 
   packages/plugin-provider-claude-code:
     dependencies:
+      '@moxxy/agent-connection-kit':
+        specifier: workspace:*
+        version: link:../agent-connection-kit
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
-      '@moxxy/plugin-oauth':
-        specifier: workspace:*
-        version: link:../plugin-oauth
-      '@moxxy/plugin-provider-anthropic':
-        specifier: workspace:*
-        version: link:../plugin-provider-anthropic
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.31.0
+        version: 1.32.1(zod@3.25.76)
+      '@moxxy/core':
+        specifier: workspace:*
+        version: link:../core
+      '@moxxy/mode-default':
+        specifier: workspace:*
+        version: link:../mode-default
+      '@moxxy/mode-goal':
+        specifier: workspace:*
+        version: link:../mode-goal
+      '@moxxy/mode-plan':
+        specifier: workspace:*
+        version: link:../mode-plan
+      '@moxxy/testing':
+        specifier: workspace:*
+        version: link:../testing
       '@moxxy/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

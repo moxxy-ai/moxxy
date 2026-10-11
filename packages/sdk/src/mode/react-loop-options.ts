@@ -1,5 +1,5 @@
 import type { ModeContext } from '../mode.js';
-import type { TokenUsage } from '../provider.js';
+import type { AgentGoalStatus, TokenUsage } from '../provider.js';
 import type { StopReason } from '../provider-utils.js';
 import type { StuckLoopReport, StuckTripInfo } from '../tool-dispatch.js';
 import type { TurnCheckpoint } from './checkpoint.js';
@@ -102,6 +102,12 @@ export interface ReactLoopOptions {
     ctx: ModeContext,
     info: ToolBatchInfo,
   ) => Promise<StopDirective | undefined>;
+  /**
+   * Runs after an agent connection's turn that reported the state of the
+   * agent's own goal. Return `{action: 'stop'}` to end the turn (goal mode
+   * wraps up a met goal); the hook emits its own completion events first.
+   */
+  readonly onAgentGoal?: (ctx: ModeContext, status: AgentGoalStatus) => Promise<StopDirective | undefined>;
   /**
    * Replaces the default "exceeded maxIterations" fatal error — the hook
    * emits its own cap-reached events (goal mode adds a plugin event and its

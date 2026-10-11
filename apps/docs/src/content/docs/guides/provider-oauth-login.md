@@ -62,9 +62,12 @@ permanent failure.
 
 ## Claude (Pro/Max) subscription — `claude-code`
 
-The `claude-code` provider talks to the **standard Anthropic Messages API**,
-but authenticates with a Claude Code OAuth token (a subscription credential)
-instead of an API key. Set it active with:
+The `claude-code` connection, shown as **Claude Agent**, does not call a model
+for Moxxy. Claude Code itself does each turn, through the Claude Agent SDK, with
+its own prompt, tools, skills, settings and MCP servers, on your Claude Pro/Max
+sign-in. Moxxy shows what it does, asks you before it runs a tool, shows its
+questions, and lends it Moxxy's own tools (the browser, memory, views) over a
+local MCP server. Set it active with:
 
 ```yaml
 # moxxy.config.yaml
@@ -72,40 +75,43 @@ provider:
   name: claude-code
 ```
 
-Three ways to supply the token:
+You need Claude Code installed and signed in:
 
 ```sh
-# 1. Paste a token from the Claude CLI (long-lived, ~1 year):
-export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
-
-# 2. Or store it interactively (also accepts a setup-token paste):
-moxxy login claude-code            # press Enter to sign in via browser,
-                                   # or paste a setup-token at the prompt
-
-# 3. Or set ANTHROPIC_AUTH_TOKEN (the SDK's native bearer var).
+claude auth login        # or: moxxy login claude-code
+claude auth status
 ```
 
-In the desktop app, pick **claude-code** in onboarding or under
+The first time the connection is used, Moxxy installs the Claude Agent SDK into
+`~/.moxxy/agents/claude-agent-sdk/<version>` with npm. It runs your installed
+`claude` (from `PATH`, or `CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`);
+the SDK's own copy of the CLI is not downloaded.
+
+In the desktop app, pick **Claude Agent** in onboarding or under
 **Settings → Providers** and sign in there. No terminal is needed. **Sign in** opens your browser, and
 the sign-in usually finishes on its own when you approve it. If the browser shows a code
 instead, paste it into the sign-in dialog. Under the hood the desktop drives
 `claude auth login` of the installed Claude Code, so Claude Code must be installed.
-The desktop ships the provider with its
-bundled extensions, so it's there on first launch with no separate install. The CLI
-installs it on first use: select "Claude (Pro/Max sign-in)" in `moxxy init`.
+The desktop ships the connection with its bundled extensions, so it's there on
+first launch with no separate install. The CLI installs it on first use: select
+"Claude Agent" in `moxxy init`.
 
-Unlike codex, Claude's OAuth is **out-of-band**: `moxxy login claude-code`
-opens your browser, you approve, then copy the `code#state` string back into
-the terminal (there's no loopback server). Tokens from the browser flow carry
-a refresh_token and renew automatically; a pasted `setup-token` is long-lived
-and simply re-run when it eventually expires.
+What carries over, and what does not:
 
-Under the hood the request adds `anthropic-beta: oauth-2025-04-20` and leads
-the system prompt with the Claude Code identity line — both required for the
-API to accept a subscription token.
+- **Approvals.** Claude asks before a tool; Moxxy shows that as its usual
+  approval, and its permission rules (`~/.moxxy/permissions.json`, plugin
+  hooks) apply to Claude's tools too. Turning on auto-approve switches *this
+  conversation's* Claude to bypass mode; Claude's own settings are never edited.
+- **Modes.** Plan mode runs Claude in its plan mode and shows its plan for
+  approval. Goal mode uses Claude's own `/goal`, and ends when Claude says the
+  goal is met.
+- **Conversations.** Each Moxxy conversation keeps one running Claude, and
+  resumes Claude's own session after a restart.
+- **Credentials.** Claude Code owns its login files; Moxxy neither reads nor
+  stores them.
 
-> **Heads-up:** Anthropic's consumer terms intend subscription tokens for
-> official Claude clients. Use this with that in mind.
+> **Heads-up:** Anthropic's consumer terms intend subscription sign-ins for
+> official Claude clients. Claude Code is the client here; use it with that in mind.
 
 ## Using OAuth in your own plugin
 

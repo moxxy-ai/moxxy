@@ -1,9 +1,26 @@
 {
   "name": "@moxxy/agent-connection-kit",
   "version": "0.0.0",
-  "private": true,
   "description": "Shared parts of agent connections: the Moxxy tools MCP server, a line JSON-RPC client, the live agent session pool, mode mapping and CLI version checks.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "mcp",
+    "provider"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/agent-connection-kit"
+  },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -23,8 +23,8 @@ export const PROVIDER_PLUGIN_CATALOG = [
     "id": "provider-claude-code",
     "packageName": "@moxxy/plugin-provider-claude-code",
     "installSpec": "@moxxy/plugin-provider-claude-code",
-    "label": "Claude (Pro/Max sign-in)",
-    "description": "Claude models through an existing Claude Code subscription sign-in.",
+    "label": "Claude Agent",
+    "description": "Claude Code does the work on your Claude Pro/Max sign-in; Moxxy shows it and lends its browser and tools.",
     "provides": [
       {
         "category": "provider",

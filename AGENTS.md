@@ -53,7 +53,7 @@ If you're a Claude Code agent or any other autonomous agent: read this file firs
 @moxxy/isolator-subprocess        subprocess Isolator (kernel-enforced process boundary)
 @moxxy/isolator-wasm              WebAssembly Isolator (zero ambient authority; experimental)
 @moxxy/plugin-provider-openai-codex  ChatGPT OAuth provider (Responses API)
-@moxxy/plugin-provider-claude-code  Claude Pro/Max OAuth provider (Messages API, bearer token)
+@moxxy/plugin-provider-claude-code  "Claude Agent" connection: Claude Code does each turn through the Claude Agent SDK (installed into ~/.moxxy on first use) on the Claude Pro/Max sign-in
 @moxxy/agent-connection-kit       shared parts of agent connections (vendor agent does the turn via `agentStep`): Moxxy tools MCP server, line JSON-RPC client, live agent session pool, mode mapping, CLI version/update checks
 @moxxy/plugin-provider-admin      register OpenAI-compatible providers at runtime
 @moxxy/plugin-oauth               generic OAuth 2.0 + PKCE / device-code

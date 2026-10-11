@@ -10,35 +10,20 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   AGENT_CONNECTION_PLUGIN_ID,
+  AGENT_GOAL_SUBTYPE,
   AGENT_SESSION_SUBTYPE,
   autoApproveFromEvents,
   defineMode,
   definePlugin,
   defineTool,
   runReactLoop,
-  type AgentStepEvent,
   type AgentStepHost,
-  type AgentStepRequest,
   type MoxxyEvent,
   type PermissionResolver,
 } from '@moxxy/sdk';
 import { collectTurn, type Session } from '@moxxy/core';
-import { FakeProvider, createFakeSession } from '@moxxy/testing';
+import { FakeAgentProvider, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
-
-type Script = (req: AgentStepRequest) => AsyncIterable<AgentStepEvent>;
-
-/** A provider whose turns are done by a scripted "vendor agent". */
-class FakeAgentProvider extends FakeProvider {
-  readonly steps: AgentStepRequest[] = [];
-  constructor(private readonly script: Script) {
-    super({ name: 'fake-agent', script: [] });
-  }
-  agentStep(req: AgentStepRequest): AsyncIterable<AgentStepEvent> {
-    this.steps.push(req);
-    return this.script(req);
-  }
-}
 
 function sessionWith(provider: FakeAgentProvider): Session {
   const session = createFakeSession({ provider });
@@ -71,6 +56,7 @@ describe('an agent connection turn', () => {
     expect(step?.prompt).toEqual([{ type: 'text', text: 'What is in a.ts?' }]);
     expect(step?.mode).toBe('default');
     expect(step?.resumeSessionId).toBeUndefined();
+    expect(step?.sessionId).toBe(String(session.id));
     expect(events.filter((e) => e.type === 'assistant_chunk').map((e) => (e as { delta: string }).delta)).toEqual([
       'Reading ',
       'it.',
@@ -225,6 +211,25 @@ describe('an agent connection turn', () => {
       expect.objectContaining({ type: 'tool_result', callId: 'toolu_4', ok: false, error: expect.objectContaining({ kind: 'aborted' }) }),
     );
     expect(types(events)).toContain('abort');
+  });
+
+  it('records the state of the agent own goal', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'Done: goal.txt says GOAL-DONE.' };
+      yield { type: 'goal', status: 'complete' };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'make goal.txt');
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'plugin_event',
+        pluginId: AGENT_CONNECTION_PLUGIN_ID,
+        subtype: AGENT_GOAL_SUBTYPE,
+        payload: { provider: 'fake-agent', status: 'complete' },
+      }),
+    );
   });
 
   it('ends the turn with the agent error', async () => {

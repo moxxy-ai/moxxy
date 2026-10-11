@@ -8,6 +8,8 @@ import { asPluginId } from './ids.js';
 
 export const AGENT_CONNECTION_PLUGIN_ID = asPluginId('@moxxy/agent-connection');
 export const AGENT_SESSION_SUBTYPE = 'agent_session';
+/** The state of the agent's own goal (Claude `/goal`, Codex `thread/goal`), recorded after its turn. */
+export const AGENT_GOAL_SUBTYPE = 'goal_status';
 
 /** The agent session to resume for this provider: the last one recorded, if any. */
 export function agentSessionFromEvents(events: ReadonlyArray<MoxxyEvent>, provider: string): string | undefined {

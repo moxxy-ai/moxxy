@@ -265,6 +265,30 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       }
       return undefined;
     },
+    // An agent with its own goal (Claude `/goal`, Codex `thread/goal`) decides
+    // when it is met; Moxxy only wraps up. An open goal keeps the mode armed.
+    onAgentGoal: async (loopCtx, status) => {
+      if (status !== 'complete') return undefined;
+      await loopCtx.emit({
+        type: 'plugin_event',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'plugin',
+        pluginId: GOAL_PLUGIN_ID,
+        subtype: 'goal_completed',
+        payload: { summary: lastAgentText(loopCtx.log.slice()), evidenceCount: 0, byAgent: true },
+      });
+      await loopCtx.emit({
+        type: 'assistant_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        content: '✓ Goal complete — the agent reports its goal is met.',
+        stopReason: 'end_turn',
+      });
+      disarm();
+      return { action: 'stop' };
+    },
     onMaxIterations: async (loopCtx, maxIterations) => {
       // Only reachable when an embedder set an explicit ctx.maxIterations —
       // goal mode itself is uncapped.
@@ -289,6 +313,14 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       });
     },
   });
+}
+
+function lastAgentText(log: ReadonlyArray<MoxxyEvent>): string {
+  for (let i = log.length - 1; i >= 0; i -= 1) {
+    const event = log[i];
+    if (event && event.type === 'assistant_message' && event.source === 'model') return event.content;
+  }
+  return '';
 }
 
 function composeSystemPrompts(user: string | undefined, layer: string): string {

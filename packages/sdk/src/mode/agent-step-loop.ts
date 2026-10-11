@@ -1,10 +1,11 @@
-import { AGENT_CONNECTION_PLUGIN_ID, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from '../agent-step.js';
+import { AGENT_CONNECTION_PLUGIN_ID, AGENT_GOAL_SUBTYPE, AGENT_SESSION_SUBTYPE, agentSessionFromEvents } from '../agent-step.js';
 import { AUTO_APPROVE_PLUGIN_ID, AUTO_APPROVE_SUBTYPE, autoApproveFromEvents } from '../auto-approve.js';
 import { computeElisionState } from '../elision-state.js';
 import type { MoxxyEvent, UserPromptEvent } from '../events.js';
 import { asToolCallId } from '../ids.js';
 import type { ModeContext } from '../mode.js';
 import type {
+  AgentGoalStatus,
   AgentApprovalDecision,
   AgentApprovalRequest,
   AgentStepHost,
@@ -106,6 +107,10 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
       });
       if (directive?.action === 'stop') return;
     }
+    if (round.goal && opts.onAgentGoal) {
+      const directive = await opts.onAgentGoal(ctx, round.goal);
+      if (directive?.action === 'stop') return;
+    }
     if (round.moxxyTools.length > 0) {
       consecutiveIdle = 0;
       injectionsUsed = 0;
@@ -152,6 +157,7 @@ interface Round {
   readonly moxxyTools: ReadonlyArray<CollectedToolUse>;
   /** Set when the person refused a tool whose refusal ends the turn: its text. */
   readonly endsTurn?: string;
+  readonly goal?: AgentGoalStatus;
 }
 
 async function runRound(
@@ -195,9 +201,11 @@ async function runRound(
   let usage: TokenUsage | undefined;
   let error: string | undefined;
   let sessionId = resumeSessionId;
+  let goal: AgentGoalStatus | undefined;
 
   try {
     const stream = agentStep({
+      sessionId: String(ctx.sessionId),
       model: ctx.model,
       prompt,
       cwd: ctx.cwd,
@@ -274,6 +282,17 @@ async function runRound(
             });
           }
           break;
+        case 'goal':
+          goal = event.status;
+          await emit({
+            ...base,
+            type: 'plugin_event',
+            source: 'system',
+            pluginId: AGENT_CONNECTION_PLUGIN_ID,
+            subtype: AGENT_GOAL_SUBTYPE,
+            payload: { provider: ctx.provider.name, status: event.status },
+          });
+          break;
         case 'usage':
           usage = usage ? addUsage(usage, event.usage) : event.usage;
           break;
@@ -316,6 +335,7 @@ async function runRound(
     ...(error !== undefined ? { error } : {}),
     moxxyTools,
     ...(endsTurn !== undefined ? { endsTurn } : {}),
+    ...(goal ? { goal } : {}),
   };
 }
 

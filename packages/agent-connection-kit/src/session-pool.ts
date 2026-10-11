@@ -8,7 +8,14 @@ export interface LiveSession {
 export interface AgentSessionPoolOptions<T extends LiveSession> {
   /** How many agents may run at once across conversations. */
   readonly limit: number;
-  readonly create: (conversation: string) => Promise<T>;
+  /** How to start an agent, unless `acquire` is given its own way. */
+  readonly create?: (conversation: string) => Promise<T>;
+}
+
+export interface AcquireOptions<T extends LiveSession> {
+  readonly signal?: AbortSignal;
+  /** Start the agent with this turn's settings (model, resume id, …). */
+  readonly create?: (conversation: string) => Promise<T>;
 }
 
 /** One turn's hold on a conversation's agent. */
@@ -45,16 +52,18 @@ export class AgentSessionPool<T extends LiveSession> {
     return this.entries.size;
   }
 
-  async acquire(conversation: string, signal?: AbortSignal): Promise<AgentSessionLease<T>> {
+  async acquire(conversation: string, opts: AcquireOptions<T> = {}): Promise<AgentSessionLease<T>> {
+    const create = opts.create ?? this.opts.create;
+    if (!create) throw new Error('No way to start an agent session was given.');
     const outcome = await waitFor(() => this.take(conversation), {
       wakeOn: [(wake) => this.subscribe(wake)],
-      ...(signal ? { signal } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
     if (outcome.status !== 'ready') throw abortError();
     const taken = outcome.value;
     if (taken.kind === 'start') {
       try {
-        taken.entry.session = await this.opts.create(conversation);
+        taken.entry.session = await create(conversation);
       } catch (err) {
         this.entries.delete(conversation);
         this.changed();
@@ -62,6 +71,15 @@ export class AgentSessionPool<T extends LiveSession> {
       }
     }
     return this.lease(conversation, taken.entry);
+  }
+
+  /** The conversation ended: close its agent, even mid-turn. */
+  async close(conversation: string): Promise<void> {
+    const entry = this.entries.get(conversation);
+    if (!entry) return;
+    this.entries.delete(conversation);
+    this.changed();
+    await entry.session?.close();
   }
 
   async closeAll(): Promise<void> {

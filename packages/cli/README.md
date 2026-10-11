@@ -81,24 +81,9 @@ Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign 
 
 1. Install the official Claude CLI so `claude` is on `PATH` (or set `CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`).
 2. Run `claude auth login` or `moxxy login claude-code`, then confirm with `claude auth status` and `moxxy doctor`.
-3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-5-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
+3. Select "Claude Agent" (`claude-code`) in `moxxy init`. It defaults to `claude-sonnet-5-5`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
 
-The default transport disables Claude's internal tools (except WebSearch). moxxy's own tools still work: they are described to the model in the prompt, and each call it makes runs through moxxy's permission resolver like with any other provider. To opt into an isolated coding task, configure the provider item explicitly:
-
-```yaml
-plugins:
-  provider:
-    default: claude-code
-    items:
-      claude-code:
-        model: claude-sonnet-5-5
-        config:
-          mode: native-tools
-          permissionMode: acceptEdits
-          allowedTools: [Read, Write, Edit]
-```
-
-`allowedTools` and `permissionMode` are forwarded to and enforced by Claude CLI. Moxxy's permission resolver, `--allow-tools`, and isolators govern moxxy-registered tools only; they do **not** govern Claude's internal native tools. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
+Claude Code itself does each turn, through the Claude Agent SDK (installed into `~/.moxxy/agents/claude-agent-sdk` on first use), with its own tools, skills, settings and MCP servers. Moxxy asks you before each of Claude's tools, with its permission rules applied, shows Claude's questions, and lends Claude its own tools over a local MCP server. Auto-approve switches only the current conversation's Claude to bypass mode; Claude's own settings are never edited. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
 
 Desktop and interactive CLI setup can start sign-in. Headless runners/services generally cannot complete browser or TTY authentication: authenticate first as the same OS account that runs the service, make `claude` available in that account's service `PATH` (or set the executable path), and restart it. Recovery commands are `claude auth status`, `claude auth login`, `moxxy login claude-code`, and `moxxy doctor`.
 
@@ -109,7 +94,7 @@ node scripts/e2e-claude-cli-live.mjs
 # optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-5-5 node scripts/e2e-claude-cli-live.mjs
 ```
 
-It skips clearly when `claude` is missing or signed out, streams a real text prompt, and performs its native-tool assertion only inside a generated temporary git repository.
+It skips clearly when `claude` is missing or signed out, streams a real text prompt, and has Claude write a file only inside a generated temporary git repository.
 
 ## Quickstart
 

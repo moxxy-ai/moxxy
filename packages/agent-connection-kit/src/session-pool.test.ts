@@ -92,7 +92,7 @@ describe('the live agent sessions', () => {
     await sessions.acquire('conv-a');
     const controller = new AbortController();
 
-    const waiting = sessions.acquire('conv-b', controller.signal);
+    const waiting = sessions.acquire('conv-b', { signal: controller.signal });
     controller.abort();
 
     await expect(waiting).rejects.toThrow(/abort/i);
@@ -124,6 +124,28 @@ describe('the live agent sessions', () => {
     const lease = await sessions.acquire('conv-b');
 
     expect(lease.session.conversation).toBe('conv-b');
+  });
+
+  it('starts an agent with the settings of the turn that needs it', async () => {
+    const { sessions } = pool();
+
+    const lease = await sessions.acquire('conv-a', { create: async () => new LiveAgent('with-settings') });
+
+    expect(lease.session.conversation).toBe('with-settings');
+  });
+
+  it('closes the agent of a conversation that ended, and only that one', async () => {
+    const { sessions, started } = pool();
+    (await sessions.acquire('conv-a')).release();
+    (await sessions.acquire('conv-b')).release();
+
+    await sessions.close('conv-a');
+
+    expect(started.map((a) => [a.conversation, a.closed])).toEqual([
+      ['conv-a', true],
+      ['conv-b', false],
+    ]);
+    expect(sessions.size).toBe(1);
   });
 
   it('closes every agent when Moxxy shuts down, and starts no more', async () => {

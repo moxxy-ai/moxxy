@@ -18,6 +18,7 @@ export {
 } from './json-rpc.js';
 export {
   AgentSessionPool,
+  type AcquireOptions,
   type AgentSessionLease,
   type AgentSessionPoolOptions,
   type LiveSession,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineMode, definePlugin, defineTool, runReactLoop, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
-import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
+import { FakeAgentProvider, FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 
 import { goalModePlugin, GOAL_MODE_NAME } from './index.js';
 import { __setRetrySleepForTests } from './goal-loop.js';
@@ -650,5 +650,49 @@ describe('goal tools outside goal mode', () => {
     await collectTurn(session, 'do it');
 
     expect(offered(provider)).toEqual(expect.arrayContaining(['goal_complete', 'goal_abandon']));
+  });
+});
+
+describe('goal mode on an agent connection with its own goal', () => {
+  const priorModePlugin = definePlugin({
+    name: '@moxxy/testing/prior-mode',
+    modes: [defineMode({ name: 'prior', run: async function* () {} })],
+  });
+
+  function armed(provider: FakeAgentProvider) {
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(priorModePlugin);
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+    return session;
+  }
+
+  it('ends the run when the agent says its goal is met, and hands back the previous mode', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'goal.txt now says GOAL-DONE.' };
+      yield { type: 'goal', status: 'complete' };
+    });
+    const session = armed(provider);
+
+    const events = await collectTurn(session, 'make goal.txt say GOAL-DONE');
+
+    expect(provider.steps[0]?.mode).toBe(GOAL_MODE_NAME);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(true);
+    const last = events.filter((e) => e.type === 'assistant_message').pop();
+    expect(last).toMatchObject({ source: 'system', content: expect.stringContaining('Goal complete') });
+    expect(session.modes.getActiveName()).toBe('prior');
+  });
+
+  it('stays armed when the agent goal is still open, so the next message carries on', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'Half way.' };
+      yield { type: 'goal', status: 'active' };
+    });
+    const session = armed(provider);
+
+    const events = await collectTurn(session, 'count to 400');
+
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(false);
+    expect(session.modes.getActiveName()).toBe(GOAL_MODE_NAME);
   });
 });

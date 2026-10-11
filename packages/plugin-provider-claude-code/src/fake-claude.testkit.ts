@@ -1,0 +1,191 @@
+/**
+ * A stand-in for the Claude Agent SDK, the external boundary of the Claude
+ * agent connection. It behaves like `query()`: it reads the person's messages
+ * from the input stream, starts each turn with `system/init`, ends it with
+ * `result`, asks `canUseTool` and the `PreToolUse` hook, and calls Moxxy's
+ * tools over Moxxy's MCP server with the real MCP client. What Claude does in
+ * a turn is a scene the test writes.
+ */
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type {
+  ClaudeAgentSdk,
+  ClaudeMessage,
+  ClaudePermissionMode,
+  ClaudePermissionResult,
+  ClaudePreToolUseOutput,
+  ClaudeQuery,
+  ClaudeQueryOptions,
+  ClaudeUserContent,
+  ClaudeUserMessage,
+} from './sdk-types.js';
+
+export interface FakeTurn {
+  readonly text: string;
+  readonly content: ClaudeUserContent;
+  readonly query: FakeQuery;
+  canUseTool(name: string, input: Record<string, unknown>, toolUseID: string, extra?: { mcpServer?: { name: string; source: string } }): Promise<ClaudePermissionResult>;
+  preToolUse(name: string, input: unknown, toolUseID: string): Promise<ClaudePreToolUseOutput>;
+  callMoxxyTool(name: string, args: Record<string, unknown>): Promise<{ content: unknown; isError?: boolean }>;
+}
+
+export type ClaudeScene = (turn: FakeTurn) => AsyncIterable<ClaudeMessage>;
+
+export const assistantText = (text: string, model = 'claude-opus-5-5'): ClaudeMessage =>
+  ({ type: 'assistant', message: { model, content: [{ type: 'text', text }] }, parent_tool_use_id: null }) as ClaudeMessage;
+export const assistantToolUse = (id: string, name: string, input: unknown): ClaudeMessage =>
+  ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] }, parent_tool_use_id: null }) as ClaudeMessage;
+export const toolResult = (id: string, content: string, isError = false): ClaudeMessage =>
+  ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] }, parent_tool_use_id: null }) as ClaudeMessage;
+
+export class FakeClaude implements ClaudeAgentSdk {
+  readonly queries: FakeQuery[] = [];
+  private sessions = 0;
+  constructor(private readonly scene: ClaudeScene) {}
+
+  query(params: { prompt: string | AsyncIterable<ClaudeUserMessage>; options: ClaudeQueryOptions }): ClaudeQuery {
+    this.sessions += 1;
+    const sessionId = params.options.resume ?? `claude-session-${this.sessions}`;
+    const query = new FakeQuery(params.prompt, params.options, sessionId, this.scene);
+    this.queries.push(query);
+    return query;
+  }
+
+  get last(): FakeQuery {
+    const query = this.queries.at(-1);
+    if (!query) throw new Error('Claude was never started');
+    return query;
+  }
+}
+
+export class FakeQuery implements ClaudeQuery {
+  readonly received: ClaudeUserMessage[] = [];
+  readonly modeChanges: ClaudePermissionMode[] = [];
+  readonly modelChanges: string[] = [];
+  interrupts = 0;
+  closed = false;
+  permissionMode: ClaudePermissionMode;
+  private stop = new AbortController();
+  private mcp: Client | undefined;
+
+  constructor(
+    private readonly prompt: string | AsyncIterable<ClaudeUserMessage>,
+    readonly options: ClaudeQueryOptions,
+    readonly sessionId: string,
+    private readonly scene: ClaudeScene,
+  ) {
+    this.permissionMode = options.permissionMode ?? 'default';
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<ClaudeMessage> {
+    try {
+      const messages = typeof this.prompt === 'string' ? [this.userMessage(this.prompt)] : this.prompt;
+      for await (const message of messages) {
+        if (this.closed) return;
+        this.received.push(message);
+        this.stop = new AbortController();
+        yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
+        let ended = false;
+        const stop = this.stop.signal;
+        const stopped = new Promise<'stopped'>((resolve) => stop.addEventListener('abort', () => resolve('stopped'), { once: true }));
+        const scene = this.scene(this.turn(message))[Symbol.asyncIterator]();
+        for (;;) {
+          const next = await Promise.race([scene.next(), stopped]);
+          if (next === 'stopped') {
+            void scene.return?.();
+            break;
+          }
+          if (next.done) break;
+          if (next.value.type === 'result') ended = true;
+          yield next.value;
+        }
+        if (this.stop.signal.aborted) {
+          yield this.result('error_during_execution', true);
+        } else if (!ended) {
+          yield this.result('success', false);
+        }
+      }
+    } finally {
+      await this.mcp?.close();
+    }
+  }
+
+  async interrupt(): Promise<unknown> {
+    this.interrupts += 1;
+    this.stop.abort();
+    return undefined;
+  }
+
+  async setPermissionMode(mode: ClaudePermissionMode): Promise<void> {
+    this.modeChanges.push(mode);
+    this.permissionMode = mode;
+  }
+
+  async setModel(model?: string): Promise<void> {
+    if (model) this.modelChanges.push(model);
+  }
+
+  close(): void {
+    this.closed = true;
+    this.stop.abort();
+  }
+
+  result(subtype: string, isError: boolean, extra: Record<string, unknown> = {}): ClaudeMessage {
+    return {
+      type: 'result',
+      subtype,
+      is_error: isError,
+      session_id: this.sessionId,
+      usage: { input_tokens: 3, output_tokens: 7, cache_read_input_tokens: 100 },
+      origin: { kind: 'human' },
+      ...extra,
+    } as ClaudeMessage;
+  }
+
+  private turn(message: ClaudeUserMessage): FakeTurn {
+    const content = message.message.content;
+    const text = typeof content === 'string' ? content : content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n');
+    return {
+      text,
+      content,
+      query: this,
+      canUseTool: (name, input, toolUseID, extra) => {
+        const ask = this.options.canUseTool;
+        if (!ask) throw new Error('Claude was started without canUseTool');
+        return ask(name, input, { signal: this.stop.signal, toolUseID, ...(extra ?? {}) });
+      },
+      preToolUse: async (name, input, toolUseID) => {
+        let out: ClaudePreToolUseOutput = {};
+        for (const matcher of this.options.hooks?.PreToolUse ?? []) {
+          for (const hook of matcher.hooks) {
+            const verdict = await hook({ hook_event_name: 'PreToolUse', tool_name: name, tool_input: input, tool_use_id: toolUseID }, toolUseID, {
+              signal: this.stop.signal,
+            });
+            if (verdict.hookSpecificOutput) out = verdict;
+          }
+        }
+        return out;
+      },
+      callMoxxyTool: async (name, args) => {
+        const client = await this.moxxyClient();
+        const result = await client.callTool({ name, arguments: args });
+        return { content: result.content, ...(result.isError ? { isError: true } : {}) };
+      },
+    };
+  }
+
+  /** Connect to Moxxy's MCP server the way Claude does, from the options Moxxy passed. */
+  async moxxyClient(): Promise<Client> {
+    if (this.mcp) return this.mcp;
+    const server = this.options.mcpServers?.moxxy;
+    if (!server) throw new Error('Moxxy passed no MCP server');
+    const client = new Client({ name: 'claude-code', version: '2.1.296' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers: server.headers } }));
+    this.mcp = client;
+    return client;
+  }
+
+  private userMessage(text: string): ClaudeUserMessage {
+    return { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, origin: { kind: 'human' } };
+  }
+}

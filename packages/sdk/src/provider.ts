@@ -387,6 +387,8 @@ export interface ProviderDef {
 
 /** One turn of the vendor's agent. */
 export interface AgentStepRequest {
+  /** The Moxxy conversation, so an adapter keeps one live agent per conversation. */
+  readonly sessionId: string;
   /** The model the person picked, exactly as the agent names it. */
   readonly model: string;
   /** The person's message for this turn (or the loop's follow-up), with its images and documents. */
@@ -443,6 +445,8 @@ export type AgentApprovalDecision =
   | { readonly allow: true; /** The person allowed it for the rest of the session. */ readonly always?: boolean }
   | { readonly allow: false; readonly reason: string };
 
+export type AgentGoalStatus = 'active' | 'complete';
+
 /** What the agent did, in the order it did it. */
 export type AgentStepEvent =
   | { readonly type: 'text_delta'; readonly delta: string }
@@ -457,5 +461,7 @@ export type AgentStepEvent =
   | { readonly type: 'session'; readonly sessionId: string }
   /** The agent's real approval policy; it becomes the conversation's auto-approve. */
   | { readonly type: 'auto_approve'; readonly enabled: boolean }
+  /** The state of the agent's own goal after its turn: still open, or met. */
+  | { readonly type: 'goal'; readonly status: AgentGoalStatus }
   | { readonly type: 'usage'; readonly usage: TokenUsage }
   | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };
