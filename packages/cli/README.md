@@ -75,7 +75,7 @@ Or run it without installing:
 npx @moxxy/cli init
 ```
 
-Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max subscription as described below.
+Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max or Codex subscription as described below.
 
 ### Claude Code (Pro/Max subscription, no API key)
 
@@ -86,6 +86,14 @@ Requirements: Node.js 20.19 or later. Use an API key for Anthropic/OpenAI, sign 
 Claude Code itself does each turn, through the Claude Agent SDK (installed into `~/.moxxy/agents/claude-agent-sdk` on first use), with its own tools, skills, settings and MCP servers. Moxxy asks you before each of Claude's tools, with its permission rules applied, shows Claude's questions, and lends Claude its own tools over a local MCP server. Auto-approve switches only the current conversation's Claude to bypass mode; Claude's own settings are never edited. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
 
 Desktop and interactive CLI setup can start sign-in. Headless runners/services generally cannot complete browser or TTY authentication: authenticate first as the same OS account that runs the service, make `claude` available in that account's service `PATH` (or set the executable path), and restart it. Recovery commands are `claude auth status`, `claude auth login`, `moxxy login claude-code`, and `moxxy doctor`.
+
+### Codex (ChatGPT sign-in, no API key)
+
+1. Install the Codex CLI so `codex` is on `PATH` (or set `CODEX_EXECUTABLE=/absolute/path/to/codex`).
+2. Run `codex login` or `moxxy login codex-agent`, then confirm with `codex login status` and `moxxy doctor`.
+3. Select "ChatGPT — Codex agent" (`codex-agent`) in `moxxy init`. It defaults to `gpt-6-astra`; override per run with `--model`, or persist `plugins.provider.items.codex-agent.model`.
+
+Codex itself does each turn through `codex app-server`, with its own instructions, config, tools, skills and MCP servers. Moxxy shows Codex's approvals and questions, shows its plan in plan mode, ends goal mode when Codex's own goal is met, and lends Codex its own tools over a local MCP server. Auto-approve gives only the current conversation's Codex full access; `~/.codex/config.toml` is never edited. "ChatGPT — Moxxy" (`openai-codex`) is the other way round: Moxxy does the work with ChatGPT models.
 
 Contributors with an authenticated subscription can run the opt-in, no-API-key smoke gate after `pnpm build`:
 

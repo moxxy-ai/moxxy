@@ -3,9 +3,10 @@ title: Provider OAuth login
 description: moxxy login openai-codex — and how the generic OAuth plugin powers it.
 ---
 
-Most providers use API keys. Two providers use a **subscription** instead:
-`openai-codex` (`@moxxy/plugin-provider-openai-codex`) for ChatGPT Pro/Plus,
-and `claude-code` (`@moxxy/plugin-provider-claude-code`) for Claude Pro/Max.
+Most providers use API keys. Three providers use a **subscription** instead:
+`openai-codex` (`@moxxy/plugin-provider-openai-codex`, shown as **ChatGPT — Moxxy**)
+and `codex-agent` (`@moxxy/plugin-provider-codex-agent`, shown as **ChatGPT — Codex agent**)
+for ChatGPT Pro/Plus, and `claude-code` (`@moxxy/plugin-provider-claude-code`) for Claude Pro/Max.
 The generic `@moxxy/plugin-oauth` plugin handles the dance for any provider
 that wires the same hook.
 
@@ -112,6 +113,43 @@ What carries over, and what does not:
 
 > **Heads-up:** Anthropic's consumer terms intend subscription sign-ins for
 > official Claude clients. Claude Code is the client here; use it with that in mind.
+
+## ChatGPT through Codex — `codex-agent`
+
+The `codex-agent` connection, shown as **ChatGPT — Codex agent**, is the Codex
+counterpart of Claude Agent: Codex itself does each turn through
+`codex app-server`, with its own instructions, config, tools, skills and MCP
+servers, on your ChatGPT sign-in. (**ChatGPT — Moxxy**, `openai-codex`, is the
+other way round: Moxxy does the work with ChatGPT models.) Set it active with:
+
+```yaml
+# moxxy.config.yaml
+provider:
+  name: codex-agent
+```
+
+You need the Codex CLI installed and signed in:
+
+```sh
+codex login              # or: moxxy login codex-agent
+codex login status
+```
+
+Moxxy runs your installed `codex` (from `PATH`, or
+`CODEX_EXECUTABLE=/absolute/path/to/codex`) and installs nothing of its own.
+
+- **Approvals.** With auto-approve off, the conversation's Codex asks before
+  commands and file changes run outside its read-only sandbox, and Moxxy shows
+  that as its usual approval. Auto-approve gives *this conversation's* Codex full
+  access; `~/.codex/config.toml` is never edited. A Codex that is already set to
+  full access starts with auto-approve on.
+- **Modes.** Plan mode runs Codex in its plan mode: its questions become Moxxy
+  questions (an own answer always fits) and its finished plan is shown in the
+  plan card. Goal mode sets Codex's own thread goal; Codex keeps working through
+  turns until it says the goal is met, and Moxxy's goal mode ends with it.
+- **Conversations.** Each Moxxy conversation keeps one running Codex, and
+  resumes Codex's thread after a restart.
+- **Credentials.** Codex owns its login files; Moxxy neither reads nor stores them.
 
 ## Using OAuth in your own plugin
 

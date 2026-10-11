@@ -111,6 +111,21 @@ export async function* runAgentStepLoop(ctx: ModeContext, opts: ReactLoopOptions
       const directive = await opts.onAgentGoal(ctx, round.goal);
       if (directive?.action === 'stop') return;
     }
+    if (round.plan !== undefined) {
+      if (opts.onAgentPlan) {
+        const directive = await opts.onAgentPlan(ctx, round.plan);
+        if (directive?.action === 'stop') return;
+      } else {
+        yield await ctx.emit({
+          type: 'assistant_message',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'model',
+          content: round.plan,
+          stopReason: 'end_turn',
+        });
+      }
+    }
     if (round.moxxyTools.length > 0) {
       consecutiveIdle = 0;
       injectionsUsed = 0;
@@ -158,6 +173,7 @@ interface Round {
   /** Set when the person refused a tool whose refusal ends the turn: its text. */
   readonly endsTurn?: string;
   readonly goal?: AgentGoalStatus;
+  readonly plan?: string;
 }
 
 async function runRound(
@@ -202,6 +218,7 @@ async function runRound(
   let error: string | undefined;
   let sessionId = resumeSessionId;
   let goal: AgentGoalStatus | undefined;
+  let plan: string | undefined;
 
   try {
     const stream = agentStep({
@@ -293,6 +310,9 @@ async function runRound(
             payload: { provider: ctx.provider.name, status: event.status },
           });
           break;
+        case 'plan':
+          plan = event.text;
+          break;
         case 'usage':
           usage = usage ? addUsage(usage, event.usage) : event.usage;
           break;
@@ -336,6 +356,7 @@ async function runRound(
     moxxyTools,
     ...(endsTurn !== undefined ? { endsTurn } : {}),
     ...(goal ? { goal } : {}),
+    ...(plan !== undefined ? { plan } : {}),
   };
 }
 

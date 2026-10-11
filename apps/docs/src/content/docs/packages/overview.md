@@ -39,8 +39,9 @@ page link to it; the rest are summarized here.
 |---|---|
 | [`@moxxy/plugin-provider-anthropic`](/packages/plugin-provider-anthropic/) | Anthropic Messages API (API key). |
 | [`@moxxy/plugin-provider-openai`](/packages/plugin-provider-openai/) | OpenAI Chat Completions (API key). |
-| [`@moxxy/plugin-provider-openai-codex`](/packages/plugin-provider-openai-codex/) | ChatGPT Pro/Plus OAuth (Responses API). |
+| [`@moxxy/plugin-provider-openai-codex`](/packages/plugin-provider-openai-codex/) | "ChatGPT — Moxxy": Moxxy does the work with ChatGPT models on your ChatGPT Pro/Plus sign-in (Responses API). |
 | `@moxxy/plugin-provider-claude-code` | "Claude Agent": Claude Code does the work through the Claude Agent SDK on your Claude Pro/Max sign-in. |
+| `@moxxy/plugin-provider-codex-agent` | "ChatGPT — Codex agent": Codex does the work through `codex app-server` on your ChatGPT sign-in. |
 | `@moxxy/plugin-provider-admin` | `provider_add/list/remove/test` tools — register OpenAI-compatible vendors at runtime. |
 
 ## Channels

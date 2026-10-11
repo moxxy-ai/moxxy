@@ -109,6 +109,12 @@ export interface ReactLoopOptions {
    */
   readonly onAgentGoal?: (ctx: ModeContext, status: AgentGoalStatus) => Promise<StopDirective | undefined>;
   /**
+   * Agent connections only: the agent finished its own plan (Markdown). Plan
+   * mode shows it as its plan card and ends the turn; without this hook the
+   * plan is shown as the agent's message.
+   */
+  readonly onAgentPlan?: (ctx: ModeContext, plan: string) => Promise<StopDirective | undefined>;
+  /**
    * Replaces the default "exceeded maxIterations" fatal error — the hook
    * emits its own cap-reached events (goal mode adds a plugin event and its
    * own wording). The loop returns right after.

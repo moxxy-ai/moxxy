@@ -463,5 +463,7 @@ export type AgentStepEvent =
   | { readonly type: 'auto_approve'; readonly enabled: boolean }
   /** The state of the agent's own goal after its turn: still open, or met. */
   | { readonly type: 'goal'; readonly status: AgentGoalStatus }
+  /** The agent's own finished plan (Markdown), waiting for the person to carry it out. */
+  | { readonly type: 'plan'; readonly text: string }
   | { readonly type: 'usage'; readonly usage: TokenUsage }
   | { readonly type: 'error'; readonly message: string; readonly retryable: boolean };

@@ -23,7 +23,7 @@ const FALLBACK_CATALOG = ['anthropic', 'openai', 'openai-codex', 'claude-code'] 
 /** Providers known to authenticate via OAuth — a best-effort visual hint for the
  *  *non-selected* options (the selected one's tag is driven by the authoritative
  *  `authKind` the backend resolves, so the two can never disagree there). */
-const OAUTH_PROVIDER_IDS = new Set(['openai-codex', 'claude-code']);
+const OAUTH_PROVIDER_IDS = new Set(['openai-codex', 'claude-code', 'codex-agent']);
 
 export function ProviderStep({
   onNext,

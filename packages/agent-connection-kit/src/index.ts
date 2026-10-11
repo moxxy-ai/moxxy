@@ -36,3 +36,5 @@ export {
   type InspectOptions,
   type UpdateCommand,
 } from './cli-version.js';
+export { Inbox, untilStopped } from './inbox.js';
+export { transcript } from './transcript.js';

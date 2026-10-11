@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentStepEvent, AgentStepRequest, AgentToolCall, AgentToolOutcome, ToolDef } from '@moxxy/sdk';
 import {
+  Inbox,
   agentModeFor,
   moxxyToolsHandler,
   startMoxxyMcpServer,
   type AgentMode,
   type LiveSession,
   type MoxxyMcpServer,
+  untilStopped,
 } from '@moxxy/agent-connection-kit';
-import { Inbox } from './inbox.js';
 import { fromClaudeQuestions, toClaudeAnswers } from './questions.js';
 import type {
   ClaudeAgentSdk,
@@ -442,25 +443,6 @@ function isPersonResult(message: ClaudeMessage): message is Extract<ClaudeMessag
 
 function isInit(message: ClaudeMessage): message is Extract<ClaudeMessage, { subtype: 'init' }> {
   return message.type === 'system' && 'subtype' in message && message.subtype === 'init';
-}
-
-/** Resolve with `fallback` once the turn is stopped, whatever `work` does. */
-function untilStopped<T>(work: Promise<T>, signal: AbortSignal, fallback: T): Promise<T> {
-  if (signal.aborted) return Promise.resolve(fallback);
-  return new Promise((resolve, reject) => {
-    const onAbort = () => resolve(fallback);
-    signal.addEventListener('abort', onAbort, { once: true });
-    work.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      (err: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(err);
-      },
-    );
-  });
 }
 
 /**

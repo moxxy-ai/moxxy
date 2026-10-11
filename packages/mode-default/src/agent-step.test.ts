@@ -232,6 +232,19 @@ describe('an agent connection turn', () => {
     );
   });
 
+  it('shows the agent own plan as its message when the mode has no plan card', async () => {
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'plan', text: '# Fix add\n\n- Change - to +.' };
+    });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'plan the fix');
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'assistant_message', source: 'model', content: '# Fix add\n\n- Change - to +.' }),
+    );
+  });
+
   it('ends the turn with the agent error', async () => {
     const provider = new FakeAgentProvider(async function* () {
       yield { type: 'error', message: 'claude exited with code 1', retryable: false };

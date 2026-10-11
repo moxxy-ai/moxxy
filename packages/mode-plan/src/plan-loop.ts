@@ -77,7 +77,37 @@ export async function* runPlanMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       });
       return { action: 'stop' };
     },
+    // An agent connection plans in its own plan mode and hands back Markdown:
+    // the same card, without the step count or mode the structured plan has.
+    onAgentPlan: async (loopCtx, plan) => {
+      await loopCtx.emit({
+        type: 'plugin_event',
+        sessionId: loopCtx.sessionId,
+        turnId: loopCtx.turnId,
+        source: 'plugin',
+        pluginId: PLAN_PLUGIN_ID,
+        subtype: 'plan_completed',
+        payload: { title: agentPlanTitle(plan), questions: 0 },
+      });
+      await loopCtx.emit({
+        type: 'assistant_message',
+        sessionId: loopCtx.sessionId,
+        turnId: loopCtx.turnId,
+        source: 'system',
+        content: plan,
+        stopReason: 'end_turn',
+      });
+      return { action: 'stop' };
+    },
   });
+}
+
+/** The plan's first `#` heading, as the agent wrote it. */
+/** The plan's first heading, without a leading `Plan:` (Codex writes `## Plan: <title>`). */
+export function agentPlanTitle(plan: string): string {
+  const heading = /^#{1,6}\s+(.+?)\s*$/m.exec(plan)?.[1];
+  if (!heading) return 'Plan';
+  return heading.replace(/^plan\s*[:—–-]\s*/i, '').trim() || 'Plan';
 }
 
 export function readOnlyTools(tools: ToolRegistry): ToolRegistry {

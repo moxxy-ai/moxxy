@@ -85,6 +85,7 @@ A provider that runs a vendor's own coding agent (Claude, Codex, OpenCode) inste
 - `auto_approve` reports the agent's real approval policy, which becomes the conversation's auto-approve (one state); `req.autoApprove` carries it into the next turn.
 - Everything the agent needs from Moxxy goes through `req.host`: `runTool` for a Moxxy tool it called over MCP (hooks, permissions and log as usual), `approve` before it runs a tool of its own (`policyOnly` for a hook that must not ask the person), `ask` for its Question.
 - `goal` reports the agent's own goal (Claude `/goal`, Codex `thread/goal`): `active` or `complete`. It is recorded as a `goal_status` plugin event, and goal mode ends its run on `complete` through `onAgentGoal` instead of waiting for `goal_complete`.
+- `plan` hands over the agent's finished plan (Codex plan mode). Plan mode shows it in its plan card through `onAgentPlan` and ends the run; a mode without the hook shows it as the agent's message. An agent whose plan arrives inside an approval (Claude `ExitPlanMode`) uses `host.approve` instead.
 - `stream` still serves one-shot text calls (skill synthesis, summaries).
 - Moxxy's end-of-turn reminders do not run on these turns; a checkpoint runs there only with `agentConnections: true`.
 
@@ -94,9 +95,11 @@ The parts every agent connection needs live in `@moxxy/agent-connection-kit` (pu
 - `JsonRpcLineClient` — JSON-RPC over stdio lines, with or without the `"jsonrpc"` field (Codex app-server leaves it out, ACP agents send it); both sides can make requests.
 - `AgentSessionPool` — one live agent per conversation up to a limit, the idlest closed first, waiting on turn ends (never a timer); close the conversation's agent from `onShutdown` (`pool.close(String(ctx.sessionId))`).
 - `agentModeFor` — Moxxy mode to the agent's own `default` / `plan` / `goal`.
+- `Inbox` / `untilStopped` — a queue of the agent's notifications for the turn reader (wakes on `push`, never polls), and a wait that ends on Stop.
+- `transcript` — a one-off request's messages as one prompt, for `stream`.
 - `inspectAgentCli` — the CLI's version, who installed it (npm, Homebrew, the vendor installer) and the matching update command.
 
-`FakeAgentProvider` (`@moxxy/testing`) scripts `agentStep` for tests of modes and surfaces. To test a connection itself, replace only the vendor boundary and drive it through a real Moxxy session, as `plugin-provider-claude-code` does with `fake-claude.testkit.ts`.
+`FakeAgentProvider` (`@moxxy/testing`) scripts `agentStep` for tests of modes and surfaces. To test a connection itself, replace only the vendor boundary and drive it through a real Moxxy session, as `plugin-provider-claude-code` does with `fake-claude.testkit.ts` and `plugin-provider-codex-agent` with `fake-codex.testkit.ts` (a fake `codex app-server` over streams, which calls Moxxy tools through the real MCP server).
 
 ## Recorded fixtures
 

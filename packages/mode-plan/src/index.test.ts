@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineTool } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
-import { createFakeSession, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
+import { createFakeSession, FakeAgentProvider, FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
 
 import { PLAN_MODE_NAME, planDefinitionSchema, planMode, planModePlugin } from './index.js';
 import { readOnlyTools } from './plan-loop.js';
@@ -190,5 +190,30 @@ describe('plan mode', () => {
       'does not allow',
     );
     expect(mutationRan).toBe(false);
+  });
+
+  it('shows an agent connection own plan in the same plan card and ends the turn there', async () => {
+    const plan = '# Fix `add` and cover it\n\n## Summary\n\n`add` subtracts. Make it add.\n';
+    const provider = new FakeAgentProvider(async function* () {
+      yield { type: 'message', text: 'Looking at math.js.', stopReason: 'tool_use' };
+      yield { type: 'plan', text: plan };
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(planModePlugin);
+    session.modes.setActive(PLAN_MODE_NAME);
+
+    const events = await collectTurn(session, 'Plan the fix for add');
+
+    expect(provider.steps).toHaveLength(1);
+    expect(provider.steps[0]?.mode).toBe(PLAN_MODE_NAME);
+    const card = events.find((event) => event.type === 'plugin_event' && event.subtype === 'plan_completed');
+    // An agent plan is Markdown: the title comes from its heading, steps and a
+    // suggested mode are not guessed.
+    expect(card).toMatchObject({ type: 'plugin_event', payload: { title: 'Fix `add` and cover it', questions: 0 } });
+    if (card?.type !== 'plugin_event') throw new Error('expected a plan card');
+    expect(card.payload).not.toHaveProperty('steps');
+    expect(card.payload).not.toHaveProperty('recommendedMode');
+    const final = events.filter((event) => event.type === 'assistant_message').at(-1);
+    expect(final).toMatchObject({ type: 'assistant_message', source: 'system', content: plan });
   });
 });

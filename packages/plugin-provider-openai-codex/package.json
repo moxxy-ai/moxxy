@@ -52,8 +52,8 @@
       "kind": "provider"
     },
     "catalog": {
-      "label": "OpenAI Codex (ChatGPT sign-in)",
-      "description": "Codex models through a ChatGPT subscription sign-in.",
+      "label": "ChatGPT — Moxxy",
+      "description": "Moxxy does the work with ChatGPT models on your ChatGPT sign-in.",
       "provides": [
         {
           "category": "provider",

@@ -37,6 +37,23 @@ export const PROVIDER_PLUGIN_CATALOG = [
     }
   },
   {
+    "id": "provider-codex-agent",
+    "packageName": "@moxxy/plugin-provider-codex-agent",
+    "installSpec": "@moxxy/plugin-provider-codex-agent",
+    "label": "ChatGPT — Codex agent",
+    "description": "Codex does the work on your ChatGPT sign-in; Moxxy shows it and lends its browser and tools.",
+    "provides": [
+      {
+        "category": "provider",
+        "name": "codex-agent"
+      }
+    ],
+    "provider": {
+      "auth": "oauth",
+      "defaultModel": "gpt-6-astra"
+    }
+  },
+  {
     "id": "provider-google",
     "packageName": "@moxxy/plugin-provider-google",
     "installSpec": "@moxxy/plugin-provider-google",
@@ -88,8 +105,8 @@ export const PROVIDER_PLUGIN_CATALOG = [
     "id": "provider-openai-codex",
     "packageName": "@moxxy/plugin-provider-openai-codex",
     "installSpec": "@moxxy/plugin-provider-openai-codex",
-    "label": "OpenAI Codex (ChatGPT sign-in)",
-    "description": "Codex models through a ChatGPT subscription sign-in.",
+    "label": "ChatGPT — Moxxy",
+    "description": "Moxxy does the work with ChatGPT models on your ChatGPT sign-in.",
     "provides": [
       {
         "category": "provider",

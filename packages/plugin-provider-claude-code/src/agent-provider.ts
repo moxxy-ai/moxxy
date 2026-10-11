@@ -5,11 +5,10 @@ import {
   type LLMProvider,
   type ModelDescriptor,
   type ProviderEvent,
-  type ProviderMessage,
   type ProviderRequest,
   type TokenUsage,
 } from '@moxxy/sdk';
-import { AgentSessionPool, agentModeFor, type AgentSessionLease } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, agentModeFor, transcript, type AgentSessionLease } from '@moxxy/agent-connection-kit';
 import { CLAUDE_CODE_PROVIDER_ID } from './constants.js';
 import { ClaudeAgentSession, claudeEnv, startingPermissionMode, type ClaudeSessionSettings } from './agent-session.js';
 import { ensureClaudeAgentSdk } from './sdk-install.js';
@@ -180,15 +179,6 @@ export function createClaudeCodeClient(config: ClaudeAgentProviderConfig = {}): 
 
 function effortOf(reasoning: AgentStepRequest['reasoning']): ClaudeEffort | undefined {
   return typeof reasoning === 'object' && reasoning.effort ? reasoning.effort : undefined;
-}
-
-/** A one-off request as one prompt: a single message as it is, several as a labelled transcript. */
-function transcript(messages: ReadonlyArray<ProviderMessage>): string {
-  const textOf = (message: ProviderMessage) =>
-    message.content.flatMap((block) => (block.type === 'text' ? [block.text] : block.type === 'tool_result' ? [block.content] : [])).join('\n');
-  const [only] = messages;
-  if (messages.length === 1 && only) return textOf(only);
-  return messages.map((message) => `${message.role === 'assistant' ? 'Assistant' : 'User'}: ${textOf(message)}`).join('\n\n');
 }
 
 function messageOf(err: unknown): string {
