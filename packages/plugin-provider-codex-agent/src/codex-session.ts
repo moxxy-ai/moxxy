@@ -42,6 +42,7 @@ import {
   toUserInputAnswers,
   type CodexToolCall,
 } from './translate.js';
+import { readImageFile } from './view-image.js';
 
 /** A running `codex app-server`: its stdout, stdin and stderr. */
 export interface CodexConnection {
@@ -251,7 +252,7 @@ export class CodexAgentSession implements LiveSession {
         if (note) this.pendingNotes.unshift(note);
       }
       await this.begin(mode, req);
-      yield* this.read(req, mode, new TurnTranslator(this.settings.cwd));
+      yield* this.read(req, mode, new TurnTranslator(this.settings.cwd, (path) => readImageFile(path, this.settings.cwd)));
     } catch (err) {
       if (!req.signal.aborted) yield { type: 'error', message: this.alive ? messageOf(err) : this.endedMessage(), retryable: false };
     } finally {

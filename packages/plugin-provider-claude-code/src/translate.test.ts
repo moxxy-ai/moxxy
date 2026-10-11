@@ -130,6 +130,16 @@ describe('Claude messages as Moxxy events', () => {
     expect(write).toMatchObject({ output: { display: { kind: 'file-diff', path: 'notes.md', mode: 'create', added: 2, removed: 0 } } });
   });
 
+  it('keeps the image a result carries, such as a screenshot Claude looks at, with the text beside it', () => {
+    const t = new TurnTranslator('/repo');
+    t.translate(assistant([{ type: 'tool_use', id: 'toolu_s', name: 'mcp__computer-use__screenshot', input: {} }]));
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } };
+
+    expect(t.translate(toolResult('toolu_s', [{ type: 'text', text: 'Screen 1440x900' }, image, image]))).toEqual([
+      { type: 'tool_result', callId: 'toolu_s', ok: true, output: { forModel: 'Screen 1440x900', mediaType: 'image/png', base64: 'iVBORw0K' } },
+    ]);
+  });
+
   it('keeps the text of a result whose report is no file change', () => {
     const t = new TurnTranslator('/repo');
     t.translate(assistant([{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: {} }]));

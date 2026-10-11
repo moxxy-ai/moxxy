@@ -129,7 +129,7 @@ pane.
 |---|---|
 | What the person said | A bubble on the right, filled with the action colour. A prompt over 12 lines opens clamped, with a control that says how many lines it holds. Attachments sit above the bubble. |
 | What the agent said | A bubble on the left, in its own neutral tone. Code, tables and quotes inside it are tinted against the bubble, and each has a copy control in its corner (shown for the block under the pointer or holding focus, always on a touch screen). A table copies as tab-separated rows. |
-| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. |
+| Tool calls, reasoning, sub-agents | Quiet lines down the left, no wider than a bubble. The ones with a body open in place. An image a tool returned (a screenshot an agent looked at, an image file it read) shows under its line as a thumbnail drawn like an attached image, and opens in the same preview; opening the line shows the text beside it, never the image as text (`chat/blocks/ToolImage.tsx`). |
 | Triggers, stops, errors | A note with a short label. |
 
 Under a message sit its time and, for an answer, copy, read aloud and feedback.

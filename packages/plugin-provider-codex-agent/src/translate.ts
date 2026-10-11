@@ -1,5 +1,5 @@
-import type { AgentStepEvent, ContentBlock, FileDiffDisplay, QuestionAnswers, QuestionItem, TokenUsage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText, parseUnifiedDiff } from '@moxxy/sdk';
+import type { AgentStepEvent, ContentBlock, FileDiffDisplay, QuestionAnswers, QuestionItem, TokenUsage, ToolImage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff } from '@moxxy/sdk';
 import { MOXXY_MCP_SERVER } from './constants.js';
 import {
   knownItem,
@@ -28,8 +28,14 @@ export class TurnTranslator {
   /** Questions Codex asked in its message (plan mode), answered once its turn ends. */
   questions: ReadonlyArray<CodexAsyncQuestion> = [];
 
-  /** `cwd`: the project folder, which the paths of file diffs are shown relative to. */
-  constructor(private readonly cwd = '') {}
+  /**
+   * `cwd`: the project folder, which the paths of file diffs are shown relative to.
+   * `readImage`: the picture at a path, for an image Codex viewed (it names only the file).
+   */
+  constructor(
+    private readonly cwd = '',
+    private readonly readImage: (path: string) => ToolImage | undefined = () => undefined,
+  ) {}
 
   /** Show a call before Moxxy decides on it, unless it is already shown. */
   announce(callId: string, call: CodexToolCall): AgentStepEvent[] {
@@ -84,7 +90,7 @@ export class TurnTranslator {
       default: {
         const call = toolCallOf(item);
         if (!call) return [];
-        return [...this.announce(item.id, call), { type: 'tool_result', callId: item.id, ...toolResultOf(item, this.cwd) }];
+        return [...this.announce(item.id, call), { type: 'tool_result', callId: item.id, ...toolResultOf(item, this.cwd, this.readImage) }];
       }
     }
   }
@@ -107,7 +113,7 @@ export function toolCallOf(item: CodexItem): CodexToolCall | undefined {
   }
 }
 
-function toolResultOf(item: CodexItem, cwd: string): { readonly ok: boolean; readonly output?: unknown; readonly error?: string } {
+function toolResultOf(item: CodexItem, cwd: string, readImage: (path: string) => ToolImage | undefined): { readonly ok: boolean; readonly output?: unknown; readonly error?: string } {
   const status = 'status' in item ? item.status : 'completed';
   if (status === 'declined') return { ok: false, error: 'The person declined this.' };
   switch (item.type) {
@@ -122,11 +128,29 @@ function toolResultOf(item: CodexItem, cwd: string): { readonly ok: boolean; rea
       const display = item.changes.length === 1 && item.changes[0] ? fileDiffOf(item.changes[0], cwd) : undefined;
       return { ok: true, output: display ? { forModel: text, display } : text };
     }
-    case 'mcpToolCall':
-      return item.error ? { ok: false, error: item.error.message } : { ok: status !== 'failed', output: item.result };
+    case 'mcpToolCall': {
+      if (item.error) return { ok: false, error: item.error.message };
+      const shown = mcpImageOf(item.result);
+      return { ok: status !== 'failed', output: shown ? imageToolOutput(shown.text, shown.image) : item.result };
+    }
+    case 'imageView': {
+      const image = readImage(item.path);
+      return { ok: true, output: image ? imageToolOutput(item.path, image) : '' };
+    }
     default:
       return { ok: true, output: '' };
   }
+}
+
+/** The first image of an MCP result (Codex's computer use sends each screenshot twice) and its text. */
+function mcpImageOf(result: unknown): { readonly image: ToolImage; readonly text: string } | undefined {
+  const content = (result as { content?: unknown } | null | undefined)?.content;
+  if (!Array.isArray(content)) return undefined;
+  const parts = content as ReadonlyArray<{ type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown }>;
+  const first = parts.find((part) => part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string');
+  if (!first || typeof first.data !== 'string' || typeof first.mimeType !== 'string') return undefined;
+  const text = parts.flatMap((part) => (part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])).join('\n');
+  return { image: { mediaType: first.mimeType, base64: first.data }, text };
 }
 
 /** A new or changed file as a diff: Codex sends a new file's content, and a change as a unified diff. */

@@ -66,3 +66,28 @@ describe("OpenCode's file changes", () => {
     ]);
   });
 });
+
+describe("OpenCode's images", () => {
+  it('keep the image a finished call sends, such as an image file it read, with its text', () => {
+    const t = new AcpTurnTranslator('moxxy_', '/repo');
+    t.update({ sessionUpdate: 'tool_call', toolCallId: 'r1', title: 'read', kind: 'read', status: 'in_progress', rawInput: { filePath: '/repo/shot.png' } });
+
+    const [result] = t.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'r1',
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Image read successfully' } },
+        { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'iVBOR' } },
+      ],
+      rawOutput: { output: 'Image read successfully', metadata: {} },
+    });
+
+    expect(result).toEqual({
+      type: 'tool_result',
+      callId: 'r1',
+      ok: true,
+      output: { forModel: 'Image read successfully', mediaType: 'image/png', base64: 'iVBOR' },
+    });
+  });
+});

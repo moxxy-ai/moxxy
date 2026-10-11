@@ -59,3 +59,49 @@ describe("Codex's file changes", () => {
     expect(translator.translate('item/completed', { item: removed })[1]).toMatchObject({ ok: true, output: 'gone\n' });
   });
 });
+
+describe("Codex's images", () => {
+  it('keep the screenshot an MCP tool returned, once, with its text', () => {
+    const translator = new TurnTranslator('/repo');
+    const shot = { type: 'image', data: '/9j/AAA', mimeType: 'image/jpeg', _meta: { 'codex/imageDetail': 'original' } };
+    const item = {
+      type: 'mcpToolCall',
+      id: 'm1',
+      server: 'cua_repl',
+      tool: 'js',
+      status: 'completed',
+      arguments: { code: 'await nodeRepl.emitImage(await app.getScreenshot());', title: 'Oglądam testy w przeglądarce' },
+      result: { content: [{ type: 'text', text: 'Arc, tests.html' }, shot, shot], structuredContent: null, _meta: {} },
+      error: null,
+    };
+
+    expect(translator.translate('item/completed', { item })[1]).toEqual({
+      type: 'tool_result',
+      callId: 'm1',
+      ok: true,
+      output: { forModel: 'Arc, tests.html', mediaType: 'image/jpeg', base64: '/9j/AAA' },
+    });
+  });
+
+  it('keep the result of an MCP tool without an image as Codex sent it', () => {
+    const translator = new TurnTranslator('/repo');
+    const result = { content: [{ type: 'text', text: 'ok' }], structuredContent: null };
+    const item = { type: 'mcpToolCall', id: 'm2', server: 'docs', tool: 'search', status: 'completed', arguments: {}, result, error: null };
+
+    expect(translator.translate('item/completed', { item })[1]).toMatchObject({ ok: true, output: result });
+  });
+
+  it('show the image file Codex viewed, read from disk', () => {
+    const read: string[] = [];
+    const translator = new TurnTranslator('/repo', (path) => {
+      read.push(path);
+      return { mediaType: 'image/png', base64: 'iVBOR' };
+    });
+
+    expect(translator.translate('item/completed', { item: { type: 'imageView', id: 'v1', path: '/repo/shot.png' } })).toEqual([
+      { type: 'tool_call', callId: 'v1', name: 'view_image', input: { path: '/repo/shot.png' } },
+      { type: 'tool_result', callId: 'v1', ok: true, output: { forModel: '/repo/shot.png', mediaType: 'image/png', base64: 'iVBOR' } },
+    ]);
+    expect(read).toEqual(['/repo/shot.png']);
+  });
+});

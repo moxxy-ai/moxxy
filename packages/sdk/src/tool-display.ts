@@ -142,6 +142,31 @@ export function isFileDiffDisplay(x: unknown): x is FileDiffDisplay {
   return true;
 }
 
+/** Pixels a tool result carries, as base64. */
+export interface ToolImage {
+  readonly mediaType: string;
+  readonly base64: string;
+}
+
+/**
+ * The image in a tool output and the text beside it, or `null`. A tool returns
+ * `{ mediaType, base64, forModel? }` (Moxxy's screenshot tools, agent
+ * connections) or the provider-native `{ type: 'image', mediaType, data }`.
+ */
+export function toolImageOf(output: unknown): { readonly image: ToolImage; readonly text: string } | null {
+  if (typeof output !== 'object' || output === null) return null;
+  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown; forModel?: unknown };
+  if (typeof o.mediaType !== 'string') return null;
+  const base64 = typeof o.base64 === 'string' ? o.base64 : o.type === 'image' && typeof o.data === 'string' ? o.data : null;
+  if (base64 === null) return null;
+  return { image: { mediaType: o.mediaType, base64 }, text: typeof o.forModel === 'string' ? o.forModel : '' };
+}
+
+/** A tool output holding one image and the text the agent read beside it. */
+export function imageToolOutput(text: string, image: ToolImage): { readonly forModel: string; readonly mediaType: string; readonly base64: string } {
+  return { forModel: text, mediaType: image.mediaType, base64: image.base64 };
+}
+
 /** Human summary, e.g. "Added 10 lines, removed 1 line". */
 export function fileDiffSummary(d: FileDiffDisplay): string {
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;

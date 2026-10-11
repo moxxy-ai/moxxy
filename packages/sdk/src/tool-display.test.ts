@@ -3,11 +3,13 @@ import {
   diffGutterNo,
   fileDiffSummary,
   fileDiffVerb,
+  imageToolOutput,
   isFileDiffDisplay,
   isQuestionAnswerDisplay,
   isToolDisplayResult,
   questionAnswerLines,
   toDiffRows,
+  toolImageOf,
   type QuestionAnswerDisplay,
   type FileDiffDisplay,
 } from './tool-display.js';
@@ -122,5 +124,33 @@ describe('question-answer display', () => {
       'Colour: Which colour? → Blue',
       'Which parts? → Auth, Billing; own answer: and the admin',
     ]);
+  });
+});
+
+describe('an image in a tool result', () => {
+  it('is read from the shape Moxxy tools return, with the text beside it', () => {
+    expect(toolImageOf({ mediaType: 'image/png', base64: 'AAA', forModel: 'Screenshot of Arc' })).toEqual({
+      image: { mediaType: 'image/png', base64: 'AAA' },
+      text: 'Screenshot of Arc',
+    });
+  });
+
+  it('is read from the provider-native image block too', () => {
+    expect(toolImageOf({ type: 'image', mediaType: 'image/jpeg', data: 'BBB' })).toEqual({
+      image: { mediaType: 'image/jpeg', base64: 'BBB' },
+      text: '',
+    });
+  });
+
+  it('is nothing for text, a file diff, or an object without pixels', () => {
+    expect(toolImageOf('plain text')).toBeNull();
+    expect(toolImageOf({ mediaType: 'image/png' })).toBeNull();
+    expect(toolImageOf(null)).toBeNull();
+  });
+
+  it('is what an agent connection hands over: the text the agent read and one image', () => {
+    const output = imageToolOutput('Took a screenshot.', { mediaType: 'image/jpeg', base64: 'CCC' });
+
+    expect(toolImageOf(output)).toEqual({ image: { mediaType: 'image/jpeg', base64: 'CCC' }, text: 'Took a screenshot.' });
   });
 });

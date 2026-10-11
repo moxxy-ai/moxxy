@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  toolImageLabel,
   buildCompactSummary,
   compactPreviewLine,
   describeToolCall,
@@ -194,5 +195,12 @@ describe('compactPreviewLine', () => {
       { k: 5 },
     );
     expect(compactPreviewLine(nonStr)).toBe('k=5');
+  });
+});
+
+describe('toolImageLabel', () => {
+  it('names an image by its kind and decoded size', () => {
+    expect(toolImageLabel({ mediaType: 'image/jpeg', base64: 'A'.repeat(3000) })).toBe('image (JPEG, 2.2 KB)');
+    expect(toolImageLabel({ mediaType: 'image/png', base64: 'AAAA' })).toBe('image (PNG, 3 B)');
   });
 });

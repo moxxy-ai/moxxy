@@ -1,5 +1,5 @@
 import type { ContentBlock } from './provider.js';
-import { isToolDisplayResult } from './tool-display.js';
+import { isToolDisplayResult, toolImageOf } from './tool-display.js';
 
 export type ToolImageBlock = Extract<ContentBlock, { type: 'image' }>;
 
@@ -18,31 +18,10 @@ const IMAGE_MARKER = '[image returned by tool — see attached image]';
 export function toolOutputForModel(output: unknown): ToolOutputForModel {
   // A rich result (e.g. a file diff): the model only needs the short summary.
   if (isToolDisplayResult(output)) return { text: output.forModel, image: null };
-  const image = imageBlockFromOutput(output);
-  if (image) {
-    const description = (output as { forModel?: unknown }).forModel;
-    return { text: typeof description === 'string' ? description : IMAGE_MARKER, image };
-  }
+  // An image is handed over as an image block so the model SEES the pixels.
+  const found = toolImageOf(output);
+  if (found) return { text: found.text || IMAGE_MARKER, image: { type: 'image', mediaType: found.image.mediaType, data: found.image.base64 } };
   return { text: safeStringifyOutput(output), image: null };
-}
-
-/**
- * A tool can return `{ mediaType, base64 }` (the desktop screenshot/clipboard
- * shape) or the provider-native `{ type:'image', mediaType, data }`; both are
- * handed over as an image block so the model SEES the pixels.
- */
-function imageBlockFromOutput(output: unknown): ToolImageBlock | null {
-  if (typeof output !== 'object' || output === null) return null;
-  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown };
-  if (typeof o.mediaType !== 'string') return null;
-  const data =
-    typeof o.base64 === 'string'
-      ? o.base64
-      : o.type === 'image' && typeof o.data === 'string'
-        ? o.data
-        : null;
-  if (data === null) return null;
-  return { type: 'image', mediaType: o.mediaType, data };
 }
 
 /**

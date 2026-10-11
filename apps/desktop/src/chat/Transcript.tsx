@@ -10,6 +10,7 @@ import {
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { ToolIconProvider } from './ToolIconContext';
+import { ImagePreviewProvider } from './image-preview/ImagePreviewContext';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -239,6 +240,7 @@ export function Transcript({
     <ModeTranscriptContext.Provider value={modes}>
     <PlanNextContext.Provider value={onPlanNext}>
     <ToolIconProvider workspaceId={workspaceId}>
+    <ImagePreviewProvider value={onPreviewImage ?? null}>
     {/* Relative wrapper so the jump-to-latest button can float over the
         scroller without joining the virtualised content. */}
     <div className="transcript">
@@ -292,6 +294,7 @@ export function Transcript({
       />
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
+    </ImagePreviewProvider>
     </ToolIconProvider>
     </PlanNextContext.Provider>
     </ModeTranscriptContext.Provider>

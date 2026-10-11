@@ -288,6 +288,7 @@ export type {
   QuestionAnswerDisplay,
   ToolDisplay,
   ToolDisplayResult,
+  ToolImage,
 } from './tool-display.js';
 export {
   isToolDisplayResult,
@@ -299,6 +300,8 @@ export {
   fileDiffVerb,
   diffGutterNo,
   toDiffRows,
+  toolImageOf,
+  imageToolOutput,
 } from './tool-display.js';
 export { fileDiffFromText, fileDiffFromPatch, parseUnifiedDiff, diffPathIn, type PatchHunk } from './file-diff.js';
 export { toolOutputForModel, type ToolOutputForModel, type ToolImageBlock } from './tool-output.js';

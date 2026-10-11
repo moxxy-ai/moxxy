@@ -52,3 +52,20 @@ describe('ToolCallBlock', () => {
     expect(text).not.toContain('The user answered');
   });
 });
+
+describe('ToolCallBlock with an image result', () => {
+  const shot = {
+    type: 'tool_result',
+    callId: 'c2',
+    ok: true,
+    output: { forModel: 'Arc, tests.html', mediaType: 'image/jpeg', base64: 'A'.repeat(3000) },
+  } as unknown as ToolResultEvent;
+  const call = { type: 'tool_call_requested', name: 'view_image', input: { path: 'shot.jpg' }, callId: 'c2' } as unknown as ToolCallRequestedEvent;
+
+  it('says an image came back, its kind and size and its text, never the image as text', () => {
+    const text = frame(React.createElement(ToolCallBlock, { request: call, outcome: shot, expanded: true }));
+
+    expect(text).toContain('Result · image (JPEG, 2.2 KB) · Arc, tests.html');
+    expect(text).not.toContain('AAAA');
+  });
+});

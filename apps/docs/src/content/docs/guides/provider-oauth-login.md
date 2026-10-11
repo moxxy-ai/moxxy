@@ -284,6 +284,20 @@ enough for a diff: a Codex change that touches several files at once or deletes
 a file, and an OpenCode `write` that replaces a file that already existed (OpenCode
 does not send the old content).
 
+## Images an agent looks at
+
+When Claude, Codex or OpenCode looks at an image during its work, the
+conversation shows it under the tool's line: a screenshot it takes while it
+controls the computer, an image file it reads. Click it to see it full size.
+The terminal says an image came back, with its kind and size. One image is
+shown per tool call (Codex's computer use sends each screenshot twice).
+
+| Agent | Where the image comes from |
+|---|---|
+| Claude | an image block in the tool's result |
+| Codex | an image in an MCP tool's result, or the file `view_image` names (read from disk, up to 8 MB) |
+| OpenCode | an image in the finished call's content |
+
 ## Using OAuth in your own plugin
 
 The `@moxxy/plugin-oauth` plugin contributes three tools:

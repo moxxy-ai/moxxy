@@ -3,6 +3,7 @@ import {
   describeToolCall,
   isFileDiffResult,
   questionAnswerOf,
+  toolImageResultOf,
   formatToolActivity,
   type Block as FoldedBlock,
   type ToolCallBlockData,
@@ -14,6 +15,7 @@ import { useToolIcon } from './ToolIconContext';
 import { ActivityRow } from './ActivityRow';
 import { AnsweredQuestionBlock } from './blocks/AnsweredQuestionBlock';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
+import { ToolImage } from './blocks/ToolImage';
 import { preStyle, pretty } from './blocks/block-shared';
 
 type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
@@ -281,7 +283,9 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   if (answered) return <li className="activity-list__diff"><AnsweredQuestionBlock display={answered} /></li>;
 
   const status = statusOf(tool.outcome);
-  const output = tool.outcome?.type === 'tool_result' ? tool.outcome.output : undefined;
+  const shown = toolImageResultOf(tool.outcome);
+  // An image's text stands for it in the body; the pixels show as the thumbnail.
+  const output = shown ? shown.text || undefined : tool.outcome?.type === 'tool_result' ? tool.outcome.output : undefined;
   const error = tool.outcome === null
     ? undefined
     : tool.outcome.type === 'denied'
@@ -302,6 +306,7 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
         {status === 'error' ? <span className="activity-detail-row__error">failed</span> : null}
         {duration !== null && <span className="activity-detail-row__dur">{duration}</span>}
       </button>
+      {shown ? <ToolImage image={shown.image} tool={tool.name} /> : null}
       {open ? (
         <div className="activity-detail-row__body">
           <pre style={preStyle}>{pretty(tool.input)}</pre>

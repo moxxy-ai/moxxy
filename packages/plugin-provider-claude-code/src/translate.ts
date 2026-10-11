@@ -1,5 +1,5 @@
 import type { AgentGoalStatus, AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, type ToolImage } from '@moxxy/sdk';
 import type { ClaudeContentBlock, ClaudeMessage, ClaudePermissionMode, ClaudeUsage, ClaudeUserContent } from './sdk-types.js';
 
 /** The name Moxxy's MCP server has in Claude; its tools appear as `mcp__moxxy__<name>`. */
@@ -73,11 +73,13 @@ export class TurnTranslator {
     for (const block of results) {
       if (this.moxxyCalls.has(block.tool_use_id) || !this.announced.has(block.tool_use_id)) continue;
       const text = resultText(block.content);
-      events.push(
-        block.is_error
-          ? { type: 'tool_result', callId: block.tool_use_id, ok: false, error: text }
-          : { type: 'tool_result', callId: block.tool_use_id, ok: true, output: diff ? { forModel: text, display: diff } : text },
-      );
+      if (block.is_error) {
+        events.push({ type: 'tool_result', callId: block.tool_use_id, ok: false, error: text });
+        continue;
+      }
+      const image = diff ? undefined : resultImage(block.content);
+      const output = diff ? { forModel: text, display: diff } : image ? imageToolOutput(text, image) : text;
+      events.push({ type: 'tool_result', callId: block.tool_use_id, ok: true, output });
     }
     return events;
   }
@@ -159,6 +161,19 @@ function isPatchHunk(x: unknown): x is { oldStart: number; newStart: number; lin
     Array.isArray(hunk.lines) &&
     hunk.lines.every((line) => typeof line === 'string')
   );
+}
+
+/** The first image of a result (a screenshot, an image file Claude read); Moxxy shows one per call. */
+function resultImage(content: string | ReadonlyArray<{ type: string }> | undefined): ToolImage | undefined {
+  if (typeof content === 'string' || !content) return undefined;
+  for (const part of content) {
+    if (part.type !== 'image') continue;
+    const source = (part as { source?: { type?: unknown; media_type?: unknown; data?: unknown } }).source;
+    if (source && source.type === 'base64' && typeof source.media_type === 'string' && typeof source.data === 'string') {
+      return { mediaType: source.media_type, base64: source.data };
+    }
+  }
+  return undefined;
 }
 
 function resultText(content: string | ReadonlyArray<{ type: string; text?: string }> | undefined): string {

@@ -181,6 +181,7 @@ export function dotColorForTool(toolName: string): string {
 }
 
 import type { LiveToolCall } from './types.js';
+import type { ToolImage } from '@moxxy/sdk/tool-display';
 
 /**
  * Build the verb summary line for a live-tools block:
@@ -252,4 +253,11 @@ export function compactPreviewLine(call: LiveToolCall): string {
     if (typeof v === 'string') return truncate(oneLine(v), PREVIEW_LINE_MAX);
   }
   return summarizeArgs(call.request.input);
+}
+
+/** An image a tool returned, for surfaces that show it as text: "image (JPEG, 198.4 KB)". */
+export function toolImageLabel(image: ToolImage): string {
+  const bytes = Math.floor((image.base64.length * 3) / 4);
+  const size = bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;
+  return `image (${image.mediaType.replace(/^image\//, '').toUpperCase()}, ${size})`;
 }

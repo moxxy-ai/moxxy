@@ -8,7 +8,7 @@ import {
   type ToolResultEvent,
 } from '@moxxy/sdk';
 import { Colors } from '../../theme.js';
-import { formatToolActivity, isFileDiffResult, oneLine, questionAnswerOf, stringify, truncate } from '@moxxy/chat-model';
+import { formatToolActivity, isFileDiffResult, oneLine, questionAnswerOf, stringify, toolImageLabel, toolImageResultOf, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
 import { ActivityDot } from './ActivityDot.js';
 
@@ -102,7 +102,10 @@ const OutcomeText: React.FC<{
       </Text>
     );
   }
-  const preview = oneLine(stringify(outcome.output));
+  const shown = toolImageResultOf(outcome);
+  const preview = shown
+    ? [toolImageLabel(shown.image), ...(shown.text ? [oneLine(shown.text)] : [])].join(' · ')
+    : oneLine(stringify(outcome.output));
   const maxWidth = Math.max(24, Math.min(108, process.stdout.columns ?? 80) - 12);
   return <Text dimColor>{`Result · ${truncate(preview, maxWidth)}`}</Text>;
 };

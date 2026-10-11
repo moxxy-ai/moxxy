@@ -2176,6 +2176,8 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   margin: var(--space-4) 0 var(--space-8) var(--space-16);
 }
 .activity-detail-row__body--root { margin-left: var(--space-16); }
+/* The image a tool returned (a screenshot an agent looked at), drawn like an attached image. */
+.tool-image { margin: var(--space-4) 0 var(--space-8) var(--space-16); line-height: 0; }
 .activity-preview {
   overflow: hidden;
   margin: 1px 0 0 var(--space-16);

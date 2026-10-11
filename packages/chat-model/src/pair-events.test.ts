@@ -24,6 +24,7 @@ import {
   isSettled,
   pairToolEvents,
   questionAnswerOf,
+  toolImageResultOf,
   type CompactToolMap,
 } from './pair-events.js';
 import type {
@@ -747,6 +748,20 @@ describe('pairToolEvents — file-edit tools', () => {
     const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
     expect(questionAnswerOf(asToolCall(plain[0]).outcome)).toBeNull();
     expect(questionAnswerOf(null)).toBeNull();
+  });
+
+  it('toolImageResultOf reads the image a settled result carries, and the text beside it', () => {
+    const blocks = pairToolEvents([
+      toolRequest('i1', 'mcp__cua_repl__js'),
+      toolResult('i1', { forModel: 'Screenshot of Arc', mediaType: 'image/jpeg', base64: '/9j/AAA' }),
+    ]);
+    expect(toolImageResultOf(asToolCall(blocks[0]).outcome)).toEqual({
+      image: { mediaType: 'image/jpeg', base64: '/9j/AAA' },
+      text: 'Screenshot of Arc',
+    });
+    const plain = pairToolEvents([toolRequest('b2', 'bash'), toolResult('b2', 'ok')]);
+    expect(toolImageResultOf(asToolCall(plain[0]).outcome)).toBeNull();
+    expect(toolImageResultOf(null)).toBeNull();
   });
 });
 

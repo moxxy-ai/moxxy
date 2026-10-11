@@ -1,5 +1,5 @@
-import type { AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage } from '@moxxy/sdk';
-import { diffPathIn, fileDiffFromPatch, fileDiffFromText, parseUnifiedDiff } from '@moxxy/sdk';
+import type { AgentStepEvent, ContentBlock, FileDiffDisplay, TokenUsage, ToolImage } from '@moxxy/sdk';
+import { diffPathIn, fileDiffFromPatch, fileDiffFromText, imageToolOutput, parseUnifiedDiff } from '@moxxy/sdk';
 import type { AcpContentBlock, AcpSessionUpdate, AcpToolCall, AcpToolKind, AcpUsage } from './protocol.js';
 
 /** A tool the agent runs itself, as Moxxy names it (`Bash`, `Read`, … so Moxxy's rules and formatting apply). */
@@ -104,9 +104,11 @@ export class AcpTurnTranslator {
       state.ended = true;
       const output = toolOutput(update);
       const diff = update.status === 'completed' ? fileDiffOf(state.tool, state.input, update.rawOutput, this.cwd) : undefined;
+      const image = diff ? undefined : toolImage(update);
+      const shown = diff ? { forModel: output, display: diff } : image ? imageToolOutput(output, image) : output;
       events.push(
         update.status === 'completed'
-          ? { type: 'tool_result', callId: update.toolCallId, ok: true, output: diff ? { forModel: output, display: diff } : output }
+          ? { type: 'tool_result', callId: update.toolCallId, ok: true, output: shown }
           : { type: 'tool_result', callId: update.toolCallId, ok: false, error: output || 'the tool failed' },
       );
     }
@@ -191,6 +193,16 @@ function fileDiffOf(tool: string, input: Record<string, unknown>, rawOutput: unk
   }
   if (tool === 'write' && metadata.exists === false && typeof input.content === 'string') {
     return fileDiffFromText({ path, mode: 'create', before: '', after: input.content });
+  }
+  return undefined;
+}
+
+/** The first image of a finished call (an image file OpenCode read, a screenshot an MCP tool returned). */
+function toolImage(update: AcpToolCall): ToolImage | undefined {
+  for (const part of update.content ?? []) {
+    if (part.type !== 'content') continue;
+    const block = part.content as { type: string; mimeType?: unknown; data?: unknown };
+    if (block.type === 'image' && typeof block.mimeType === 'string' && typeof block.data === 'string') return { mediaType: block.mimeType, base64: block.data };
   }
   return undefined;
 }
