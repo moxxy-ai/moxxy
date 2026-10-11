@@ -238,6 +238,9 @@ conversation so far from that record:
 - one line for every older turn, in your own words;
 - a note that this is history to work from, not a new request.
 
+Switching agents keeps the conversation but not the model: a message that names
+no model runs on the new agent's default, never on the model of the agent before.
+
 Tool output and file contents are not repeated; the agent reads files again when
 it needs them. Each agent also gets Moxxy's `recall` tool, which searches the
 whole conversation (`recall({ query: "database port" })`) and reads any turn in

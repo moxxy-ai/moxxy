@@ -225,6 +225,7 @@ export class Session implements ClientSession, SessionRuntime {
    * Last-writer-wins for concurrent turns; null until the first turn runs.
    */
   lastResolvedModel: string | null = null;
+  lastResolvedProvider: string | null = null;
   /** The model each provider is set to run when a turn names none, from `plugins.provider.items.<name>.model`. */
   defaultModels: Readonly<Record<string, string>> = {};
   /**

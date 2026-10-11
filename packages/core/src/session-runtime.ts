@@ -83,6 +83,8 @@ export interface SessionRuntime {
    * the first turn resolves a model.
    */
   lastResolvedModel: string | null;
+  /** The provider of `lastResolvedModel`, so a switch of provider does not carry it over. */
+  lastResolvedProvider: string | null;
   /** The model each provider runs when a turn names none and the conversation has not run yet. */
   readonly defaultModels?: Readonly<Record<string, string>>;
   startTurn(): { turnId: TurnId };

@@ -97,6 +97,7 @@ export async function* runTurn(
     // inherit the conversation's current model. Last-writer-wins when turns
     // run concurrently — see the field's doc in SessionRuntime.
     session.lastResolvedModel = model;
+    session.lastResolvedProvider = provider.name;
 
     // Combine the session's signal, the per-turn one (if provided), and the
     // generator-scoped abandonment signal so any of them firing cancels the turn.
