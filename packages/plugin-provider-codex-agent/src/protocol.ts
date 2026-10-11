@@ -22,8 +22,17 @@ export interface CodexThreadResponse {
   readonly model: string;
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly sandbox: CodexSandboxPolicy;
+  readonly approvalsReviewer?: CodexApprovalsReviewer;
   readonly reasoningEffort: string | null;
   readonly serviceTier?: string | null;
+}
+
+/** Who answers Codex's approvals: the person, or Codex's own reviewer. */
+export type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent';
+
+/** What `config/read` answers: the person's effective Codex config, as far as Moxxy reads it. */
+export interface CodexConfigRead {
+  readonly config: { readonly model_reasoning_summary?: string | null };
 }
 
 export type CodexUserInput =

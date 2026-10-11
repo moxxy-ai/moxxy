@@ -5,8 +5,10 @@ import {
   Inbox,
   JsonRpcError,
   JsonRpcLineClient,
+  LOST_SESSION_NOTE,
   agentModeFor,
   moxxyToolsHandler,
+  resumeAgentSession,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -18,9 +20,11 @@ import {
   ACP_PROTOCOL_VERSION,
   type AcpConfigOption,
   type AcpContentBlock,
+  type AcpInitializeResponse,
   type AcpPermissionOutcome,
   type AcpPermissionRequest,
   type AcpPromptResponse,
+  type AcpSessionList,
   type AcpSessionResponse,
   type AcpSessionUpdate,
 } from './protocol.js';
@@ -72,6 +76,10 @@ const PLAN_MODE = 'plan';
 const BUILD_MODE = 'build';
 const SIGN_IN_EXPIRED = /token refresh failed|\b401\b|unauthori[sz]ed/i;
 const CONFIG_CONTENT_ENV = 'OPENCODE_CONFIG_CONTENT';
+/** ACP's error for a resource, here a session, that does not exist. */
+const RESOURCE_NOT_FOUND = -32002;
+/** How many pages of the agent's sessions Moxxy reads before it stops looking. */
+const MAX_SESSION_PAGES = 50;
 const CLIENT_VERSION = (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 
 export const CLIENT_CAPABILITIES = { fs: { readTextFile: false, writeTextFile: false }, terminal: false } as const;
@@ -114,6 +122,10 @@ export class AcpAgentSession implements LiveSession {
   private autoApprove = false;
   /** Auto-approve is on because Moxxy turned it on, not because the person chose it. */
   private adopted = false;
+  /** The agent can list its sessions, which tells a gone session from a failed load. */
+  private canList = false;
+  /** A replacement agent could not load the session: the next turn starts the agent again. */
+  private broken = false;
 
   static async start(settings: AcpSessionSettings): Promise<AcpAgentSession> {
     const mcp = await startMoxxyMcpServer({ name: settings.agent.mcpServerName });
@@ -161,7 +173,7 @@ export class AcpAgentSession implements LiveSession {
   }
 
   get isAlive(): boolean {
-    return this.alive;
+    return this.alive && !this.broken;
   }
 
   /** Whether this agent was started where the turn runs (a running session cannot move). */
@@ -269,17 +281,21 @@ export class AcpAgentSession implements LiveSession {
     this.loading = true;
     try {
       await this.open(this.sessionId);
+    } catch (err) {
+      this.broken = true;
+      throw err;
     } finally {
       this.loading = false;
     }
   }
 
   private async open(resume = this.settings.resume): Promise<void> {
-    await this.client.request('initialize', {
+    const init = await this.client.request<AcpInitializeResponse>('initialize', {
       protocolVersion: ACP_PROTOCOL_VERSION,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: { name: 'moxxy', title: 'Moxxy', version: CLIENT_VERSION },
     });
+    this.canList = init.agentCapabilities?.sessionCapabilities?.list !== undefined;
     const { cwd } = this.settings;
     const mcpServers = [
       {
@@ -291,8 +307,17 @@ export class AcpAgentSession implements LiveSession {
     ];
     let session: AcpSessionResponse | undefined;
     if (resume) {
-      session = await this.client.request<AcpSessionResponse>('session/load', { sessionId: resume, cwd, mcpServers }).catch(() => undefined);
-      if (session) this.sessionId = resume;
+      const resumed = await resumeAgentSession({
+        label: this.settings.agent.label,
+        load: () => this.client.request<AcpSessionResponse>('session/load', { sessionId: resume, cwd, mcpServers }),
+        gone: (error) => this.sessionGone(error, resume),
+      });
+      if (resumed.kind === 'loaded') {
+        session = resumed.session;
+        this.sessionId = resume;
+      } else {
+        this.pendingNotes.push(LOST_SESSION_NOTE);
+      }
     }
     if (!session) {
       session = await this.client.request<AcpSessionResponse>('session/new', { cwd, mcpServers });
@@ -302,6 +327,29 @@ export class AcpAgentSession implements LiveSession {
     this.options = session.configOptions ?? [];
     const mode = this.option('mode');
     if (mode && mode.currentValue !== PLAN_MODE) this.ownMode = mode.currentValue;
+  }
+
+  /**
+   * Whether a session the agent failed to load no longer exists. OpenCode 1.18
+   * answers a missing session as it answers a failure ("OpenCode service
+   * failure"), so its session list decides; an agent that can say neither
+   * keeps the session as existing, and nothing replaces it.
+   */
+  private async sessionGone(error: unknown, sessionId: string): Promise<boolean> {
+    if (error instanceof JsonRpcError && error.code === RESOURCE_NOT_FOUND) return true;
+    if (!this.canList) return false;
+    try {
+      let cursor: string | undefined;
+      for (let page = 0; page < MAX_SESSION_PAGES; page += 1) {
+        const listed = await this.client.request<AcpSessionList>('session/list', { cwd: this.settings.cwd, ...(cursor ? { cursor } : {}) });
+        if (listed.sessions.some((session) => session.sessionId === sessionId)) return false;
+        if (!listed.nextCursor) return true;
+        cursor = listed.nextCursor;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /** Model, effort and mode for this turn, changed on the session only where they differ. */

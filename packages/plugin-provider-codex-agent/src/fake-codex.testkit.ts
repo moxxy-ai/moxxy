@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Inbox } from '@moxxy/agent-connection-kit';
 import type { CodexConnection } from './codex-session.js';
-import type { CodexApprovalPolicy, CodexGoal, CodexGoalStatus, CodexSandboxPolicy, CodexUserInput } from './protocol.js';
+import type { CodexApprovalPolicy, CodexApprovalsReviewer, CodexGoal, CodexGoalStatus, CodexSandboxPolicy, CodexUserInput } from './protocol.js';
 
 export interface FakeCodexTurn {
   readonly id: string;
@@ -51,6 +51,10 @@ export interface FakeThread {
   readonly startParams: Record<string, unknown>;
   approvalPolicy: CodexApprovalPolicy;
   sandbox: CodexSandboxPolicy;
+  /** Who answers its approvals: the person, or Codex's own reviewer (`auto_review`). */
+  approvalsReviewer: CodexApprovalsReviewer;
+  /** The reasoning summary asked of the model; `null` leaves it to the model's default. */
+  summary: string | null;
   model: string;
   effort: string | null;
   serviceTier: string | null;
@@ -65,6 +69,11 @@ export interface FakeCodexDefaults {
   readonly model?: string;
   readonly effort?: string | null;
   readonly serviceTier?: string | null;
+  readonly approvalsReviewer?: CodexApprovalsReviewer;
+  /** `model_reasoning_summary` from the person's config; unset leaves the model's default. */
+  readonly reasoningSummary?: string;
+  /** How many `thread/resume` calls fail first, as a Codex briefly unable to read its threads. */
+  readonly resumeFailures?: number;
   /** Refuse `turn/steer`, as Codex does for a turn that cannot take more input. */
   readonly refuseSteer?: boolean;
 }
@@ -76,6 +85,7 @@ export class FakeCodex {
   readonly saved = new Map<string, FakeThread>();
   threadCount = 0;
   turnCount = 0;
+  resumeFailures = 0;
 
   constructor(
     readonly scene: CodexScene,
@@ -188,7 +198,13 @@ export class FakeCodexServer {
         return { result: { userAgent: 'moxxy/0.155.1', codexHome: '/home/me/.codex', platformFamily: 'unix', platformOs: 'macos' } };
       case 'thread/start':
         return this.startThread(params);
+      case 'config/read':
+        return { result: { config: { model_reasoning_summary: this.codex.defaults.reasoningSummary ?? null, approvals_reviewer: this.codex.defaults.approvalsReviewer ?? 'user' } } };
       case 'thread/resume': {
+        if (this.codex.resumeFailures < (this.codex.defaults.resumeFailures ?? 0)) {
+          this.codex.resumeFailures += 1;
+          throw new Error('failed to read the thread store');
+        }
         const saved = this.codex.saved.get(String(params.threadId));
         if (!saved) throw new Error(`no rollout found for thread id ${String(params.threadId)}`);
         const thread: FakeThread = { ...saved, mcp: mcpOf(params.config) };
@@ -199,6 +215,8 @@ export class FakeCodexServer {
         const thread = this.threadOf(params);
         if (params.approvalPolicy !== undefined) thread.approvalPolicy = params.approvalPolicy as CodexApprovalPolicy;
         if (params.sandboxPolicy !== undefined) thread.sandbox = params.sandboxPolicy as CodexSandboxPolicy;
+        if (params.approvalsReviewer !== undefined) thread.approvalsReviewer = params.approvalsReviewer as CodexApprovalsReviewer;
+        if (typeof params.summary === 'string') thread.summary = params.summary;
         if (typeof params.model === 'string') thread.model = params.model;
         if (typeof params.effort === 'string') thread.effort = params.effort;
         // `null` clears the tier back to Codex's standard one, which it calls `default`.
@@ -264,6 +282,8 @@ export class FakeCodexServer {
       startParams: params,
       approvalPolicy: (params.approvalPolicy as CodexApprovalPolicy | undefined) ?? defaults.approvalPolicy ?? 'never',
       sandbox: sandboxFromMode(params.sandbox) ?? defaults.sandbox ?? { type: 'dangerFullAccess' },
+      approvalsReviewer: defaults.approvalsReviewer ?? 'user',
+      summary: defaults.reasoningSummary ?? null,
       model: typeof params.model === 'string' ? params.model : (defaults.model ?? 'gpt-6-luna'),
       effort: defaults.effort === undefined ? 'xhigh' : defaults.effort,
       serviceTier: defaults.serviceTier ?? 'default',
@@ -340,7 +360,9 @@ export class FakeCodexServer {
         const item = { type: 'commandExecution', id: itemId, command: wrapped, cwd: thread.cwd, status: 'inProgress', aggregatedOutput: null, exitCode: null };
         this.notify('item/started', { ...base, item });
         let decision: unknown;
-        if (opts.approval) {
+        // Codex's own reviewer answers in its place; Moxxy never hears of it.
+        if (opts.approval && thread.approvalsReviewer !== 'user') decision = { decision: 'accept' };
+        else if (opts.approval) {
           decision = await this.request('item/commandExecution/requestApproval', {
             ...base,
             itemId,
@@ -394,6 +416,7 @@ function threadResponse(thread: FakeThread): Record<string, unknown> {
     cwd: thread.cwd,
     approvalPolicy: thread.approvalPolicy,
     sandbox: thread.sandbox,
+    approvalsReviewer: thread.approvalsReviewer,
     reasoningEffort: thread.effort,
     serviceTier: thread.serviceTier,
     instructionSources: [],

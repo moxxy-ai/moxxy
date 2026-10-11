@@ -20,7 +20,7 @@ import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
-import { AgentSessionPool } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, LOST_SESSION_NOTE } from '@moxxy/agent-connection-kit';
 import { CodexAgentProvider, codexAgentModels } from './agent-provider.js';
 import type { CodexAgentSession } from './codex-session.js';
 import { FakeCodex, type CodexScene, type FakeCodexDefaults } from './fake-codex.testkit.js';
@@ -146,6 +146,44 @@ describe('a turn on the Codex agent connection', () => {
     expect(events).toContainEqual(expect.objectContaining({ subtype: 'agent_session', payload: expect.objectContaining({ sessionId: 'thread-2' }) }));
   });
 
+  it('tells Codex its earlier thread is gone, so it says so to the person', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'hello');
+    await pool.close(String(session.id));
+    codex.saved.clear();
+
+    await collectTurn(session, 'hello again');
+
+    expect(codex.last.sent('turn/start')[0]?.input).toEqual([
+      { type: 'text', text: LOST_SESSION_NOTE, text_elements: [] },
+      { type: 'text', text: 'hello again', text_elements: [] },
+    ]);
+  });
+
+  it('resumes the thread when Codex fails to read it once, instead of starting another', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'), { resumeFailures: 1 });
+    await collectTurn(session, 'remember MARMOT-55');
+    await pool.close(String(session.id));
+
+    await collectTurn(session, 'which word?');
+
+    expect(codex.last.sent('thread/resume')).toHaveLength(2);
+    expect(codex.last.sent('thread/start')).toHaveLength(0);
+  });
+
+  it('starts no other thread when Codex keeps failing to read it, and says what happened', async () => {
+    const { codex, session, pool } = connect(async (turn) => turn.say('ok'), { resumeFailures: 2 });
+    await collectTurn(session, 'remember MARMOT-55');
+    await pool.close(String(session.id));
+
+    const events = await collectTurn(session, 'which word?');
+
+    expect(codex.last.sent('thread/start')).toHaveLength(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', message: expect.stringContaining("Codex could not load this conversation's earlier session (failed to read the thread store)") }),
+    );
+  });
+
   it('hands an image of the person to Codex as an image', async () => {
     const { codex, session } = connect(async (turn) => turn.say(`${turn.input.length} parts`));
 
@@ -188,6 +226,32 @@ describe('approvals: one state with Codex own policy', () => {
     if (call?.type !== 'tool_call_requested') throw new Error('expected the command to be shown');
     const order = events.filter((e) => 'callId' in e && e.callId === call.callId).map((e) => e.type);
     expect(order).toEqual(['tool_call_requested', 'tool_call_denied', 'tool_result']);
+  });
+
+  it("has the person answer, not Codex's own reviewer, while auto-approve is off", async () => {
+    let decision: unknown;
+    const { codex, session } = connect(
+      async (turn) => {
+        decision = await turn.run('touch spike.txt', '', { approval: true });
+        turn.say('done');
+      },
+      { ...ASKING, approvalsReviewer: 'auto_review' },
+    );
+    session.setPermissionResolver(denyAll);
+
+    await collectTurn(session, 'create spike.txt');
+
+    expect(codex.last.sent('thread/settings/update')[0]).toMatchObject({ approvalsReviewer: 'user' });
+    expect(decision).toEqual({ decision: 'decline' });
+  });
+
+  it("leaves Codex's own reviewer where Moxxy answers nothing itself", async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'), { approvalsReviewer: 'auto_review' });
+
+    await collectTurn(session, 'hi');
+
+    expect(autoApproveOf(session)).toBe(true);
+    expect(codex.last.sent('thread/settings/update').some((update) => 'approvalsReviewer' in update)).toBe(false);
   });
 
   it("tells Codex in its running turn why the person declined, since Codex's answer carries no reason", async () => {
@@ -286,6 +350,26 @@ describe('approvals: one state with Codex own policy', () => {
     expect(ran).toBe(1);
     expect(lent).toMatchObject({ content: [{ type: 'text', text: 'opened http://localhost:8765' }] });
     expect(events.filter((e) => e.type === 'tool_call_requested').map((e) => (e as { name: string }).name)).toEqual(['browser_open']);
+  });
+});
+
+describe('reasoning summaries', () => {
+  it("asks for Codex's summaries of its thinking when the person's config leaves them to the model", async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+
+    await collectTurn(session, 'hi');
+
+    expect(codex.last.sent('config/read')[0]).toMatchObject({ cwd: '/work/app' });
+    expect(codex.last.sent('thread/settings/update')[0]).toMatchObject({ summary: 'auto' });
+  });
+
+  it('keeps the summaries the person set in their Codex config', async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'), { reasoningSummary: 'none' });
+
+    await collectTurn(session, 'hi');
+    await collectTurn(session, 'again');
+
+    expect(codex.last.sent('thread/settings/update').some((update) => 'summary' in update)).toBe(false);
   });
 });
 

@@ -146,7 +146,11 @@ Moxxy runs your installed `codex` (from `PATH`, or
   access; `~/.codex/config.toml` is never edited. A Codex that is already set to
   full access starts with auto-approve on. Codex's answer to an approval carries
   no reason, so when you decline, Moxxy hands your reason to its running turn
-  (or its next message, if the turn can no longer take input).
+  (or its next message, if the turn can no longer take input). While
+  auto-approve is off, you answer those approvals, not Codex's own reviewer
+  (`approvals_reviewer = "auto_review"`); with it on, your reviewer setting stays.
+- **Thinking.** Codex streams a summary of its thinking only when asked, so
+  Moxxy asks for one (`auto`) unless your config sets `model_reasoning_summary`.
 - **Fast mode.** Moxxy's fast mode runs the conversation's Codex on its fast
   tier (Codex's `/fast`); turned off, Codex goes back to its own setting.
 - **Stop.** Stop interrupts Codex's turn, its Computer Use and other tools
@@ -156,7 +160,10 @@ Moxxy runs your installed `codex` (from `PATH`, or
   plan card. Goal mode sets Codex's own thread goal; Codex keeps working through
   turns until it says the goal is met, and Moxxy's goal mode ends with it.
 - **Conversations.** Each Moxxy conversation keeps one running Codex, and
-  resumes Codex's thread after a restart.
+  resumes Codex's thread after a restart. If Codex fails to read the thread,
+  Moxxy tries once more and then shows the error, starting no other thread, so
+  the history is kept for your next message. Only a thread Codex no longer has
+  is replaced by a new one, and Codex is told to say so.
 - **Credentials.** Codex owns its login files; Moxxy neither reads nor stores them.
 
 ## OpenCode — `opencode`
@@ -208,7 +215,11 @@ The model picker offers what `opencode models` lists.
   it keeps working until it calls `goal_complete`. Its questions go through
   Moxxy's `ask_user`.
 - **Conversations.** Each Moxxy conversation keeps one running OpenCode, and
-  loads OpenCode's session after a restart.
+  loads OpenCode's session after a restart. OpenCode reports a missing session
+  and a failed load alike, so Moxxy checks OpenCode's session list: a session
+  still there is tried once more and otherwise the error is shown, with no other
+  session started; only a session OpenCode no longer has is replaced by a new
+  one, and OpenCode is told to say so.
 - **Credentials.** OpenCode owns its login files; Moxxy neither reads nor stores them.
 
 ## Using OAuth in your own plugin

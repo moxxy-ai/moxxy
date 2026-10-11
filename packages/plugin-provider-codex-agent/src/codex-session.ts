@@ -6,8 +6,10 @@ import {
   Inbox,
   JsonRpcError,
   JsonRpcLineClient,
+  LOST_SESSION_NOTE,
   agentModeFor,
   moxxyToolsHandler,
+  resumeAgentSession,
   startMoxxyMcpServer,
   untilStopped,
   type AgentMode,
@@ -17,6 +19,8 @@ import {
 import { MOXXY_MCP_SERVER } from './constants.js';
 import type {
   CodexApprovalPolicy,
+  CodexApprovalsReviewer,
+  CodexConfigRead,
   CodexGoal,
   CodexSandboxPolicy,
   CodexThreadResponse,
@@ -64,6 +68,9 @@ interface ThreadSettings extends Policy {
   /** Codex's service tier; `null` is its standard one. */
   readonly serviceTier: string | null;
   readonly collaboration: 'plan' | 'default';
+  readonly reviewer: CodexApprovalsReviewer;
+  /** The reasoning summary asked of the model; `null` leaves it to the model's default. */
+  readonly summary: string | null;
 }
 
 /** Moxxy's auto-approve, as Codex runs it: no approvals, full access. */
@@ -74,6 +81,8 @@ const ASKING: Policy = { approvalPolicy: 'on-request', sandbox: { type: 'readOnl
 const FAST_TIER = 'priority';
 /** Codex's own name for its standard tier, which `null` restores. */
 const STANDARD_TIER = 'default';
+/** Asked of the model when the person's config leaves reasoning summaries to it. */
+const REASONING_SUMMARY = 'auto';
 /** Plan mode only reads: nothing is written and nobody is asked. */
 const PLANNING: Policy = { approvalPolicy: 'never', sandbox: ASKING.sandbox };
 
@@ -139,7 +148,10 @@ export class CodexAgentSession implements LiveSession {
   /** How the person's Codex config runs the thread; restored when Moxxy no longer overrides it. */
   private original: Policy = AUTO;
   private originalTier: string | null = null;
-  private current: ThreadSettings = { ...AUTO, model: '', serviceTier: null, collaboration: 'default' };
+  private originalReviewer: CodexApprovalsReviewer = 'user';
+  /** `model_reasoning_summary` from the person's config: `null` unset, `undefined` unread. */
+  private ownSummary: string | null | undefined;
+  private current: ThreadSettings = { ...AUTO, model: '', serviceTier: null, collaboration: 'default', reviewer: 'user', summary: null };
   /** Why the person declined, for Codex's next message when its turn could not take it. */
   private pendingNotes: string[] = [];
   private goal: CodexGoal | undefined;
@@ -248,24 +260,36 @@ export class CodexAgentSession implements LiveSession {
     this.client.notify('initialized');
     const { cwd, resume } = this.settings;
     const config = { mcp_servers: { [MOXXY_MCP_SERVER]: { url: this.mcp.url, http_headers: { Authorization: this.mcp.authorization } } } };
+    const read = await this.client.request<CodexConfigRead>('config/read', { cwd }).catch(() => undefined);
+    this.ownSummary = read ? (read.config.model_reasoning_summary ?? null) : undefined;
     let thread: CodexThreadResponse | undefined;
     if (resume) {
-      thread = await this.client.request<CodexThreadResponse>('thread/resume', { threadId: resume, cwd, config }).catch(() => undefined);
-      if (thread) {
+      const resumed = await resumeAgentSession({
+        label: 'Codex',
+        load: () => this.client.request<CodexThreadResponse>('thread/resume', { threadId: resume, cwd, config }),
+        gone: threadGone,
+      });
+      if (resumed.kind === 'loaded') {
+        thread = resumed.session;
         const found = await this.client.request<{ goal: CodexGoal | null }>('thread/goal/get', { threadId: thread.thread.id }).catch(() => undefined);
         this.goal = found?.goal ?? undefined;
+      } else {
+        this.pendingNotes.push(LOST_SESSION_NOTE);
       }
     }
     thread ??= await this.client.request<CodexThreadResponse>('thread/start', { cwd, config });
     this.threadId = thread.thread.id;
     this.original = { approvalPolicy: thread.approvalPolicy, sandbox: thread.sandbox };
     this.originalTier = thread.serviceTier && thread.serviceTier !== STANDARD_TIER ? thread.serviceTier : null;
+    this.originalReviewer = thread.approvalsReviewer ?? 'user';
     this.current = {
       ...this.original,
       model: thread.model,
       ...(thread.reasoningEffort ? { effort: thread.reasoningEffort } : {}),
       serviceTier: this.originalTier,
       collaboration: 'default',
+      reviewer: this.originalReviewer,
+      summary: this.ownSummary ?? null,
     };
   }
 
@@ -285,6 +309,10 @@ export class CodexAgentSession implements LiveSession {
       // Fast mode off hands the tier back to how the person set Codex up.
       serviceTier: req.fast ? FAST_TIER : this.originalTier,
       collaboration: mode === 'plan' ? 'plan' : 'default',
+      // While Moxxy does not answer for the person, the person answers: never Codex's own reviewer.
+      reviewer: mode !== 'plan' && mode !== 'goal' && !autoApprove ? 'user' : this.originalReviewer,
+      // Codex streams no summary of its thinking unless asked; a summary the person set stays theirs.
+      summary: this.ownSummary === null ? REASONING_SUMMARY : this.current.summary,
     };
   }
 
@@ -298,6 +326,8 @@ export class CodexAgentSession implements LiveSession {
     if (wanted.model !== current.model) update.model = wanted.model;
     if (wanted.effort && wanted.effort !== current.effort) update.effort = wanted.effort;
     if (wanted.serviceTier !== current.serviceTier) update.serviceTier = wanted.serviceTier;
+    if (wanted.reviewer !== current.reviewer) update.approvalsReviewer = wanted.reviewer;
+    if (wanted.summary !== null && wanted.summary !== current.summary) update.summary = wanted.summary;
     if (wanted.collaboration !== current.collaboration) {
       update.collaborationMode = {
         mode: wanted.collaboration,
@@ -593,4 +623,9 @@ function same(a: unknown, b: unknown): boolean {
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Codex's answer to resuming a thread it no longer has, or never could have. */
+function threadGone(error: unknown): boolean {
+  return error instanceof JsonRpcError && /no rollout found|invalid session id/i.test(error.message);
 }

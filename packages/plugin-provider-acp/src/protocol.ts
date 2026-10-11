@@ -22,6 +22,17 @@ export interface AcpConfigOption {
   readonly options?: ReadonlyArray<AcpSelectOption>;
 }
 
+/** What `initialize` answers, as far as Moxxy reads it. */
+export interface AcpInitializeResponse {
+  readonly agentCapabilities?: { readonly sessionCapabilities?: { readonly list?: object } };
+}
+
+/** One page of `session/list`. */
+export interface AcpSessionList {
+  readonly sessions: ReadonlyArray<{ readonly sessionId: string; readonly cwd?: string }>;
+  readonly nextCursor?: string;
+}
+
 export interface AcpSessionResponse {
   readonly sessionId?: string;
   readonly configOptions?: ReadonlyArray<AcpConfigOption>;

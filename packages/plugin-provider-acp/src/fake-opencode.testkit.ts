@@ -34,6 +34,11 @@ export interface FakeOpenCodeDefaults {
   readonly rules?: Readonly<Record<string, ReadonlyArray<OpenCodeRule>>> | null;
 }
 
+/** OpenCode 1.18's answer to `session/load` that fails, whether or not the session exists. */
+const SERVICE_FAILURE = { code: -32603, message: 'Internal error: OpenCode service failure', data: { service: 'session' } };
+/** How many sessions one `session/list` page holds here, so Moxxy has to page. */
+const LIST_PAGE = 2;
+
 /** OpenCode 1.18's own rules for the build agent, abridged: everything allowed. */
 export const OPENCODE_DEFAULT_RULES: ReadonlyArray<OpenCodeRule> = [
   { permission: '*', pattern: '*', action: 'allow' },
@@ -112,6 +117,8 @@ export class FakeOpenCode {
   readonly saved = new Map<string, FakeSession>();
   sessionCount = 0;
   promptCount = 0;
+  /** How many of the next `session/load` calls fail, as an OpenCode briefly unable to read its sessions. */
+  loadFailures = 0;
 
   constructor(
     readonly scene: OpenCodeScene,
@@ -250,7 +257,12 @@ export class FakeOpenCodeServer {
       case 'initialize':
         return {
           protocolVersion: 1,
-          agentCapabilities: { loadSession: true, mcpCapabilities: { http: true, sse: true }, promptCapabilities: { image: true, embeddedContext: true } },
+          agentCapabilities: {
+            loadSession: true,
+            mcpCapabilities: { http: true, sse: true },
+            promptCapabilities: { image: true, embeddedContext: true },
+            sessionCapabilities: { close: {}, fork: {}, list: {}, resume: {} },
+          },
           authMethods: [{ id: 'opencode-login', name: 'Login with opencode', description: 'Run `opencode auth login` in the terminal' }],
           agentInfo: { name: 'OpenCode', version: '1.18.35' },
         };
@@ -273,13 +285,22 @@ export class FakeOpenCodeServer {
       }
       case 'session/load': {
         const saved = this.opencode.saved.get(String(params.sessionId));
-        if (!saved) throw Object.assign(new Error(`Session not found: ${String(params.sessionId)}`), { code: -32602 });
+        if (this.opencode.loadFailures > 0 || !saved) {
+          this.opencode.loadFailures = Math.max(0, this.opencode.loadFailures - 1);
+          throw Object.assign(new Error(SERVICE_FAILURE.message), SERVICE_FAILURE);
+        }
         const session: FakeSession = { ...saved, mcp: mcpOf(params.mcpServers), moxxyTools: [], history: saved.history };
         await this.connectMoxxy(session);
         this.sessions.set(session.id, session);
         // OpenCode replays the whole conversation before it answers.
         for (const update of saved.history) this.update(session, update, false);
         return { configOptions: this.configOptions(session) };
+      }
+      case 'session/list': {
+        const all = [...this.opencode.saved.values()].filter((session) => session.cwd === params.cwd);
+        const from = Number(params.cursor ?? 0);
+        const page = all.slice(from, from + LIST_PAGE).map((session) => ({ sessionId: session.id, cwd: session.cwd, title: 'New session', updatedAt: '2026-10-11T12:00:00.000Z' }));
+        return { sessions: page, ...(from + LIST_PAGE < all.length ? { nextCursor: String(from + LIST_PAGE) } : {}) };
       }
       case 'session/set_config_option': {
         const session = this.sessionOf(params);

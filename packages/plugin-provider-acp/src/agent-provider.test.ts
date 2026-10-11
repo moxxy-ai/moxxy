@@ -11,7 +11,7 @@ import { createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { planModePlugin } from '@moxxy/mode-plan';
 import { goalModePlugin } from '@moxxy/mode-goal';
-import { AgentSessionPool } from '@moxxy/agent-connection-kit';
+import { AgentSessionPool, LOST_SESSION_NOTE } from '@moxxy/agent-connection-kit';
 import { AcpAgentProvider } from './agent-provider.js';
 import type { AcpAgentSession } from './acp-session.js';
 import { FakeOpenCode, OPENCODE_DEFAULT_RULES, type FakeOpenCodeDefaults, type OpenCodeScene } from './fake-opencode.testkit.js';
@@ -202,8 +202,57 @@ describe('a turn on the OpenCode agent connection', () => {
 
     const events = await collectTurn(session, 'hello again');
 
+    expect(opencode.last.sent('session/list')[0]).toMatchObject({ cwd: '/work/app' });
     expect(opencode.last.sent('session/new')).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', subtype: 'agent_session', payload: { provider: 'opencode', sessionId: 'ses_2' } }));
+    expect(opencode.last.sent('session/prompt')[0]?.prompt).toEqual([
+      { type: 'text', text: LOST_SESSION_NOTE },
+      { type: 'text', text: 'hello again' },
+    ]);
+  });
+
+  it('finds the session on a later page of OpenCode sessions before deciding it is gone', async () => {
+    const { opencode, session, pool } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'hello');
+    await pool.close(String(session.id));
+    for (const id of ['ses_a', 'ses_b']) opencode.saved.set(id, { ...[...opencode.saved.values()][0], id } as never);
+    const ours = opencode.saved.get('ses_1');
+    opencode.saved.delete('ses_1');
+    if (ours) opencode.saved.set('ses_1', ours);
+    opencode.loadFailures = 1;
+
+    await collectTurn(session, 'hello again');
+
+    expect(opencode.last.sent('session/list').length).toBeGreaterThan(1);
+    expect(opencode.last.sent('session/load')).toHaveLength(2);
+    expect(opencode.last.sent('session/new')).toHaveLength(0);
+  });
+
+  it('loads the session when OpenCode fails to once, instead of starting another', async () => {
+    const { opencode, session, pool } = connect(async (turn) => turn.say(turn.text === 'remember MARMOT-55' ? 'noted' : 'MARMOT-55'));
+    await collectTurn(session, 'remember MARMOT-55');
+    await pool.close(String(session.id));
+    opencode.loadFailures = 1;
+
+    const next = await collectTurn(session, 'which word?');
+
+    expect(opencode.last.sent('session/load')).toHaveLength(2);
+    expect(opencode.last.sent('session/new')).toHaveLength(0);
+    expect(said(next)).toEqual(['MARMOT-55']);
+  });
+
+  it('starts no other session when OpenCode keeps failing to load it, and says what happened', async () => {
+    const { opencode, session, pool } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'remember MARMOT-55');
+    await pool.close(String(session.id));
+    opencode.loadFailures = 2;
+
+    const events = await collectTurn(session, 'which word?');
+
+    expect(opencode.last.sent('session/new')).toHaveLength(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'error', message: expect.stringContaining("OpenCode could not load this conversation's earlier session") }),
+    );
   });
 });
 
@@ -459,6 +508,24 @@ describe('auto-approve shows how OpenCode really runs', () => {
     await collectTurn(session, 'two');
 
     expect(asked).toHaveLength(2);
+  });
+
+  it('keeps the conversation when the asking OpenCode cannot load the session, and loads it on the next message', async () => {
+    const { session, opencode } = connect(
+      async (turn) => turn.say(turn.text === 'remember MARMOT-55' ? 'noted' : 'MARMOT-55'),
+      { rules: { build: OPENCODE_DEFAULT_RULES } },
+    );
+    await collectTurn(session, 'remember MARMOT-55');
+    await session.setAutoApprove(false);
+    opencode.loadFailures = 2;
+
+    const failed = await collectTurn(session, 'which word?');
+    const next = await collectTurn(session, 'which word?');
+
+    expect(failed).toContainEqual(expect.objectContaining({ type: 'error', message: expect.stringContaining('could not load') }));
+    expect(opencode.servers).toHaveLength(3);
+    expect(opencode.servers.flatMap((server) => server.sent('session/new'))).toHaveLength(1);
+    expect(said(next)).toEqual(['MARMOT-55']);
   });
 
   it('leaves auto-approve and OpenCode as they are when OpenCode cannot say how it runs', async () => {
