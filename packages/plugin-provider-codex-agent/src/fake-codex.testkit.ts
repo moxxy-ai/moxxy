@@ -150,6 +150,14 @@ export class FakeCodexServer {
     return thread;
   }
 
+  /** The thread's approvals change without Moxxy asking (another client, a hook); Codex reports it as it does any change. */
+  changeSettingsElsewhere(changes: { readonly approvalPolicy?: CodexApprovalPolicy; readonly sandbox?: CodexSandboxPolicy }): void {
+    const thread = this.thread;
+    if (changes.approvalPolicy) thread.approvalPolicy = changes.approvalPolicy;
+    if (changes.sandbox) thread.sandbox = changes.sandbox;
+    this.notify('thread/settings/updated', { threadId: thread.id, threadSettings: threadSettingsOf(thread) });
+  }
+
   /** Codex crashed: its stdout closes. */
   crash(): void {
     this.toMoxxy.end();
@@ -240,7 +248,7 @@ export class FakeCodexServer {
         if (params.serviceTier !== undefined) thread.serviceTier = (params.serviceTier as string | null) ?? 'default';
         const collaboration = params.collaborationMode as { mode?: string } | undefined;
         if (collaboration?.mode) thread.collaborationMode = collaboration.mode;
-        return { result: {}, after: () => this.notify('thread/settings/updated', { threadId: thread.id }) };
+        return { result: {}, after: () => this.notify('thread/settings/updated', { threadId: thread.id, threadSettings: threadSettingsOf(thread) }) };
       }
       case 'turn/start': {
         const thread = this.threadOf(params);
@@ -445,6 +453,24 @@ function threadResponse(thread: FakeThread): Record<string, unknown> {
     reasoningEffort: thread.effort,
     serviceTier: thread.serviceTier,
     instructionSources: [],
+  };
+}
+
+/** The thread's settings as Codex 0.155 reports them in `thread/settings/updated`. */
+function threadSettingsOf(thread: FakeThread): Record<string, unknown> {
+  return {
+    cwd: thread.cwd,
+    approvalPolicy: thread.approvalPolicy,
+    approvalsReviewer: thread.approvalsReviewer,
+    sandboxPolicy: thread.sandbox,
+    activePermissionProfile: null,
+    model: thread.model,
+    modelProvider: 'openai',
+    serviceTier: thread.serviceTier,
+    effort: thread.effort,
+    summary: thread.summary,
+    collaborationMode: { mode: thread.collaborationMode, settings: { model: thread.model, reasoning_effort: thread.effort, developer_instructions: null } },
+    personality: null,
   };
 }
 

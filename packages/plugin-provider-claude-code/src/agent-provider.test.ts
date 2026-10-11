@@ -216,6 +216,23 @@ describe('approvals', () => {
     expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(true);
   });
 
+  it('shows auto-approve off when Claude leaves bypass permissions without Moxxy asking, and leaves it so', async () => {
+    const { claude, session } = connect(async function* () {
+      yield assistantText('ok');
+    });
+    session.setPermissionResolver(allowAll);
+    await collectTurn(session, 'first');
+    await session.setAutoApprove(true);
+    await collectTurn(session, 'second');
+
+    claude.last.changeModeElsewhere('default');
+    await collectTurn(session, 'third');
+
+    expect(autoApproveFromEvents(session.log.ofType('plugin_event'))).toBe(false);
+    expect(claude.last.modeChanges).toEqual(['bypassPermissions']);
+    expect(claude.last.permissionMode).toBe('default');
+  });
+
   it('keeps the auto-approve the person chose when a new Claude resumes the session', async () => {
     const { claude, session, pool } = connect(async function* () {
       yield assistantText('ok');

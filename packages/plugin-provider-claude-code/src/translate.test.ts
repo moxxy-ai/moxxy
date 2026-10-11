@@ -35,6 +35,17 @@ describe('Claude messages as Moxxy events', () => {
     expect(autoApproveFor('auto')).toBeUndefined();
   });
 
+  it('follows a change of permission mode Claude reports in the middle of a session', () => {
+    const t = new TurnTranslator();
+    const status = (permissionMode?: string): ClaudeMessage =>
+      ({ type: 'system', subtype: 'status', status: null, session_id: 's-1', ...(permissionMode ? { permissionMode } : {}) }) as ClaudeMessage;
+
+    expect(t.translate(status('default'))).toEqual([{ type: 'auto_approve', enabled: false }]);
+    expect(t.translate(status('bypassPermissions'))).toEqual([{ type: 'auto_approve', enabled: true }]);
+    expect(t.translate(status('plan'))).toEqual([]);
+    expect(t.translate(status())).toEqual([]);
+  });
+
   it('streams text and thinking as it comes', () => {
     const t = new TurnTranslator();
     const delta = (d: unknown) => ({ type: 'stream_event', event: { type: 'content_block_delta', delta: d }, parent_tool_use_id: null }) as ClaudeMessage;

@@ -78,6 +78,8 @@ export class FakeQuery implements ClaudeQuery {
   private reading: Promise<void> | undefined;
   private stop = new AbortController();
   private mcp: Client | undefined;
+  /** Status messages waiting to be read, as Claude sends them whether or not a turn runs. */
+  private readonly statuses: ClaudeMessage[] = [];
 
   constructor(
     private readonly prompt: string | AsyncIterable<ClaudeUserMessage>,
@@ -96,6 +98,7 @@ export class FakeQuery implements ClaudeQuery {
         if (this.closed) return;
         this.received.push(message);
         this.stop = new AbortController();
+        yield* this.statuses.splice(0);
         yield { type: 'system', subtype: 'init', session_id: this.sessionId, permissionMode: this.permissionMode, model: this.options.model } as ClaudeMessage;
         let ended = false;
         const stop = this.stop.signal;
@@ -107,6 +110,7 @@ export class FakeQuery implements ClaudeQuery {
             void scene.return?.();
             break;
           }
+          yield* this.statuses.splice(0);
           if (next.done) break;
           if (next.value.type === 'result') ended = true;
           yield next.value;
@@ -130,7 +134,18 @@ export class FakeQuery implements ClaudeQuery {
 
   async setPermissionMode(mode: ClaudePermissionMode): Promise<void> {
     this.modeChanges.push(mode);
+    this.toMode(mode);
+  }
+
+  /** The mode changes without Moxxy asking (another client, Claude itself); Claude reports it as it does any change. */
+  changeModeElsewhere(mode: ClaudePermissionMode): void {
+    this.toMode(mode);
+  }
+
+  private toMode(mode: ClaudePermissionMode): void {
     this.permissionMode = mode;
+    // Claude Code 2.1 reports every change of mode with a status message, also one Moxxy asked for.
+    this.statuses.push({ type: 'system', subtype: 'status', status: null, permissionMode: mode, session_id: this.sessionId } as ClaudeMessage);
   }
 
   async setModel(model?: string): Promise<void> {

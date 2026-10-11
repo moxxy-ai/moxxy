@@ -27,6 +27,7 @@ import type {
   CodexGoal,
   CodexSandboxPolicy,
   CodexThreadResponse,
+  CodexThreadSettingsReport,
   CodexTurn,
   CodexUserInput,
   CodexUserInputQuestion,
@@ -183,6 +184,8 @@ export class CodexAgentSession implements LiveSession {
   /** The thread is new while the conversation may already have run: its first message carries the conversation so far. */
   private newThread: NewSessionReason | undefined;
   private goal: CodexGoal | undefined;
+  /** Auto-approve as the thread's approvals changed without Moxxy, waiting for a turn to show it. */
+  private changedElsewhere: boolean | undefined;
   /** Codex turns that belong to the Moxxy turn running now. */
   private readonly myTurns = new Set<string>();
   /** The Moxxy tools Codex listed as the thread opened, the same for every turn. */
@@ -264,6 +267,11 @@ export class CodexAgentSession implements LiveSession {
         this.fresh = false;
         yield { type: 'auto_approve', enabled: isAuto(this.original) };
         if (!autoApprove) autoApprove = isAuto(this.original);
+      }
+      if (this.changedElsewhere !== undefined && mode !== 'goal' && mode !== 'plan') {
+        yield { type: 'auto_approve', enabled: this.changedElsewhere };
+        autoApprove = this.changedElsewhere;
+        this.changedElsewhere = undefined;
       }
       await this.apply(this.wanted(req, mode, autoApprove));
       if (this.newThread) {
@@ -440,6 +448,13 @@ export class CodexAgentSession implements LiveSession {
       }
       const params = (item.params ?? {}) as Record<string, unknown>;
       this.noteGoal(item.method, params);
+      const shown = this.noteSettings(item.method, params);
+      if (shown !== undefined) {
+        // Goal and plan mode run Codex their own way; the switch shows the change on the next turn outside them.
+        if (mode === 'goal' || mode === 'plan') this.changedElsewhere = shown;
+        else yield { type: 'auto_approve', enabled: shown };
+        continue;
+      }
       if (item.method === 'turn/started') {
         const turn = params.turn as CodexTurn | undefined;
         if (!turn) continue;
@@ -600,8 +615,29 @@ export class CodexAgentSession implements LiveSession {
 
   private onNotification(method: string, params: unknown): void {
     // In a turn the goal's state is read in order with everything else Codex sent.
-    if (this.inTurn) this.inbox.push({ kind: 'note', method, params });
-    else this.noteGoal(method, params);
+    if (this.inTurn) {
+      this.inbox.push({ kind: 'note', method, params });
+      return;
+    }
+    this.noteGoal(method, params);
+    const shown = this.noteSettings(method, params);
+    if (shown !== undefined) this.changedElsewhere = shown;
+  }
+
+  /**
+   * The auto-approve the thread's approvals now give when they changed without
+   * Moxxy (another client, a hook), else undefined. Codex reports Moxxy's own
+   * changes too; those match what Moxxy set and are passed over.
+   */
+  private noteSettings(method: string, params: unknown): boolean | undefined {
+    if (method !== 'thread/settings/updated') return undefined;
+    const update = params as { threadId?: unknown; threadSettings?: CodexThreadSettingsReport } | undefined;
+    if (!update || update.threadId !== this.threadId || !update.threadSettings) return undefined;
+    const settings = update.threadSettings;
+    const running: Policy = { approvalPolicy: settings.approvalPolicy, sandbox: settings.sandboxPolicy };
+    if (same(running.approvalPolicy, this.current.approvalPolicy) && same(running.sandbox, this.current.sandbox)) return undefined;
+    this.current = { ...this.current, ...running, reviewer: settings.approvalsReviewer };
+    return isAuto(running);
   }
 
   /** Keep the goal's state, whether or not a turn is reading. */

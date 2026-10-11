@@ -16,6 +16,13 @@ export type CodexSandboxPolicy =
   | { readonly type: 'workspaceWrite'; readonly [key: string]: unknown }
   | { readonly type: 'externalSandbox'; readonly [key: string]: unknown };
 
+/** The thread's settings in `thread/settings/updated` (only what Moxxy reads). */
+export interface CodexThreadSettingsReport {
+  readonly approvalPolicy: CodexApprovalPolicy;
+  readonly approvalsReviewer: CodexApprovalsReviewer;
+  readonly sandboxPolicy: CodexSandboxPolicy;
+}
+
 /** What `thread/start` and `thread/resume` answer: the thread as Codex really runs it. */
 export interface CodexThreadResponse {
   readonly thread: { readonly id: string };

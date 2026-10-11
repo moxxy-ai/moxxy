@@ -29,7 +29,9 @@ export class TurnTranslator {
   translate(message: ClaudeMessage): AgentStepEvent[] {
     switch (message.type) {
       case 'system':
-        return 'session_id' in message && isInit(message) ? this.fromInit(message) : [];
+        if (isInit(message)) return 'session_id' in message ? this.fromInit(message) : [];
+        // Claude reports every change of mode, whoever made it, so the switch follows it at once.
+        return isModeChange(message) ? autoApproveEvents(message.permissionMode) : [];
       case 'stream_event':
         return isMainThread(message) ? fromDelta(message) : [];
       case 'assistant':
@@ -42,10 +44,7 @@ export class TurnTranslator {
   }
 
   private fromInit(message: { session_id: string; permissionMode?: ClaudePermissionMode }): AgentStepEvent[] {
-    const events: AgentStepEvent[] = [{ type: 'session', sessionId: message.session_id }];
-    const enabled = message.permissionMode ? autoApproveFor(message.permissionMode) : undefined;
-    if (enabled !== undefined) events.push({ type: 'auto_approve', enabled });
-    return events;
+    return [{ type: 'session', sessionId: message.session_id }, ...(message.permissionMode ? autoApproveEvents(message.permissionMode) : [])];
   }
 
   private fromAssistant(message: { message: { content: ReadonlyArray<ClaudeContentBlock> } }): AgentStepEvent[] {
@@ -184,6 +183,16 @@ function resultText(content: string | ReadonlyArray<{ type: string; text?: strin
 
 function isInit(message: { subtype?: string }): message is { subtype: 'init'; session_id: string; permissionMode?: ClaudePermissionMode } {
   return message.subtype === 'init';
+}
+
+/** A status message that names the mode Claude now runs in. */
+export function isModeChange(message: ClaudeMessage): message is ClaudeMessage & { readonly subtype: 'status'; readonly permissionMode: ClaudePermissionMode } {
+  return message.type === 'system' && message.subtype === 'status' && typeof (message as { permissionMode?: unknown }).permissionMode === 'string';
+}
+
+function autoApproveEvents(mode: ClaudePermissionMode): AgentStepEvent[] {
+  const enabled = autoApproveFor(mode);
+  return enabled === undefined ? [] : [{ type: 'auto_approve', enabled }];
 }
 
 function isMainThread(message: { parent_tool_use_id?: string | null }): boolean {

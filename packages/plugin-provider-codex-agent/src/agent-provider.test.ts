@@ -339,6 +339,46 @@ describe('approvals: one state with Codex own policy', () => {
     expect(codex.last.thread).toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } });
   });
 
+  it('shows auto-approve off when the thread starts asking without Moxxy changing it, and leaves Codex so', async () => {
+    const { codex, session } = connect(async (turn) => turn.say('ok'));
+    await collectTurn(session, 'one');
+    expect(autoApproveOf(session)).toBe(true);
+
+    codex.last.changeSettingsElsewhere(ASKING);
+    await collectTurn(session, 'two');
+
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(ASKING);
+  });
+
+  it('follows a change of the thread approvals in the middle of a turn', async () => {
+    const { codex, session } = connect(async (turn) => {
+      if (turn.text === 'two') turn.server.changeSettingsElsewhere(ASKING);
+      turn.say('ok');
+    });
+    await collectTurn(session, 'one');
+
+    const events = await collectTurn(session, 'two');
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'plugin_event', payload: expect.objectContaining({ enabled: false }) }));
+    expect(autoApproveOf(session)).toBe(false);
+    expect(codex.last.thread).toMatchObject(ASKING);
+  });
+
+  it("does not take Moxxy's own changes, nor plan mode's read-only, for a change of auto-approve", async () => {
+    const { session } = connect(async (turn) => turn.say('ok'));
+    session.pluginHost.registerStatic(planModePlugin);
+    await collectTurn(session, 'one');
+    await session.setAutoApprove(false);
+    await collectTurn(session, 'two');
+    await session.setAutoApprove(true);
+    session.modes.setActive('plan');
+
+    await collectTurn(session, 'plan it');
+
+    expect(autoApproveOf(session)).toBe(true);
+  });
+
   it('keeps auto-approve the person turned on when a new Codex resumes the thread', async () => {
     const { codex, session, pool } = connect(async (turn) => turn.say('ok'), ASKING);
     await collectTurn(session, 'one');

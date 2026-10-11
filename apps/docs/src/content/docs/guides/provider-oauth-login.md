@@ -105,6 +105,8 @@ What carries over, and what does not:
   approval, and its permission rules (`~/.moxxy/permissions.json`, plugin
   hooks) apply to Claude's tools too. Turning on auto-approve switches *this
   conversation's* Claude to bypass mode; Claude's own settings are never edited.
+  The switch shows the mode Claude really runs in: when the mode changes
+  without Moxxy, Claude reports it and the switch follows at once.
 - **Modes.** Plan mode runs Claude in its plan mode and shows its plan for
   approval. Goal mode uses Claude's own `/goal`, and ends when Claude says the
   goal is met.
@@ -149,7 +151,9 @@ Moxxy runs your installed `codex` (from `PATH`, or
   access; `~/.codex/config.toml` is never edited. A Codex that is already set to
   full access starts with auto-approve on. Once the conversation has run, the
   switch stays as you left it, also when Moxxy starts a new Codex process that
-  resumes the thread. Codex's answer to an approval carries
+  resumes the thread. When the thread's approvals change without Moxxy, Codex
+  reports it and the switch follows (Moxxy leaves Codex as it now runs).
+  Codex's answer to an approval carries
   no reason, so when you decline, Moxxy hands your reason to its running turn
   (or its next message, if the turn can no longer take input). While
   auto-approve is off, you answer those approvals, not Codex's own reviewer

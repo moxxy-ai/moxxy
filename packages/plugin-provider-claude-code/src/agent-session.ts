@@ -32,6 +32,7 @@ import {
   MOXXY_TOOL_PREFIX,
   TurnTranslator,
   goalStatusFrom,
+  isModeChange,
   toClaudeContent,
   toTokenUsage,
 } from './translate.js';
@@ -225,6 +226,7 @@ export class ClaudeAgentSession implements LiveSession {
             break;
           }
           if (isInit(item.message)) this.permissionMode = item.message.permissionMode ?? this.permissionMode;
+          else if (isModeChange(item.message)) this.permissionMode = item.message.permissionMode;
           for (const event of translator.translate(item.message)) {
             // In goal mode Claude runs bypassPermissions for the goal, not because the person chose auto-approve.
             if (event.type === 'auto_approve' && mode === 'goal') continue;
